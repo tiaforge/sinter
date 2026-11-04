@@ -459,3 +459,16 @@ test('data-sn-path exposes path parameters in $url; query writes keep the path',
   const c = await render(page, { url: 'http://localhost/profile/ada/favorites' });
   expect(c.root.querySelector('p')!.textContent).toBe('|ada|');
 });
+
+test('query parameters whose value is null or undefined are left out', async () => {
+  const requests = mockRequests({ 'GET /api/a': [] });
+  const { settle } = await render(`
+    <div data-sn-state="{ t: null, u: undefined, e: '', n: 2 }">
+      <sn-resource name="x" src="/api/a?tag={t}&author={u}&e={e}&limit={n}" key="id"></sn-resource>
+      <sn-resource name="y" src="/api/a?tag={t}" key="id"></sn-resource>
+      <sn-resource name="z" src="/api/a?limit={n}&tag={t}#h" key="id"></sn-resource>
+      <p data-sn-text="x.length + y.length + z.length"></p>
+    </div>`, { requests });
+  await settle();
+  expect(requests.calls.map((c) => c.url).sort()).toEqual(['/api/a', '/api/a?e=&limit=2', '/api/a?limit=2']);
+});

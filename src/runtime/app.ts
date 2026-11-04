@@ -305,15 +305,27 @@ export function mount(root: Document | Element, o: MountOptions): App {
       instances.delete(root);
     },
     url(tpl, s) {
-      let out = '', query = false;
-      for (const p of tpl) {
-        if (typeof p == 'string') { out += p; query ||= /[?#]/.test(p); continue; }
-        const v = fns[p]!(s);
+      let out = '', query = false, dropped = false;
+      tpl.forEach((p, i) => {
+        if (typeof p == 'string') {
+          // after a dropped parameter, its `&` separator goes too
+          out += dropped && p[0] == '&' && /[?&]$/.test(out) ? p.slice(1) : p;
+          dropped = false;
+          query ||= /[?#]/.test(p);
+          return;
+        }
+        const v = fns[p]!(s), next = tpl[i + 1];
+        // a query parameter whose whole value is null or undefined is left out
+        if (v == null && query && /[?&][^?&=#]*=$/.test(out) && (next == null || /^[&#]/.test(next as string))) {
+          out = out.replace(/[^?&=#]*=$/, '');
+          dropped = true;
+          return;
+        }
         // URL parsers turn %2E%2E back into `..`, so a path value cannot be a dot segment at all
         if (!query && (v == '.' || v == '..')) throw new SinterError(0, null, `refused \`${v}\` as a URL path value`);
         out += encodeSegment(v);
-      }
-      return out;
+      });
+      return out.replace(/[?&](?=#|$)/, '');
     },
     mark(path, s) {
       dirty.push(fill(path, s));

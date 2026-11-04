@@ -266,6 +266,8 @@ URLs are literal strings with `{expression}` interpolations. Each interpolated v
 ```html
 <button data-sn-delete="/api/contact?account_id={c.account_id}&uid={c.uid}">Delete</button>
 ```
+A query parameter whose whole value is one interpolation that evaluates to `null` or `undefined` is left out, with its separator: `/api/articles?tag={$url.tag}&limit=10` requests `/api/articles?limit=10` when there is no tag. An empty string is still sent (`tag=`). (Added 2026-11-04.)
+
 A resource whose `src` interpolates state or `$url` refetches when those values change.
 
 ### Magic names
@@ -922,6 +924,7 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 - Keyset jumps. Decided: keyset never jumps (`SN304`); jumps need offset mode; server requirements for keyset written down. See Pagination.
 - Testing utilities. Decided: `@tiaforge/sinter/testing` ships in v0.1 as stable API; sinter tests itself through it. See Testing.
 - Path parameters. Decided (2026-11-04): `<html data-sn-path="/article/:slug">` declares the URL shapes a page is served for; the runtime matches `location.pathname` once and exposes `:name` segments read-only in `$url`. No client-side routing: the server still picks the page, links stay full page loads; dev and production rewrites are the deployment's job for now.
+- Optional query parameters. Decided (2026-11-04): a query parameter whose interpolated value is `null`/`undefined` is omitted from the URL, so one resource covers lists whose filters come and go.
 - Templates shared across pages. Decided: static `<sn-include>` resolved at build time, lexical scope, no parameters. See Compiler contract.
 
 ## Sources

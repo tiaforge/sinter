@@ -66,6 +66,7 @@ built, what deviates, and what is left.
   [benchmark.md](benchmark.md)); flush and reconcile optimized from ~1.2× to ~0.94× Svelte.
   Found while optimizing: index reads across lists (`names[i]` in a row of another list)
   missed structure changes; fixed with a test.
+- URL templates omit query parameters whose value is `null`/`undefined` (spec addition, 2026-11-04).
 - `data-sn-path` on `<html>` (spec addition, decided 2026-11-04 for the RealWorld app):
   path parameters in `$url`, read-only, several patterns per page. Server rewrites are not
   generated yet; the compiler puts the patterns in the IR (`ir.path`) so the Vite plugin can later.
