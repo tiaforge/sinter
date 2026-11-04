@@ -9,10 +9,11 @@ export default defineConfig({
   retries: 0,
   use: {
     ...baseConfig.use,
-    baseURL: 'http://localhost:4173',
+    baseURL: process.env.BASE_URL ?? 'http://localhost:4173',
     ...(process.env.CHROME ? { launchOptions: { executablePath: process.env.CHROME } } : {}),
   },
-  webServer: {
+  // BASE_URL set: the caller serves the app (see e2e-local.sh)
+  webServer: process.env.BASE_URL ? undefined : {
     command: 'npm run build && npm run preview',
     url: 'http://localhost:4173',
     reuseExistingServer: true,
