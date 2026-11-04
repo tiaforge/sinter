@@ -4,17 +4,18 @@
 import { compileParts } from '../compiler/compile.js';
 import { formatDiagnostic } from '../compiler/diagnostics.js';
 import type { HelperManifest } from '../compiler/compile.js';
-import { App, mount, type Feature, type Transport } from '../runtime/app.js';
+import { mount, type App, type Feature, type Transport } from '../runtime/app.js';
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
 import { $k } from '../runtime/security.js';
 import * as builtins from '../runtime/helpers.js';
+import dev from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
 import persist from '../persist.js';
 import sse from '../sse.js';
 
-const FEATURES: Record<string, Feature> = { sse, optimistic, paginate, persist };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist };
 
 // ---- requests
 
@@ -268,7 +269,6 @@ export async function render(html: string, options: RenderOptions = {}): Promise
       winListeners.get(type)!.add(fn);
       return () => winListeners.get(type)?.delete(fn);
     },
-    createEventSource: (url) => { throw new Error(`no mock stream for ${url}; pass \`streams: { '${url}': mockStream() }\``); },
   };
   config.env = env;
   if (options.locale !== undefined) {
@@ -278,12 +278,14 @@ export async function render(html: string, options: RenderOptions = {}): Promise
 
   const requests = options.requests;
   const app = mount(doc, {
-    ir: parts.ir, fns, dev: true, env,
+    ir: parts.ir, fns, env,
     features: parts.features.map((f) => FEATURES[f]!),
     request: [...config.request, ...(requests ? [requests] : [])],
     transport: (url) => {
       const path = new URL(url, href).pathname;
-      return (options.streams?.[url] ?? options.streams?.[path])?.transport();
+      const stream = options.streams?.[url] ?? options.streams?.[path];
+      if (!stream) throw new Error(`no mock stream for ${url}; pass \`streams: { '${url}': mockStream() }\``);
+      return stream.transport();
     },
   });
   current = app;

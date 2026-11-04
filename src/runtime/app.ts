@@ -1,11 +1,12 @@
 // The runtime: mounts a compiled page, owns the store, the scheduler, the
-// renderer, delegated events, actions and resource loading.
-import { IR_VERSION, type ActionDef, type Binding, type Fn, type IR, type NodeDef, type ResourceDef, type TemplateDef, type UrlTemplate } from '../ir.js';
+// renderer, delegated events, actions and resource loading. Written as one
+// closure so private state minifies to short local names.
+import type { ActionDef, Binding, Fn, IR, NodeDef, ResourceDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { config, SinterError, type Middleware } from './config.js';
 import type { Env } from './env.js';
-import { createRequestLayer, isAbort, type RequestLayer, type SendInit } from './request.js';
-import { allowedSchemes, encodeSegment, srcsetAllowed, styleValueAllowed, URL_ATTRS, urlAllowed } from './security.js';
-import { clean, Resource, type Op } from './store.js';
+import { createRequestLayer, isAbort, toError, type RequestLayer, type SendInit } from './request.js';
+import { BAD_KEY, encodeSegment, schemesOf, STYLE_BAD, urlAllowed } from './security.js';
+import { clean, createResource, type Resource } from './store.js';
 
 export interface Feature {
   name: string;
@@ -16,7 +17,6 @@ export interface MountOptions {
   ir: IR;
   fns: Fn[];
   features?: Feature[];
-  dev?: boolean;
   /** overrides for the testing module */
   env?: Env;
   request?: Middleware[];
@@ -32,1175 +32,16 @@ export interface Transport {
   close(): void;
 }
 
-type Path = string[];
-
-/** A binding attached to one node in one scope. */
-interface RB {
-  def: Binding;
-  el: Element;
-  scope: any;
-  last: unknown;
-  block: Block;
-  list?: ListCtl;
-  cond?: CondCtl;
-}
-
-interface Block { rbs: RB[] }
-
-interface Inst {
-  nodes: Node[];
-  block: Block;
-  scope: any;
-  key: string;
-  item: unknown;
-  index: number;
-  force: boolean;
-}
-
-interface ListCtl { tdef: TemplateDef; insts: Inst[] }
-interface CondCtl { inst: Inst | null; branch: 'if' | 'else' | null; elseEl: Element | null }
-
-interface ActState {
-  pending: number;
-  queue: Array<() => Promise<void>>;
-  waiting: { run: () => Promise<void>; drop: () => void } | null;
-  ctl: AbortController | null;
-  timer: unknown;
-  disabled: Element[] | null;
-}
-
 export interface StateHandle<T = any> {
   get(): T;
   update(fn: (state: T) => void): void;
 }
 
-const instances = new WeakMap<object, App>();
-const TEXT_LIKE = new Set(['text']);
-const qsaDoc = typeof Document !== 'undefined' ? Document.prototype.querySelectorAll : null;
-const qsaEl = typeof Element !== 'undefined' ? Element.prototype.querySelectorAll : null;
-const getAttr = typeof Element !== 'undefined' ? Element.prototype.getAttribute : null;
-
-export function mount(root: Document | Element, options: MountOptions): App {
-  if (instances.has(root)) throw new Error('sinter: already mounted on this root');
-  const app = new App(root, options);
-  instances.set(root, app);
-  app.start();
-  return app;
-}
-
-/** The instance mount() created on `root`; throws if none. */
-export function instance(root: Document | Element): App {
-  const app = instances.get(root);
-  if (!app) throw new Error('sinter: no instance is mounted on this root');
-  return app;
-}
-
-/** Splits a dependency/write path; `{name}` segments are filled from the scope. */
-const pathCache = new Map<string, Path>();
-function split(p: string): Path {
-  let s = pathCache.get(p);
-  if (!s) { s = p.split('.'); pathCache.set(p, s); }
-  return s;
-}
-
-function overlaps(a: Path, b: Path): boolean {
-  const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) if (a[i] !== b[i] && a[i] !== '*' && b[i] !== '*') return false;
-  return true;
-}
-
-export class App {
-  readonly ir: IR;
-  readonly fns: Fn[];
-  readonly dev: boolean;
-  readonly env: Env;
-  readonly req: RequestLayer;
-  readonly resources = new Map<string, Resource>();
-  readonly loaders = new Map<string, ResourceLoader>();
-  /** feature hooks */
-  readonly ext: {
-    optimistic?: { begin(fn: number, scope: any): () => void };
-    paginate?: { pager(loader: ResourceLoader): Pager; page(name: string, target: string | number): void };
-    persist?: {
-      model(rb: { def: Binding; scope: any; el: Element }, set: (v: unknown) => void): void;
-      state(key: string, obj: Record<string, unknown>): void;
-      saveState(key: string, obj: Record<string, unknown>): void;
-    };
-  } = {};
-  readonly afterFlush: Array<(dirty: Path[]) => void> = [];
-  /** the base scope: resources, status, magic names */
-  readonly page: any;
-  readonly host: Element;
-
-  private dirty: Path[] = [];
-  private current: Path[] = [];
-  private scheduled = false;
-  private flushing = false;
-  private rootBlock: Block = { rbs: [] };
-  private handlers = new WeakMap<Element, RB[]>();
-  private models = new WeakMap<Element, RB>();
-  private anchors = new WeakMap<Node, RB>();
-  private stateEls = new WeakMap<Element, { sid: number; obj: any }>();
-  private rootScopes: any[] = [];
-  private shared = new Map<string, { users: number; ctl: AbortController; promise: Promise<unknown> }>();
-  private rootStates: Array<{ sid: number; obj: any; json: string; persist?: string }> = [];
-  private selects = new Set<RB>();
-  private deferred = new Set<RB>();
-  private actStates = new WeakMap<Element, ActState>();
-  private types = new Set<string>();
-  private ids = new Map<number, Element>();
-  private serverListeners = new Map<string, Set<(payload: unknown) => void>>();
-  private identities = new WeakMap<object, number>();
-  private nextIdentity = 1;
-  private cleanups: Array<() => void> = [];
-  private warned = new Set<string>();
-  readonly schemes: Set<string>;
-  readonly transport: (url: string) => Transport | undefined;
-  /** pending debounce timers and queued actions, for the testing module */
-  busy = 0;
-
-  constructor(readonly root: Document | Element, options: MountOptions) {
-    if (!options.ir || options.ir.v !== IR_VERSION) throw new Error(`sinter: unsupported IR version ${options.ir?.v}`);
-    this.ir = options.ir;
-    this.fns = options.fns;
-    this.dev = !!options.dev;
-    this.env = options.env ?? config.env;
-    this.req = createRequestLayer(this.env, options.request ?? config.request);
-    this.schemes = allowedSchemes(config.urlSchemes);
-    this.transport = options.transport ?? (() => undefined);
-    this.host = (root as Document).documentElement ?? (root as Element);
-    const app = this;
-    const $url = this.readUrl();
-    this.page = {
-      $r: {}, $meta: {}, $url, $now: new Date(this.env.now()), $p: undefined,
-      $f: this.storeFns(null),
-      get $locale() { return config.locale?.get(); },
-      set $locale(v: any) { config.locale?.set(v); app.mark('$locale'); },
-    };
-    for (const f of options.features ?? []) f.install(this);
-  }
-
-  // ---- public instance API
-
-  resource<T extends object = any>(name: string): Resource<T> {
-    const r = this.resources.get(name);
-    if (!r) throw new Error(`sinter: resource \`${name}\` is not declared on this page`);
-    return r as Resource<T>;
-  }
-
-  request(url: string, init: SendInit = {}): Promise<unknown> {
-    return this.req.send(url, init);
-  }
-
-  /** Applies `change` as an optimistic layer and settles it when `run()` settles. */
-  async optimistic<T>(change: () => void, run: () => Promise<T>): Promise<T> {
-    const drop = this.record(change);
-    try { return await run(); } finally { drop(); }
-  }
-
-  on(event: string, fn: (payload: any) => void): () => void {
-    if (!this.serverListeners.has(event)) this.serverListeners.set(event, new Set());
-    this.serverListeners.get(event)!.add(fn);
-    for (const l of this.onListen) l(event);
-    return () => this.serverListeners.get(event)?.delete(fn);
-  }
-
-  state<T = any>(el: Element): StateHandle<T> {
-    let cur: Element | null = el;
-    while (cur) {
-      const s = this.stateEls.get(cur);
-      if (s) {
-        return {
-          get: () => s.obj,
-          update: (fn) => { fn(s.obj); this.mark(`$s${s.sid}`); },
-        };
-      }
-      cur = cur.parentElement;
-    }
-    throw new Error('sinter: no data-sn-state scope encloses this element');
-  }
-
-  /** Unmounts: closes streams and timers. */
-  destroy(): void {
-    for (const c of this.cleanups.splice(0)) c();
-    instances.delete(this.root);
-  }
-
-  // ---- for feature modules and loaders
-
-  /** The scope a root node's bindings see (its own state scope if it opens one). */
-  scopeFor(nodeIndex: number): any {
-    return nodeIndex >= 0 ? this.rootScopes[nodeIndex] ?? this.page : this.page;
-  }
-
-  /** GETs `url`; concurrent loads of one URL share one request, aborted when no one waits. */
-  loadShared(url: string, signal: AbortSignal): Promise<unknown> {
-    let entry = this.shared.get(url);
-    if (!entry) {
-      const ctl = new AbortController();
-      const e = { users: 0, ctl, promise: this.req.send(url, { signal: ctl.signal }) };
-      e.promise.then(() => {}, () => {}).finally(() => { if (this.shared.get(url) === e) this.shared.delete(url); });
-      this.shared.set(url, e);
-      entry = e;
-    }
-    const e = entry;
-    e.users++;
-    return new Promise((resolve, reject) => {
-      let done = false;
-      const onAbort = () => {
-        if (done) return;
-        done = true;
-        if (--e.users === 0) { e.ctl.abort(); this.shared.delete(url); }
-        reject(new DOMException('aborted', 'AbortError'));
-      };
-      if (signal.aborted) return onAbort();
-      signal.addEventListener('abort', onAbort, { once: true });
-      e.promise.then(
-        (v) => { if (done) return; done = true; e.users--; signal.removeEventListener('abort', onAbort); resolve(v); },
-        (err) => { if (done) return; done = true; e.users--; signal.removeEventListener('abort', onAbort); reject(err); },
-      );
-    });
-  }
-
-  readonly onListen: Array<(event: string) => void> = [];
-
-  serverEvent(name: string, payload: unknown): void {
-    for (const fn of this.serverListeners.get(name) ?? []) {
-      try { fn(payload); } catch (e) { console.error(e); }
-    }
-  }
-
-  hasServerListener(name: string): boolean {
-    return (this.serverListeners.get(name)?.size ?? 0) > 0;
-  }
-
-  addCleanup(fn: () => void): void {
-    this.cleanups.push(fn);
-  }
-
-  warn(msg: string, value?: unknown): void {
-    if (!this.dev) return;
-    if (value === undefined) { if (this.warned.has(msg)) return; this.warned.add(msg); }
-    console.warn(`sinter: ${msg}`, ...(value === undefined ? [] : [value]));
-  }
-
-  /** Runs `change` with every resource recording, then adds one layer per touched resource. */
-  record(change: () => void): () => void {
-    const recs = new Map<Resource, Op[]>();
-    for (const r of this.resources.values()) { r.recording = []; recs.set(r, r.recording); }
-    try { change(); } finally { for (const r of this.resources.values()) r.recording = null; }
-    const layers: Array<[Resource, number]> = [];
-    for (const [r, ops] of recs) if (ops.length) layers.push([r, r.addLayer(ops)]);
-    let dropped = false;
-    return () => {
-      if (dropped) return;
-      dropped = true;
-      for (const [r, id] of layers) r.dropLayer(id);
-    };
-  }
-
-  /** Resolves a URL template in a scope. */
-  url(tpl: UrlTemplate, scope: any): string {
-    let s = '';
-    let query = false;
-    for (const p of tpl) {
-      if (typeof p === 'string') {
-        s += p;
-        if (/[?#]/.test(p)) query = true;
-        continue;
-      }
-      const v = this.fns[p]!(scope);
-      // URL parsers turn %2E%2E back into `..`, so a path value cannot be a dot segment at all
-      if (!query && (v === '.' || v === '..')) throw new SinterError(0, null, `refused \`${v}\` as a URL path value`);
-      s += encodeSegment(v);
-    }
-    return s;
-  }
-
-  // ---- scheduling
-
-  mark(path: string, scope?: any): void {
-    let segs = split(path);
-    if (scope && path.includes('{')) segs = segs.map((s) => (s[0] === '{' ? String(scope[s.slice(1, -1)]) : s));
-    this.dirty.push(segs);
-    this.schedule();
-  }
-
-  private schedule(): void {
-    if (this.scheduled || this.flushing) return;
-    this.scheduled = true;
-    this.env.queueMicrotask(() => this.flush());
-  }
-
-  get isDirty(): boolean {
-    return this.dirty.length > 0 || this.scheduled;
-  }
-
-  flush(): void {
-    this.scheduled = false;
-    if (this.flushing) return;
-    this.flushing = true;
-    try {
-      let guard = 0;
-      while (this.dirty.length) {
-        if (++guard > 100) { console.error('sinter: flush did not settle after 100 rounds'); this.dirty = []; break; }
-        const dirty = this.dirty;
-        this.dirty = [];
-        this.current = dirty;
-        if (this.dev) this.detectOutside(dirty);
-        for (const l of this.loaders.values()) if (l.def.deps.some((d) => this.isDirtyPath(split(d), null))) l.srcChanged();
-        this.walk(this.rootBlock, false);
-        for (const rb of this.selects) this.writeModel(rb, this.evaluate(rb));
-        for (const h of this.afterFlush) h(dirty);
-        if (this.dev) this.snapshot();
-      }
-    } finally {
-      this.current = [];
-      this.flushing = false;
-    }
-  }
-
-  private isDirtyPath(dep: Path, scope: any): boolean {
-    let d = dep;
-    if (scope) for (let i = 0; i < d.length; i++) {
-      const s = d[i]!;
-      if (s[0] === '{') { if (d === dep) d = [...dep]; d[i] = String(scope[s.slice(1, -1)]); }
-    }
-    for (const p of this.current) if (overlaps(d, p)) return true;
-    return false;
-  }
-
-  private depsDirty(rb: RB): boolean {
-    const deps = rb.def.d;
-    if (!deps) return false;
-    for (const d of deps) if (this.isDirtyPath(split(d), rb.scope)) return true;
-    return false;
-  }
-
-  private detectOutside(dirty: Path[]): void {
-    for (const s of this.rootStates) {
-      let json: string;
-      try { json = JSON.stringify(s.obj); } catch { continue; }
-      if (json !== s.json && !dirty.some((p) => p[0] === `$s${s.sid}`)) {
-        const names = Object.keys(s.obj).join('`, `');
-        this.warn(`state \`${names}\` changed outside sinter: use \`update()\``);
-      }
-    }
-  }
-
-  private snapshot(): void {
-    for (const s of this.rootStates) {
-      try { s.json = JSON.stringify(s.obj); } catch { /* not serializable */ }
-    }
-  }
-
-  // ---- mount
-
-  start(): void {
-    const list = this.root.nodeType === 9 ? qsaDoc!.call(this.root as Document, '[data-sn]') : qsaEl!.call(this.root as Element, '[data-sn]');
-    const bad = new Set<number>();
-    for (const el of Array.from(list)) {
-      const id = Number(getAttr!.call(el, 'data-sn'));
-      if (!Number.isInteger(id)) continue;
-      if (this.ids.has(id)) bad.add(id);
-      this.ids.set(id, el);
-    }
-    for (const id of bad) { this.ids.delete(id); this.warn(`duplicate \`data-sn="${id}"\`; not bound`); }
-
-    for (const def of this.ir.resources) this.createResource(def);
-    this.listen('toggle');
-
-    const els: Array<Element | null> = this.ir.roots.map((nd) => {
-      const el = this.ids.get(nd.id!);
-      if (!el) { this.warn(`missing \`data-sn="${nd.id}"\`; not bound`); return null; }
-      if (el.localName !== nd.tag) { this.warn(`\`data-sn="${nd.id}"\` is on <${el.localName}>, expected <${nd.tag}>; not bound`); return null; }
-      return el;
-    });
-    this.bindNodes(this.ir.roots, els, this.page, this.rootBlock);
-
-    if (this.ir.now) this.tickNow();
-    if (this.ir.resources.length || this.ir.roots.some((n) => n.b.some((b) => b.d?.some((d) => d.startsWith('$url'))))) {
-      this.cleanups.push(this.env.listen('popstate', () => this.refreshUrl()));
-    }
-    for (const l of this.loaders.values()) l.start();
-    this.current = [];
-    this.flushing = true;
-    try { this.walk(this.rootBlock, true); } finally { this.flushing = false; }
-    for (const rb of this.selects) this.writeModel(rb, this.evaluate(rb));
-    this.snapshot();
-    if (this.dirty.length) this.schedule();
-  }
-
-  private createResource(def: ResourceDef): void {
-    const r = new Resource(def.name, {
-      key: def.key, order: def.order, dev: this.dev, locale: () => config.locale?.get(),
-      warn: (m, v) => this.warn(m, v),
-    });
-    r.onDirty = (what) => this.mark(what === 'data' ? `$r.${def.name}` : `$meta.${def.name}`);
-    this.resources.set(def.name, r);
-    Object.defineProperty(this.page.$r, def.name, { get: () => r.value(), enumerable: true });
-    this.page.$meta[def.name] = r.meta;
-    const loader = new ResourceLoader(this, def, r);
-    this.loaders.set(def.name, loader);
-    r.loader = loader;
-  }
-
-  /** Embedded `<script type="application/json" data-sn-data>` payload for a resource, if valid. */
-  embedded(def: ResourceDef): { value: unknown } | null {
-    if (def.data == null) return null;
-    const el = this.ids.get(def.data);
-    if (!el || el.localName !== 'script' || el.parentElement?.localName !== 'head') {
-      this.warn(`embedded data for \`${def.name}\` must be a <script> in <head>; ignored`);
-      return null;
-    }
-    try { return { value: JSON.parse(el.textContent ?? '') }; } catch {
-      this.warn(`embedded data for \`${def.name}\` is not valid JSON; ignored`);
-      return null;
-    }
-  }
-
-  private bindNodes(defs: NodeDef[], els: Array<Element | null>, base: any, block: Block): void {
-    const scopes: any[] = [];
-    defs.forEach((nd, i) => {
-      const el = els[i];
-      let scope = nd.p >= 0 ? (scopes[nd.p] ?? base) : base;
-      if (nd.state !== undefined && el) {
-        const obj = this.fns[nd.state]!(scope);
-        if (nd.persist) this.ext.persist?.state(nd.persist, obj);
-        scope = Object.create(scope);
-        scope[`$s${nd.sid}`] = obj;
-        this.stateEls.set(el, { sid: nd.sid!, obj });
-        if (block === this.rootBlock) this.rootStates.push({ sid: nd.sid!, obj, json: '', ...(nd.persist ? { persist: nd.persist } : {}) });
-        if (nd.persist) {
-          const key = nd.persist, sid = nd.sid!;
-          this.afterFlush.push((dirty) => { if (dirty.some((p) => p[0] === `$s${sid}`)) this.ext.persist?.saveState(key, obj); });
-        }
-      }
-      scopes[i] = scope;
-      if (block === this.rootBlock) this.rootScopes[i] = scope;
-      if (!el) return;
-      for (const b of nd.b) this.bind(b, el, scope, block, defs, els);
-    });
-  }
-
-  private bind(def: Binding, el: Element, scope: any, block: Block, defs: NodeDef[], els: Array<Element | null>): void {
-    const rb: RB = { def, el, scope, last: undefined, block };
-    switch (def.k) {
-      case 'on': {
-        const list = this.handlers.get(el) ?? [];
-        list.push(rb);
-        this.handlers.set(el, list);
-        this.listen(def.n!);
-        if (def.x !== undefined) {
-          const a = this.ir.actions[def.x]!;
-          if (a.debounce || a.concurrency) { /* per-element state is created lazily */ }
-        }
-        return;
-      }
-      case 'else':
-        return;
-      case 'model':
-        this.models.set(el, rb);
-        this.listen('input');
-        this.listen('change');
-        if (el.localName === 'select') this.selects.add(rb);
-        if (def.p !== undefined) this.ext.persist?.model(rb, (v) => this.setModel(rb, v));
-        break;
-      case 'for':
-        rb.list = { tdef: this.ir.templates[def.x!]!, insts: [] };
-        this.anchors.set(el, rb);
-        break;
-      case 'if':
-        rb.cond = { inst: null, branch: null, elseEl: def.y !== undefined ? els[def.y] ?? null : null };
-        this.anchors.set(el, rb);
-        if (rb.cond.elseEl) this.anchors.set(rb.cond.elseEl, rb);
-        void defs;
-        break;
-    }
-    block.rbs.push(rb);
-  }
-
-  /** One delegated capture listener per used event type, at the mount root. */
-  private listen(type: string): void {
-    if (this.types.has(type)) return;
-    this.types.add(type);
-    const fn = (e: Event) => this.dispatch(e);
-    this.root.addEventListener(type, fn, true);
-    this.cleanups.push(() => this.root.removeEventListener(type, fn, true));
-  }
-
-  // ---- rendering
-
-  private walk(block: Block, force: boolean): void {
-    for (const rb of block.rbs) {
-      if (!this.process(rb, force)) continue;
-      if (rb.list) for (const inst of rb.list.insts) { const f = force || inst.force; inst.force = false; this.walk(inst.block, f); }
-      else if (rb.cond?.inst) this.walk(rb.cond.inst.block, force);
-    }
-  }
-
-  /** Evaluates and writes one binding if needed; false if it is deferred (closed dialog). */
-  private process(rb: RB, force: boolean): boolean {
-    if (this.inClosedDialog(rb.el)) { this.deferred.add(rb); return false; }
-    if (this.deferred.delete(rb)) force = true;
-    if (!force && !this.depsDirty(rb)) return true;
-    const v = this.evaluate(rb);
-    switch (rb.def.k) {
-      case 'for': this.reconcile(rb, v); return true;
-      case 'if': this.toggleIf(rb, !!v); return true;
-      case 'model': this.writeModel(rb, v); return true;
-    }
-    if (!force && Object.is(v, rb.last)) return true;
-    const prev = rb.last;
-    rb.last = v;
-    this.write(rb, v, prev);
-    return true;
-  }
-
-  private inClosedDialog(el: Element): boolean {
-    const d = el.closest('dialog');
-    return !!d && !(d as HTMLDialogElement).open && !d.hasAttribute('open');
-  }
-
-  private evaluate(rb: RB): unknown {
-    const scope = Object.create(rb.scope);
-    scope.$el = rb.el;
-    try {
-      return this.fns[rb.def.f!]!(scope);
-    } catch (e) {
-      this.warn(`binding \`${rb.def.k}\` on <${rb.el.localName}> threw: ${(e as Error)?.message}`);
-      return undefined;
-    }
-  }
-
-  private write(rb: RB, v: unknown, prev: unknown): void {
-    const el = rb.el as HTMLElement;
-    const name = rb.def.n!;
-    switch (rb.def.k) {
-      case 'text': el.textContent = v == null ? '' : String(v); return;
-      case 'show': el.hidden = !v; return;
-      case 'attr': {
-        if (v == null || v === false) { el.removeAttribute(name); return; }
-        const s = v === true ? '' : String(v);
-        const lname = name.toLowerCase();
-        const base = /^https?:/.test(el.ownerDocument.baseURI) ? el.ownerDocument.baseURI : this.env.href();
-        if ((URL_ATTRS.has(lname) && !urlAllowed(s, lname, el.localName, base, this.schemes))
-          || ((lname === 'srcset' || lname === 'imagesrcset') && !srcsetAllowed(s, el.localName, base, this.schemes))) {
-          el.removeAttribute(name);
-          this.warn(`refused URL in \`${name}\` on <${el.localName}>`, s);
-          return;
-        }
-        el.setAttribute(name, s);
-        return;
-      }
-      case 'class': {
-        if (name === '') {
-          const [k, on] = Array.isArray(v) ? v : [null, false];
-          const [pk] = Array.isArray(prev) ? prev : [null];
-          if (pk && pk !== k) el.classList.remove(String(pk));
-          if (k) el.classList.toggle(String(k), !!on);
-          return;
-        }
-        el.classList.toggle(name, !!v);
-        return;
-      }
-      case 'style': {
-        if (v == null || v === false) { el.style.removeProperty(name); return; }
-        const s = String(v);
-        if (!styleValueAllowed(s)) { el.style.removeProperty(name); this.warn(`refused style value for \`${name}\``, s); return; }
-        el.style.setProperty(name, s);
-        return;
-      }
-      case 'prop': (el as unknown as Record<string, unknown>)[name] = v; return;
-    }
-  }
-
-  // ---- models
-
-  private writeModel(rb: RB, v: unknown): void {
-    const el = rb.el as HTMLInputElement & HTMLSelectElement;
-    switch (rb.def.n) {
-      case 'checkbox': {
-        const on = Array.isArray(v) ? v.map(String).includes(el.value) : !!v;
-        if (el.checked !== on) el.checked = on;
-        return;
-      }
-      case 'radio': {
-        const on = v != null && String(v) === el.value;
-        if (el.checked !== on) el.checked = on;
-        return;
-      }
-      case 'multi': {
-        const vals = Array.isArray(v) ? v.map(String) : [];
-        for (const o of Array.from(el.options)) { const on = vals.includes(o.value); if (o.selected !== on) o.selected = on; }
-        return;
-      }
-      default: {
-        const s = v == null || (typeof v === 'number' && Number.isNaN(v)) ? '' : String(v);
-        if (el.value === s) return;
-        if (rb.def.n === 'number' && el.value !== '' && Number(el.value) === v) return;
-        el.value = s;
-      }
-    }
-  }
-
-  private readModel(rb: RB): { value: unknown } | null {
-    const el = rb.el as HTMLInputElement & HTMLSelectElement;
-    switch (rb.def.n) {
-      case 'number': return { value: el.value === '' ? null : Number(el.value) };
-      case 'checkbox': {
-        const cur = this.evaluate(rb);
-        if (Array.isArray(cur)) {
-          const i = cur.map(String).indexOf(el.value);
-          if (el.checked && i < 0) cur.push(el.value);
-          else if (!el.checked && i >= 0) cur.splice(i, 1);
-          return { value: cur };
-        }
-        return { value: el.checked };
-      }
-      case 'radio': return el.checked ? { value: el.value } : null;
-      case 'multi': return { value: Array.from(el.selectedOptions).map((o) => o.value) };
-      default: return { value: el.value };
-    }
-  }
-
-  private setModel(rb: RB, v: unknown): void {
-    try {
-      this.fns[rb.def.a!]!(rb.scope, v);
-    } catch (e) {
-      this.warn(`model on <${rb.el.localName}> could not be set: ${(e as Error)?.message}`);
-      return;
-    }
-    for (const w of rb.def.w ?? []) this.mark(w, rb.scope);
-  }
-
-  // ---- lists and conditionals
-
-  private keyOf(tdef: TemplateDef, item: unknown, scope: any): string {
-    if (tdef.key != null) return 'k:' + String(this.fns[tdef.key]!(scope));
-    if (tdef.keyFields && item && typeof item === 'object') {
-      return 'r:' + tdef.keyFields.map((f) => String((item as Record<string, unknown>)[f])).join('\u001f');
-    }
-    if (item !== null && (typeof item === 'object' || typeof item === 'function')) {
-      let id = this.identities.get(item as object);
-      if (!id) { id = this.nextIdentity++; this.identities.set(item as object, id); }
-      return 'o:' + id;
-    }
-    this.warn('a `data-sn-for` over primitive values needs `data-sn-key`');
-    return 'p:' + typeof item + ':' + String(item);
-  }
-
-  private rowScope(parent: any, tdef: TemplateDef, item: unknown, index: number): any {
-    const s = Object.create(parent);
-    s[tdef.item!] = item;
-    if (tdef.index) s[tdef.index] = index;
-    s[tdef.ii!] = index;
-    return s;
-  }
-
-  private reconcile(rb: RB, value: unknown): void {
-    const ctl = rb.list!;
-    const tdef = ctl.tdef;
-    const items: unknown[] = value == null ? [] : Array.isArray(value) ? value : typeof value === 'object' && Symbol.iterator in (value as object) ? Array.from(value as Iterable<unknown>) : [];
-    const old = ctl.insts;
-    const byKey = new Map<string, Inst>();
-    old.forEach((inst) => byKey.set(inst.key, inst));
-    const parent = rb.el.parentNode!;
-    const endRef = old.length ? lastNode(this, old[old.length - 1]!)?.nextSibling ?? null : rb.el.nextSibling;
-
-    const next: Inst[] = [];
-    const seen = new Set<string>();
-    const oldIndex = new Map<Inst, number>();
-    old.forEach((inst, i) => oldIndex.set(inst, i));
-    items.forEach((item, i) => {
-      const probe = this.rowScope(rb.scope, tdef, item, i);
-      let key = this.keyOf(tdef, item, probe);
-      if (seen.has(key)) {
-        this.warn(`duplicate key in \`data-sn-for\`: ${key.slice(2)}`);
-        let n = 1;
-        while (seen.has(`${key}#${n}`)) n++;
-        key = `${key}#${n}`;
-      }
-      seen.add(key);
-      const reuse = byKey.get(key);
-      if (reuse) {
-        byKey.delete(key);
-        if (reuse.item !== item || reuse.index !== i) {
-          reuse.item = item;
-          reuse.index = i;
-          reuse.scope[tdef.item!] = item;
-          if (tdef.index) reuse.scope[tdef.index] = i;
-          reuse.scope[tdef.ii!] = i;
-          reuse.force = true;
-        }
-        next.push(reuse);
-      } else {
-        next.push(this.createInst(rb, tdef, probe, key, item, i));
-      }
-    });
-    for (const gone of byKey.values()) this.removeInst(gone);
-
-    // move with a longest-increasing-subsequence pass over reused rows
-    const seq = next.map((inst) => oldIndex.get(inst) ?? -1);
-    const keep = lis(seq);
-    let ref: Node | null = endRef;
-    for (let i = next.length - 1; i >= 0; i--) {
-      const inst = next[i]!;
-      if (seq[i] === -1 || !keep.has(i)) {
-        for (const n of allNodes(this, inst)) parent.insertBefore(n, ref);
-      }
-      ref = inst.nodes[0] ?? ref;
-    }
-    ctl.insts = next;
-  }
-
-  private createInst(rb: RB, tdef: TemplateDef, scope: any, key: string, item: unknown, index: number): Inst {
-    const tpl = rb.el as HTMLTemplateElement;
-    return this.instantiate(tpl, tdef, scope, key, item, index);
-  }
-
-  private instantiate(tpl: HTMLTemplateElement, tdef: TemplateDef, scope: any, key: string, item: unknown, index: number): Inst {
-    const frag = tpl.content.cloneNode(true) as DocumentFragment;
-    const nodes = Array.from(frag.childNodes);
-    const els = tdef.nodes.map((nd) => {
-      let n: Node | undefined = frag;
-      for (const i of nd.path!) n = n?.childNodes[i];
-      return n && (n as Element).localName === nd.tag ? (n as Element) : null;
-    });
-    const block: Block = { rbs: [] };
-    this.bindNodes(tdef.nodes, els, scope, block);
-    const inst: Inst = { nodes, block, scope, key, item, index, force: false };
-    this.walk(block, true);
-    return inst;
-  }
-
-  private removeInst(inst: Inst): void {
-    for (const n of allNodes(this, inst)) n.parentNode?.removeChild(n);
-    this.forget(inst.block);
-  }
-
-  private forget(block: Block): void {
-    for (const rb of block.rbs) {
-      this.deferred.delete(rb);
-      this.selects.delete(rb);
-      if (rb.list) for (const i of rb.list.insts) this.forget(i.block);
-      if (rb.cond?.inst) this.forget(rb.cond.inst.block);
-    }
-  }
-
-  private toggleIf(rb: RB, on: boolean): void {
-    const c = rb.cond!;
-    const want = on ? 'if' : c.elseEl ? 'else' : null;
-    if (want === c.branch) return;
-    if (c.inst) { this.removeInst(c.inst); c.inst = null; }
-    c.branch = want;
-    if (!want) return;
-    const anchor = (want === 'if' ? rb.el : c.elseEl!) as HTMLTemplateElement;
-    const tdef = this.ir.templates[want === 'if' ? rb.def.x! : this.elseTid(rb)]!;
-    const inst = this.instantiate(anchor, tdef, Object.create(rb.scope), want, null, 0);
-    const parent = anchor.parentNode!;
-    const ref = anchor.nextSibling;
-    for (const n of allNodes(this, inst)) parent.insertBefore(n, ref);
-    c.inst = inst;
-  }
-
-  private elseTid(rb: RB): number {
-    const list = rb.block === this.rootBlock ? this.ir.roots : this.ir.templates.find((t) => t.nodes.some((n) => n.b.includes(rb.def)))!.nodes;
-    return list[rb.def.y!]!.b.find((b) => b.k === 'else')!.x!;
-  }
-
-  /** Nodes of an instance in document order, including rows of lists anchored at its top level. */
-  instNodes(inst: Inst): Node[] {
-    const out: Node[] = [];
-    for (const n of inst.nodes) {
-      out.push(n);
-      const rb = this.anchors.get(n);
-      if (!rb) continue;
-      if (rb.list) for (const i of rb.list.insts) out.push(...this.instNodes(i));
-      else if (rb.cond?.inst && (rb.cond.branch === 'if' ? rb.el : rb.cond.elseEl) === n) out.push(...this.instNodes(rb.cond.inst));
-    }
-    return out;
-  }
-
-  // ---- events
-
-  private dispatch(e: Event): void {
-    const target = e.target as Node | null;
-    if (!target) return;
-    if (e.type === 'toggle') {
-      const d = target as HTMLDialogElement;
-      if (d.localName === 'dialog' && (d.open || d.hasAttribute('open'))) this.openDialog(d);
-    }
-    const start = (target.nodeType === 1 ? target : target.parentElement) as Element | null;
-    if (!start) return;
-    // models update state before other handlers on the same event
-    if (e.type === 'input' || e.type === 'change') {
-      const rb = this.models.get(start);
-      if (rb && (e.type === 'input') === TEXT_LIKE.has(rb.def.n!)) {
-        const v = this.readModel(rb);
-        if (v) this.setModel(rb, v.value);
-      }
-    }
-    let el: Element | null = start;
-    const stop = this.root.nodeType === 9 ? null : this.root;
-    while (el) {
-      const list = this.handlers.get(el)?.filter((rb) => rb.def.n === e.type);
-      if (list && list.length) {
-        for (const rb of list) {
-          if (rb.def.x !== undefined) this.trigger(rb, e);
-          else this.handle(rb, rb.def.f!, e, rb.def.w);
-        }
-        return;
-      }
-      if (el === stop) return;
-      el = el.parentElement;
-    }
-  }
-
-  private openDialog(d: Element): void {
-    const rbs = [...this.deferred].filter((rb) => d.contains(rb.el));
-    if (!rbs.length) return;
-    this.current = [];
-    this.flushing = true;
-    try {
-      for (const rb of rbs) {
-        if (!this.deferred.has(rb)) continue;
-        if (!this.process(rb, true)) continue;
-        if (rb.list) for (const i of rb.list.insts) this.walk(i.block, true);
-        else if (rb.cond?.inst) this.walk(rb.cond.inst.block, true);
-      }
-    } finally { this.flushing = false; }
-    if (this.dirty.length) this.schedule();
-  }
-
-  /** Store and DOM functions available to handlers; writes go to the base. */
-  storeFns(el: Element | null): Record<string, (...a: any[]) => unknown> {
-    return {
-      refresh: (name: string) => this.resource(name).refetch(),
-      upsert: (name: string, item: any) => this.resource(name).upsert(item),
-      patch: (name: string, key: any, fields: any) => this.resource(name).patch(key, fields),
-      remove: (name: string, key: any) => this.resource(name).remove(key),
-      page: (name: string, target: string | number) => {
-        if (!this.ext.paginate) throw new Error('sinter: page() needs @tiaforge/sinter/paginate');
-        this.ext.paginate.page(name, target);
-      },
-      close: () => { (el?.closest('dialog') as HTMLDialogElement | null)?.close(); },
-      reset: () => this.resetForm(el),
-      emit: (name: string, detail?: unknown) => { el?.dispatchEvent(new CustomEvent(name, { detail, bubbles: true })); },
-    };
-  }
-
-  private resetForm(el: Element | null): void {
-    const form = el?.closest('form');
-    if (!form) return;
-    form.reset();
-    for (const c of Array.from(form.elements)) {
-      const rb = this.models.get(c);
-      if (rb) { const v = this.readModel(rb); if (v) this.setModel(rb, v.value); }
-    }
-  }
-
-  /** Runs a handler expression and invalidates what it may have changed. */
-  private handle(rb: RB, fn: number, e: Event | null, writes: string[] | undefined, extra?: Record<string, unknown>): void {
-    const scope = Object.create(rb.scope);
-    scope.$el = rb.el;
-    scope.$event = e;
-    scope.$f = this.storeFns(rb.el);
-    if (extra) Object.assign(scope, extra);
-    const urlBefore = writes?.some((w) => w.startsWith('$url')) ? JSON.stringify(this.page.$url) : null;
-    try {
-      this.fns[fn]!(scope);
-    } catch (err) {
-      console.error('sinter: handler threw', err);
-    } finally {
-      for (const w of writes ?? []) this.mark(w, scope);
-      if (urlBefore !== null && urlBefore !== JSON.stringify(this.page.$url)) this.writeUrl();
-    }
-  }
-
-  // ---- actions
-
-  private actState(el: Element): ActState {
-    let s = this.actStates.get(el);
-    if (!s) { s = { pending: 0, queue: [], waiting: null, ctl: null, timer: null, disabled: null }; this.actStates.set(el, s); }
-    return s;
-  }
-
-  private trigger(rb: RB, e: Event): void {
-    const def = this.ir.actions[rb.def.x!]!;
-    const el = rb.el;
-    if (def.form && e.type === 'submit') e.preventDefault();
-    else if (el.localName === 'a') e.preventDefault();
-    else if ((el.localName === 'button' || el.localName === 'input') && el.closest('form') && e.type === 'click') e.preventDefault();
-    if (def.debounce > 0) {
-      const st = this.actState(el);
-      if (st.timer != null) { this.env.clearTimeout(st.timer); this.busy--; }
-      this.busy++;
-      st.timer = this.env.setTimeout(() => { st.timer = null; this.busy--; this.fire(rb, def, e); }, def.debounce, 'debounce');
-      return;
-    }
-    this.fire(rb, def, e);
-  }
-
-  private fire(rb: RB, def: ActionDef, e: Event): void {
-    const st = this.actState(rb.el);
-    if (def.method !== 'GET' && def.concurrency === 'block' && (st.pending > 0)) return;
-    const scope = Object.create(rb.scope);
-    scope.$el = rb.el;
-    scope.$event = e;
-    let url: string, body: unknown;
-    try {
-      url = this.url(def.url, scope);
-      body = this.body(def, rb.el, scope);
-    } catch (err) {
-      this.unhandled(err instanceof SinterError ? err : new SinterError(0, null, (err as Error).message), rb.el);
-      return;
-    }
-    let drop: (() => void) | null = null;
-    const startLayer = () => {
-      if (def.optimistic == null) return;
-      if (!this.ext.optimistic) throw new Error('sinter: data-sn-optimistic needs @tiaforge/sinter/optimistic');
-      drop = this.ext.optimistic.begin(def.optimistic, scope);
-    };
-
-    if (def.method === 'GET') {
-      st.ctl?.abort();
-      const ctl = new AbortController();
-      st.ctl = ctl;
-      startLayer();
-      void this.send(rb, def, st, url, body, () => drop?.(), ctl);
-      return;
-    }
-    startLayer();
-    const run = () => this.send(rb, def, st, url, body, () => drop?.(), null);
-    if (st.pending === 0) { void run(); return; }
-    if (def.concurrency === 'latest') {
-      st.waiting?.drop();
-      if (!st.waiting) this.busy++;
-      st.waiting = { run, drop: () => drop?.() };
-    } else {
-      this.busy++;
-      st.queue.push(run);
-    }
-  }
-
-  private body(def: ActionDef, el: Element, scope: any): unknown {
-    if (def.body != null) return this.fns[def.body]!(scope);
-    if (def.method === 'GET' || def.method === 'DELETE') return undefined;
-    if (def.form) return serializeForm(el as HTMLFormElement);
-    return undefined;
-  }
-
-  private async send(rb: RB, def: ActionDef, st: ActState, url: string, body: unknown, drop: () => void, ctl: AbortController | null): Promise<void> {
-    const el = rb.el;
-    st.pending++;
-    el.setAttribute('aria-busy', 'true');
-    if (def.form && def.concurrency === 'block' && def.method !== 'GET' && !st.disabled) {
-      st.disabled = Array.from((el as HTMLFormElement).elements).filter((c) => !(c as HTMLInputElement).disabled);
-      for (const c of st.disabled) (c as HTMLInputElement).disabled = true;
-    }
-    try {
-      const result = await this.req.send(url, { method: def.method, body, ...(ctl ? { signal: ctl.signal } : {}) });
-      if (ctl && st.ctl !== ctl) return;
-      drop();
-      if (def.then != null) this.handle(rb, def.then, null, def.w, { $result: result });
-    } catch (err) {
-      drop();
-      if (isAbort(err) || (ctl && st.ctl !== ctl)) return;
-      const error = err instanceof SinterError ? err : new SinterError(0, null, (err as Error)?.message ?? 'error');
-      if (def.catch != null) this.handle(rb, def.catch, null, def.w, { $error: error });
-      else this.unhandled(error, el);
-    } finally {
-      st.pending--;
-      if (ctl && st.ctl === ctl) st.ctl = null;
-      if (st.pending === 0) {
-        if (st.disabled) { for (const c of st.disabled) (c as HTMLInputElement).disabled = false; st.disabled = null; }
-        const next = st.queue.shift() ?? (st.waiting ? st.waiting.run : null);
-        if (next) {
-          if (!st.queue.length && st.waiting && next === st.waiting.run) st.waiting = null;
-          this.busy--;
-          void next();
-        } else el.removeAttribute('aria-busy');
-      }
-    }
-  }
-
-  /** The unhandled-error path: `sn-error` event, then `onError`, then the dev console. */
-  unhandled(error: SinterError, element: Element | null, resource?: string): void {
-    const target = element ?? this.host;
-    const detail: Record<string, unknown> = { error, element: target };
-    if (resource) detail.resource = resource;
-    const ev = new CustomEvent('sn-error', { detail, bubbles: true, cancelable: true });
-    target.dispatchEvent(ev);
-    if (ev.defaultPrevented) return;
-    if (config.onError) config.onError(error, target);
-    if (this.dev) console.error(`sinter: unhandled error${resource ? ` loading \`${resource}\`` : ''}: ${error.message}`, error);
-  }
-
-  // ---- $url, $now
-
-  private readUrl(): Record<string, string> {
-    const obj: Record<string, string> = Object.create(null);
-    for (const [k, v] of new URL(this.env.href()).searchParams) if (k !== '__proto__' && k !== 'constructor' && k !== 'prototype') obj[k] = v;
-    return obj;
-  }
-
-  private refreshUrl(): void {
-    const next = this.readUrl();
-    const cur = this.page.$url;
-    for (const k of Object.keys(cur)) delete cur[k];
-    Object.assign(cur, next);
-    this.mark('$url');
-  }
-
-  private writeUrl(): void {
-    const u = new URL(this.env.href());
-    const params = new URLSearchParams();
-    for (const [k, v] of Object.entries(this.page.$url as Record<string, unknown>)) {
-      if (v === null || v === undefined || v === '') continue;
-      params.set(k, String(v));
-    }
-    const qs = params.toString();
-    this.env.replaceState(u.pathname + (qs ? `?${qs}` : '') + u.hash);
-  }
-
-  private tickNow(): void {
-    const tick = () => {
-      this.page.$now = new Date(this.env.now());
-      this.mark('$now');
-      handle = this.env.setTimeout(tick, 60_000, 'clock');
-    };
-    let handle = this.env.setTimeout(tick, 60_000, 'clock');
-    this.cleanups.push(() => this.env.clearTimeout(handle));
-  }
-}
-
-/** Loads one resource through the request layer: shared requests, latest wins. */
-export class ResourceLoader {
-  url: string | null = null;
-  pager: Pager | null = null;
-  private ctl: AbortController | null = null;
-  private seq = 0;
-  private refetching: Promise<void> | null = null;
-  constructor(readonly app: App, readonly def: ResourceDef, readonly res: Resource) {
-    if (def.paginate) {
-      if (!app.ext.paginate) throw new Error('sinter: paginated resources need @tiaforge/sinter/paginate');
-      this.pager = app.ext.paginate.pager(this);
-    }
-  }
-
-  /** The resolved `src`, or null while `when` is falsy. */
-  resolve(): string | null {
-    const scope = this.evalScope();
-    try {
-      if (this.def.when != null && !this.app.fns[this.def.when]!(scope)) return null;
-      return this.app.url(this.def.src, scope);
-    } catch (e) {
-      this.app.warn(`resource \`${this.def.name}\`: src could not be resolved: ${(e as Error).message}`);
-      return null;
-    }
-  }
-
-  evalScope(): any {
-    return this.app.scopeFor(this.def.scope);
-  }
-
-  start(): void {
-    const emb = this.app.embedded(this.def);
-    const url = this.resolve();
-    if (emb && url) {
-      this.url = url;
-      this.pager?.reset();
-      this.store(emb.value);
-      this.res.meta.loadedAt = this.app.env.now();
-      return;
-    }
-    this.srcChanged();
-  }
-
-  /** `src` or `when` may have changed: reload from the first page if the URL differs. */
-  srcChanged(): void {
-    const url = this.resolve();
-    if (url === this.url) return;
-    this.url = url;
-    this.pager?.reset();
-    if (url === null) {
-      this.abort();
-      this.res.replace(this.res.isCollection ? [] : null);
-      this.setLoading(false);
-      return;
-    }
-    void this.load();
-  }
-
-  /** Repeats the current request; several calls in one task share one request. */
-  refetch(): Promise<void> {
-    if (this.refetching) return this.refetching;
-    this.refetching = new Promise<void>((resolve) => this.app.env.queueMicrotask(resolve)).then(() => {
-      this.refetching = null;
-      return this.url === null ? undefined : this.load();
-    });
-    return this.refetching;
-  }
-
-  abort(): void {
-    this.ctl?.abort();
-    this.ctl = null;
-  }
-
-  /** Loads the current URL (with a page move's parameters) and replaces or appends to the base. */
-  async load(move?: unknown): Promise<void> {
-    if (this.url === null) return;
-    this.abort();
-    const ctl = new AbortController();
-    this.ctl = ctl;
-    const seq = ++this.seq;
-    const m = this.pager ? (move ?? this.pager.current()) : null;
-    const url = withParams(this.url, this.pager ? this.pager.params(m) : null);
-    this.setLoading(true);
-    try {
-      const body = await this.app.loadShared(url, ctl.signal);
-      if (seq !== this.seq) return;
-      this.store(body, m);
-      this.res.meta.error = null;
-      this.res.meta.loadedAt = this.app.env.now();
-    } catch (err) {
-      if (seq !== this.seq || isAbort(err)) return;
-      const error = err instanceof SinterError ? err : new SinterError(0, null, (err as Error)?.message ?? 'error');
-      this.res.meta.error = { status: error.status, body: error.body, message: error.message };
-      this.res.onDirty('meta');
-      this.app.unhandled(error, null, this.def.name);
-    } finally {
-      if (seq === this.seq) { this.ctl = null; this.setLoading(false); }
-    }
-  }
-
-  /** Writes a response body to the base. */
-  store(body: unknown, move: unknown = this.pager?.current()): void {
-    const { items, total } = this.extract(body);
-    if (this.pager?.appends(move) && this.res.isCollection) {
-      for (const it of items as object[]) this.res.upsert(it);
-    } else this.res.replace(items as never);
-    this.res.setTotal(total);
-    this.pager?.received(items as unknown[], total, move);
-  }
-
-  private extract(body: unknown): { items: unknown; total: number | null } {
-    let items = this.def.items ? pick(body, this.def.items) : body;
-    if (this.res.isCollection && !Array.isArray(items)) {
-      this.app.warn(`resource \`${this.def.name}\`: \`items\` path \`${this.def.items ?? '(response)'}\` is not an array`, items);
-      items = [];
-    }
-    if (Array.isArray(items)) items = items.map((x) => clean(x));
-    const t = this.def.total ? pick(body, this.def.total) : null;
-    return { items, total: typeof t === 'number' ? t : t == null ? null : Number(t) };
-  }
-
-  private setLoading(on: boolean): void {
-    if (this.res.meta.loading === on) return;
-    this.res.meta.loading = on;
-    this.res.onDirty('meta');
-  }
+/** A binding attached to one element in one scope. */
+export interface BoundBinding {
+  b: Binding;
+  el: Element;
+  s: any;
 }
 
 /** Pagination state of one resource; a "move" is one page request, repeated exactly by refetch. */
@@ -1212,106 +53,763 @@ export interface Pager {
   received(items: unknown[], total: number | null, move: unknown): void;
 }
 
-function pick(obj: unknown, path: string): unknown {
-  let cur = obj;
-  for (const seg of path.split('.')) {
-    if (cur == null || typeof cur !== 'object') return undefined;
-    cur = (cur as Record<string, unknown>)[seg];
+export interface ResourceLoader {
+  def: ResourceDef;
+  res: Resource;
+  app: App;
+  pager: Pager | null;
+  load(move?: unknown): Promise<void>;
+  refetch(): Promise<void>;
+}
+
+export interface App {
+  readonly ir: IR;
+  readonly fns: Fn[];
+  readonly env: Env;
+  readonly req: RequestLayer;
+  /** the base scope: resources, status, magic names */
+  readonly page: any;
+  readonly transport: (url: string) => Transport | undefined;
+  readonly ext: {
+    optimistic?: { begin(fn: number, scope: any): () => void };
+    paginate?: { pager(loader: ResourceLoader): Pager; page(name: string, target: string | number): void };
+    persist?: {
+      model(rb: BoundBinding, set: (v: unknown) => void): void;
+      state(key: string, obj: Record<string, unknown>): void;
+      saveState(key: string, obj: Record<string, unknown>): void;
+    };
+  };
+  readonly beforeFlush: Array<(dirty: string[][]) => void>;
+  readonly afterFlush: Array<(dirty: string[][]) => void>;
+  readonly onListen: Array<(event: string) => void>;
+  /** root state scopes: [sid, state object] */
+  readonly states: Array<[number, any]>;
+  /** pending debounce timers and waiting actions, for the testing module */
+  busy: number;
+  readonly isDirty: boolean;
+  /** dev hooks: warnings by code (or text), and item preparation (freezing) */
+  warn(code: number | string, ...args: unknown[]): void;
+  prep?: <T>(item: T) => T;
+
+  resource<T extends object = any>(name: string): Resource<T>;
+  request(url: string, init?: SendInit): Promise<unknown>;
+  optimistic<T>(change: () => void, run: () => Promise<T>): Promise<T>;
+  on(event: string, fn: (payload: any) => void): () => void;
+  state<T = any>(el: Element): StateHandle<T>;
+  destroy(): void;
+
+  url(tpl: UrlTemplate, scope: any): string;
+  mark(path: string, scope?: any): void;
+  flush(): void;
+  record(change: () => void): () => void;
+  storeFns(el: Element | null): Record<string, (...a: any[]) => unknown>;
+  serverEvent(name: string, payload: unknown): void;
+  addCleanup(fn: () => void): void;
+}
+
+/** Runtime binding: the bound binding plus last value and list/conditional state. */
+interface RB extends BoundBinding {
+  v?: unknown;
+  /** for: rows; if: the rendered branch (0 or 1 entries) */
+  rows?: Inst[];
+  t?: TemplateDef;
+  /** end marker of the rows / branch, inserted after the template anchor */
+  end?: Comment;
+  /** if: rendered branch (0 none, 1 if, 2 else), and the else anchor with its template */
+  br?: number;
+  else?: [Element, number] | null;
+}
+
+interface Inst {
+  first: Node | null;
+  nodes: Node[];
+  rbs: RB[];
+  s: any;
+  key: string;
+  item: unknown;
+  i: number;
+  /** re-evaluate every binding on the next walk */
+  f: boolean;
+}
+
+interface ActState {
+  n: number;
+  q: Array<() => void>;
+  w: { run: () => void; drop: () => void } | null;
+  c: AbortController | null;
+  t: unknown;
+  off: HTMLInputElement[] | null;
+}
+
+const instances = new WeakMap<object, App>();
+const paths = new Map<string, string[]>();
+const split = (p: string) => paths.get(p) ?? (paths.set(p, p.split('.')), paths.get(p)!);
+const overlaps = (a: string[], b: string[]) => {
+  for (let i = 0, n = Math.min(a.length, b.length); i < n; i++) if (a[i] != b[i] && a[i] != '*' && b[i] != '*') return false;
+  return true;
+};
+/** Fills `{name}` segments from a scope. */
+const fill = (p: string, s?: any) => (s && p.includes('{') ? split(p).map((x) => (x[0] == '{' ? '' + s[x.slice(1, -1)] : x)) : split(p));
+const range = (a: Node | null, stop: Node | null) => {
+  const out: Node[] = [];
+  for (let n = a; n && n != stop; n = n.nextSibling) out.push(n);
+  return out;
+};
+const child = (s: any, props: object) => Object.assign(Object.create(s), props);
+const after = (el: Element) => {
+  const c = new Comment();
+  el.after(c);
+  return c;
+};
+const ET = EventTarget.prototype;
+
+/** The instance mount() created on `root`; throws if none. */
+export function instance(root: Document | Element): App {
+  const app = instances.get(root);
+  if (!app) throw Error('sinter: not mounted');
+  return app;
+}
+
+export function mount(root: Document | Element, o: MountOptions): App {
+  if (instances.has(root)) throw Error('sinter: already mounted');
+  const { ir, fns } = o;
+  if (ir?.v != 1) throw Error('sinter: unsupported IR');
+  const env = o.env ?? config.env;
+  const req = createRequestLayer(env, o.request ?? config.request);
+  const schemes = schemesOf(config.urlSchemes);
+  const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(): void; start(): void }> = [];
+  const handlers = new WeakMap<Element, RB[]>(), models = new WeakMap<Element, RB>(), stateEls = new WeakMap<Element, [number, any]>();
+  const acts = new WeakMap<Element, ActState>(), identities = new WeakMap<object, number>();
+  const types = new Set<string>(), selects = new Set<RB>(), deferred = new Set<RB>();
+  const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
+  const shared = new Map<string, { n: number; c: AbortController; p: Promise<unknown> }>();
+  const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element>();
+  let dirty: string[][] = [], cur: string[][] = [], scheduled = false, flushing = false, lastId = 0;
+
+  const res = (name: string): Resource => {
+    const r = resources.get(name);
+    if (!r) throw Error(`sinter: no resource ${name}`);
+    return r;
+  };
+  const forward = (m: 'upsert' | 'patch' | 'remove') => (n: string, ...a: [any, any?]) => res(n)[m](...a);
+  const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
+  const evaluate = (rb: RB): any => {
+    try { return fns[rb.b.f!]!(child(rb.s, { $el: rb.el })); } catch (e) { warn(6, rb.b.k, rb.el.localName, (e as Error)?.message); }
+  };
+  const hit = (dep: string, s?: any) => { const p = fill(dep, s); return cur.some((d) => overlaps(p, d)); };
+
+  const app: App = {
+    ir, fns, env, req, transport: o.transport ?? (() => undefined), ext: {},
+    beforeFlush: [], afterFlush: [], onListen: [], states: [], busy: 0,
+    get isDirty() { return dirty.length > 0 || scheduled; },
+    warn() {},
+    page: {
+      $r: {}, $meta: {}, $url: readUrl(), $now: new Date(env.now()),
+      get $locale() { return config.locale?.get(); },
+      set $locale(v: any) { config.locale?.set(v); app.mark('$locale'); },
+    },
+    resource: res as App['resource'],
+    request: (url, init) => req.send(url, init),
+    async optimistic(change, run) {
+      const drop = app.record(change);
+      try { return await run(); } finally { drop(); }
+    },
+    on(event, fn) {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event)!.add(fn);
+      for (const l of app.onListen) l(event);
+      return () => listeners.get(event)!.delete(fn);
+    },
+    state(el) {
+      for (let e: Element | null = el; e; e = e.parentElement) {
+        const s = stateEls.get(e);
+        if (s) return { get: () => s[1], update: (fn) => { fn(s[1]); app.mark('$s' + s[0]); } };
+      }
+      throw Error('sinter: no data-sn-state scope');
+    },
+    destroy() {
+      for (const c of cleanups.splice(0)) c();
+      instances.delete(root);
+    },
+    url(tpl, s) {
+      let out = '', query = false;
+      for (const p of tpl) {
+        if (typeof p == 'string') { out += p; query ||= /[?#]/.test(p); continue; }
+        const v = fns[p]!(s);
+        // URL parsers turn %2E%2E back into `..`, so a path value cannot be a dot segment at all
+        if (!query && (v == '.' || v == '..')) throw new SinterError(0, null, `refused \`${v}\` as a URL path value`);
+        out += encodeSegment(v);
+      }
+      return out;
+    },
+    mark(path, s) {
+      dirty.push(fill(path, s));
+      if (!scheduled && !flushing) { scheduled = true; env.queueMicrotask(app.flush); }
+    },
+    flush() {
+      scheduled = false;
+      if (flushing) return;
+      flushing = true;
+      try {
+        for (let round = 0; dirty.length && round < 100; round++) {
+          cur = dirty;
+          dirty = [];
+          for (const h of app.beforeFlush) h(cur);
+          for (const l of loaders) if (l.def.deps.some((d) => hit(d))) l.changed();
+          walk(rootRbs, false);
+          syncSelects();
+          for (const h of app.afterFlush) h(cur);
+        }
+      } finally {
+        cur = dirty = [];
+        flushing = false;
+      }
+    },
+    record(change) {
+      const rs = [...resources.values()];
+      for (const r of rs) r.recording = [];
+      let recs;
+      try { change(); } finally { recs = rs.map((r) => [r, r.recording!] as const); for (const r of rs) r.recording = null; }
+      const ids = recs.filter(([, ops]) => ops.length).map(([r, ops]) => [r, r.addLayer(ops)] as const);
+      let done = false;
+      return () => { if (!done) { done = true; for (const [r, id] of ids) r.dropLayer(id); } };
+    },
+    storeFns: (el) => ({
+      refresh: (n: string) => res(n).refetch(),
+      upsert: forward('upsert'),
+      patch: forward('patch'),
+      remove: forward('remove'),
+      page: (n: string, t: string | number) => app.ext.paginate!.page(n, t),
+      close: () => el?.closest('dialog')?.close(),
+      reset: () => {
+        const form = el?.closest('form');
+        if (!form) return;
+        form.reset();
+        for (const c of form.elements) { const rb = models.get(c); if (rb) setModel(rb, readModel(rb)); }
+      },
+      emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true })),
+    }),
+    serverEvent(name, payload) {
+      for (const fn of listeners.get(name) ?? []) try { fn(payload); } catch (e) { console.error(e); }
+    },
+    addCleanup: (fn) => void cleanups.push(fn),
+  };
+  app.page.$f = app.storeFns(null);
+  instances.set(root, app);
+  for (const f of o.features ?? []) f.install(app);
+
+  // ---- mount: one querySelectorAll, ids checked against the IR's tags
+  const qsa = (root instanceof Document ? Document : Element).prototype.querySelectorAll;
+  const bad = new Set<number>();
+  for (const el of qsa.call(root, '[data-sn]')) {
+    const id = +Element.prototype.getAttribute.call(el, 'data-sn')!;
+    found.has(id) ? bad.add(id) : found.set(id, el);
   }
-  return cur;
+  for (const id of bad) { found.delete(id); warn(1, id); }
+  for (const def of ir.resources) createLoader(def);
+  listen('toggle');
+  bindNodes(ir.roots, ir.roots.map((nd) => {
+    const el = found.get(nd.id!);
+    if (el?.localName == nd.tag) return el;
+    warn(el ? 3 : 2, nd.id, el?.localName, nd.tag);
+    return null;
+  }), app.page, rootRbs);
+  cleanups.push(env.listen('popstate', () => {
+    const u = app.page.$url;
+    for (const k in u) delete u[k];
+    Object.assign(u, readUrl());
+    app.mark('$url');
+  }));
+  if (ir.now) {
+    let t: unknown;
+    const tick = () => { t = env.setTimeout(() => { app.page.$now = new Date(env.now()); app.mark('$now'); tick(); }, 60_000, 'clock'); };
+    tick();
+    cleanups.push(() => env.clearTimeout(t));
+  }
+  for (const l of loaders) l.start();
+  flushing = true;
+  try { walk(rootRbs, true); syncSelects(); for (const h of app.afterFlush) h([]); } finally { flushing = false; }
+  if (dirty.length) { scheduled = true; env.queueMicrotask(app.flush); }
+  return app;
+
+  // ---- scopes and bindings
+
+  function readUrl() {
+    const out = Object.create(null);
+    for (const [k, v] of new URL(env.href()).searchParams) if (!BAD_KEY.test(k)) out[k] = v;
+    return out;
+  }
+
+  function writeUrl() {
+    const u = new URL(env.href()), q = new URLSearchParams();
+    for (const [k, v] of Object.entries(app.page.$url)) if (v != null && v !== '') q.set(k, '' + v);
+    u.search = '' + q;
+    env.replaceState(u.pathname + u.search + u.hash);
+  }
+
+  /** One delegated capture listener per used event type, at the mount root. */
+  function listen(type: string) {
+    if (types.has(type)) return;
+    types.add(type);
+    ET.addEventListener.call(root, type, dispatch, true);
+    cleanups.push(() => ET.removeEventListener.call(root, type, dispatch, true));
+  }
+
+  function bindNodes(defs: NodeDef[], els: Array<Element | null>, base: any, rbs: RB[]) {
+    const scopes: any[] = [];
+    defs.forEach((nd, i) => {
+      const el = els[i];
+      let s = scopes[nd.p] ?? base;
+      if (nd.state != null && el) {
+        const obj = fns[nd.state]!(s), sid = nd.sid!, key = nd.persist;
+        s = child(s, { ['$s' + sid]: obj });
+        stateEls.set(el, [sid, obj]);
+        if (rbs == rootRbs) app.states.push([sid, obj]);
+        if (key) {
+          app.ext.persist?.state(key, obj);
+          app.afterFlush.push((d) => d.some((p) => p[0] == '$s' + sid) && app.ext.persist?.saveState(key, obj));
+        }
+      }
+      scopes[i] = s;
+      if (rbs == rootRbs) rootScopes[i] = s;
+      if (el) for (const b of nd.b) {
+        const rb: RB = { b, el, s };
+        if (b.k == 'on') {
+          handlers.get(el)?.push(rb) ?? handlers.set(el, [rb]);
+          listen(b.n!);
+          continue;
+        }
+        if (b.k == 'else') continue;
+        if (b.k == 'model') {
+          models.set(el, rb);
+          listen('input');
+          listen('change');
+          if (el.localName == 'select') selects.add(rb);
+          if (b.p != null) app.ext.persist?.model(rb, (v) => setModel(rb, v));
+        }
+        if (b.k == 'for') { rb.rows = []; rb.t = ir.templates[b.x!]; }
+        if (b.k == 'if') { rb.br = 0; rb.else = b.y != null && els[b.y] ? [els[b.y]!, defs[b.y]!.b.find((x) => x.k == 'else')!.x!] : null; }
+        rbs.push(rb);
+      }
+    });
+  }
+
+  // ---- rendering
+
+  function walk(rbs: RB[], force: boolean) {
+    for (const rb of rbs) {
+      if (!process(rb, force)) continue;
+      for (const x of rb.rows ?? []) { walk(x.rbs, force || x.f); x.f = false; }
+    }
+  }
+
+  /** Evaluates and writes one binding if needed; false while it waits in a closed dialog. */
+  function process(rb: RB, force: boolean): boolean {
+    if (rb.el.closest('dialog:not([open])')) { deferred.add(rb); return false; }
+    if (deferred.delete(rb)) force = true;
+    if (!force && !rb.b.d?.some((d) => hit(d, rb.s))) return true;
+    const v = evaluate(rb), k = rb.b.k;
+    if (k == 'for') reconcile(rb, v);
+    else if (k == 'if') toggle(rb, v ? 1 : rb.else ? 2 : 0);
+    else if (k == 'model') writeModel(rb, v);
+    else if (force || !Object.is(v, rb.v)) { write(rb, v, rb.v); rb.v = v; }
+    return true;
+  }
+
+  function write(rb: RB, v: any, prev: any) {
+    const el = rb.el as HTMLElement, n = rb.b.n!;
+    switch (rb.b.k) {
+      case 'text': el.textContent = '' + (v ?? ''); break;
+      case 'show': el.hidden = !v; break;
+      case 'prop': (el as any)[n] = v; break;
+      case 'class':
+        if (n) el.classList.toggle(n, !!v);
+        else {
+          if (prev?.[0] && prev[0] != v?.[0]) el.classList.remove(prev[0]);
+          if (v?.[0]) el.classList.toggle(v[0], !!v[1]);
+        }
+        break;
+      case 'attr':
+        if (v == null || v === false) el.removeAttribute(n);
+        else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), /^https?:/.test(el.baseURI) ? el.baseURI : env.href(), schemes)) el.setAttribute(n, v);
+        else { el.removeAttribute(n); warn(7, n, el.localName, v); }
+        break;
+      case 'style':
+        if (v == null || v === false) el.style.removeProperty(n);
+        else if (STYLE_BAD.test(v)) { el.style.removeProperty(n); warn(8, n, v); }
+        else el.style.setProperty(n, v);
+    }
+  }
+
+  function syncSelects() {
+    for (const rb of selects) writeModel(rb, evaluate(rb));
+  }
+
+  // ---- models
+
+  function writeModel(rb: RB, v: any) {
+    const el = rb.el as HTMLInputElement & HTMLSelectElement, k = rb.b.n;
+    const has = (x: string) => Array.isArray(v) && v.map(String).includes(x);
+    if (k == 'checkbox') el.checked = Array.isArray(v) ? has(el.value) : !!v;
+    else if (k == 'radio') el.checked = v != null && '' + v == el.value;
+    else if (k == 'multi') for (const opt of el.options) opt.selected = has(opt.value);
+    // loose comparison: '1.0' == 1 keeps a number input's text as typed
+    else if (el.value != (v ?? '')) el.value = v ?? '';
+  }
+
+  /** The control's value for its model; undefined for an unchecked radio. */
+  function readModel(rb: RB): unknown {
+    const el = rb.el as HTMLInputElement & HTMLSelectElement, k = rb.b.n;
+    if (k == 'number') return el.value === '' ? null : +el.value;
+    if (k == 'radio') return el.checked ? el.value : undefined;
+    if (k == 'multi') return [...el.selectedOptions].map((x) => x.value);
+    if (k != 'checkbox') return el.value;
+    const cur = evaluate(rb);
+    if (!Array.isArray(cur)) return el.checked;
+    const i = cur.map(String).indexOf(el.value);
+    if (el.checked && i < 0) cur.push(el.value);
+    if (!el.checked && i >= 0) cur.splice(i, 1);
+    return cur;
+  }
+
+  function setModel(rb: RB, v: unknown) {
+    if (v === undefined) return;
+    try { fns[rb.b.a!]!(rb.s, v); } catch (e) { return warn(9, rb.el.localName, (e as Error)?.message); }
+    for (const w of rb.b.w ?? []) app.mark(w, rb.s);
+  }
+
+  // ---- lists and conditionals
+
+  function setRow(s: any, t: TemplateDef, item: unknown, i: number) {
+    s[t.item!] = item;
+    if (t.index) s[t.index] = i;
+    s[t.ii!] = i;
+    return s;
+  }
+
+  function keyOf(t: TemplateDef, item: any, s: any): string {
+    if (t.key != null) return 'k' + fns[t.key]!(s);
+    if (t.keyFields && item) return 'r' + t.keyFields.map((f) => item[f]).join('\x1f');
+    if (Object(item) === item) return 'o' + (identities.get(item) ?? (identities.set(item, ++lastId), lastId));
+    warn(10);
+    return 'p' + typeof item + item;
+  }
+
+  function reconcile(rb: RB, v: any) {
+    const t = rb.t!, old = rb.rows!, end = (rb.end ??= after(rb.el));
+    const items: unknown[] = v == null ? [] : Array.isArray(v) ? v : Symbol.iterator in Object(v) ? [...v] : [];
+    // each row owns the nodes from its first node up to the next row's first node
+    const nodes = new Map(old.map((x, i) => [x, range(x.first, old[i + 1]?.first ?? end)]));
+    const byKey = new Map(old.map((x) => [x.key, x])), pos = new Map(old.map((x, i) => [x, i])), seen = new Set<string>();
+    const rows = items.map((item, i) => {
+      const s = setRow(Object.create(rb.s), t, item, i);
+      let key = keyOf(t, item, s);
+      while (seen.has(key)) { warn(11, key.slice(1)); key += '#'; }
+      seen.add(key);
+      const x = byKey.get(key);
+      if (!x) return instantiate(rb.el as HTMLTemplateElement, t, s, key, item, i);
+      byKey.delete(key);
+      if (x.item !== item || x.i != i) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = true; }
+      return x;
+    });
+    for (const x of byKey.values()) remove(x, nodes.get(x)!);
+    // move the fewest rows: those outside a longest increasing subsequence of old positions
+    const keep = lis(rows.map((x) => pos.get(x) ?? -1));
+    let ref: Node = end;
+    for (let i = rows.length; i--;) {
+      const x = rows[i]!;
+      if (!keep.has(i)) (ref as ChildNode).before(...(nodes.get(x) ?? x.nodes));
+      ref = x.first ?? ref;
+    }
+    rb.rows = rows;
+  }
+
+  function toggle(rb: RB, br: number) {
+    if (br == rb.br) return;
+    const end = (rb.end ??= after(rb.el)), [old] = rb.rows ?? [];
+    if (old) remove(old, range(old.first, end));
+    rb.br = br;
+    rb.rows = [];
+    if (!br) return;
+    const [anchor, tid] = br == 1 ? [rb.el, rb.b.x!] : rb.else!;
+    const x = instantiate(anchor as HTMLTemplateElement, ir.templates[tid]!, Object.create(rb.s), '', null, 0);
+    end.before(...x.nodes);
+    rb.rows = [x];
+  }
+
+  function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: string, item: unknown, i: number): Inst {
+    const frag = tpl.content.cloneNode(true) as DocumentFragment;
+    const els = t.nodes.map((nd) => {
+      let n: any = frag;
+      for (const j of nd.path!) n = n?.childNodes[j];
+      return n?.localName == nd.tag ? n : null;
+    });
+    const rbs: RB[] = [];
+    bindNodes(t.nodes, els, s, rbs);
+    walk(rbs, true);
+    const nodes = [...frag.childNodes];
+    return { first: nodes[0] ?? null, nodes, rbs, s, key, item, i, f: false };
+  }
+
+  function remove(x: Inst, nodes: Node[]) {
+    for (const n of nodes) (n as ChildNode).remove();
+    const forget = (rbs: RB[]) => { for (const rb of rbs) { deferred.delete(rb); selects.delete(rb); for (const r of rb.rows ?? []) forget(r.rbs); } };
+    forget(x.rbs);
+  }
+
+  // ---- events
+
+  function dispatch(e: Event) {
+    let el = e.target as Element | null;
+    if (el?.nodeType != 1) el = (el as Node | null)?.parentElement ?? null;
+    if (!el) return;
+    if (e.type == 'toggle' && el.localName == 'dialog' && el.hasAttribute('open')) {
+      for (const rb of [...deferred]) if (deferred.has(rb) && el.contains(rb.el)) { cur = []; walk([rb], true); }
+    }
+    // models update state before other handlers on the same event
+    const m = models.get(el);
+    if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m));
+    for (; el; el = el.parentElement) {
+      const hs = handlers.get(el)?.filter((h) => h.b.n == e.type);
+      if (hs?.length) {
+        for (const h of hs) h.b.x != null ? trigger(h, e) : handle(h, h.b.f!, e, h.b.w);
+        return;
+      }
+      if (el == root) return;
+    }
+  }
+
+  /** Runs a handler expression and invalidates what it may have changed. */
+  function handle(rb: RB, f: number, e: Event | null, writes: string[] | undefined, extra?: object) {
+    const s = child(rb.s, { $el: rb.el, $event: e, $f: app.storeFns(rb.el), ...extra });
+    try { fns[f]!(s); } catch (err) { console.error(err); }
+    for (const w of writes ?? []) app.mark(w, s);
+    if (writes?.some((w) => w.startsWith('$url'))) writeUrl();
+  }
+
+  // ---- actions
+
+  function trigger(rb: RB, e: Event) {
+    const a = ir.actions[rb.b.x!]!, el = rb.el;
+    if (e.type == 'submit' || el.localName == 'a' || (e.type == 'click' && /^(button|input)$/.test(el.localName) && el.closest('form'))) e.preventDefault();
+    if (!a.debounce) return fire(rb, a, e);
+    const st = act(el);
+    if (st.t) { env.clearTimeout(st.t); app.busy--; }
+    app.busy++;
+    st.t = env.setTimeout(() => { st.t = null; app.busy--; fire(rb, a, e); }, a.debounce, 'debounce');
+  }
+
+  function act(el: Element): ActState {
+    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, c: null, t: null, off: null });
+    return acts.get(el)!;
+  }
+
+  function fire(rb: RB, a: ActionDef, e: Event) {
+    const st = act(rb.el), get = a.method == 'GET';
+    if (!get && a.concurrency == 'block' && st.n) return;
+    const s = child(rb.s, { $el: rb.el, $event: e });
+    let url: string, body: unknown;
+    try {
+      url = app.url(a.url, s);
+      body = a.body != null ? fns[a.body]!(s) : a.form && !get && a.method != 'DELETE' ? serialize(rb.el as HTMLFormElement) : undefined;
+    } catch (err) {
+      return unhandled(toError(err), rb.el);
+    }
+    const drop = a.optimistic != null ? app.ext.optimistic!.begin(a.optimistic, s) : () => {};
+    if (get) {
+      st.c?.abort();
+      return void send(rb, a, st, url, body, drop, (st.c = new AbortController()));
+    }
+    const run = () => void send(rb, a, st, url, body, drop);
+    if (!st.n) run();
+    else if (a.concurrency == 'latest') { st.w ? st.w.drop() : app.busy++; st.w = { run, drop }; }
+    else { app.busy++; st.q.push(run); }
+  }
+
+  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: () => void, c?: AbortController) {
+    const el = rb.el as HTMLFormElement;
+    st.n++;
+    el.setAttribute('aria-busy', 'true');
+    if (a.form && a.concurrency == 'block' && !c && !st.off) {
+      st.off = ([...el.elements] as HTMLInputElement[]).filter((x) => !x.disabled);
+      for (const x of st.off) x.disabled = true;
+    }
+    try {
+      const result = await req.send(url, { method: a.method, body, signal: c?.signal });
+      if (c && st.c != c) return;
+      drop();
+      if (a.then != null) handle(rb, a.then, null, a.w, { $result: result });
+    } catch (err) {
+      drop();
+      if (isAbort(err) || (c && st.c != c)) return;
+      const error = toError(err);
+      a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el);
+    } finally {
+      if (c && st.c == c) st.c = null;
+      if (!--st.n) {
+        for (const x of st.off ?? []) x.disabled = false;
+        st.off = null;
+        const next = st.q.shift() ?? st.w?.run;
+        if (next && next == st.w?.run) st.w = null;
+        if (next) { app.busy--; next(); } else el.removeAttribute('aria-busy');
+      }
+    }
+  }
+
+  /** The unhandled-error path: `sn-error` event, then `onError`, then the dev console. */
+  function unhandled(error: SinterError, el: Element | null, resource?: string) {
+    const target = el ?? root, ev = new CustomEvent('sn-error', { detail: { error, element: target, resource }, bubbles: true, cancelable: true });
+    ET.dispatchEvent.call(target, ev);
+    if (ev.defaultPrevented) return;
+    config.onError?.(error, target as Element);
+    warn(16, resource ? ` loading \`${resource}\`` : '', error.message, error);
+  }
+
+  // ---- resources
+
+  function createLoader(def: ResourceDef) {
+    const r = createResource(def.name, { key: def.key, order: def.order, locale: () => config.locale?.get(), warn, prep: (x) => (app.prep ? app.prep(x) : x) });
+    r.onDirty = (what) => app.mark((what == 'data' ? '$r.' : '$meta.') + def.name);
+    resources.set(def.name, r);
+    Object.defineProperty(app.page.$r, def.name, { get: r.value, enumerable: true });
+    app.page.$meta[def.name] = r.meta;
+    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null;
+
+    const resolve = () => {
+      const s = def.scope < 0 ? app.page : rootScopes[def.scope] ?? app.page;
+      try { return def.when != null && !fns[def.when]!(s) ? null : app.url(def.src, s); } catch (e) { warn(17, def.name, (e as Error).message); return null; }
+    };
+    const loading = (on: boolean) => { if (r.meta.loading != on) { r.meta.loading = on; r.onDirty('meta'); } };
+    const pick = (path: string | null, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
+    const store = (body: unknown, m = l.pager?.current()) => {
+      let items = pick(def.items, body);
+      if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
+      if (Array.isArray(items)) items = items.map(clean);
+      const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t;
+      l.pager?.appends(m) && r.isCollection ? items.forEach(r.upsert) : r.replace(items);
+      r.setTotal(total);
+      l.pager?.received(items, total, m);
+    };
+
+    const l = {
+      def, res: r, app, pager: null as Pager | null,
+      start() {
+        const el = def.data != null ? found.get(def.data) : null;
+        let data;
+        if (el) {
+          if (el.localName == 'script' && el.parentElement?.localName == 'head') try { data = { v: JSON.parse(el.textContent!) }; } catch { warn(5, def.name); }
+          else warn(4, def.name);
+        }
+        url = data ? resolve() : null;
+        if (url == null) return l.changed();
+        l.pager?.reset();
+        store(data!.v);
+        r.meta.loadedAt = env.now();
+      },
+      /** `src` or `when` may have changed: reload from the first page if the URL differs. */
+      changed() {
+        const u = resolve();
+        if (u === url) return;
+        url = u;
+        l.pager?.reset();
+        if (u != null) return void l.load();
+        c?.abort();
+        r.replace(r.isCollection ? [] : null);
+        loading(false);
+      },
+      /** Repeats the current request; several calls in one task share one request. */
+      refetch: () => (again ??= Promise.resolve().then(() => { again = null; return l.load(); })),
+      async load(move?: unknown) {
+        if (url == null) return;
+        c?.abort();
+        const ctl = (c = new AbortController()), n = ++seq, m = l.pager && (move ?? l.pager.current());
+        loading(true);
+        try {
+          const body = await loadShared(withParams(url, m ? l.pager!.params(m) : null), ctl.signal);
+          if (n != seq) return;
+          store(body, m);
+          r.meta.error = null;
+          r.meta.loadedAt = env.now();
+        } catch (e) {
+          if (n != seq || isAbort(e)) return;
+          const error = toError(e);
+          r.meta.error = error;
+          r.onDirty('meta');
+          unhandled(error, null, def.name);
+        } finally {
+          if (n == seq) { c = null; loading(false); }
+        }
+      },
+    };
+    if (def.paginate) l.pager = app.ext.paginate!.pager(l);
+    r.loader = l;
+    loaders.push(l);
+  }
+
+  /** GETs `url`; concurrent loads of one URL share one request, aborted when no one waits. */
+  function loadShared(url: string, signal: AbortSignal): Promise<unknown> {
+    let e = shared.get(url);
+    if (!e) {
+      const c = new AbortController(), entry = { n: 0, c, p: req.send(url, { signal: c.signal }) };
+      entry.p.catch(() => {}).finally(() => shared.get(url) == entry && shared.delete(url));
+      shared.set(url, (e = entry));
+    }
+    const entry = e;
+    entry.n++;
+    return new Promise((ok, no) => {
+      let done = false;
+      const leave = () => { done = true; entry.n--; signal.removeEventListener('abort', abort); };
+      const abort = () => {
+        if (done) return;
+        leave();
+        if (!entry.n) { entry.c.abort(); shared.delete(url); }
+        no(new DOMException('', 'AbortError'));
+      };
+      signal.aborted ? abort() : signal.addEventListener('abort', abort);
+      entry.p.then((v) => done || (leave(), ok(v)), (err) => done || (leave(), no(err)));
+    });
+  }
 }
 
 export function withParams(url: string, params: Record<string, string> | null): string {
   if (!params) return url;
-  const [path, hash = ''] = url.split('#') as [string, string?];
-  const [base, query = ''] = path.split('?') as [string, string?];
-  const sp = new URLSearchParams(query);
-  for (const [k, v] of Object.entries(params)) sp.set(k, v);
-  const qs = sp.toString();
-  return base + (qs ? `?${qs}` : '') + (hash ? `#${hash}` : '');
-}
-
-function lastNode(app: App, inst: Inst): Node | null {
-  const all = app.instNodes(inst);
-  return all[all.length - 1] ?? null;
-}
-
-function allNodes(app: App, inst: Inst): Node[] {
-  return app.instNodes(inst);
+  const [path, hash] = url.split('#'), [base, query] = path!.split('?'), q = new URLSearchParams(query);
+  for (const k in params) q.set(k, params[k]!);
+  return `${base}?${q}${hash ? '#' + hash : ''}`;
 }
 
 /** Indexes (into `seq`) of a longest increasing subsequence, ignoring -1 entries. */
 export function lis(seq: number[]): Set<number> {
-  const tails: number[] = [];
-  const prev: number[] = new Array(seq.length).fill(-1);
-  for (let i = 0; i < seq.length; i++) {
-    const v = seq[i]!;
-    if (v < 0) continue;
+  const tails: number[] = [], prev: Array<number | undefined> = [];
+  seq.forEach((v, i) => {
+    if (v < 0) return;
     let lo = 0, hi = tails.length;
-    while (lo < hi) { const m = (lo + hi) >> 1; if (seq[tails[m]!]! < v) lo = m + 1; else hi = m; }
-    if (lo > 0) prev[i] = tails[lo - 1]!;
+    while (lo < hi) { const m = (lo + hi) >> 1; seq[tails[m]!]! < v ? (lo = m + 1) : (hi = m); }
+    prev[i] = tails[lo - 1];
     tails[lo] = i;
-  }
-  const out = new Set<number>();
-  let k = tails.length ? tails[tails.length - 1]! : -1;
-  while (k >= 0) { out.add(k); k = prev[k]!; }
-  return out;
+  });
+  const keep = new Set<number>();
+  for (let k = tails.at(-1); k != null; k = prev[k]) keep.add(k);
+  return keep;
 }
 
 /** Serializes a form's named controls to nested JSON, or FormData if it has a file input. */
-export function serializeForm(form: HTMLFormElement): unknown {
-  const controls = Array.from(form.elements) as any[] as Array<HTMLInputElement & { selectedOptions: HTMLCollectionOf<HTMLOptionElement> }>;
-  if (controls.some((c) => c.localName === 'input' && c.type === 'file')) return new FormData(form);
-  const out: Record<string, unknown> = Object.create(null);
-  const counts = new Map<string, number>();
-  for (const c of controls) if (c.name && c.type === 'checkbox') counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
+export function serialize(form: HTMLFormElement): unknown {
+  const controls = [...form.elements] as Array<HTMLInputElement & { selectedOptions: HTMLCollectionOf<HTMLOptionElement> }>;
+  if (controls.some((c) => c.type == 'file')) return new FormData(form);
+  const out = Object.create(null), boxes: Record<string, number> = {};
+  for (const c of controls) if (c.type == 'checkbox') boxes[c.name] = (boxes[c.name] ?? 0) + 1;
   for (const c of controls) {
-    if (!c.name || c.disabled) continue;
-    const type = c.type;
-    if (['submit', 'button', 'reset', 'image'].includes(type) || c.localName === 'button' || c.localName === 'fieldset' || c.localName === 'output') continue;
-    let value: unknown;
-    if (type === 'checkbox') {
-      if ((counts.get(c.name) ?? 0) > 1) {
-        const arr = (getPath(out, c.name) as unknown[] | undefined) ?? [];
-        if (c.checked) arr.push(c.value);
-        setPath(out, c.name, arr);
-        continue;
-      }
-      value = c.checked;
-    } else if (type === 'radio') {
-      if (!c.checked) continue;
-      value = c.value;
-    } else if (type === 'number' || type === 'range') {
-      value = c.value === '' ? null : Number(c.value);
-    } else if (c.localName === 'select' && c.multiple) {
-      value = Array.from(c.selectedOptions).map((o) => o.value);
-    } else value = c.value;
-    setPath(out, c.name, value);
+    const { name, type } = c, segs = name?.match(/[^.[\]]+/g);
+    if (!segs || c.disabled || /^(submit|button|reset|image|fieldset|output)$/.test(type) || (type == 'radio' && !c.checked) || segs.some((s) => BAD_KEY.test(s))) continue;
+    const k = segs.pop()!;
+    let o = out;
+    segs.forEach((s, i) => (o = o[s] ??= /^\d+$/.test(segs[i + 1] ?? k) ? [] : Object.create(null)));
+    if (type == 'checkbox' && boxes[name]! > 1) (o[k] ??= []).push(...(c.checked ? [c.value] : []));
+    else o[k] = type == 'checkbox' ? c.checked
+      : /^(number|range)$/.test(type) ? (c.value === '' ? null : +c.value)
+      : type == 'select-multiple' ? [...c.selectedOptions].map((x) => x.value)
+      : c.value;
   }
   return out;
-}
-
-const BAD = new Set(['__proto__', 'constructor', 'prototype']);
-
-function segments(name: string): string[] {
-  const out: string[] = [];
-  name.replace(/([^.[\]]+)|\[(\d*)\]/g, (_m, a: string | undefined, b: string | undefined) => { out.push(a ?? b ?? ''); return ''; });
-  return out;
-}
-
-function getPath(obj: Record<string, unknown>, name: string): unknown {
-  let cur: unknown = obj;
-  for (const s of segments(name)) { if (cur == null || typeof cur !== 'object') return undefined; cur = (cur as Record<string, unknown>)[s]; }
-  return cur;
-}
-
-function setPath(obj: Record<string, unknown>, name: string, value: unknown): void {
-  const segs = segments(name);
-  if (segs.some((s) => BAD.has(s))) return;
-  let cur: Record<string, unknown> = obj;
-  segs.forEach((s, i) => {
-    if (i === segs.length - 1) { cur[s] = value; return; }
-    if (cur[s] == null || typeof cur[s] !== 'object') cur[s] = /^\d+$/.test(segs[i + 1]!) ? [] : Object.create(null);
-    cur = cur[s] as Record<string, unknown>;
-  });
 }

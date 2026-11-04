@@ -133,7 +133,7 @@ class Compiler {
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
-      features: ['sse', 'optimistic', 'paginate', 'persist'].filter((f) => this.features.has(f)),
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces,
       diagnostics: this.diagnostics, files: [...this.files].sort(),
     };

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { Resource, type Op } from '../src/runtime/store.js';
+import { createResource, type Op } from '../src/runtime/store.js';
 import { render } from '../src/testing/index.js';
 
 /** Small seeded PRNG (mulberry32), so failures are reproducible from the seed. */
@@ -52,7 +52,7 @@ test('random interleavings of server writes and optimistic layers match a refere
   for (const seed of [11, 12, 13, 14, 15, 16]) {
     const rand = rng(seed);
     const int = (n: number) => Math.floor(rand() * n);
-    const r = new Resource<Item>('xs', { key: ['id'], order: 'n' });
+    const r = createResource<Item>('xs', { key: ['id'], order: 'n' });
     let base = new Map<string, Item>();
     const layers: Array<{ id: number; ops: Op[] }> = [];
     const key = () => String(int(6));

@@ -15,25 +15,24 @@ export interface Env {
   href(): string;
   replaceState(url: string): void;
   random(): number;
-  /** add a window-level listener (pagehide, pageshow, popstate) */
+  /** add a window-level listener (pagehide, pageshow, popstate); returns the remover */
   listen(type: string, fn: (e: Event) => void): () => void;
-  createEventSource(url: string): EventSource;
 }
 
 const g = globalThis as typeof globalThis & Window;
+const tryGet = (f: () => Storage) => { try { return f(); } catch { return null; } };
 
 export const defaultEnv: Env = {
-  now: () => Date.now(),
-  setTimeout: (fn, ms) => g.setTimeout(fn, ms),
-  clearTimeout: (h) => g.clearTimeout(h as number),
-  queueMicrotask: (fn) => g.queueMicrotask(fn),
-  navigate: (url) => { g.location.assign(url); },
-  fetch: (req) => g.fetch(req),
-  storage: () => { try { return g.localStorage; } catch { return null; } },
-  session: () => { try { return g.sessionStorage; } catch { return null; } },
+  now: Date.now,
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (h) => clearTimeout(h as number),
+  queueMicrotask: (fn) => queueMicrotask(fn),
+  navigate: (url) => g.location.assign(url),
+  fetch: (req) => fetch(req),
+  storage: () => tryGet(() => g.localStorage),
+  session: () => tryGet(() => g.sessionStorage),
   href: () => g.location.href,
   replaceState: (url) => g.history.replaceState(g.history.state, '', url),
-  random: () => Math.random(),
-  listen: (type, fn) => { g.addEventListener(type, fn); return () => g.removeEventListener(type, fn); },
-  createEventSource: (url) => new EventSource(url, { withCredentials: true }),
+  random: Math.random,
+  listen: (type, fn) => (g.addEventListener(type, fn), () => g.removeEventListener(type, fn)),
 };

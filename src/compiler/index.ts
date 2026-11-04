@@ -33,9 +33,7 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
   for (const f of parts.fns) lines.push(`  ${f},`);
   lines.push('];');
   lines.push('');
-  const opts = [`ir`, `fns`, `features: [${parts.features.join(', ')}]`];
-  if (options.dev) opts.push('dev: true');
-  lines.push(`mount(document, { ${opts.join(', ')} });`);
+  lines.push(`mount(document, { ir, fns, features: [${parts.features.join(', ')}] });`);
   return lines.join('\n') + '\n';
 }
 

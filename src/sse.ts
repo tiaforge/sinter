@@ -3,7 +3,6 @@
 // steps aside for the back/forward cache.
 import type { EventDef, SyncDef } from './ir.js';
 import { config, SinterError } from './runtime/config.js';
-import type { Env } from './runtime/env.js';
 import type { App, Feature, Transport } from './runtime/app.js';
 import { clean } from './runtime/store.js';
 
@@ -11,7 +10,7 @@ const MIN_BACKOFF = 1000;
 const MAX_BACKOFF = 30_000;
 
 /** The default transport: one EventSource. */
-export function eventSourceTransport(env: Env): Transport {
+export function eventSourceTransport(): Transport {
   let es: EventSource | null = null;
   let deliver: ((name: string, data: string) => void) | null = null;
   const names = new Set<string>();
@@ -23,7 +22,7 @@ export function eventSourceTransport(env: Env): Transport {
   return {
     connect(url, onEvent, onState, initial) {
       deliver = onEvent;
-      es = env.createEventSource(url);
+      es = new EventSource(url, { withCredentials: true });
       es.onopen = () => onState('open');
       es.onerror = () => onState('error');
       names.clear();
@@ -69,7 +68,7 @@ class Connection {
 
   private open(): void {
     if (this.closed && !this.hidden) return;
-    const t = this.app.transport(this.url) ?? eventSourceTransport(this.app.env);
+    const t = this.app.transport(this.url) ?? eventSourceTransport();
     this.t = t;
     const reconnect = this.everOpen;
     t.connect(this.url, (name, data) => this.event(name, data), (state) => {
@@ -145,14 +144,14 @@ class Connection {
           return;
         }
         case 'patch': {
-          if (r.isCollection && !this.hasKey(r.opts.key!, scope.$p, def)) return;
+          if (r.isCollection && !this.hasKey(r.key!, scope.$p, def)) return;
           const key = r.keyOf(scope.$p);
           if (r.isCollection && !r.has(key)) return;
           r.patch(key, clean(app.fns[def.set!]!(scope)));
           return;
         }
         case 'remove': {
-          if (r.isCollection && !this.hasKey(r.opts.key!, scope.$p, def)) return;
+          if (r.isCollection && !this.hasKey(r.key!, scope.$p, def)) return;
           const key = r.keyOf(scope.$p);
           r.remove(key);
           return;

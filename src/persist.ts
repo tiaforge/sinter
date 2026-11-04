@@ -18,13 +18,13 @@ const persist: Feature = {
     };
     app.ext.persist = {
       model(rb, set) {
-        const key = rb.def.p!;
+        const key = rb.b.p!;
         const v = read(key);
         if (v !== undefined) set(v);
-        const paths = (rb.def.w ?? []).map((w) => w.split('.').map((s) => (s[0] === '{' ? '*' : s)));
+        const paths = (rb.b.w ?? []).map((w) => w.split('.').map((s) => (s[0] === '{' ? '*' : s)));
         app.afterFlush.push((dirty) => {
           if (!dirty.some((d) => paths.some((p) => overlaps(p, d)))) return;
-          try { write(key, app.fns[rb.def.f!]!(rb.scope)); } catch { /* unreadable: skip */ }
+          try { write(key, app.fns[rb.b.f!]!(rb.s)); } catch { /* unreadable: skip */ }
         });
       },
       state(key, obj) {

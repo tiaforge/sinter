@@ -13,7 +13,8 @@
     "./persist": "./dist/persist.js",
     "./compiler": "./dist/compiler/index.js",
     "./vite": "./dist/vite.js",
-    "./testing": "./dist/testing/index.js"
+    "./testing": "./dist/testing/index.js",
+    "./dev": "./dist/dev.js"
   },
   "files": [
     "dist",

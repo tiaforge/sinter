@@ -5,14 +5,13 @@ import { config, SinterError, type Middleware } from './config.js';
 import type { Env } from './env.js';
 
 export const TIMEOUT = 30_000;
-const IDEMPOTENT = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 
 export interface SendInit {
   method?: string;
   /** JSON-serialized unless FormData */
   body?: unknown;
   headers?: Record<string, string>;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 }
 
 export interface RequestLayer {
@@ -24,79 +23,63 @@ export interface RequestLayer {
   readonly inflight: number;
 }
 
-export function isAbort(e: unknown): boolean {
-  return !!e && typeof e === 'object' && (e as { name?: string }).name === 'AbortError';
-}
+export const isAbort = (e: unknown) => (e as Error)?.name == 'AbortError';
 
-export function createRequestLayer(env: Env, chain: Middleware[], onSettle?: () => void): RequestLayer {
+export const toError = (e: unknown) => (e instanceof SinterError ? e : new SinterError(0, null, (e as Error)?.message || 'network error'));
+
+export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer {
   let inflight = 0;
 
   const terminal = async (req: Request): Promise<Response> => {
-    const idempotent = IDEMPOTENT.has(req.method);
-    for (let attempt = 0; ; attempt++) {
-      const ctl = new AbortController();
-      const onAbort = () => ctl.abort(req.signal.reason);
-      if (req.signal.aborted) ctl.abort(req.signal.reason);
-      req.signal.addEventListener('abort', onAbort);
-      const timer = env.setTimeout(() => ctl.abort(new DOMException('timeout', 'TimeoutError')), TIMEOUT, 'timeout');
+    const signal = req.signal, idempotent = /^(GET|HEAD|OPTIONS|PUT|DELETE)$/.test(req.method);
+    for (let retried = 0; ; retried++) {
+      const c = new AbortController(), abort = () => c.abort(signal.reason);
+      signal.aborted ? abort() : signal.addEventListener('abort', abort);
+      const timer = env.setTimeout(() => c.abort(), TIMEOUT, 'timeout');
       try {
-        const attemptReq = idempotent ? req.clone() : req;
-        return await env.fetch(new Request(attemptReq, { signal: ctl.signal }));
+        return await env.fetch(new Request(idempotent ? req.clone() : req, { signal: c.signal }));
       } catch (e) {
-        if (req.signal.aborted) throw req.signal.reason ?? e;
-        if (ctl.signal.aborted) throw new SinterError(0, null, 'request timed out');
-        if (idempotent && attempt === 0 && !isAbort(e)) continue;
-        throw new SinterError(0, null, (e as Error)?.message || 'network error');
+        if (signal.aborted) throw signal.reason ?? e;
+        if (c.signal.aborted) throw new SinterError(0, null, 'request timed out');
+        if (!idempotent || retried || isAbort(e)) throw toError(e);
       } finally {
         env.clearTimeout(timer);
-        req.signal.removeEventListener('abort', onAbort);
+        signal.removeEventListener('abort', abort);
       }
     }
   };
 
   const run = chain.reduceRight<(r: Request) => Promise<Response>>((next, mw) => (r) => mw(r, next), terminal);
 
-  function build(url: string, init: SendInit): Request {
-    const base = env.href();
-    const target = new URL(url, base);
-    const own = new URL(base).origin;
-    const allowed = target.origin === own || config.origins.some((o) => { try { return new URL(o).origin === target.origin; } catch { return false; } });
-    if (!allowed) throw new SinterError(0, null, `request to ${target.origin} refused: origin not allowed`);
-    const method = (init.method ?? 'GET').toUpperCase();
-    const headers = new Headers(init.headers);
-    let body: BodyInit | undefined;
-    if (init.body !== undefined && init.body !== null && method !== 'GET' && method !== 'HEAD') {
-      if (typeof FormData !== 'undefined' && init.body instanceof FormData) body = init.body;
-      else {
-        body = JSON.stringify(init.body);
-        headers.set('Content-Type', 'application/json');
-      }
-    }
-    if (!headers.has('Accept')) headers.set('Accept', 'application/json');
-    const reqInit: RequestInit = { method, headers, credentials: 'same-origin' };
-    if (body !== undefined) reqInit.body = body;
-    if (init.signal) reqInit.signal = init.signal;
-    return new Request(target.href, reqInit);
-  }
-
   async function raw(url: string, init: SendInit = {}): Promise<Response> {
-    const req = build(url, init);
+    const target = new URL(url, env.href());
+    if (target.origin != new URL(env.href()).origin && !config.origins.some((o) => new URL(o).origin == target.origin)) {
+      throw new SinterError(0, null, `request to ${target.origin} refused: origin not allowed`);
+    }
+    const method = (init.method ?? 'GET').toUpperCase(), headers = new Headers(init.headers);
+    let body = init.body as BodyInit | undefined;
+    if (body == null || method == 'GET') body = undefined;
+    else if (!(body instanceof FormData)) {
+      body = JSON.stringify(body);
+      headers.set('Content-Type', 'application/json');
+    }
+    headers.has('Accept') || headers.set('Accept', 'application/json');
     inflight++;
     try {
-      return await run(req);
+      return await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null }));
     } catch (e) {
-      if (e instanceof SinterError || isAbort(e)) throw e;
-      throw new SinterError(0, null, (e as Error)?.message || 'network error');
+      throw isAbort(e) ? e : toError(e);
     } finally {
       inflight--;
-      onSettle?.();
     }
   }
 
-  async function send(url: string, init: SendInit = {}): Promise<unknown> {
-    const res = await raw(url, init);
-    const body = await parseBody(res);
-    if (!res.ok) throw new SinterError(res.status, body, errorMessage(res, body));
+  async function send(url: string, init?: SendInit): Promise<unknown> {
+    const res = await raw(url, init), body = await parseBody(res);
+    if (!res.ok) {
+      const b = body as any, m = typeof body == 'string' ? body.length < 200 && body.trim() : b?.message ?? b?.error;
+      throw new SinterError(res.status, body, typeof m == 'string' && m ? m : `${res.status} ${res.statusText}`.trim());
+    }
     return body;
   }
 
@@ -105,22 +88,8 @@ export function createRequestLayer(env: Env, chain: Middleware[], onSettle?: () 
 
 /** 204 or empty → null; JSON content type → parsed; anything else → text. */
 export async function parseBody(res: Response): Promise<unknown> {
-  if (res.status === 204) return null;
-  const text = await res.text();
+  const text = res.status == 204 ? '' : await res.text();
   if (!text) return null;
-  const ct = (res.headers.get('Content-Type') ?? '').toLowerCase();
-  if (/[/+]json\b/.test(ct)) {
-    try { return JSON.parse(text); } catch { throw new SinterError(res.status, text, 'invalid JSON'); }
-  }
-  return text;
-}
-
-function errorMessage(res: Response, body: unknown): string {
-  if (body && typeof body === 'object') {
-    const b = body as Record<string, unknown>;
-    if (typeof b.message === 'string') return b.message;
-    if (typeof b.error === 'string') return b.error;
-  }
-  if (typeof body === 'string' && body.length < 200 && body.trim()) return body.trim();
-  return `${res.status} ${res.statusText}`.trim();
+  if (!/[/+]json\b/i.test(res.headers.get('Content-Type') ?? '')) return text;
+  try { return JSON.parse(text); } catch { throw new SinterError(res.status, text, 'invalid JSON'); }
 }
