@@ -110,6 +110,8 @@ export interface App {
 /** Runtime binding: the bound binding plus last value and list/conditional state. */
 interface RB extends BoundBinding {
   v?: unknown;
+  /** evaluation scope: the binding's scope plus `$el`, created once */
+  e?: any;
   /** for: rows; if: the rendered branch (0 or 1 entries) */
   rows?: Inst[];
   t?: TemplateDef;
@@ -144,10 +146,26 @@ interface ActState {
 const instances = new WeakMap<object, App>();
 const paths = new Map<string, string[]>();
 const split = (p: string) => paths.get(p) ?? (paths.set(p, p.split('.')), paths.get(p)!);
-const overlaps = (a: string[], b: string[]) => {
-  for (let i = 0, n = Math.min(a.length, b.length); i < n; i++) if (a[i] != b[i] && a[i] != '*' && b[i] != '*') return false;
+/**
+ * Whether dependency `dep` (with `{name}` segments read from scope `s`) and dirty path `d`
+ * are prefixes of each other. `*` matches any segment. A structure change (`#`, from
+ * push/splice/…) does not reach a row's own `{index}`: rows whose index changed are
+ * re-evaluated anyway, and the others still hold the same item.
+ */
+const overlaps = (dep: string[], d: string[], s?: any) => {
+  for (let i = 0, n = Math.min(dep.length, d.length); i < n; i++) {
+    let x = dep[i]!;
+    const y = d[i]!;
+    if (s && x[0] == '{') {
+      if (y == '#') return false;
+      x = '' + s[x.slice(1, -1)];
+    }
+    if (x != y && x != '*' && y != '*' && y != '#') return false;
+  }
   return true;
 };
+/** Sentinel for "not written yet". */
+const UNSET = {};
 /** Fills `{name}` segments from a scope. */
 const fill = (p: string, s?: any) => (s && p.includes('{') ? split(p).map((x) => (x[0] == '{' ? '' + s[x.slice(1, -1)] : x)) : split(p));
 const range = (a: Node | null, stop: Node | null) => {
@@ -194,9 +212,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const forward = (m: 'upsert' | 'patch' | 'remove') => (n: string, ...a: [any, any?]) => res(n)[m](...a);
   const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
   const evaluate = (rb: RB): any => {
-    try { return fns[rb.b.f!]!(child(rb.s, { $el: rb.el })); } catch (e) { warn(6, rb.b.k, rb.el.localName, (e as Error)?.message); }
+    try { return fns[rb.b.f!]!((rb.e ??= child(rb.s, { $el: rb.el }))); } catch (e) { warn(6, rb.b.k, rb.el.localName, (e as Error)?.message); }
   };
-  const hit = (dep: string, s?: any) => { const p = fill(dep, s); return cur.some((d) => overlaps(p, d)); };
+  const hit = (dep: string, s?: any) => { const p = split(dep); return cur.some((d) => overlaps(p, d, s)); };
 
   const app: App = {
     ir, fns, env, req, transport: o.transport ?? (() => undefined), ext: {},
@@ -373,7 +391,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       scopes[i] = s;
       if (rbs == rootRbs) rootScopes[i] = s;
       if (el) for (const b of nd.b) {
-        const rb: RB = { b, el, s };
+        const rb: RB = { b, el, s, v: UNSET };
         if (b.k == 'on') {
           handlers.get(el)?.push(rb) ?? handlers.set(el, [rb]);
           listen(b.n!);
@@ -405,14 +423,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Evaluates and writes one binding if needed; false while it waits in a closed dialog. */
   function process(rb: RB, force: boolean): boolean {
+    if (!force && !deferred.has(rb) && !rb.b.d?.some((d) => hit(d, rb.s))) return true;
     if (rb.el.closest('dialog:not([open])')) { deferred.add(rb); return false; }
     if (deferred.delete(rb)) force = true;
-    if (!force && !rb.b.d?.some((d) => hit(d, rb.s))) return true;
     const v = evaluate(rb), k = rb.b.k;
     if (k == 'for') reconcile(rb, v);
     else if (k == 'if') toggle(rb, v ? 1 : rb.else ? 2 : 0);
     else if (k == 'model') writeModel(rb, v);
-    else if (force || !Object.is(v, rb.v)) { write(rb, v, rb.v); rb.v = v; }
+    else if (!Object.is(v, rb.v)) { write(rb, v, rb.v == UNSET ? undefined : rb.v); rb.v = v; }
     return true;
   }
 

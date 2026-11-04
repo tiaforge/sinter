@@ -493,7 +493,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
             } else if (mode === 'value' && MUTATORS.has(method) && recv.segs && recv.res.kind === 'state') {
               report('SN203', `value expressions cannot change state; move \`${method}()\` to \`data-sn-on-*\``, n.start);
             } else if (mode === 'handler' && recv.segs && recv.res.kind !== 'magic' && !recv.resource) {
-              writes.add(recv.segs.join('.'));
+              // a known mutator changes the list structure (`#`), not the elements; unknown methods may change anything
+              writes.add(recv.segs.join('.') + (MUTATORS.has(method) ? '.#' : ''));
             } else if (mode === 'handler' && recv.segs && recv.root === '$url') {
               writes.add(recv.segs.slice(0, 2).join('.'));
             }

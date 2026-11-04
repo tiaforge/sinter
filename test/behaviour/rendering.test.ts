@@ -385,3 +385,22 @@ test('closed dialogs are evaluated when they open', async () => {
   await flush();
   expect(root.querySelector('input')!.value).toBe('Ada');
 });
+
+test('list structure changes still update index reads, length and shifted rows', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ xs: [{t: 'a'}, {t: 'b'}, {t: 'c'}] }">
+      <p data-sn-text="xs[0].t + xs.length"></p>
+      <ul><template data-sn-for="(x, i) in xs"><li data-sn-text="i + xs[i].t"></li></template></ul>
+      <button id="rm" data-sn-on-click="xs.splice(0, 1)"></button>
+      <button id="push" data-sn-on-click="xs.push({t: 'd'})"></button>
+    </div>`);
+  const lis = () => [...root.querySelectorAll('li')].map((l) => l.textContent);
+  root.querySelector<HTMLElement>('#rm')!.click();
+  await flush();
+  expect(root.querySelector('p')!.textContent).toBe('b2');
+  expect(lis()).toEqual(['0b', '1c']);
+  root.querySelector<HTMLElement>('#push')!.click();
+  await flush();
+  expect(root.querySelector('p')!.textContent).toBe('b3');
+  expect(lis()).toEqual(['0b', '1c', '2d']);
+});
