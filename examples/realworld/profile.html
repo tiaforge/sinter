@@ -37,14 +37,14 @@
             <template data-sn-else>
               <template data-sn-if="profile.following">
                 <button class="btn btn-sm btn-secondary action-btn" data-sn-delete="https://api.realworld.show/api/profiles/{profile.username}/follow"
-                        data-sn-optimistic="patch('profile', profile, {following: false})" data-sn-then="patch('profile', profile, $result.profile)"
+                        data-sn-then="patch('profile', profile, $result.profile)"
                         data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
                   <i class="ion-plus-round"></i> <span data-sn-text="'Unfollow ' + profile.username"></span>
                 </button>
               </template>
               <template data-sn-else>
                 <button class="btn btn-sm btn-outline-secondary action-btn" data-sn-post="https://api.realworld.show/api/profiles/{profile.username}/follow"
-                        data-sn-optimistic="patch('profile', profile, {following: true})" data-sn-then="patch('profile', profile, $result.profile)"
+                        data-sn-then="patch('profile', profile, $result.profile)"
                         data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
                   <i class="ion-plus-round"></i> <span data-sn-text="'Follow ' + profile.username"></span>
                 </button>

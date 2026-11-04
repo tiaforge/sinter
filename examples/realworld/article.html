@@ -71,7 +71,7 @@
                 <template data-sn-if="user && user.username == c.author.username">
                   <span class="mod-options">
                     <i class="ion-trash-a" data-sn-delete="https://api.realworld.show/api/articles/{article.slug}/comments/{c.id}"
-                       data-sn-optimistic="remove('comments', c)" data-sn-catch="commentError = $error"></i>
+                       data-sn-then="remove('comments', c)" data-sn-catch="commentError = $error"></i>
                   </span>
                 </template>
               </div>
