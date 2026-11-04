@@ -109,6 +109,10 @@ describe('data-sn-path', () => {
 });
 
 describe('expressions', () => {
+  test('parenthesized expressions parse to their closing parenthesis', () => {
+    expect(diags('<div data-sn-state="{xs: [], b: 1}"><template data-sn-for="a in (b ? xs : [])" data-sn-key="a"><i data-sn-text="(a)"></i></template></div>')).toEqual([]);
+    expect(diags('<p data-sn-text="(1) )"></p>')[0]!.code).toBe('SN401');
+  });
   test('globals: JavaScript yes, browser no; meta tools refused', () => {
     expect(diags('<p data-sn-text="Math.max(1, new Date(0).getTime(), JSON.stringify([]).length)"></p>')).toEqual([]);
     expect(diags('<p data-sn-text="fetch(1)"></p>')[0]!.code).toBe('SN202');

@@ -161,9 +161,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   try {
     if (mode === 'value' || opts.object) {
       ast = acorn.parseExpressionAt(src, 0, parseOpts) as Node;
-      const rest = src.slice(ast.end).trim();
+      // without preserveParens, `(a ? b : c)` ends inside its parentheses; find the real end
+      const end = (acorn.parseExpressionAt(src, 0, { ...parseOpts, preserveParens: true }) as Node).end;
+      const rest = src.slice(end).trim();
       if (rest) {
-        const at = src.indexOf(rest, ast.end);
+        const at = src.indexOf(rest, end);
         report('SN401', `unexpected \`${rest.slice(0, 20)}\` after the expression`, at);
         return fail();
       }
