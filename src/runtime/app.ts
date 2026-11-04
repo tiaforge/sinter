@@ -350,7 +350,7 @@ export class App {
         if (this.dev) this.detectOutside(dirty);
         for (const l of this.loaders.values()) if (l.def.deps.some((d) => this.isDirtyPath(split(d), null))) l.srcChanged();
         this.walk(this.rootBlock, false);
-        for (const rb of this.selects) this.writeModel(rb, this.eval(rb));
+        for (const rb of this.selects) this.writeModel(rb, this.evaluate(rb));
         for (const h of this.afterFlush) h(dirty);
         if (this.dev) this.snapshot();
       }
@@ -426,7 +426,7 @@ export class App {
     this.current = [];
     this.flushing = true;
     try { this.walk(this.rootBlock, true); } finally { this.flushing = false; }
-    for (const rb of this.selects) this.writeModel(rb, this.eval(rb));
+    for (const rb of this.selects) this.writeModel(rb, this.evaluate(rb));
     this.snapshot();
     if (this.dirty.length) this.schedule();
   }
@@ -544,7 +544,7 @@ export class App {
     if (this.inClosedDialog(rb.el)) { this.deferred.add(rb); return false; }
     if (this.deferred.delete(rb)) force = true;
     if (!force && !this.depsDirty(rb)) return true;
-    const v = this.eval(rb);
+    const v = this.evaluate(rb);
     switch (rb.def.k) {
       case 'for': this.reconcile(rb, v); return true;
       case 'if': this.toggleIf(rb, !!v); return true;
@@ -562,7 +562,7 @@ export class App {
     return !!d && !(d as HTMLDialogElement).open && !d.hasAttribute('open');
   }
 
-  private eval(rb: RB): unknown {
+  private evaluate(rb: RB): unknown {
     const scope = Object.create(rb.scope);
     scope.$el = rb.el;
     try {
@@ -649,7 +649,7 @@ export class App {
     switch (rb.def.n) {
       case 'number': return { value: el.value === '' ? null : Number(el.value) };
       case 'checkbox': {
-        const cur = this.eval(rb);
+        const cur = this.evaluate(rb);
         if (Array.isArray(cur)) {
           const i = cur.map(String).indexOf(el.value);
           if (el.checked && i < 0) cur.push(el.value);

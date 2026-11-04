@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head><title>app</title></head>
+<body>
+  <sn-resource name="people" src="/api/people" key="id"></sn-resource>
+  <div data-sn-state="{ q: '' }">
+    <h1 data-sn-text="m.title()"></h1>
+    <input data-sn-model="q">
+    <ul><template data-sn-for="p in people"><sn-include src="./partials/row.html"></sn-include></template></ul>
+  </div>
+</body>
+</html>
