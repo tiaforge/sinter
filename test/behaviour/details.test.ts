@@ -94,7 +94,7 @@ test('request layer: one retry for idempotent requests on network errors only', 
 
   n = 0;
   const post = createRequestLayer(fakeEnv(async () => { n++; throw new TypeError('net'); }).env, []);
-  const err = await post.send('/x', { method: 'POST', body: {} }).catch((e) => e);
+  const err: SinterError = await post.send('/x', { method: 'POST', body: {} }).catch((e: SinterError) => e) as SinterError;
   expect(err).toBeInstanceOf(SinterError);
   expect([err.status, n]).toEqual([0, 1]);
 });
@@ -102,7 +102,7 @@ test('request layer: one retry for idempotent requests on network errors only', 
 test('request layer: 30 s timeout, parsed bodies and error shapes', async () => {
   const { env, timers } = fakeEnv((req) => new Promise((_, reject) => req.signal.addEventListener('abort', () => reject(req.signal.reason))));
   const layer = createRequestLayer(env, []);
-  const p = layer.send('/slow', { method: 'POST' }).catch((e) => e);
+  const p = layer.send('/slow', { method: 'POST' }).catch((e: SinterError) => e) as Promise<SinterError>;
   await Promise.resolve();
   await Promise.resolve();
   expect(timers[0]!.ms).toBe(TIMEOUT);
@@ -110,7 +110,7 @@ test('request layer: 30 s timeout, parsed bodies and error shapes', async () => 
   expect((await p).message).toBe('request timed out');
 
   const bad = createRequestLayer(fakeEnv(async () => new Response('{nope', { status: 200, headers: { 'Content-Type': 'application/json' } })).env, []);
-  const e2 = await bad.send('/x').catch((e) => e);
+  const e2: SinterError = await bad.send('/x').catch((e: SinterError) => e) as SinterError;
   expect([e2.status, e2.message]).toEqual([200, 'invalid JSON']);
   const empty = createRequestLayer(fakeEnv(async () => new Response(null, { status: 204 })).env, []);
   expect(await empty.send('/x')).toBeNull();
