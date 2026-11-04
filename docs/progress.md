@@ -56,6 +56,12 @@ built, what deviates, and what is left.
 - 2026-11-04: compiler, runtime, feature modules and testing module in; the
   spec's test example passes. 38 behaviour tests (rendering, models, lists,
   actions, errors, 401, SSE, optimistic overlaps, pagination).
+- Runtime rewritten as closures (private state minifies to short names);
+  dev warnings, freezing and the outside-write detector moved to the `dev`
+  feature module, which the compiler adds to dev builds only. Lists and if
+  blocks use one end-marker comment instead of recursive node bookkeeping.
+  The size script now minifies fully (Vite's lib mode keeps whitespace in ES
+  output, which had inflated earlier numbers).
 - Fixed: delegated listeners were only added for event types used by root
   elements, so handlers used only inside template rows never fired.
 - Vite plugin with a real build test; diagnostics fixtures for all 21 codes;
@@ -93,19 +99,24 @@ built, what deviates, and what is left.
 
 ## Open / not yet done
 
-- **Size budget not met.** `npm run size` (rolldown, minified):
+- **Size budget not met.** `npm run size` (rolldown bundle, oxc minify, gzip -9):
 
   | Module | min | gzip |
   | --- | ---: | ---: |
-  | core (`mount`, `$k`) | 42.6 KB | 12.8 KB (target 5 KB) |
-  | sse | 4.2 KB | 1.6 KB |
-  | paginate | 4.1 KB | 1.5 KB |
-  | persist | 1.0 KB | 0.5 KB |
+  | core (`mount`, `$k`) | 19.7 KB | 8.5 KB (target 5 KB; was 11.5 KB before the closure rewrite) |
+  | sse | 3.2 KB | 1.4 KB |
+  | paginate | 2.9 KB | 1.2 KB |
+  | persist | 0.7 KB | 0.4 KB |
   | optimistic | 0.2 KB | 0.2 KB |
+  | dev (dev builds only) | 1.4 KB | 0.8 KB |
+  | contacts page (core + sse + optimistic + persist) | 23.6 KB | 9.9 KB |
 
-  Likely steps: a separate dev runtime (dev checks and warning strings out of
-  production), property mangling of private members, moving the request
-  middleware helpers and form serialization out of the hot path.
+  Marginal gzip cost inside the core: request layer + config ≈ 0.9 KB, store
+  ≈ 0.9, app object/API ≈ 1.2, mount/bind ≈ 0.8, loaders ≈ 0.9, actions ≈ 0.7,
+  lists ≈ 0.7, render ≈ 0.4, security ≈ 0.4, forms ≈ 0.3, models ≈ 0.3.
+  Further trimming yields tens of bytes; reaching 5 KB needs either moving
+  parts (actions, forms, models, loaders) into compiler-selected modules or a
+  different budget definition.
 - Playwright suite in real browsers (`<dialog>`/`commandfor`, bfcache,
   `EventSource`, focus preservation), with Trusted Types and strict CSP.
 - List-update benchmark in CI.
