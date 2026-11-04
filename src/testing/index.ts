@@ -84,7 +84,7 @@ export function mockRequests(routes: Record<string, RouteResponse>): MockRequest
       else body = text;
     }
     const headers: Record<string, string> = {};
-    req.headers.forEach((v, k) => { headers[k] = v; });
+    req.headers.forEach((v, k) => { headers[k.toLowerCase()] = v; });
     const call: RecordedCall = { method: req.method, url: url.pathname + url.search, path: url.pathname, body, headers };
     calls.push(call);
     const route = table.find((r) => r.method === req.method && (r.path.includes('?') ? r.path === call.url : r.path === url.pathname));

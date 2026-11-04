@@ -302,7 +302,18 @@ export class App {
   /** Resolves a URL template in a scope. */
   url(tpl: UrlTemplate, scope: any): string {
     let s = '';
-    for (const p of tpl) s += typeof p === 'string' ? p : encodeSegment(this.fns[p]!(scope));
+    let query = false;
+    for (const p of tpl) {
+      if (typeof p === 'string') {
+        s += p;
+        if (/[?#]/.test(p)) query = true;
+        continue;
+      }
+      const v = this.fns[p]!(scope);
+      // URL parsers turn %2E%2E back into `..`, so a path value cannot be a dot segment at all
+      if (!query && (v === '.' || v === '..')) throw new SinterError(0, null, `refused \`${v}\` as a URL path value`);
+      s += encodeSegment(v);
+    }
     return s;
   }
 

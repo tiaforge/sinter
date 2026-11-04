@@ -152,11 +152,11 @@ test('islands use app.optimistic() with the same layers', async () => {
     <p data-sn-text="m.length + ' ' + $meta.m.pending"></p>`, { requests });
   await settle();
   const res = app.resource('m');
-  const p = app.optimistic(() => res.remove('1'), () => app.request('/api/m', { method: 'DELETE' }));
+  const p = app.optimistic(() => res.remove('1'), () => app.request('/api/m', { method: 'DELETE' })).catch((e) => e);
   await flush();
   expect(root.querySelector('p')!.textContent).toBe('1 1');
   await settle();
-  await p.catch(() => {});
+  expect((await p).status).toBe(500);
   await flush();
   expect(root.querySelector('p')!.textContent).toBe('2 0');
 });
