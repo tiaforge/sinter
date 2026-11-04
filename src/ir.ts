@@ -74,6 +74,8 @@ export interface Binding {
   p?: string;
   /** the expression reads `$el` */
   e?: 1;
+  /** the expression reads a loop index, so it re-runs when only the row's position changed */
+  i?: 1;
 }
 
 export interface NodeDef {

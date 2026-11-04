@@ -57,6 +57,8 @@ export interface ExprResult {
   deps: string[];
   writes: string[];
   usesEl: boolean;
+  /** reads a loop index variable */
+  usesIndex: boolean;
   entries?: ObjectEntry[];
   /** the expression is a plain member path */
   path: string[] | null;
@@ -140,6 +142,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   const deps = new Set<string>();
   const writes = new Set<string>();
   let usesEl = false;
+  let usesIndex = false;
   let ok = true;
   const mode = opts.mode;
   const magicAllowed = new Set([...EVERYWHERE_MAGIC, ...(opts.magic ?? [])]);
@@ -183,7 +186,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   }
 
   function fail(): ExprResult {
-    return { ok: false, code: '() => undefined', deps: [], writes: [], usesEl: false, path: null, resource: null, ast: null };
+    return { ok: false, code: '() => undefined', deps: [], writes: [], usesEl: false, usesIndex: false, path: null, resource: null, ast: null };
   }
 
   // ---- resolution
@@ -350,6 +353,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     else if (res.kind === 'helper') page.usedHelpers.add(n.name);
     let sid: number | undefined;
     if (res.kind === 'state') sid = res.sid;
+    if (res.kind === 'loop' && res.entry.kind === 'index') usesIndex = true;
     const text = emitName(n.name, res, sid);
     if (text !== n.name || shorthand) edits.push({ start: n.start, end: n.end, text: shorthand ? `${n.name}: ${text}` : text });
   }
@@ -785,7 +789,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
   }
 
-  return { ok, code, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, entries, path, resource, ast };
+  return { ok, code, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

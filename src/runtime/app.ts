@@ -112,6 +112,8 @@ interface RB extends BoundBinding {
   v?: unknown;
   /** evaluation scope: the binding's scope plus `$el`, created once */
   e?: any;
+  /** may be inside a closed dialog of its block */
+  c?: boolean;
   /** for: rows; if: the rendered branch (0 or 1 entries) */
   rows?: Inst[];
   t?: TemplateDef;
@@ -133,8 +135,8 @@ interface Inst {
   key: string;
   item: unknown;
   i: number;
-  /** re-evaluate every binding on the next walk */
-  f: boolean;
+  /** re-evaluate on the next walk: 0 no, 1 bindings that read the index, 2 all */
+  f: number;
   /** flush round it was created in */
   r: number;
 }
@@ -178,6 +180,8 @@ const after = (el: Element) => {
   return c;
 };
 const ET = EventTarget.prototype;
+const dialogsIn = new WeakMap<HTMLTemplateElement, boolean>();
+const hasDialog = (tpl: HTMLTemplateElement) => dialogsIn.get(tpl) ?? (dialogsIn.set(tpl, !!tpl.content.querySelector('dialog')), dialogsIn.get(tpl)!);
 
 /** The instance mount() created on `root`; throws if none. */
 export function instance(root: Document | Element): App {
@@ -319,7 +323,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           round++;
           rowHits = new Map();
           for (const l of loaders) if (hit(depsOf(l.def, l.def.deps))) l.changed();
-          walk(rootRbs, false);
+          walk(rootRbs, 0);
           syncSelects();
           for (const h of app.afterFlush) h(cur);
         }
@@ -392,7 +396,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
   for (const l of loaders) l.start();
   flushing = true;
-  try { walk(rootRbs, true); syncSelects(); for (const h of app.afterFlush) h([]); } finally { flushing = false; }
+  try { walk(rootRbs, 2); syncSelects(); for (const h of app.afterFlush) h([]); } finally { flushing = false; }
   if (dirty.length) { scheduled = true; env.queueMicrotask(app.flush); }
   return app;
 
@@ -419,7 +423,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     cleanups.push(() => ET.removeEventListener.call(root, type, dispatch, true));
   }
 
-  function bindNodes(defs: NodeDef[], els: Array<Element | null>, base: any, rbs: RB[]) {
+  /**
+   * `dialogs`: whether these elements can sit in a closed dialog of their own block. Rows only
+   * need the check when their template contains a dialog; outer dialogs defer the whole list.
+   */
+  function bindNodes(defs: NodeDef[], els: Array<Element | null>, base: any, rbs: RB[], dialogs = true) {
     const scopes: any[] = [];
     defs.forEach((nd, i) => {
       const el = els[i];
@@ -437,7 +445,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       scopes[i] = s;
       if (rbs == rootRbs) rootScopes[i] = s;
       if (el) for (const b of nd.b) {
-        const rb: RB = { b, el, s, v: UNSET };
+        const rb: RB = { b, el, s, v: UNSET, c: dialogs };
         if (b.k == 'on') {
           handlers.get(el)?.push(rb) ?? handlers.set(el, [rb]);
           listen(b.n!);
@@ -460,7 +468,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   // ---- rendering
 
-  function walk(rbs: RB[], force: boolean) {
+  /** Walks bindings in document order; `force`: 0 dirty ones only, 1 also those reading a loop index, 2 all. */
+  function walk(rbs: RB[], force: number) {
     for (const rb of rbs) {
       if (!process(rb, force) || !rb.rows) continue;
       const t = rb.t;
@@ -475,20 +484,21 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (r == 1 && rb.keys && rb.rr != round) {
         for (const item of marked) {
           const x = Object(item) === item ? rb.keys.get(keyOf(t!, item, null)) : null;
-          if (x && x.item === item) walk(x.rbs, false);
+          if (x && x.item === item) walk(x.rbs, 0);
         }
         continue;
       }
       // otherwise skip rows no dirty path can reach (unless they moved or changed), and rows created in this round
-      for (const x of rb.rows) if (x.r != round && (r || x.f)) { walk(x.rbs, force || x.f); x.f = false; }
+      for (const x of rb.rows) if (x.r != round && (r || x.f)) { walk(x.rbs, Math.max(force, x.f)); x.f = 0; }
     }
   }
 
   /** Evaluates and writes one binding if needed; false while it waits in a closed dialog. */
-  function process(rb: RB, force: boolean): boolean {
+  function process(rb: RB, level: number): boolean {
+    const force = level == 2 || (level == 1 && !!rb.b.i);
     if (!force && !deferred.has(rb) && !(rb.b.d && hit(depsOf(rb.b, rb.b.d), rb.s))) return true;
-    if (rb.el.closest('dialog:not([open])')) { deferred.add(rb); return false; }
-    if (deferred.delete(rb)) force = true;
+    if (rb.c && rb.el.closest('dialog:not([open])')) { deferred.add(rb); return false; }
+    deferred.delete(rb);
     const v = evaluate(rb), k = rb.b.k;
     if (k == 'for') reconcile(rb, v);
     else if (k == 'if') toggle(rb, v ? 1 : rb.else ? 2 : 0);
@@ -583,50 +593,66 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   function reconcile(rb: RB, v: any) {
-    const t = rb.t!, old = rb.rows!, end = (rb.end ??= after(rb.el));
+    const t = rb.t!, old = rb.rows!, end = (rb.end ??= after(rb.el)), tpl = rb.el as HTMLTemplateElement;
     const items: unknown[] = v == null ? [] : Array.isArray(v) ? v : Symbol.iterator in Object(v) ? [...v] : [];
-    // each row owns the nodes from its first node up to the next row's first node
-    const nodes = new Map(old.map((x, i) => [x, range(x.first, old[i + 1]?.first ?? end)]));
-    const byKey = new Map(old.map((x) => [x.key, x])), pos = new Map(old.map((x, i) => [x, i])), seen = new Set<string>();
+    const byKey = rb.keys ?? new Map(old.map((x) => [x.key, x])), keys = new Map<string, Inst>(), was = new Map<Inst, number>();
+    const row = (item: unknown, i: number) => setRow(Object.create(rb.s), t, item, i);
     let dup = false;
     const rows = items.map((item, i) => {
-      const s = setRow(Object.create(rb.s), t, item, i);
+      // a scope is only needed up front for an explicit key expression
+      const s = t.key != null ? row(item, i) : null;
       let key = keyOf(t, item, s);
-      while (seen.has(key)) { warn(11, key.slice(1)); key += '#'; dup = true; }
-      seen.add(key);
-      const x = byKey.get(key);
-      if (!x) return instantiate(rb.el as HTMLTemplateElement, t, s, key, item, i);
-      byKey.delete(key);
-      if (x.item !== item || x.i != i) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = true; }
+      while (keys.has(key)) { warn(11, key.slice(1)); key += '#'; dup = true; }
+      let x = byKey.get(key);
+      if (x) {
+        byKey.delete(key);
+        was.set(x, x.i);
+        if (x.item !== item) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = 2; }
+        else if (x.i != i) { setRow(x.s, t, item, (x.i = i)); x.f ||= 1; }
+      } else x = instantiate(tpl, t, s ?? row(item, i), key, item, i);
+      keys.set(key, x);
       return x;
     });
-    if (!rows.length && old.length) {
-      // clearing: every node between the anchor and the end marker
-      while (rb.el.nextSibling != end) rb.el.nextSibling!.remove();
-      for (const x of old) remove(x, []);
-    } else for (const x of byKey.values()) remove(x, nodes.get(x)!);
-    // move the fewest rows: those outside a longest increasing subsequence of old positions
-    const keep = lis(rows.map((x) => pos.get(x) ?? -1));
-    let ref: Node = end;
+    // each old row owns the nodes from its first node up to the next old row's first node;
+    // collect them for rows that go or move before the DOM changes
+    const nodesOf = (x: Inst, i: number) => range(x.first, old[i + 1]?.first ?? end);
+    const keep = lis(rows.map((x) => was.get(x) ?? -1));
+    const moving = new Map<Inst, Node[]>();
+    rows.forEach((x, i) => { const o = was.get(x); if (o != null && !keep.has(i)) moving.set(x, nodesOf(x, o)); });
+    const gone = [...byKey.values()];
+    if (!rows.length && gone.length) {
+      // clearing: drop everything between the anchor and the end marker at once
+      const parent = end.parentNode!;
+      if (parent.firstChild == tpl && parent.lastChild == end) parent.replaceChildren(tpl, end);
+      else while (tpl.nextSibling != end) tpl.nextSibling!.remove();
+    } else for (const n of gone.flatMap((x) => nodesOf(x, x.i))) (n as ChildNode).remove();
+    if (deferred.size || selects.size) for (const x of gone) forget(x.rbs);
     if (!old.length) {
       // filling an empty list: one insertion
       const frag = new DocumentFragment();
       for (const x of rows) frag.append(...x.nodes);
       end.before(frag);
-    } else for (let i = rows.length; i--;) {
-      const x = rows[i]!;
-      if (!keep.has(i)) (ref as ChildNode).before(...(nodes.get(x) ?? x.nodes));
-      ref = x.first ?? ref;
+    } else {
+      // move the fewest rows: those outside a longest increasing subsequence of old positions
+      let ref: Node = end;
+      for (let i = rows.length; i--;) {
+        const x = rows[i]!;
+        if (!keep.has(i)) (ref as ChildNode).before(...(moving.get(x) ?? x.nodes));
+        ref = x.first ?? ref;
+      }
     }
     rb.rows = rows;
     rb.rr = round;
-    rb.keys = dup || t.key != null ? null : new Map(rows.map((x) => [x.key, x]));
+    rb.keys = dup || t.key != null ? null : keys;
   }
 
   function toggle(rb: RB, br: number) {
     if (br == rb.br) return;
     const end = (rb.end ??= after(rb.el)), [old] = rb.rows ?? [];
-    if (old) remove(old, range(old.first, end));
+    if (old) {
+      for (const n of range(old.first, end)) (n as ChildNode).remove();
+      forget(old.rbs);
+    }
     rb.br = br;
     rb.rows = [];
     if (!br) return;
@@ -644,16 +670,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
       return n?.localName == nd.tag ? n : null;
     });
     const rbs: RB[] = [];
-    bindNodes(t.nodes, els, s, rbs);
-    walk(rbs, true);
+    bindNodes(t.nodes, els, s, rbs, hasDialog(tpl));
+    walk(rbs, 2);
     const nodes = [...frag.childNodes];
-    return { first: nodes[0] ?? null, nodes, rbs, s, key, item, i, f: false, r: round };
+    return { first: nodes[0] ?? null, nodes, rbs, s, key, item, i, f: 0, r: round };
   }
 
-  function remove(x: Inst, nodes: Node[]) {
-    for (const n of nodes) (n as ChildNode).remove();
-    const forget = (rbs: RB[]) => { for (const rb of rbs) { deferred.delete(rb); selects.delete(rb); for (const r of rb.rows ?? []) forget(r.rbs); } };
-    forget(x.rbs);
+  /** Drops removed bindings from the deferred and select sets. */
+  function forget(rbs: RB[]) {
+    for (const rb of rbs) {
+      deferred.delete(rb);
+      selects.delete(rb);
+      for (const r of rb.rows ?? []) forget(r.rbs);
+    }
   }
 
   // ---- events
@@ -663,7 +692,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (el?.nodeType != 1) el = (el as Node | null)?.parentElement ?? null;
     if (!el) return;
     if (e.type == 'toggle' && el.localName == 'dialog' && el.hasAttribute('open')) {
-      for (const rb of [...deferred]) if (deferred.has(rb) && el.contains(rb.el)) { cur = []; walk([rb], true); }
+      for (const rb of [...deferred]) if (deferred.has(rb) && el.contains(rb.el)) { cur = []; walk([rb], 2); }
     }
     // models update state before other handlers on the same event
     const m = models.get(el);

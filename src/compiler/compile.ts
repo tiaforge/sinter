@@ -760,12 +760,12 @@ class Compiler {
 
 // ---- helpers
 
-/** `{ e: 1 }` when the expression reads `$el`, so the runtime adds it to the scope. */
-const usesEl = (r: ExprResult): Pick<Binding, 'e'> => (r.usesEl ? { e: 1 } : {});
+/** Flags for the runtime: `e` when the expression reads `$el`, `i` when it reads a loop index. */
+const usesEl = (r: ExprResult): Pick<Binding, 'e' | 'i'> => ({ ...(r.usesEl ? { e: 1 as const } : {}), ...(r.usesIndex ? { i: 1 as const } : {}) });
 
 function binding(b: Binding): Binding {
   const out: Binding = { k: b.k };
-  for (const key of ['f', 'd', 'n', 'x', 'a', 'y', 'w', 'p', 'e'] as const) {
+  for (const key of ['f', 'd', 'n', 'x', 'a', 'y', 'w', 'p', 'e', 'i'] as const) {
     const v = b[key];
     if (v === undefined || (Array.isArray(v) && v.length === 0 && key !== 'd')) continue;
     (out as unknown as Record<string, unknown>)[key] = v;
