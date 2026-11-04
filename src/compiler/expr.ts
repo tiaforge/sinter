@@ -15,6 +15,8 @@ export interface LoopEntry {
   alias: string[] | null;
   /** item rooted at a resource */
   resource: string | null;
+  /** index: the item's alias, so `list[i]` over the same list becomes the row's own element */
+  of?: string[] | null;
 }
 
 export interface StateEntry { sid: number; names: Set<string> }
@@ -283,7 +285,14 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     const res = resolveQuiet(name, locals);
     if (!res) return null;
     const base = basePath(name, res);
-    return { root: name, res, segs: base.segs ? [...base.segs, ...props] : null, resource: base.resource };
+    const segs = base.segs ? [...base.segs, ...props] : null;
+    // `list[i]` where `i` indexes that same list is the row's own element: use its row placeholder,
+    // which the runtime may skip on structure changes (reconcile handles index moves)
+    segs?.forEach((seg, k) => {
+      const loop = seg[0] == '{' ? [...scope.loops].reverse().find((l) => l.kind == 'index' && `{${l.name}}` == seg) : undefined;
+      if (loop?.of && loop.of.length == k + 1 && loop.of.slice(0, k).join('.') == segs.slice(0, k).join('.')) segs[k] = loop.of[k]!;
+    });
+    return { root: name, res, segs, resource: base.resource };
   }
 
   /** Resolution without diagnostics, for chains already resolved by the walker. */

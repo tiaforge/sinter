@@ -132,6 +132,8 @@ interface Inst {
   i: number;
   /** re-evaluate every binding on the next walk */
   f: boolean;
+  /** flush round it was created in */
+  r: number;
 }
 
 interface ActState {
@@ -146,21 +148,27 @@ interface ActState {
 const instances = new WeakMap<object, App>();
 const paths = new Map<string, string[]>();
 const split = (p: string) => paths.get(p) ?? (paths.set(p, p.split('.')), paths.get(p)!);
+/** A dependency path: segments, scope names of `{name}` segments, and the position of the row's own element `{$i…}`. */
+interface Dep { p: string[]; n: Array<string | undefined>; a: number }
+const compiled = new WeakMap<object, Dep[]>();
+const depsOf = (key: object, list: string[] = []) => compiled.get(key) ?? (compiled.set(key, list.map((d) => {
+  const p = d.split('.');
+  return { p, n: p.map((x) => (x[0] == '{' ? x.slice(1, -1) : undefined)), a: p.findIndex((x) => x.startsWith('{$')) };
+})), compiled.get(key)!);
+
 /**
- * Whether dependency `dep` (with `{name}` segments read from scope `s`) and dirty path `d`
- * are prefixes of each other. `*` matches any segment. A structure change (`#`, from
- * push/splice/…) does not reach a row's own `{index}`: rows whose index changed are
- * re-evaluated anyway, and the others still hold the same item.
+ * Whether a dependency (its `{name}` segments read from scope `s`) and dirty path `d` are
+ * prefixes of each other; `*` matches any segment. A change that ends above a row's own
+ * element, or only changes the list structure (`#`, from push/splice/…), does not reach it:
+ * reconcile re-evaluates rows whose item or index changed, the others hold the same item.
  */
-const overlaps = (dep: string[], d: string[], s?: any) => {
-  for (let i = 0, n = Math.min(dep.length, d.length); i < n; i++) {
-    let x = dep[i]!;
+const overlaps = ({ p, n, a }: Dep, d: string[], s?: any) => {
+  if (a >= 0 && d.length <= a) return false;
+  for (let i = 0, len = Math.min(p.length, d.length); i < len; i++) {
     const y = d[i]!;
-    if (s && x[0] == '{') {
-      if (y == '#') return false;
-      x = '' + s[x.slice(1, -1)];
-    }
-    if (x != y && x != '*' && y != '*' && y != '#') return false;
+    if (y == '#') { if (i == a) return false; continue; }
+    if (y == '*') continue;
+    if (n[i] !== undefined ? s[n[i]!] != y : p[i] != y && p[i] != '*') return false;
   }
   return true;
 };
@@ -202,7 +210,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<unknown> }>();
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element>();
-  let dirty: string[][] = [], cur: string[][] = [], scheduled = false, flushing = false, lastId = 0;
+  let dirty: string[][] = [], cur: string[][] = [], scheduled = false, flushing = false, lastId = 0, round = 0;
 
   const res = (name: string): Resource => {
     const r = resources.get(name);
@@ -212,9 +220,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const forward = (m: 'upsert' | 'patch' | 'remove') => (n: string, ...a: [any, any?]) => res(n)[m](...a);
   const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
   const evaluate = (rb: RB): any => {
-    try { return fns[rb.b.f!]!((rb.e ??= child(rb.s, { $el: rb.el }))); } catch (e) { warn(6, rb.b.k, rb.el.localName, (e as Error)?.message); }
+    try { return fns[rb.b.f!]!(rb.b.e ? (rb.e ??= child(rb.s, { $el: rb.el })) : rb.s); } catch (e) { warn(6, rb.b.k, rb.el.localName, (e as Error)?.message); }
   };
-  const hit = (dep: string, s?: any) => { const p = split(dep); return cur.some((d) => overlaps(p, d, s)); };
+  /** Whether any of `deps` overlaps a dirty path of the current flush. */
+  const hit = (deps: Dep[], s?: any) => {
+    for (const dep of deps) for (const d of cur) if (overlaps(dep, d, s)) return true;
+    return false;
+  };
 
   const app: App = {
     ir, fns, env, req, transport: o.transport ?? (() => undefined), ext: {},
@@ -269,11 +281,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (flushing) return;
       flushing = true;
       try {
-        for (let round = 0; dirty.length && round < 100; round++) {
+        for (let pass = 0; dirty.length && pass < 100; pass++) {
           cur = dirty;
           dirty = [];
           for (const h of app.beforeFlush) h(cur);
-          for (const l of loaders) if (l.def.deps.some((d) => hit(d))) l.changed();
+          round++;
+          for (const l of loaders) if (hit(depsOf(l.def, l.def.deps))) l.changed();
           walk(rootRbs, false);
           syncSelects();
           for (const h of app.afterFlush) h(cur);
@@ -417,13 +430,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
   function walk(rbs: RB[], force: boolean) {
     for (const rb of rbs) {
       if (!process(rb, force)) continue;
-      for (const x of rb.rows ?? []) { walk(x.rbs, force || x.f); x.f = false; }
+      // rows created in this round were just evaluated
+      for (const x of rb.rows ?? []) if (x.r != round) { walk(x.rbs, force || x.f); x.f = false; }
     }
   }
 
   /** Evaluates and writes one binding if needed; false while it waits in a closed dialog. */
   function process(rb: RB, force: boolean): boolean {
-    if (!force && !deferred.has(rb) && !rb.b.d?.some((d) => hit(d, rb.s))) return true;
+    if (!force && !deferred.has(rb) && !(rb.b.d && hit(depsOf(rb.b, rb.b.d), rb.s))) return true;
     if (rb.el.closest('dialog:not([open])')) { deferred.add(rb); return false; }
     if (deferred.delete(rb)) force = true;
     const v = evaluate(rb), k = rb.b.k;
@@ -437,7 +451,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
   function write(rb: RB, v: any, prev: any) {
     const el = rb.el as HTMLElement, n = rb.b.n!;
     switch (rb.b.k) {
-      case 'text': el.textContent = '' + (v ?? ''); break;
+      case 'text': {
+        const t = el.firstChild as Text | null;
+        v = '' + (v ?? '');
+        if (t?.nodeType == 3 && !t.nextSibling) t.data = v;
+        else el.textContent = v;
+        break;
+      }
       case 'show': el.hidden = !v; break;
       case 'prop': (el as any)[n] = v; break;
       case 'class':
@@ -566,7 +586,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     bindNodes(t.nodes, els, s, rbs);
     walk(rbs, true);
     const nodes = [...frag.childNodes];
-    return { first: nodes[0] ?? null, nodes, rbs, s, key, item, i, f: false };
+    return { first: nodes[0] ?? null, nodes, rbs, s, key, item, i, f: false, r: round };
   }
 
   function remove(x: Inst, nodes: Node[]) {

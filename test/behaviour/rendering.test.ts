@@ -404,3 +404,19 @@ test('list structure changes still update index reads, length and shifted rows',
   expect(root.querySelector('p')!.textContent).toBe('b3');
   expect(lis()).toEqual(['0b', '1c', '2d']);
 });
+
+test('rows reading another list by index see that list change', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ xs: ['a', 'b'], names: ['A', 'B'] }">
+      <template data-sn-for="(x, i) in xs" data-sn-key="x"><i data-sn-text="names[i]"></i></template>
+      <button id="sp" data-sn-on-click="names.splice(0, 1, 'Z')"></button>
+      <button id="re" data-sn-on-click="names = ['P', 'Q']"></button>
+    </div>`);
+  const text = () => [...root.querySelectorAll('i')].map((e) => e.textContent).join();
+  root.querySelector<HTMLElement>('#sp')!.click();
+  await flush();
+  expect(text()).toBe('Z,B');
+  root.querySelector<HTMLElement>('#re')!.click();
+  await flush();
+  expect(text()).toBe('P,Q');
+});

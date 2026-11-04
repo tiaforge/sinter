@@ -72,6 +72,8 @@ export interface Binding {
   w?: string[];
   /** model: persist key */
   p?: string;
+  /** the expression reads `$el` */
+  e?: 1;
 }
 
 export interface NodeDef {

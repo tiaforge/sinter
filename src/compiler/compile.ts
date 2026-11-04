@@ -357,7 +357,7 @@ class Compiler {
     const isTemplate = el.tagName === 'template';
     const valueB = (k: 'text' | 'show', name: string) => {
       const r = this.expr(el, name, scope, { mode: 'value' });
-      if (r.ok) node.b.push(binding({ k, f: this.fn(r.code), d: r.deps }));
+      if (r.ok) node.b.push(binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r) }));
     };
 
     for (const n of ['for', 'if', 'else'] as const) {
@@ -399,7 +399,7 @@ class Compiler {
     else if (isTemplate && has('if')) {
       const r = this.expr(el, 'data-sn-if', scope, { mode: 'value' });
       const tid = this.newTemplate();
-      const b = binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid });
+      const b = binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
       node.b.push(b);
       result = { node, binding: b };
       content = { tid, scope };
@@ -480,7 +480,7 @@ class Compiler {
       if ((key === 'id' || key === 'name') && !e.literal) {
         this.report(el, 'data-sn-attr', 'SN503', `\`${key}\` bound from data can shadow globals other scripts read (DOM clobbering)`, e.offset);
       }
-      if (r.ok) node.b.push(binding({ k: 'attr', n: e.key, f: this.fn(e.code), d: e.deps }));
+      if (r.ok) node.b.push(binding({ k: 'attr', n: e.key, f: this.fn(e.code), d: e.deps, ...usesEl(r) }));
     }
   }
 
@@ -495,7 +495,7 @@ class Compiler {
         continue;
       }
       if (k === 'style' && !key.startsWith('--')) key = key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
-      if (r.ok) node.b.push(binding({ k, n: key, f: this.fn(e.code), d: e.deps }));
+      if (r.ok) node.b.push(binding({ k, n: key, f: this.fn(e.code), d: e.deps, ...usesEl(r) }));
     }
   }
 
@@ -529,7 +529,7 @@ class Compiler {
     }
     const inner = r.code.slice('($) => ('.length, -1);
     const setter = this.fn(`($, v) => { ${inner} = v; }`);
-    const b = binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')] });
+    const b = binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')], ...usesEl(r) });
     if (persist !== undefined) b.p = persist;
     node.b.push(b);
   }
@@ -584,7 +584,7 @@ class Compiler {
     const resInfo = list.resource ? this.page.resources.get(list.resource) : undefined;
     const alias = list.path && list.path[0]!.startsWith('$s') ? [...list.path, `{${ii}}`] : null;
     const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource }];
-    if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null });
+    if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias });
     const inner: Scope = { loops, states: scope.states };
     t.key = null;
     t.keyFields = null;
@@ -596,7 +596,7 @@ class Compiler {
     } else if (list.ast && primitiveList(list.ast)) {
       this.report(el, 'data-sn-for', 'SN103', 'a `data-sn-for` over primitive values needs `data-sn-key`', m[0].length);
     }
-    node.b.push(binding({ k: 'for', f: this.fn(list.code), d: list.deps, x: tid }));
+    node.b.push(binding({ k: 'for', f: this.fn(list.code), d: list.deps, x: tid, ...usesEl(list) }));
     return { tid, scope: inner };
   }
 
@@ -758,9 +758,12 @@ class Compiler {
 
 // ---- helpers
 
+/** `{ e: 1 }` when the expression reads `$el`, so the runtime adds it to the scope. */
+const usesEl = (r: ExprResult): Pick<Binding, 'e'> => (r.usesEl ? { e: 1 } : {});
+
 function binding(b: Binding): Binding {
   const out: Binding = { k: b.k };
-  for (const key of ['f', 'd', 'n', 'x', 'a', 'y', 'w', 'p'] as const) {
+  for (const key of ['f', 'd', 'n', 'x', 'a', 'y', 'w', 'p', 'e'] as const) {
     const v = b[key];
     if (v === undefined || (Array.isArray(v) && v.length === 0 && key !== 'd')) continue;
     (out as unknown as Record<string, unknown>)[key] = v;
