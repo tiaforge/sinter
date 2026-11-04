@@ -3,6 +3,7 @@
 //   node loc.mjs <name>=<dir>[:<glob roots>] ...
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 const EXT = new Set(['.html', '.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte', '.css']);
 const SKIP = /(^|\/)(node_modules|\.git|dist|build|e2e|playwright|cypress|__tests__|__mocks__|mocks?|tests?|static|public\/assets)(\/|$)|\.(spec|test|stories|d)\.[jt]sx?$|test-setup|setupTests|(^|\/)styles\.css$|\.generated\./;
@@ -25,16 +26,19 @@ for (const arg of process.argv.slice(2)) {
     return statSync(p).isDirectory() ? walk(p) : [p];
   }).filter((f) => EXT.has(extname(f)) && !SKIP.test(relative(dir, f)) && !/WAS GENERATED|@generated/i.test(readFileSync(f, 'utf8').slice(0, 600)));
   const by = {};
-  let total = 0;
+  let total = 0, chars = 0, all = '';
   for (const f of files) {
-    const n = readFileSync(f, 'utf8').split('\n').filter((l) => l.trim()).length;
+    const text = readFileSync(f, 'utf8');
+    chars += text.replace(/\s+/g, '').length;
+    all += text;
+    const n = text.split('\n').filter((l) => l.trim()).length;
     by[extname(f)] = (by[extname(f)] ?? 0) + n;
     total += n;
   }
-  rows.push({ name, files: files.length, total, by });
+  rows.push({ name, files: files.length, total, by, chars, gz: gzipSync(all, { level: 9 }).length });
 }
-console.log('| implementation | files | lines | by type |');
-console.log('| --- | ---: | ---: | --- |');
+console.log('| implementation | files | lines | non-space chars | gzip (KB) | chars/line | by type |');
+console.log('| --- | ---: | ---: | ---: | ---: | ---: | --- |');
 for (const r of rows.sort((a, b) => a.total - b.total)) {
-  console.log(`| ${r.name} | ${r.files} | ${r.total} | ${Object.entries(r.by).sort((a, b) => b[1] - a[1]).map(([e, n]) => `${e.slice(1)} ${n}`).join(', ')} |`);
+  console.log(`| ${r.name} | ${r.files} | ${r.total} | ${r.chars} | ${(r.gz / 1024).toFixed(1)} | ${(r.chars / r.total).toFixed(0)} | ${Object.entries(r.by).sort((a, b) => b[1] - a[1]).map(([e, n]) => `${e.slice(1)} ${n}`).join(', ')} |`);
 }
