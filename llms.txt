@@ -31,6 +31,7 @@ Package: @tiaforge/sinter. Every directive is a `data-sn-*` attribute or an `<sn
 - `data-sn-optimistic` (handler expression): patch/upsert/remove calls applied before the request, rolled back on failure
 - `data-sn-then` (handler expression): runs after a 2xx response; $result = parsed body
 - `data-sn-catch` (handler expression): runs after an error; $error = {status, body, message}
+- `data-sn-path` (URL patterns /a/:b …): on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url
 - `data-sn-data` (resource name): on <script type="application/json"> in <head>: initial data for a resource
 - `data-sn-on-<event>` (handler expression): plain event handler, no request; e.g. data-sn-on-click
 

@@ -96,6 +96,18 @@ describe('SN207 unsafe sinks', () => {
   }
 });
 
+describe('data-sn-path', () => {
+  test('path parameters are read-only', () => {
+    const d = diags('<html data-sn-path="/article/:slug"><body><button data-sn-on-click="$url.slug = 1; $url.page = 2"></button></body></html>');
+    expect(d.map((x) => x.code)).toEqual(['SN203']);
+    expect(d[0]!.message).toMatch(/`\$url.slug` is a path parameter/);
+  });
+  test('belongs on <html> and takes patterns', () => {
+    expect(diags('<div data-sn-path="/a"></div>')[0]!.code).toBe('SN102');
+    expect(diags('<html data-sn-path="article/:slug /a/:__proto__ //x"></html>').map((x) => x.code)).toEqual(['SN401', 'SN401', 'SN401']);
+  });
+});
+
 describe('expressions', () => {
   test('globals: JavaScript yes, browser no; meta tools refused', () => {
     expect(diags('<p data-sn-text="Math.max(1, new Date(0).getTime(), JSON.stringify([]).length)"></p>')).toEqual([]);

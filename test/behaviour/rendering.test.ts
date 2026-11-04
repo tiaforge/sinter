@@ -444,3 +444,18 @@ test('marked outer elements update inner rows that read them', async () => {
   await flush();
   expect([...root.querySelectorAll('i')].map((e) => e.textContent)).toEqual(['A1', 'A2', 'B3']);
 });
+
+test('data-sn-path exposes path parameters in $url; query writes keep the path', async () => {
+  const page = `<html data-sn-path="/editor /editor/:slug /profile/:username/favorites"><body>
+    <p data-sn-text="[$url.slug, $url.username, $url.tab].join('|')"></p>
+    <button data-sn-on-click="$url.tab = 'x'">tab</button></body></html>`;
+  const a = await render(page, { url: 'http://localhost/editor/hello%20world?tab=a' });
+  expect(a.root.querySelector('p')!.textContent).toBe('hello world||a');
+  a.root.querySelector('button')!.click();
+  await a.flush();
+  expect(a.url()).toBe('http://localhost/editor/hello%20world?tab=x');
+  const b = await render(page, { url: 'http://localhost/editor' });
+  expect(b.root.querySelector('p')!.textContent).toBe('||');
+  const c = await render(page, { url: 'http://localhost/profile/ada/favorites' });
+  expect(c.root.querySelector('p')!.textContent).toBe('|ada|');
+});

@@ -415,15 +415,27 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   // ---- scopes and bindings
 
+  /** Query parameters, then the `:name` segments of the first `data-sn-path` pattern that matches. */
   function readUrl() {
-    const out = Object.create(null);
-    for (const [k, v] of new URL(env.href()).searchParams) if (!BAD_KEY.test(k)) out[k] = v;
+    const out = Object.create(null), u = new URL(env.href());
+    for (const [k, v] of u.searchParams) if (!BAD_KEY.test(k)) out[k] = v;
+    const segs = u.pathname.split('/').filter(Boolean);
+    for (const p of ir.path ?? []) {
+      const want = p.split('/').filter(Boolean);
+      if (want.length != segs.length || want.some((w, i) => w[0] != ':' && w != segs[i])) continue;
+      want.forEach((w, i) => {
+        if (w[0] != ':') return;
+        try { out[w.slice(1)] = decodeURIComponent(segs[i]!); } catch { out[w.slice(1)] = segs[i]; }
+      });
+      break;
+    }
     return out;
   }
 
   function writeUrl() {
     const u = new URL(env.href()), q = new URLSearchParams();
-    for (const [k, v] of Object.entries(app.page.$url)) if (v != null && v !== '') q.set(k, '' + v);
+    const fromPath = new Set((ir.path ?? []).flatMap((p) => p.split('/').filter((s) => s[0] == ':').map((s) => s.slice(1))));
+    for (const [k, v] of Object.entries(app.page.$url)) if (v != null && v !== '' && !fromPath.has(k)) q.set(k, '' + v);
     u.search = '' + q;
     env.replaceState(u.pathname + u.search + u.hash);
   }

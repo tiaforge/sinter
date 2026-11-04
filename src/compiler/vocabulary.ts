@@ -29,6 +29,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'optimistic', value: 'handler expression', doc: 'patch/upsert/remove calls applied before the request, rolled back on failure' },
   { name: 'then', value: 'handler expression', doc: 'runs after a 2xx response; $result = parsed body' },
   { name: 'catch', value: 'handler expression', doc: 'runs after an error; $error = {status, body, message}' },
+  { name: 'path', value: 'URL patterns /a/:b …', doc: 'on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url' },
   { name: 'data', value: 'resource name', doc: 'on <script type="application/json"> in <head>: initial data for a resource' },
 ];
 

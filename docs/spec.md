@@ -217,6 +217,7 @@ The whole vocabulary is the tables below; any other `data-sn-*` name is a build 
 | `data-sn-key` | value expression | optional; defaults to the resource key or object identity, required for arrays of primitives |
 | `data-sn-if` | value expression | on `<template>` only |
 | `data-sn-else` | none | on a `<template>` directly after an `if` template |
+| `data-sn-path` | URL patterns, space-separated | on `<html>` only; the path shapes the page is served for, e.g. `/editor /editor/:slug`; `:name` segments of the first matching pattern appear read-only in `$url` (added 2026-11-04) |
 | `data-sn-persist` | storage key | persists the element's model or state in localStorage under `sn:`; refused on password and payment fields; storage failures are ignored |
 
 
@@ -273,7 +274,7 @@ A resource whose `src` interpolates state or `$url` refetches when those values 
 | --- | --- | --- |
 | `$event` | `on-*`, `then`, `catch` | the DOM event |
 | `$el` | everywhere | the current element |
-| `$url` | everywhere | reactive view of `location.search` params; assigning to `$url.x` calls `history.replaceState` |
+| `$url` | everywhere | reactive view of `location.search` params plus the path parameters of `data-sn-path`; assigning to `$url.x` calls `history.replaceState` (path parameters are read-only, `SN203`) |
 | `$now` | everywhere | current time as a `Date`, refreshed every 60 s; the timer runs only on pages that use it |
 | `$locale` | everywhere | current locale from `configure({ locale })`; assignable in handlers |
 | `$result` | `then` | parsed response body |
@@ -920,6 +921,7 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 - i18n source. Decided: no built-in `t()`; helper namespaces resolved and tree-shaken at build time, `$locale` for switching. See Expressions and scope.
 - Keyset jumps. Decided: keyset never jumps (`SN304`); jumps need offset mode; server requirements for keyset written down. See Pagination.
 - Testing utilities. Decided: `@tiaforge/sinter/testing` ships in v0.1 as stable API; sinter tests itself through it. See Testing.
+- Path parameters. Decided (2026-11-04): `<html data-sn-path="/article/:slug">` declares the URL shapes a page is served for; the runtime matches `location.pathname` once and exposes `:name` segments read-only in `$url`. No client-side routing: the server still picks the page, links stay full page loads; dev and production rewrites are the deployment's job for now.
 - Templates shared across pages. Decided: static `<sn-include>` resolved at build time, lexical scope, no parameters. See Compiler contract.
 
 ## Sources

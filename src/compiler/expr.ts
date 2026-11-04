@@ -36,6 +36,8 @@ export interface PageInfo {
   usedHelpers: Set<string>;
   usedNs: Map<string, Set<string>>;
   usesNow: boolean;
+  /** `:name` segments of the page's `data-sn-path` patterns */
+  pathParams: Set<string>;
 }
 
 export interface ExprOptions {
@@ -485,6 +487,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     if (cp.res.kind === 'magic' && cp.root === '$url') {
       if (!cp.segs || cp.segs.length !== 2) { report('SN203', 'assign a parameter: `$url.<param> = …`', at); return; }
+      if (page.pathParams.has(cp.segs[1]!)) { report('SN203', `\`$url.${cp.segs[1]}\` is a path parameter (\`data-sn-path\`) and read-only; link to the other URL instead`, at); return; }
       writes.add(cp.segs.join('.'));
       return;
     }

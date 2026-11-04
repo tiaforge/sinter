@@ -131,6 +131,8 @@ export interface IR {
   actions: ActionDef[];
   /** page uses `$now` */
   now?: boolean;
+  /** `data-sn-path` patterns; `:name` segments of the first match join `$url` */
+  path?: string[];
 }
 
 export type Fn = (scope: any, value?: any) => any;

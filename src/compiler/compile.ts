@@ -58,6 +58,7 @@ const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
 const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs;
 const EVENT_ATTRS = ELEMENTS.find((e) => e.name === 'sn-event')!.attrs;
 const IDENT = /^[A-Za-z_][\w]*$/;
+const BAD_PARAM = /^(constructor|__proto__|prototype)$/;
 const SECRET_AUTOCOMPLETE = /^(cc-|one-time-code$|current-password$|new-password$)/;
 
 interface Origin { file: string; src: string; chain: string[] }
@@ -99,7 +100,7 @@ class Compiler {
     for (const [k, v] of Object.entries(opts.helpers.namespaces)) ns.set(k, new Set(v.members));
     this.page = {
       resources: new Map(), helpers: new Set(opts.helpers.names), namespaces: ns,
-      usedHelpers: new Set(), usedNs: new Map(), usesNow: false,
+      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(),
     };
   }
 
@@ -108,6 +109,7 @@ class Compiler {
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     this.expandIncludes(doc, [this.opts.file]);
     this.declare(doc);
+    const paths = this.pathPatterns(doc);
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
 
     for (const [name, id] of this.embedded) {
@@ -125,6 +127,7 @@ class Compiler {
 
     const ir: IR = { v: 1, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;
+    if (paths.length) ir.path = paths;
     const builtin: string[] = [];
     const user: string[] = [];
     for (const h of [...this.page.usedHelpers].sort()) (this.page.helpers.has(h) ? user : builtin).push(h);
@@ -269,6 +272,22 @@ class Compiler {
     }
   }
 
+  /** `<html data-sn-path="/a /b/:id">`: the URL shapes this page is served for. */
+  pathPatterns(doc: DefaultTreeAdapterMap['document']): string[] {
+    const html = doc.childNodes.find((n) => isElement(n) && n.tagName === 'html') as P5Element | undefined;
+    const value = html && attr(html, 'data-sn-path');
+    if (value == null) return [];
+    const patterns = value.trim().split(/\s+/).filter(Boolean);
+    for (const p of patterns) {
+      const segs = p.split('/').slice(1);
+      const bad = !p.startsWith('/') || p.startsWith('//') || segs.some((s, i) =>
+        s[0] === ':' ? !IDENT.test(s.slice(1)) || BAD_PARAM.test(s.slice(1)) : (s === '' && i < segs.length - 1) || /[?#:]/.test(s));
+      if (bad) this.report(html!, 'data-sn-path', 'SN401', `\`${p}\` is not a path pattern; use literal segments and \`:name\`, e.g. \`/article/:slug\``, value.indexOf(p));
+      for (const s of segs) if (s[0] === ':') this.page.pathParams.add(s.slice(1));
+    }
+    return patterns;
+  }
+
   // ---- main walk
 
   walkChildren(parent: P5Parent, ctx: Ctx) {
@@ -307,6 +326,8 @@ class Compiler {
       if (known.has(a.name) || a.name.startsWith('data-sn-on-')) continue;
       this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
     }
+
+    if (has('path') && el.tagName !== 'html') this.report(el, 'data-sn-path', 'SN102', '`data-sn-path` belongs on `<html>`', 0);
 
     // embedded data
     if (has('data')) {
