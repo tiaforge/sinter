@@ -117,6 +117,9 @@ interface RB extends BoundBinding {
   t?: TemplateDef;
   /** end marker of the rows / branch, inserted after the template anchor */
   end?: Comment;
+  /** for: rows by key (when every key is unique and computed without a scope) and the round of the last reconcile */
+  keys?: Map<string, Inst> | null;
+  rr?: number;
   /** if: rendered branch (0 none, 1 if, 2 else), and the else anchor with its template */
   br?: number;
   else?: [Element, number] | null;
@@ -211,8 +214,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   };
   /** Elements written through callbacks (`$.$m(row, …)`) since the last flush. */
   const marked = new Set<unknown>();
-  /** Per flush round: whether rows of a template can be affected at all. */
-  let rowHits = new Map<TemplateDef, boolean>();
+  /** Per flush round: how dirty paths reach a template's rows (0 not, 1 only marked elements, 2 any row). */
+  let rowHits = new Map<TemplateDef, number>();
 
   /**
    * Whether a dependency (its `{name}` segments read from scope `s`, or any scope when `s` is
@@ -221,20 +224,25 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * reach it: reconcile re-evaluates rows whose item or index changed. `~` reaches only rows
    * whose element was marked.
    */
-  const overlaps = ({ p, n, a, t }: Dep, d: string[], s?: any) => {
-    if (a >= 0 && d.length <= a) return false;
+  const overlaps = (dep: Dep, d: string[], s?: any) => reach(dep, d, s) > 0;
+
+  /** 0: no overlap; 1: only through a marked element (`~`) of the row; 2: overlap. */
+  function reach({ p, n, a, t }: Dep, d: string[], s?: any): number {
+    if (a >= 0 && d.length <= a) return 0;
+    let via = 2;
     for (let i = 0, len = Math.min(p.length, d.length); i < len; i++) {
       const y = d[i]!;
       if (y == '#' || y == '~') {
         if (i != a) continue;
-        if (y == '#' || (s && !marked.has(s[ir.templates[t]!.item!]))) return false;
+        if (y == '#' || (s && !marked.has(s[ir.templates[t]!.item!]))) return 0;
+        via = 1;
         continue;
       }
       if (y == '*' || (n[i] !== undefined && !s)) continue;
-      if (n[i] !== undefined ? s[n[i]!] != y : p[i] != y && p[i] != '*') return false;
+      if (n[i] !== undefined ? s[n[i]!] != y : p[i] != y && p[i] != '*') return 0;
     }
-    return true;
-  };
+    return s ? 2 : via;
+  }
 
   /** Dependencies of every binding in a template's rows, nested templates included. */
   const templateDeps = (t: TemplateDef): Dep[] => compiled.get(t) ?? (compiled.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
@@ -453,10 +461,24 @@ export function mount(root: Document | Element, o: MountOptions): App {
   function walk(rbs: RB[], force: boolean) {
     for (const rb of rbs) {
       if (!process(rb, force) || !rb.rows) continue;
-      // skip rows no dirty path can reach (unless they moved or changed) and rows created in this round
-      let all = force || !rb.t || rowHits.get(rb.t);
-      if (all == null) rowHits.set(rb.t!, (all = hit(templateDeps(rb.t!))));
-      for (const x of rb.rows) if (x.r != round && (all || x.f)) { walk(x.rbs, force || x.f); x.f = false; }
+      const t = rb.t;
+      let r = force || !t ? 2 : rowHits.get(t);
+      if (r == null) {
+        r = 0;
+        // a mark counts as "only marked rows" for dependencies on this list's own element; others (outer rows) reach any row
+        for (const dep of templateDeps(t!)) for (const d of cur) { const x = reach(dep, d); r = Math.max(r, x == 1 && dep.t != t!.id ? 2 : x); }
+        rowHits.set(t!, r);
+      }
+      // only marked elements changed and the list did not move: visit their rows directly
+      if (r == 1 && rb.keys && rb.rr != round) {
+        for (const item of marked) {
+          const x = Object(item) === item ? rb.keys.get(keyOf(t!, item, null)) : null;
+          if (x && x.item === item) walk(x.rbs, false);
+        }
+        continue;
+      }
+      // otherwise skip rows no dirty path can reach (unless they moved or changed), and rows created in this round
+      for (const x of rb.rows) if (x.r != round && (r || x.f)) { walk(x.rbs, force || x.f); x.f = false; }
     }
   }
 
@@ -564,10 +586,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // each row owns the nodes from its first node up to the next row's first node
     const nodes = new Map(old.map((x, i) => [x, range(x.first, old[i + 1]?.first ?? end)]));
     const byKey = new Map(old.map((x) => [x.key, x])), pos = new Map(old.map((x, i) => [x, i])), seen = new Set<string>();
+    let dup = false;
     const rows = items.map((item, i) => {
       const s = setRow(Object.create(rb.s), t, item, i);
       let key = keyOf(t, item, s);
-      while (seen.has(key)) { warn(11, key.slice(1)); key += '#'; }
+      while (seen.has(key)) { warn(11, key.slice(1)); key += '#'; dup = true; }
       seen.add(key);
       const x = byKey.get(key);
       if (!x) return instantiate(rb.el as HTMLTemplateElement, t, s, key, item, i);
@@ -585,6 +608,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       ref = x.first ?? ref;
     }
     rb.rows = rows;
+    rb.rr = round;
+    rb.keys = dup || t.key != null ? null : new Map(rows.map((x) => [x.key, x]));
   }
 
   function toggle(rb: RB, br: number) {

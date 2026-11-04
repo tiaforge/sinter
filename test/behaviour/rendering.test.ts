@@ -433,3 +433,14 @@ test('writes through forEach callbacks update exactly the marked rows and index 
   expect([...root.querySelectorAll('i')].map((e) => e.textContent)).toEqual(['A', 'b', 'C']);
   expect(root.querySelector('p')!.textContent).toBe('C');
 });
+
+test('marked outer elements update inner rows that read them', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ xs: [{t: 'a', ys: [{v: 1}, {v: 2}]}, {t: 'b', ys: [{v: 3}]}] }">
+      <template data-sn-for="x in xs"><template data-sn-for="y in x.ys"><i data-sn-text="x.t + y.v"></i></template></template>
+      <button data-sn-on-click="xs.forEach((x) => x.t = x.t.toUpperCase())"></button>
+    </div>`);
+  root.querySelector('button')!.click();
+  await flush();
+  expect([...root.querySelectorAll('i')].map((e) => e.textContent)).toEqual(['A1', 'A2', 'B3']);
+});
