@@ -22,7 +22,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "size": "npm run build && node scripts/size.mjs"
   },
   "dependencies": {
     "acorn": "^8.19.0",
