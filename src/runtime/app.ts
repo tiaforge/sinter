@@ -566,7 +566,7 @@ export class App {
         if (v == null || v === false) { el.removeAttribute(name); return; }
         const s = v === true ? '' : String(v);
         const lname = name.toLowerCase();
-        const base = el.ownerDocument.baseURI;
+        const base = /^https?:/.test(el.ownerDocument.baseURI) ? el.ownerDocument.baseURI : this.env.href();
         if ((URL_ATTRS.has(lname) && !urlAllowed(s, lname, el.localName, base, this.schemes))
           || ((lname === 'srcset' || lname === 'imagesrcset') && !srcsetAllowed(s, el.localName, base, this.schemes))) {
           el.removeAttribute(name);
