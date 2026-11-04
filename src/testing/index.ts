@@ -19,9 +19,9 @@ const FEATURES: Record<string, Feature> = { sse, optimistic, paginate, persist }
 // ---- requests
 
 export type RouteResponse =
-  | unknown
+  | ((call: RecordedCall) => unknown)
   | { status: number; body?: unknown; headers?: Record<string, string> }
-  | ((call: RecordedCall) => unknown);
+  | object | string | number | boolean | null;
 
 export interface RecordedCall {
   method: string;

@@ -120,7 +120,7 @@ test('optimistic layers: overlapping actions and server events mid-flight', asyn
     'PATCH /api/flag': null,
   });
   const stream = mockStream();
-  const { root, flush, settle, requests: _r } = await render(`
+  const { root, flush, settle } = await render(`
     <sn-resource name="m" src="/api/m" items="m" key="id"></sn-resource>
     <sn-sync src="/s"><sn-event name="msg" resource="m" op="upsert"></sn-event></sn-sync>
     <template data-sn-for="x in m">
@@ -143,7 +143,6 @@ test('optimistic layers: overlapping actions and server events mid-flight', asyn
   // the read request fails: only its layer is dropped; the flag layer stays until it settles
   await settle();
   expect(text()).toBe('edited unread -');
-  void _r;
 });
 
 test('islands use app.optimistic() with the same layers', async () => {
