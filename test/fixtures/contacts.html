@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head><title>Contacts</title></head>
+<body>
+<sn-resource name="contacts" src="/api/contacts" items="contacts"
+             key="account_id,uid,addressbook_href" order="fn_name"></sn-resource>
+<sn-resource name="addressbooks" src="/api/contacts" items="addressbooks"
+             key="account_id,href"></sn-resource>
+
+<sn-sync src="/api/events/stream">
+  <sn-event name="contact_updated"  resource="contacts" op="upsert" item="contact" fallback="refetch"></sn-event>
+  <sn-event name="contact_removed"  resource="contacts" op="remove"></sn-event>
+  <sn-event name="contacts_refetch" resource="contacts" op="refetch"></sn-event>
+</sn-sync>
+
+<section data-sn-state="{ q: '', draft: null }">
+  <header>
+    <input type="search" placeholder="Search" data-sn-model="q" data-sn-persist="contacts.q">
+    <button data-sn-on-click="draft = {account_id: addressbooks[0].account_id, addressbook_href: addressbooks[0].href, fn_name: '', org: '', emails: [{value: '', type_label: 'home'}], phones: [], addresses: []}" commandfor="edit" command="show-modal">New contact</button>
+  </header>
+
+  <p data-sn-show="$meta.contacts.loading && !contacts.length" aria-busy="true">Loading…</p>
+
+  <ul class="contact-grid">
+    <template data-sn-for="c in contacts.filter(c => !q || (c.fn_name + ' ' + c.org).toLowerCase().includes(q.toLowerCase()))"
+              data-sn-key="c.uid">
+      <li>
+        <strong data-sn-text="c.fn_name"></strong>
+        <small data-sn-text="c.org" data-sn-show="c.org"></small>
+        <a data-sn-show="c.emails.length" data-sn-attr="{href: 'mailto:' + c.emails[0]?.value}" data-sn-text="c.emails[0]?.value"></a>
+        <button data-sn-on-click="draft = structuredClone(c)" commandfor="edit" command="show-modal">Edit</button>
+        <button data-sn-delete="/api/contact"
+                data-sn-body="{account_id: c.account_id, uid: c.uid, addressbook_href: c.addressbook_href}"
+                data-sn-optimistic="remove('contacts', c)">Delete</button>
+      </li>
+    </template>
+  </ul>
+  <sn-include src="./partials/contact-dialog.html"></sn-include>
+</section>
+</body>
+</html>
