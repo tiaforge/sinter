@@ -47,6 +47,26 @@ Every sinter page loads 12.5–14.2 KB of JS when opened (its page module plus t
 core, config, islands). As a multi-page app, each navigation is a page load; the shared chunk
 comes from the browser cache.
 
+## htmx and Datastar
+
+The hypermedia builds render HTML on their own server for every page and interaction, so they
+cannot use the shared JSON API; each ships its own backend. Counted: UI layer (templates,
+page-rendering handlers, routes) and data layer (models, queries, services) separately.
+Client JS is the library versions their layouts load, gzipped at level 9.
+
+| implementation | commit | UI layer lines | data layer lines | client JS (gz) |
+| --- | --- | ---: | ---: | ---: |
+| **sinter** | | **724** | – (uses the API) | 12.5–14.2 KB per page |
+| Go + templ + htmx (BerkeleyTrue/conduit-go-htmx) | 4c0990a | 2031 | 2529 | 39.9 KB (htmx 1.9.5 14.7 + hyperscript 25.1) |
+| Clojure + hiccup + htmx (BerkeleyTrue/conduit-clj-htmx) | c46a814 | 1351 | 1525 | 39.9 KB |
+| Go + templ + Datastar (delaneyj/realworld-datastar) | 410de63 | 1949 | 488 | 14.7 KB (Datastar 0.18.9) |
+
+htmx 2.0.4 alone is 16.4 KB gz. harabat/django-htmx (a4a29fc) does not use htmx in its
+published state and is left out. Behavioural differences: sinter's mutations are optimistic,
+the htmx builds show results after the server answers (favorite = POST, then a hyperscript-
+triggered reload of the article fragment); htmx reads directives from the live DOM, sinter
+compiles them, so injected markup stays inert; htmx needs no client build step.
+
 ## Official e2e suite
 
 sinter: 130–133 of 140, depending on the run (see `examples/realworld/README.md` for the rest:
