@@ -232,6 +232,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     let via = 2;
     for (let i = 0, len = Math.min(p.length, d.length); i < len; i++) {
       const y = d[i]!;
+      // a list's structure dependency: reached by changes to the list itself or a whole element, not element fields
+      if (p[i] == '#') return d.length <= i + 1 ? 2 : 0;
       if (y == '#' || y == '~') {
         if (i != a) continue;
         if (y == '#' || (s && !marked.has(s[ir.templates[t]!.item!]))) return 0;
@@ -598,11 +600,20 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (x.item !== item || x.i != i) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = true; }
       return x;
     });
-    for (const x of byKey.values()) remove(x, nodes.get(x)!);
+    if (!rows.length && old.length) {
+      // clearing: every node between the anchor and the end marker
+      while (rb.el.nextSibling != end) rb.el.nextSibling!.remove();
+      for (const x of old) remove(x, []);
+    } else for (const x of byKey.values()) remove(x, nodes.get(x)!);
     // move the fewest rows: those outside a longest increasing subsequence of old positions
     const keep = lis(rows.map((x) => pos.get(x) ?? -1));
     let ref: Node = end;
-    for (let i = rows.length; i--;) {
+    if (!old.length) {
+      // filling an empty list: one insertion
+      const frag = new DocumentFragment();
+      for (const x of rows) frag.append(...x.nodes);
+      end.before(frag);
+    } else for (let i = rows.length; i--;) {
       const x = rows[i]!;
       if (!keep.has(i)) (ref as ChildNode).before(...(nodes.get(x) ?? x.nodes));
       ref = x.first ?? ref;

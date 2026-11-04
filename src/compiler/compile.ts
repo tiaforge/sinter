@@ -596,7 +596,9 @@ class Compiler {
     } else if (list.ast && primitiveList(list.ast)) {
       this.report(el, 'data-sn-for', 'SN103', 'a `data-sn-for` over primitive values needs `data-sn-key`', m[0].length);
     }
-    node.b.push(binding({ k: 'for', f: this.fn(list.code), d: list.deps, x: tid, ...usesEl(list) }));
+    // a plain list path changes the rows only through its structure or replaced elements (`#`), not element fields
+    const deps = alias && list.deps.length == 1 && list.deps[0] == list.path!.join('.') ? [list.deps[0] + '.#'] : list.deps;
+    node.b.push(binding({ k: 'for', f: this.fn(list.code), d: deps, x: tid, ...usesEl(list) }));
     return { tid, scope: inner };
   }
 
