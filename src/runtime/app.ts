@@ -147,7 +147,7 @@ export class App {
   private selects = new Set<RB>();
   private deferred = new Set<RB>();
   private actStates = new WeakMap<Element, ActState>();
-  private types = new Set<string>(['toggle']);
+  private types = new Set<string>();
   private ids = new Map<number, Element>();
   private serverListeners = new Map<string, Set<(payload: unknown) => void>>();
   private identities = new WeakMap<object, number>();
@@ -397,6 +397,7 @@ export class App {
     for (const id of bad) { this.ids.delete(id); this.warn(`duplicate \`data-sn="${id}"\`; not bound`); }
 
     for (const def of this.ir.resources) this.createResource(def);
+    this.listen('toggle');
 
     const els: Array<Element | null> = this.ir.roots.map((nd) => {
       const el = this.ids.get(nd.id!);
@@ -406,11 +407,6 @@ export class App {
     });
     this.bindNodes(this.ir.roots, els, this.page, this.rootBlock);
 
-    for (const t of this.types) {
-      const fn = (e: Event) => this.dispatch(e);
-      this.root.addEventListener(t, fn, true);
-      this.cleanups.push(() => this.root.removeEventListener(t, fn, true));
-    }
     if (this.ir.now) this.tickNow();
     if (this.ir.resources.length || this.ir.roots.some((n) => n.b.some((b) => b.d?.some((d) => d.startsWith('$url'))))) {
       this.cleanups.push(this.env.listen('popstate', () => this.refreshUrl()));
@@ -483,7 +479,7 @@ export class App {
         const list = this.handlers.get(el) ?? [];
         list.push(rb);
         this.handlers.set(el, list);
-        this.types.add(def.n!);
+        this.listen(def.n!);
         if (def.x !== undefined) {
           const a = this.ir.actions[def.x]!;
           if (a.debounce || a.concurrency) { /* per-element state is created lazily */ }
@@ -494,7 +490,8 @@ export class App {
         return;
       case 'model':
         this.models.set(el, rb);
-        this.types.add('input').add('change');
+        this.listen('input');
+        this.listen('change');
         if (el.localName === 'select') this.selects.add(rb);
         if (def.p !== undefined) this.ext.persist?.model(rb, (v) => this.setModel(rb, v));
         break;
@@ -510,6 +507,15 @@ export class App {
         break;
     }
     block.rbs.push(rb);
+  }
+
+  /** One delegated capture listener per used event type, at the mount root. */
+  private listen(type: string): void {
+    if (this.types.has(type)) return;
+    this.types.add(type);
+    const fn = (e: Event) => this.dispatch(e);
+    this.root.addEventListener(type, fn, true);
+    this.cleanups.push(() => this.root.removeEventListener(type, fn, true));
   }
 
   // ---- rendering

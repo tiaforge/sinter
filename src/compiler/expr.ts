@@ -86,7 +86,7 @@ const BROWSER = new Set([
   'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'requestAnimationFrame', 'queueMicrotask',
   'XMLHttpRequest', 'WebSocket', 'EventSource', 'alert', 'confirm', 'prompt', 'console', 'self', 'top',
   'parent', 'frames', 'opener', 'indexedDB', 'crypto', 'performance', 'SharedArrayBuffer', 'importScripts',
-  'customElements', 'Worker', 'Notification', 'caches', 'open', 'close', 'print', 'name', 'event',
+  'customElements', 'Worker', 'Notification', 'caches',
 ]);
 const FORBIDDEN_KEYS = new Set(['constructor', '__proto__', 'prototype']);
 
@@ -219,6 +219,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       report('SN202', `\`${name}\` is not allowed in expressions`, offset);
       return null;
     }
+    if (opts.payload) return { kind: 'payload' };
     if (BROWSER.has(name)) {
       report('SN202', `\`${name}\` is a browser API; expressions may use JavaScript, not the browser. Use an island`, offset);
       return null;
