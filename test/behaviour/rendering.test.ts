@@ -472,3 +472,16 @@ test('query parameters whose value is null or undefined are left out', async () 
   await settle();
   expect(requests.calls.map((c) => c.url).sort()).toEqual(['/api/a', '/api/a?e=&limit=2', '/api/a?limit=2']);
 });
+
+test('bindings after a partial inside a template keep their node paths', async () => {
+  const { root } = await render(`
+    <div data-sn-state="{ show: true, n: 'after' }">
+      <template data-sn-if="show">
+        <p>before</p>
+        <sn-include src="./part.html"></sn-include>
+        <b data-sn-text="n"></b>
+      </template>
+    </div>`, { files: { 'part.html': '<!-- partial -->\n<i data-sn-text="n + \'!\'"></i>\n' } });
+  expect(root.querySelector('i')!.textContent).toBe('after!');
+  expect(root.querySelector('b')!.textContent).toBe('after');
+});

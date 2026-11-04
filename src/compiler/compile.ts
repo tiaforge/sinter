@@ -242,6 +242,8 @@ class Compiler {
     const i = parent.childNodes.indexOf(el as never);
     for (const c of frag.childNodes) (c as { parentNode: P5Parent }).parentNode = parent;
     parent.childNodes.splice(i, 1, ...(frag.childNodes as never[]));
+    // the browser merges adjacent text when it parses the output; merge now so node paths agree
+    mergeText(parent);
   }
 
   // ---- declarations (first pass: names only, so expressions can see every resource)
@@ -820,6 +822,17 @@ function hasSnDeep(parent: P5Parent): boolean {
     if (c.tagName === 'template' && hasSnDeep((c as P5Template).content)) return true;
   }
   return false;
+}
+
+/** Merges adjacent text nodes, as parsing the serialized HTML would. */
+function mergeText(parent: P5Parent) {
+  const kids = parent.childNodes as Array<P5Node & { value?: string }>;
+  for (let i = kids.length - 1; i > 0; i--) {
+    if (kids[i]!.nodeName === '#text' && kids[i - 1]!.nodeName === '#text') {
+      kids[i - 1]!.value += kids[i]!.value!;
+      kids.splice(i, 1);
+    }
+  }
 }
 
 function detach(el: P5Element) {
