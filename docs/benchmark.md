@@ -4,7 +4,41 @@ Entry: [`bench/js-framework-benchmark`](../bench/js-framework-benchmark). Quick 
 Svelte with `bench/js-framework-benchmark/run.sh` (5 iterations, headless Chrome 156, local machine;
 treat single runs as ±10 % — totals are dominated by paint time, which is noisy).
 
-## 2026-11-04, after the list/flush optimizations
+## 2026-11-04, after the row creation/remove work
+
+Svelte figures are its stored results from the previous run (`run.sh` now measures sinter only).
+
+| benchmark | sinter total | svelte total | sinter script | svelte script |
+| --- | ---: | ---: | ---: | ---: |
+| 01 create 1k rows | 56.7 | 60.7 | 8.5 | 8.5 |
+| 02 replace 1k rows | 63.5 | 64.1 | 13.2 | 15.4 |
+| 03 update every 10th (×16 slowdown) | 47.1 | 47.2 | 3.2 | 3.7 |
+| 04 select row | 11.7 | 15.2 | 3.4 | 6.2 |
+| 05 swap rows | 43.0 | 44.5 | 3.7 | 3.7 |
+| 06 remove row | 41.1 | 35.5 | 1.1 | 1.5 |
+| 07 create 10k rows | 543.6 | 641.8 | 61.2 | 71.2 |
+| 08 append 1k rows | 70.1 | 65.9 | 9.7 | 6.9 |
+| 09 clear 1k rows (×8) | 26.0 | 27.5 | 21.6 | 23.3 |
+| **geometric mean (total) vs svelte** | **0.96** | 1.00 | | |
+
+Script time only (`profile.mjs`, click to end of flush, median of 25, real Chrome):
+
+| | sinter before | sinter after | svelte |
+| --- | ---: | ---: | ---: |
+| create 1k | 4.71 | 2.72 | 2.45 |
+| append 1k | 5.45 | 2.77 | 2.64 |
+| create 10k | 50.6 | 28.0 | 27.9 |
+| remove 1 | 1.38 | 0.21 | 0.41 |
+| clear 1k | 4.97 | 4.21 | 8.11 |
+
+Changes: handler/model/state registries live on the element (symbol properties) instead of
+WeakMaps; listeners are registered once from the IR; rows are keyed by the item object
+itself; template nodes are found with `firstChild`/`nextSibling`; reconcile trims the common
+prefix and suffix before matching keys, builds no row scope unless a key expression needs it,
+and walks moved rows only when the template reads its index. Tried and dropped: reusing path
+prefixes when locating template nodes (no gain).
+
+## 2026-11-04, after the list/flush optimizations (earlier)
 
 | benchmark | sinter total | svelte total | sinter script | svelte script |
 | --- | ---: | ---: | ---: | ---: |
@@ -39,6 +73,8 @@ Before the optimizations (same setup), sinter was last of seven frameworks on 03
   text bindings update their text node; dialog checks only where a template contains a dialog;
   one insertion when filling and one `replaceChildren` when clearing a list.
 
-## Still behind Svelte (script time)
+## Notes
 
-Row creation (01, 07, 08) and remove (06): per-row binding setup in `bindNodes`/`instantiate`.
+- Runs on this machine vary ±10 % (totals) and up to ±30 % (script, single runs); compare
+  medians across runs before concluding.
+- `run.sh` takes about 2.5 minutes for all nine benchmarks (sinter only); `profile.mjs` about 30 s.
