@@ -28,16 +28,30 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 Everything the pages' expressions cannot do (storage, navigation, HTML rendering) lives in the
 config module and the islands; the pages are declarative.
 
-## e2e status (2026-11-04)
+## e2e status (2026-11-04, public API)
 
-130–133 of 140 tests pass, depending on the run. The rest:
+| suite mode | passed | skipped | failed |
+| --- | ---: | ---: | ---: |
+| `spa` (default; this app holds the token and calls the API from the browser) | 134 | 0 | 6 |
+| `ssr` (`TEST_MODE=ssr`) | 89 | 48 | 3 |
 
-- **Settings (4)**: after "Update Settings" the app navigates to the profile (as the suite
-  expects), but the tests read the PUT response body afterwards; in a multi-page app the
-  navigation discards it (`Network.getResponseBody: No resource`). The suite assumes an SPA here.
-- **Optimistic updates vs. immediate navigation (1–2)**: follow/delete show the result before the
-  server answers; tests that navigate or end within milliseconds race the write (the write itself
-  is sent with `keepalive` and is not lost).
-- **Backend under load (2–8, varies)**: the public API intermittently answers article lists
-  without CORS headers (seen in traces as `blocked by CORS policy`); the app then shows its
-  "Connecting…" / "cannot be loaded" states. These tests pass when run alone.
+- **Settings (4, spa mode only)**: after "Update Settings" the app navigates to the profile, as
+  the suite expects, but spa mode then reads the PUT response body, which a multi-page app
+  discards on navigation. The ssr-mode branch of the same tests (wait for the redirect, check
+  the profile) passes.
+- **Profile lists (2)**: the public API answers authenticated article lists for a user with two
+  fresh articles without CORS headers (seen in traces); fails in both modes.
+- ssr mode's other 2 failures were registrations that timed out against the public API.
+
+Follow/unfollow and comment deletion wait for the server; favorites are optimistic.
+
+## Against a local backend
+
+```sh
+# a spec-compliant backend, e.g. https://github.com/c4ffein/realworld-django-ninja, on :8000
+API=http://localhost:8000/api CHROME=/path/to/chrome ./e2e-local.sh
+```
+
+`e2e-local.sh` seeds the demo users the suite expects (`johndoe`, `janedoe`), builds a copy of the
+app pointing at `$API`, and runs the suite. `user-fetch-errors.spec.ts` mocks
+`https://api.realworld.show` itself and cannot pass against another backend.
