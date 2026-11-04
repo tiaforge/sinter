@@ -1,6 +1,4 @@
 // Islands: browser work that sinter expressions cannot do (storage, navigation, HTML rendering).
-import DOMPurify from 'dompurify';
-import { marked } from 'marked';
 import { instance } from '@tiaforge/sinter';
 import { token } from './session.js';
 
@@ -20,8 +18,15 @@ customElements.define('conduit-redirect', class extends HTMLElement {
   connectedCallback() { location.replace(this.getAttribute('to') ?? '/'); }
 });
 
-/** `<conduit-markdown>` with a `source` property: renders sanitized Markdown. */
+/**
+ * `<conduit-markdown>` with a `source` property: renders sanitized Markdown. The renderer is
+ * loaded on first use, so pages without articles do not download it.
+ */
+const renderer = () => Promise.all([import('marked'), import('dompurify')]).then(([{ marked }, { default: DOMPurify }]) =>
+  (md) => DOMPurify.sanitize(marked.parse(md ?? '', { async: false })));
+let render;
 customElements.define('conduit-markdown', class extends HTMLElement {
+  #md = '';
   constructor() {
     super();
     // rows are cloned from inert templates, so `source` may have been set before the upgrade
@@ -31,7 +36,10 @@ customElements.define('conduit-markdown', class extends HTMLElement {
       this.source = md;
     }
   }
-  set source(md) { this.innerHTML = DOMPurify.sanitize(marked.parse(md ?? '', { async: false })); }
+  set source(md) {
+    this.#md = md;
+    (render ??= renderer()).then((html) => { if (this.#md === md) this.innerHTML = html(md); });
+  }
 });
 
 /** The debug interface the RealWorld e2e suite reads. */
