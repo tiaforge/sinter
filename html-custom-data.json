@@ -1,0 +1,221 @@
+{
+  "version": 1.1,
+  "tags": [
+    {
+      "name": "sn-resource",
+      "description": "a named, page-wide cache of server data",
+      "attributes": [
+        {
+          "name": "name"
+        },
+        {
+          "name": "src"
+        },
+        {
+          "name": "key"
+        },
+        {
+          "name": "items"
+        },
+        {
+          "name": "total"
+        },
+        {
+          "name": "order"
+        },
+        {
+          "name": "when"
+        },
+        {
+          "name": "paginate"
+        },
+        {
+          "name": "page-size"
+        },
+        {
+          "name": "size-param"
+        },
+        {
+          "name": "cursor"
+        },
+        {
+          "name": "direction-param"
+        },
+        {
+          "name": "page-param"
+        }
+      ]
+    },
+    {
+      "name": "sn-sync",
+      "description": "one server event stream",
+      "attributes": [
+        {
+          "name": "src"
+        }
+      ]
+    },
+    {
+      "name": "sn-event",
+      "description": "maps one server event to a change message; child of <sn-sync>",
+      "attributes": [
+        {
+          "name": "name"
+        },
+        {
+          "name": "resource"
+        },
+        {
+          "name": "op"
+        },
+        {
+          "name": "item"
+        },
+        {
+          "name": "set"
+        },
+        {
+          "name": "when"
+        },
+        {
+          "name": "fallback"
+        }
+      ]
+    },
+    {
+      "name": "sn-include",
+      "description": "inlines a partial at build time",
+      "attributes": [
+        {
+          "name": "src"
+        }
+      ]
+    }
+  ],
+  "globalAttributes": [
+    {
+      "name": "data-sn-state",
+      "description": "declares local reactive state for the element and its subtree (object literal)"
+    },
+    {
+      "name": "data-sn-text",
+      "description": "sets textContent; never HTML (value expression)"
+    },
+    {
+      "name": "data-sn-attr",
+      "description": "literal keys; null/false removes, true sets empty; URL values are checked (object literal {href: …})"
+    },
+    {
+      "name": "data-sn-class",
+      "description": "toggles each class (object literal {unread: …})"
+    },
+    {
+      "name": "data-sn-style",
+      "description": "sets each property with style.setProperty (object literal {'--color': …})"
+    },
+    {
+      "name": "data-sn-show",
+      "description": "toggles the hidden attribute (value expression)"
+    },
+    {
+      "name": "data-sn-prop",
+      "description": "sets JS properties; custom elements only (object literal)"
+    },
+    {
+      "name": "data-sn-model",
+      "description": "two-way binding for form controls (state path)"
+    },
+    {
+      "name": "data-sn-for",
+      "description": "repeats a <template> per item (item in list | (item, i) in list)"
+    },
+    {
+      "name": "data-sn-key",
+      "description": "row identity; defaults to the resource key or object identity (value expression)"
+    },
+    {
+      "name": "data-sn-if",
+      "description": "renders a <template> while truthy (value expression)"
+    },
+    {
+      "name": "data-sn-else",
+      "description": "on a <template> directly after an if template"
+    },
+    {
+      "name": "data-sn-persist",
+      "description": "persists the model or state in localStorage under sn: (storage key)"
+    },
+    {
+      "name": "data-sn-get",
+      "description": "GET action; latest wins (URL template)"
+    },
+    {
+      "name": "data-sn-post",
+      "description": "POST action (URL template)"
+    },
+    {
+      "name": "data-sn-put",
+      "description": "PUT action (URL template)"
+    },
+    {
+      "name": "data-sn-patch",
+      "description": "PATCH action (URL template)"
+    },
+    {
+      "name": "data-sn-delete",
+      "description": "DELETE action (URL template)"
+    },
+    {
+      "name": "data-sn-body",
+      "description": "JSON request body; overrides form serialization (value expression)"
+    },
+    {
+      "name": "data-sn-trigger",
+      "description": "overrides the default trigger (DOM event name)"
+    },
+    {
+      "name": "data-sn-debounce",
+      "description": "delays the trigger, resets on each event (milliseconds)"
+    },
+    {
+      "name": "data-sn-concurrency",
+      "description": "mutations only; default block for forms, queue otherwise (block | queue | latest)"
+    },
+    {
+      "name": "data-sn-optimistic",
+      "description": "patch/upsert/remove calls applied before the request, rolled back on failure (handler expression)"
+    },
+    {
+      "name": "data-sn-then",
+      "description": "runs after a 2xx response; $result = parsed body (handler expression)"
+    },
+    {
+      "name": "data-sn-catch",
+      "description": "runs after an error; $error = {status, body, message} (handler expression)"
+    },
+    {
+      "name": "data-sn-data",
+      "description": "on <script type=\"application/json\"> in <head>: initial data for a resource (resource name)"
+    },
+    {
+      "name": "data-sn-on-click",
+      "description": "plain event handler, no request; e.g. data-sn-on-click"
+    },
+    {
+      "name": "data-sn-on-input",
+      "description": "plain event handler, no request; e.g. data-sn-on-click"
+    },
+    {
+      "name": "data-sn-on-change",
+      "description": "plain event handler, no request; e.g. data-sn-on-click"
+    },
+    {
+      "name": "data-sn-on-submit",
+      "description": "plain event handler, no request; e.g. data-sn-on-click"
+    },
+    {
+      "name": "data-sn-on-keydown",
+      "description": "plain event handler, no request; e.g. data-sn-on-click"
+    }
+  ]
+}

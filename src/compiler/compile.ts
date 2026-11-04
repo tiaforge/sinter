@@ -4,6 +4,7 @@ import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, type ExprOptions, type ExprResult, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
+import { ATTRIBUTES, ELEMENTS } from './vocabulary.js';
 import type { ActionDef, Binding, EventDef, IR, NodeDef, Paginate, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 
 type P5Node = DefaultTreeAdapterMap['node'];
@@ -49,17 +50,13 @@ export interface CompiledParts {
   files: string[];
 }
 
-const ATTRS = [
-  'state', 'text', 'attr', 'class', 'style', 'show', 'prop', 'model', 'for', 'key', 'if', 'else', 'persist',
-  'get', 'post', 'put', 'patch', 'delete', 'body', 'trigger', 'debounce', 'concurrency', 'optimistic',
-  'then', 'catch', 'data',
-] as const;
+const ATTRS = ATTRIBUTES.map((a) => a.name);
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
-const RESOURCE_ATTRS = ['name', 'src', 'key', 'items', 'total', 'order', 'when', 'paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'page-param'];
-const EVENT_ATTRS = ['name', 'resource', 'op', 'item', 'set', 'when', 'fallback'];
+const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs;
+const EVENT_ATTRS = ELEMENTS.find((e) => e.name === 'sn-event')!.attrs;
 const IDENT = /^[A-Za-z_][\w]*$/;
 const SECRET_AUTOCOMPLETE = /^(cc-|one-time-code$|current-password$|new-password$)/;
 

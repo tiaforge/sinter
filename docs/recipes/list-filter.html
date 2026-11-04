@@ -1,0 +1,11 @@
+<sn-resource name="people" src="/api/people" items="people" key="id" order="name"></sn-resource>
+
+<section data-sn-state="{ q: '' }">
+  <input type="search" placeholder="Search" data-sn-model="q">
+  <p data-sn-show="$meta.people.loading" aria-busy="true">Loading…</p>
+  <ul>
+    <template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))">
+      <li data-sn-text="p.name"></li>
+    </template>
+  </ul>
+</section>

@@ -1,0 +1,26 @@
+<sn-resource name="people" src="/api/people" key="id" order="name"></sn-resource>
+
+<section data-sn-state="{ draft: null }">
+  <button data-sn-on-click="draft = {name: '', emails: [{value: ''}]}" commandfor="edit" command="show-modal">New</button>
+  <ul>
+    <template data-sn-for="p in people">
+      <li>
+        <span data-sn-text="p.name"></span>
+        <button data-sn-on-click="draft = structuredClone(p)" commandfor="edit" command="show-modal">Edit</button>
+      </li>
+    </template>
+  </ul>
+
+  <dialog id="edit">
+    <form data-sn-post="/api/people" data-sn-body="draft"
+          data-sn-then="upsert('people', $result); draft = null; close()"
+          data-sn-catch="emit('toast', $error.message)">
+      <input data-sn-model="draft.name" required>
+      <template data-sn-for="(e, i) in draft.emails">
+        <input type="email" data-sn-model="draft.emails[i].value">
+      </template>
+      <button type="button" data-sn-on-click="draft.emails.push({value: ''})">Add email</button>
+      <button type="submit">Save</button>
+    </form>
+  </dialog>
+</section>

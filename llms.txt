@@ -1,0 +1,296 @@
+# sinter
+
+> sinter binds JSON APIs to plain HTML: keyed resources cached from the server, kept current from server events, rendered through <template> bindings, with optimistic mutations. A build step compiles annotated HTML into a page module; the browser runs no parser and no eval.
+
+Package: @tiaforge/sinter. Every directive is a `data-sn-*` attribute or an `<sn-*>` element. Anything else is a build error with a suggestion.
+
+## Attributes
+
+- `data-sn-state` (object literal): declares local reactive state for the element and its subtree
+- `data-sn-text` (value expression): sets textContent; never HTML
+- `data-sn-attr` (object literal {href: …}): literal keys; null/false removes, true sets empty; URL values are checked
+- `data-sn-class` (object literal {unread: …}): toggles each class
+- `data-sn-style` (object literal {'--color': …}): sets each property with style.setProperty
+- `data-sn-show` (value expression): toggles the hidden attribute
+- `data-sn-prop` (object literal): sets JS properties; custom elements only
+- `data-sn-model` (state path): two-way binding for form controls
+- `data-sn-for` (item in list | (item, i) in list): repeats a <template> per item
+- `data-sn-key` (value expression): row identity; defaults to the resource key or object identity
+- `data-sn-if` (value expression): renders a <template> while truthy
+- `data-sn-else`: on a <template> directly after an if template
+- `data-sn-persist` (storage key): persists the model or state in localStorage under sn:
+- `data-sn-get` (URL template): GET action; latest wins
+- `data-sn-post` (URL template): POST action
+- `data-sn-put` (URL template): PUT action
+- `data-sn-patch` (URL template): PATCH action
+- `data-sn-delete` (URL template): DELETE action
+- `data-sn-body` (value expression): JSON request body; overrides form serialization
+- `data-sn-trigger` (DOM event name): overrides the default trigger
+- `data-sn-debounce` (milliseconds): delays the trigger, resets on each event
+- `data-sn-concurrency` (block | queue | latest): mutations only; default block for forms, queue otherwise
+- `data-sn-optimistic` (handler expression): patch/upsert/remove calls applied before the request, rolled back on failure
+- `data-sn-then` (handler expression): runs after a 2xx response; $result = parsed body
+- `data-sn-catch` (handler expression): runs after an error; $error = {status, body, message}
+- `data-sn-data` (resource name): on <script type="application/json"> in <head>: initial data for a resource
+- `data-sn-on-<event>` (handler expression): plain event handler, no request; e.g. data-sn-on-click
+
+## Elements
+
+- `<sn-resource>` `name`, `src`, `key`, `items`, `total`, `order`, `when`, `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `page-param`: a named, page-wide cache of server data
+- `<sn-sync>` `src`: one server event stream
+- `<sn-event>` `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`: maps one server event to a change message; child of <sn-sync>
+- `<sn-include>` `src`: inlines a partial at build time
+
+## Expressions and scope
+
+- Attribute values are JavaScript expressions, checked at build time. Value expressions (text, attr, class, show, for, if, key, body, state, URL interpolations) cannot assign, use `++`, `delete`, `await` or `import()`.
+- Handlers (`data-sn-on-*`, `then`, `catch`) are statements separated by `;`: assignments to state, `$url.<param>` and `$locale`, and calls. No declarations or loops.
+- `data-sn-optimistic` may only call `patch`, `upsert`, `remove`.
+- A name resolves innermost first: loop variables, then the nearest `data-sn-state`, then resources, then magic names, helpers and store functions, then JavaScript globals. Browser APIs (`window`, `document`, `fetch`, timers, …) are refused: use an island.
+- Resources are read-only: copy an item with `structuredClone(c)` to edit it, write with `patch()`.
+- Helpers are plain function calls, never pipes: `date()`, `time()`, `datetime()`, `relative()`, `number()`, `bytes()`. Helper namespaces: `m.inbox_title()`.
+- URL templates: `/api/x?id={c.id}`; interpolations are URL-encoded; the template must start with a literal `/path` or `https://origin`.
+- Use `$now` instead of `Date.now()` so bindings update.
+
+## Magic names
+
+`$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`. `$event` in handlers, `$result` in `then`, `$error` (`{status, body, message}`) in `catch`; `$meta.<resource>` has `loading`, `error`, `loadedAt`, `pending`, `total`, and with `paginate`: `page` (offset), `pages`, `from`, `to`, `hasPrev`, `hasNext`.
+
+## Store functions
+
+`refresh()`, `upsert()`, `patch()`, `remove()`, `page()`, `close()`, `reset()`, `emit()`: `refresh('name')`, `upsert('name', item)`, `patch('name', item, {…})`, `remove('name', item)`, `page('name', 'next' | 'prev' | 'first' | 'last' | n)`, `close()` the nearest dialog, `reset()` the nearest form, `emit('event', detail)`.
+
+## Diagnostics
+
+`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN305 include-not-found`, `SN306 include-cycle`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`.
+
+## Recipes
+
+Each recipe comes with its test; copy both.
+
+### List with filter
+
+```html
+<sn-resource name="people" src="/api/people" items="people" key="id" order="name"></sn-resource>
+
+<section data-sn-state="{ q: '' }">
+  <input type="search" placeholder="Search" data-sn-model="q">
+  <p data-sn-show="$meta.people.loading" aria-busy="true">Loading…</p>
+  <ul>
+    <template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))">
+      <li data-sn-text="p.name"></li>
+    </template>
+  </ul>
+</section>
+```
+
+```ts
+import { expect, test } from 'vitest';
+import { render, mockRequests } from '@tiaforge/sinter/testing';
+import page from './list-filter.html?raw';
+
+
+test('filters the list as you type', async () => {
+  const requests = mockRequests({ 'GET /api/people': { people: [{ id: 1, name: 'Bob' }, { id: 2, name: 'Ada' }] } });
+  const { root, flush, settle } = await render(page, { requests });
+  await settle();
+  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Ada', 'Bob']);
+
+  const input = root.querySelector('input')!;
+  input.value = 'ad';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await flush();
+  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Ada']);
+});
+```
+
+### Form dialog with repeatable fields
+
+```html
+<sn-resource name="people" src="/api/people" key="id" order="name"></sn-resource>
+
+<section data-sn-state="{ draft: null }">
+  <button data-sn-on-click="draft = {name: '', emails: [{value: ''}]}" commandfor="edit" command="show-modal">New</button>
+  <ul>
+    <template data-sn-for="p in people">
+      <li>
+        <span data-sn-text="p.name"></span>
+        <button data-sn-on-click="draft = structuredClone(p)" commandfor="edit" command="show-modal">Edit</button>
+      </li>
+    </template>
+  </ul>
+
+  <dialog id="edit">
+    <form data-sn-post="/api/people" data-sn-body="draft"
+          data-sn-then="upsert('people', $result); draft = null; close()"
+          data-sn-catch="emit('toast', $error.message)">
+      <input data-sn-model="draft.name" required>
+      <template data-sn-for="(e, i) in draft.emails">
+        <input type="email" data-sn-model="draft.emails[i].value">
+      </template>
+      <button type="button" data-sn-on-click="draft.emails.push({value: ''})">Add email</button>
+      <button type="submit">Save</button>
+    </form>
+  </dialog>
+</section>
+```
+
+```ts
+import { expect, test } from 'vitest';
+import { render, mockRequests } from '@tiaforge/sinter/testing';
+import page from './form-dialog.html?raw';
+
+
+test('saves the draft and upserts the result', async () => {
+  const requests = mockRequests({
+    'GET /api/people': [],
+    'POST /api/people': (call) => ({ id: 1, ...(call.body as object) }),
+  });
+  const { root, flush, settle } = await render(page, { requests });
+  await settle();
+  root.querySelector('button')!.click();               // New
+  const dialog = root.querySelector('dialog')!;
+  dialog.showModal();
+  dialog.dispatchEvent(new Event('toggle'));
+  await flush();
+
+  const [name, email] = root.querySelectorAll('dialog input');
+  (name as HTMLInputElement).value = 'Ada';
+  name!.dispatchEvent(new Event('input', { bubbles: true }));
+  (email as HTMLInputElement).value = 'ada@example.com';
+  email!.dispatchEvent(new Event('input', { bubbles: true }));
+  root.querySelector('form')!.requestSubmit();
+  await settle();
+
+  expect(requests.calls.at(-1)!.body).toEqual({ name: 'Ada', emails: [{ value: 'ada@example.com' }] });
+  expect(root.querySelector('li span')!.textContent).toBe('Ada');
+  expect(dialog.open).toBe(false);
+});
+```
+
+### SSE sync
+
+```html
+<sn-resource name="people" src="/api/people" key="id" order="name"></sn-resource>
+
+<sn-sync src="/api/events">
+  <sn-event name="person_updated" resource="people" op="upsert" item="person" fallback="refetch"></sn-event>
+  <sn-event name="person_removed" resource="people" op="remove"></sn-event>
+</sn-sync>
+
+<ul>
+  <template data-sn-for="p in people"><li data-sn-text="p.name"></li></template>
+</ul>
+```
+
+```ts
+import { expect, test } from 'vitest';
+import { render, mockRequests, mockStream } from '@tiaforge/sinter/testing';
+import page from './sse-sync.html?raw';
+
+
+test('applies server events to the list', async () => {
+  const requests = mockRequests({ 'GET /api/people': [{ id: 1, name: 'Bob' }] });
+  const stream = mockStream();
+  const { root, flush, settle } = await render(page, { requests, streams: { '/api/events': stream } });
+  await settle();
+
+  stream.emit('person_updated', { person: { id: 2, name: 'Ada' } });
+  stream.emit('person_removed', { id: 1 });
+  await flush();
+  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Ada']);
+});
+```
+
+### Optimistic toggle
+
+```html
+<sn-resource name="messages" src="/api/messages" key="id"></sn-resource>
+
+<template data-sn-for="m in messages">
+  <article>
+    <span data-sn-text="m.subject"></span>
+    <button data-sn-patch="/api/messages/{m.id}"
+            data-sn-body="{is_flagged: !m.is_flagged}"
+            data-sn-optimistic="patch('messages', m, {is_flagged: !m.is_flagged})"
+            data-sn-attr="{'aria-pressed': m.is_flagged ? 'true' : 'false'}">★</button>
+  </article>
+</template>
+```
+
+```ts
+import { expect, test } from 'vitest';
+import { render, mockRequests } from '@tiaforge/sinter/testing';
+import page from './optimistic-toggle.html?raw';
+
+
+test('flags at once and rolls back when the server refuses', async () => {
+  const requests = mockRequests({
+    'GET /api/messages': [{ id: 1, subject: 'Hi', is_flagged: false }],
+    'PATCH /api/messages/1': { status: 500 },
+  });
+  const { root, flush, settle } = await render(page, { requests });
+  await settle();
+  const star = root.querySelector('button')!;
+
+  star.click();
+  await flush();
+  expect(star.getAttribute('aria-pressed')).toBe('true');   // optimistic
+
+  await settle();
+  expect(star.getAttribute('aria-pressed')).toBe('false');  // rolled back
+});
+```
+
+### Pagination
+
+```html
+<sn-resource name="messages" src="/api/messages" items="messages" total="total" key="id"
+  paginate="keyset" page-size="2" cursor="{before: id}"></sn-resource>
+
+<ul>
+  <template data-sn-for="m in messages"><li data-sn-text="m.subject"></li></template>
+</ul>
+<nav>
+  <button data-sn-on-click="page('messages', 'prev')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">‹</button>
+  <span data-sn-text="`${$meta.messages.from}–${$meta.messages.to} of ${$meta.messages.total}`"></span>
+  <button data-sn-on-click="page('messages', 'next')" data-sn-attr="{disabled: !$meta.messages.hasNext}">›</button>
+</nav>
+```
+
+```ts
+import { expect, test } from 'vitest';
+import { render, mockRequests } from '@tiaforge/sinter/testing';
+import page from './pagination.html?raw';
+
+const all = [5, 4, 3, 2, 1].map((id) => ({ id, subject: `m${id}` }));
+
+test('moves to the next page with a cursor', async () => {
+  const requests = mockRequests({
+    'GET /api/messages': (call) => {
+      const q = new URL(call.url, 'http://x').searchParams;
+      const before = Number(q.get('before') ?? Infinity);
+      const items = q.get('direction') === 'next' ? all.filter((m) => m.id < before) : all;
+      return { messages: items.slice(0, Number(q.get('limit'))), total: all.length };
+    },
+  });
+  const { root, settle } = await render(page, { requests });
+  await settle();
+  expect(root.querySelector('span')!.textContent).toBe('1–2 of 5');
+
+  root.querySelector<HTMLButtonElement>('nav button:last-of-type')!.click();
+  await settle();
+  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['m3', 'm2']);
+  expect(root.querySelector('span')!.textContent).toBe('3–4 of 5');
+  expect(requests.calls.at(-1)!.url).toBe('/api/messages?before=4&limit=2&direction=next');
+});
+```
+
+## Testing
+
+Write a test next to the markup. `@tiaforge/sinter/testing` compiles the page with the real compiler and mounts it:
+
+- `render(html, { requests, streams, url, locale, now, helpers, files })` → `{ root, app, flush, settle, advance, navigations }`
+- `mockRequests({ 'GET /api/x': json | {status, body} | (call) => … })`: records `calls`; responses are held until `settle()`; an unmatched request fails the test and lists the routes.
+- `mockStream()`: `emit(name, payload)`, `drop()`, `connected`.
+- `flush()` runs the scheduler (optimistic changes are visible), `settle()` finishes requests, queues and debounces, `advance(ms)` moves sinter's clock.

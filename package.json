@@ -17,13 +17,15 @@
   },
   "files": [
     "dist",
-    "llms.txt"
+    "llms.txt",
+    "html-custom-data.json"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "size": "npm run build && node scripts/size.mjs"
+    "size": "npm run build && node scripts/size.mjs",
+    "docs": "UPDATE_DOCS=1 vitest run test/docs.test.ts"
   },
   "dependencies": {
     "acorn": "^8.19.0",

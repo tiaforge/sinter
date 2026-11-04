@@ -1,0 +1,11 @@
+<sn-resource name="messages" src="/api/messages" key="id"></sn-resource>
+
+<template data-sn-for="m in messages">
+  <article>
+    <span data-sn-text="m.subject"></span>
+    <button data-sn-patch="/api/messages/{m.id}"
+            data-sn-body="{is_flagged: !m.is_flagged}"
+            data-sn-optimistic="patch('messages', m, {is_flagged: !m.is_flagged})"
+            data-sn-attr="{'aria-pressed': m.is_flagged ? 'true' : 'false'}">★</button>
+  </article>
+</template>
