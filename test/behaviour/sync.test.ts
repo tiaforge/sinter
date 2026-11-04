@@ -156,7 +156,7 @@ test('islands use app.optimistic() with the same layers', async () => {
   await flush();
   expect(root.querySelector('p')!.textContent).toBe('1 1');
   await settle();
-  expect((await p).status).toBe(500);
+  expect(((await p) as { status: number }).status).toBe(500);
   await flush();
   expect(root.querySelector('p')!.textContent).toBe('2 0');
 });
