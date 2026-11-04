@@ -36,6 +36,7 @@ const dev: Feature = {
   name: 'dev',
   install(app: App) {
     const seen = new Set<string>();
+    app.dev = true;
     app.warn = (code, ...args) => {
       let i = 0;
       const text = typeof code == 'string' ? code : MESSAGES[code]!.replace(/%/g, () => String(args[i++]).replace(/\x1f/g, ','));
