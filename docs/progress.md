@@ -13,7 +13,10 @@ built, what deviates, and what is left.
 | `src/sse.ts`, `src/optimistic.ts`, `src/paginate.ts`, `src/persist.ts` | feature modules |
 | `src/vite.ts` | Vite adapter |
 | `src/testing/` | `render`, `mockRequests`, `mockStream` |
-| `test/` | Vitest suites (happy-dom) |
+| `src/compiler/vocabulary.ts` | the attribute/element table; compiler, `llms.txt` and custom data derive from it |
+| `test/` | Vitest suites (happy-dom); `test/compiler/golden/__out__` are file snapshots |
+| `docs/recipes/` | the five `llms.txt` recipes, each with its executed test |
+| `scripts/size.mjs` | min+gzip per module (`npm run size`) |
 
 ## Milestones
 
@@ -27,9 +30,12 @@ built, what deviates, and what is left.
 - [x] M7 pagination: keyset, offset, append
 - [x] M8 persist, `$url`, `$now`, `$locale`, helpers and namespaces
 - [x] M9 testing module
-- [ ] M10 Vite plugin
-- [ ] M11 diagnostics fixtures for every code, security corpus, `llms.txt`, `html-custom-data.json`
-- [ ] M12 size budget check, real-browser (Playwright) suite
+- [x] M10 Vite plugin (transformIndexHtml, virtual page module, root-confined partials, full reload on change)
+- [x] M11 diagnostics fixture per code, golden outputs + IR schema check, property-based tests,
+      security corpus (URLs, CSS, injection, clobbering, pollution, origins), recipes with tests,
+      generated `llms.txt` and `html-custom-data.json`
+- [ ] M12 size budget: measured, not met (see below)
+- [ ] M13 real-browser suite (Playwright on Chromium, Firefox, WebKit; Trusted Types + strict CSP run)
 
 ## How it fits together
 
@@ -52,6 +58,9 @@ built, what deviates, and what is left.
   actions, errors, 401, SSE, optimistic overlaps, pagination).
 - Fixed: delegated listeners were only added for event types used by root
   elements, so handlers used only inside template rows never fired.
+- Vite plugin with a real build test; diagnostics fixtures for all 21 codes;
+  golden outputs; property-based list and layer tests; security tests;
+  recipes; generated docs. 129 tests pass, typecheck clean.
 
 ## Decisions and deviations
 
@@ -73,10 +82,33 @@ built, what deviates, and what is left.
 - Diagnostics in partials append the include chain to the message.
 - `loginRedirect` stores the return URL in sessionStorage (`sn:return`);
   `takeReturnUrl(allow)` reads it back after login.
+- `.` / `..` in a URL *path* interpolation is refused at runtime (reported via
+  `onError`) instead of being encoded as `%2E`/`%2E%2E`: WHATWG URL parsing,
+  and so `fetch`, turns `%2E%2E` back into a `..` segment. Query values are
+  still encoded as specified.
+- `SN503` fires for any non-literal `id`/`name` value (row-local reads have no
+  dependency paths, so "bound from data" means "not a literal").
+- The compiler's browser-API list does not include very generic names (`name`,
+  `open`, `print`, `event`); they are `SN201` instead of `SN202`.
 
 ## Open / not yet done
 
-- Vite plugin, `llms.txt`, VS Code custom data.
-- Diagnostics fixture per code; XSS / clobbering / URL corpora.
-- Size budget (5 KB core target) not measured yet; the core is likely above it.
-- Playwright suite for Chromium/Firefox/WebKit.
+- **Size budget not met.** `npm run size` (rolldown, minified):
+
+  | Module | min | gzip |
+  | --- | ---: | ---: |
+  | core (`mount`, `$k`) | 42.6 KB | 12.8 KB (target 5 KB) |
+  | sse | 4.2 KB | 1.6 KB |
+  | paginate | 4.1 KB | 1.5 KB |
+  | persist | 1.0 KB | 0.5 KB |
+  | optimistic | 0.2 KB | 0.2 KB |
+
+  Likely steps: a separate dev runtime (dev checks and warning strings out of
+  production), property mangling of private members, moving the request
+  middleware helpers and form serialization out of the hot path.
+- Playwright suite in real browsers (`<dialog>`/`commandfor`, bfcache,
+  `EventSource`, focus preservation), with Trusted Types and strict CSP.
+- List-update benchmark in CI.
+- Release pipeline (CI-only trusted publishing with provenance).
+- The docs site the diagnostics link to (`DOCS_URL` in `src/compiler/diagnostics.ts`)
+  is a placeholder.
