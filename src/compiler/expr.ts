@@ -454,7 +454,19 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     edits.push({ start: m.start, end: m.end, text: `${ns}$${member}` });
   }
 
-  function writePath(target: Node, locals: Locals, at: number) {
+  /**
+   * A write through a callback parameter that stands for "any element" (`data.forEach(row => row.x = 1)`)
+   * records the element at runtime: the expression is wrapped in `$.$m(row, …)` and its `*` becomes `~`,
+   * so only rows holding a marked element re-evaluate.
+   */
+  function track(cp: ChainPath, segs: string[], expr: Node): string[] {
+    const alias = cp.res.kind === 'local' ? cp.res.info.alias : null;
+    if (!alias || alias[alias.length - 1] !== '*' || segs[alias.length - 1] !== '*') return segs;
+    edits.push({ start: expr.start, end: expr.start, text: `$.$m(${cp.root}, ` }, { start: expr.end, end: expr.end, text: ')' });
+    return segs.map((x, i) => (i === alias.length - 1 ? '~' : x));
+  }
+
+  function writePath(target: Node, locals: Locals, at: number, expr: Node) {
     if (target.type === 'Identifier' && target.name === '$locale') { writes.add('$locale'); return; }
     if (target.type !== 'Identifier' && target.type !== 'MemberExpression') {
       report('SN203', 'only state variables and their properties can be assigned', at);
@@ -477,7 +489,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         report('SN203', `loop variable \`${cp.root}\` cannot be reassigned`, at);
         return;
       }
-      writes.add(cp.segs!.join('.'));
+      writes.add(track(cp, cp.segs!, expr).join('.'));
       return;
     }
     report('SN203', `\`${src.slice(target.start, target.end)}\` cannot be assigned; only state variables, \`$url.<param>\` and \`$locale\` can`, at);
@@ -503,7 +515,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
               report('SN203', `value expressions cannot change state; move \`${method}()\` to \`data-sn-on-*\``, n.start);
             } else if (mode === 'handler' && recv.segs && recv.res.kind !== 'magic' && !recv.resource) {
               // a known mutator changes the list structure (`#`), not the elements; unknown methods may change anything
-              writes.add(recv.segs.join('.') + (MUTATORS.has(method) ? '.#' : ''));
+              writes.add(track(recv, recv.segs, n).join('.') + (MUTATORS.has(method) ? '.#' : ''));
             } else if (mode === 'handler' && recv.segs && recv.root === '$url') {
               writes.add(recv.segs.slice(0, 2).join('.'));
             }
@@ -611,20 +623,20 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           report('SN203', 'destructuring assignment is not supported in handlers', n.start);
           return;
         }
-        writePath(n.left as Node, locals, n.start);
+        writePath(n.left as Node, locals, n.start, n);
         visitMemberParts(n.left as Node, locals);
         visit(n.right as Node, locals);
         return;
       }
       case 'UpdateExpression':
         if (mode !== 'handler') { report('SN203', 'value expressions cannot use `++`/`--`; move this to `data-sn-on-*`', n.start); return; }
-        writePath(n.argument as Node, locals, n.start);
+        writePath(n.argument as Node, locals, n.start, n);
         visitMemberParts(n.argument as Node, locals);
         return;
       case 'UnaryExpression':
         if (n.operator === 'delete') {
           if (mode !== 'handler') { report('SN203', 'value expressions cannot use `delete`', n.start); return; }
-          writePath(n.argument as Node, locals, n.start);
+          writePath(n.argument as Node, locals, n.start, n);
           visitMemberParts(n.argument as Node, locals);
           return;
         }

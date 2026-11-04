@@ -148,30 +148,17 @@ interface ActState {
 const instances = new WeakMap<object, App>();
 const paths = new Map<string, string[]>();
 const split = (p: string) => paths.get(p) ?? (paths.set(p, p.split('.')), paths.get(p)!);
-/** A dependency path: segments, scope names of `{name}` segments, and the position of the row's own element `{$i…}`. */
-interface Dep { p: string[]; n: Array<string | undefined>; a: number }
-const compiled = new WeakMap<object, Dep[]>();
-const depsOf = (key: object, list: string[] = []) => compiled.get(key) ?? (compiled.set(key, list.map((d) => {
-  const p = d.split('.');
-  return { p, n: p.map((x) => (x[0] == '{' ? x.slice(1, -1) : undefined)), a: p.findIndex((x) => x.startsWith('{$')) };
-})), compiled.get(key)!);
-
 /**
- * Whether a dependency (its `{name}` segments read from scope `s`) and dirty path `d` are
- * prefixes of each other; `*` matches any segment. A change that ends above a row's own
- * element, or only changes the list structure (`#`, from push/splice/…), does not reach it:
- * reconcile re-evaluates rows whose item or index changed, the others hold the same item.
+ * A dependency path: segments, scope names of `{name}` segments, and the position and
+ * template of the row's own element `{$i<tid>}` (-1 if none).
  */
-const overlaps = ({ p, n, a }: Dep, d: string[], s?: any) => {
-  if (a >= 0 && d.length <= a) return false;
-  for (let i = 0, len = Math.min(p.length, d.length); i < len; i++) {
-    const y = d[i]!;
-    if (y == '#') { if (i == a) return false; continue; }
-    if (y == '*') continue;
-    if (n[i] !== undefined ? s[n[i]!] != y : p[i] != y && p[i] != '*') return false;
-  }
-  return true;
-};
+interface Dep { p: string[]; n: Array<string | undefined>; a: number; t: number }
+const compiled = new WeakMap<object, Dep[]>();
+const toDeps = (list: string[]) => list.map((d) => {
+  const p = d.split('.'), a = p.findIndex((x) => x.startsWith('{$'));
+  return { p, n: p.map((x) => (x[0] == '{' ? x.slice(1, -1) : undefined)), a, t: a < 0 ? -1 : +p[a]!.slice(3, -1) };
+});
+const depsOf = (key: object, list: string[] = []) => compiled.get(key) ?? (compiled.set(key, toDeps(list)), compiled.get(key)!);
 /** Sentinel for "not written yet". */
 const UNSET = {};
 /** Fills `{name}` segments from a scope. */
@@ -222,6 +209,39 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const evaluate = (rb: RB): any => {
     try { return fns[rb.b.f!]!(rb.b.e ? (rb.e ??= child(rb.s, { $el: rb.el })) : rb.s); } catch (e) { warn(6, rb.b.k, rb.el.localName, (e as Error)?.message); }
   };
+  /** Elements written through callbacks (`$.$m(row, …)`) since the last flush. */
+  const marked = new Set<unknown>();
+  /** Per flush round: whether rows of a template can be affected at all. */
+  let rowHits = new Map<TemplateDef, boolean>();
+
+  /**
+   * Whether a dependency (its `{name}` segments read from scope `s`, or any scope when `s` is
+   * absent) and dirty path `d` are prefixes of each other; `*` matches any segment. A change
+   * that ends above a row's own element, or only changes the list structure (`#`), does not
+   * reach it: reconcile re-evaluates rows whose item or index changed. `~` reaches only rows
+   * whose element was marked.
+   */
+  const overlaps = ({ p, n, a, t }: Dep, d: string[], s?: any) => {
+    if (a >= 0 && d.length <= a) return false;
+    for (let i = 0, len = Math.min(p.length, d.length); i < len; i++) {
+      const y = d[i]!;
+      if (y == '#' || y == '~') {
+        if (i != a) continue;
+        if (y == '#' || (s && !marked.has(s[ir.templates[t]!.item!]))) return false;
+        continue;
+      }
+      if (y == '*' || (n[i] !== undefined && !s)) continue;
+      if (n[i] !== undefined ? s[n[i]!] != y : p[i] != y && p[i] != '*') return false;
+    }
+    return true;
+  };
+
+  /** Dependencies of every binding in a template's rows, nested templates included. */
+  const templateDeps = (t: TemplateDef): Dep[] => compiled.get(t) ?? (compiled.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
+    ...depsOf(b, b.d),
+    ...(b.k == 'for' || b.k == 'if' || b.k == 'else' ? templateDeps(ir.templates[b.x!]!) : []),
+  ]))), compiled.get(t)!);
+
   /** Whether any of `deps` overlaps a dirty path of the current flush. */
   const hit = (deps: Dep[], s?: any) => {
     for (const dep of deps) for (const d of cur) if (overlaps(dep, d, s)) return true;
@@ -235,6 +255,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     warn() {},
     page: {
       $r: {}, $meta: {}, $url: readUrl(), $now: new Date(env.now()),
+      $m: (el: unknown, v: unknown) => (marked.add(el), v),
       get $locale() { return config.locale?.get(); },
       set $locale(v: any) { config.locale?.set(v); app.mark('$locale'); },
     },
@@ -286,6 +307,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           dirty = [];
           for (const h of app.beforeFlush) h(cur);
           round++;
+          rowHits = new Map();
           for (const l of loaders) if (hit(depsOf(l.def, l.def.deps))) l.changed();
           walk(rootRbs, false);
           syncSelects();
@@ -293,6 +315,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
       } finally {
         cur = dirty = [];
+        marked.clear();
         flushing = false;
       }
     },
@@ -429,9 +452,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   function walk(rbs: RB[], force: boolean) {
     for (const rb of rbs) {
-      if (!process(rb, force)) continue;
-      // rows created in this round were just evaluated
-      for (const x of rb.rows ?? []) if (x.r != round) { walk(x.rbs, force || x.f); x.f = false; }
+      if (!process(rb, force) || !rb.rows) continue;
+      // skip rows no dirty path can reach (unless they moved or changed) and rows created in this round
+      let all = force || !rb.t || rowHits.get(rb.t);
+      if (all == null) rowHits.set(rb.t!, (all = hit(templateDeps(rb.t!))));
+      for (const x of rb.rows) if (x.r != round && (all || x.f)) { walk(x.rbs, force || x.f); x.f = false; }
     }
   }
 

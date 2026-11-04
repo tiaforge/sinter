@@ -420,3 +420,16 @@ test('rows reading another list by index see that list change', async () => {
   await flush();
   expect(text()).toBe('P,Q');
 });
+
+test('writes through forEach callbacks update exactly the marked rows and index reads', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ xs: [{t: 'a'}, {t: 'b'}, {t: 'c'}] }">
+      <p data-sn-text="xs[2].t"></p>
+      <template data-sn-for="x in xs"><i data-sn-text="x.t"></i></template>
+      <button data-sn-on-click="xs.forEach((x, i) => i != 1 && (x.t = x.t.toUpperCase()))"></button>
+    </div>`);
+  root.querySelector('button')!.click();
+  await flush();
+  expect([...root.querySelectorAll('i')].map((e) => e.textContent)).toEqual(['A', 'b', 'C']);
+  expect(root.querySelector('p')!.textContent).toBe('C');
+});
