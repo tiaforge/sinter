@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en" data-sn-path="/article/:slug">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Article — Conduit</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Titillium+Web:700|Source+Serif+Pro:400,700|Merriweather+Sans:400,700|Source+Sans+Pro:400,300,600,700,300italic,400italic,600italic,700italic">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div data-sn-state="{ nav: '', error: null, commentError: null }">
+<sn-include src="./partials/header.html"></sn-include>
+<sn-resource name="article" src="https://api.realworld.show/api/articles/{$url.slug}" items="article"></sn-resource>
+<sn-resource name="comments" src="https://api.realworld.show/api/articles/{$url.slug}/comments" items="comments" key="id" order="-createdAt"></sn-resource>
+
+<div class="article-page">
+  <template data-sn-if="$meta.article.error">
+    <div class="container page">
+      <template data-sn-if="$meta.article.error.status == 404"><h1>Article not found</h1></template>
+      <template data-sn-else><p class="error-messages">This article cannot be loaded right now.</p></template>
+    </div>
+  </template>
+  <template data-sn-if="article">
+    <div class="banner">
+      <div class="container">
+        <h1 data-sn-text="article.title"></h1>
+        <sn-include src="./partials/article-meta.html"></sn-include>
+      </div>
+    </div>
+    <div class="container page">
+      <sn-include src="./partials/errors.html"></sn-include>
+      <div class="row article-content">
+        <div class="col-md-12">
+          <conduit-markdown data-sn-prop="{source: article.body}"></conduit-markdown>
+          <ul class="tag-list">
+            <template data-sn-for="t in article.tagList" data-sn-key="t"><li class="tag-default tag-pill tag-outline" data-sn-text="t"></li></template>
+          </ul>
+        </div>
+      </div>
+      <hr>
+      <div class="article-actions"><sn-include src="./partials/article-meta.html"></sn-include></div>
+      <div class="row">
+        <div class="col-xs-12 col-md-8 offset-md-2">
+          <template data-sn-if="commentError">
+            <ul class="error-messages"><template data-sn-for="m in errors(commentError)" data-sn-key="m"><li data-sn-text="m"></li></template></ul>
+          </template>
+          <template data-sn-if="user">
+            <form class="card comment-form" data-sn-state="{ body: '' }"
+                  data-sn-post="https://api.realworld.show/api/articles/{article.slug}/comments" data-sn-body="{comment: {body}}"
+                  data-sn-then="upsert('comments', $result.comment); body = ''; commentError = null" data-sn-catch="commentError = $error">
+              <div class="card-block"><textarea class="form-control" placeholder="Write a comment..." rows="3" data-sn-model="body"></textarea></div>
+              <div class="card-footer">
+                <img class="comment-author-img" alt="" data-sn-attr="{src: avatar(user.image)}">
+                <button class="btn btn-sm btn-primary" type="submit">Post Comment</button>
+              </div>
+            </form>
+          </template>
+          <template data-sn-else>
+            <p><a href="/login">Sign in</a> or <a href="/register">sign up</a> to add comments on this article.</p>
+          </template>
+          <template data-sn-for="c in comments">
+            <div class="card">
+              <div class="card-block"><p class="card-text" data-sn-text="c.body"></p></div>
+              <div class="card-footer">
+                <a class="comment-author" data-sn-attr="{href: '/profile/' + encodeURIComponent(c.author.username)}"><img class="comment-author-img" alt="" data-sn-attr="{src: avatar(c.author.image)}"></a>
+                &nbsp;
+                <a class="comment-author" data-sn-attr="{href: '/profile/' + encodeURIComponent(c.author.username)}" data-sn-text="c.author.username"></a>
+                <span class="date-posted" data-sn-text="date(c.createdAt, 'long')"></span>
+                <template data-sn-if="user && user.username == c.author.username">
+                  <span class="mod-options">
+                    <i class="ion-trash-a" data-sn-delete="https://api.realworld.show/api/articles/{article.slug}/comments/{c.id}"
+                       data-sn-optimistic="remove('comments', c)" data-sn-catch="commentError = $error"></i>
+                  </span>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </template>
+</div>
+
+<sn-include src="./partials/footer.html"></sn-include>
+</div>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" data-sn-path="/editor /editor/:slug">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Editor — Conduit</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Titillium+Web:700|Source+Serif+Pro:400,700|Merriweather+Sans:400,700|Source+Sans+Pro:400,300,600,700,300italic,400italic,600italic,700italic">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div data-sn-state="{ nav: 'editor', error: null }">
+<sn-include src="./partials/header.html"></sn-include>
+<template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
+<sn-resource name="article" src="https://api.realworld.show/api/articles/{$url.slug}" items="article" when="$url.slug"></sn-resource>
+
+<div class="editor-page">
+  <div class="container page">
+    <div class="row">
+      <div class="col-md-10 offset-md-1 col-xs-12">
+        <sn-include src="./partials/errors.html"></sn-include>
+        <template data-sn-if="$meta.article.error"><p>This article cannot be loaded.</p></template>
+        <template data-sn-if="user && (!$url.slug || article)">
+          <form data-sn-on-submit="$event.preventDefault()"
+                data-sn-state="{ d: article ? {title: article.title, description: article.description, body: article.body, tagList: [...article.tagList]} : {title: '', description: '', body: '', tagList: []}, tag: '' }">
+            <fieldset>
+              <fieldset class="form-group"><input type="text" class="form-control form-control-lg" name="title" placeholder="Article Title" data-sn-model="d.title"></fieldset>
+              <fieldset class="form-group"><input type="text" class="form-control" name="description" placeholder="What's this article about?" data-sn-model="d.description"></fieldset>
+              <fieldset class="form-group"><textarea class="form-control" rows="8" name="body" placeholder="Write your article (in markdown)" data-sn-model="d.body"></textarea></fieldset>
+              <fieldset class="form-group">
+                <input type="text" class="form-control" placeholder="Enter tags" data-sn-model="tag"
+                       data-sn-on-keydown="$event.key == 'Enter' && ($event.preventDefault(), tag.trim() && !d.tagList.includes(tag.trim()) && d.tagList.push(tag.trim()), tag = '')">
+                <div class="tag-list">
+                  <template data-sn-for="(t, i) in d.tagList" data-sn-key="t">
+                    <span class="tag-default tag-pill"><i class="ion-close-round" data-sn-on-click="d.tagList.splice(i, 1)"></i> <span data-sn-text="t"></span></span>
+                  </template>
+                </div>
+              </fieldset>
+              <template data-sn-if="$url.slug">
+                <button class="btn btn-lg pull-xs-right btn-primary" type="button" data-sn-put="https://api.realworld.show/api/articles/{$url.slug}" data-sn-body="{article: {...d, tagList: tag.trim() && !d.tagList.includes(tag.trim()) ? [...d.tagList, tag.trim()] : d.tagList}}"
+                        data-sn-then="emit('navigate', '/article/' + encodeURIComponent($result.article.slug))" data-sn-catch="error = $error">Publish Article</button>
+              </template>
+              <template data-sn-else>
+                <button class="btn btn-lg pull-xs-right btn-primary" type="button" data-sn-post="https://api.realworld.show/api/articles" data-sn-body="{article: {...d, tagList: tag.trim() && !d.tagList.includes(tag.trim()) ? [...d.tagList, tag.trim()] : d.tagList}}"
+                        data-sn-then="emit('navigate', '/article/' + encodeURIComponent($result.article.slug))" data-sn-catch="error = $error">Publish Article</button>
+              </template>
+            </fieldset>
+          </form>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+
+<sn-include src="./partials/footer.html"></sn-include>
+</div>
+</body>
+</html>

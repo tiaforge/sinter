@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" data-sn-path="/settings">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings — Conduit</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Titillium+Web:700|Source+Serif+Pro:400,700|Merriweather+Sans:400,700|Source+Sans+Pro:400,300,600,700,300italic,400italic,600italic,700italic">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div data-sn-state="{ nav: 'settings', error: null }">
+<sn-include src="./partials/header.html"></sn-include>
+<template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
+
+<div class="settings-page">
+  <div class="container page">
+    <div class="row">
+      <div class="col-md-6 offset-md-3 col-xs-12">
+        <h1 class="text-xs-center">Your Settings</h1>
+        <sn-include src="./partials/errors.html"></sn-include>
+        <template data-sn-if="$meta.user.error"><p>Your settings cannot be loaded right now.</p></template>
+        <template data-sn-if="user">
+          <form data-sn-state="{ s: {image: user.image ?? '', username: user.username, bio: user.bio ?? '', email: user.email, password: ''} }"
+                data-sn-put="https://api.realworld.show/api/user"
+                data-sn-body="{user: {image: s.image, username: s.username, bio: s.bio, email: s.email, password: s.password || undefined}}"
+                data-sn-then="error = null; emit('signed-in', {user: $result.user, to: '/profile/' + encodeURIComponent($result.user.username)})"
+                data-sn-catch="error = $error">
+            <fieldset>
+              <fieldset class="form-group"><input class="form-control" type="text" name="image" placeholder="URL of profile picture" data-sn-model="s.image"></fieldset>
+              <fieldset class="form-group"><input class="form-control form-control-lg" type="text" name="username" placeholder="Your Name" data-sn-model="s.username"></fieldset>
+              <fieldset class="form-group"><textarea class="form-control form-control-lg" rows="8" name="bio" placeholder="Short bio about you" data-sn-model="s.bio"></textarea></fieldset>
+              <fieldset class="form-group"><input class="form-control form-control-lg" type="email" name="email" placeholder="Email" data-sn-model="s.email"></fieldset>
+              <fieldset class="form-group"><input class="form-control form-control-lg" type="password" name="password" placeholder="New Password" autocomplete="new-password" data-sn-model="s.password"></fieldset>
+              <button class="btn btn-lg btn-primary pull-xs-right" type="submit">Update Settings</button>
+            </fieldset>
+          </form>
+          <hr>
+          <button class="btn btn-outline-danger" type="button" data-sn-on-click="emit('signed-out')">Or click here to logout.</button>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+
+<sn-include src="./partials/footer.html"></sn-include>
+</div>
+</body>
+</html>

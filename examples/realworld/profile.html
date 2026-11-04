@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en" data-sn-path="/profile/:username /profile/:username/:tab">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Profile — Conduit</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Titillium+Web:700|Source+Serif+Pro:400,700|Merriweather+Sans:400,700|Source+Sans+Pro:400,300,600,700,300italic,400italic,600italic,700italic">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div data-sn-state="{ nav: 'profile:' + $url.username, error: null }">
+<sn-include src="./partials/header.html"></sn-include>
+<sn-resource name="profile" src="https://api.realworld.show/api/profiles/{$url.username}" items="profile"></sn-resource>
+<sn-resource name="articles" key="slug" items="articles" total="articlesCount"
+  src="https://api.realworld.show/api/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}&limit=5&offset={offset($url.page, 5)}"></sn-resource>
+
+<div class="profile-page">
+  <template data-sn-if="$meta.profile.error">
+    <div class="container page">
+      <template data-sn-if="$meta.profile.error.status == 404"><h1>Profile not found</h1></template>
+      <template data-sn-else><p class="error-messages">This profile cannot be loaded right now.</p></template>
+    </div>
+  </template>
+  <template data-sn-if="profile">
+    <div class="user-info">
+      <div class="container">
+        <div class="row">
+          <div class="col-xs-12 col-md-10 offset-md-1">
+            <img class="user-img" alt="" data-sn-attr="{src: avatar(profile.image)}">
+            <h4 data-sn-text="profile.username"></h4>
+            <p data-sn-text="profile.bio ?? ''"></p>
+            <template data-sn-if="user && user.username == profile.username">
+              <a class="btn btn-sm btn-outline-secondary action-btn" href="/settings"><i class="ion-gear-a"></i> Edit Profile Settings</a>
+            </template>
+            <template data-sn-else>
+              <template data-sn-if="profile.following">
+                <button class="btn btn-sm btn-secondary action-btn" data-sn-delete="https://api.realworld.show/api/profiles/{profile.username}/follow"
+                        data-sn-optimistic="patch('profile', profile, {following: false})" data-sn-then="patch('profile', profile, $result.profile)"
+                        data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
+                  <i class="ion-plus-round"></i> <span data-sn-text="'Unfollow ' + profile.username"></span>
+                </button>
+              </template>
+              <template data-sn-else>
+                <button class="btn btn-sm btn-outline-secondary action-btn" data-sn-post="https://api.realworld.show/api/profiles/{profile.username}/follow"
+                        data-sn-optimistic="patch('profile', profile, {following: true})" data-sn-then="patch('profile', profile, $result.profile)"
+                        data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
+                  <i class="ion-plus-round"></i> <span data-sn-text="'Follow ' + profile.username"></span>
+                </button>
+              </template>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="container">
+      <div class="row">
+        <div class="col-xs-12 col-md-10 offset-md-1">
+          <sn-include src="./partials/errors.html"></sn-include>
+          <div class="articles-toggle">
+            <ul class="nav nav-pills outline-active">
+              <li class="nav-item"><a class="nav-link" data-sn-class="{active: $url.tab != 'favorites'}" data-sn-attr="{href: '/profile/' + encodeURIComponent(profile.username)}">My Articles</a></li>
+              <li class="nav-item"><a class="nav-link" data-sn-class="{active: $url.tab == 'favorites'}" data-sn-attr="{href: '/profile/' + encodeURIComponent(profile.username) + '/favorites'}">Favorited Articles</a></li>
+            </ul>
+          </div>
+          <template data-sn-if="$meta.articles.loading"><div class="article-preview">Loading articles...</div></template>
+          <template data-sn-if="$meta.articles.error"><div class="article-preview error-messages">Could not load articles.</div></template>
+          <template data-sn-for="a in articles">
+            <div class="article-preview">
+              <template data-sn-if="a.favorited">
+          <button class="btn btn-primary btn-sm pull-xs-right" data-sn-delete="https://api.realworld.show/api/articles/{a.slug}/favorite"
+                  data-sn-optimistic="patch('articles', a, {favorited: false, favoritesCount: a.favoritesCount - 1})"
+                  data-sn-then="patch('articles', a, $result.article)" data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
+            <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
+          </button>
+        </template>
+        <template data-sn-else>
+          <button class="btn btn-outline-primary btn-sm pull-xs-right" data-sn-post="https://api.realworld.show/api/articles/{a.slug}/favorite"
+                  data-sn-optimistic="patch('articles', a, {favorited: true, favoritesCount: a.favoritesCount + 1})"
+                  data-sn-then="patch('articles', a, $result.article)" data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
+            <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
+          </button>
+        </template>
+              <sn-include src="./partials/preview.html"></sn-include>
+            </div>
+          </template>
+          <template data-sn-if="$meta.articles.loadedAt && !$meta.articles.loading && !articles.length">
+            <div class="article-preview empty-feed-message">No articles are here... yet.</div>
+          </template>
+          <template data-sn-if="pages($meta.articles.total, 5).length > 1">
+            <nav>
+              <ul class="pagination">
+                <template data-sn-for="n in pages($meta.articles.total, 5)" data-sn-key="n">
+                  <li class="page-item" data-sn-class="{active: n == (Number.parseInt($url.page, 10) || 1)}">
+                    <a class="page-link" data-sn-text="n"
+                       data-sn-attr="{href: '/profile/' + encodeURIComponent(profile.username) + ($url.tab == 'favorites' ? '/favorites' : '') + '?page=' + n}"></a>
+                  </li>
+                </template>
+              </ul>
+            </nav>
+          </template>
+        </div>
+      </div>
+    </div>
+  </template>
+</div>
+
+<sn-include src="./partials/footer.html"></sn-include>
+</div>
+</body>
+</html>
