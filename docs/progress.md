@@ -62,6 +62,10 @@ built, what deviates, and what is left.
   blocks use one end-marker comment instead of recursive node bookkeeping.
   The size script now minifies fully (Vite's lib mode keeps whitespace in ES
   output, which had inflated earlier numbers).
+- js-framework-benchmark entry added (`bench/js-framework-benchmark`, results in
+  [benchmark.md](benchmark.md)); flush and reconcile optimized from ~1.2× to ~0.94× Svelte.
+  Found while optimizing: index reads across lists (`names[i]` in a row of another list)
+  missed structure changes; fixed with a test.
 - Fixed: delegated listeners were only added for event types used by root
   elements, so handlers used only inside template rows never fired.
 - Vite plugin with a real build test; diagnostics fixtures for all 21 codes;
