@@ -22,6 +22,15 @@ customElements.define('conduit-redirect', class extends HTMLElement {
 
 /** `<conduit-markdown>` with a `source` property: renders sanitized Markdown. */
 customElements.define('conduit-markdown', class extends HTMLElement {
+  constructor() {
+    super();
+    // rows are cloned from inert templates, so `source` may have been set before the upgrade
+    if (Object.hasOwn(this, 'source')) {
+      const md = this.source;
+      delete this.source;
+      this.source = md;
+    }
+  }
   set source(md) { this.innerHTML = DOMPurify.sanitize(marked.parse(md ?? '', { async: false })); }
 });
 

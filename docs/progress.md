@@ -66,6 +66,11 @@ built, what deviates, and what is left.
   [benchmark.md](benchmark.md)); flush and reconcile optimized from ~1.2× to ~0.94× Svelte.
   Found while optimizing: index reads across lists (`names[i]` in a row of another list)
   missed structure changes; fixed with a test.
+- RealWorld example (`examples/realworld`), run against the official e2e suite: 130–133/140.
+  Bugs it found in sinter, each fixed with a test: parenthesized expressions failed to parse;
+  inlined partials shifted node paths (adjacent text merges in the browser); a load answered
+  after a local write wiped that write (writes during a load are now replayed); mutations were
+  cancelled by navigations (now sent with `keepalive`).
 - URL templates omit query parameters whose value is `null`/`undefined` (spec addition, 2026-11-04).
 - `data-sn-path` on `<html>` (spec addition, decided 2026-11-04 for the RealWorld app):
   path parameters in `$url`, read-only, several patterns per page. Server rewrites are not

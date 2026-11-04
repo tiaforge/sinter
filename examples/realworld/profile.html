@@ -14,7 +14,7 @@
 <sn-include src="./partials/header.html"></sn-include>
 <sn-resource name="profile" src="https://api.realworld.show/api/profiles/{$url.username}" items="profile"></sn-resource>
 <sn-resource name="articles" key="slug" items="articles" total="articlesCount"
-  src="https://api.realworld.show/api/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}&limit=5&offset={offset($url.page, 5)}"></sn-resource>
+  src="https://api.realworld.show/api/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}&limit=10&offset={offset($url.page, 10)}"></sn-resource>
 
 <div class="profile-page">
   <template data-sn-if="$meta.profile.error">
@@ -88,10 +88,10 @@
           <template data-sn-if="$meta.articles.loadedAt && !$meta.articles.loading && !articles.length">
             <div class="article-preview empty-feed-message">No articles are here... yet.</div>
           </template>
-          <template data-sn-if="pages($meta.articles.total, 5).length > 1">
+          <template data-sn-if="pages($meta.articles.total, 10).length > 1">
             <nav>
               <ul class="pagination">
-                <template data-sn-for="n in pages($meta.articles.total, 5)" data-sn-key="n">
+                <template data-sn-for="n in pages($meta.articles.total, 10)" data-sn-key="n">
                   <li class="page-item" data-sn-class="{active: n == (Number.parseInt($url.page, 10) || 1)}">
                     <a class="page-link" data-sn-text="n"
                        data-sn-attr="{href: '/profile/' + encodeURIComponent(profile.username) + ($url.tab == 'favorites' ? '/favorites' : '') + '?page=' + n}"></a>

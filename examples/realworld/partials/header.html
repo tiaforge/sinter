@@ -19,7 +19,8 @@
           <li class="nav-item"><span class="nav-link">Connecting…</span></li>
           <li class="nav-item"><button class="btn btn-sm btn-outline-secondary" type="button" data-sn-on-click="refresh('user')">Retry</button></li>
         </template>
-        <template data-sn-else>
+        <!-- signed-out links only once the user is known, not while the session is checked -->
+        <template data-sn-if="!$meta.user.error && $meta.user.loadedAt">
           <li class="nav-item"><a class="nav-link" href="/login" data-sn-class="{active: nav == 'login'}">Sign in</a></li>
           <li class="nav-item"><a class="nav-link" href="/register" data-sn-class="{active: nav == 'register'}">Sign up</a></li>
         </template>
