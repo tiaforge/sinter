@@ -64,9 +64,12 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
       headers.set('Content-Type', 'application/json');
     }
     headers.has('Accept') || headers.set('Accept', 'application/json');
+    // mutations outlive the page: a navigation right after a click must not cancel the write
+    // (keepalive bodies are limited to 64 KB; larger ones and uploads go without it)
+    const keepalive = method != 'GET' && method != 'HEAD' && (body == null || (typeof body == 'string' && body.length < 60_000));
     inflight++;
     try {
-      return await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null }));
+      return await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null, keepalive }));
     } catch (e) {
       throw isAbort(e) ? e : toError(e);
     } finally {
