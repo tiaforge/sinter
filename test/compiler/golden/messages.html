@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><title>Inbox</title></head>
+<body>
+<sn-resource name="messages"
+  src="/api/email/messages?account_id={$url.account_id}&mailbox={$url.mailbox}"
+  items="messages" total="total" key="account_id,mailbox,uid"
+  paginate="keyset" page-size="50" size-param="limit"
+  cursor="{cursor_sent_at: sent_at, cursor_rowid: rowid}"
+  direction-param="direction"></sn-resource>
+<sn-sync src="/api/events/stream">
+  <sn-event name="flags" resource="messages" op="patch" set="{flags, is_read: flags.includes('\\Seen')}" when="mailbox === $url.mailbox"></sn-event>
+</sn-sync>
+<nav>
+  <button data-sn-on-click="page('messages', 'first')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">«</button>
+  <span data-sn-text="`${$meta.messages.from}–${$meta.messages.to} of ${$meta.messages.total}`"></span>
+  <button data-sn-on-click="page('messages', 'next')" data-sn-attr="{disabled: !$meta.messages.hasNext}">›</button>
+</nav>
+<template data-sn-for="m in messages">
+  <article data-sn-class="{unread: !m.is_read}">
+    <time data-sn-text="relative(m.sent_at, $now)"></time>
+    <button data-sn-patch="/api/email/message/flags"
+            data-sn-body="{account_id: m.account_id, mailbox: m.mailbox, uid: m.uid, flags: ['\\Flagged'], set: !m.is_flagged}"
+            data-sn-optimistic="patch('messages', m, {is_flagged: !m.is_flagged})"
+            data-sn-catch="emit('toast', $error.message)"
+            data-sn-attr="{'aria-pressed': m.is_flagged}">★</button>
+  </article>
+</template>
+<template data-sn-if="!messages.length"><p>No messages</p></template>
+<template data-sn-else><p data-sn-text="messages.length"></p></template>
+</body></html>

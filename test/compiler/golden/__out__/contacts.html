@@ -1,0 +1,47 @@
+<!DOCTYPE html><html><head><title>Contacts</title><script type="module" src="/@sinter/contacts.html.js"></script></head>
+<body>
+
+
+
+
+
+<section data-sn="0">
+  <header>
+    <input type="search" placeholder="Search" data-sn="1">
+    <button commandfor="edit" command="show-modal" data-sn="2">New contact</button>
+  </header>
+
+  <p aria-busy="true" data-sn="3">Loading…</p>
+
+  <ul class="contact-grid">
+    <template data-sn="4">
+      <li>
+        <strong></strong>
+        <small></small>
+        <a></a>
+        <button commandfor="edit" command="show-modal">Edit</button>
+        <button>Delete</button>
+      </li>
+    </template>
+  </ul>
+  <dialog id="edit">
+  <form data-sn="5">
+    <input required="" data-sn="6">
+    <input data-sn="7">
+
+    <template data-sn="8">
+      <div role="group">
+        <input type="email">
+        <button type="button">×</button>
+      </div>
+    </template>
+    <button type="button" data-sn="9">Add email</button>
+
+    <button type="submit">Save</button>
+  </form>
+</dialog>
+
+</section>
+
+
+</body></html>

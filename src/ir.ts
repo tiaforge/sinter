@@ -130,3 +130,78 @@ export interface IR {
 }
 
 export type Fn = (scope: any, value?: any) => any;
+
+/** Structural check of an IR against v1; returns problems (empty when valid). */
+export function validateIR(ir: unknown, fnCount: number): string[] {
+  const errs: string[] = [];
+  const o = ir as IR;
+  const fn = (v: unknown, at: string, nullable = true) => {
+    if (v === null && nullable) return;
+    if (v === undefined && nullable) return;
+    if (!Number.isInteger(v) || (v as number) < 0 || (v as number) >= fnCount) errs.push(`${at}: bad function index ${String(v)}`);
+  };
+  const url = (u: unknown, at: string) => {
+    if (!Array.isArray(u) || !u.length || typeof u[0] !== 'string') { errs.push(`${at}: URL template must start with a literal`); return; }
+    u.forEach((p, i) => (typeof p === 'string' ? undefined : fn(p, `${at}[${i}]`, false)));
+  };
+  if (!o || o.v !== 1) return ['v must be 1'];
+  for (const k of ['resources', 'syncs', 'roots', 'templates', 'actions'] as const) if (!Array.isArray(o[k])) errs.push(`${k} must be an array`);
+  if (errs.length) return errs;
+  const names = new Set<string>();
+  o.resources.forEach((r, i) => {
+    const at = `resources[${i}]`;
+    if (!/^[A-Za-z_]\w*$/.test(r.name)) errs.push(`${at}: bad name`);
+    if (names.has(r.name)) errs.push(`${at}: duplicate name ${r.name}`);
+    names.add(r.name);
+    url(r.src, `${at}.src`);
+    fn(r.when, `${at}.when`);
+    if (r.paginate) {
+      if (!['keyset', 'offset', 'append'].includes(r.paginate.mode)) errs.push(`${at}: bad paginate mode`);
+      fn(r.paginate.cursor, `${at}.paginate.cursor`);
+    }
+  });
+  o.syncs.forEach((s, i) => {
+    url(s.src, `syncs[${i}].src`);
+    s.events.forEach((e, j) => {
+      const at = `syncs[${i}].events[${j}]`;
+      if (!names.has(e.resource)) errs.push(`${at}: unknown resource ${e.resource}`);
+      if (!['upsert', 'patch', 'remove', 'refetch'].includes(e.op)) errs.push(`${at}: bad op`);
+      fn(e.item, `${at}.item`); fn(e.set, `${at}.set`); fn(e.when, `${at}.when`);
+    });
+  });
+  const kinds = new Set(['text', 'attr', 'class', 'style', 'show', 'model', 'prop', 'for', 'if', 'else', 'on']);
+  const nodes = (list: NodeDef[], at: string, inTemplate: boolean) => list.forEach((n, i) => {
+    const a = `${at}[${i}]`;
+    if (inTemplate ? !Array.isArray(n.path) : !Number.isInteger(n.id)) errs.push(`${a}: needs ${inTemplate ? 'path' : 'id'}`);
+    if (n.p >= i) errs.push(`${a}: parent scope must come first`);
+    if (n.state !== undefined) { fn(n.state, `${a}.state`, false); if (!Number.isInteger(n.sid)) errs.push(`${a}: state needs sid`); }
+    n.b.forEach((b, j) => {
+      const ba = `${a}.b[${j}]`;
+      if (!kinds.has(b.k)) errs.push(`${ba}: bad kind ${b.k}`);
+      if (b.k === 'on') {
+        if (!b.n) errs.push(`${ba}: on needs an event name`);
+        if (b.x !== undefined) { if (!o.actions[b.x]) errs.push(`${ba}: bad action ${b.x}`); } else fn(b.f, `${ba}.f`, false);
+      } else if (b.k === 'for' || b.k === 'if' || b.k === 'else') {
+        if (!o.templates[b.x!]) errs.push(`${ba}: bad template ${b.x}`);
+        if (b.k !== 'else') fn(b.f, `${ba}.f`, false);
+        if (b.y !== undefined && !list[b.y]?.b.some((x) => x.k === 'else')) errs.push(`${ba}: y must point at an else node`);
+      } else fn(b.f, `${ba}.f`, false);
+      if (b.k === 'model') fn(b.a, `${ba}.a`, false);
+      for (const d of [...(b.d ?? []), ...(b.w ?? [])]) if (typeof d !== 'string' || !d) errs.push(`${ba}: bad path`);
+    });
+  });
+  nodes(o.roots, 'roots', false);
+  o.templates.forEach((t, i) => {
+    if (t.id !== i) errs.push(`templates[${i}]: id must equal its index`);
+    nodes(t.nodes, `templates[${i}].nodes`, true);
+    fn(t.key, `templates[${i}].key`);
+  });
+  o.actions.forEach((a, i) => {
+    const at = `actions[${i}]`;
+    if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(a.method)) errs.push(`${at}: bad method`);
+    if (!['block', 'queue', 'latest'].includes(a.concurrency)) errs.push(`${at}: bad concurrency`);
+    url(a.url, `${at}.url`);
+    for (const k of ['body', 'optimistic', 'then', 'catch'] as const) fn(a[k], `${at}.${k}`);
+  });
+  return errs;
+}
