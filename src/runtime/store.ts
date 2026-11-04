@@ -55,6 +55,12 @@ export interface Resource<T extends object = any> {
   refetch(): Promise<void>;
   subscribe(fn: (change: Change<T>) => void): () => void;
   keyOf(item: string | T): string;
+  /**
+   * Loads in flight: writes made while a load runs are replayed on top of its response,
+   * so a stale response cannot undo them. `startLoad` returns a mark for `endLoad`.
+   */
+  startLoad(): number;
+  endLoad(mark: number, loaded: boolean): void;
   addLayer(ops: Op[]): number;
   dropLayer(id: number): void;
   setTotal(total: number | null): void;
@@ -80,6 +86,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
   let base = new Map<string, T>(), single: T | null = null, total: number | null = null;
   let layers: Array<{ id: number; ops: Op[] }> = [], lastLayer = 0;
   let view: { l: readonly T[]; m: Map<string, T>; s: T | null } | null = null;
+  let journal: Op[] | null = null, loads = 0;
 
   const keyOf = (x: any): string => typeof x == 'string' ? x : (o.key ?? []).map((f) => {
     if (x[f] === undefined) o.warn?.(14, name, f);
@@ -125,6 +132,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
 
   function write(op: Op) {
     if (r.recording) return void r.recording.push(op);
+    journal?.push(op);
     coll ? applyTo(base, op) : (single = merge(single, op));
     changed();
     for (const f of subs) f({ resource: name, ...op } as Change<T>);
@@ -154,6 +162,18 @@ export function createResource<T extends object = any>(name: string, o: Resource
     remove: (k) => write({ op: 'remove', key: keyOf(k) }),
     refetch: () => r.loader?.refetch() ?? Promise.resolve(),
     subscribe: (fn) => (subs.add(fn), () => subs.delete(fn)),
+    startLoad() {
+      loads++;
+      journal ??= [];
+      return journal.length;
+    },
+    endLoad(mark, loaded) {
+      const ops = journal!.slice(mark);
+      if (--loads == 0) journal = null;
+      if (!loaded || !ops.length) return;
+      for (const op of ops) coll ? applyTo(base, op) : (single = merge(single, op));
+      changed();
+    },
     addLayer(ops) {
       layers.push({ id: ++lastLayer, ops });
       meta.pending = layers.length;

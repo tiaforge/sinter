@@ -899,11 +899,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (url == null) return;
         c?.abort();
         const ctl = (c = new AbortController()), n = ++seq, m = l.pager && (move ?? l.pager.current());
+        const mark = r.startLoad();
+        let loaded = false;
         loading(true);
         try {
           const body = await loadShared(withParams(url, m ? l.pager!.params(m) : null), ctl.signal);
           if (n != seq) return;
           store(body, m);
+          loaded = true;
           r.meta.error = null;
           r.meta.loadedAt = env.now();
         } catch (e) {
@@ -913,6 +916,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
           r.onDirty('meta');
           unhandled(error, null, def.name);
         } finally {
+          // writes made while this load ran win over its (older) response
+          r.endLoad(mark, loaded);
           if (n == seq) { c = null; loading(false); }
         }
       },
