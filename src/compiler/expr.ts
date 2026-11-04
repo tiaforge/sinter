@@ -47,7 +47,7 @@ export interface ExprOptions {
   report: (code: Code, message: string, offset: number, hint?: string) => void;
 }
 
-export interface ObjectEntry { key: string; code: string; deps: string[]; offset: number }
+export interface ObjectEntry { key: string; code: string; deps: string[]; offset: number; literal: boolean }
 
 export interface ExprResult {
   ok: boolean;
@@ -707,7 +707,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       } else visit(p.value as Node, root);
       const own = [...deps];
       for (const d of depsBefore) deps.add(d);
-      entries.push({ key, code: '', deps: own, offset: p.start });
+      entries.push({ key, code: '', deps: own, offset: p.start, literal: p.value.type === 'Literal' });
     }
   } else {
     for (const e of body) {
