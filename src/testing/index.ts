@@ -106,7 +106,7 @@ export function mockRequests(routes: Record<string, RouteResponse>): MockRequest
         } catch (e) { reject(e); }
       });
     });
-  }) as MockRequests;
+  }) as unknown as MockRequests;
 
   Object.defineProperties(mw, {
     calls: { value: calls },
