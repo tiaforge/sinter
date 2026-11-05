@@ -138,9 +138,12 @@ What the numbers say:
   `innerMorph` keeps the rows too (the lower layout time shows it) but is not faster than its
   `innerHTML` swap to reach that state.
 - **Appending** n/10 rows, every variant is within a few ms at these sizes. Plain JS stays flat
-  (only the new rows are touched); sinter grows with the list (2.6 → 4.7 ms from 100 to 5,000
-  rows): its keyed list computes a key for every row to find the unchanged ones. It stays below
-  htmx and Datastar at 5,000 rows (5.9–7.9 ms).
+  while sinter grows (2.6 → 4.7 ms from 100 to 5,000 rows) and stays below htmx and Datastar at
+  5,000 rows (5.9–7.9 ms). Profiling only the appends (resets excluded) shows that growth is mostly
+  per added row (k = n/10 grows too): about 3 µs per new row for sinter against 0.8 µs for plain
+  JS, the same per-row cost as in replace. The part that scales with the rows already on screen
+  (a key for every row in reconcile) is about 0.3 ms at 5,000 rows; an O(k) append path would win
+  only that.
 - **Wire size**: the HTML fragment is about twice the JSON uncompressed, about the same gzipped.
 
 ## Caveats
