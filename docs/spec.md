@@ -172,7 +172,7 @@ Helpers are plain functions called like any JS function: `date(c.birthday, 'shor
 
 User helpers live in one module (`sinter.helpers.js` or `.ts`) whose export names the compiler reads; type-only exports are not helpers. A helper must be pure.
 Helper namespaces. The helpers module may re-export a whole ES module as a namespace, e.g. `export * as m from './paraglide/messages.js'`. Templates call its members like functions: `m.inbox_title()`, `m.items_count({count: n})`.
-- The compiler resolves `m.<name>` statically. An unknown member is error `SN206` with a suggestion.
+- The compiler resolves `m.<name>` statically, following `export * from './…'` re-exports (relative paths only). An unknown member is error `SN206` with a suggestion.
 - The page module imports only the members it uses, so unused ones (e.g. messages) are tree-shaken.
 - Members must be named literally; `m[key]` is refused. A dynamic choice goes in a helper.
 This is how i18n works: sinter ships no message format and no `t()` of its own, and works with any ESM-based i18n library.

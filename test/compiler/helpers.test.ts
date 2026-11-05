@@ -38,6 +38,26 @@ export * as m from './messages.ts';
     expect(m.namespaces).toEqual({ m: { module: '/src/messages.ts', members: ['hello'] } });
   });
 
+  test('namespace members re-exported with `export *` are followed, as paraglide generates them', () => {
+    const files = {
+      '/p/src/paraglide/messages.js': `export * from './messages/_index.js'\nexport * as m from './messages/_index.js'\n`,
+      '/p/src/paraglide/messages/_index.js': `export * from './hello.js'\nexport * from './items_count.js'\n`,
+      '/p/src/paraglide/messages/hello.js': `const en_hello = () => 'Hello';\nexport const hello = (inputs = {}) => en_hello(inputs);\n`,
+      '/p/src/paraglide/messages/items_count.js': `export { items_count };\nconst items_count = (i) => \`\${i.count} items\`;\nexport default items_count;\n`,
+    };
+    const m = read(`export * as m from './paraglide/messages.js';`, '/p/src/sinter.helpers.js', files);
+    expect(m.namespaces.m!.members).toEqual(['hello', 'items_count']);
+  });
+
+  test('re-exports: helpers too, cycles end, packages and missing files are skipped', () => {
+    const files = {
+      '/p/src/a.ts': `export * from './b.ts';\nexport const a = 1;\n`,
+      '/p/src/b.ts': `export * from './a.ts';\nexport * from 'some-package';\nexport * from './missing.ts';\nexport const b = 2;\n`,
+    };
+    const m = read(`export * from './a.ts';\nexport const own = 0;`, '/p/src/sinter.helpers.ts', files);
+    expect(m.names).toEqual(['a', 'b', 'own']);
+  });
+
   test('TypeScript syntax in a .js module is still a parse error', () => {
     expect(() => read(`export const a = (x: number) => x;`, '/p/src/sinter.helpers.js')).toThrow();
   });

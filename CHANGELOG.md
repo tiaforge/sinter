@@ -9,6 +9,10 @@ Attribute names, function names and diagnostic codes are public API. Before
   names are read with TypeScript syntax, type-only exports are not helpers,
   and `sinter check` accepts `.ts` import paths. Before, any type annotation
   in it failed every page's build with an acorn parse error.
+- Helper and namespace modules may re-export with `export * from './x.js'`;
+  the members are followed (relative paths only). Paraglide 2's message index
+  is built this way, so `export * as m from './paraglide/messages.js'` found
+  no messages (`SN206` on every `m.…()` call).
 
 ## 0.1.0 (2026-11-05)
 

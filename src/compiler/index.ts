@@ -44,7 +44,8 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
 
 /**
  * Reads a helpers module's export names statically. `export * as m from './x.js'`
- * becomes a namespace whose members are read from `x.js` the same way.
+ * becomes a namespace whose members are read from `x.js` the same way. `export * from './y.js'`
+ * re-exports (e.g. paraglide's message index) are followed, relative paths only.
  */
 export function readHelperManifest(
   source: string,
@@ -52,18 +53,40 @@ export function readHelperManifest(
 ): HelperManifest {
   const manifest: HelperManifest = { module: options.module, names: [], namespaces: {} };
   const resolve = options.resolve ?? ((spec: string, from: string) => (spec.startsWith('.') ? joinPath(from, spec) : null));
-  const { names, namespaces } = exportsOf(source, options.file);
-  manifest.names = names;
-  for (const [ns, spec] of namespaces) {
-    const path = resolve(spec, options.file);
-    let members: string[] = [];
-    if (path) {
-      try { members = exportsOf(options.readFile(path), path).names; } catch { members = []; }
+  const read = (file: string): ModuleExports | null => {
+    try { return exportsOf(options.readFile(file), file); } catch { return null; }
+  };
+  /** the module's own value exports plus those of its `export *` re-exports, transitively */
+  const valueNames = (file: string, exports: ModuleExports, seen: Set<string>): string[] => {
+    const names = new Set(exports.names);
+    for (const spec of exports.reexports) {
+      const path = spec.startsWith('.') ? resolve(spec, file) : null;
+      if (!path || seen.has(path)) continue;
+      seen.add(path);
+      const sub = read(path);
+      if (sub) for (const n of valueNames(path, sub, seen)) names.add(n);
     }
+    return [...names].sort();
+  };
+  const top = exportsOf(source, options.file);
+  manifest.names = valueNames(options.file, top, new Set([options.file]));
+  for (const [ns, spec] of top.namespaces) {
+    const path = resolve(spec, options.file);
+    const exports = path ? read(path) : null;
+    const members = path && exports ? valueNames(path, exports, new Set([path])) : [];
     const modSpec = spec.startsWith('.') ? joinPath(options.module, spec) : spec;
     manifest.namespaces[ns] = { module: modSpec, members };
   }
   return manifest;
+}
+
+interface ModuleExports {
+  /** value exports declared or listed in the module itself */
+  names: string[];
+  /** `export * as ns from 'spec'` */
+  namespaces: Array<[string, string]>;
+  /** `export * from 'spec'` */
+  reexports: string[];
 }
 
 /** acorn extended with TypeScript syntax, for `.ts` helper and namespace modules */
@@ -77,10 +100,11 @@ function parseModule(source: string, file: string): acorn.Program {
 }
 
 /** Value exports only: type-only exports (`export type`, `export interface`, `export { type X }`) are skipped. */
-function exportsOf(source: string, file: string): { names: string[]; namespaces: Array<[string, string]> } {
+function exportsOf(source: string, file: string): ModuleExports {
   const ast = parseModule(source, file);
   const names: string[] = [];
   const namespaces: Array<[string, string]> = [];
+  const reexports: string[] = [];
   const typeOnly = (n: unknown) => (n as { exportKind?: string }).exportKind === 'type';
   for (const st of ast.body) {
     if (typeOnly(st)) continue;
@@ -100,9 +124,11 @@ function exportsOf(source: string, file: string): { names: string[]; namespaces:
     } else if (st.type === 'ExportAllDeclaration' && st.exported) {
       const ns = st.exported.type === 'Identifier' ? st.exported.name : String(st.exported.value);
       namespaces.push([ns, String(st.source.value)]);
+    } else if (st.type === 'ExportAllDeclaration') {
+      reexports.push(String(st.source.value));
     }
   }
-  return { names: [...new Set(names)].sort(), namespaces };
+  return { names: [...new Set(names)].sort(), namespaces, reexports };
 }
 
 function joinPath(from: string, spec: string): string {
