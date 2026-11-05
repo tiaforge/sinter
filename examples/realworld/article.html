@@ -12,8 +12,8 @@
 <body>
 <div data-sn-state="{ nav: '', error: null, commentError: null }">
 <sn-include src="./partials/header.html"></sn-include>
-<sn-resource name="article" src="https://api.realworld.show/api/articles/{$url.slug}" items="article"></sn-resource>
-<sn-resource name="comments" src="https://api.realworld.show/api/articles/{$url.slug}/comments" items="comments" key="id" order="-createdAt"></sn-resource>
+<sn-resource cache name="article" src="https://api.realworld.show/api/articles/{$url.slug}" items="article"></sn-resource>
+<sn-resource cache name="comments" src="https://api.realworld.show/api/articles/{$url.slug}/comments" items="comments" key="id" order="-createdAt"></sn-resource>
 
 <div class="article-page">
   <template data-sn-if="$meta.article.error">

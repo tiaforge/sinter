@@ -12,8 +12,8 @@
 <body>
 <div data-sn-state="{ nav: 'profile:' + $url.username, error: null }">
 <sn-include src="./partials/header.html"></sn-include>
-<sn-resource name="profile" src="https://api.realworld.show/api/profiles/{$url.username}" items="profile"></sn-resource>
-<sn-resource name="articles" key="slug" items="articles" total="articlesCount"
+<sn-resource cache name="profile" src="https://api.realworld.show/api/profiles/{$url.username}" items="profile"></sn-resource>
+<sn-resource cache name="articles" key="slug" items="articles" total="articlesCount"
   src="https://api.realworld.show/api/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}&limit=10&offset={offset($url.page, 10)}"></sn-resource>
 
 <div class="profile-page">

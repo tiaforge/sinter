@@ -159,6 +159,12 @@ built, what deviates, and what is left.
   writes only). The request layer clears `sn:c:` entries on any 401, at `fetch` and after the
   middleware chain; `clearPersisted()` clears them too. `render({ session, storage })` and
   `memoryStorage()` in the testing module. Core: 10.30 → 10.53 KB gzip.
+- 2026-11-05: RealWorld uses `cache` on all 9 resources and calls `clearPersisted()` on sign-in and
+  sign-out. The e2e suite (local backend, `spa`) found that cached data set `loadedAt`, so the
+  editor's and settings' login-redirect guard (`$meta.user.loadedAt && !user`) fired on a cached
+  `user: null`: 5 tests failed reproducibly. `loadedAt` now stays null until the server answers
+  (e582d83). After that: 134/140, the same 5 known failures plus 1 `page.goto` load timeout that
+  passes alone (the baseline without cache had 5 such timeouts in one run).
 
 ## Decisions and deviations
 

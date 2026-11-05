@@ -13,11 +13,11 @@
 <div data-sn-state="{ nav: 'home', error: null }">
 <sn-include src="./partials/header.html"></sn-include>
 
-<sn-resource name="articles" key="slug" items="articles" total="articlesCount" when="$url.feed != 'following'"
+<sn-resource cache name="articles" key="slug" items="articles" total="articlesCount" when="$url.feed != 'following'"
   src="https://api.realworld.show/api/articles?tag={$url.tag}&limit=10&offset={offset($url.page, 10)}"></sn-resource>
-<sn-resource name="feed" key="slug" items="articles" total="articlesCount" when="$url.feed == 'following' && user"
+<sn-resource cache name="feed" key="slug" items="articles" total="articlesCount" when="$url.feed == 'following' && user"
   src="https://api.realworld.show/api/articles/feed?limit=10&offset={offset($url.page, 10)}"></sn-resource>
-<sn-resource name="tags" src="https://api.realworld.show/api/tags" items="tags"></sn-resource>
+<sn-resource cache name="tags" src="https://api.realworld.show/api/tags" items="tags"></sn-resource>
 <template data-sn-if="$url.feed == 'following' && $meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 
 <div class="home-page">

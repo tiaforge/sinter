@@ -1,13 +1,16 @@
 // Islands: browser work that sinter expressions cannot do (storage, navigation, HTML rendering).
-import { instance } from '@tiaforge/sinter';
+import { clearPersisted, instance } from '@tiaforge/sinter';
 import { token } from './session.js';
 
 // Events emitted from the pages with `emit(name, detail)`.
+// signing in or out changes whose data this is: drop the page-load cache (`cache` resources)
 document.addEventListener('signed-in', (e) => {
+  clearPersisted();
   token.set(e.detail.user.token);
   location.assign(e.detail.to ?? '/');
 });
 document.addEventListener('signed-out', () => {
+  clearPersisted();
   token.clear();
   location.assign('/');
 });

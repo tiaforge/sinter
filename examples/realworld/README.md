@@ -22,12 +22,17 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `login.html`, `register.html` | auth | `/login`, `/register` |
 | `partials/` | header (declares the `user` resource), footer, article meta, preview, errors | |
 | `src/sinter.config.js` | origin allowlist, JWT middleware (`localStorage.jwtToken`), current-user error handling | |
-| `src/islands.js` | sign-in/out and navigation events, `<conduit-redirect>`, `<conduit-markdown>` (marked + DOMPurify), `window.__conduit_debug__` | |
+| `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `<conduit-markdown>` (marked + DOMPurify), `window.__conduit_debug__` | |
 | `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ openapi })` | |
 | `openapi.yml` | the Conduit API spec ([realworld-apps/realworld](https://github.com/realworld-apps/realworld), MIT), which types every resource for `npx sinter check` | |
 
 Everything the pages' expressions cannot do (storage, navigation, HTML rendering) lives in the
 config module and the islands; the pages are declarative.
+
+Every resource has `cache`: a page shows what the previous page loaded at once and revalidates.
+Signing in or out calls `clearPersisted()`, since the cached data belongs to the previous identity.
+Run alongside the e2e suite, this found that cached data must not set `$meta.<name>.loadedAt`
+(the login-redirect guards read it); sinter now leaves it null until the server answers.
 
 ## e2e status (2026-11-05, local backend)
 
@@ -38,6 +43,10 @@ Against [realworld-django-ninja](https://github.com/c4ffein/realworld-django-nin
 | --- | ---: | ---: | ---: |
 | `spa` (default; this app holds the token and calls the API from the browser) | 135 | 0 | 5 |
 | `ssr` (`TEST_MODE=ssr`) | 91 | 48 | 1 |
+
+With `cache` on every resource (2026-11-05, `spa`): the same five failures; in a full run, one or
+two tests more can time out in `page.goto` (10 s) under load on a slow machine, and pass when run
+alone. `ssr` mode was not rerun.
 
 All remaining failures are assumptions in the suite, not app behaviour:
 

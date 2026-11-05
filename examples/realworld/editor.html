@@ -13,7 +13,7 @@
 <div data-sn-state="{ nav: 'editor', error: null }">
 <sn-include src="./partials/header.html"></sn-include>
 <template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
-<sn-resource name="article" src="https://api.realworld.show/api/articles/{$url.slug}" items="article" when="$url.slug"></sn-resource>
+<sn-resource cache name="article" src="https://api.realworld.show/api/articles/{$url.slug}" items="article" when="$url.slug"></sn-resource>
 
 <div class="editor-page">
   <div class="container page">
