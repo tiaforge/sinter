@@ -148,7 +148,7 @@ Error, for example:
 
 > `$meta.contacts.loadng` is not a status field. Did you mean `loading`?
 
-`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `pending`, `total`, and with `paginate` also `page`, `pages`, `from`, `to`, `hasPrev`, `hasNext`.
+`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `pending`, `total`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` with `paginate="offset"`, or keyset with `offset-param`.
 
 **Fix:** Use the suggested field. A pagination field needs `paginate` on the resource.
 
@@ -156,11 +156,11 @@ Error, for example:
 
 Error, for example:
 
-> keyset pagination cannot jump to a page number. Use `paginate="offset"`
+> keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`
 
-Keyset (cursor) pagination only knows the next and previous page, so `page('name', 7)` has nothing to jump to.
+Keyset (cursor) pagination only knows the next and previous page, so `page('name', 7)` has nothing to jump to, unless the server can also skip items by offset.
 
-**Fix:** Use `paginate="offset"` if the API supports offsets, or only step with `next`, `prev` and `first`.
+**Fix:** If the API accepts an offset next to its cursor, add `offset-param="offset"`: the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `paginate="offset"`, or only step with `first`, `prev`, `next` and `last`.
 
 ## SN305 include-not-found
 

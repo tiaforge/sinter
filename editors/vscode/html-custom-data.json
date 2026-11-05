@@ -48,6 +48,9 @@
           "name": "page-param"
         },
         {
+          "name": "offset-param"
+        },
+        {
           "name": "type"
         },
         {

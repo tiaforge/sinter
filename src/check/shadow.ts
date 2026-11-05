@@ -212,7 +212,7 @@ export interface Meta {
   loadedAt: number | null;
   pending: number;
   total: number | null;
-  page?: number;
+  page?: number | null;
   pages?: number | null;
   from?: number | null;
   to?: number | null;

@@ -21,7 +21,11 @@ export interface LoopEntry {
 
 export interface StateEntry { sid: number; names: Set<string> }
 
-export interface ResourceInfo { name: string; key: string[] | null; paginate: string | null; used: boolean }
+export interface ResourceInfo {
+  name: string; key: string[] | null; paginate: string | null; used: boolean;
+  /** keyset with `offset-param`: `page(name, n)` and `$meta.<name>.page` are available */
+  jumps?: boolean;
+}
 
 export interface Scope {
   loops: LoopEntry[];
@@ -341,8 +345,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           report('SN303', `\`$meta.${rname}.${field}\` is not a status field.${didYouMean(field, META_FIELDS)}`, n.start);
         } else if (PAGE_FIELDS.includes(field) && !r.paginate) {
           report('SN303', `\`$meta.${rname}.${field}\` is a pagination field, but \`${rname}\` has no \`paginate\``, n.start);
-        } else if (field === 'page' && r.paginate !== 'offset') {
-          report('SN303', `\`$meta.${rname}.page\` exists only with \`paginate="offset"\``, n.start);
+        } else if (field === 'page' && r.paginate !== 'offset' && !r.jumps) {
+          report('SN303', `\`$meta.${rname}.page\` exists only with \`paginate="offset"\`, or \`paginate="keyset"\` with \`offset-param\``, n.start);
         }
       }
     }
@@ -584,8 +588,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         if (!r.paginate) report('SN303', `\`${first.value}\` has no \`paginate\`; \`page()\` needs a paginated resource`, n.start);
         const target = n.arguments[1];
         const named = target?.type === 'Literal' && typeof target.value === 'string' ? target.value : null;
-        if (r.paginate && r.paginate !== 'offset' && (!named)) {
-          report('SN304', 'keyset pagination cannot jump to a page number. Use `paginate="offset"`', target?.start ?? n.start);
+        if (r.paginate && r.paginate !== 'offset' && !named && !(r.paginate === 'keyset' && r.jumps)) {
+          report('SN304', r.paginate === 'keyset'
+            ? 'keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`'
+            : 'keyset pagination cannot jump to a page number. Use `paginate="offset"`', target?.start ?? n.start);
         } else if (r.paginate === 'append' && named && named !== 'next') {
           report('SN304', '`append` pagination only supports `page(…, \'next\')`', target!.start);
         } else if (named && !['first', 'prev', 'next', 'last'].includes(named)) {

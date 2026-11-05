@@ -5,6 +5,9 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+- `offset-param` on a keyset `<sn-resource>`: when the server also accepts an
+  offset, `page(name, n)` jumps with it and `prev`/`next` continue by cursor;
+  `$meta.<name>.page` is available. Without it, `SN304` now suggests it.
 - `direction-values` on a keyset or append `<sn-resource>` maps sinter's
   directions to the values a server expects, e.g.
   `{first: 'forward', prev: 'backward', next: 'forward'}`. Directions not

@@ -327,6 +327,7 @@ class Compiler {
         const key = attr(child, 'key');
         const paginate = attr(child, 'paginate');
         const info: ResourceInfo = { name, key: key ? key.split(',').map((s) => s.trim()).filter(Boolean) : null, paginate: paginate ?? null, used: false };
+        if (paginate === 'keyset' && attr(child, 'offset-param') != null) info.jumps = true;
         this.page.resources.set(name, info);
         this.resourceEls.set(name, child);
         continue;
@@ -832,6 +833,12 @@ class Compiler {
           mode: mode as Paginate['mode'], size, sizeParam: attr(el, 'size-param') ?? 'limit', cursor,
           directionParam: attr(el, 'direction-param') ?? 'direction', pageParam: attr(el, 'page-param') ?? 'page',
         };
+        const offsetParam = attr(el, 'offset-param');
+        if (offsetParam != null) {
+          if (mode !== 'keyset') this.report(el, 'offset-param', 'SN401', `\`offset-param\` applies to \`paginate="keyset"\`; ${mode === 'offset' ? 'offset pages jump with `page-param`' : 'append mode only loads more'}`, 0);
+          else if (!/^[\w.\-\[\]]+$/.test(offsetParam)) this.report(el, 'offset-param', 'SN401', '`offset-param` is a query parameter name', 0);
+          else paginate.offsetParam = offsetParam;
+        }
         if (attr(el, 'direction-values') != null) {
           if (mode === 'offset') this.report(el, 'direction-values', 'SN401', '`direction-values` applies to `paginate="keyset"` and `paginate="append"`; offset pages send `page-param`', 0);
           else {
@@ -842,7 +849,7 @@ class Compiler {
         this.features.add('paginate');
       }
     }
-    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param']) {
+    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param']) {
       if (attr(el, a) != null && !paginate && mode == null) this.report(el, a, 'SN102', `\`${a}\` needs \`paginate\``, 0);
     }
     let cache: number | undefined;

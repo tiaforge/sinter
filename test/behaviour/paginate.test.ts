@@ -165,3 +165,67 @@ describe('direction-values diagnostics', () => {
     expect(diags(`direction-values="{prev: 'b'}"`)).toEqual(['SN102 `direction-values` needs `paginate`']);
   });
 });
+
+test('offset-param: keyset pages jump with an offset, then continue by cursor', async () => {
+  // Caley's mail API: cursor paging, plus `offset` to jump; `first` and an offset send no cursor
+  const requests = mockRequests({
+    'GET /api/m': (call) => {
+      const q = new URL(call.url, 'http://x').searchParams;
+      if (q.has('offset')) {
+        const off = Number(q.get('offset')), limit = Number(q.get('limit'));
+        expect(q.get('direction')).toBe('first');
+        expect(q.has('at')).toBe(false);
+        return { messages: ALL.slice(off, off + limit), total: ALL.length };
+      }
+      return keyset(call);
+    },
+  });
+  const page = PAGE.replace('cursor="{at}"', 'cursor="{at}" offset-param="offset"')
+    .replace('<ul>', `<i data-sn-text="$meta.messages.page"></i>
+      <button id="p3" data-sn-on-click="page('messages', 3)"></button>
+      <button id="p9" data-sn-on-click="page('messages', 9)"></button><ul>`);
+  const { root, settle } = await render(page, { requests });
+  await settle();
+  const state = () => [
+    [...root.querySelectorAll('li')].map((l) => l.textContent).join(','),
+    root.querySelector('span')!.textContent, root.querySelector('b')!.textContent, root.querySelector('i')!.textContent,
+  ];
+  const go = async (id: string) => { root.querySelector<HTMLElement>(`#${id}`)!.click(); await settle(); };
+  expect(state()).toEqual(['1,2,3', '1–3 of 7 3', 'false,true', '1']);
+  await go('p3');
+  expect(requests.calls.at(-1)!.url).toBe('/api/m?offset=6&limit=3&direction=first');
+  expect(state()).toEqual(['7', '7–7 of 7 3', 'true,false', '3']);
+  await go('prev');
+  expect(requests.calls.at(-1)!.url).toBe('/api/m?at=94&limit=3&direction=prev');
+  expect(state()).toEqual(['4,5,6', '4–6 of 7 3', 'true,true', '2']);
+  await go('p9'); // past the end: the last page, known from the total
+  expect(requests.calls.at(-1)!.url).toBe('/api/m?offset=6&limit=3&direction=first');
+  expect(state()[3]).toBe('3');
+  await go('first');
+  expect(state()).toEqual(['1,2,3', '1–3 of 7 3', 'false,true', '1']);
+  await go('last');
+  expect(state()).toEqual(['5,6,7', '5–7 of 7 3', 'true,false', '3']);
+});
+
+describe('offset-param diagnostics', () => {
+  const diags = (attrs: string, body = '<p data-sn-text="m.length"></p>') => compile(`<sn-resource name="m" src="/api/m" key="uid" ${attrs}></sn-resource>${body}`, {
+    file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+  }).diagnostics.map((d) => `${d.code} ${d.message}`);
+  const keyset = 'paginate="keyset" page-size="5" cursor="{uid}"';
+  const jump = `<p data-sn-text="m.length + $meta.m.page"></p><button data-sn-on-click="page('m', 4)"></button>`;
+
+  test('with offset-param, page(name, n) and $meta.<name>.page are allowed on keyset', () => {
+    expect(diags(`${keyset} offset-param="offset"`, jump)).toEqual([]);
+  });
+  test('without it, both are errors that point to offset-param', () => {
+    expect(diags(keyset, jump)).toEqual([
+      'SN303 `$meta.m.page` exists only with `paginate="offset"`, or `paginate="keyset"` with `offset-param`',
+      'SN304 keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`',
+    ]);
+  });
+  test('only keyset resources take offset-param', () => {
+    expect(diags('paginate="append" page-size="5" cursor="{uid}" offset-param="offset"')).toEqual(['SN401 `offset-param` applies to `paginate="keyset"`; append mode only loads more']);
+    expect(diags('paginate="offset" page-size="5" offset-param="offset"')).toEqual(['SN401 `offset-param` applies to `paginate="keyset"`; offset pages jump with `page-param`']);
+    expect(diags('offset-param="offset"')).toEqual(['SN102 `offset-param` needs `paginate`']);
+  });
+});

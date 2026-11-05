@@ -84,13 +84,13 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN303: {
     example: '`$meta.contacts.loadng` is not a status field. Did you mean `loading`?',
-    means: '`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `pending`, `total`, and with `paginate` also `page`, `pages`, `from`, `to`, `hasPrev`, `hasNext`.',
+    means: '`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `pending`, `total`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` with `paginate="offset"`, or keyset with `offset-param`.',
     fix: 'Use the suggested field. A pagination field needs `paginate` on the resource.',
   },
   SN304: {
-    example: 'keyset pagination cannot jump to a page number. Use `paginate="offset"`',
-    means: 'Keyset (cursor) pagination only knows the next and previous page, so `page(\'name\', 7)` has nothing to jump to.',
-    fix: 'Use `paginate="offset"` if the API supports offsets, or only step with `next`, `prev` and `first`.',
+    example: 'keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`',
+    means: 'Keyset (cursor) pagination only knows the next and previous page, so `page(\'name\', 7)` has nothing to jump to, unless the server can also skip items by offset.',
+    fix: 'If the API accepts an offset next to its cursor, add `offset-param="offset"`: the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `paginate="offset"`, or only step with `first`, `prev`, `next` and `last`.',
   },
   SN305: {
     example: 'partial `./partials/contact-dialg.html` not found or outside the project root',

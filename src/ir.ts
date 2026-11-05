@@ -16,6 +16,8 @@ export interface Paginate {
   /** keyset/append: the value sent for each direction, where it differs from the direction's name */
   directionValues?: Partial<Record<'first' | 'prev' | 'next' | 'last', string>>;
   pageParam: string;
+  /** keyset: offset parameter that lets `page(name, n)` jump; the server skips (n - 1) * size items */
+  offsetParam?: string;
 }
 
 export interface ResourceDef {

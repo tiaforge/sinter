@@ -21,7 +21,7 @@ class PagerImpl implements Pager {
     this.cfg = loader.def.paginate!;
     this.move = this.first();
     const m = loader.res.meta;
-    if (this.cfg.mode === 'offset') m.page = 1;
+    if (this.cfg.mode === 'offset' || this.cfg.offsetParam) m.page = 1;
     Object.assign(m, { pages: null, from: null, to: null, hasPrev: false, hasNext: false });
   }
 
@@ -86,7 +86,15 @@ class PagerImpl implements Pager {
       move = { dir: 'page', page: n, params: { [this.cfg.pageParam]: String(n), ...this.base(null) }, from, to };
     } else {
       if (typeof target === 'number') {
-        this.loader.app.warn('keyset pagination cannot jump to a page number; use paginate="offset"');
+        if (!this.cfg.offsetParam) {
+          this.loader.app.warn('keyset pagination cannot jump to a page number; add offset-param or use paginate="offset"');
+          return;
+        }
+        // the server skips (n - 1) pages; prev/next continue by cursor from there
+        let n = Math.max(1, Math.floor(target));
+        if (meta.pages != null) n = Math.min(n, meta.pages);
+        move = { dir: 'page', page: n, params: { [this.cfg.offsetParam]: String((n - 1) * this.cfg.size), ...this.base('first') }, from, to };
+        void this.loader.load(move);
         return;
       }
       if (this.cfg.mode === 'append' && target !== 'next') return;
@@ -143,6 +151,8 @@ class PagerImpl implements Pager {
         else hasPrev = full;
         break;
     }
+    // keyset with jumps: the page that holds the last item shown (after `last`, the last page)
+    if (this.cfg.offsetParam && move.dir !== 'page') meta.page = to != null ? Math.max(1, Math.ceil(to / size)) : null;
     Object.assign(meta, { pages, from, to, hasPrev, hasNext });
     this.loader.res.onDirty('meta');
   }
