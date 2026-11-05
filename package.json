@@ -1,8 +1,33 @@
 {
   "name": "@tiaforge-ui/sinter",
-  "version": "0.1.0-dev",
+  "version": "0.1.0",
   "description": "Bind JSON APIs to plain HTML: keyed resources, SSE sync, template bindings and optimistic mutations, compiled at build time.",
   "license": "MIT",
+  "author": "Tia Heinrich",
+  "homepage": "https://github.com/tiaforge/sinter#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tiaforge/sinter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tiaforge/sinter/issues"
+  },
+  "keywords": [
+    "html",
+    "json",
+    "api",
+    "rest",
+    "sse",
+    "server-sent-events",
+    "websocket",
+    "vite",
+    "vite-plugin",
+    "compiler",
+    "templates",
+    "data-binding",
+    "optimistic-ui",
+    "hypermedia"
+  ],
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -20,7 +45,7 @@
     "./dev": "./dist/dev.js"
   },
   "bin": {
-    "sinter": "./dist/cli.js"
+    "sinter": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -33,7 +58,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "size": "npm run build && node scripts/size.mjs",
-    "docs": "UPDATE_DOCS=1 vitest run test/docs.test.ts"
+    "docs": "UPDATE_DOCS=1 vitest run test/docs.test.ts",
+    "prepublishOnly": "rm -rf dist && npm run build && npm test"
   },
   "dependencies": {
     "acorn": "^8.19.0",
@@ -56,5 +82,11 @@
     "vite": {
       "optional": true
     }
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -116,7 +116,7 @@ built, what deviates, and what is left.
 - 2026-11-05: pre-launch fixes. The core's size budget is now 11 KB min+gzip (10.1 KB today); 5 KB
   was never met. `docs/diagnostics.md` is generated from `src/compiler/diagnostic-docs.ts` (example,
   meaning and fix per code) and ships in the package; diagnostics link to its section on GitHub
-  (`github.com/tiaforge/sinter`, not public yet).
+  (`github.com/tiaforge/sinter`).
 - 2026-11-05: editor integration, phase 1: `sinter lsp` (`src/lsp/`: JSON-RPC framing, a
   `Workspace` of projects, pages, partials and open buffers, the LSP glue). Compiler diagnostics as you
   type; partials are compiled through the pages that include them; Vite entries are compiled on load
