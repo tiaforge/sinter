@@ -160,3 +160,30 @@ test('islands use app.optimistic() with the same layers', async () => {
   await flush();
   expect(root.querySelector('p')!.textContent).toBe('2 0');
 });
+
+test('<sn-sync> inside a state element: src and event expressions read that state', async () => {
+  // Caley's mail page: refetch the list only for the mailbox that is open
+  const requests = mockRequests({ 'GET /api/m': [] });
+  const stream = mockStream();
+  const { root, settle } = await render(`<main data-sn-state="{ sel: 'inbox', topic: 'mail' }">
+    <sn-resource name="m" src="/api/m" key="id"></sn-resource>
+    <sn-sync src="/s/{topic}">
+      <sn-event name="refetch" resource="m" op="refetch" when="mailbox === sel"></sn-event>
+    </sn-sync>
+    <button data-sn-on-click="sel = 'sent'"></button>
+    <p data-sn-text="m.length"></p></main>`, { requests, streams: { '/s/mail': stream } });
+  await settle();
+  const loads = () => requests.calls.filter((c) => c.path === '/api/m').length;
+  expect(loads()).toBe(1);
+  stream.emit('refetch', { mailbox: 'sent' });
+  await settle();
+  expect(loads()).toBe(1);
+  stream.emit('refetch', { mailbox: 'inbox' });
+  await settle();
+  expect(loads()).toBe(2);
+  root.querySelector('button')!.click();
+  await settle();
+  stream.emit('refetch', { mailbox: 'sent' });
+  await settle();
+  expect(loads()).toBe(3);
+});

@@ -127,6 +127,8 @@ export interface App {
   destroy(): void;
 
   url(tpl: UrlTemplate, scope: any): string;
+  /** the scope of root node `i` (its state), or the page scope for -1 */
+  scopeOf(i: number): any;
   mark(path: string, scope?: any): void;
   flush(): void;
   record(change: () => void): () => void;
@@ -335,6 +337,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       for (const c of cleanups.splice(0)) c();
       instances.delete(root);
     },
+    scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     url(tpl, s) {
       let out = '', query = false, dropped = false;
       tpl.forEach((p, i) => {
@@ -938,7 +941,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     app.page.$meta[def.name] = r.meta;
     let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null;
 
-    const scope = () => (def.scope < 0 ? app.page : rootScopes[def.scope] ?? app.page);
+    const scope = () => app.scopeOf(def.scope);
     const resolve = () => {
       const s = scope();
       try { return def.when != null && !fns[def.when]!(s) ? null : app.url(def.src, s); } catch (e) { warn(17, def.name, (e as Error).message); return null; }

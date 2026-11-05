@@ -49,7 +49,7 @@ export interface CheckExpr {
   /** the value must be assignable to this (`data-sn-body`, `<sn-event>` `item` and `set`) */
   returns?: TypeRef;
   /** payload expressions (`<sn-event>`, `cursor`): the payload fields read, and the payload's type (null: any) */
-  payload?: { names: string[]; type: TypeRef | null };
+  payload?: { names: string[]; type: TypeRef | null; states?: string[] };
   /** the compiler reported an error in it (it may not even parse); kept for editor completion, never type-checked */
   broken?: boolean;
 }

@@ -5,6 +5,11 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+- `<sn-event>` expressions can read the state declared around their
+  `<sn-sync>` (`when="mailbox === sel.mailbox"`); before, those names silently
+  meant payload fields. A state name shadows a payload field of the same name,
+  a `sinter check` error when the payload is typed. `<sn-sync src>` is also
+  evaluated in that state's scope now.
 - Pagination cursor fields that are `null` or `undefined` are left out of the
   request instead of being sent empty, like URL template query parameters.
 - `each="a in accounts"` on `<sn-resource>`: one request per list item, merged

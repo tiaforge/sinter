@@ -56,6 +56,8 @@ export interface EventDef {
 export interface SyncDef {
   src: UrlTemplate;
   events: EventDef[];
+  /** index of the node (in `roots`) whose scope `src` and the events' expressions are evaluated in, -1 (or absent) for page scope */
+  scope?: number;
 }
 
 export type BindingKind =

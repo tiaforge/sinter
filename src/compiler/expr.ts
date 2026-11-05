@@ -50,6 +50,8 @@ export interface ExprOptions {
   magic?: string[];
   /** free identifiers resolve to fields of `$.$p` (sn-event, cursor) */
   payload?: boolean;
+  /** with `payload`: state names in scope resolve to the state first (`<sn-event>`) */
+  payloadState?: boolean;
   /** parse as `{...}` object literal; returns its entries */
   object?: 'literal-keys' | 'any-keys' | 'state';
   report: (code: Code, message: string, offset: number, hint?: string) => void;
@@ -73,6 +75,8 @@ export interface ExprResult {
   ast: Node | null;
   /** names resolved to payload fields (`payload` mode) */
   payloadNames?: string[];
+  /** state names read where the payload is the scope (they shadow payload fields of the same name) */
+  payloadStates?: string[];
 }
 
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
@@ -153,6 +157,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   let usesIndex = false;
   let ok = true;
   const payloadNames = new Set<string>();
+  const payloadStates = new Set<string>();
   const mode = opts.mode;
   const magicAllowed = new Set([...EVERYWHERE_MAGIC, ...(opts.magic ?? [])]);
 
@@ -216,6 +221,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
       report('SN201', `\`${name}\` is not defined.${didYouMean(name, ALL_MAGIC)}`, offset);
       return null;
+    }
+    if (opts.payload && opts.payloadState) {
+      for (let i = scope.states.length - 1; i >= 0; i--) {
+        if (scope.states[i]!.names.has(name)) { payloadStates.add(name); return { kind: 'state', sid: scope.states[i]!.sid }; }
+      }
     }
     if (!opts.payload) {
       for (let i = scope.loops.length - 1; i >= 0; i--) {
@@ -803,7 +813,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
   }
 
-  return { ok, code, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort() } : {}) };
+  return { ok, code, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort() } : {}) };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

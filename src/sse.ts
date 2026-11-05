@@ -46,9 +46,12 @@ class Connection {
   private everOpen = false;
   private readonly url: string;
   private readonly fed: string[];
+  /** where `src` and the events' expressions are evaluated: the enclosing state's scope, or the page */
+  private readonly base: any;
 
   constructor(private readonly app: App, private readonly def: SyncDef) {
-    this.url = app.url(def.src, app.page);
+    this.base = app.scopeOf(def.scope ?? -1);
+    this.url = app.url(def.src, this.base);
     this.fed = [...new Set(def.events.map((e) => e.resource))];
   }
 
@@ -127,7 +130,7 @@ class Connection {
 
   private apply(def: EventDef, payload: unknown): void {
     const app = this.app;
-    const scope = Object.create(app.page);
+    const scope = Object.create(this.base);
     scope.$p = payload && typeof payload === 'object' ? payload : {};
     const r = app.resource(def.resource);
     try {

@@ -89,6 +89,20 @@ describe('sinter check', () => {
     one(page(`<p data-sn-text="m.items_count({ count: 'x' })"></p>`), /Type 'string' is not assignable to type 'number'/, 'count:');
   });
 
+  test('sn-event: state around the sync is in scope; shadowing a typed payload field is an error', () => {
+    const types = `${TYPES}export interface Refetch { mailbox: string; account_id: string }\n`;
+    const sync = (when: string) => page(`<main data-sn-state="{ sel: 'inbox', account_id: 'a' }">
+<sn-sync src="/api/events"><sn-event name="r" resource="contacts" op="refetch" type="Refetch" when="${when}"></sn-event></sn-sync>
+<p data-sn-text="contacts.length + sel"></p></main>`);
+    expect(run(sync('mailbox === sel'), { 'src/sinter.types.ts': types }).diagnostics).toEqual([]);
+    expect(run(sync('mailbox === sel.lenght'), { 'src/sinter.types.ts': types }).diagnostics.map((d) => d.message))
+      .toEqual([expect.stringMatching(/Property 'lenght' does not exist on type 'string'/)]);
+    // `account_id` is state here, so it cannot also mean the payload field
+    const d = run(sync('account_id === sel'), { 'src/sinter.types.ts': types }).diagnostics;
+    expect(d).toHaveLength(1);
+    expect(d[0]!.message).toMatch(/state `account_id` shadows the payload field `account_id`: rename the state/);
+  });
+
   test('each: the loop variable has the list item type in src', () => {
     const html = page(`<sn-resource name="emails" each="c in contacts" src="/api/emails?contact={c.nmae}" key="id" type="any"></sn-resource>
 <p data-sn-text="emails.length"></p>`);

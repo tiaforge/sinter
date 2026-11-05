@@ -596,7 +596,7 @@ class Compiler {
       src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: el.tagName, event,
       result: attrName === 'data-sn-then', error: attrName === 'data-sn-catch',
     };
-    if (o.payload) e.payload = { names: r.payloadNames ?? [], type: null };
+    if (o.payload) e.payload = { names: r.payloadNames ?? [], type: null, ...(r.payloadStates?.length ? { states: r.payloadStates } : {}) };
     this.check!.exprs.push(e);
     return this.check!.exprs.length - 1;
   }
@@ -953,7 +953,7 @@ class Compiler {
       const ev = this.event(c, ctx);
       if (ev) events.push(ev);
     }
-    this.syncs.push({ src, events });
+    this.syncs.push({ src, events, ...(ctx.stateIdx >= 0 ? { scope: ctx.stateIdx } : {}) });
     this.features.add('sse');
   }
 
@@ -982,7 +982,7 @@ class Compiler {
     }
     const fnOf = (n: string, object = false) => {
       if (attr(el, n) == null) return null;
-      const r = this.expr(el, n, scope, { mode: 'value', payload: true });
+      const r = this.expr(el, n, scope, { mode: 'value', payload: true, payloadState: true });
       this.typeLast({
         payload: payloadType,
         ...(n === 'item' ? { returns: { kind: 'item', resource } } : n === 'set' ? { returns: { kind: 'item', resource, partial: true } } : {}),

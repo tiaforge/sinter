@@ -399,7 +399,7 @@ type Change<T> =
   <sn-event name="contacts_refetch" resource="contacts" op="refetch"></sn-event>
 </sn-sync>
 ```
-Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `item="contact"` reads `payload.contact`.
+Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `item="contact"` reads `payload.contact`. State declared around the `<sn-sync>` is in scope too, and a state name wins over a payload field of the same name: `when="mailbox === sel.mailbox"` compares the payload's `mailbox` with the state `sel` (added 2026-11-05, for Caley's mail list). With a typed payload (`type="…"`), a state name that is also a payload field is a `sinter check` error; without a type, pick state names that payloads do not use. Loop variables and resources are not in scope here. `src` of `<sn-sync>` is evaluated in the same scope.
 
 | Attribute | Meaning |
 | --- | --- |

@@ -170,6 +170,14 @@ export function shadow(o: ShadowOptions): Shadow {
         regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
         line(`const ${n} = $p.${n};`);
       }
+      // a state name shadows a payload field of the same name: an error when the payload type has it
+      if (e.payload.type) {
+        for (const n of e.payload.states ?? []) {
+          const msg = `state \`${n}\` shadows the payload field \`${n}\`: rename the state`;
+          regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
+          line(`/** @type {${JSON.stringify(n)} extends keyof typeof $p ? ${JSON.stringify(msg)} : true} */ const $shadows_${n} = true; void $shadows_${n};`);
+        }
+      }
     }
     if (e.mode === 'value') {
       // a value of the wrong type as a whole is reported on `return`
