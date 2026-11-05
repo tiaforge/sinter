@@ -761,7 +761,7 @@ app.on('new_email', payload => notify(payload));  // any server event, mapped or
 Errors should be found by the compiler, worded so that a person or a coding agent can fix them from the message alone.
 
 ### Diagnostics
-Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col` and an optional `hint`.
+Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an optional `hint` and an optional `span` (what an editor underlines).
 
 | Code | Severity | Example message |
 | --- | --- | --- |
@@ -813,7 +813,13 @@ The dev build adds checks that need real data: duplicate keys in a response, an 
 ### LLM support
 - `llms.txt` in the package: the full attribute reference, the scope rules and seven copy-paste recipes (list with filter, form dialog, SSE sync, optimistic toggle, pagination, SignalR transport, typed resources).
 - A generated VS Code custom-data file (`html-custom-data.json`) so editors and agents get attribute completion.
-- Every diagnostic links to its section in the docs.
+- Every diagnostic links to its section in `docs/diagnostics.md`, which is generated from the compiler's table of codes (example, meaning, fix).
+
+### Editor integration
+- `sinter lsp` is a language server over stdio. It compiles open buffers on every change and publishes the compiler's diagnostics; a partial is compiled in the context of the pages that include it, and a page's diagnostics in its partials are reported on the partial.
+- Pages are the HTML entries of the Vite config, plus any open HTML file no page includes. A change to the Vite config, the helpers or types module, or an OpenAPI spec reloads the project.
+- Diagnostics underline the whole attribute or tag when they are about it (`span` on `Diagnostic`), else the name at their position.
+- Planned (roadmap item 4): type errors as you type, hover, completion, go to definition and a did-you-mean quick fix through TypeScript 7's language server (`tsc --lsp`); a VS Code extension that starts the project's own `sinter lsp`.
 
 ### Stability
 - Attribute names, function names and diagnostic codes are part of the public API.

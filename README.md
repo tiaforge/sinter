@@ -43,6 +43,9 @@ export default { plugins: [sinter()] };
   `sinter({ openapi: 'openapi.yml' })`, resources without `type` are typed from your API spec instead.
   `npx sinter check` type-checks every expression with your TypeScript; `sinter({ typecheck: true })` runs it
   in `vite build`.
+- Editors: `npx sinter lsp --stdio` is a language server that shows sinter's diagnostics as you type, in
+  pages and in partials (checked in the context of the pages that include them). Point your editor's
+  LSP client at it for `html` files; hover, completion and type errors are in progress.
 
 ## Packages
 

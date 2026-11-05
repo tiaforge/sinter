@@ -13,8 +13,10 @@ built, what deviates, and what is left.
 | `src/sse.ts`, `src/optimistic.ts`, `src/paginate.ts`, `src/persist.ts` | feature modules |
 | `src/ws.ts` | WebSocket transport (imported by the app's config module, not a feature) |
 | `src/vite.ts` | Vite adapter |
-| `src/project.ts` | the app's helpers, config and types modules, found the same way by the plugin and the CLI |
+| `src/project.ts` | the app's helpers, config and types modules, found the same way by the plugin and the CLI; pages from the Vite config |
 | `src/check/`, `src/cli.ts` | `sinter check`: shadow files, `tsc`, error mapping |
+| `src/lsp/` | `sinter lsp`: JSON-RPC, the workspace of projects and open buffers, the LSP glue |
+| `src/compiler/diagnostic-docs.ts` | example, meaning and fix per code; `docs/diagnostics.md` is generated from it |
 | `src/testing/` | `render`, `mockRequests`, `mockStream` |
 | `src/compiler/vocabulary.ts` | the attribute/element table; compiler, `llms.txt` and custom data derive from it |
 | `test/` | Vitest suites (happy-dom); `test/compiler/golden/__out__` are file snapshots |
@@ -114,6 +116,13 @@ built, what deviates, and what is left.
   was never met. `docs/diagnostics.md` is generated from `src/compiler/diagnostic-docs.ts` (example,
   meaning and fix per code) and ships in the package; diagnostics link to its section on GitHub
   (`github.com/tiaforge/sinter`, not public yet).
+- 2026-11-05: editor integration, phase 1: `sinter lsp` (`src/lsp/`: JSON-RPC framing, a
+  `Workspace` of projects, pages, partials and open buffers, the LSP glue). Compiler diagnostics as you
+  type; partials are compiled through the pages that include them; Vite entries are compiled on load
+  (about 0.4 s for RealWorld, mostly Vite's config resolution); file watching reloads the project when
+  helpers, types, specs or the Vite config change. `Diagnostic.span` gives attribute- and element-level
+  diagnostics their full range. Reading the Vite config moved from `cli.ts` to `viteProject()` in
+  `project.ts`. Tests drive the server over in-memory streams (`test/lsp/`).
 
 ## Decisions and deviations
 

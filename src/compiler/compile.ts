@@ -203,7 +203,8 @@ class Compiler {
     return i;
   }
 
-  report(el: P5Element | null, attr: string | null, code: Code, message: string, offset: number, hint?: string) {
+  /** `inExpr`: the offset points into an expression; otherwise offset 0 is about the whole attribute (or element) */
+  report(el: P5Element | null, attr: string | null, code: Code, message: string, offset: number, hint?: string, inExpr = false) {
     const origin = (el && this.origins.get(el)) || { file: this.opts.file, src: '', chain: [] };
     const base = el ? this.valueOffset(el, attr) : 0;
     const { line, col } = el?.sourceCodeLocation ? this.lineCol(origin.src, base + offset) : { line: 1, col: 1 };
@@ -211,11 +212,19 @@ class Compiler {
     if (origin.chain.length) msg += ` (included from ${origin.chain.join(' ← ')})`;
     const d: Diagnostic = { severity: severityOf(code), code, message: msg, file: origin.file, line, col };
     if (hint) d.hint = hint;
+    const loc = el?.sourceCodeLocation;
+    if (loc && !inExpr && offset === 0) {
+      const a = attr ? loc.attrs?.[attr] : null;
+      const [from, to] = a ? [a.startOffset, a.endOffset] : [loc.startOffset + 1, loc.startOffset + 1 + el!.tagName.length];
+      const start = this.lineCol(origin.src, from);
+      const end = this.lineCol(origin.src, to);
+      d.span = { line: start.line, col: start.col, endLine: end.line, endCol: end.col };
+    }
     this.diagnostics.push(d);
   }
 
   reporter(el: P5Element, attr: string, shift = 0): ExprOptions['report'] {
-    return (code, message, offset, hint) => this.report(el, attr, code, message, offset + shift, hint);
+    return (code, message, offset, hint) => this.report(el, attr, code, message, offset + shift, hint, true);
   }
 
   // ---- includes

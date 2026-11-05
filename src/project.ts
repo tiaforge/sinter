@@ -90,3 +90,25 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     types: typesRel ? resolve(root, typesRel) : null,
   };
 }
+
+/**
+ * The pages (HTML entries) and sinter plugin options from the root's Vite config. Without
+ * Vite or entries, `index.html` if it exists.
+ */
+export async function viteProject(root: string): Promise<{ pages: string[]; options: ProjectOptions }> {
+  const fallback = () => (existsSync(resolve(root, 'index.html')) ? [resolve(root, 'index.html')] : []);
+  let vite: typeof import('vite');
+  try {
+    vite = await import('vite');
+  } catch {
+    return { pages: fallback(), options: {} };
+  }
+  const config = await vite.resolveConfig({ root, logLevel: 'silent' }, 'build', 'production');
+  const plugin = config.plugins.find((x) => x.name === 'sinter') as { api?: { options?: ProjectOptions } } | undefined;
+  const build = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
+  const input = build.rolldownOptions?.input ?? build.rollupOptions?.input;
+  const list = typeof input === 'string' ? [input] : Array.isArray(input) ? input : input && typeof input === 'object' ? Object.values(input) : [];
+  let pages = (list as string[]).filter((f) => typeof f === 'string' && f.endsWith('.html')).map((f) => resolve(config.root, f));
+  if (!pages.length) pages = fallback();
+  return { pages, options: plugin?.api?.options ?? {} };
+}

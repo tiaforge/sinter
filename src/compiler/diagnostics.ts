@@ -8,6 +8,8 @@ export interface Diagnostic {
   line: number;
   col: number;
   hint?: string;
+  /** what an editor underlines, when it is more than the name at `line:col` (a whole attribute, a tag name) */
+  span?: { line: number; col: number; endLine: number; endCol: number };
 }
 
 export const CODES = {

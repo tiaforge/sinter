@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 // `sinter check [--root <dir>] [page.html …]`: compiles the pages and type-checks
 // their expressions. Without pages, it reads them and the plugin options from the
-// Vite config.
-import { existsSync, readFileSync } from 'node:fs';
+// Vite config. `sinter lsp`: the language server for editors.
+import { readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { check } from './check/index.js';
 import { compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
-import { project, type ProjectOptions } from './project.js';
+import { project, viteProject, type ProjectOptions } from './project.js';
 
-const USAGE = 'usage: sinter check [--root <dir>] [page.html …]';
+const USAGE = 'usage: sinter check [--root <dir>] [page.html …]\n       sinter lsp [--stdio]';
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
+  if (command === 'lsp') return lsp();
   if (command !== 'check') {
     console.error(USAGE);
     return 2;
@@ -24,7 +25,7 @@ async function main(argv: string[]): Promise<number> {
   }
   let options: ProjectOptions = {};
   let files = pages.map((p) => resolve(root, p));
-  if (!files.length) ({ files, options } = await fromVite(root));
+  if (!files.length) ({ pages: files, options } = await viteProject(root));
   if (!files.length) {
     console.error(`sinter check: no pages found; pass them as arguments\n${USAGE}`);
     return 2;
@@ -48,22 +49,15 @@ async function main(argv: string[]): Promise<number> {
   return errors ? 1 : 0;
 }
 
-/** HTML entries and sinter plugin options from the Vite config, if there is one. */
-async function fromVite(root: string): Promise<{ files: string[]; options: ProjectOptions }> {
-  let vite: typeof import('vite');
-  try {
-    vite = await import('vite');
-  } catch {
-    return { files: existsSync(resolve(root, 'index.html')) ? [resolve(root, 'index.html')] : [], options: {} };
-  }
-  const config = await vite.resolveConfig({ root, logLevel: 'silent' }, 'build', 'production');
-  const plugin = config.plugins.find((x) => x.name === 'sinter') as { api?: { options?: ProjectOptions } } | undefined;
-  const build = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
-  const input = build.rolldownOptions?.input ?? build.rollupOptions?.input;
-  const list = typeof input === 'string' ? [input] : Array.isArray(input) ? input : input && typeof input === 'object' ? Object.values(input) : [];
-  let files = (list as string[]).filter((f) => typeof f === 'string' && f.endsWith('.html')).map((f) => resolve(config.root, f));
-  if (!files.length && existsSync(resolve(config.root, 'index.html'))) files = [resolve(config.root, 'index.html')];
-  return { files, options: plugin?.api?.options ?? {} };
+/** Language server over stdio; stdout carries only protocol messages. */
+async function lsp(): Promise<number> {
+  const toStderr = (...args: unknown[]) => process.stderr.write(args.map(String).join(' ') + '\n');
+  console.log = console.info = console.warn = console.debug = toStderr;
+  const { startServer } = await import('./lsp/server.js');
+  return new Promise((done) => {
+    const conn = startServer(process.stdin, process.stdout, { exit: (code) => process.exit(code) });
+    conn.onClose = () => done(0);
+  });
 }
 
 main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (err: unknown) => {
