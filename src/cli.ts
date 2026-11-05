@@ -56,7 +56,8 @@ async function lsp(): Promise<number> {
   const { startServer } = await import('./lsp/server.js');
   return new Promise((done) => {
     const conn = startServer(process.stdin, process.stdout, { exit: (code) => process.exit(code) });
-    conn.onClose = () => done(0);
+    const closed = conn.onClose;
+    conn.onClose = () => { closed?.(); done(0); };
   });
 }
 

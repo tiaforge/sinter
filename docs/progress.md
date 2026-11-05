@@ -123,6 +123,14 @@ built, what deviates, and what is left.
   helpers, types, specs or the Vite config change. `Diagnostic.span` gives attribute- and element-level
   diagnostics their full range. Reading the Vite config moved from `cli.ts` to `viteProject()` in
   `project.ts`. Tests drive the server over in-memory streams (`test/lsp/`).
+- 2026-11-05: editor integration, phase 2: `src/lsp/typescript.ts` starts the project's
+  `tsc --lsp --stdio` (TypeScript 7) per project, keeps one shadow per page open in it (written to
+  `.sinter/lsp/` once so its tsconfig includes them, then changed in memory), pulls errors 300 ms after
+  the last compile and maps them with TypeScript's range; hover maps the cursor into the shadow
+  (`shadowPosition()` in `shadow.ts`) and the range back. Before TypeScript 7, the `sinter check`
+  pipeline runs on save (tested with a fake TypeScript 5 package). `check()` is split into
+  `writeSupport`, `shadowOf` and `typeDiagnostic` so both share them. RealWorld over stdio: a planted
+  `article.titel` is reported 340 ms after the edit; a hover takes 6 ms.
 
 ## Decisions and deviations
 

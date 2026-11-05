@@ -12,7 +12,7 @@ import { compile } from '../compiler/index.js';
 import { project, type ProjectOptions } from '../project.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import { specDeclarations } from './openapi-types.js';
-import { DECLARATIONS, mapPosition, shadow, type Region } from './shadow.js';
+import { DECLARATIONS, mapPosition, shadow, type Region, type Shadow } from './shadow.js';
 
 export interface CheckOptions {
   root: string;
@@ -38,34 +38,75 @@ export interface CheckResult {
   openapi: number;
 }
 
-export function check(o: CheckOptions): CheckResult {
-  const outDir = o.outDir ?? join(o.root, '.sinter', 'check');
-  const declarations = join(outDir, 'sinter.d.ts');
-  const types = o.types ? { file: o.types, names: typeExports(readFileSync(o.types, 'utf8')) } : null;
-  mkdirSync(outDir, { recursive: true });
-  writeFileSync(declarations, DECLARATIONS);
+/** What every shadow file of a project refers to, written once per run. */
+export interface Support {
+  outDir: string;
+  /** absolute path of `sinter.d.ts` */
+  declarations: string;
+  types: { file: string; names: string[] } | null;
+  /** generated declarations per OpenAPI spec, by spec index */
+  openapi: string[];
+}
 
+/** Writes `sinter.d.ts` and the spec declarations into `outDir`. */
+export function writeSupport(o: { root: string; outDir: string; types: string | null; openapi?: OpenApiSpec[] }): Support {
+  const declarations = join(o.outDir, 'sinter.d.ts');
+  mkdirSync(o.outDir, { recursive: true });
+  writeIfChanged(declarations, DECLARATIONS);
   const openapi = (o.openapi ?? []).map((s, i) => {
-    const file = join(outDir, `openapi-${i}.d.ts`);
-    writeFileSync(file, specDeclarations(s.doc, relative(o.root, s.file).split('\\').join('/')));
+    const file = join(o.outDir, `openapi-${i}.d.ts`);
+    writeIfChanged(file, specDeclarations(s.doc, relative(o.root, s.file).split('\\').join('/')));
     return file;
   });
+  const types = o.types ? { file: o.types, names: typeExports(readFileSync(o.types, 'utf8')) } : null;
+  return { outDir: o.outDir, declarations, types, openapi };
+}
+
+/** The compiler options shadow files are checked with. */
+export const COMPILER_OPTIONS = {
+  allowJs: true, checkJs: true, strict: true, strictNullChecks: false, noImplicitAny: false, noEmit: true, skipLibCheck: true,
+  target: 'es2022', module: 'esnext', moduleResolution: 'bundler', lib: ['es2023', 'dom', 'dom.iterable'], types: [] as string[],
+};
+
+/** Where a page's shadow file goes. */
+export function shadowPath(support: Support, root: string, page: string): string {
+  return join(support.outDir, relative(root, page) + '.js');
+}
+
+export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest): Shadow {
+  return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, openapi: support.openapi });
+}
+
+/** A TypeScript error at a 1-based shadow position, as an SN208 diagnostic at the HTML position. */
+export function typeDiagnostic(unit: CheckUnit, regions: Region[], line: number, col: number, code: string, message: string, root: string): Diagnostic {
+  const text = `${clean(message, root)} (${code})`;
+  const loc = mapPosition(regions, line, col);
+  return loc
+    ? { severity: 'error', code: 'SN208', message: text + (loc.chain.length ? ` (included from ${loc.chain.join(' ← ')})` : ''), file: loc.file, line: loc.line, col: loc.col }
+    : { severity: 'error', code: 'SN208', message: `in code sinter generated (please report): ${text}`, file: unit.file, line: 1, col: 1 };
+}
+
+function writeIfChanged(file: string, text: string): void {
+  try { if (readFileSync(file, 'utf8') === text) return; } catch { /* missing */ }
+  writeFileSync(file, text);
+}
+
+export function check(o: CheckOptions): CheckResult {
+  const outDir = o.outDir ?? join(o.root, '.sinter', 'check');
+  const support = writeSupport({ root: o.root, outDir, types: o.types, openapi: o.openapi });
 
   const shadows = new Map<string, { unit: CheckUnit; regions: Region[] }>();
   for (const unit of o.units) {
-    const file = join(outDir, relative(o.root, unit.file) + '.js');
-    const s = shadow({ unit, file, root: o.root, declarations, types, helpers: o.helpers, openapi });
+    const file = shadowPath(support, o.root, unit.file);
+    const s = shadowOf(unit, support, o.root, o.helpers);
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, s.text);
     shadows.set(resolve(file), { unit, regions: s.regions });
   }
   const tsconfig = join(outDir, 'tsconfig.json');
   writeFileSync(tsconfig, JSON.stringify({
-    compilerOptions: {
-      allowJs: true, checkJs: true, strict: true, strictNullChecks: false, noImplicitAny: false, noEmit: true, skipLibCheck: true,
-      target: 'es2022', module: 'esnext', moduleResolution: 'bundler', lib: ['es2023', 'dom', 'dom.iterable'], types: [],
-    },
-    files: ['sinter.d.ts', ...openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map((f) => relative(outDir, f).split('\\').join('/'))],
+    compilerOptions: COMPILER_OPTIONS,
+    files: ['sinter.d.ts', ...support.openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map((f) => relative(outDir, f).split('\\').join('/'))],
   }, null, 2) + '\n');
 
   const tsc = o.tsc ?? findTsc(o.root);
@@ -143,11 +184,7 @@ function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<str
     const s = shadows.get(resolve(outDir, m[1]!));
     // errors in the app's own modules are its own tsc's business
     if (!s) continue;
-    const message = `${clean(m[5]!, root)} (${m[4]})`;
-    const loc = mapPosition(s.regions, Number(m[2]), Number(m[3]));
-    const d: Diagnostic = loc
-      ? { severity: 'error', code: 'SN208', message: message + (loc.chain.length ? ` (included from ${loc.chain.join(' ← ')})` : ''), file: loc.file, line: loc.line, col: loc.col }
-      : { severity: 'error', code: 'SN208', message: `in code sinter generated (please report): ${message}`, file: s.unit.file, line: 1, col: 1 };
+    const d = typeDiagnostic(s.unit, s.regions, Number(m[2]), Number(m[3]), m[4]!, m[5]!, root);
     out.push(d);
     last = d;
   }
@@ -155,6 +192,6 @@ function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<str
 }
 
 /** Shortens absolute module paths in TypeScript's messages to project-relative ones. */
-function clean(message: string, root: string): string {
+export function clean(message: string, root: string): string {
   return message.replace(/import\("([^"]+)"\)/g, (_, p: string) => `import("${p.startsWith(root) ? relative(root, p).split('\\').join('/') : p}")`);
 }

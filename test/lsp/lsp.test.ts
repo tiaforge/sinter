@@ -6,7 +6,10 @@ import { PassThrough } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, test } from 'vitest';
 import { Connection } from '../../src/lsp/rpc.js';
+import { findTsc } from '../../src/check/index.js';
 import { rangeOf, startServer, type LspDiagnostic } from '../../src/lsp/server.js';
+
+const tsc = findTsc(process.cwd());
 
 function project(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), 'sinter-lsp-'));
@@ -22,10 +25,10 @@ const open: Connection[] = [];
 afterEach(() => { for (const c of open.splice(0)) c.close(); });
 
 /** A server and an editor-side connection to it, with the diagnostics it published per file. */
-async function editor(root: string) {
+async function editor(root: string, options: { tsc?: string } = {}) {
   const toServer = new PassThrough();
   const toClient = new PassThrough();
-  const server = startServer(toServer, toClient);
+  const server = startServer(toServer, toClient, { tsc: options.tsc ?? tsc, typecheckDelay: 10 });
   const client = new Connection(toClient, toServer);
   open.push(client, server);
   const published = new Map<string, LspDiagnostic[]>();
@@ -47,6 +50,12 @@ async function editor(root: string) {
       client.notify('textDocument/didChange', { textDocument: { uri: uri(rel), version: version++ }, contentChanges: [{ text }] });
     },
     /** what was last published for `rel` (nothing: empty) */
+    hover(rel: string, line: number, character: number) {
+      return client.request<{ contents: { kind: string; value: string }; range?: unknown } | null>('textDocument/hover', { textDocument: { uri: uri(rel) }, position: { line, character } });
+    },
+    save(rel: string) {
+      client.notify('textDocument/didSave', { textDocument: { uri: uri(rel) } });
+    },
     /** tells the server files changed on disk, as an editor's file watcher does */
     changed(...rels: string[]) {
       client.notify('workspace/didChangeWatchedFiles', { changes: rels.map((r) => ({ uri: uri(r), type: 2 })) });
@@ -146,5 +155,73 @@ describe('sinter lsp', () => {
     writeFileSync(join(root, 'src/sinter.helpers.js'), 'export const shout = (s) => s.toUpperCase();\n');
     e.changed('src/sinter.helpers.js');
     await e.diagnostics('index.html', (d) => d.length === 0);
+  });
+
+  describe('types', () => {
+    const TYPES = 'export interface Contact { id: number; name: string; tags: string[] }\n';
+    const PAGE = (expr: string) => `<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>
+<ul>
+  <template data-sn-for="c in contacts">
+    <li data-sn-text="${expr}"></li>
+  </template>
+</ul>
+`;
+
+    test('type errors appear as you type and clear when fixed', async () => {
+      const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
+      const e = await editor(root);
+      e.open('index.html', PAGE('c.nmae'));
+      const d = await e.diagnostics('index.html', (d) => d.some((x) => x.code.startsWith('SN208')));
+      const t = d.find((x) => x.code.startsWith('SN208'))!;
+      expect(t.message).toContain("Property 'nmae' does not exist on type 'Contact'");
+      expect(t.message).toContain('(TS2');
+      // TypeScript's own range: the property name
+      expect(t.range).toEqual({ start: { line: 3, character: 24 }, end: { line: 3, character: 28 } });
+      e.change('index.html', PAGE('c.name.toUpperCase()'));
+      await e.diagnostics('index.html', (d) => d.length === 0);
+    });
+
+    test('a type error in a partial is reported on the partial', async () => {
+      const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<sn-include src="./row.html"></sn-include>\n';
+      const row = '<template data-sn-for="c in contacts">\n  <p data-sn-text="c.tags.lenght"></p>\n</template>\n';
+      const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': page, 'row.html': row });
+      const e = await editor(root);
+      e.open('row.html', row);
+      const d = await e.diagnostics('row.html', (d) => d.some((x) => x.code.startsWith('SN208')));
+      expect(d.find((x) => x.code.startsWith('SN208'))!.message).toMatch(/Did you mean 'length'\?/);
+      expect(e.current('index.html').filter((x) => x.code.startsWith('SN208'))).toEqual([]);
+    });
+
+    test('hover shows the type of a name in an expression', async () => {
+      const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
+      const e = await editor(root);
+      e.open('index.html', PAGE('c.name'));
+      await e.diagnostics('index.html');
+      // on `name` in `c.name` (line 4, column 26)
+      const h = await e.hover('index.html', 3, 25);
+      expect(h!.contents.value).toContain('Contact.name: string');
+      expect(h!.range).toEqual({ start: { line: 3, character: 24 }, end: { line: 3, character: 28 } });
+      // outside expressions there is nothing to say
+      expect(await e.hover('index.html', 1, 2)).toBeNull();
+    });
+  
+    test('before TypeScript 7, type errors come from `tsc` on save', async () => {
+      // a TypeScript 5 package whose `tsc` runs the real one
+      const root = project({
+        'src/sinter.types.ts': TYPES,
+        'index.html': PAGE('c.name'),
+        'old-ts/package.json': '{"name":"typescript","version":"5.9.3","bin":{"tsc":"bin/tsc"}}',
+        'old-ts/bin/tsc': `const { spawnSync } = require('node:child_process');\nprocess.exitCode = spawnSync(process.execPath, [${JSON.stringify(tsc)}, ...process.argv.slice(2)], { stdio: 'inherit' }).status;\n`,
+      });
+      const e = await editor(root, { tsc: join(root, 'old-ts/bin/tsc') });
+      e.open('index.html', PAGE('c.nmae'));
+      await e.diagnostics('index.html');
+      await new Promise((r) => setTimeout(r, 100));
+      expect(e.current('index.html')).toEqual([]);
+      writeFileSync(join(root, 'index.html'), PAGE('c.nmae'));
+      e.save('index.html');
+      const d = await e.diagnostics('index.html', (d) => d.length > 0);
+      expect(d[0]!.message).toContain("Property 'nmae' does not exist on type 'Contact'");
+    });
   });
 });

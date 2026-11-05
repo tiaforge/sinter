@@ -23,6 +23,8 @@ export interface ProjectState {
   diagnostics: Map<string, Diagnostic[]>;
   /** per page: its last compile's check unit */
   units: Map<string, CheckUnit>;
+  /** TypeScript's diagnostics, per page (or per check run); they lag behind compiles */
+  types: Map<string, Diagnostic[]>;
   /** files whose change reloads the project: Vite config, helpers, types, specs */
   inputs: Set<string>;
 }
@@ -83,7 +85,7 @@ export class Workspace {
     for (const m of Object.values(p.helpers.namespaces)) if (m.module.startsWith('/')) inputs.add(join(root, m.module));
     const state: ProjectState = {
       root, options, project: p, entries: new Set(pages), pages: new Set(pages),
-      includes: new Map(), diagnostics: new Map(), units: new Map(), inputs,
+      includes: new Map(), diagnostics: new Map(), units: new Map(), types: new Map(), inputs,
     };
     for (const [file] of this.docs) if (file.endsWith('.html') && this.rootOf(file) === root) state.pages.add(file);
     this.compilePages(state, [...state.pages]);
@@ -111,6 +113,7 @@ export class Workspace {
       state.includes.delete(file);
       state.diagnostics.delete(file);
       state.units.delete(file);
+      state.types.delete(file);
       this.publishAll(state);
       return;
     }
@@ -173,6 +176,7 @@ export class Workspace {
         state.diagnostics.delete(page);
         state.includes.delete(page);
         state.units.delete(page);
+        state.types.delete(page);
         continue;
       }
       try {
@@ -190,6 +194,13 @@ export class Workspace {
     this.hooks.compiled?.(state, pages.filter((x) => state.pages.has(x)));
   }
 
+  /** Sets TypeScript's diagnostics under `key` (a page) and publishes. Ignored for a replaced project state. */
+  async setTypes(state: ProjectState, key: string, list: Diagnostic[]): Promise<void> {
+    if ((await this.projects.get(state.root)) !== state) return;
+    state.types.set(key, list);
+    this.publishAll(state);
+  }
+
   /** Publishes every file's diagnostics, merged across the pages that include it. */
   private publishAll(state: ProjectState): void {
     const byFile = new Map<string, Diagnostic[]>();
@@ -204,6 +215,7 @@ export class Workspace {
     };
     for (const d of state.project.diagnostics) add(d);
     for (const page of state.pages) for (const d of state.diagnostics.get(page) ?? []) add(d);
+    for (const list of state.types.values()) for (const d of list) add(d);
     // files of this project that had diagnostics and now have none
     for (const file of this.published) {
       if (byFile.has(file) || this.rootOf(file) !== state.root) continue;

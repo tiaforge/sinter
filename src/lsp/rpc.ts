@@ -18,6 +18,8 @@ export class Connection {
   /** called for a notification nothing handles */
   onUnhandled?: (method: string, params: unknown) => void;
   onClose?: () => void;
+  /** answers a request nothing handles (default: a method-not-found error) */
+  requestFallback?: (method: string, params: unknown) => unknown;
 
   constructor(input: Readable, private output: Writable) {
     input.on('data', (chunk: Buffer) => this.receive(chunk));
@@ -79,7 +81,8 @@ export class Connection {
       } else this.onUnhandled?.(msg.method, msg.params);
       return;
     }
-    const h = this.requests.get(msg.method);
+    const fallback = this.requestFallback;
+    const h = this.requests.get(msg.method) ?? (fallback && ((params: unknown) => fallback(msg.method, params)));
     if (!h) {
       this.send({ id: msg.id, error: { code: -32601, message: `unhandled method ${msg.method}` } });
       return;

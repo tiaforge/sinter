@@ -225,3 +225,20 @@ export function relative(v: unknown, now?: unknown): string;
 export function number(v: unknown, opts?: Intl.NumberFormatOptions): string;
 export function bytes(v: unknown): string;
 `;
+
+/**
+ * Maps a 1-based position in an HTML file to the shadow, or null when it is not inside an
+ * expression. `lines` are the shadow's lines.
+ */
+export function shadowPosition(regions: Region[], lines: string[], file: string, line: number, col: number): { line: number; col: number } | null {
+  for (const r of regions) {
+    if (r.fixed || r.loc.file !== file) continue;
+    const k = line - r.loc.line;
+    if (k < 0 || k >= r.lines) continue;
+    const text = lines[r.start - 1 + k] ?? '';
+    const c = k === 0 ? col - r.loc.col + 1 : col;
+    if (c < 1 || c > text.length + 1) continue;
+    return { line: r.start + k, col: c };
+  }
+  return null;
+}

@@ -1,10 +1,16 @@
 // `sinter lsp`: a language server for sinter pages over stdio. It compiles open
-// buffers as they change and publishes the compiler's diagnostics.
+// buffers as they change and publishes the compiler's diagnostics; TypeScript's
+// follow once typing pauses (`typescript.ts`), and hovers come from TypeScript.
 import type { Readable, Writable } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CODES, docsUrl, type Diagnostic } from '../compiler/index.js';
+import { check, findTsc } from '../check/index.js';
 import { Connection } from './rpc.js';
-import { Workspace } from './workspace.js';
+import { TypeScriptBridge, typescriptMajor } from './typescript.js';
+import { Workspace, type ProjectState } from './workspace.js';
+
+/** How long typing must pause before TypeScript checks the pages. */
+export const TYPECHECK_DELAY = 300;
 
 export interface Position { line: number; character: number }
 export interface Range { start: Position; end: Position }
@@ -46,10 +52,62 @@ export function toLsp(d: Diagnostic, text: string): LspDiagnostic {
 const uriToPath = (uri: string) => fileURLToPath(uri);
 const pathToUri = (path: string) => pathToFileURL(path).href;
 
-export function startServer(input: Readable, output: Writable, o: { exit?: (code: number) => void } = {}): Connection {
+export interface ServerOptions {
+  exit?: (code: number) => void;
+  /** milliseconds between the last change and the type check (default TYPECHECK_DELAY) */
+  typecheckDelay?: number;
+  /** TypeScript's `tsc` script for every project (default: resolved from each project) */
+  tsc?: string;
+}
+
+export function startServer(input: Readable, output: Writable, o: ServerOptions = {}): Connection {
   const conn = new Connection(input, output);
   const last = new Map<string, string>();
+  /** per project root: the TypeScript bridge, 'cli' for TypeScript before 7 (checked on save), or 'none' */
+  const typescript = new Map<string, TypeScriptBridge | 'cli' | 'none'>();
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  const delay = o.typecheckDelay ?? TYPECHECK_DELAY;
+  let disposed = false;
+
+  const modeOf = (root: string): TypeScriptBridge | 'cli' | 'none' => {
+    let m = typescript.get(root);
+    if (m) return m;
+    try {
+      const tsc = o.tsc ?? findTsc(root);
+      m = typescriptMajor(tsc) >= 7 ? new TypeScriptBridge(root, tsc) : 'cli';
+    } catch {
+      m = 'none';
+    }
+    typescript.set(root, m);
+    return m;
+  };
+
+  const typecheck = async (state: ProjectState) => {
+    const mode = modeOf(state.root);
+    if (mode === 'none') return;
+    if (mode === 'cli') {
+      const p = state.project;
+      const r = check({ root: state.root, units: [...state.units.values()], helpers: p.helpers, types: p.types, openapi: p.openapi, tsc: o.tsc ?? findTsc(state.root) });
+      await workspace.setTypes(state, '*', r.diagnostics);
+      return;
+    }
+    await mode.update(state.project, state.units);
+    for (const page of state.units.keys()) await workspace.setTypes(state, page, await mode.diagnostics(page));
+  };
+
+  const schedule = (state: ProjectState, wait: number) => {
+    clearTimeout(timers.get(state.root));
+    timers.set(state.root, setTimeout(() => {
+      timers.delete(state.root);
+      typecheck(state).catch((e: unknown) => disposed || process.stderr.write(`sinter lsp: type check failed: ${e instanceof Error ? e.stack : String(e)}\n`));
+    }, wait));
+  };
+
   const workspace = new Workspace({
+    compiled(state) {
+      // before TypeScript 7 the check runs `tsc` once per save instead
+      if (modeOf(state.root) !== 'cli') schedule(state, delay);
+    },
     publish(file, diagnostics) {
       let text = '';
       try { text = workspace.read(file); } catch { /* deleted: ranges fall back to line starts */ }
@@ -73,6 +131,7 @@ export function startServer(input: Readable, output: Writable, o: { exit?: (code
       capabilities: {
         // full text on every change
         textDocumentSync: { openClose: true, change: 1, save: { includeText: false } },
+        hoverProvider: true,
       },
       serverInfo: { name: 'sinter' },
     };
@@ -109,14 +168,40 @@ export function startServer(input: Readable, output: Writable, o: { exit?: (code
   conn.onNotification('textDocument/didClose', (p: any) => {
     if (local(p.textDocument.uri)) return workspace.close(uriToPath(p.textDocument.uri));
   });
-  conn.onNotification('textDocument/didSave', (p: any) => {
-    if (local(p.textDocument.uri)) return workspace.fileChanged(uriToPath(p.textDocument.uri));
+  conn.onNotification('textDocument/didSave', async (p: any) => {
+    if (!local(p.textDocument.uri)) return;
+    const file = uriToPath(p.textDocument.uri);
+    await workspace.fileChanged(file);
+    const state = await workspace.projectFor(file);
+    if (modeOf(state.root) === 'cli') schedule(state, 0);
   });
   conn.onNotification('workspace/didChangeWatchedFiles', async (p: any) => {
-    for (const c of p.changes ?? []) if (local(c.uri)) await workspace.fileChanged(uriToPath(c.uri));
+    const files = (p.changes ?? []).filter((c: { uri: string }) => local(c.uri)).map((c: { uri: string }) => uriToPath(c.uri));
+    for (const m of typescript.values()) if (m instanceof TypeScriptBridge) m.filesChanged(files.filter((f: string) => !f.endsWith('.html')));
+    for (const f of files) await workspace.fileChanged(f);
   });
 
-  conn.onRequest('shutdown', () => { shutdown = true; return null; });
+  conn.onRequest('textDocument/hover', async (p: any) => {
+    if (!local(p.textDocument.uri)) return null;
+    const file = uriToPath(p.textDocument.uri);
+    const state = await workspace.projectFor(file);
+    const mode = modeOf(state.root);
+    if (!(mode instanceof TypeScriptBridge)) return null;
+    // the shadows must reflect the latest edit
+    await mode.update(state.project, state.units);
+    return mode.hover(file, p.position.line + 1, p.position.character + 1);
+  });
+
+  const dispose = () => {
+    disposed = true;
+    for (const t of timers.values()) clearTimeout(t);
+    timers.clear();
+    for (const m of typescript.values()) if (m instanceof TypeScriptBridge) m.dispose();
+    typescript.clear();
+  };
+  conn.onRequest('shutdown', () => { shutdown = true; dispose(); return null; });
+  const closed = conn.onClose;
+  conn.onClose = () => { dispose(); closed?.(); };
   conn.onNotification('exit', () => { conn.close(); o.exit?.(shutdown ? 0 : 1); });
   conn.onUnhandled = () => {};
   return conn;
