@@ -186,6 +186,9 @@ const HANDLERS = Symbol('sinter.on'), MODEL = Symbol('sinter.model'), STATE = Sy
 /** HANDLERS: one handler binding, or an array when the element has several */
 type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
 const dialogsIn = new WeakMap<HTMLTemplateElement, boolean>(), indexReaders = new WeakMap<TemplateDef, boolean>();
+/** row templates: whether each holds one element (see oneElement()) */
+const prepared = new WeakMap<HTMLTemplateElement, boolean>();
+const simple = new WeakMap<TemplateDef, boolean>(), SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
 const hasDialog = (tpl: HTMLTemplateElement) => dialogsIn.get(tpl) ?? (dialogsIn.set(tpl, !!tpl.content.querySelector('dialog')), dialogsIn.get(tpl)!);
 
 /** The instance mount() created on `root`; throws if none. */
@@ -714,29 +717,71 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number): Inst {
-    // one element in the template (a <tr>, an <li>): clone just that, no fragment per row. Not a
-    // nested <template>: an anchor needs a parent for its end marker
-    const content = tpl.content, f = content.firstChild;
-    const one = !!f && f == content.lastChild && f.nodeType == 1 && (f as Element).localName != 'template';
+    const content = tpl.content, one = prepared.get(tpl) ?? oneElement(tpl);
     const top: Node = one ? content.firstChild!.cloneNode(true) : content.cloneNode(true);
-    const defs = t.nodes, els: Array<Element | null> = new Array(defs.length);
-    for (let k = 0; k < defs.length; k++) {
-      const path = defs[k]!.path!;
-      // path[0] picks a child of the content; with one node that child is `top` itself
-      let node: Node | null = one ? (path[0] == 0 ? top : null) : top;
-      for (let x = one ? 1 : 0; x < path.length && node; x++) {
-        node = node.firstChild;
-        for (let c = path[x]!; c-- && node;) node = node.nextSibling;
+    const defs = t.nodes, rbs: RB[] = [];
+    let els: Array<Element | null>;
+    if (t.find != null) els = fns[t.find]!(one ? top : top.firstChild);
+    else {
+      // IR without lookup functions (compiled before they existed)
+      els = new Array(defs.length);
+      for (let k = 0; k < defs.length; k++) {
+        const path = defs[k]!.path!;
+        // path[0] picks a child of the content; with one node that child is `top` itself
+        let node: Node | null = one ? (path[0] == 0 ? top : null) : top;
+        for (let x = one ? 1 : 0; x < path.length && node; x++) {
+          node = node.firstChild;
+          for (let c = path[x]!; c-- && node;) node = node.nextSibling;
+        }
+        els[k] = node && (node as Element).localName == defs[k]!.tag ? (node as Element) : null;
       }
-      els[k] = node && (node as Element).localName == defs[k]!.tag ? (node as Element) : null;
     }
-    const rbs: RB[] = [];
-    bindNodes(defs, els, s, rbs, hasDialog(tpl));
-    walk(rbs, 2);
+    if (isSimple(tpl, t)) {
+      // only value bindings and handlers: bind and write each once, as walk(rbs, 2) would
+      for (let k = 0; k < defs.length; k++) {
+        const el = els[k] as Tagged | null;
+        if (el) for (const b of defs[k]!.b) {
+          const rb: RB = { b, el, s, v: UNSET, c: false };
+          if (b.k == 'on') {
+            const h: RB | RB[] | undefined = el[HANDLERS];
+            el[HANDLERS] = h == null ? rb : Array.isArray(h) ? (h.push(rb), h) : [h, rb];
+            continue;
+          }
+          rbs.push(rb);
+          const v = evaluate(rb);
+          write(rb, v, undefined);
+          rb.v = v;
+        }
+      }
+    } else {
+      bindNodes(defs, els, s, rbs, hasDialog(tpl));
+      walk(rbs, 2);
+    }
     const nodes: Node[] = [];
     if (one) nodes.push(top);
     else for (let c = top.firstChild; c; c = c.nextSibling) nodes.push(c);
     return { first: nodes[0] ?? null, nodes, rbs, s, key, item, i, f: 0, r: round };
+  }
+
+  /**
+   * Once per row template: whether it holds one element (a <tr>, an <li>), so rows clone just that
+   * and no fragment. Not a nested <template>: an anchor needs a parent for its end marker.
+   */
+  function oneElement(tpl: HTMLTemplateElement): boolean {
+    const content = tpl.content, f = content.firstChild;
+    const one = !!f && f == content.lastChild && f.nodeType == 1 && (f as Element).localName != 'template';
+    prepared.set(tpl, one);
+    return one;
+  }
+
+  /** A row template whose elements only have value bindings and handlers (no state, model, nested template or dialog). */
+  function isSimple(tpl: HTMLTemplateElement, t: TemplateDef): boolean {
+    let v = simple.get(t);
+    if (v == null) {
+      v = !hasDialog(tpl) && t.nodes.every((nd) => nd.state == null && nd.b.every((b) => SIMPLE.has(b.k)));
+      simple.set(t, v);
+    }
+    return v;
   }
 
   /** Drops removed bindings from the deferred and select sets. */

@@ -104,6 +104,8 @@ export interface TemplateDef {
   /** for: explicit key function, or resource key fields */
   key?: number | null;
   keyFields?: string[] | null;
+  /** function that finds the bound elements of one cloned row: (first content node) => elements, in `nodes` order */
+  find?: number;
 }
 
 export interface ActionDef {
@@ -201,6 +203,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     if (t.id !== i) errs.push(`templates[${i}]: id must equal its index`);
     nodes(t.nodes, `templates[${i}].nodes`, true);
     fn(t.key, `templates[${i}].key`);
+    fn(t.find, `templates[${i}].find`);
   });
   o.actions.forEach((a, i) => {
     const at = `actions[${i}]`;

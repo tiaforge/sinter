@@ -124,6 +124,7 @@ class Compiler {
     }
     for (const el of this.remove) detach(el);
     this.injectScript(doc);
+    for (const t of this.templates) if (t.nodes.length) t.find = this.fn(findCode(t.nodes));
 
     const ir: IR = { v: 1, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;
@@ -875,4 +876,30 @@ export function basename(p: string): string {
 
 function resolvePath(dir: string, rel: string): string {
   return normalize(rel.startsWith('/') ? rel : `${dir}/${rel}`);
+}
+
+/**
+ * A row template's element lookup as straight-line code: each path prefix is walked once
+ * (`firstChild` / `nextSibling`), and an element whose tag does not match comes out null.
+ * The argument is the clone's first content node (the row element itself for a one-element row).
+ */
+export function findCode(nodes: NodeDef[]): string {
+  const names = new Map<string, string>(), decls: string[] = [];
+  const node = (p: number[]): string => {
+    const key = p.join('.');
+    let name = names.get(key);
+    if (name) return name;
+    const last = p[p.length - 1]!;
+    const expr = last > 0 ? `${node([...p.slice(0, -1), last - 1])}?.nextSibling`
+      : p.length > 1 ? `${node(p.slice(0, -1))}?.firstChild` : 'c';
+    name = 'n' + names.size;
+    names.set(key, name);
+    decls.push(`${name} = ${expr}`);
+    return name;
+  };
+  const out = nodes.map((nd) => {
+    const x = node(nd.path!);
+    return `${x}?.localName == ${JSON.stringify(nd.tag)} ? ${x} : null`;
+  });
+  return `(c) => { const ${decls.join(', ')}; return [${out.join(', ')}]; }`;
 }
