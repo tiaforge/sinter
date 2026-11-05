@@ -47,13 +47,16 @@ function swap(v) {
 window.__bench = {
   ready: new Promise((r) => addEventListener('load', () => idle(100).then(r))),
   /** Loads set a once (not timed), then alternates b, a, … ; returns the timed samples after warm-up. */
+  shown: null,
   async run({ warmup = 10, iterations = 50 } = {}) {
     await this.ready;
-    await swap('a');
+    let shown = this.shown; // a second run() continues from the set on screen (a variant may skip a no-op)
+    const next = () => (this.shown = shown = shown === 'a' ? 'b' : 'a');
+    if (!shown) await swap(next());
     const dom = [], layout = [];
     for (let i = 0; i < warmup + iterations; i++) {
       await idle(30); // let deferred work (htmx settle, morph cleanup) finish outside the timed window
-      const t = await swap(i % 2 ? 'a' : 'b');
+      const t = await swap(next());
       if (i >= warmup) { dom.push(t.dom); layout.push(t.layout); }
     }
     return { dom, layout };
