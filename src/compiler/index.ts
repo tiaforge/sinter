@@ -1,4 +1,5 @@
 import * as acorn from 'acorn';
+import { tsPlugin } from '@sveltejs/acorn-typescript';
 import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type HelperManifest } from './compile.js';
 
 export type { CompileOptions, CompileResult, CompiledParts, HelperManifest };
@@ -51,13 +52,13 @@ export function readHelperManifest(
 ): HelperManifest {
   const manifest: HelperManifest = { module: options.module, names: [], namespaces: {} };
   const resolve = options.resolve ?? ((spec: string, from: string) => (spec.startsWith('.') ? joinPath(from, spec) : null));
-  const { names, namespaces } = exportsOf(source);
+  const { names, namespaces } = exportsOf(source, options.file);
   manifest.names = names;
   for (const [ns, spec] of namespaces) {
     const path = resolve(spec, options.file);
     let members: string[] = [];
     if (path) {
-      try { members = exportsOf(options.readFile(path)).names; } catch { members = []; }
+      try { members = exportsOf(options.readFile(path), path).names; } catch { members = []; }
     }
     const modSpec = spec.startsWith('.') ? joinPath(options.module, spec) : spec;
     manifest.namespaces[ns] = { module: modSpec, members };
@@ -65,19 +66,34 @@ export function readHelperManifest(
   return manifest;
 }
 
-function exportsOf(source: string): { names: string[]; namespaces: Array<[string, string]> } {
-  const ast = acorn.parse(source, { ecmaVersion: 'latest', sourceType: 'module' });
+/** acorn extended with TypeScript syntax, for `.ts` helper and namespace modules */
+let tsParser: typeof acorn.Parser | null = null;
+
+function parseModule(source: string, file: string): acorn.Program {
+  const options: acorn.Options = { ecmaVersion: 'latest', sourceType: 'module' };
+  if (!/\.[cm]?tsx?$/.test(file)) return acorn.parse(source, options);
+  tsParser ??= acorn.Parser.extend(tsPlugin() as never);
+  return tsParser.parse(source, options) as acorn.Program;
+}
+
+/** Value exports only: type-only exports (`export type`, `export interface`, `export { type X }`) are skipped. */
+function exportsOf(source: string, file: string): { names: string[]; namespaces: Array<[string, string]> } {
+  const ast = parseModule(source, file);
   const names: string[] = [];
   const namespaces: Array<[string, string]> = [];
+  const typeOnly = (n: unknown) => (n as { exportKind?: string }).exportKind === 'type';
   for (const st of ast.body) {
+    if (typeOnly(st)) continue;
     if (st.type === 'ExportNamedDeclaration') {
       const d = st.declaration;
       if (d?.type === 'FunctionDeclaration' && d.id) names.push(d.id.name);
       else if (d?.type === 'ClassDeclaration' && d.id) names.push(d.id.name);
+      else if ((d?.type as string) === 'TSEnumDeclaration') names.push((d as unknown as { id: { name: string } }).id.name);
       else if (d?.type === 'VariableDeclaration') {
         for (const v of d.declarations) if (v.id.type === 'Identifier') names.push(v.id.name);
       }
       for (const s of st.specifiers) {
+        if (typeOnly(s)) continue;
         const exported = s.exported.type === 'Identifier' ? s.exported.name : String(s.exported.value);
         if (exported !== 'default') names.push(exported);
       }

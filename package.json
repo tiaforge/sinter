@@ -62,6 +62,7 @@
     "prepublishOnly": "rm -rf dist && npm run build && npm test"
   },
   "dependencies": {
+    "@sveltejs/acorn-typescript": "^1.0.13",
     "acorn": "^8.19.0",
     "acorn-walk": "^8.3.5",
     "parse5": "^8.1.0",

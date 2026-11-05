@@ -89,6 +89,29 @@ describe('sinter check', () => {
     one(page(`<p data-sn-text="m.items_count({ count: 'x' })"></p>`), /Type 'string' is not assignable to type 'number'/, 'count:');
   });
 
+  test('a TypeScript helpers module: calls are checked against its signatures', () => {
+    const root = project({
+      'src/sinter.types.ts': TYPES,
+      'src/sinter.helpers.ts': `import type { Contact } from './sinter.types.ts';
+export * as m from './messages.ts';
+export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
+`,
+      'src/messages.ts': `export const items_count = (p: { count: number }): string => \`\${p.count} items\`;\n`,
+    });
+    const p = projectOf(root);
+    expect(p.helpers).toEqual({ module: '/src/sinter.helpers.ts', names: ['initial'], namespaces: { m: { module: '/src/messages.ts', members: ['items_count'] } } });
+    const html = page(`<ul><template data-sn-for="c in contacts"><li data-sn-text="initial(c) + m.items_count({ count: 1 })"></li></template></ul>
+<p data-sn-text="initial(contacts.length)"></p>`);
+    const file = join(root, 'index.html');
+    writeFileSync(file, html);
+    const out = compile(html, { file, root, dev: false, helpers: p.helpers, readFile: (f) => readFileSync(f, 'utf8'), check: true });
+    expect(out.diagnostics).toEqual([]);
+    const r = check({ root, units: [out.check!], helpers: p.helpers, types: p.types, tsc });
+    expect(r.diagnostics.map((d) => d.message)).toHaveLength(1);
+    expect(r.diagnostics[0]!.message).toMatch(/'number' is not assignable to parameter of type 'Contact'/);
+    expect([r.diagnostics[0]!.line, r.diagnostics[0]!.col]).toEqual(at(html, 'contacts.length'));
+  });
+
   test('a wrong type name is reported on the `type` attribute', () => {
     const html = page('<p data-sn-text="contacts.length"></p>').replace('type="Contact[]"', 'type="Contct[]"');
     one(html, /Cannot find name 'Contct'/, 'Contct[]');

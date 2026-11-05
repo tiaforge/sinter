@@ -65,7 +65,7 @@ export function writeSupport(o: { root: string; outDir: string; types: string | 
 /** The compiler options shadow files are checked with. */
 export const COMPILER_OPTIONS = {
   allowJs: true, checkJs: true, strict: true, strictNullChecks: false, noImplicitAny: false, noEmit: true, skipLibCheck: true,
-  target: 'es2022', module: 'esnext', moduleResolution: 'bundler', lib: ['es2023', 'dom', 'dom.iterable'], types: [] as string[],
+  target: 'es2022', module: 'esnext', moduleResolution: 'bundler', allowImportingTsExtensions: true, lib: ['es2023', 'dom', 'dom.iterable'], types: [] as string[],
 };
 
 /** Where a page's shadow file goes. */
