@@ -63,8 +63,11 @@ only (npm stops at 1.0.0-beta.11).
 
 2026-11-05, Chrome 156 headless, AMD Ryzen Z2 Extreme (Steam Deck), no CPU throttling.
 Median ms from `click()` to the expected rows in the DOM / to that DOM styled and laid out.
-The sinter rows were measured again after bd4d929 (old rows dropped at once when none is kept),
-with the same settings; the append table is a separate run with 2 rounds × 30 swaps.
+The sinter rows were measured again after the list changes up to 1347159 (old rows dropped at
+once when none is kept; cheaper row creation), with the same settings; the append table is a
+separate run with 2 rounds × 30 swaps. Row creation is measured more precisely by
+js-framework-benchmark's script time (no fetch, no layout): creating 1,000 rows went from 2.91 to
+2.08 ms (vanillajs 1.50). Here, with two bindings per row, most of that is within the noise.
 
 #### replace
 
@@ -72,7 +75,7 @@ with the same settings; the append table is a separate run with 2 rounds × 30 s
 | --- | ---: | ---: | ---: |
 | vanilla-html | 2.80 / 4.50 | 5.10 / 13.9 | 12.7 / 55.5 |
 | vanilla-json | 2.70 / 4.30 | 5.00 / 14.6 | 13.1 / 56.5 |
-| sinter | 3.20 / 4.70 | 6.90 / 17.3 | 19.8 / 60.7 |
+| sinter | 3.05 / 4.55 | 6.50 / 16.8 | 19.5 / 60.9 |
 | htmx-2.0.11 | 5.10 / 6.60 | 14.5 / 22.5 | 68.9 / 113 |
 | htmx-4.0.1 | 4.70 / 6.10 | 11.9 / 20.5 | 45.7 / 94.8 |
 | htmx-4.0.1-morph | 5.90 / 7.15 | 17.3 / 24.2 | 76.1 / 116 |
@@ -85,7 +88,7 @@ with the same settings; the append table is a separate run with 2 rounds × 30 s
 | --- | ---: | ---: | ---: |
 | vanilla-html | 3.00 / 4.40 | 5.50 / 14.6 | 12.8 / 54.3 |
 | vanilla-json | 2.80 / 4.40 | 5.60 / 14.6 | 12.9 / 56.3 |
-| sinter | 2.60 / 3.50 | 3.30 / 9.80 | 5.40 / 30.9 |
+| sinter | 2.50 / 3.40 | 3.40 / 9.00 | 5.10 / 30.0 |
 | htmx-2.0.11 | 5.10 / 6.60 | 14.9 / 21.8 | 69.2 / 113 |
 | htmx-4.0.1 | 4.90 / 6.60 | 11.8 / 18.9 | 46.5 / 94.1 |
 | htmx-4.0.1-morph | 4.90 / 5.60 | 15.0 / 20.4 | 46.7 / 72.6 |
@@ -98,7 +101,7 @@ with the same settings; the append table is a separate run with 2 rounds × 30 s
 | --- | ---: | ---: | ---: |
 | vanilla-html | 2.40 / 3.75 | 2.50 / 10.5 | 3.20 / 12.9 |
 | vanilla-json | 2.20 / 3.50 | 2.60 / 10.8 | 2.85 / 12.8 |
-| sinter | 2.60 / 4.00 | 3.50 / 13.7 | 4.70 / 16.3 |
+| sinter | 2.45 / 3.70 | 3.20 / 11.3 | 4.80 / 19.2 |
 | htmx-2.0.11 | 2.90 / 4.20 | 2.95 / 10.0 | 7.85 / 20.7 |
 | htmx-4.0.1 | 3.30 / 4.60 | 3.90 / 11.8 | 5.90 / 16.0 |
 | datastar-1.0.4 | 2.80 / 4.00 | 3.30 / 11.7 | 6.30 / 18.4 |
@@ -124,8 +127,8 @@ are noise.
 
 What the numbers say:
 
-- **Replacing everything**, sinter costs about 1.4–1.5× plain JS (6.9 vs 5.0 ms at 1,000 rows,
-  20 vs 13 ms at 5,000; before bd4d929 it removed the old rows one by one: 8.4 / 24 ms). A profile
+- **Replacing everything**, sinter costs about 1.3–1.5× plain JS (6.5 vs 5.0 ms at 1,000 rows,
+  19.5 vs 13 ms at 5,000; before bd4d929 it removed the old rows one by one: 8.4 / 24 ms). A profile
   ([`profile.mjs`](profile.mjs)) puts the rest in per-row bookkeeping spread over reconcile,
   row instantiation, the store and GC, about 1–2 ms each at 5,000 rows. htmx's `innerHTML` swap
   costs 2–5× plain `innerHTML` for the same DOM (htmx 4: 12 / 46 ms; htmx 2: 15 / 69 ms; where the
@@ -133,12 +136,12 @@ What the numbers say:
   rows. Datastar without morphing is close to sinter (10 / 29 ms); its default morph is slower
   when nothing matches (13 / 41 ms).
 - **Updating every 10th row**, the keyed and morphing variants keep the other rows: sinter
-  updates only the changed labels (3.3 / 5.4 ms, more than 2× faster than rebuilding with plain
+  updates only the changed labels (3.4 / 5.1 ms, more than 2× faster than rebuilding with plain
   JS at 5,000 rows) and its layout time halves; Datastar's morph comes second (6.8 / 16 ms). htmx 4's
   `innerMorph` keeps the rows too (the lower layout time shows it) but is not faster than its
   `innerHTML` swap to reach that state.
 - **Appending** n/10 rows, every variant is within a few ms at these sizes. Plain JS stays flat
-  while sinter grows (2.6 → 4.7 ms from 100 to 5,000 rows) and stays below htmx and Datastar at
+  while sinter grows (2.5 → 4.8 ms from 100 to 5,000 rows) and stays below htmx and Datastar at
   5,000 rows (5.9–7.9 ms). Profiling only the appends (resets excluded) shows that growth is mostly
   per added row (k = n/10 grows too): about 3 µs per new row for sinter against 0.8 µs for plain
   JS, the same per-row cost as in replace. The part that scales with the rows already on screen
