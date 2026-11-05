@@ -19,6 +19,7 @@ const RECIPES: Array<[string, string, string[]?]> = [
   ['optimistic-toggle', 'Optimistic toggle'],
   ['pagination', 'Pagination'],
   ['signalr', 'SignalR (or another transport) for <sn-sync>', ['signalr-transport.js']],
+  ['typed', 'Typed resources, state and events', ['typed.types.ts']],
 ];
 
 function llms(): string {
@@ -65,7 +66,7 @@ Each recipe comes with its test; copy both.
   for (const [file, title, extra = []] of RECIPES) {
     out.push(`### ${title}\n`);
     out.push('```html\n' + readFileSync(`${recipes}/${file}.html`, 'utf8').trim() + '\n```\n');
-    for (const x of extra) out.push('```js\n' + readFileSync(`${recipes}/${x}`, 'utf8').trim() + '\n```\n');
+    for (const x of extra) out.push('```' + (x.endsWith('.ts') ? 'ts' : 'js') + '\n' + readFileSync(`${recipes}/${x}`, 'utf8').trim() + '\n```\n');
     out.push('```ts\n' + readFileSync(`${recipes}/${file}.test.ts`, 'utf8').trim() + '\n```\n');
   }
   out.push(`## Type checking
@@ -75,7 +76,9 @@ Each recipe comes with its test; copy both.
 - \`<sn-resource … type="Contact[]">\`: the type of what \`items\` selects, using names exported by \`src/sinter.types.ts\`. \`type="any"\` opts out; no \`type\` is warning SN504.
 - \`sinter({ openapi: 'openapi.yml' })\`: resources without \`type\` are matched to a GET operation by \`src\` (server prefix stripped, \`{…}\` matches a path parameter) and typed from its JSON response at \`items\`. Every build then checks \`items\`/\`total\` against the schema (SN308) and query parameter names (SN505).
 - State takes a JSDoc cast where the literal is not enough: \`data-sn-state="{ editing: /** @type {Contact|null} */ (null) }"\`.
-- Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off.
+- Actions matched in the spec: \`data-sn-body\` is checked against the request schema, \`$result\` in \`then\` has the response type.
+- \`<sn-event … type="ContactEvent">\` types the payload; \`item\` must fit the resource's item, \`set\` part of it; \`cursor\` reads the item. No \`type\` on an event with payload expressions is warning SN506.
+- Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: \`checkPage(html, { files, openapi })\` from \`@tiaforge/sinter/check\`.
 `);
   out.push(`## Testing
 

@@ -19,7 +19,11 @@ export interface OpenApiMatch {
   body: unknown;
   /** names of the query parameters the operation declares */
   query: string[];
+  /** schema of the JSON request body, or null */
+  request: unknown;
 }
+
+export type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
 export type Json = Record<string, unknown>;
 const INTERP = '\u0000';
@@ -95,6 +99,11 @@ function relativePaths(doc: Json, path: string): string[] {
 }
 
 export function matchResource(specs: OpenApiSpec[], src: UrlTemplate): OpenApiMatch | { closest: string | null } {
+  return matchOperation(specs, src, 'get');
+}
+
+/** The operation a request with this method and URL template calls. */
+export function matchOperation(specs: OpenApiSpec[], src: UrlTemplate, method: Method): OpenApiMatch | { closest: string | null } {
   const { path } = flatten(src);
   let best: { spec: number; path: string; score: number } | null = null;
   specs.forEach((spec, i) => {
@@ -102,7 +111,7 @@ export function matchResource(specs: OpenApiSpec[], src: UrlTemplate): OpenApiMa
     for (const rest of relativePaths(spec.doc, path)) {
       const segs = segments(rest);
       for (const [key, item] of Object.entries(spec.doc.paths)) {
-        if (!isObj(item) || !isObj(item.get)) continue;
+        if (!isObj(item) || !isObj(item[method])) continue;
         const s = score(key, segs);
         if (s >= 0 && (!best || s > best.score)) best = { spec: i, path: key, score: s };
       }
@@ -121,17 +130,21 @@ export function matchResource(specs: OpenApiSpec[], src: UrlTemplate): OpenApiMa
   const { spec, path: key } = best as { spec: number; path: string };
   const doc = specs[spec]!.doc as Json;
   const item = deref(doc, (doc.paths as Json)[key])!;
-  const op = deref(doc, item.get)!;
+  const op = deref(doc, item[method])!;
   const params = [...(Array.isArray(item.parameters) ? item.parameters : []), ...(Array.isArray(op.parameters) ? op.parameters : [])]
     .map((p) => deref(doc, p)).filter((p): p is Json => !!p && p.in === 'query').map((p) => String(p.name));
-  return { spec, path: key, body: responseSchema(doc, op), query: params };
+  return { spec, path: key, body: responseSchema(doc, op), query: params, request: jsonSchema(doc, deref(doc, op.requestBody)) };
 }
 
 function responseSchema(doc: Json, op: Json): unknown {
   const responses = deref(doc, op.responses);
   if (!responses) return null;
   const key = Object.keys(responses).filter((k) => /^2(\d\d|XX)$/i.test(k)).sort()[0];
-  const res = key ? deref(doc, responses[key]) : null;
+  return jsonSchema(doc, key ? deref(doc, responses[key]) : null);
+}
+
+/** The JSON schema of a response or request body object. */
+function jsonSchema(doc: Json, res: Json | null): unknown {
   const content = res && isObj(res.content) ? res.content : null;
   if (!content) return null;
   const media = Object.keys(content).find((m) => /^application\/json\b/i.test(m)) ?? Object.keys(content).find((m) => /\+json\b/i.test(m));

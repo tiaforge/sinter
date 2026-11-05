@@ -19,6 +19,15 @@ export type CheckFrame =
   | { kind: 'state'; names: string[]; init: number | null }
   | { kind: 'loop'; item: string; index: string | null; init: number | null };
 
+/** A type the checker writes for something other than a resource. */
+export type TypeRef =
+  /** written by the app (`type` on `<sn-event>`); errors in it point at `loc` */
+  | { kind: 'ts'; text: string; loc: CheckLoc }
+  /** a schema of OpenAPI spec number `spec` */
+  | { kind: 'openapi'; spec: number; schema: unknown }
+  /** an item of a resource on the page, or a partial one */
+  | { kind: 'item'; resource: string; partial?: boolean };
+
 export interface CheckExpr {
   src: string;
   /** `value` returns the expression; `handler` runs it as statements */
@@ -33,6 +42,12 @@ export interface CheckExpr {
   /** `$result` (then) or `$error` (catch) is in scope */
   result: boolean;
   error: boolean;
+  /** type of `$result`, when the action matched an OpenAPI operation */
+  resultType?: TypeRef;
+  /** the value must be assignable to this (`data-sn-body`, `<sn-event>` `item` and `set`) */
+  returns?: TypeRef;
+  /** payload expressions (`<sn-event>`, `cursor`): the payload fields read, and the payload's type (null: any) */
+  payload?: { names: string[]; type: TypeRef | null };
 }
 
 export interface CheckResource {

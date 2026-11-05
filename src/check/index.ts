@@ -1,12 +1,15 @@
 // `sinter check`: type-checks every expression of the compiled pages with the
 // project's own TypeScript (`tsc` on generated, checked JavaScript files).
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
+import { compile } from '../compiler/index.js';
+import { project, type ProjectOptions } from '../project.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import { specDeclarations } from './openapi-types.js';
 import { DECLARATIONS, mapPosition, shadow, type Region } from './shadow.js';
@@ -74,6 +77,29 @@ export function check(o: CheckOptions): CheckResult {
   const typed = o.units.reduce((n, u) => n + u.resources.filter((r) => r.type || r.openapi).length, 0);
   const viaOpenapi = o.units.reduce((n, u) => n + u.resources.filter((r) => !r.type && r.openapi).length, 0);
   return { diagnostics, resources, typed, openapi: viaOpenapi };
+}
+
+/**
+ * Type-checks one page in a temporary project, for tests: `files` are written next to it
+ * (`{ 'src/sinter.types.ts': … }`), options name them as in the Vite config. Returns the
+ * compiler's and TypeScript's diagnostics; TypeScript is resolved from the current directory.
+ */
+export function checkPage(html: string, o: ProjectOptions & { files?: Record<string, string> } = {}): Diagnostic[] {
+  const root = mkdtempSync(join(tmpdir(), 'sinter-check-page-'));
+  try {
+    for (const [rel, text] of Object.entries(o.files ?? {})) {
+      mkdirSync(dirname(join(root, rel)), { recursive: true });
+      writeFileSync(join(root, rel), text);
+    }
+    const file = join(root, 'index.html');
+    writeFileSync(file, html);
+    const p = project(root, o);
+    const out = compile(html, { file, root, dev: false, helpers: p.helpers, readFile: p.readFile, check: true, openapi: p.openapi });
+    const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()) });
+    return [...p.diagnostics, ...out.diagnostics, ...r.diagnostics].map((d) => ({ ...d, file: relative(root, d.file) }));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 /** TypeScript's `tsc` script, resolved from the project like its own imports. */

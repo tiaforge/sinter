@@ -138,6 +138,27 @@ describe('sinter check', () => {
     expect([r.typed, r.resources]).toEqual([2, 3]);
   });
 
+  test('events: typed payloads; `item` must fit the resource, `set` a part of it; cursor reads the item', () => {
+    const types = TYPES + 'export interface ContactEvent { contact: Contact; id: number; patch: { name: number } }\n';
+    const html = page(`<sn-resource name="feed" src="/api/feed" key="id" type="Contact[]" paginate="keyset" page-size="10" cursor="{ after: idd }"></sn-resource>
+<p data-sn-text="contacts.length + feed.length"></p>
+<sn-sync src="/api/events">
+  <sn-event name="a" resource="contacts" op="upsert" item="contact" type="ContactEvent"></sn-event>
+  <sn-event name="b" resource="contacts" op="upsert" item="id" type="ContactEvent"></sn-event>
+  <sn-event name="c" resource="contacts" op="patch" set="{ name: patch.name }" type="ContactEvent"></sn-event>
+  <sn-event name="d" resource="contacts" op="upsert" item="contct" type="ContactEvent"></sn-event>
+  <sn-event name="e" resource="contacts" op="upsert" item="whatever" type="any"></sn-event>
+</sn-sync>`);
+    const r = run(html, { 'src/sinter.types.ts': types });
+    expect(r.compile.filter((d) => d.severity === 'error' || d.code === 'SN506')).toEqual([]);
+    expect(r.diagnostics.map((d) => [d.message.replace(/ (Did you mean .*)?\(TS\d+\)$/, ''), d.line, d.col])).toEqual([
+      ["Property 'idd' does not exist on type 'Contact'.", ...at(html, '{ after: idd }')],
+      ["Type 'number' is not assignable to type 'Contact'.", ...at(html, 'id" type="ContactEvent"></sn-event>\n  <sn-event name="c"')],
+      ["Type 'number' is not assignable to type 'string'.", ...at(html, 'name: patch')],
+      ["Property 'contct' does not exist on type 'ContactEvent'.", ...at(html, 'contct')],
+    ]);
+  });
+
   test('names the types module exports', () => {
     expect(typeExports(`export interface A {}
 export declare type B<T> = T;
@@ -216,6 +237,36 @@ components:
     const r = check({ root, units: [out.check!], helpers: p.helpers, types: null, tsc, openapi: p.openapi });
     expect(r.diagnostics.map((d) => d.message)).toEqual(["Property 'nmae' does not exist on type 'Person'. (TS2339)"]);
     expect([r.typed, r.openapi, r.resources]).toEqual([1, 1, 2]);
+  });
+
+  test('actions: the body is checked against the request schema, `$result` has the response type', () => {
+    const spec = SPEC.replace('components:', `  /contacts/{id}:
+    put:
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [person], properties: { person: { $ref: '#/components/schemas/Person' } } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { type: object, properties: { person: { $ref: '#/components/schemas/Person' } } }
+components:`);
+    const html = `<!doctype html><html><head></head><body>
+<sn-resource name="people" src="/api/contacts" items="contacts" key="id"></sn-resource>
+<div data-sn-state="{ saved: '' }"><template data-sn-for="p in people">
+  <button data-sn-put="/api/contacts/{p.id}" data-sn-body="{ person: { id: p.id, nam: 'x' } }" data-sn-then="saved = $result.person.nme">x</button>
+</template></div>
+</body></html>`;
+    const root = project({ 'openapi.yml': spec, 'index.html': html });
+    const p = projectOf(root, { openapi: 'openapi.yml' });
+    const out = compile(html, { file: join(root, 'index.html'), root, dev: false, helpers: p.helpers, readFile: p.readFile, check: true, openapi: p.openapi });
+    const r = check({ root, units: [out.check!], helpers: p.helpers, types: null, tsc, openapi: p.openapi });
+    expect(r.diagnostics.map((d) => [d.message.match(/TS\d+/)![0], d.line, d.col])).toEqual([
+      ['TS2561', ...at(html, 'nam:')],
+      ['TS2551', ...at(html, 'nme')],
+    ]);
   });
 
   test('SN307: a spec that is missing, not YAML, or not OpenAPI 3', () => {

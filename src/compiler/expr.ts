@@ -67,6 +67,8 @@ export interface ExprResult {
   /** resource the expression is rooted at */
   resource: string | null;
   ast: Node | null;
+  /** names resolved to payload fields (`payload` mode) */
+  payloadNames?: string[];
 }
 
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
@@ -146,6 +148,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   let usesEl = false;
   let usesIndex = false;
   let ok = true;
+  const payloadNames = new Set<string>();
   const mode = opts.mode;
   const magicAllowed = new Set([...EVERYWHERE_MAGIC, ...(opts.magic ?? [])]);
 
@@ -228,12 +231,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       report('SN202', `\`${name}\` is not allowed in expressions`, offset);
       return null;
     }
-    if (opts.payload) return { kind: 'payload' };
+    if (opts.payload) { payloadNames.add(name); return { kind: 'payload' }; }
     if (BROWSER.has(name)) {
       report('SN202', `\`${name}\` is a browser API; expressions may use JavaScript, not the browser. Use an island`, offset);
       return null;
     }
-    if (opts.payload) return { kind: 'payload' };
+    if (opts.payload) { payloadNames.add(name); return { kind: 'payload' }; }
     const candidates = [
       ...scope.loops.map((l) => l.name), ...scope.states.flatMap((s) => [...s.names]),
       ...page.resources.keys(), ...page.helpers, ...page.namespaces.keys(), ...STORE_FNS, ...BUILTIN_HELPERS,
@@ -794,7 +797,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
   }
 
-  return { ok, code, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast };
+  return { ok, code, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort() } : {}) };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

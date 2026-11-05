@@ -1,0 +1,24 @@
+<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
+
+<sn-sync src="/api/events">
+  <sn-event name="contact_updated" resource="contacts" op="upsert" item="contact" type="ContactEvent"></sn-event>
+</sn-sync>
+
+<section data-sn-state="{ editing: /** @type {Contact|null} */ (null) }">
+  <ul>
+    <template data-sn-for="c in contacts">
+      <li>
+        <span data-sn-text="c.name"></span>
+        <small data-sn-text="c.email ?? 'no email'"></small>
+        <button data-sn-on-click="editing = structuredClone(c)">Edit</button>
+      </li>
+    </template>
+  </ul>
+  <template data-sn-if="editing">
+    <form data-sn-put="/api/contacts/{editing.id}" data-sn-body="editing"
+          data-sn-then="upsert('contacts', $result); editing = null">
+      <input data-sn-model="editing.name" required>
+      <button>Save</button>
+    </form>
+  </template>
+</section>

@@ -82,6 +82,9 @@
         },
         {
           "name": "fallback"
+        },
+        {
+          "name": "type"
         }
       ]
     },

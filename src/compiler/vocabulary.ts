@@ -38,6 +38,6 @@ export const ON_DOC: AttrDoc = { name: 'on-<event>', value: 'handler expression'
 export const ELEMENTS: Array<{ name: string; attrs: string[]; doc: string }> = [
   { name: 'sn-resource', attrs: ['name', 'src', 'key', 'items', 'total', 'order', 'when', 'paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'page-param', 'type'], doc: 'a named, page-wide cache of server data' },
   { name: 'sn-sync', attrs: ['src'], doc: 'one server event stream' },
-  { name: 'sn-event', attrs: ['name', 'resource', 'op', 'item', 'set', 'when', 'fallback'], doc: 'maps one server event to a change message; child of <sn-sync>' },
+  { name: 'sn-event', attrs: ['name', 'resource', 'op', 'item', 'set', 'when', 'fallback', 'type'], doc: 'maps one server event to a change message; child of <sn-sync>' },
   { name: 'sn-include', attrs: ['src'], doc: 'inlines a partial at build time' },
 ];

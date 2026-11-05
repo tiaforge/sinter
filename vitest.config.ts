@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: '@tiaforge/sinter/testing', replacement: `${src}/testing/index.ts` },
+      { find: '@tiaforge/sinter/check', replacement: `${src}/check/index.ts` },
       { find: '@tiaforge/sinter', replacement: `${src}/index.ts` },
     ],
   },

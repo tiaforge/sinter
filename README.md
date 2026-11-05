@@ -56,13 +56,13 @@ export default { plugins: [sinter()] };
 | `@tiaforge/sinter/persist` | `data-sn-persist` |
 | `@tiaforge/sinter/compiler` | `compile()` |
 | `@tiaforge/sinter/vite` | Vite plugin |
-| `@tiaforge/sinter/check` | `check()`, used by `sinter check` |
+| `@tiaforge/sinter/check` | `check()` (used by `sinter check`), `checkPage()` for tests |
 | `@tiaforge/sinter/testing` | `render`, `mockRequests`, `mockStream` |
 
 ## Docs
 
 - [`docs/spec.md`](docs/spec.md): the v0.1 specification.
-- [`llms.txt`](llms.txt): attribute reference, scope rules and six recipes with tests.
+- [`llms.txt`](llms.txt): attribute reference, scope rules and seven recipes with tests.
 - [`docs/progress.md`](docs/progress.md): implementation status and decisions.
 
 ## Development

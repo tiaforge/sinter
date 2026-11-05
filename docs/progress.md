@@ -18,7 +18,7 @@ built, what deviates, and what is left.
 | `src/testing/` | `render`, `mockRequests`, `mockStream` |
 | `src/compiler/vocabulary.ts` | the attribute/element table; compiler, `llms.txt` and custom data derive from it |
 | `test/` | Vitest suites (happy-dom); `test/compiler/golden/__out__` are file snapshots |
-| `docs/recipes/` | the six `llms.txt` recipes, each with its executed test |
+| `docs/recipes/` | the seven `llms.txt` recipes, each with its executed test |
 | `scripts/size.mjs` | min+gzip per module (`npm run size`) |
 
 ## Milestones
@@ -104,6 +104,12 @@ built, what deviates, and what is left.
   to TypeScript. RealWorld now uses the Conduit spec (`examples/realworld/openapi.yml`): 15 of 15
   resources typed with no annotations, 0 errors (a test); a planted `article.titel` reports
   "Property 'titel' does not exist on type 'Article'. Did you mean 'title'?".
+- 2026-11-05: type checking, last phase: actions match OpenAPI operations by method (`data-sn-body`
+  against the request schema, typed `$result`: 20 of RealWorld's 23 `then` handlers), `type` on
+  `<sn-event>` (payload typed, `item`/`set` checked against the resource, `SN506 untyped-event`), `cursor`
+  typed as the resource's item, `checkPage()` for tests, and the "Typed resources, state and events"
+  recipe. A value that is wrong as a whole is reported by TypeScript on the shadow's `return`; that line
+  now maps to the expression's start.
 
 ## Decisions and deviations
 

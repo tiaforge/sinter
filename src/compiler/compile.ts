@@ -5,8 +5,8 @@ import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, type ExprOptions, type ExprResult, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
 import { ATTRIBUTES, ELEMENTS } from './vocabulary.js';
-import type { CheckExpr, CheckLoc, CheckResource, CheckUnit } from './check-unit.js';
-import { matchResource, queryNames, walk, type OpenApiSpec } from './openapi.js';
+import type { CheckExpr, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
+import { matchOperation, matchResource, queryNames, walk, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, Binding, EventDef, IR, NodeDef, Paginate, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 
 type P5Node = DefaultTreeAdapterMap['node'];
@@ -511,12 +511,20 @@ class Compiler {
     const src = value ?? attr(el, attrName) ?? '';
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
     this.lastExpr = null;
-    // payload expressions (sn-event, cursor) read server payloads, which have no types yet
-    if (this.check && r.ok && !o.payload) this.lastExpr = this.recordExpr(el, attrName, scope, o, src, shift);
+    if (this.check && r.ok) this.lastExpr = this.recordExpr(el, attrName, scope, o, src, shift, r);
     return r;
   }
 
   // ---- check unit
+
+  /** Adds type information to the expression `expr()` recorded last. */
+  typeLast(info: Partial<Pick<CheckExpr, 'resultType' | 'returns'>> & { payload?: TypeRef | null }) {
+    if (!this.check || this.lastExpr === null) return;
+    const e = this.check.exprs[this.lastExpr]!;
+    if (info.resultType) e.resultType = info.resultType;
+    if (info.returns) e.returns = info.returns;
+    if (info.payload && e.payload) e.payload.type = info.payload;
+  }
 
   locOf(el: P5Element, attrName: string | null, shift = 0): CheckLoc {
     const origin = this.origins.get(el) ?? { file: this.opts.file, src: '', chain: [] };
@@ -524,7 +532,7 @@ class Compiler {
     return { file: origin.file, line, col, chain: origin.chain };
   }
 
-  recordExpr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, src: string, shift: number): number {
+  recordExpr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, src: string, shift: number, r: ExprResult): number {
     const frames: number[] = [];
     for (const f of [...scope.states, ...scope.loops]) {
       const i = this.frameOf.get(f);
@@ -539,6 +547,7 @@ class Compiler {
       src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: el.tagName, event,
       result: attrName === 'data-sn-then', error: attrName === 'data-sn-catch',
     };
+    if (o.payload) e.payload = { names: r.payloadNames ?? [], type: null };
     this.check!.exprs.push(e);
     return this.check!.exprs.length - 1;
   }
@@ -628,15 +637,20 @@ class Compiler {
       concurrency = 'queue';
     }
     if (get('concurrency') && method === 'get') this.report(el, 'data-sn-concurrency', 'SN102', '`data-sn-concurrency` applies to mutations only; `GET` actions are always latest-wins', 0);
-    const fnOf = (n: string, o: Omit<ExprOptions, 'report'>) => {
+    const fnOf = (n: string, o: Omit<ExprOptions, 'report'>, type?: Parameters<Compiler['typeLast']>[0]) => {
       if (get(n) === undefined) return { f: null, w: [] as string[] };
       const r = this.expr(el, `data-sn-${n}`, scope, o);
+      if (type) this.typeLast(type);
       return { f: r.ok ? this.fn(r.code) : null, w: r.writes };
     };
-    const body = fnOf('body', { mode: 'value' });
+    // with OpenAPI specs: the body must fit the request schema, `$result` gets the response's type
+    const op = this.check && this.opts.openapi?.length ? matchOperation(this.opts.openapi, url, method) : null;
+    const typed = op && 'spec' in op ? op : null;
+    const body = fnOf('body', { mode: 'value' }, typed?.request != null ? { returns: { kind: 'openapi', spec: typed.spec, schema: typed.request } } : undefined);
     const optimistic = fnOf('optimistic', { mode: 'optimistic' });
     if (optimistic.f !== null) this.features.add('optimistic');
-    const then = fnOf('then', { mode: 'handler', magic: ['$event', '$result'] });
+    const then = fnOf('then', { mode: 'handler', magic: ['$event', '$result'] },
+      typed?.body != null ? { resultType: { kind: 'openapi', spec: typed.spec, schema: typed.body } } : undefined);
     const catch_ = fnOf('catch', { mode: 'handler', magic: ['$event', '$error'] });
     const def: ActionDef = {
       method: method.toUpperCase() as ActionDef['method'], url, body: body.f, trigger, debounce, concurrency,
@@ -758,6 +772,7 @@ class Compiler {
           if (attr(el, 'cursor') == null) this.report(el, null, 'SN401', `\`paginate="${mode}"\` needs \`cursor\``, 0);
           else {
             const r = this.expr(el, 'cursor', ctx.scope, { mode: 'value', payload: true });
+            this.typeLast({ payload: { kind: 'item', resource: name } });
             if (r.ast && r.ast.type !== 'ObjectExpression') this.report(el, 'cursor', 'SN401', '`cursor` must be an object literal', 0);
             cursor = this.fn(r.code);
           }
@@ -857,9 +872,19 @@ class Compiler {
       return null;
     }
     const scope = ctx.scope;
+    const typeAttr = attr(el, 'type')?.trim() || null;
+    const payloadType: TypeRef | null = typeAttr && typeAttr !== 'any' ? { kind: 'ts', text: typeAttr, loc: this.locOf(el, 'type') } : null;
+    if (this.check && !typeAttr && ['item', 'set', 'when'].some((n) => attr(el, n) != null)) {
+      this.report(el, null, 'SN506', `event \`${name}\` has no type: expressions reading its payload are not checked`, 0,
+        'add `type="…"` with the payload type from the types module, or `type="any"` to leave it unchecked');
+    }
     const fnOf = (n: string, object = false) => {
       if (attr(el, n) == null) return null;
-      const r = this.expr(el, n, scope, { mode: 'value', payload: true, ...(object ? {} : {}) });
+      const r = this.expr(el, n, scope, { mode: 'value', payload: true });
+      this.typeLast({
+        payload: payloadType,
+        ...(n === 'item' ? { returns: { kind: 'item', resource } } : n === 'set' ? { returns: { kind: 'item', resource, partial: true } } : {}),
+      });
       if (object && r.ast && r.ast.type !== 'ObjectExpression') this.report(el, n, 'SN401', `\`${n}\` must be an object literal`, 0);
       return this.fn(r.code);
     };
