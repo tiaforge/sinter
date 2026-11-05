@@ -662,8 +662,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const keep = lis(seq), moving = new Map<Inst, Node[]>(), gone: number[] = [];
     seq.forEach((o, k) => { if (o >= 0 && !keep.has(k)) moving.set(rows[a + k]!, nodesOf(o)); });
     for (let o = a; o < oe; o++) if (!used[o - a]) gone.push(o);
-    if (!n && m) {
-      // clearing: drop everything between the anchor and the end marker at once
+    if (m && gone.length == m) {
+      // every old row goes (cleared, or all keys new): when the list owns its parent, drop them in
+      // one operation; removing 5,000 rows one by one costs more than building the new ones
       const parent = end.parentNode!;
       if (parent.firstChild == tpl && parent.lastChild == end) parent.replaceChildren(tpl, end);
       else while (tpl.nextSibling != end) tpl.nextSibling!.remove();
