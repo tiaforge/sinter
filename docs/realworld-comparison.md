@@ -70,6 +70,17 @@ compiles them, so injected markup stays inert; htmx needs no client build step.
 Runtime cost of one fetch-and-swap (100–5,000 rows, htmx 2.0.11 and 4.0.1, Datastar 1.0.4, plain
 JS): [`bench/swap`](../bench/swap/README.md).
 
+## Alpine and petite-vue
+
+No RealWorld builds were compared. Like sinter, both render JSON with client-side templates, but they
+have no server-state layer: fetching, caching, keyed upserts from server events and optimistic
+rollback are code you write in each component's state. Both turn directive expressions into
+functions in the browser (`new Function`), so their standard builds need `unsafe-eval` in the CSP.
+Alpine ships a separate CSP build (`@alpinejs/csp`) that avoids this but accepts only a restricted
+expression syntax. petite-vue has no CSP build. sinter compiles expressions at build time, so it
+runs under `script-src 'self'` in every build, with no separate CSP mode. For swap timings against both, see
+[`bench/swap`](../bench/swap/README.md).
+
 ## Official e2e suite
 
 sinter, against a local backend (2026-11-05): 135 of 140 in the suite's spa mode, 91 passed and
