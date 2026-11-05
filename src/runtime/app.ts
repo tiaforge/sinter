@@ -963,10 +963,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
           if (u != null) {
             l.pager?.reset();
             const hit = app.ext.cache!.read(def, request(u));
-            if (hit) {
-              fill(hit.items, hit.total, l.pager?.current());
-              r.meta.loadedAt = hit.t;
-            }
+            // loadedAt stays null: it means the server answered during this page load, and
+            // guards such as `$meta.user.loadedAt && !user` must not act on another page's data
+            if (hit) fill(hit.items, hit.total, l.pager?.current());
           }
           return l.changed();
         }

@@ -28,10 +28,12 @@ test('the next page shows the cached data at once, then revalidates', async () =
   // before any response: the cached list, and the revalidation running
   expect(names(r.root)).toEqual(['Ada', 'Grace']);
   expect(status(r.root)).toBe('loading');
-  expect(r.app.page.$meta.contacts.loadedAt).toBe(Date.parse('2026-01-01T09:00:00Z'));
+  // not loaded from the server on this page yet
+  expect(r.app.page.$meta.contacts.loadedAt).toBeNull();
   await r.settle();
   expect(names(r.root)).toEqual(['Ada', 'Linus']);
   expect(status(r.root)).toBe('idle');
+  expect(r.app.page.$meta.contacts.loadedAt).toBe(Date.parse('2026-01-01T09:00:00Z'));
   expect(requests.calls).toHaveLength(1);
 });
 
@@ -173,4 +175,17 @@ test('the compiler checks `cache` and adds the feature only where it is used', (
   const bad = compile(LIST('cache="soon"'), opts);
   expect(bad.diagnostics.map((d) => d.code)).toEqual(['SN401']);
   expect(bad.diagnostics[0]!.message).toContain('`30s`, `10m`, `2h` or `1d`');
+});
+
+test('a guard on loadedAt does not act on cached data', async () => {
+  // RealWorld's pattern: redirect when the server says there is no user
+  const html = `<sn-resource name="user" src="/api/user" items="user" cache></sn-resource>
+    <b data-sn-show="$meta.user.loadedAt && !user">signed out</b>`;
+  const session = memoryStorage();
+  const first = await render(html, { session, requests: mockRequests({ 'GET /api/user': { user: null } }) });
+  await first.settle();
+  const r = await render(html, { session, requests: mockRequests({ 'GET /api/user': { user: { name: 'Ada' } } }) });
+  expect(r.root.querySelector('b')!.hidden).toBe(true);   // cached `user: null`, not yet confirmed
+  await r.settle();
+  expect(r.root.querySelector('b')!.hidden).toBe(true);
 });

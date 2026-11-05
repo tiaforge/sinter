@@ -354,7 +354,7 @@ A resource's data can arrive through pluggable sources. v0.1 ships two:
 - Page-load cache (`cache` on `<sn-resource>`, added 2026-11-05): stale-while-revalidate across page loads in one tab.
 
 The page-load cache:
-- On page start, a resource with `cache` whose `src` resolves stores its cached entry at once (before the first paint), with `$meta.<name>.loadedAt` set to the entry's time. Then it loads as usual: `loading` is true and the cached data stays visible, as during any refetch. A failed revalidation keeps it and sets `error`.
+- On page start, a resource with `cache` whose `src` resolves stores its cached entry at once (before the first paint). `$meta.<name>.loadedAt` stays `null` until the server answers, so it keeps meaning "loaded during this page load" and guards such as `$meta.user.loadedAt && !user` never act on cached data (found with RealWorld's login redirect, 2026-11-05). Then the resource loads as usual: `loading` is true and the cached data stays visible, as during any refetch. A failed revalidation keeps it and sets `error`.
 - Embedded JSON wins: no cache lookup is made, and the embedded data is cached.
 - Entries live in `sessionStorage` (one tab's lifetime) under `sn:c:`, keyed by the request URL and the `items` and `total` paths, so two pages that load the same data share an entry whatever they call the resource. An entry holds `{t, items, total}`, not the response body.
 - Writes: after every successful load, and on `pagehide` for resources whose confirmed data changed since (server events, action results). Optimistic layers are never written. Only the first load reads the cache; a `src` that changes on the page does not.

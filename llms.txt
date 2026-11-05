@@ -463,7 +463,8 @@ test('an event payload that does not fit the resource is an error', () => {
 
 ```html
 <!-- `cache`: the next page load shows this list at once, then revalidates.
-     `$meta.inbox.loading` with data present means "updating". -->
+     `$meta.inbox.loading` with data present means "updating"; `$meta.inbox.loadedAt`
+     stays null until the server has answered on this page. -->
 <sn-resource name="inbox" src="/api/messages?folder=inbox" key="id" order="-date" cache="1h"></sn-resource>
 
 <p data-sn-show="$meta.inbox.loading && inbox.length">Updating…</p>
