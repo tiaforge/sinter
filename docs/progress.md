@@ -112,17 +112,21 @@ built, what deviates, and what is left.
 
 ## Open / not yet done
 
-- **Size budget not met.** `npm run size` (rolldown bundle, oxc minify, gzip -9):
+- **Size budget not met.** `npm run size` (rolldown bundle, oxc minify, gzip -9), 2026-11-05:
 
   | Module | min | gzip |
   | --- | ---: | ---: |
-  | core (`mount`, `$k`) | 19.7 KB | 8.5 KB (target 5 KB; was 11.5 KB before the closure rewrite) |
-  | sse | 3.2 KB | 1.4 KB |
+  | core (`mount`, `$k`) | 23.5 KB | 10.1 KB (target 5 KB; was 11.5 KB before the closure rewrite) |
+  | sse | 3.1 KB | 1.4 KB |
   | paginate | 2.9 KB | 1.2 KB |
   | persist | 0.7 KB | 0.4 KB |
   | optimistic | 0.2 KB | 0.2 KB |
   | dev (dev builds only) | 1.4 KB | 0.8 KB |
-  | contacts page (core + sse + optimistic + persist) | 23.6 KB | 9.9 KB |
+  | contacts page (core + sse + optimistic + persist) | 27.2 KB | 11.4 KB |
+
+  The list performance work of 2026-11-05 (bench/swap, js-framework-benchmark) added 354 B gzip to
+  the core (9,944 → 10,298 B), and compiled pages carry one element-lookup function per
+  `data-sn-for` template (RealWorld's 7 pages: 18 functions, 275 B gzip in all).
 
   Marginal gzip cost inside the core: request layer + config ≈ 0.9 KB, store
   ≈ 0.9, app object/API ≈ 1.2, mount/bind ≈ 0.8, loaders ≈ 0.9, actions ≈ 0.7,
