@@ -67,6 +67,9 @@ the htmx builds show results after the server answers (favorite = POST, then a h
 triggered reload of the article fragment); htmx reads directives from the live DOM, sinter
 compiles them, so injected markup stays inert; htmx needs no client build step.
 
+Runtime cost of one fetch-and-swap (100–5,000 rows, htmx 2.0.11 and 4.0.1, Datastar 1.0.4, plain
+JS): [`bench/swap`](../bench/swap/README.md).
+
 ## Official e2e suite
 
 sinter, against a local backend (2026-11-05): 135 of 140 in the suite's spa mode, 91 passed and

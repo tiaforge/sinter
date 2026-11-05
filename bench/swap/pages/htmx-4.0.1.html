@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>htmx-4.0.1</title>
+  <link rel="icon" href="data:,">
+  <script type="module" src="./bench.js"></script>
+  <script src="/vendor/htmx-4.0.1.min.js"></script>
+</head>
+<body>
+<button id="a" hx-get="/rows.html?n={{n}}&s={{s}}&v=a" hx-target="#target" hx-swap="innerHTML">a</button> <button id="b" hx-get="/rows.html?n={{n}}&s={{s}}&v=b" hx-target="#target" hx-swap="innerHTML">b</button>
+<table><tbody id="target"></tbody></table>
+</body>
+</html>

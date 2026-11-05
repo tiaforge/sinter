@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>vanilla-json</title>
+  <link rel="icon" href="data:,">
+  <script type="module" src="./bench.js"></script>
+</head>
+<body>
+<button id="a">a</button> <button id="b">b</button>
+<template id="row"><tr><td class="id"></td><td class="label"></td></tr></template>
+<table><tbody id="target"></tbody></table>
+<script>
+  // fetch JSON, clone a <template> row per item, replace the children
+  const tpl = document.getElementById('row').content.firstElementChild;
+  for (const v of ['a', 'b']) document.getElementById(v).addEventListener('click', async () => {
+    const { rows } = await (await fetch('/rows.json?n={{n}}&s={{s}}&v=' + v)).json();
+    const frag = document.createDocumentFragment();
+    for (const r of rows) {
+      const tr = tpl.cloneNode(true);
+      tr.firstChild.textContent = r.id;
+      tr.lastChild.textContent = r.label;
+      frag.appendChild(tr);
+    }
+    document.getElementById('target').replaceChildren(frag);
+  });
+</script>
+</body>
+</html>
