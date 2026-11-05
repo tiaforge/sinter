@@ -42,7 +42,13 @@ export const CODES = {
 
 export type Code = keyof typeof CODES;
 
-export const DOCS_URL = 'https://sinter.tiaforge.dev/docs/diagnostics#';
+export const DOCS_URL = 'https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md';
+
+/** Link to a code's section of `docs/diagnostics.md` (GitHub's heading anchor). */
+export function docsUrl(code: string): string {
+  const name = CODES[code as Code];
+  return `${DOCS_URL}#${code.toLowerCase()}${name ? `-${name}` : ''}`;
+}
 
 export function severityOf(code: Code): Severity {
   return code >= 'SN500' ? 'warning' : 'error';
@@ -53,7 +59,7 @@ export function formatDiagnostic(d: Diagnostic): string {
   const name = CODES[d.code as Code] ?? '';
   let s = `${d.file}:${d.line}:${d.col} ${d.severity} ${d.code} ${name}: ${d.message}`;
   if (d.hint) s += `\n  hint: ${d.hint}`;
-  return s + `\n  docs: ${DOCS_URL}${d.code.toLowerCase()}`;
+  return s + `\n  docs: ${docsUrl(d.code)}`;
 }
 
 function distance(a: string, b: string): number {

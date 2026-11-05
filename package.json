@@ -24,7 +24,8 @@
   "files": [
     "dist",
     "llms.txt",
-    "html-custom-data.json"
+    "html-custom-data.json",
+    "docs/diagnostics.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

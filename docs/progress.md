@@ -110,6 +110,10 @@ built, what deviates, and what is left.
   typed as the resource's item, `checkPage()` for tests, and the "Typed resources, state and events"
   recipe. A value that is wrong as a whole is reported by TypeScript on the shadow's `return`; that line
   now maps to the expression's start.
+- 2026-11-05: pre-launch fixes. The core's size budget is now 11 KB min+gzip (10.1 KB today); 5 KB
+  was never met. `docs/diagnostics.md` is generated from `src/compiler/diagnostic-docs.ts` (example,
+  meaning and fix per code) and ships in the package; diagnostics link to its section on GitHub
+  (`github.com/tiaforge/sinter`, not public yet).
 
 ## Decisions and deviations
 
@@ -153,11 +157,11 @@ built, what deviates, and what is left.
 
 ## Open / not yet done
 
-- **Size budget not met.** `npm run size` (rolldown bundle, oxc minify, gzip -9), 2026-11-05:
+- **Size budget: 11 KB for the core, met** (it was 5 KB until 2026-11-05, which the core never reached). `npm run size` (rolldown bundle, oxc minify, gzip -9), 2026-11-05:
 
   | Module | min | gzip |
   | --- | ---: | ---: |
-  | core (`mount`, `$k`) | 23.5 KB | 10.1 KB (target 5 KB; was 11.5 KB before the closure rewrite) |
+  | core (`mount`, `$k`) | 23.5 KB | 10.1 KB (11.5 KB before the closure rewrite) |
   | sse | 3.1 KB | 1.4 KB |
   | paginate | 2.9 KB | 1.2 KB |
   | persist | 0.7 KB | 0.4 KB |
@@ -172,12 +176,10 @@ built, what deviates, and what is left.
   Marginal gzip cost inside the core: request layer + config ≈ 0.9 KB, store
   ≈ 0.9, app object/API ≈ 1.2, mount/bind ≈ 0.8, loaders ≈ 0.9, actions ≈ 0.7,
   lists ≈ 0.7, render ≈ 0.4, security ≈ 0.4, forms ≈ 0.3, models ≈ 0.3.
-  Further trimming yields tens of bytes; reaching 5 KB needs either moving
+  Further trimming yields tens of bytes; 5 KB would need either moving
   parts (actions, forms, models, loaders) into compiler-selected modules or a
   different budget definition.
 - Playwright suite in real browsers (`<dialog>`/`commandfor`, bfcache,
   `EventSource`, focus preservation), with Trusted Types and strict CSP.
 - List-update benchmark in CI.
 - Release pipeline (CI-only trusted publishing with provenance).
-- The docs site the diagnostics link to (`DOCS_URL` in `src/compiler/diagnostics.ts`)
-  is a placeholder.

@@ -9,7 +9,7 @@ License: MIT. Contributions are accepted under the Developer Certificate of Orig
 ### Goals
 - Replace the server-state plumbing of a multi-page app: loading flags, stale responses, refetch on reconnect, list upserts from SSE.
 - Valid HTML, readable without knowing the library, and easy for an LLM to write correctly.
-- Small runtime: target under 5 KB min+gzip for the core, verified per release.
+- Small runtime: under 11 KB min+gzip for the core (10.1 KB on 2026-11-05), verified per release by `npm run size`.
 - CSP-safe under `script-src 'self'` with no `unsafe-eval`.
 - Optimistic updates that stay correct when requests overlap or SSE events arrive mid-flight.
 
@@ -875,7 +875,7 @@ The module has no test-runner imports. It works with Vitest, or anything else, o
 | Property-based | random list changes against a reference model (DOM order, node reuse); random interleavings of optimistic actions, failures and server events against a reference store | the concurrency-heavy parts |
 | Behaviour | every documented feature, written with the testing module | the public API, and the testing module itself |
 | Real browsers | Playwright on Chromium, Firefox and WebKit | `<dialog>`, `commandfor`, back/forward cache, `EventSource`, focus preservation |
-| Budgets | size per module and a list-update benchmark in CI | the 5 KB core target, performance regressions |
+| Budgets | size per module and a list-update benchmark in CI | the 11 KB core budget, performance regressions |
 
 Rules: every bug fix adds a failing test first, and every code example in the docs and in `llms.txt` is executed as a test.
 

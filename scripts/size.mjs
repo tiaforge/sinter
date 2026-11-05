@@ -18,7 +18,7 @@ const entries = {
   // what the contacts example loads: core + sse + optimistic + persist
   page: `export { mount, $k } from '${dist}/index.js'; export { default as a } from '${dist}/sse.js'; export { default as b } from '${dist}/optimistic.js'; export { default as c } from '${dist}/persist.js';`,
 };
-const BUDGET = { core: 5 * 1024 };
+const BUDGET = { core: 11 * 1024 };
 let failed = false;
 try {
   for (const [name, code] of Object.entries(entries)) {

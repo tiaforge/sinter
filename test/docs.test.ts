@@ -3,7 +3,8 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, test } from 'vitest';
-import { CODES } from '../src/compiler/diagnostics.js';
+import { CODES, severityOf, type Code } from '../src/compiler/diagnostics.js';
+import { DIAGNOSTIC_DOCS } from '../src/compiler/diagnostic-docs.js';
 import { ALL_MAGIC, BUILTIN_HELPERS, STORE_FNS } from '../src/compiler/expr.js';
 import { ATTRIBUTES, ELEMENTS, ON_DOC } from '../src/compiler/vocabulary.js';
 
@@ -92,6 +93,18 @@ Write a test next to the markup. \`@tiaforge/sinter/testing\` compiles the page 
   return out.join('\n');
 }
 
+function diagnostics(): string {
+  const out = [`# sinter diagnostics
+
+Generated from \`src/compiler/diagnostic-docs.ts\` by \`npm run docs\`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build.
+`];
+  for (const [code, name] of Object.entries(CODES)) {
+    const d = DIAGNOSTIC_DOCS[code as Code];
+    out.push(`## ${code} ${name}\n\n${severityOf(code as Code) === 'error' ? 'Error' : 'Warning'}, for example:\n\n> ${d.example}\n\n${d.means}\n\n**Fix:** ${d.fix}\n`);
+  }
+  return out.join('\n');
+}
+
 function customData(): string {
   const data = {
     version: 1.1,
@@ -117,6 +130,7 @@ function check(path: string, content: string) {
 }
 
 test('llms.txt is current', () => check('llms.txt', llms()));
+test('docs/diagnostics.md is current', () => check('docs/diagnostics.md', diagnostics()));
 test('html-custom-data.json is current', () => check('html-custom-data.json', customData()));
 test('every recipe has a test', () => {
   const html = readdirSync(recipes).filter((f) => f.endsWith('.html')).map((f) => f.replace(/\.html$/, ''));

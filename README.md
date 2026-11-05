@@ -63,6 +63,7 @@ export default { plugins: [sinter()] };
 
 - [`docs/spec.md`](docs/spec.md): the v0.1 specification.
 - [`llms.txt`](llms.txt): attribute reference, scope rules and seven recipes with tests.
+- [`docs/diagnostics.md`](docs/diagnostics.md): every `SN` code, what it means and how to fix it; each diagnostic links here.
 - [`docs/progress.md`](docs/progress.md): implementation status and decisions.
 
 ## Development
@@ -72,7 +73,7 @@ npm test          # vitest (happy-dom)
 npm run typecheck
 npm run build     # dist/
 npm run size      # size budget per module
-npm run docs      # regenerate llms.txt and html-custom-data.json
+npm run docs      # regenerate llms.txt, html-custom-data.json and docs/diagnostics.md
 ```
 
 License: MIT. Contributions are accepted under the Developer Certificate of

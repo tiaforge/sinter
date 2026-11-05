@@ -4,7 +4,8 @@ import { compileParts, type CompileOptions, type CompileResult, type CompiledPar
 export type { CompileOptions, CompileResult, CompiledParts, HelperManifest };
 export type { Diagnostic } from './diagnostics.js';
 export type { CheckUnit } from './check-unit.js';
-export { formatDiagnostic, CODES } from './diagnostics.js';
+export { formatDiagnostic, docsUrl, CODES } from './diagnostics.js';
+export { DIAGNOSTIC_DOCS, type DiagnosticDoc } from './diagnostic-docs.js';
 export { compileParts };
 
 export const PACKAGE = '@tiaforge/sinter';
