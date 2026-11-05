@@ -1,11 +1,10 @@
-# Swap benchmark: sinter, htmx, Datastar, plain JS
+# Swap benchmark: sinter, htmx, Datastar, Alpine, petite-vue, plain JS
 
 How long it takes from a click to new server data showing on the page, for a list of 100, 1,000
 and 5,000 table rows. The hypermedia libraries fetch an HTML fragment; sinter and `vanilla-json`
-fetch JSON and render it in the browser.
+fetch JSON and render it in the browser, as do Alpine and petite-vue, the closest comparison for
+sinter (client-side templates over JSON, no build step).
 
-| variant | wire | DOM update |
-| --- | --- | --- |
 | variant | wire | DOM update | append |
 | --- | --- | --- | --- |
 | `vanilla-html` | HTML fragment | `innerHTML` | `insertAdjacentHTML('beforeend')` |
@@ -16,6 +15,8 @@ fetch JSON and render it in the browser.
 | `htmx-4.0.1-morph` | HTML fragment | `hx-swap="innerMorph"` | – (same as htmx-4.0.1) |
 | `datastar-1.0.4` | HTML `<tbody id="target">` | morphed by id (Datastar's default) | `datastar-mode: append` |
 | `datastar-1.0.4-replace` | HTML | `datastar-mode: replace` (no morphing) | – (same as datastar-1.0.4) |
+| `alpine-3.17.5` | JSON | keyed `x-for` over state assigned from `fetch` | `rows.push(...)` |
+| `petite-vue-0.4.1` | JSON | keyed `v-for` over state assigned from `fetch` (last release 2022) | `rows.push(...)` |
 
 Three scenarios:
 
@@ -120,6 +121,8 @@ Response for 1000 rows: HTML fragment 60.3 KB (5.1 gz), JSON 28.1 KB (4.7 gz).
 | htmx-4.0.1-morph | 13.1 |
 | datastar-1.0.4 | 13.1 |
 | datastar-1.0.4-replace | 13.1 |
+| alpine-3.17.5 | 19.5 |
+| petite-vue-0.4.1 | 6.9 |
 
 Spread: at 5,000 rows the three rounds' medians agree within about 5%; at 1,000 rows some cells
 (Datastar replace, htmx morph) move by up to ±25% between rounds, so differences of a few ms there
@@ -148,6 +151,57 @@ What the numbers say:
   (a key for every row in reconcile) is about 0.3 ms at 5,000 rows; an O(k) append path would win
   only that.
 - **Wire size**: the HTML fragment is about twice the JSON uncompressed, about the same gzipped.
+
+### Alpine and petite-vue
+
+2026-11-05, a separate run (same machine and settings, 3 rounds × 50 swaps) of the four JSON
+variants; the sinter and vanilla-json rows are from this run, so compare within this table. The
+three rounds' medians agree within about 10% (Alpine, petite-vue and sinter at 1,000 and 5,000 rows:
+within 5%). sinter's 10.5 KB here is the page built at e2308db (the earlier 10.1 KB is before the
+compiled row lookups).
+
+#### replace
+
+| variant | 100 rows | 1000 rows | 5000 rows |
+| --- | ---: | ---: | ---: |
+| vanilla-json | 2.80 / 4.20 | 5.10 / 14.1 | 13.1 / 56.4 |
+| sinter | 3.20 / 4.80 | 6.20 / 15.5 | 18.4 / 59.8 |
+| alpine-3.17.5 | 5.80 / 7.00 | 25.2 / 33.0 | 142 / 188 |
+| petite-vue-0.4.1 | 6.10 / 7.70 | 22.5 / 30.8 | 113 / 163 |
+
+#### update
+
+| variant | 100 rows | 1000 rows | 5000 rows |
+| --- | ---: | ---: | ---: |
+| vanilla-json | 2.70 / 4.30 | 5.10 / 14.0 | 12.9 / 55.7 |
+| sinter | 2.70 / 3.60 | 3.60 / 9.90 | 5.40 / 30.2 |
+| alpine-3.17.5 | 4.30 / 5.60 | 17.8 / 25.3 | 74.7 / 113 |
+| petite-vue-0.4.1 | 5.50 / 6.80 | 21.6 / 28.0 | 105 / 147 |
+
+#### append
+
+| variant | 100 rows | 1000 rows | 5000 rows |
+| --- | ---: | ---: | ---: |
+| vanilla-json | 2.30 / 3.60 | 2.70 / 10.3 | 3.00 / 13.1 |
+| sinter | 2.90 / 4.20 | 3.30 / 11.6 | 4.35 / 15.9 |
+| alpine-3.17.5 | 3.60 / 4.90 | 7.80 / 14.6 | 22.1 / 31.6 |
+| petite-vue-0.4.1 | 4.90 / 6.30 | 14.8 / 21.1 | 72.0 / 83.0 |
+
+What these say:
+
+- At 100 rows all four are within about 3 ms of each other. The gap opens with list size: at 5,000
+  rows Alpine and petite-vue take 6–8× sinter's time to replace the list (113–142 vs 18 ms) and
+  14–19× to update every 10th row (75–105 vs 5.4 ms), and they are slower than rebuilding the list
+  with plain JS even when they keep the rows. Where the time goes inside them was not profiled.
+- Appending, Alpine grows with the list (3.6 → 22 ms) and petite-vue more steeply (4.9 → 72 ms at
+  5,000 rows, for 500 new rows); sinter stays within about 1.5 ms of plain JS.
+- Size: petite-vue (6.9 KB) is smaller than sinter's runtime plus page (10.5 KB); Alpine is about
+  twice as large (19.5 KB). sinter's figure includes its store and request layer, which the
+  Alpine and petite-vue pages write by hand (`fetch` in a method), and neither has an equivalent of
+  resources, SSE sync or optimistic layers.
+- Both evaluate expressions found in the live DOM with `new Function`, so they need
+  `'unsafe-eval'` under CSP (Alpine has a separate CSP build with a restricted expression syntax,
+  not measured here), and server-rendered user content containing their directives runs as code.
 
 ## Caveats
 

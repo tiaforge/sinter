@@ -29,6 +29,8 @@ const VARIANTS = [
   ['htmx-4.0.1', '/htmx-4.0.1.html', ['vendor/htmx-4.0.1.min.js']],
   ['htmx-4.0.1-morph', { replace: '/htmx-4.0.1-morph.html', update: '/htmx-4.0.1-morph.html', ...NO_APPEND }, ['vendor/htmx-4.0.1.min.js']],
   ['datastar-1.0.4', '/datastar-1.0.4.html', ['vendor/datastar-1.0.4.js']],
+  ['alpine-3.17.5', '/alpine-3.17.5.html', ['vendor/alpinejs-3.17.5.min.js']],
+  ['petite-vue-0.4.1', '/petite-vue-0.4.1.html', ['vendor/petite-vue-0.4.1.iife.js']],
   ['datastar-1.0.4-replace', { replace: '/datastar-1.0.4-replace.html', update: '/datastar-1.0.4-replace.html', ...NO_APPEND }, ['vendor/datastar-1.0.4.js']],
 ].filter(([name]) => !ONLY || ONLY.some((o) => name.includes(o)));
 const pageFor = (paths, s) => (typeof paths === 'string' ? paths : paths[s]);

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>alpine-3.17.5</title>
+  <link rel="icon" href="data:,">
+  <script type="module" src="./bench.js"></script>
+  <script defer src="/vendor/alpinejs-3.17.5.min.js"></script>
+</head>
+<body>
+<!-- fetch JSON into reactive state, render it with a keyed x-for; c appends -->
+<div x-data="{ rows: [], async load(v) {
+  const { rows } = await (await fetch('/rows.json?n={{n}}&s={{s}}&v=' + v)).json();
+  if (v === 'c') this.rows.push(...rows); else this.rows = rows;
+} }">
+  <button id="a" @click="load('a')">a</button> <button id="b" @click="load('b')">b</button> <button id="c" @click="load('c')">c</button>
+  <table><tbody id="target"><template x-for="r in rows" :key="r.id"><tr><td class="id" x-text="r.id"></td><td class="label" x-text="r.label"></td></tr></template></tbody></table>
+</div>
+</body>
+</html>
