@@ -183,7 +183,8 @@ const after = (el: Element) => {
 const ET = EventTarget.prototype;
 /** Per-element registries, kept on the element (cheaper than WeakMaps on the row creation path). */
 const HANDLERS = Symbol('sinter.on'), MODEL = Symbol('sinter.model'), STATE = Symbol('sinter.state');
-type Tagged = Element & { [HANDLERS]?: RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
+/** HANDLERS: one handler binding, or an array when the element has several */
+type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
 const dialogsIn = new WeakMap<HTMLTemplateElement, boolean>(), indexReaders = new WeakMap<TemplateDef, boolean>();
 const hasDialog = (tpl: HTMLTemplateElement) => dialogsIn.get(tpl) ?? (dialogsIn.set(tpl, !!tpl.content.querySelector('dialog')), dialogsIn.get(tpl)!);
 
@@ -484,7 +485,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (rbs == rootRbs) rootScopes[i] = s;
       if (el) for (const b of nd.b) {
         const rb: RB = { b, el, s, v: UNSET, c: dialogs };
-        if (b.k == 'on') { (el[HANDLERS] ??= []).push(rb); continue; }
+        if (b.k == 'on') {
+          const h: RB | RB[] | undefined = el[HANDLERS];
+          el[HANDLERS] = h == null ? rb : Array.isArray(h) ? (h.push(rb), h) : [h, rb];
+          continue;
+        }
         if (b.k == 'else') continue;
         if (b.k == 'model') {
           el[MODEL] = rb;
@@ -555,7 +560,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       case 'show': el.hidden = !v; break;
       case 'prop': (el as any)[n] = v; break;
       case 'class':
-        if (n) el.classList.toggle(n, !!v);
+        // a new element without a class attribute cannot have the class: skip removing it
+        if (n) { if (v || rb.v !== UNSET || el.hasAttribute('class')) el.classList.toggle(n, !!v); }
         else {
           if (prev?.[0] && prev[0] != v?.[0]) el.classList.remove(prev[0]);
           if (v?.[0]) el.classList.toggle(v[0], !!v[1]);
@@ -755,7 +761,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const m = (el as Tagged)[MODEL];
     if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m));
     for (; el; el = el.parentElement) {
-      const hs = (el as Tagged)[HANDLERS]?.filter((h) => h.b.n == e.type);
+      const h = (el as Tagged)[HANDLERS], hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type);
       if (hs?.length) {
         for (const h of hs) h.b.x != null ? trigger(h, e) : handle(h, h.b.f!, e, h.b.w);
         return;
