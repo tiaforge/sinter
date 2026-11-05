@@ -254,6 +254,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   };
   /** Elements written through callbacks (`$.$m(row, …)`) since the last flush. */
   const marked = new Set<unknown>();
+  /** debounced handlers' pending timers */
+  const timers = new WeakMap<RB, unknown>();
   /** Per flush round: how dirty paths reach a template's rows (0 not, 1 only marked elements, 2 any row). */
   let rowHits = new Map<TemplateDef, number>();
 
@@ -838,7 +840,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     for (; el; el = el.parentElement) {
       const h = (el as Tagged)[HANDLERS], hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type);
       if (hs?.length) {
-        for (const h of hs) h.b.x != null ? trigger(h, e) : handle(h, h.b.f!, e, h.b.w);
+        for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? later(h, e) : handle(h, h.b.f!, e, h.b.w);
         return;
       }
       if (el == root) return;
@@ -851,6 +853,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
     try { fns[f]!(s); } catch (err) { console.error(err); }
     for (const w of writes ?? []) app.mark(w, s);
     if (writes?.some((w) => w.startsWith('$url'))) writeUrl();
+  }
+
+  /** A debounced handler: runs once `ms` after the last event, with that event. */
+  function later(rb: RB, e: Event) {
+    const t = timers.get(rb);
+    if (t) { env.clearTimeout(t); app.busy--; }
+    app.busy++;
+    timers.set(rb, env.setTimeout(() => { timers.delete(rb); app.busy--; handle(rb, rb.b.f!, e, rb.b.w); }, rb.b.ms!, 'debounce'));
   }
 
   // ---- actions

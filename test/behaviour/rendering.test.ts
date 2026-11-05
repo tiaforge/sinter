@@ -256,6 +256,38 @@ test('debounce delays the trigger', async () => {
   expect(requests.calls.map((c) => c.url)).toEqual(['/api/s?q=ab']);
 });
 
+test('debounce on a handler: the model updates at once, the handler once input pauses', async () => {
+  // Caley's mail search: type into `q`, search with `query` 250 ms after the last keystroke
+  const requests = mockRequests({ 'GET /api/search': [] });
+  const { root, flush, advance, settle } = await render(`
+    <div data-sn-state="{ q: '', query: '' }">
+      <sn-resource name="results" src="/api/search?q={query}" when="query" key="id"></sn-resource>
+      <input data-sn-model="q" data-sn-on-input="query = q.trim()" data-sn-debounce="250">
+      <p data-sn-text="q + '|' + query + '|' + results.length"></p>
+    </div>`, { requests });
+  const el = root.querySelector('input')!;
+  const p = () => root.querySelector('p')!.textContent;
+  input(el, 'in'); await flush();
+  expect(p()).toBe('in||0');
+  await advance(200);
+  input(el, 'inv '); await flush();
+  await advance(200);
+  expect(p()).toBe('inv ||0');
+  expect(requests.calls).toHaveLength(0);
+  await advance(50);
+  await settle();
+  expect(p()).toBe('inv |inv|0');
+  expect(requests.calls.map((c) => c.url)).toEqual(['/api/search?q=inv']);
+});
+
+test('debounce without a method or a handler is misplaced', async () => {
+  const { compile } = await import('../../src/compiler/index.js');
+  const d = compile('<div data-sn-state="{ q: 1 }"><input data-sn-model="q" data-sn-debounce="250"></div>', {
+    file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+  }).diagnostics.map((x) => `${x.code} ${x.message}`);
+  expect(d).toEqual(['SN102 `data-sn-debounce` needs a method attribute (`data-sn-get`, `-post`, …) or a `data-sn-on-*` handler on the same element']);
+});
+
 test('unhandled errors bubble as sn-error, then reach onError', async () => {
   const seen: string[] = [];
   configure({ onError: (e) => seen.push(`onError:${e.message}`) });

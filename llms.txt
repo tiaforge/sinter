@@ -26,7 +26,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-delete` (URL template): DELETE action
 - `data-sn-body` (value expression): JSON request body; overrides form serialization
 - `data-sn-trigger` (DOM event name): overrides the default trigger
-- `data-sn-debounce` (milliseconds): delays the trigger, resets on each event
+- `data-sn-debounce` (milliseconds): delays the trigger, resets on each event; without a method, delays the element's data-sn-on-* handlers
 - `data-sn-concurrency` (block | queue | latest): mutations only; default block for forms, queue otherwise
 - `data-sn-optimistic` (handler expression): patch/upsert/remove calls applied before the request, rolled back on failure
 - `data-sn-then` (handler expression): runs after a 2xx response; $result = parsed body

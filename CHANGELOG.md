@@ -5,6 +5,9 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+- `data-sn-debounce` on an element without a method delays its
+  `data-sn-on-*` handlers: `<input data-sn-model="q" data-sn-on-input="query = q"
+  data-sn-debounce="250">` updates `q` at once and `query` once typing pauses.
 - `<sn-event>` expressions can read the state declared around their
   `<sn-sync>` (`when="mailbox === sel.mailbox"`); before, those names silently
   meant payload fields. A state name shadows a payload field of the same name,

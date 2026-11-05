@@ -193,7 +193,7 @@
     },
     {
       "name": "data-sn-debounce",
-      "description": "delays the trigger, resets on each event (milliseconds)"
+      "description": "delays the trigger, resets on each event; without a method, delays the element's data-sn-on-* handlers (milliseconds)"
     },
     {
       "name": "data-sn-concurrency",

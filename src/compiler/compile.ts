@@ -470,6 +470,14 @@ class Compiler {
     if (has('model')) this.model(el, node, scope, get('persist'));
     else if (has('persist') && !has('state')) this.report(el, 'data-sn-persist', 'SN102', '`data-sn-persist` needs `data-sn-model` or `data-sn-state` on the same element', 0);
 
+    const methods = METHODS.filter((m) => has(m));
+    // without a method, `data-sn-debounce` delays the element's own handlers
+    let handlerDebounce = 0;
+    if (!methods.length && has('debounce')) {
+      handlerDebounce = Number(get('debounce'));
+      if (!Number.isFinite(handlerDebounce) || handlerDebounce < 0) this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
+      if (!sn.some((a) => a.name.startsWith('data-sn-on-'))) this.report(el, 'data-sn-debounce', 'SN102', '`data-sn-debounce` needs a method attribute (`data-sn-get`, `-post`, …) or a `data-sn-on-*` handler on the same element', 0);
+    }
     for (const a of sn) {
       if (!a.name.startsWith('data-sn-on-')) continue;
       const event = a.name.slice('data-sn-on-'.length);
@@ -478,13 +486,12 @@ class Compiler {
         continue;
       }
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'] });
-      if (r.ok) node.b.push(binding({ k: 'on', n: event, f: this.fn(r.code), w: r.writes }));
+      if (r.ok) node.b.push(binding({ k: 'on', n: event, f: this.fn(r.code), w: r.writes, ...(handlerDebounce > 0 ? { ms: handlerDebounce } : {}) }));
     }
 
-    const methods = METHODS.filter((m) => has(m));
     if (methods.length > 1) this.report(el, `data-sn-${methods[1]}`, 'SN102', 'an element can have only one method attribute', 0);
     if (methods.length) this.action(el, node, scope, methods[0]!, get);
-    else for (const n of ACTION_ONLY) if (has(n)) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs a method attribute (\`data-sn-get\`, \`-post\`, …) on the same element`, 0);
+    else for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs a method attribute (\`data-sn-get\`, \`-post\`, …) on the same element`, 0);
 
     // templates
     let content: { tid: number; scope: Scope } | null = null;
@@ -1019,7 +1026,7 @@ const usesEl = (r: ExprResult): Pick<Binding, 'e' | 'i'> => ({ ...(r.usesEl ? { 
 
 function binding(b: Binding): Binding {
   const out: Binding = { k: b.k };
-  for (const key of ['f', 'd', 'n', 'x', 'a', 'y', 'w', 'p', 'e', 'i'] as const) {
+  for (const key of ['f', 'd', 'n', 'x', 'a', 'y', 'w', 'p', 'e', 'i', 'ms'] as const) {
     const v = b[key];
     if (v === undefined || (Array.isArray(v) && v.length === 0 && key !== 'd')) continue;
     (out as unknown as Record<string, unknown>)[key] = v;

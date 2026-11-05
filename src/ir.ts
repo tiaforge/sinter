@@ -86,6 +86,8 @@ export interface Binding {
   e?: 1;
   /** the expression reads a loop index, so it re-runs when only the row's position changed */
   i?: 1;
+  /** handler on an element without a method: `data-sn-debounce` milliseconds */
+  ms?: number;
 }
 
 export interface NodeDef {

@@ -244,7 +244,7 @@ Text-like controls update on `input`, all others on `change`.
 | `data-sn-get`, `-post`, `-put`, `-patch`, `-delete` | URL template | one per element |
 | `data-sn-body` | value expression | JSON body; overrides form serialization |
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
-| `data-sn-debounce` | milliseconds | delays the trigger, resets on each event |
+| `data-sn-debounce` | milliseconds | delays the trigger, resets on each event; on an element without a method, delays its `data-sn-on-*` handlers the same way (the handler runs with the last event; `data-sn-model` still updates at once) |
 | `data-sn-concurrency` | `block`, `queue` or `latest` | mutations only; default `block` for forms, `queue` otherwise |
 | `data-sn-optimistic` | handler expression | store changes applied before the request |
 | `data-sn-then` | handler expression | runs after a 2xx response, `$result` = parsed body |
