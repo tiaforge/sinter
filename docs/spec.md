@@ -3,7 +3,7 @@ Source: https://claude.ai/artifact/KUVBabhMHDm52FpMuPFvA9 (snapshot 2026-11-04, 
 
 ## Overview
 sinter binds JSON APIs to plain HTML: it caches server data in keyed resources, keeps them current from server events, renders them through `<template>` bindings, and runs mutations with optimistic updates. It is compile-first: a build step turns annotated HTML into a page module, so the browser runs no parser and no `eval`.
-Package: `@tiaforge/sinter`. Attribute prefix: `data-sn-`. Declaration elements: `<sn-resource>`, `<sn-sync>`, `<sn-event>`, `<sn-include>`.
+Package: `@tiaforge-ui/sinter`. Attribute prefix: `data-sn-`. Declaration elements: `<sn-resource>`, `<sn-sync>`, `<sn-event>`, `<sn-include>`.
 License: MIT. Contributions are accepted under the Developer Certificate of Origin (`Signed-off-by` in each commit); no CLA.
 
 ### Goals
@@ -36,15 +36,15 @@ Server data enters through the request layer (loads) and the sync adapter (event
 
 | Import | Contents |
 | --- | --- |
-| `@tiaforge/sinter` | `mount`, store, renderer, actions, request layer, instance API |
-| `@tiaforge/sinter/sse` | `<sn-sync>` with the SSE transport (and any configured one) |
-| `@tiaforge/sinter/ws` | WebSocket transport (opt-in from the config module) |
-| `@tiaforge/sinter/optimistic` | optimistic layers |
-| `@tiaforge/sinter/paginate` | keyset, offset, append |
-| `@tiaforge/sinter/persist` | `data-sn-persist` |
-| `@tiaforge/sinter/compiler` | `compile()` |
-| `@tiaforge/sinter/vite` | Vite plugin |
-| `@tiaforge/sinter/testing` | `render`, `mockRequests`, `mockStream` |
+| `@tiaforge-ui/sinter` | `mount`, store, renderer, actions, request layer, instance API |
+| `@tiaforge-ui/sinter/sse` | `<sn-sync>` with the SSE transport (and any configured one) |
+| `@tiaforge-ui/sinter/ws` | WebSocket transport (opt-in from the config module) |
+| `@tiaforge-ui/sinter/optimistic` | optimistic layers |
+| `@tiaforge-ui/sinter/paginate` | keyset, offset, append |
+| `@tiaforge-ui/sinter/persist` | `data-sn-persist` |
+| `@tiaforge-ui/sinter/compiler` | `compile()` |
+| `@tiaforge-ui/sinter/vite` | Vite plugin |
+| `@tiaforge-ui/sinter/testing` | `render`, `mockRequests`, `mockStream` |
 
 The compiler imports only the feature modules a page uses; the core never imports them.
 
@@ -87,9 +87,9 @@ Same input and options always give byte-identical output. Ids are assigned in do
 
 ### Page module
 ```js
-import { mount } from '@tiaforge/sinter';
-import sse from '@tiaforge/sinter/sse';          // only features this page uses
-import optimistic from '@tiaforge/sinter/optimistic';
+import { mount } from '@tiaforge-ui/sinter';
+import sse from '@tiaforge-ui/sinter/sse';          // only features this page uses
+import optimistic from '@tiaforge-ui/sinter/optimistic';
 import { date } from '/src/sinter.helpers.js';               // only the helpers this page uses
 import { inbox_title } from '/src/paraglide/messages.js';     // namespace members, imported by name
 
@@ -118,7 +118,7 @@ The IR is the only contract between compiler and runtime. It is plain JSON plus 
 Dependencies are extracted at compile time: every binding lists the state and resource paths it reads (`q`, `contacts`, `c`). The runtime matches them against dirty paths (see Reactivity), so it needs no proxies and no read tracking.
 
 ### Adapters
-- Vite (v0.1): `@tiaforge/sinter/vite` hooks `transformIndexHtml` for every HTML entry and serves the page module as a virtual module. Dev and build use the same path. Partials returned in `files` are watched. Diagnostics go to the terminal and Vite's error overlay. An HTML or partial change triggers a full reload in v0.1.
+- Vite (v0.1): `@tiaforge-ui/sinter/vite` hooks `transformIndexHtml` for every HTML entry and serves the page module as a virtual module. Dev and build use the same path. Partials returned in `files` are watched. Diagnostics go to the terminal and Vite's error overlay. An HTML or partial change triggers a full reload in v0.1.
 - Later: esbuild or a CLI wrap the same `compile()`; nothing in the core changes.
 
 ## Expressions and scope
@@ -361,10 +361,10 @@ The page-load cache:
 - Pagination: each page's request URL has its own entry; `paginate="append"` caches only its first page.
 - Limits: an entry over 256 KB serialized is not written (dev warning); a full storage drops the older half of the entries and retries once.
 - Logout: every entry is removed on any 401 (as the response arrives, before `onUnauthorized` middleware runs) and by `clearPersisted()`, which apps call on logout.
-- A malformed value is `SN401`. The cache module (`@tiaforge/sinter/cache`) is added only to pages that use `cache`.
+- A malformed value is `SN401`. The cache module (`@tiaforge-ui/sinter/cache`) is added only to pages that use `cache`.
 
 ## Sync: change messages and transports
-The store only understands one message shape; transports translate server events into it. Server-Sent Events are the default; a WebSocket transport ships as `@tiaforge/sinter/ws`, and others (SignalR) are a few lines in the app (see Transport interface).
+The store only understands one message shape; transports translate server events into it. Server-Sent Events are the default; a WebSocket transport ships as `@tiaforge-ui/sinter/ws`, and others (SignalR) are a few lines in the app (see Transport interface).
 ```ts
 type Change<T> =
   | { resource: string; op: 'upsert';  item: T }
@@ -420,8 +420,8 @@ A transport is an object with `connect(url, onEvent, onState, names)`, an option
 
 The transport is chosen per stream URL in the config module; the URL in the HTML stays an http(s) URL under the usual URL template rules, so a value can never choose the host:
 ```js
-import { configure } from '@tiaforge/sinter';
-import { webSocketTransport } from '@tiaforge/sinter/ws';
+import { configure } from '@tiaforge-ui/sinter';
+import { webSocketTransport } from '@tiaforge-ui/sinter/ws';
 
 configure({ transport: (url) => url.startsWith('/ws/') ? webSocketTransport() : undefined });   // undefined: EventSource
 ```
@@ -495,7 +495,7 @@ A running mutation is never aborted: aborting `fetch` does not stop the server, 
 All requests (resources, actions, the stream session probe) go through one middleware chain, configured once per app:
 ```js
 // src/sinter.config.js
-import { configure, credentials, header, onUnauthorized, loginRedirect } from '@tiaforge/sinter';
+import { configure, credentials, header, onUnauthorized, loginRedirect } from '@tiaforge-ui/sinter';
 
 configure({
   request: [
@@ -740,7 +740,7 @@ Islands are custom elements that own imperative work (encryption, rich editors, 
 
 ### Instance API
 ```ts
-import { instance } from '@tiaforge/sinter';
+import { instance } from '@tiaforge-ui/sinter';
 
 const app = instance(document);            // the instance mount() created
 
@@ -817,7 +817,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 - OpenAPI: `sinter({ openapi: 'openapi.yml' })` (or a list, one per API; local JSON or YAML files, so builds stay deterministic). A resource without `type` is matched to a GET operation: the `servers` URL prefix is stripped from `src`, the query string dropped, literal segments match literally, a segment that is one interpolation matches a `{param}`, and a literal path beats a templated one. Its type is the first 2xx JSON response's schema at `items`, converted to TypeScript by sinter (named schemas become named types). The match runs in every build, not only in the check: an `items` or `total` the schema lacks is `SN308`, a literal query parameter the operation does not declare is warning `SN505`. No match leaves the resource untyped (`SN504`, naming the closest path).
 - Actions are matched like resources, with their own method: `data-sn-body` must fit the JSON request schema, and `$result` in `then` has the response's type (`any` without a match).
 - Server events: `type` on `<sn-event>` types the payload, using the types module's names. `item` must be assignable to the resource's item and `set` to a part of it, so a payload that does not fit the resource is an error. `cursor` reads the resource's own item. An event with payload expressions and no `type` is warning `SN506`; `type="any"` opts out.
-- `checkPage(html, { files, types, openapi })` from `@tiaforge/sinter/check` runs the same check on one page in a temporary project, for tests.
+- `checkPage(html, { files, types, openapi })` from `@tiaforge-ui/sinter/check` runs the same check on one page in a temporary project, for tests.
 
 ### Dev runtime
 The dev build adds checks that need real data: duplicate keys in a response, an item missing a key field, an `items` path that is not an array, a server event payload missing key fields. Warnings name the resource, the page and the offending value.
@@ -836,7 +836,7 @@ The dev build adds checks that need real data: duplicate keys in a response, an 
 - Completion inside expressions comes from TypeScript, minus the shadow's own names and auto-imports. An expression the compiler rejects (it may not even parse, like `article.`) stays in the check unit marked broken: it is written after all other expressions, completes like any other, and TypeScript's errors in it are dropped, since the compiler has reported it.
 - Go to definition: a resource goes to its `name` attribute, a state field to its key in `data-sn-state`, a loop variable or index to `data-sn-for`, a type generated from OpenAPI to its schema (or property) in the spec file, an `<sn-include>` `src` to the partial; helpers and types-module names go where TypeScript says.
 - Quick fix: a diagnostic whose message ends in a suggestion ("Did you mean `count`?", TypeScript's "Did you mean 'title'?") offers to replace the misspelled name with it.
-- VS Code: the extension in `editors/vscode` starts the `sinter lsp` of the nearest `node_modules/@tiaforge/sinter` above each HTML file (one server per installation, so nested projects keep their own) and contributes `html-custom-data.json`. Other editors run `npx sinter lsp --stdio`; `docs/editors.md` has the setup.
+- VS Code: the extension in `editors/vscode` starts the `sinter lsp` of the nearest `node_modules/@tiaforge-ui/sinter` above each HTML file (one server per installation, so nested projects keep their own) and contributes `html-custom-data.json`. Other editors run `npx sinter lsp --stdio`; `docs/editors.md` has the setup.
 
 ### Stability
 - Attribute names, function names and diagnostic codes are part of the public API.
@@ -846,10 +846,10 @@ The dev build adds checks that need real data: duplicate keys in a response, an 
 ## Testing
 Apps rely on sinter as a building block, so v0.1 ships a testing module that is public, stable API under the same rules as the runtime, and sinter itself is tested through it.
 
-### `@tiaforge/sinter/testing`
+### `@tiaforge-ui/sinter/testing`
 ```js
 import { test, expect } from 'vitest';
-import { render, mockRequests, mockStream } from '@tiaforge/sinter/testing';
+import { render, mockRequests, mockStream } from '@tiaforge-ui/sinter/testing';
 import page from './contacts.html?raw';
 
 test('delete is optimistic and rolls back on failure', async () => {
@@ -982,7 +982,7 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 - Session probe trigger. Decided: the probe gates every reconnect; 401 goes to login, network errors back off. See Sync.
 - i18n source. Decided: no built-in `t()`; helper namespaces resolved and tree-shaken at build time, `$locale` for switching. See Expressions and scope.
 - Keyset jumps. Decided: keyset never jumps (`SN304`); jumps need offset mode; server requirements for keyset written down. See Pagination.
-- Testing utilities. Decided: `@tiaforge/sinter/testing` ships in v0.1 as stable API; sinter tests itself through it. See Testing.
+- Testing utilities. Decided: `@tiaforge-ui/sinter/testing` ships in v0.1 as stable API; sinter tests itself through it. See Testing.
 - Path parameters. Decided (2026-11-04): `<html data-sn-path="/article/:slug">` declares the URL shapes a page is served for; the runtime matches `location.pathname` once and exposes `:name` segments read-only in `$url`. No client-side routing: the server still picks the page, links stay full page loads; dev and production rewrites are the deployment's job for now.
 - Optional query parameters. Decided (2026-11-04): a query parameter whose interpolated value is `null`/`undefined` is omitted from the URL, so one resource covers lists whose filters come and go.
 - Templates shared across pages. Decided: static `<sn-include>` resolved at build time, lexical scope, no parameters. See Compiler contract.

@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import sinter from '@tiaforge/sinter/vite';
+import sinter from '@tiaforge-ui/sinter/vite';
 
 // Builds the sinter variant (sinter/index.html → dist/index.html); the other variants are static pages.
 export default defineConfig({

@@ -2,7 +2,7 @@
 // In src/sinter.config.js:
 //
 //   import { HubConnectionBuilder } from '@microsoft/signalr';
-//   import { configure } from '@tiaforge/sinter';
+//   import { configure } from '@tiaforge-ui/sinter';
 //   import { signalRTransport } from './signalr-transport.js';
 //
 //   configure({

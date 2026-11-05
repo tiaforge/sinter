@@ -1,6 +1,6 @@
 // App configuration: the API origin, the JWT from localStorage on API requests, and the
 // islands (browser work the pages' expressions cannot do).
-import { configure } from '@tiaforge/sinter';
+import { configure } from '@tiaforge-ui/sinter';
 import { API, json, token } from './session.js';
 import './islands.js';
 

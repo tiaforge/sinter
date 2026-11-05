@@ -30,7 +30,7 @@ function llms(): string {
 
 > sinter binds JSON APIs to plain HTML: keyed resources cached from the server, kept current from server events, rendered through <template> bindings, with optimistic mutations. A build step compiles annotated HTML into a page module; the browser runs no parser and no eval.
 
-Package: @tiaforge/sinter. Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element. Anything else is a build error with a suggestion.
+Package: @tiaforge-ui/sinter. Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element. Anything else is a build error with a suggestion.
 
 ## Attributes
 `);
@@ -80,7 +80,7 @@ Each recipe comes with its test; copy both.
 - State takes a JSDoc cast where the literal is not enough: \`data-sn-state="{ editing: /** @type {Contact|null} */ (null) }"\`.
 - Actions matched in the spec: \`data-sn-body\` is checked against the request schema, \`$result\` in \`then\` has the response type.
 - \`<sn-event … type="ContactEvent">\` types the payload; \`item\` must fit the resource's item, \`set\` part of it; \`cursor\` reads the item. No \`type\` on an event with payload expressions is warning SN506.
-- Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: \`checkPage(html, { files, openapi })\` from \`@tiaforge/sinter/check\`.
+- Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: \`checkPage(html, { files, openapi })\` from \`@tiaforge-ui/sinter/check\`.
 `);
   out.push(`## Deploying streams
 
@@ -92,7 +92,7 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 `);
   out.push(`## Testing
 
-Write a test next to the markup. \`@tiaforge/sinter/testing\` compiles the page with the real compiler and mounts it:
+Write a test next to the markup. \`@tiaforge-ui/sinter/testing\` compiles the page with the real compiler and mounts it:
 
 - \`render(html, { requests, streams, url, locale, now, helpers, files, storage, session })\` → \`{ root, app, flush, settle, advance, navigations, window }\`. Pass one \`memoryStorage()\` as \`session\` to two renders to test what carries over between page loads (the \`cache\` attribute).
 - \`mockRequests({ 'GET /api/x': json | {status, body} | (call) => … })\`: records \`calls\`; responses are held until \`settle()\`; an unmatched request fails the test and lists the routes.

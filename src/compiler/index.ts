@@ -8,7 +8,7 @@ export { formatDiagnostic, docsUrl, CODES } from './diagnostics.js';
 export { DIAGNOSTIC_DOCS, type DiagnosticDoc } from './diagnostic-docs.js';
 export { compileParts };
 
-export const PACKAGE = '@tiaforge/sinter';
+export const PACKAGE = '@tiaforge-ui/sinter';
 
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {

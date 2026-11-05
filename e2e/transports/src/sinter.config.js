@@ -1,8 +1,8 @@
 // /ws/… streams use the WebSocket transport, /hubs/… the SignalR recipe's adapter (imported from
 // docs/recipes, so the recipe itself is what runs), anything else EventSource.
 import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
-import { configure } from '@tiaforge/sinter';
-import { webSocketTransport } from '@tiaforge/sinter/ws';
+import { configure } from '@tiaforge-ui/sinter';
+import { webSocketTransport } from '@tiaforge-ui/sinter/ws';
 import { signalRTransport } from '../../../docs/recipes/signalr-transport.js';
 
 configure({

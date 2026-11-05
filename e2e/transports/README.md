@@ -6,7 +6,7 @@
 | transport | page | server |
 | --- | --- | --- |
 | SSE (default) | [`sse.html`](sse.html) | `text/event-stream` from [`server.mjs`](server.mjs) |
-| WebSocket (`@tiaforge/sinter/ws`) | [`ws.html`](ws.html) | the `ws` package in `server.mjs` |
+| WebSocket (`@tiaforge-ui/sinter/ws`) | [`ws.html`](ws.html) | the `ws` package in `server.mjs` |
 | SignalR ([recipe](../../docs/recipes/signalr-transport.js), imported as is) | [`signalr.html`](signalr.html) | ASP.NET Core hub in [`signalr/`](signalr/Program.cs), behind `server.mjs` as a reverse proxy (HTTP and WebSocket upgrades), so the page sees one origin |
 
 The pages are identical apart from the stream URL; [`src/sinter.config.js`](src/sinter.config.js)

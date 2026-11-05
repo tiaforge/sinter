@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge/sinter/testing';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
 import page from './pagination.html?raw';
 
 const all = [5, 4, 3, 2, 1].map((id) => ({ id, subject: `m${id}` }));

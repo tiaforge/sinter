@@ -9,14 +9,14 @@ First implementation of the v0.1 spec: compiler, runtime, `sse`,
 `optimistic`, `paginate`, `persist`, Vite plugin and testing module.
 
 - `configure({ transport })` picks the `<sn-sync>` transport per stream URL;
-  `@tiaforge/sinter/ws` adds a WebSocket transport, and `llms.txt` has a
+  `@tiaforge-ui/sinter/ws` adds a WebSocket transport, and `llms.txt` has a
   SignalR recipe.
 - `Transport.connect`'s `onEvent` now receives the parsed payload
   (`unknown`) instead of the raw string.
 - `sinter check` type-checks expressions with the project's TypeScript:
   `type` on `<sn-resource>` and `<sn-event>`, OpenAPI specs
   (`sinter({ openapi })`), `sinter({ typecheck: true })` for `vite build`,
-  `checkPage()` in `@tiaforge/sinter/check`. New codes: `SN208`, `SN307`,
+  `checkPage()` in `@tiaforge-ui/sinter/check`. New codes: `SN208`, `SN307`,
   `SN308`, `SN504`, `SN505`, `SN506`.
 - `sinter lsp`: a language server with diagnostics as you type, type errors,
   hover, completion, go to definition and a did-you-mean quick fix; a VS Code
@@ -26,6 +26,6 @@ First implementation of the v0.1 spec: compiler, runtime, `sse`,
 - The core's size budget is 11 KB min+gzip (was 5 KB, never met).
 - `cache` on `<sn-resource>`: the page-load cache (sessionStorage, revalidated
   on every load, cleared on 401 and by `clearPersisted()`); the
-  `@tiaforge/sinter/cache` feature module.
+  `@tiaforge-ui/sinter/cache` feature module.
 - Dev builds warn when a stream is served over HTTP/1.1.
 - Testing: `render({ session, storage })` and `memoryStorage()`.

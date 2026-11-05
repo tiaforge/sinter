@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import sinter from '@tiaforge/sinter/vite';
+import sinter from '@tiaforge-ui/sinter/vite';
 
 export default defineConfig({
   base: './',

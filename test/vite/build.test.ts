@@ -12,8 +12,8 @@ const out = mkdtempSync(join(tmpdir(), 'sinter-vite-'));
 afterAll(() => rmSync(out, { recursive: true, force: true }));
 
 const alias = ['sse', 'optimistic', 'paginate', 'persist']
-  .map((f) => ({ find: `@tiaforge/sinter/${f}`, replacement: `${src}/${f}.ts` }))
-  .concat([{ find: '@tiaforge/sinter', replacement: `${src}/index.ts` }]);
+  .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
+  .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
 
 async function run(outDir: string) {
   return build({ root, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir, emptyOutDir: true, minify: false } });

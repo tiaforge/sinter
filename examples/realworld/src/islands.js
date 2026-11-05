@@ -1,5 +1,5 @@
 // Islands: browser work that sinter expressions cannot do (storage, navigation, HTML rendering).
-import { clearPersisted, instance } from '@tiaforge/sinter';
+import { clearPersisted, instance } from '@tiaforge-ui/sinter';
 import { token } from './session.js';
 
 // Events emitted from the pages with `emit(name, detail)`.

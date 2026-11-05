@@ -89,7 +89,7 @@ built, what deviates, and what is left.
   golden outputs; property-based list and layer tests; security tests;
   recipes; generated docs. 129 tests pass, typecheck clean.
 - 2026-11-05: pluggable stream transports. `configure({ transport })` picks one per `<sn-sync>`
-  URL (EventSource otherwise); `@tiaforge/sinter/ws` is a WebSocket transport (`{event, data}`
+  URL (EventSource otherwise); `@tiaforge-ui/sinter/ws` is a WebSocket transport (`{event, data}`
   messages or a `decode` function; http(s) stream URLs are opened as ws(s), so the compiler's URL
   rules are unchanged); SignalR is an `llms.txt` recipe with its adapter in the app. Transports now
   deliver parsed payloads (SignalR and WebSocket adapters parse themselves). `render()` falls back

@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@microsoft/signalr": "10.0.11",
-    "@tiaforge/sinter": "file:../.."
+    "@tiaforge-ui/sinter": "file:../.."
   },
   "devDependencies": {
     "vite": "8.3.5",

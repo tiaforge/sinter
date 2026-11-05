@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { render, mockRequests, mockStream } from '@tiaforge/sinter/testing';
+import { render, mockRequests, mockStream } from '@tiaforge-ui/sinter/testing';
 import page from './sse-sync.html?raw';
 
 

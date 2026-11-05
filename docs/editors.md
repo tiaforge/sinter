@@ -1,7 +1,7 @@
 # Editor setup
 
 `sinter lsp` is a language server for the HTML files of a sinter project. It runs from the project's
-own `@tiaforge/sinter`, so the editor always matches the compiler the build uses.
+own `@tiaforge-ui/sinter`, so the editor always matches the compiler the build uses.
 
 | Feature | Needs |
 | --- | --- |
@@ -22,7 +22,7 @@ cd editors/vscode && npm install && npm run package
 code --install-extension sinter-vscode-0.1.0.vsix
 ```
 
-It starts `sinter lsp` for every HTML file under a folder with `node_modules/@tiaforge/sinter`, one
+It starts `sinter lsp` for every HTML file under a folder with `node_modules/@tiaforge-ui/sinter`, one
 server per installation, and adds sinter's attributes and elements to HTML completion.
 Settings: `sinter.server.path` (a CLI other than the project's), `sinter.trace.server`. Command:
 `sinter: Restart language server`.

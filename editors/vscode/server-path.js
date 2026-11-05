@@ -4,7 +4,7 @@
 const { existsSync, readFileSync } = require('node:fs');
 const { dirname, isAbsolute, join, resolve } = require('node:path');
 
-const PACKAGE = '@tiaforge/sinter';
+const PACKAGE = '@tiaforge-ui/sinter';
 
 /** The CLI of a sinter package directory, or null if it has none. */
 function cliOf(pkgDir) {
@@ -21,7 +21,7 @@ function cliOf(pkgDir) {
 
 /**
  * The sinter CLI for a file: `override` (the `sinter.server.path` setting, relative to
- * `folder`) if set, else the nearest `node_modules/@tiaforge/sinter` above the file, else
+ * `folder`) if set, else the nearest `node_modules/@tiaforge-ui/sinter` above the file, else
  * the sinter repository itself. `root` is the directory whose files the server handles.
  * Returns null when the file is in no sinter project.
  */

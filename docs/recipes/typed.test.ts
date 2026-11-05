@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { checkPage } from '@tiaforge/sinter/check';
+import { checkPage } from '@tiaforge-ui/sinter/check';
 import page from './typed.html?raw';
 import types from './typed.types.ts?raw';
 

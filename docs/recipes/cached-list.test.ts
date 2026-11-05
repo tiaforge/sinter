@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { render, mockRequests, memoryStorage } from '@tiaforge/sinter/testing';
+import { render, mockRequests, memoryStorage } from '@tiaforge-ui/sinter/testing';
 import page from './cached-list.html?raw';
 
 const subjects = (root: HTMLElement) => [...root.querySelectorAll('li')].map((li) => li.textContent);

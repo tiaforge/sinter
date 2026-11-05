@@ -14,9 +14,9 @@ const { findServer } = require(join(ext, 'server-path.js')) as {
 /** a project with sinter installed in node_modules */
 function project(): string {
   const root = mkdtempSync(join(tmpdir(), 'sinter-vscode-'));
-  const pkg = join(root, 'node_modules/@tiaforge/sinter');
+  const pkg = join(root, 'node_modules/@tiaforge-ui/sinter');
   mkdirSync(join(pkg, 'dist'), { recursive: true });
-  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@tiaforge/sinter', bin: { sinter: './dist/cli.js' } }));
+  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@tiaforge-ui/sinter', bin: { sinter: './dist/cli.js' } }));
   writeFileSync(join(pkg, 'dist/cli.js'), '');
   mkdirSync(join(root, 'pages'));
   return root;
@@ -25,7 +25,7 @@ function project(): string {
 describe('findServer', () => {
   test('the nearest installation above the file', () => {
     const root = project();
-    expect(findServer(join(root, 'pages/a.html'), root)).toEqual({ cli: join(root, 'node_modules/@tiaforge/sinter/dist/cli.js'), root });
+    expect(findServer(join(root, 'pages/a.html'), root)).toEqual({ cli: join(root, 'node_modules/@tiaforge-ui/sinter/dist/cli.js'), root });
   });
   test('no sinter, no server', () => {
     expect(findServer(join(mkdtempSync(join(tmpdir(), 'plain-')), 'a.html'))).toBeNull();
@@ -86,7 +86,7 @@ describe('extension', () => {
     activate({ subscriptions: [] });
     await new Promise((r) => setTimeout(r, 0));
     expect(clients).toHaveLength(1);
-    expect(clients[0]!.server.run).toEqual({ module: join(a, 'node_modules/@tiaforge/sinter/dist/cli.js'), args: ['lsp'], transport: 0, options: { cwd: a } });
+    expect(clients[0]!.server.run).toEqual({ module: join(a, 'node_modules/@tiaforge-ui/sinter/dist/cli.js'), args: ['lsp'], transport: 0, options: { cwd: a } });
     expect(clients[0]!.options.documentSelector).toEqual([{ scheme: 'file', language: 'html', pattern: `${a}/**/*` }]);
     expect(clients[0]!.started).toBe(true);
 
@@ -98,9 +98,9 @@ describe('extension', () => {
 
   test('a client leaves documents of a nested project to that project\'s server', async () => {
     const outer = project();
-    mkdirSync(join(outer, 'app/node_modules/@tiaforge/sinter/dist'), { recursive: true });
-    writeFileSync(join(outer, 'app/node_modules/@tiaforge/sinter/package.json'), JSON.stringify({ name: '@tiaforge/sinter', bin: { sinter: './dist/cli.js' } }));
-    writeFileSync(join(outer, 'app/node_modules/@tiaforge/sinter/dist/cli.js'), '');
+    mkdirSync(join(outer, 'app/node_modules/@tiaforge-ui/sinter/dist'), { recursive: true });
+    writeFileSync(join(outer, 'app/node_modules/@tiaforge-ui/sinter/package.json'), JSON.stringify({ name: '@tiaforge-ui/sinter', bin: { sinter: './dist/cli.js' } }));
+    writeFileSync(join(outer, 'app/node_modules/@tiaforge-ui/sinter/dist/cli.js'), '');
     const { middleware } = require(join(ext, 'extension.js'));
     const m = middleware(outer);
     const next = (..._args: unknown[]) => 'handled';

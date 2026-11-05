@@ -2,7 +2,7 @@
 
 > sinter binds JSON APIs to plain HTML: keyed resources cached from the server, kept current from server events, rendered through <template> bindings, with optimistic mutations. A build step compiles annotated HTML into a page module; the browser runs no parser and no eval.
 
-Package: @tiaforge/sinter. Every directive is a `data-sn-*` attribute or an `<sn-*>` element. Anything else is a build error with a suggestion.
+Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `<sn-*>` element. Anything else is a build error with a suggestion.
 
 ## Attributes
 
@@ -87,7 +87,7 @@ Each recipe comes with its test; copy both.
 
 ```ts
 import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge/sinter/testing';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
 import page from './list-filter.html?raw';
 
 
@@ -138,7 +138,7 @@ test('filters the list as you type', async () => {
 
 ```ts
 import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge/sinter/testing';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
 import page from './form-dialog.html?raw';
 
 
@@ -186,7 +186,7 @@ test('saves the draft and upserts the result', async () => {
 
 ```ts
 import { expect, test } from 'vitest';
-import { render, mockRequests, mockStream } from '@tiaforge/sinter/testing';
+import { render, mockRequests, mockStream } from '@tiaforge-ui/sinter/testing';
 import page from './sse-sync.html?raw';
 
 
@@ -221,7 +221,7 @@ test('applies server events to the list', async () => {
 
 ```ts
 import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge/sinter/testing';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
 import page from './optimistic-toggle.html?raw';
 
 
@@ -261,7 +261,7 @@ test('flags at once and rolls back when the server refuses', async () => {
 
 ```ts
 import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge/sinter/testing';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
 import page from './pagination.html?raw';
 
 const all = [5, 4, 3, 2, 1].map((id) => ({ id, subject: `m${id}` }));
@@ -308,7 +308,7 @@ test('moves to the next page with a cursor', async () => {
 // In src/sinter.config.js:
 //
 //   import { HubConnectionBuilder } from '@microsoft/signalr';
-//   import { configure } from '@tiaforge/sinter';
+//   import { configure } from '@tiaforge-ui/sinter';
 //   import { signalRTransport } from './signalr-transport.js';
 //
 //   configure({
@@ -355,8 +355,8 @@ export function signalRTransport(build) {
 
 ```ts
 import { afterEach, expect, test } from 'vitest';
-import { configure } from '@tiaforge/sinter';
-import { render, mockRequests } from '@tiaforge/sinter/testing';
+import { configure } from '@tiaforge-ui/sinter';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
 import { signalRTransport } from './signalr-transport.js';
 import page from './signalr.html?raw';
 
@@ -436,7 +436,7 @@ export interface ContactEvent { contact: Contact }
 
 ```ts
 import { expect, test } from 'vitest';
-import { checkPage } from '@tiaforge/sinter/check';
+import { checkPage } from '@tiaforge-ui/sinter/check';
 import page from './typed.html?raw';
 import types from './typed.types.ts?raw';
 
@@ -477,7 +477,7 @@ test('an event payload that does not fit the resource is an error', () => {
 
 ```ts
 import { expect, test } from 'vitest';
-import { render, mockRequests, memoryStorage } from '@tiaforge/sinter/testing';
+import { render, mockRequests, memoryStorage } from '@tiaforge-ui/sinter/testing';
 import page from './cached-list.html?raw';
 
 const subjects = (root: HTMLElement) => [...root.querySelectorAll('li')].map((li) => li.textContent);
@@ -511,7 +511,7 @@ test('the next page load shows the cached list while it revalidates', async () =
 - State takes a JSDoc cast where the literal is not enough: `data-sn-state="{ editing: /** @type {Contact|null} */ (null) }"`.
 - Actions matched in the spec: `data-sn-body` is checked against the request schema, `$result` in `then` has the response type.
 - `<sn-event … type="ContactEvent">` types the payload; `item` must fit the resource's item, `set` part of it; `cursor` reads the item. No `type` on an event with payload expressions is warning SN506.
-- Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: `checkPage(html, { files, openapi })` from `@tiaforge/sinter/check`.
+- Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: `checkPage(html, { files, openapi })` from `@tiaforge-ui/sinter/check`.
 
 ## Deploying streams
 
@@ -523,7 +523,7 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 
 ## Testing
 
-Write a test next to the markup. `@tiaforge/sinter/testing` compiles the page with the real compiler and mounts it:
+Write a test next to the markup. `@tiaforge-ui/sinter/testing` compiles the page with the real compiler and mounts it:
 
 - `render(html, { requests, streams, url, locale, now, helpers, files, storage, session })` → `{ root, app, flush, settle, advance, navigations, window }`. Pass one `memoryStorage()` as `session` to two renders to test what carries over between page loads (the `cache` attribute).
 - `mockRequests({ 'GET /api/x': json | {status, body} | (call) => … })`: records `calls`; responses are held until `settle()`; an unmatched request fails the test and lists the routes.

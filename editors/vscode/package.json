@@ -21,7 +21,7 @@
           "type": "string",
           "default": "",
           "scope": "resource",
-          "description": "Path to sinter's CLI (dist/cli.js), relative to the workspace folder. Empty: the project's node_modules/@tiaforge/sinter."
+          "description": "Path to sinter's CLI (dist/cli.js), relative to the workspace folder. Empty: the project's node_modules/@tiaforge-ui/sinter."
         },
         "sinter.trace.server": {
           "type": "string",

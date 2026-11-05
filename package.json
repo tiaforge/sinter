@@ -1,5 +1,5 @@
 {
-  "name": "@tiaforge/sinter",
+  "name": "@tiaforge-ui/sinter",
   "version": "0.1.0-dev",
   "description": "Bind JSON APIs to plain HTML: keyed resources, SSE sync, template bindings and optimistic mutations, compiled at build time.",
   "license": "MIT",

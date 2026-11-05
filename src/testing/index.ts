@@ -1,4 +1,4 @@
-// @tiaforge/sinter/testing: compile in memory with the real compiler, mount
+// @tiaforge-ui/sinter/testing: compile in memory with the real compiler, mount
 // into the test DOM, and drive requests, streams and time deterministically.
 // No test-runner imports: works with Vitest or anything else, on jsdom or happy-dom.
 import { compileParts } from '../compiler/compile.js';

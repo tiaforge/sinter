@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'vitest';
-import { configure } from '@tiaforge/sinter';
-import { render, mockRequests } from '@tiaforge/sinter/testing';
+import { configure } from '@tiaforge-ui/sinter';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
 import { signalRTransport } from './signalr-transport.js';
 import page from './signalr.html?raw';
 

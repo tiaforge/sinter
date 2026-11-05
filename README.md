@@ -31,13 +31,13 @@ browser runs no parser and no `eval`.
 
 ```js
 // vite.config.js
-import sinter from '@tiaforge/sinter/vite';
+import sinter from '@tiaforge-ui/sinter/vite';
 export default { plugins: [sinter()] };
 ```
 
 - `src/sinter.helpers.js` (optional): helper functions and namespaces (`export * as m from './paraglide/messages.js'`).
 - `src/sinter.config.js` (optional): `configure({ request, sessionProbe, onError, locale, origins, urlSchemes, transport })`;
-  `transport` picks WebSocket (`@tiaforge/sinter/ws`), SignalR (recipe in `llms.txt`) or another
+  `transport` picks WebSocket (`@tiaforge-ui/sinter/ws`), SignalR (recipe in `llms.txt`) or another
   transport per `<sn-sync>` URL.
 - `<sn-resource … cache>` shows the data from the last page load at once and revalidates
   (sessionStorage, one tab; cleared on any 401 and by `clearPersisted()`, which you call on logout).
@@ -58,16 +58,16 @@ export default { plugins: [sinter()] };
 
 | Import | Contents |
 | --- | --- |
-| `@tiaforge/sinter` | `mount`, store, renderer, actions, request layer, instance API, `configure` |
-| `@tiaforge/sinter/sse` | `<sn-sync>`, SSE transport |
-| `@tiaforge/sinter/ws` | WebSocket transport for `<sn-sync>` |
-| `@tiaforge/sinter/optimistic` | optimistic layers |
-| `@tiaforge/sinter/paginate` | keyset, offset, append |
-| `@tiaforge/sinter/persist` | `data-sn-persist` |
-| `@tiaforge/sinter/compiler` | `compile()` |
-| `@tiaforge/sinter/vite` | Vite plugin |
-| `@tiaforge/sinter/check` | `check()` (used by `sinter check`), `checkPage()` for tests |
-| `@tiaforge/sinter/testing` | `render`, `mockRequests`, `mockStream` |
+| `@tiaforge-ui/sinter` | `mount`, store, renderer, actions, request layer, instance API, `configure` |
+| `@tiaforge-ui/sinter/sse` | `<sn-sync>`, SSE transport |
+| `@tiaforge-ui/sinter/ws` | WebSocket transport for `<sn-sync>` |
+| `@tiaforge-ui/sinter/optimistic` | optimistic layers |
+| `@tiaforge-ui/sinter/paginate` | keyset, offset, append |
+| `@tiaforge-ui/sinter/persist` | `data-sn-persist` |
+| `@tiaforge-ui/sinter/compiler` | `compile()` |
+| `@tiaforge-ui/sinter/vite` | Vite plugin |
+| `@tiaforge-ui/sinter/check` | `check()` (used by `sinter check`), `checkPage()` for tests |
+| `@tiaforge-ui/sinter/testing` | `render`, `mockRequests`, `mockStream` |
 
 ## Docs
 
