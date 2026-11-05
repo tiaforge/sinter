@@ -1,11 +1,4 @@
-<!-- Author, date and summary of an article `a` in a list. The favorite button is the page's (it names the page's resources). -->
-<div class="article-meta">
-  <a data-sn-attr="{href: '/profile/' + encodeURIComponent(a.author.username)}"><img alt="" data-sn-attr="{src: avatar(a.author.image)}"></a>
-  <div class="info">
-    <a class="author" data-sn-attr="{href: '/profile/' + encodeURIComponent(a.author.username)}" data-sn-text="a.author.username"></a>
-    <span class="date" data-sn-text="date(a.createdAt, 'long')"></span>
-  </div>
-</div>
+<!-- Title, description and tags of an article `a` in a list, linking to it. -->
 <a class="preview-link" data-sn-attr="{href: '/article/' + encodeURIComponent(a.slug)}">
   <h1 data-sn-text="a.title"></h1>
   <p data-sn-text="a.description"></p>
