@@ -60,7 +60,7 @@ export default function sinter(options: SinterOptions = {}): Plugin & { api: { o
       if (error || !options.typecheck || dev || !units.size) return;
       const { check } = await import('./check/index.js');
       const p = project(root, options);
-      const r = check({ root, units: [...units.values()], helpers: p.helpers, types: p.types, openapi: p.openapi });
+      const r = check({ root, units: [...units.values()], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi });
       units.clear();
       if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
     },
@@ -74,12 +74,13 @@ export default function sinter(options: SinterOptions = {}): Plugin & { api: { o
         const p = project(root, options);
         if (p.diagnostics.length) throw new Error(`sinter: ${p.diagnostics.map(formatDiagnostic).join('\n')}`);
         const out = compile(html, {
-          file, root, dev, helpers: p.helpers, moduleSrc, config: p.config, readFile: p.readFile,
+          file, root, dev, helpers: p.helpers, actions: p.actions, moduleSrc, config: p.config, readFile: p.readFile,
           check: !!options.typecheck && !dev, openapi: p.openapi,
         });
         if (out.check) units.set(file, out.check);
         for (const f of out.files) watch(f);
         if (p.helpersFile) watch(p.helpersFile);
+        if (p.actionsFile) watch(p.actionsFile);
         const errors = out.diagnostics.filter((d) => d.severity === 'error');
         for (const d of out.diagnostics) if (d.severity === 'warning') console.warn(formatDiagnostic(d));
         if (errors.length) {

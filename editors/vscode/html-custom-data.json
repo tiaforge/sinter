@@ -12,6 +12,9 @@
           "name": "src"
         },
         {
+          "name": "call"
+        },
+        {
           "name": "each"
         },
         {
@@ -182,6 +185,10 @@
     {
       "name": "data-sn-delete",
       "description": "DELETE action (URL template)"
+    },
+    {
+      "name": "data-sn-call",
+      "description": "local action: calls a function from the actions module, e.g. pgp.decrypt(msg) (action call)"
     },
     {
       "name": "data-sn-body",

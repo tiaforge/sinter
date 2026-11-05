@@ -58,6 +58,16 @@ export interface Pager {
   received(items: unknown[], total: number | null, move: unknown): void;
 }
 
+/** The last argument of an action function (`data-sn-call`, `<sn-resource call>`). */
+export interface CallContext {
+  /** aborts when the page is hidden (pagehide) or, for a resource, when its inputs change */
+  signal: AbortSignal;
+  /** a request through the app's middleware chain (401 handling, origins, timeout) */
+  request(url: string, init?: SendInit): Promise<unknown>;
+  /** the element whose action this is; null for a resource */
+  el: Element | null;
+}
+
 export interface ResourceLoader {
   def: ResourceDef;
   res: Resource;
@@ -256,6 +266,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const marked = new Set<unknown>();
   /** debounced handlers' pending timers */
   const timers = new WeakMap<RB, unknown>();
+  /** action calls' signal: aborts when the page is hidden */
+  let hide = new AbortController();
+  /** runs an action function; it counts as busy (for the testing module's settle) while it runs */
+  async function invoke(run: number, args: unknown, ctx: CallContext): Promise<unknown> {
+    app.busy++;
+    try { return await fns[run]!(args, ctx); } finally { app.busy--; }
+  }
+  /** a failed call: SinterErrors as they are, anything else with status null */
+  const callError = (e: unknown) => (e instanceof SinterError ? e : new SinterError(null, e, (e as Error)?.message || String(e)));
   /** Per flush round: how dirty paths reach a template's rows (0 not, 1 only marked elements, 2 any row). */
   let rowHits = new Map<TemplateDef, number>();
 
@@ -431,6 +450,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
   for (const id of bad) { found.delete(id); warn(1, id); }
   for (const def of ir.resources) createLoader(def);
+  // action calls see the page leave through ctx.signal
+  if (ir.actions.some((x) => x.call) || ir.resources.some((x) => x.call)) {
+    app.addCleanup(env.listen('pagehide', () => { hide.abort(); hide = new AbortController(); }));
+  }
   // listeners for every event type the page binds, rows included
   listen('toggle');
   for (const nd of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) for (const b of nd.b) {
@@ -884,10 +907,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const st = act(rb.el), get = a.method == 'GET';
     if (!get && a.concurrency == 'block' && st.n) return;
     const s = child(rb.s, { $el: rb.el, $event: e });
-    let url: string, body: unknown;
+    let url = '', body: unknown;
     try {
-      url = app.url(a.url, s);
-      body = a.body != null ? fns[a.body]!(s) : a.form && !get && a.method != 'DELETE' ? serialize(rb.el as HTMLFormElement) : undefined;
+      // a call's arguments are taken when it is triggered, like a request's URL and body
+      if (a.call) body = fns[a.call.args]!(s);
+      else {
+        url = app.url(a.url, s);
+        body = a.body != null ? fns[a.body]!(s) : a.form && !get && a.method != 'DELETE' ? serialize(rb.el as HTMLFormElement) : undefined;
+      }
     } catch (err) {
       return unhandled(toError(err), rb.el);
     }
@@ -911,14 +938,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
       for (const x of st.off) x.disabled = true;
     }
     try {
-      const result = await req.send(url, { method: a.method, body, signal: c?.signal });
+      const result = a.call
+        ? await invoke(a.call.run, body, { signal: hide.signal, request: (u: string, i?: SendInit) => req.send(u, i), el })
+        : await req.send(url, { method: a.method, body, signal: c?.signal });
       if (c && st.c != c) return;
       drop();
       if (a.then != null) handle(rb, a.then, null, a.w, { $result: result });
     } catch (err) {
       drop();
       if (isAbort(err) || (c && st.c != c)) return;
-      const error = toError(err);
+      const error = a.call ? callError(err) : toError(err);
       a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el);
     } finally {
       if (c && st.c == c) st.c = null;
@@ -952,8 +981,17 @@ export function mount(root: Document | Element, o: MountOptions): App {
     let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null;
 
     const scope = () => app.scopeOf(def.scope);
+    /** `call`: the arguments of the current load; the identity of a load is its arguments' JSON */
+    let args: unknown[] = [], calls = 0;
     const resolve = () => {
       const s = scope();
+      if (def.call) {
+        try {
+          if (def.when != null && !fns[def.when]!(s)) return null;
+          args = fns[def.call.args]!(s);
+          try { return 'call:' + JSON.stringify(args); } catch { return `call:#${++calls}`; }
+        } catch (e) { warn(17, def.name, (e as Error).message); return null; }
+      }
       try { return def.when != null && !fns[def.when]!(s) ? null : app.url(def.src, s); } catch (e) { warn(17, def.name, (e as Error).message); return null; }
     };
     const loading = (on: boolean) => { if (r.meta.loading != on) { r.meta.loading = on; r.onDirty('meta'); } };
@@ -1035,7 +1073,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
         loading(true);
         try {
           const req = withParams(url, m ? l.pager!.params(m) : null);
-          const body = await loadShared(req, ctl.signal);
+          const body = def.call
+            ? await invoke(def.call.run, args, { signal: ctl.signal, request: (u: string, i?: SendInit) => app.req.send(u, i), el: null })
+            : await loadShared(req, ctl.signal);
           if (n != seq) return;
           store(body, req, m);
           loaded = true;
@@ -1043,7 +1083,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           r.meta.loadedAt = env.now();
         } catch (e) {
           if (n != seq || isAbort(e)) return;
-          fail(e);
+          fail(def.call ? callError(e) : e);
         } finally {
           // writes made while this load ran win over its (older) response
           r.endLoad(mark, loaded);

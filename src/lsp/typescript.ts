@@ -79,7 +79,7 @@ export class TypeScriptBridge {
     if (this.support && JSON.stringify(support) !== JSON.stringify(this.support)) this.filesChanged([support.declarations, ...support.openapi]);
     this.support = support;
     for (const [page, unit] of units) {
-      const s = shadowOf(unit, support, this.root, project.helpers);
+      const s = shadowOf(unit, support, this.root, project.helpers, project.actions);
       const prev = this.shadows.get(page);
       if (prev?.text === s.text) { prev.unit = unit; prev.regions = s.regions; prev.brokenFrom = s.brokenFrom; continue; }
       const path = shadowPath(support, this.root, page);

@@ -19,6 +19,8 @@ export interface CheckOptions {
   /** from `compile(…, { check: true })`, one per page */
   units: CheckUnit[];
   helpers: HelperManifest;
+  /** the actions module (`data-sn-call`), same shape as helpers */
+  actions?: HelperManifest;
   /** absolute path of the types module, or null */
   types: string | null;
   /** the specs the pages were compiled with (`compile(…, { openapi })`) */
@@ -73,8 +75,8 @@ export function shadowPath(support: Support, root: string, page: string): string
   return join(support.outDir, relative(root, page) + '.js');
 }
 
-export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest): Shadow {
-  return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, openapi: support.openapi });
+export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest, actions?: HelperManifest): Shadow {
+  return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi });
 }
 
 /** A TypeScript error at a 1-based shadow position, as an SN208 diagnostic at the HTML position. */
@@ -98,7 +100,7 @@ export function check(o: CheckOptions): CheckResult {
   const shadows = new Map<string, { unit: CheckUnit; regions: Region[]; brokenFrom: number | null }>();
   for (const unit of o.units) {
     const file = shadowPath(support, o.root, unit.file);
-    const s = shadowOf(unit, support, o.root, o.helpers);
+    const s = shadowOf(unit, support, o.root, o.helpers, o.actions);
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, s.text);
     shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom });
@@ -135,8 +137,8 @@ export function checkPage(html: string, o: ProjectOptions & { files?: Record<str
     const file = join(root, 'index.html');
     writeFileSync(file, html);
     const p = project(root, o);
-    const out = compile(html, { file, root, dev: false, helpers: p.helpers, readFile: p.readFile, check: true, openapi: p.openapi });
-    const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()) });
+    const out = compile(html, { file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: p.readFile, check: true, openapi: p.openapi });
+    const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()) });
     return [...p.diagnostics, ...out.diagnostics, ...r.diagnostics].map((d) => ({ ...d, file: relative(root, d.file) }));
   } finally {
     rmSync(root, { recursive: true, force: true });

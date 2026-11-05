@@ -242,6 +242,7 @@ Text-like controls update on `input`, all others on `change`.
 | Attribute | Value | Notes |
 | --- | --- | --- |
 | `data-sn-get`, `-post`, `-put`, `-patch`, `-delete` | URL template | one per element |
+| `data-sn-call` | one call of an action, `ns.fn(args)` | a local action instead of a request (see Local actions); one action per element |
 | `data-sn-body` | value expression | JSON body; overrides form serialization |
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
 | `data-sn-debounce` | milliseconds | delays the trigger, resets on each event; on an element without a method, delays its `data-sn-on-*` handlers the same way (the handler runs with the last event; `data-sn-model` still updates at once) |
@@ -299,7 +300,8 @@ A resource is a named, page-wide cache of one piece of server data: either a key
 | Attribute | Required | Meaning |
 | --- | --- | --- |
 | `name` | yes | identifier used in expressions; must be a valid JS identifier |
-| `src` | yes | URL template; refetch when its interpolated values change |
+| `src` | yes, or `call` | URL template; refetch when its interpolated values change |
+| `call` | instead of `src` | one call of an action, `ns.fn(args)`; the resource loads from the function and reloads when the arguments' inputs change (see Local actions) |
 | `key` | for collections | comma-separated item fields forming the identity; absent = single object |
 | `items` | no | path to the array in the response; default: the response itself |
 | `total` | no | path to a total count, exposed as `$meta.<name>.total` |
@@ -529,9 +531,25 @@ configure({
 ```
 - A middleware is `(request, next) => Promise<Response>`, so retries, timeouts or logging are plain functions.
 - `loginRedirect` stores the return URL (same-origin, allowlisted prefixes only), navigates to login, and never resolves, so `then` and `catch` do not run.
-- Non-2xx responses reject with `$error = {status, body, message}`. Network errors give `status: 0`.
+- Non-2xx responses reject with `$error = {status, body, message}`. Network errors give `status: 0`; a failed action call gives `status: null`.
 - Defaults: 30 s timeout; one automatic retry for idempotent requests on network errors only.
 Response bodies. 204 or an empty body → `null`. A JSON content type → parsed; invalid JSON is an error with the response's status and the message `invalid JSON`. Any other content type → text. Error bodies are parsed the same way into `$error.body`.
+
+### Local actions (`data-sn-call`)
+Work that is not one request (crypto, MIME, WebAuthn, other browser APIs) runs in app functions that pages call like requests (added 2026-11-05; decided in the local actions proposal).
+```html
+<button data-sn-call="mail.archive(msg)" data-sn-optimistic="remove('messages', msg)" data-sn-catch="error = $error.message">Archive</button>
+<sn-resource name="body" call="pgp.decrypt(open)" when="open" type="Decrypted"></sn-resource>
+```
+- The actions module is `src/sinter.actions.js` or `.ts` (`sinter({ actions })` overrides it), read like the helpers module: export names, `export * as ns` namespaces, re-exports followed. Its functions may be async and have side effects.
+- `data-sn-call` is exactly one call of an exported function or namespace member; anything else is `SN401`, an unknown name `SN310`. A method attribute and `data-sn-call` on one element is `SN102`, and so is `data-sn-body` on a call.
+- An action is an action: the same triggers, `data-sn-trigger`, `data-sn-debounce`, `aria-busy`, the mutation concurrency rules (`block` for forms, `queue`, `latest`; a running call is never aborted), optimistic layers, `then` with `$result`, `catch` with `$error`, and the unhandled-error path.
+- Arguments are value expressions evaluated when the action triggers. The function receives them, then a context: `{signal, request, el}`. `request` goes through the request layer (401 handling, origins, timeout); `signal` aborts when the page is hidden; `el` is the element (null for a resource).
+- A thrown `SinterError` reaches `$error` as it is; anything else becomes `{status: null, body: <the thrown value>, message}`.
+- Action functions never write to sinter-managed nodes or to state: they return data, and `then` puts it where it belongs. Expressions cannot call them (`SN203`); helpers stay pure.
+- Code that wants to run an action (keyboard shortcuts) clicks the element that carries it. There is no `app.call()`.
+- `<sn-resource call>` is a resource fed by a function: the arguments' dependencies play the role of `src`'s, so a change aborts the running call through `ctx.signal`, drops its late result and calls again (latest wins). `$meta`, `refresh()` and `refetch` events work as for `src`. `paginate`, `each` and `cache` do not combine with `call` in v0.2.
+- `sinter check` types the arguments against the function's parameters without a trailing `CallContext`, and `$result` as the awaited return type. The page module imports only the actions it calls.
 
 ## Optimistic updates
 An action with `data-sn-optimistic` changes the store before the request is sent and undoes exactly that change if the request fails. It ships in v0.1 as the `optimistic` module.

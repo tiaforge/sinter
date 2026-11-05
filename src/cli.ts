@@ -35,11 +35,11 @@ async function main(argv: string[]): Promise<number> {
   const diagnostics: Diagnostic[] = [...p.diagnostics];
   const units: CheckUnit[] = [];
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi });
+    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
-  const r = check({ root, units, helpers: p.helpers, types: p.types, openapi: p.openapi });
+  const r = check({ root, units, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi });
   diagnostics.push(...r.diagnostics);
 
   for (const d of diagnostics) console.log(formatDiagnostic({ ...d, file: relative(process.cwd(), d.file) || d.file }) + '\n');

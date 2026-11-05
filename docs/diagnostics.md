@@ -202,6 +202,16 @@ The resource matched an operation in the OpenAPI spec, but its `items` or `total
 
 **Fix:** Fix the path in `items` or `total`, or the spec if the API changed.
 
+## SN310 unknown-action
+
+Error, for example:
+
+> `pgp.decrpyt` is not exported by the actions module. Did you mean `pgp.decrypt`?
+
+`data-sn-call` and `<sn-resource call>` name a function the actions module (`src/sinter.actions.js` or `.ts`) exports, directly or through `export * as ns`.
+
+**Fix:** Use the suggested name, or export the function from the actions module.
+
 ## SN401 parse-error
 
 Error, for example:

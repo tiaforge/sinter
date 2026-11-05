@@ -35,6 +35,8 @@ export interface Scope {
 export interface PageInfo {
   resources: Map<string, ResourceInfo>;
   helpers: Set<string>;
+  /** action functions and namespaces: only `data-sn-call` and `<sn-resource call>` may name them */
+  actions?: Set<string>;
   namespaces: Map<string, Set<string>>;
   /** imports used by emitted code */
   usedHelpers: Set<string>;
@@ -246,6 +248,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return null;
     }
     if (opts.payload) { payloadNames.add(name); return { kind: 'payload' }; }
+    if (page.actions?.has(name)) {
+      report('SN203', `\`${name}\` is an action: actions run through \`data-sn-call\` or \`<sn-resource call>\`, not inside expressions`, offset);
+      return null;
+    }
     if (BROWSER.has(name)) {
       report('SN202', `\`${name}\` is a browser API; expressions may use JavaScript, not the browser. Use an island`, offset);
       return null;

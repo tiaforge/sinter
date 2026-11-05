@@ -19,6 +19,8 @@ export interface ShadowOptions {
   /** the types module and the names it exports */
   types: { file: string; names: string[] } | null;
   helpers: HelperManifest;
+  /** the actions module, for `data-sn-call` arguments and results */
+  actions?: HelperManifest;
   /** absolute paths of the declarations generated per OpenAPI spec, by spec index */
   openapi?: string[];
 }
@@ -81,6 +83,9 @@ export function shadow(o: ShadowOptions): Shadow {
   for (const [ns, { module }] of Object.entries(o.helpers.namespaces)) {
     if (!taken.has(ns)) line(`import * as ${ns} from '${moduleSpec(module)}';`);
   }
+  if (o.actions?.module && unit.exprs.some((e) => e.returns?.kind === 'call' || e.resultType?.kind === 'call')) {
+    line(`import * as $A from '${moduleSpec(o.actions.module)}';`);
+  }
   line('const $any = /** @type {any} */ (null);');
 
   const types: string[] = [];
@@ -128,7 +133,9 @@ export function shadow(o: ShadowOptions): Shadow {
     }
     const text = t.kind === 'openapi'
       ? schemaToTs(t.schema, (n) => `$O${t.spec}.${typeName(n)}`)
-      : `${t.partial ? 'Partial<' : ''}${decl('Item')}<typeof ${t.resource}>${t.partial ? '>' : ''}`;
+      : t.kind === 'call'
+        ? (t.args ? `${decl('CallArgs')}<typeof $A.${t.name}>` : `Awaited<ReturnType<typeof $A.${t.name}>>`)
+        : `${t.partial ? 'Partial<' : ''}${decl('Item')}<typeof ${t.resource}>${t.partial ? '>' : ''}`;
     line(`/** @${tag} {${text}} */${after}`);
   };
 
@@ -227,7 +234,10 @@ export interface Meta {
   hasPrev?: boolean;
   hasNext?: boolean;
 }
-export interface Err { status: number; body: any; message: string }
+export interface Err { status: number | null; body: any; message: string }
+export interface CallContext { signal: AbortSignal; request(url: string, init?: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal }): Promise<any>; el: Element | null }
+/** an action's parameters without its trailing context */
+export type CallArgs<F> = F extends (...a: infer P) => any ? (P extends [...infer A, infer L] ? ([L] extends [CallContext] ? A : P) : P) : never;
 export type Item<T> = NonNullable<T> extends readonly (infer U)[] ? U : NonNullable<T> extends Iterable<infer U> ? U : any;
 export type El<K extends string> = K extends keyof HTMLElementTagNameMap ? HTMLElementTagNameMap[K] : HTMLElement;
 export type Ev<K extends string> = K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K] : CustomEvent;

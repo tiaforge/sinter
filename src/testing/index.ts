@@ -180,6 +180,8 @@ export interface RenderOptions {
   now?: number | Date;
   /** helper functions, and namespaces as objects of functions */
   helpers?: Record<string, unknown>;
+  /** action functions for `data-sn-call` and `<sn-resource call>`, and namespaces as objects of functions */
+  actions?: Record<string, unknown>;
   /** partials for `<sn-include>`, by path relative to the page */
   files?: Record<string, string>;
   /** localStorage and sessionStorage (default: empty ones); pass the previous page's to test what carries over */
@@ -221,9 +223,15 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     if (typeof v === 'function') manifest.names.push(k);
     else if (v && typeof v === 'object') manifest.namespaces[k] = { module: k, members: Object.keys(v) };
   }
+  const actions = options.actions ?? {};
+  const actionManifest: HelperManifest = { module: 'actions', names: [], namespaces: {} };
+  for (const [k, v] of Object.entries(actions)) {
+    if (typeof v === 'function') actionManifest.names.push(k);
+    else if (v && typeof v === 'object') actionManifest.namespaces[k] = { module: k, members: Object.keys(v) };
+  }
   const files = options.files ?? {};
   const parts = compileParts(html, {
-    file: PAGE, root: '/test', dev: true, helpers: manifest, moduleSrc: 'about:blank',
+    file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank',
     readFile: (p) => {
       const rel = p.startsWith('/test/') ? p.slice('/test/'.length) : p;
       const hit = files[rel] ?? files[`./${rel}`] ?? files[p];
@@ -241,6 +249,11 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   for (const h of parts.helpers.user) { names.push(h); values.push(helpers[h]); }
   for (const [ns, members] of Object.entries(parts.namespaces)) {
     for (const m of members) { names.push(`${ns}$${m}`); values.push((helpers[ns] as Record<string, unknown>)[m]); }
+  }
+  for (const c of parts.calls) {
+    const [a, b] = c.split('.') as [string, string | undefined];
+    names.push(`$a$${c.replace('.', '$')}`);
+    values.push(b === undefined ? actions[a] : (actions[a] as Record<string, unknown>)[b]);
   }
   // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
   const fns = new Function(...names, `"use strict"; return [\n${parts.fns.join(',\n')}\n];`)(...values);

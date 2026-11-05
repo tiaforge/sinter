@@ -103,6 +103,36 @@ describe('sinter check', () => {
     expect(d[0]!.message).toMatch(/state `account_id` shadows the payload field `account_id`: rename the state/);
   });
 
+  test('data-sn-call: arguments checked against the action (minus its context), $result typed', () => {
+    const root = project({
+      'src/sinter.types.ts': TYPES,
+      'src/sinter.actions.ts': `import type { CallContext } from '@tiaforge-ui/sinter';
+import type { Contact } from './sinter.types.ts';
+export * as mail from './mail.ts';
+export async function rename(c: Contact, name: string, ctx: CallContext): Promise<Contact> { void ctx; return { ...c, name }; }
+`,
+      'src/mail.ts': `export async function count(n: number): Promise<{ total: number }> { return { total: n }; }\n`,
+    });
+    const p = projectOf(root);
+    expect(p.actions.names).toEqual(['rename']);
+    const html = page(`<div data-sn-state="{ label: '', total: 0 }">
+<template data-sn-for="c in contacts">
+  <button data-sn-call="rename(c, 'Ada')" data-sn-then="label = $result.name"></button>
+  <button data-sn-call="rename(c, 5)"></button>
+</template>
+<button data-sn-call="mail.count(3)" data-sn-then="total = $result.totl"></button>
+<p data-sn-text="label + total"></p></div>`);
+    const file = join(root, 'index.html');
+    writeFileSync(file, html);
+    const out = compile(html, { file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: (f) => readFileSync(f, 'utf8'), check: true });
+    expect(out.diagnostics).toEqual([]);
+    const r = check({ root, units: [out.check!], helpers: p.helpers, actions: p.actions, types: p.types, tsc });
+    const msgs = r.diagnostics.map((d) => d.message).sort();
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0]).toMatch(/Property 'totl' does not exist on type '\{ total: number; \}'/);
+    expect(msgs[1]).toMatch(/'number' is not assignable to type 'string'/);
+  });
+
   test('each: the loop variable has the list item type in src', () => {
     const html = page(`<sn-resource name="emails" each="c in contacts" src="/api/emails?contact={c.nmae}" key="id" type="any"></sn-resource>
 <p data-sn-text="emails.length"></p>`);

@@ -75,10 +75,11 @@ export class Workspace {
     }
     const p = project(root, options);
     const inputs = new Set<string>(VITE_CONFIGS.map((c) => join(root, c)));
-    for (const f of [p.helpersFile, p.types, ...p.openapi.map((s) => s.file)]) if (f) inputs.add(f);
+    for (const f of [p.helpersFile, p.actionsFile, p.types, ...p.openapi.map((s) => s.file)]) if (f) inputs.add(f);
     for (const spec of options.openapi == null ? [] : ([] as string[]).concat(options.openapi)) inputs.add(resolve(root, spec));
     for (const ext of ['.js', '.ts']) {
       inputs.add(join(root, 'src/sinter.helpers' + ext));
+      inputs.add(join(root, 'src/sinter.actions' + ext));
       inputs.add(join(root, 'src/sinter.types' + ext));
     }
     inputs.add(join(root, 'src/sinter.types.d.ts'));
@@ -181,7 +182,7 @@ export class Workspace {
       }
       try {
         const out = compile(html, {
-          file: page, root: state.root, dev: false, helpers: p.helpers, config: p.config, readFile, check: true, openapi: p.openapi,
+          file: page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi,
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));
         state.diagnostics.set(page, out.diagnostics);

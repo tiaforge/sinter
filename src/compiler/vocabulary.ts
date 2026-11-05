@@ -22,6 +22,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'put', value: 'URL template', doc: 'PUT action' },
   { name: 'patch', value: 'URL template', doc: 'PATCH action' },
   { name: 'delete', value: 'URL template', doc: 'DELETE action' },
+  { name: 'call', value: 'action call', doc: 'local action: calls a function from the actions module, e.g. pgp.decrypt(msg)' },
   { name: 'body', value: 'value expression', doc: 'JSON request body; overrides form serialization' },
   { name: 'trigger', value: 'DOM event name', doc: 'overrides the default trigger' },
   { name: 'debounce', value: 'milliseconds', doc: 'delays the trigger, resets on each event; without a method, delays the element\'s data-sn-on-* handlers' },
@@ -36,7 +37,7 @@ export const ATTRIBUTES: AttrDoc[] = [
 export const ON_DOC: AttrDoc = { name: 'on-<event>', value: 'handler expression', doc: 'plain event handler, no request; e.g. data-sn-on-click' };
 
 export const ELEMENTS: Array<{ name: string; attrs: string[]; doc: string }> = [
-  { name: 'sn-resource', attrs: ['name', 'src', 'each', 'key', 'items', 'total', 'order', 'when', 'paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'type', 'cache'], doc: 'a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates' },
+  { name: 'sn-resource', attrs: ['name', 'src', 'call', 'each', 'key', 'items', 'total', 'order', 'when', 'paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'type', 'cache'], doc: 'a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates' },
   { name: 'sn-sync', attrs: ['src'], doc: 'one server event stream' },
   { name: 'sn-event', attrs: ['name', 'resource', 'op', 'item', 'set', 'when', 'fallback', 'type'], doc: 'maps one server event to a change message; child of <sn-sync>' },
   { name: 'sn-include', attrs: ['src'], doc: 'inlines a partial at build time' },

@@ -39,6 +39,8 @@ export interface ResourceDef {
   data: number | null;
   /** `cache`: the oldest cached data to show, in ms (0: any age); absent when not cached */
   cache?: number;
+  /** `call="ns.fn(args)"`: loaded from an action function instead of `src` (then empty) */
+  call?: CallDef;
   /** `each="a in accounts"`: one request per list item (src evaluated with `item` in scope), merged into one collection */
   each?: { item: string; list: number; of?: string };
 }
@@ -120,9 +122,17 @@ export interface TemplateDef {
   find?: number;
 }
 
+/** a local action call: `args` evaluates the arguments (an array), `run(args, ctx)` calls the function */
+export interface CallDef {
+  args: number;
+  run: number;
+}
+
 export interface ActionDef {
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  /** `CALL`: `data-sn-call`, with `call` set and an empty `url` */
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'CALL';
   url: UrlTemplate;
+  call?: CallDef;
   body: number | null;
   trigger: string;
   debounce: number;

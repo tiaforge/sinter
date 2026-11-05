@@ -112,6 +112,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'The resource matched an operation in the OpenAPI spec, but its `items` or `total` path is not in the response schema.',
     fix: 'Fix the path in `items` or `total`, or the spec if the API changed.',
   },
+  SN310: {
+    example: '`pgp.decrpyt` is not exported by the actions module. Did you mean `pgp.decrypt`?',
+    means: '`data-sn-call` and `<sn-resource call>` name a function the actions module (`src/sinter.actions.js` or `.ts`) exports, directly or through `export * as ns`.',
+    fix: 'Use the suggested name, or export the function from the actions module.',
+  },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
     means: 'An attribute value has the wrong form: a JavaScript syntax error (the column points inside the attribute), or a value outside what the attribute accepts, such as `paginate` or `data-sn-concurrency`.',

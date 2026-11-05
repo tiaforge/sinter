@@ -27,9 +27,9 @@ export function configure(options: Partial<Omit<Config, 'env'>> & { env?: Partia
   if (env) config.env = { ...config.env, ...env };
 }
 
-/** `$error`: a non-2xx response, a network error (status 0) or a refused request. */
+/** `$error`: a non-2xx response, a network error (status 0), a refused request, or a failed action call (status null). */
 export class SinterError extends Error {
-  constructor(readonly status: number, readonly body: unknown, message: string) {
+  constructor(readonly status: number | null, readonly body: unknown, message: string) {
     super(message);
     this.name = 'SinterError';
   }

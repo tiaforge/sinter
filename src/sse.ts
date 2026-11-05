@@ -109,7 +109,7 @@ class Connection {
     try {
       status = (await this.app.req.raw(config.sessionProbe)).status;
     } catch (e) {
-      status = e instanceof SinterError ? e.status : 0;
+      status = e instanceof SinterError ? e.status ?? 0 : 0;
     }
     if (this.closed || this.hidden) return;
     if (status >= 200 && status < 300) this.open();

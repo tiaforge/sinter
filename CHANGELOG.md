@@ -5,6 +5,13 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+- Local actions: `data-sn-call="ns.fn(args)"` calls a function from the actions
+  module (`src/sinter.actions.js` or `.ts`) with the lifecycle of an action
+  (busy, concurrency, optimistic layers, `then`/`catch`), and
+  `<sn-resource call="…">` loads a resource from one, latest wins. Functions get
+  a trailing context `{signal, request, el}`. New code `SN310 unknown-action`.
+- `$error.status` (and `SinterError.status`) is `null` for a failed action call;
+  its type is now `number | null`.
 - `data-sn-debounce` on an element without a method delays its
   `data-sn-on-*` handlers: `<input data-sn-model="q" data-sn-on-input="query = q"
   data-sn-debounce="250">` updates `q` at once and `query` once typing pauses.

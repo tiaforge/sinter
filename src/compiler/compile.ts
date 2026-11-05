@@ -36,6 +36,8 @@ export interface CompileOptions {
   check?: boolean;
   /** parsed OpenAPI specs: resources without `type` are matched against them */
   openapi?: OpenApiSpec[];
+  /** the actions module (`data-sn-call`, `<sn-resource call>`), same shape as helpers */
+  actions?: HelperManifest;
 }
 
 export interface CompileResult {
@@ -55,6 +57,8 @@ export interface CompiledParts {
   /** helper names imported from the helpers module or the core */
   helpers: { user: string[]; builtin: string[] };
   namespaces: Record<string, string[]>;
+  /** action functions called, as written: `archive`, `pgp.decrypt` */
+  calls: string[];
   diagnostics: Diagnostic[];
   files: string[];
   /** with `check: true` */
@@ -103,6 +107,8 @@ class Compiler {
   readonly remove: P5Element[] = [];
   readonly embedded = new Map<string, number>();
   readonly features = new Set<string>();
+  /** action functions called by the page (`archive`, `pgp.decrypt`) */
+  readonly calls = new Set<string>();
   nextId = 0;
   nextSid = 0;
   readonly check: CheckUnit | null;
@@ -117,6 +123,7 @@ class Compiler {
     for (const [k, v] of Object.entries(opts.helpers.namespaces)) ns.set(k, new Set(v.members));
     this.page = {
       resources: new Map(), helpers: new Set(opts.helpers.names), namespaces: ns,
+      actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
       usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(),
     };
   }
@@ -158,7 +165,7 @@ class Compiler {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'each'].filter((f) => this.features.has(f))],
-      helpers: { user, builtin }, namespaces,
+      helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
     };
@@ -205,6 +212,56 @@ class Compiler {
   }
 
   /** `inExpr`: the offset points into an expression; otherwise offset 0 is about the whole attribute (or element) */
+  /**
+   * `data-sn-call` / `call`: exactly one call of an actions module function, `name(args)` or
+   * `ns.name(args)`. Compiles to two table entries: the arguments as one array expression, and a
+   * runner that calls the imported function with them and the context.
+   */
+  callExpr(el: P5Element, attrName: string, scope: Scope, deps?: Set<string>): { args: number; run: number; name: string } | null {
+    const text = attr(el, attrName) ?? '';
+    const shape = `\`${attrName}\` is one call of an action, e.g. \`pgp.decrypt(msg)\``;
+    let ast: ReturnType<typeof parseExpressionAt>;
+    try {
+      ast = parseExpressionAt(text, 0, { ecmaVersion: 'latest' });
+    } catch (e) {
+      this.report(el, attrName, 'SN401', `\`${attrName}\`: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, (e as { pos?: number }).pos ?? 0);
+      return null;
+    }
+    if (ast.type !== 'CallExpression' || ast.optional || ast.end !== text.trimEnd().length) {
+      this.report(el, attrName, 'SN401', shape, 0);
+      return null;
+    }
+    const acts = this.opts.actions ?? { module: null, names: [], namespaces: {} };
+    const callee = ast.callee;
+    const all = [...acts.names, ...Object.entries(acts.namespaces).flatMap(([ns, m]) => m.members.map((x) => `${ns}.${x}`))];
+    let name: string, local: string;
+    if (callee.type === 'Identifier') {
+      name = callee.name;
+      local = `$a$${name}`;
+      if (!acts.names.includes(name)) {
+        this.report(el, attrName, 'SN310', `\`${name}\` is not exported by the actions module.${didYouMean(name, all)}`, callee.start);
+        return null;
+      }
+    } else if (callee.type === 'MemberExpression' && !callee.computed && callee.object.type === 'Identifier' && callee.property.type === 'Identifier') {
+      name = `${callee.object.name}.${callee.property.name}`;
+      local = `$a$${callee.object.name}$${callee.property.name}`;
+      if (!acts.namespaces[callee.object.name]?.members.includes(callee.property.name)) {
+        this.report(el, attrName, 'SN310', `\`${name}\` is not exported by the actions module.${didYouMean(name, all)}`, callee.start);
+        return null;
+      }
+    } else {
+      this.report(el, attrName, 'SN401', shape, callee.start);
+      return null;
+    }
+    const open = text.indexOf('(', callee.end);
+    const r = this.expr(el, attrName, scope, { mode: 'value' }, `[${text.slice(open + 1, ast.end - 1)}]`, open);
+    if (this.check) this.typeLast({ returns: { kind: 'call', name, args: true } });
+    if (deps) for (const d of r.deps) deps.add(d);
+    if (!r.ok) return null;
+    this.calls.add(name);
+    return { args: this.fn(r.code), run: this.fn(`($a, $c) => ${local}(...$a, $c)`), name };
+  }
+
   /** `direction-values="{prev: 'backward', next: 'forward'}"`: static data, string values for known directions only */
   directionValues(el: P5Element): Paginate['directionValues'] | null {
     const text = attr(el, 'direction-values')!;
@@ -471,9 +528,10 @@ class Compiler {
     else if (has('persist') && !has('state')) this.report(el, 'data-sn-persist', 'SN102', '`data-sn-persist` needs `data-sn-model` or `data-sn-state` on the same element', 0);
 
     const methods = METHODS.filter((m) => has(m));
+    const isCall = has('call');
     // without a method, `data-sn-debounce` delays the element's own handlers
     let handlerDebounce = 0;
-    if (!methods.length && has('debounce')) {
+    if (!methods.length && !isCall && has('debounce')) {
       handlerDebounce = Number(get('debounce'));
       if (!Number.isFinite(handlerDebounce) || handlerDebounce < 0) this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
       if (!sn.some((a) => a.name.startsWith('data-sn-on-'))) this.report(el, 'data-sn-debounce', 'SN102', '`data-sn-debounce` needs a method attribute (`data-sn-get`, `-post`, …) or a `data-sn-on-*` handler on the same element', 0);
@@ -490,7 +548,9 @@ class Compiler {
     }
 
     if (methods.length > 1) this.report(el, `data-sn-${methods[1]}`, 'SN102', 'an element can have only one method attribute', 0);
+    if (methods.length && isCall) this.report(el, 'data-sn-call', 'SN102', 'an element has one action: a method attribute or `data-sn-call`, not both', 0);
     if (methods.length) this.action(el, node, scope, methods[0]!, get);
+    else if (isCall) this.action(el, node, scope, 'call', get);
     else for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs a method attribute (\`data-sn-get\`, \`-post\`, …) on the same element`, 0);
 
     // templates
@@ -679,8 +739,10 @@ class Compiler {
     node.b.push(b);
   }
 
-  action(el: P5Element, node: NodeDef, scope: Scope, method: typeof METHODS[number], get: (n: string) => string | undefined) {
-    const url = this.urlTemplate(el, `data-sn-${method}`, scope);
+  action(el: P5Element, node: NodeDef, scope: Scope, method: typeof METHODS[number] | 'call', get: (n: string) => string | undefined) {
+    const call = method === 'call' ? this.callExpr(el, 'data-sn-call', scope) : null;
+    if (method === 'call' && get('body') !== undefined) this.report(el, 'data-sn-body', 'SN102', '`data-sn-body` belongs to a method attribute; a call takes its arguments in `data-sn-call`', 0);
+    const url = method === 'call' ? [] : this.urlTemplate(el, `data-sn-${method}`, scope);
     const tag = el.tagName;
     const isForm = tag === 'form';
     const trigger = get('trigger') ?? (isForm ? 'submit' : FORM_CONTROLS.has(tag) ? 'change' : 'click');
@@ -700,17 +762,19 @@ class Compiler {
       return { f: r.ok ? this.fn(r.code) : null, w: r.writes };
     };
     // with OpenAPI specs: the body must fit the request schema, `$result` gets the response's type
-    const op = this.check && this.opts.openapi?.length ? matchOperation(this.opts.openapi, url, method) : null;
+    const op = method !== 'call' && this.check && this.opts.openapi?.length ? matchOperation(this.opts.openapi, url, method) : null;
     const typed = op && 'spec' in op ? op : null;
     const body = fnOf('body', { mode: 'value' }, typed?.request != null ? { returns: { kind: 'openapi', spec: typed.spec, schema: typed.request } } : undefined);
     const optimistic = fnOf('optimistic', { mode: 'optimistic' });
     if (optimistic.f !== null) this.features.add('optimistic');
     const then = fnOf('then', { mode: 'handler', magic: ['$event', '$result'] },
-      typed?.body != null ? { resultType: { kind: 'openapi', spec: typed.spec, schema: typed.body } } : undefined);
+      typed?.body != null ? { resultType: { kind: 'openapi', spec: typed.spec, schema: typed.body } }
+        : call ? { resultType: { kind: 'call', name: call.name } } : undefined);
     const catch_ = fnOf('catch', { mode: 'handler', magic: ['$event', '$error'] });
     const def: ActionDef = {
       method: method.toUpperCase() as ActionDef['method'], url, body: body.f, trigger, debounce, concurrency,
       optimistic: optimistic.f, then: then.f, catch: catch_.f, w: [...new Set([...then.w, ...catch_.w])].sort(), form: isForm,
+      ...(call ? { call: { args: call.args, run: call.run } } : {}),
     };
     this.actions.push(def);
     node.b.push(binding({ k: 'on', n: trigger, x: this.actions.length - 1 }));
@@ -808,7 +872,14 @@ class Compiler {
       if (!RESOURCE_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const info = this.page.resources.get(name)!;
-    if (attr(el, 'src') == null) this.report(el, null, 'SN401', `resource \`${name}\` needs a \`src\``, 0);
+    const hasCall = attr(el, 'call') != null;
+    if (hasCall && attr(el, 'src') != null) this.report(el, 'call', 'SN102', 'a resource loads from `src` or from `call`, not both', 0);
+    else if (!hasCall && attr(el, 'src') == null) this.report(el, null, 'SN401', `resource \`${name}\` needs a \`src\` (or a \`call\`)`, 0);
+    if (hasCall) {
+      for (const a of ['paginate', 'each', 'cache']) {
+        if (attr(el, a) != null) this.report(el, a, 'SN401', `\`${a}\` does not combine with \`call\` in v0.2`, 0);
+      }
+    }
     const deps = new Set<string>();
     // `each="a in accounts"`: src is evaluated once per list item, with the item in scope
     let each: ResourceDef['each'];
@@ -835,7 +906,8 @@ class Compiler {
         }
       }
     }
-    const src = this.urlTemplate(el, 'src', srcScope, {}, deps);
+    const src = hasCall ? [] : this.urlTemplate(el, 'src', srcScope, {}, deps);
+    const call = hasCall ? this.callExpr(el, 'call', ctx.scope, deps) : null;
     let when: number | null = null;
     if (attr(el, 'when') != null) {
       const r = this.expr(el, 'when', ctx.scope, { mode: 'value' });
@@ -896,7 +968,7 @@ class Compiler {
     }
     const order = attr(el, 'order');
     const type = attr(el, 'type')?.trim() || null;
-    const openapi = type ? null : this.openapi(el, src, attr(el, 'items') ?? null, attr(el, 'total') ?? null);
+    const openapi = type || hasCall ? null : this.openapi(el, src, attr(el, 'items') ?? null, attr(el, 'total') ?? null);
     if (this.check) {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
@@ -913,6 +985,7 @@ class Compiler {
       order: order ? order.trim() : null, when, paginate, deps: [...deps].sort(), scope: ctx.stateIdx, data: null,
       ...(cache !== undefined ? { cache } : {}),
       ...(each ? { each } : {}),
+      ...(call ? { call: { args: call.args, run: call.run } } : {}),
     });
   }
 

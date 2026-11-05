@@ -9,6 +9,8 @@ import type { OpenApiSpec } from './compiler/openapi.js';
 export interface ProjectOptions {
   /** helpers module, relative to the root (default `src/sinter.helpers.js`, or `.ts`) */
   helpers?: string;
+  /** actions module for `data-sn-call` and `<sn-resource call>` (default `src/sinter.actions.js`, or `.ts`) */
+  actions?: string;
   /** app configuration module imported before mount (default `src/sinter.config.js`, or `.ts`) */
   config?: string;
   /** module whose exported types `type="…"` on `<sn-resource>` may name (default `src/sinter.types.ts`, `.d.ts` or `.js`) */
@@ -22,6 +24,10 @@ export interface Project {
   helpers: HelperManifest;
   /** absolute path of the helpers module, or null */
   helpersFile: string | null;
+  /** the actions module's functions and namespaces (same shape as helpers) */
+  actions: HelperManifest;
+  /** absolute path of the actions module, or null */
+  actionsFile: string | null;
   /** root-relative URL of the config module (`/src/sinter.config.js`), or null */
   config: string | null;
   /** absolute path of the types module, or null */
@@ -47,22 +53,24 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   };
   const url = (rel: string) => '/' + rel.split(sep).join('/');
 
-  let helpers: HelperManifest = { module: null, names: [], namespaces: {} };
-  const helpersRel = find(options.helpers, 'src/sinter.helpers');
-  const helpersFile = helpersRel ? resolve(root, helpersRel) : null;
-  if (helpersRel && helpersFile) {
-    helpers = readHelperManifest(readFileSync(helpersFile, 'utf8'), {
-      module: url(helpersRel),
-      file: helpersFile,
+  const manifest = (given: string | undefined, base: string): [HelperManifest, string | null] => {
+    const rel = find(given, base);
+    const file = rel ? resolve(root, rel) : null;
+    if (!rel || !file) return [{ module: null, names: [], namespaces: {} }, null];
+    return [readHelperManifest(readFileSync(file, 'utf8'), {
+      module: url(rel),
+      file,
       readFile,
       resolve: (spec, from) => {
         if (!spec.startsWith('.')) return null;
-        const base = resolve(dirname(from), spec);
-        for (const p of [base, base.replace(/\.js$/, '.ts'), `${base}.js`, `${base}.ts`]) if (existsSync(p)) return p;
+        const b = resolve(dirname(from), spec);
+        for (const q of [b, b.replace(/\.js$/, '.ts'), `${b}.js`, `${b}.ts`]) if (existsSync(q)) return q;
         return null;
       },
-    });
-  }
+    }), file];
+  };
+  const [helpers, helpersFile] = manifest(options.helpers, 'src/sinter.helpers');
+  const [actions, actionsFile] = manifest(options.actions, 'src/sinter.actions');
   const configRel = find(options.config, 'src/sinter.config');
   const typesRel = find(options.types, 'src/sinter.types', ['.ts', '.d.ts', '.js']);
   const openapi: OpenApiSpec[] = [];
@@ -85,7 +93,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     openapi.push({ file, doc });
   }
   return {
-    root, helpers, helpersFile, readFile, openapi, diagnostics,
+    root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics,
     config: configRel ? url(configRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,
   };

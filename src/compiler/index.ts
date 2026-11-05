@@ -19,7 +19,7 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   return out;
 }
 
-export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config'>): string {
+export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions'>): string {
   const lines: string[] = [];
   const core = ['mount', '$k', ...parts.helpers.builtin];
   lines.push(`import { ${core.join(', ')} } from '${PACKAGE}';`);
@@ -30,6 +30,20 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
   for (const [ns, members] of Object.entries(parts.namespaces)) {
     const mod = options.helpers.namespaces[ns]!.module;
     lines.push(`import { ${members.map((m) => `${m} as ${ns}$${m}`).join(', ')} } from ${JSON.stringify(mod)};`);
+  }
+  // actions (`data-sn-call`): imported as `$a$name` / `$a$ns$member`, only those the page calls
+  const acts = options.actions;
+  if (acts?.module) {
+    const direct = parts.calls.filter((c) => !c.includes('.'));
+    if (direct.length) lines.push(`import { ${direct.map((c) => `${c} as $a$${c}`).join(', ')} } from ${JSON.stringify(acts.module)};`);
+    const byNs = new Map<string, string[]>();
+    for (const c of parts.calls.filter((x) => x.includes('.'))) {
+      const [ns, member] = c.split('.') as [string, string];
+      byNs.set(ns, [...(byNs.get(ns) ?? []), member]);
+    }
+    for (const [ns, members] of byNs) {
+      lines.push(`import { ${members.map((x) => `${x} as $a$${ns}$${x}`).join(', ')} } from ${JSON.stringify(acts.namespaces[ns]!.module)};`);
+    }
   }
   if (options.config) lines.push(`import ${JSON.stringify(options.config)};`);
   lines.push('');
