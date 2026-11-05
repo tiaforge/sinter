@@ -64,6 +64,8 @@ export interface Resource<T extends object = any> {
   addLayer(ops: Op[]): number;
   dropLayer(id: number): void;
   setTotal(total: number | null): void;
+  /** what the server last confirmed, without optimistic layers (in arrival order) */
+  base(): { items: T[] | T | null; total: number | null };
   /** while set, upsert/patch/remove are recorded instead of applied */
   recording: Op[] | null;
   loader: { refetch(): Promise<void> } | null;
@@ -187,6 +189,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
       if (n != layers.length) changed('meta');
     },
     setTotal(t) { total = t; changed(); },
+    base: () => ({ items: coll ? [...base.values()] : single, total }),
   };
   return r;
 }

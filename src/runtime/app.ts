@@ -83,6 +83,12 @@ export interface App {
       state(key: string, obj: Record<string, unknown>): void;
       saveState(key: string, obj: Record<string, unknown>): void;
     };
+    cache?: {
+      /** the cached data for a request, if any and not older than the resource allows */
+      read(def: ResourceDef, url: string): { t: number; items: unknown; total: number | null } | null;
+      /** a load (or embedded data) stored `items`: cache them, and the resource's later changes */
+      loaded(def: ResourceDef, r: Resource, url: string, items: unknown, total: number | null, appended: boolean): void;
+    };
   };
   readonly beforeFlush: Array<(dirty: string[][]) => void>;
   readonly afterFlush: Array<(dirty: string[][]) => void>;
@@ -924,15 +930,22 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     const loading = (on: boolean) => { if (r.meta.loading != on) { r.meta.loading = on; r.onDirty('meta'); } };
     const pick = (path: string | null, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
-    const store = (body: unknown, m = l.pager?.current()) => {
-      let items = pick(def.items, body);
-      if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
-      if (Array.isArray(items)) items = items.map(clean);
-      const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t;
+    const fill = (items: any, total: number | null, m: unknown) => {
       l.pager?.appends(m) && r.isCollection ? items.forEach(r.upsert) : r.replace(items);
       r.setTotal(total);
       l.pager?.received(items, total, m);
     };
+    /** stores a response; `req` is the URL it came from, for the page-load cache */
+    const store = (body: unknown, req: string, m = l.pager?.current()) => {
+      let items = pick(def.items, body);
+      if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
+      if (Array.isArray(items)) items = items.map(clean);
+      const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t;
+      fill(items, total, m);
+      if (def.cache != null) app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
+    };
+    /** the request URL for the current page of `u` */
+    const request = (u: string, m = l.pager?.current()) => withParams(u, m ? l.pager!.params(m) : null);
 
     const l = {
       def, res: r, app, pager: null as Pager | null,
@@ -944,9 +957,21 @@ export function mount(root: Document | Element, o: MountOptions): App {
           else warn(4, def.name);
         }
         url = data ? resolve() : null;
-        if (url == null) return l.changed();
+        if (url == null) {
+          // the page-load cache: show the last confirmed data now; changed() revalidates
+          const u = def.cache != null && app.ext.cache ? resolve() : null;
+          if (u != null) {
+            l.pager?.reset();
+            const hit = app.ext.cache!.read(def, request(u));
+            if (hit) {
+              fill(hit.items, hit.total, l.pager?.current());
+              r.meta.loadedAt = hit.t;
+            }
+          }
+          return l.changed();
+        }
         l.pager?.reset();
-        store(data!.v);
+        store(data!.v, request(url));
         r.meta.loadedAt = env.now();
       },
       /** `src` or `when` may have changed: reload from the first page if the URL differs. */
@@ -970,9 +995,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
         let loaded = false;
         loading(true);
         try {
-          const body = await loadShared(withParams(url, m ? l.pager!.params(m) : null), ctl.signal);
+          const req = withParams(url, m ? l.pager!.params(m) : null);
+          const body = await loadShared(req, ctl.signal);
           if (n != seq) return;
-          store(body, m);
+          store(body, req, m);
           loaded = true;
           r.meta.error = null;
           r.meta.loadedAt = env.now();

@@ -3,7 +3,7 @@
   "tags": [
     {
       "name": "sn-resource",
-      "description": "a named, page-wide cache of server data",
+      "description": "a named, page-wide cache of server data; `cache` (or `cache=\"10m\"`) shows the data from the last page load at once, then revalidates",
       "attributes": [
         {
           "name": "name"
@@ -46,6 +46,9 @@
         },
         {
           "name": "type"
+        },
+        {
+          "name": "cache"
         }
       ]
     },

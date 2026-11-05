@@ -1,0 +1,10 @@
+<!-- `cache`: the next page load shows this list at once, then revalidates.
+     `$meta.inbox.loading` with data present means "updating". -->
+<sn-resource name="inbox" src="/api/messages?folder=inbox" key="id" order="-date" cache="1h"></sn-resource>
+
+<p data-sn-show="$meta.inbox.loading && inbox.length">Updating…</p>
+<ul>
+  <template data-sn-for="m in inbox">
+    <li data-sn-text="m.subject"></li>
+  </template>
+</ul>

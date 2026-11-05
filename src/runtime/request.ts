@@ -1,7 +1,7 @@
 // The request layer: every request (resources, actions, the session probe,
 // islands) goes through one middleware chain, then fetch with a timeout and
 // one retry for idempotent requests on network errors.
-import { config, SinterError, type Middleware } from './config.js';
+import { clearCached, config, SinterError, type Middleware } from './config.js';
 import type { Env } from './env.js';
 
 export const TIMEOUT = 30_000;
@@ -37,7 +37,10 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
       signal.aborted ? abort() : signal.addEventListener('abort', abort);
       const timer = env.setTimeout(() => c.abort(), TIMEOUT, 'timeout');
       try {
-        return await env.fetch(new Request(idempotent ? req.clone() : req, { signal: c.signal }));
+        const res = await env.fetch(new Request(idempotent ? req.clone() : req, { signal: c.signal }));
+        // the session is gone: cached data must not outlive it, whatever the app does next
+        if (res.status == 401) clearCached(env);
+        return res;
       } catch (e) {
         if (signal.aborted) throw signal.reason ?? e;
         if (c.signal.aborted) throw new SinterError(0, null, 'request timed out');
@@ -69,7 +72,10 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     const keepalive = method != 'GET' && method != 'HEAD' && (body == null || (typeof body == 'string' && body.length < 60_000));
     inflight++;
     try {
-      return await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null, keepalive }));
+      const res = await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null, keepalive }));
+      // also a 401 that middleware answered itself (fetch above clears before onUnauthorized runs)
+      if (res.status == 401) clearCached(env);
+      return res;
     } catch (e) {
       throw isAbort(e) ? e : toError(e);
     } finally {

@@ -23,6 +23,7 @@ const MESSAGES: Record<number, string> = {
   16: 'unhandled error%: %',
   17: 'resource `%`: src could not be resolved: %',
   18: 'stream `%` is served over HTTP/1.1, where browsers allow 6 connections per origin: with more than 5 tabs of this app open, pages stop loading. Serve it over HTTP/2 (any TLS reverse proxy such as nginx or Caddy), or use the WebSocket transport',
+  19: 'resource `%`: % KB of data is over the page-load cache limit of 256 KB per entry; not cached',
 };
 
 /**

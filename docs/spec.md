@@ -304,6 +304,7 @@ A resource is a named, page-wide cache of one piece of server data: either a key
 | `total` | no | path to a total count, exposed as `$meta.<name>.total` |
 | `order` | no | field kept sorted on upserts, `-field` for descending; locale-aware for strings |
 | `when` | no | value expression; while falsy, the resource is empty (null or []) and a running request is aborted |
+| `cache` | no | page-load cache: show the data from the last page load at once, then revalidate (see Data sources). No value: any age; `30s`, `10m`, `2h`, `1d`: ignore older data |
 
 
 ### Behaviour
@@ -350,7 +351,17 @@ interface Resource<T> {
 A resource's data can arrive through pluggable sources. v0.1 ships two:
 - Fetch loader: loads `src` through the request layer.
 - Embedded JSON: if the page contains `<script type="application/json" data-sn-data="contacts">`, that payload is the initial data and no first request is made. Who writes it (a server, a build step) is out of scope.
-A cache source (stale-while-revalidate across page loads) can be added later through the same interface.
+- Page-load cache (`cache` on `<sn-resource>`, added 2026-11-05): stale-while-revalidate across page loads in one tab.
+
+The page-load cache:
+- On page start, a resource with `cache` whose `src` resolves stores its cached entry at once (before the first paint), with `$meta.<name>.loadedAt` set to the entry's time. Then it loads as usual: `loading` is true and the cached data stays visible, as during any refetch. A failed revalidation keeps it and sets `error`.
+- Embedded JSON wins: no cache lookup is made, and the embedded data is cached.
+- Entries live in `sessionStorage` (one tab's lifetime) under `sn:c:`, keyed by the request URL and the `items` and `total` paths, so two pages that load the same data share an entry whatever they call the resource. An entry holds `{t, items, total}`, not the response body.
+- Writes: after every successful load, and on `pagehide` for resources whose confirmed data changed since (server events, action results). Optimistic layers are never written. Only the first load reads the cache; a `src` that changes on the page does not.
+- Pagination: each page's request URL has its own entry; `paginate="append"` caches only its first page.
+- Limits: an entry over 256 KB serialized is not written (dev warning); a full storage drops the older half of the entries and retries once.
+- Logout: every entry is removed on any 401 (as the response arrives, before `onUnauthorized` middleware runs) and by `clearPersisted()`, which apps call on logout.
+- A malformed value is `SN401`. The cache module (`@tiaforge/sinter/cache`) is added only to pages that use `cache`.
 
 ## Sync: change messages and transports
 The store only understands one message shape; transports translate server events into it. Server-Sent Events are the default; a WebSocket transport ships as `@tiaforge/sinter/ws`, and others (SignalR) are a few lines in the app (see Transport interface).
@@ -812,7 +823,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 The dev build adds checks that need real data: duplicate keys in a response, an item missing a key field, an `items` path that is not an array, a server event payload missing key fields. Warnings name the resource, the page and the offending value.
 
 ### LLM support
-- `llms.txt` in the package: the full attribute reference, the scope rules and seven copy-paste recipes (list with filter, form dialog, SSE sync, optimistic toggle, pagination, SignalR transport, typed resources).
+- `llms.txt` in the package: the full attribute reference, the scope rules and eight copy-paste recipes (list with filter, form dialog, SSE sync, optimistic toggle, pagination, SignalR transport, typed resources, cached list).
 - A generated VS Code custom-data file (`html-custom-data.json`) so editors and agents get attribute completion; the VS Code extension ships it.
 - Every diagnostic links to its section in `docs/diagnostics.md`, which is generated from the compiler's table of codes (example, meaning, fix).
 

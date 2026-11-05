@@ -37,7 +37,7 @@ Package: @tiaforge/sinter. Every directive is a `data-sn-*` attribute or an `<sn
 
 ## Elements
 
-- `<sn-resource>` `name`, `src`, `key`, `items`, `total`, `order`, `when`, `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `page-param`, `type`: a named, page-wide cache of server data
+- `<sn-resource>` `name`, `src`, `key`, `items`, `total`, `order`, `when`, `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `page-param`, `type`, `cache`: a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates
 - `<sn-sync>` `src`: one server event stream
 - `<sn-event>` `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `type`: maps one server event to a change message; child of <sn-sync>
 - `<sn-include>` `src`: inlines a partial at build time
@@ -459,6 +459,48 @@ test('an event payload that does not fit the resource is an error', () => {
 });
 ```
 
+### Cached list across page loads
+
+```html
+<!-- `cache`: the next page load shows this list at once, then revalidates.
+     `$meta.inbox.loading` with data present means "updating". -->
+<sn-resource name="inbox" src="/api/messages?folder=inbox" key="id" order="-date" cache="1h"></sn-resource>
+
+<p data-sn-show="$meta.inbox.loading && inbox.length">Updating…</p>
+<ul>
+  <template data-sn-for="m in inbox">
+    <li data-sn-text="m.subject"></li>
+  </template>
+</ul>
+```
+
+```ts
+import { expect, test } from 'vitest';
+import { render, mockRequests, memoryStorage } from '@tiaforge/sinter/testing';
+import page from './cached-list.html?raw';
+
+const subjects = (root: HTMLElement) => [...root.querySelectorAll('li')].map((li) => li.textContent);
+
+test('the next page load shows the cached list while it revalidates', async () => {
+  // one tab: the same sessionStorage for both page loads
+  const session = memoryStorage();
+  const first = await render(page, { session, requests: mockRequests({
+    'GET /api/messages': [{ id: 1, subject: 'Welcome', date: '2026-01-01' }],
+  }) });
+  await first.settle();
+
+  const { root, settle } = await render(page, { session, requests: mockRequests({
+    'GET /api/messages': [{ id: 2, subject: 'Lunch?', date: '2026-01-02' }, { id: 1, subject: 'Welcome', date: '2026-01-01' }],
+  }) });
+  expect(subjects(root)).toEqual(['Welcome']);                    // cached, before any response
+  expect(root.querySelector('p')!.hidden).toBe(false);            // "Updating…"
+
+  await settle();
+  expect(subjects(root)).toEqual(['Lunch?', 'Welcome']);
+  expect(root.querySelector('p')!.hidden).toBe(true);
+});
+```
+
 ## Type checking
 
 `npx sinter check` type-checks every expression with the project's TypeScript (pages and options come from the Vite config). `sinter({ typecheck: true })` runs it in `vite build`.
@@ -482,7 +524,7 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 
 Write a test next to the markup. `@tiaforge/sinter/testing` compiles the page with the real compiler and mounts it:
 
-- `render(html, { requests, streams, url, locale, now, helpers, files })` → `{ root, app, flush, settle, advance, navigations }`
+- `render(html, { requests, streams, url, locale, now, helpers, files, storage, session })` → `{ root, app, flush, settle, advance, navigations, window }`. Pass one `memoryStorage()` as `session` to two renders to test what carries over between page loads (the `cache` attribute).
 - `mockRequests({ 'GET /api/x': json | {status, body} | (call) => … })`: records `calls`; responses are held until `settle()`; an unmatched request fails the test and lists the routes.
 - `mockStream()`: `emit(name, payload)`, `drop()`, `connected`. A stream URL with no mock uses the transport from `configure({ transport })`, so a custom transport can be tested over a fake connection (see the SignalR recipe).
 - `flush()` runs the scheduler (optimistic changes are visible), `settle()` finishes requests, queues and debounces, `advance(ms)` moves sinter's clock.

@@ -156,7 +156,7 @@ class Compiler {
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces,
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -806,6 +806,16 @@ class Compiler {
     for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'page-param']) {
       if (attr(el, a) != null && !paginate && mode == null) this.report(el, a, 'SN102', `\`${a}\` needs \`paginate\``, 0);
     }
+    let cache: number | undefined;
+    const cacheAttr = attr(el, 'cache');
+    if (cacheAttr != null) {
+      const m = /^\s*(?:(\d+)\s*(s|m|h|d))?\s*$/.exec(cacheAttr);
+      if (!m) this.report(el, 'cache', 'SN401', '`cache` takes a maximum age such as `30s`, `10m`, `2h` or `1d`, or no value for any age', 0);
+      else {
+        cache = m[1] ? Number(m[1]) * { s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[m[2] as 's' | 'm' | 'h' | 'd'] : 0;
+        this.features.add('cache');
+      }
+    }
     const order = attr(el, 'order');
     const type = attr(el, 'type')?.trim() || null;
     const openapi = type ? null : this.openapi(el, src, attr(el, 'items') ?? null, attr(el, 'total') ?? null);
@@ -823,6 +833,7 @@ class Compiler {
     this.resources.push({
       name, src, key: info.key, items: attr(el, 'items') ?? null, total: attr(el, 'total') ?? null,
       order: order ? order.trim() : null, when, paginate, deps: [...deps].sort(), scope: ctx.stateIdx, data: null,
+      ...(cache !== undefined ? { cache } : {}),
     });
   }
 

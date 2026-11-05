@@ -12,6 +12,7 @@
     "./optimistic": "./dist/optimistic.js",
     "./paginate": "./dist/paginate.js",
     "./persist": "./dist/persist.js",
+    "./cache": "./dist/cache.js",
     "./compiler": "./dist/compiler/index.js",
     "./vite": "./dist/vite.js",
     "./check": "./dist/check/index.js",

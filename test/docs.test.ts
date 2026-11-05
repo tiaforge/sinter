@@ -21,6 +21,7 @@ const RECIPES: Array<[string, string, string[]?]> = [
   ['pagination', 'Pagination'],
   ['signalr', 'SignalR (or another transport) for <sn-sync>', ['signalr-transport.js']],
   ['typed', 'Typed resources, state and events', ['typed.types.ts']],
+  ['cached-list', 'Cached list across page loads'],
 ];
 
 function llms(): string {
@@ -93,7 +94,7 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 
 Write a test next to the markup. \`@tiaforge/sinter/testing\` compiles the page with the real compiler and mounts it:
 
-- \`render(html, { requests, streams, url, locale, now, helpers, files })\` → \`{ root, app, flush, settle, advance, navigations }\`
+- \`render(html, { requests, streams, url, locale, now, helpers, files, storage, session })\` → \`{ root, app, flush, settle, advance, navigations, window }\`. Pass one \`memoryStorage()\` as \`session\` to two renders to test what carries over between page loads (the \`cache\` attribute).
 - \`mockRequests({ 'GET /api/x': json | {status, body} | (call) => … })\`: records \`calls\`; responses are held until \`settle()\`; an unmatched request fails the test and lists the routes.
 - \`mockStream()\`: \`emit(name, payload)\`, \`drop()\`, \`connected\`. A stream URL with no mock uses the transport from \`configure({ transport })\`, so a custom transport can be tested over a fake connection (see the SignalR recipe).
 - \`flush()\` runs the scheduler (optimistic changes are visible), \`settle()\` finishes requests, queues and debounces, \`advance(ms)\` moves sinter's clock.

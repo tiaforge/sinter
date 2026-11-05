@@ -9,13 +9,14 @@ import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
 import { $k } from '../runtime/security.js';
 import * as builtins from '../runtime/helpers.js';
+import cache from '../cache.js';
 import dev from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
 import persist from '../persist.js';
 import sse from '../sse.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache };
 
 // ---- requests
 
@@ -180,6 +181,9 @@ export interface RenderOptions {
   helpers?: Record<string, unknown>;
   /** partials for `<sn-include>`, by path relative to the page */
   files?: Record<string, string>;
+  /** localStorage and sessionStorage (default: empty ones); pass the previous page's to test what carries over */
+  storage?: Storage;
+  session?: Storage;
 }
 
 export interface Rendered {
@@ -251,7 +255,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   const timers: Timer[] = [];
   let nextTimer = 1;
   const navigations: string[] = [];
-  const store = memoryStorage(), session = memoryStorage();
+  const store = options.storage ?? memoryStorage(), session = options.session ?? memoryStorage();
   const winListeners = new Map<string, Set<(e: Event) => void>>();
   const env: Env = {
     now: () => now,
@@ -356,7 +360,8 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   };
 }
 
-function memoryStorage(): Storage {
+/** An in-memory `Storage`, e.g. to share `session` between two render() calls. */
+export function memoryStorage(): Storage {
   const m = new Map<string, string>();
   return {
     get length() { return m.size; },

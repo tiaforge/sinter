@@ -24,3 +24,8 @@ First implementation of the v0.1 spec: compiler, runtime, `sse`,
 - `Diagnostic` has an optional `span` (what an editor underlines).
 - Diagnostics link to `docs/diagnostics.md`, generated from the compiler.
 - The core's size budget is 11 KB min+gzip (was 5 KB, never met).
+- `cache` on `<sn-resource>`: the page-load cache (sessionStorage, revalidated
+  on every load, cleared on 401 and by `clearPersisted()`); the
+  `@tiaforge/sinter/cache` feature module.
+- Dev builds warn when a stream is served over HTTP/1.1.
+- Testing: `render({ session, storage })` and `memoryStorage()`.

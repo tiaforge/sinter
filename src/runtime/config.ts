@@ -37,19 +37,30 @@ export class SinterError extends Error {
 
 const PERSIST_PREFIX = 'sn:';
 const RETURN_KEY = 'sn:return';
+/** page-load cache entries (`cache` on `<sn-resource>`), in sessionStorage */
+export const CACHE_PREFIX = 'sn:c:';
 
-/** Removes every persisted value (`sn:` keys), e.g. on logout. */
-export function clearPersisted(): void {
-  const s = config.env.storage();
+function removeKeys(s: Storage | null, prefix: string) {
   if (!s) return;
   try {
     const keys: string[] = [];
     for (let i = 0; i < s.length; i++) {
       const k = s.key(i);
-      if (k && k.startsWith(PERSIST_PREFIX)) keys.push(k);
+      if (k && k.startsWith(prefix)) keys.push(k);
     }
     for (const k of keys) s.removeItem(k);
   } catch { /* storage failures are ignored */ }
+}
+
+/** Removes the page-load cache; sinter calls it on every 401. */
+export function clearCached(env = config.env): void {
+  removeKeys(env.session(), CACHE_PREFIX);
+}
+
+/** Removes every persisted value (`sn:` keys) and the page-load cache, e.g. on logout. */
+export function clearPersisted(): void {
+  removeKeys(config.env.storage(), PERSIST_PREFIX);
+  clearCached();
 }
 
 // ---- middleware

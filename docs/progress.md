@@ -10,7 +10,7 @@ built, what deviates, and what is left.
 | `src/ir.ts` | IR v1 types shared by compiler and runtime |
 | `src/compiler/` | `compile()`: HTML rewrite, includes, expression checking and codegen, helper manifest |
 | `src/runtime/` | store, scheduler, renderer, actions, request layer, config, helpers, security checks |
-| `src/sse.ts`, `src/optimistic.ts`, `src/paginate.ts`, `src/persist.ts` | feature modules |
+| `src/sse.ts`, `src/optimistic.ts`, `src/paginate.ts`, `src/persist.ts`, `src/cache.ts` | feature modules |
 | `src/ws.ts` | WebSocket transport (imported by the app's config module, not a feature) |
 | `src/vite.ts` | Vite adapter |
 | `src/project.ts` | the app's helpers, config and types modules, found the same way by the plugin and the CLI; pages from the Vite config |
@@ -21,7 +21,7 @@ built, what deviates, and what is left.
 | `src/testing/` | `render`, `mockRequests`, `mockStream` |
 | `src/compiler/vocabulary.ts` | the attribute/element table; compiler, `llms.txt` and custom data derive from it |
 | `test/` | Vitest suites (happy-dom); `test/compiler/golden/__out__` are file snapshots |
-| `docs/recipes/` | the seven `llms.txt` recipes, each with its executed test |
+| `docs/recipes/` | the eight `llms.txt` recipes, each with its executed test |
 | `scripts/size.mjs` | min+gzip per module (`npm run size`) |
 
 ## Milestones
@@ -151,6 +151,14 @@ built, what deviates, and what is left.
   dev builds warn (code 18) when an EventSource stream's origin was reached over HTTP/1.1
   (`protocolOf()` in `dev.ts`, from Resource Timing; the SSE module calls `app.streamOpened` for
   default-transport streams only), and the spec, README and `llms.txt` say to serve streams over HTTP/2.
+- 2026-11-05: item 3, phase 2: the page-load cache. `cache` on `<sn-resource>` (value: max age,
+  `SN401` if malformed) compiles to `ResourceDef.cache` and adds the `cache` feature
+  (`src/cache.ts`, 757 B gzip). The loader reads the entry on start (after embedded data) and reports
+  every load to the feature (`fill`/`store` split in `createLoader`); the feature writes after loads
+  and on `pagehide` for resources whose base changed (store `base()`, subscriptions fire for confirmed
+  writes only). The request layer clears `sn:c:` entries on any 401, at `fetch` and after the
+  middleware chain; `clearPersisted()` clears them too. `render({ session, storage })` and
+  `memoryStorage()` in the testing module. Core: 10.30 → 10.53 KB gzip.
 
 ## Decisions and deviations
 

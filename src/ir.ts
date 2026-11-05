@@ -33,6 +33,8 @@ export interface ResourceDef {
   scope: number;
   /** `data-sn` id of an embedded `<script type="application/json">`, or null */
   data: number | null;
+  /** `cache`: the oldest cached data to show, in ms (0: any age); absent when not cached */
+  cache?: number;
 }
 
 export interface EventDef {

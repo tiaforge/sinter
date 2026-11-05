@@ -39,6 +39,8 @@ export default { plugins: [sinter()] };
 - `src/sinter.config.js` (optional): `configure({ request, sessionProbe, onError, locale, origins, urlSchemes, transport })`;
   `transport` picks WebSocket (`@tiaforge/sinter/ws`), SignalR (recipe in `llms.txt`) or another
   transport per `<sn-sync>` URL.
+- `<sn-resource … cache>` shows the data from the last page load at once and revalidates
+  (sessionStorage, one tab; cleared on any 401 and by `clearPersisted()`, which you call on logout).
 - Serve `<sn-sync>` streams over HTTP/2: over HTTP/1.1, each tab's EventSource takes one of the
   browser's 6 connections per origin, and the sixth tab stops loading. Dev builds warn about it.
 - `src/sinter.types.ts` (optional): types that `<sn-resource type="Contact[]">` names. With
@@ -70,7 +72,7 @@ export default { plugins: [sinter()] };
 ## Docs
 
 - [`docs/spec.md`](docs/spec.md): the v0.1 specification.
-- [`llms.txt`](llms.txt): attribute reference, scope rules and seven recipes with tests.
+- [`llms.txt`](llms.txt): attribute reference, scope rules and eight recipes with tests.
 - [`docs/diagnostics.md`](docs/diagnostics.md): every `SN` code, what it means and how to fix it; each diagnostic links here.
 - [`docs/editors.md`](docs/editors.md): `sinter lsp` in VS Code, Neovim, Helix and Emacs.
 - [`docs/progress.md`](docs/progress.md): implementation status and decisions.
