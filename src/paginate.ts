@@ -66,7 +66,8 @@ class PagerImpl implements Pager {
       scope.$p = item;
       const c = this.loader.app.fns[this.cfg.cursor]!(scope) as Record<string, unknown>;
       const out: Record<string, string> = {};
-      for (const [k, v] of Object.entries(c ?? {})) out[k] = v == null ? '' : String(v);
+      // like a URL template's query parameters: null and undefined fields are left out
+      for (const [k, v] of Object.entries(c ?? {})) if (v != null) out[k] = String(v);
       return out;
     };
     let move: Move;

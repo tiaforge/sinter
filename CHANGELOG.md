@@ -5,6 +5,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+- Pagination cursor fields that are `null` or `undefined` are left out of the
+  request instead of being sent empty, like URL template query parameters.
 - `each="a in accounts"` on `<sn-resource>`: one request per list item, merged
   into one collection. A changed list loads only new sources and drops removed
   ones; a `refetch` event reloads only the source its payload names.

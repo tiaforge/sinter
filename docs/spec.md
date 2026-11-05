@@ -614,7 +614,7 @@ Keyset mode jumps only when the server can skip by offset as well. With `offset-
 | `paginate` | `keyset`, `offset` or `append` |
 | `page-size` | items per page; sent as `size-param` |
 | `size-param` | name of the size query parameter, default `limit` |
-| `cursor` | object literal evaluated on the boundary item: last item for `next`, first for `prev` |
+| `cursor` | object literal evaluated on the boundary item: last item for `next`, first for `prev`; fields that are `null` or `undefined` are left out, as in URL templates |
 | `direction-param` | name of the direction parameter; values `first`, `prev`, `next`, `last` |
 | `direction-values` | keyset/append: object literal of strings, the value sent for a direction where the server names it differently, e.g. `{first: 'forward', prev: 'backward', next: 'forward'}`; directions not listed are sent by name |
 | `page-param` | offset mode: name of the page parameter, default `page` |

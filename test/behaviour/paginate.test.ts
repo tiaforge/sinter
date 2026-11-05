@@ -229,3 +229,14 @@ describe('offset-param diagnostics', () => {
     expect(diags('offset-param="offset"')).toEqual(['SN102 `offset-param` needs `paginate`']);
   });
 });
+
+test('cursor fields that are null are left out, like URL template parameters', async () => {
+  const requests = mockRequests({ 'GET /api/n': { items: [{ id: 1, sent: null }, { id: 2, sent: null }] } });
+  const { root, settle } = await render(`
+    <sn-resource name="n" src="/api/n" items="items" key="id" paginate="keyset" page-size="2" cursor="{cursor_sent_at: sent, cursor_rowid: id}"></sn-resource>
+    <button data-sn-on-click="page('n', 'next')"></button><p data-sn-text="n.length"></p>`, { requests });
+  await settle();
+  root.querySelector('button')!.click();
+  await settle();
+  expect(requests.calls.at(-1)!.url).toBe('/api/n?cursor_rowid=2&limit=2&direction=next');
+});
