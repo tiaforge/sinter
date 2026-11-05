@@ -11,12 +11,14 @@ const root = resolve(__dirname, '..');
 const recipes = resolve(root, 'docs/recipes');
 const update = !!process.env.UPDATE_DOCS;
 
-const RECIPES: Array<[string, string]> = [
+// [file, title, extra files shown before the test]
+const RECIPES: Array<[string, string, string[]?]> = [
   ['list-filter', 'List with filter'],
   ['form-dialog', 'Form dialog with repeatable fields'],
   ['sse-sync', 'SSE sync'],
   ['optimistic-toggle', 'Optimistic toggle'],
   ['pagination', 'Pagination'],
+  ['signalr', 'SignalR (or another transport) for <sn-sync>', ['signalr-transport.js']],
 ];
 
 function llms(): string {
@@ -60,9 +62,10 @@ ${Object.entries(CODES).map(([c, n]) => `\`${c} ${n}\``).join(', ')}.
 
 Each recipe comes with its test; copy both.
 `);
-  for (const [file, title] of RECIPES) {
+  for (const [file, title, extra = []] of RECIPES) {
     out.push(`### ${title}\n`);
     out.push('```html\n' + readFileSync(`${recipes}/${file}.html`, 'utf8').trim() + '\n```\n');
+    for (const x of extra) out.push('```js\n' + readFileSync(`${recipes}/${x}`, 'utf8').trim() + '\n```\n');
     out.push('```ts\n' + readFileSync(`${recipes}/${file}.test.ts`, 'utf8').trim() + '\n```\n');
   }
   out.push(`## Testing
@@ -71,7 +74,7 @@ Write a test next to the markup. \`@tiaforge/sinter/testing\` compiles the page 
 
 - \`render(html, { requests, streams, url, locale, now, helpers, files })\` → \`{ root, app, flush, settle, advance, navigations }\`
 - \`mockRequests({ 'GET /api/x': json | {status, body} | (call) => … })\`: records \`calls\`; responses are held until \`settle()\`; an unmatched request fails the test and lists the routes.
-- \`mockStream()\`: \`emit(name, payload)\`, \`drop()\`, \`connected\`.
+- \`mockStream()\`: \`emit(name, payload)\`, \`drop()\`, \`connected\`. A stream URL with no mock uses the transport from \`configure({ transport })\`, so a custom transport can be tested over a fake connection (see the SignalR recipe).
 - \`flush()\` runs the scheduler (optimistic changes are visible), \`settle()\` finishes requests, queues and debounces, \`advance(ms)\` moves sinter's clock.
 `);
   return out.join('\n');

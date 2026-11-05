@@ -36,14 +36,17 @@ export default { plugins: [sinter()] };
 ```
 
 - `src/sinter.helpers.js` (optional): helper functions and namespaces (`export * as m from './paraglide/messages.js'`).
-- `src/sinter.config.js` (optional): `configure({ request, sessionProbe, onError, locale, origins, urlSchemes })`.
+- `src/sinter.config.js` (optional): `configure({ request, sessionProbe, onError, locale, origins, urlSchemes, transport })`;
+  `transport` picks WebSocket (`@tiaforge/sinter/ws`), SignalR (recipe in `llms.txt`) or another
+  transport per `<sn-sync>` URL.
 
 ## Packages
 
 | Import | Contents |
 | --- | --- |
 | `@tiaforge/sinter` | `mount`, store, renderer, actions, request layer, instance API, `configure` |
-| `@tiaforge/sinter/sse` | SSE transport, `<sn-sync>` |
+| `@tiaforge/sinter/sse` | `<sn-sync>`, SSE transport |
+| `@tiaforge/sinter/ws` | WebSocket transport for `<sn-sync>` |
 | `@tiaforge/sinter/optimistic` | optimistic layers |
 | `@tiaforge/sinter/paginate` | keyset, offset, append |
 | `@tiaforge/sinter/persist` | `data-sn-persist` |
@@ -54,7 +57,7 @@ export default { plugins: [sinter()] };
 ## Docs
 
 - [`docs/spec.md`](docs/spec.md): the v0.1 specification.
-- [`llms.txt`](llms.txt): attribute reference, scope rules and five recipes with tests.
+- [`llms.txt`](llms.txt): attribute reference, scope rules and six recipes with tests.
 - [`docs/progress.md`](docs/progress.md): implementation status and decisions.
 
 ## Development

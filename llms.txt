@@ -287,11 +287,123 @@ test('moves to the next page with a cursor', async () => {
 });
 ```
 
+### SignalR (or another transport) for <sn-sync>
+
+```html
+<!-- The page is the same as with SSE: only the configured transport differs (signalr-transport.js). -->
+<sn-resource name="people" src="/api/people" key="id" order="name"></sn-resource>
+
+<sn-sync src="/hubs/people">
+  <sn-event name="person_updated" resource="people" op="upsert" item="person"></sn-event>
+  <sn-event name="person_removed" resource="people" op="remove"></sn-event>
+</sn-sync>
+
+<ul>
+  <template data-sn-for="p in people"><li data-sn-text="p.name"></li></template>
+</ul>
+```
+
+```js
+// SignalR transport for <sn-sync>, in your app (sinter does not depend on @microsoft/signalr).
+// In src/sinter.config.js:
+//
+//   import { HubConnectionBuilder } from '@microsoft/signalr';
+//   import { configure } from '@tiaforge/sinter';
+//   import { signalRTransport } from './signalr-transport.js';
+//
+//   configure({
+//     transport: (url) => url.startsWith('/hubs/')
+//       ? signalRTransport(() => new HubConnectionBuilder().withUrl(url).build())
+//       : undefined,
+//   });
+//
+// Server: `await Clients.All.SendAsync("person_updated", new { person })`; the first argument is
+// the payload. Hub method names are case-insensitive in SignalR, so keep event names distinct in
+// more than case. Do not call withAutomaticReconnect(): sinter reconnects (session probe, backoff,
+// refetch of everything the stream feeds), and two reconnect loops would race. Auth is the hub's:
+// cookies, or withUrl(url, { accessTokenFactory }); request middleware does not apply.
+
+/** @param {() => import('@microsoft/signalr').HubConnection} build a new, unstarted connection */
+export function signalRTransport(build) {
+  let hub = null;
+  let deliver = null;
+  const names = new Set();
+  const add = (name) => {
+    if (!hub || names.has(name)) return;
+    names.add(name);
+    const h = hub;
+    h.on(name, (payload) => { if (hub === h) deliver(name, payload ?? null); });
+  };
+  return {
+    connect(url, onEvent, onState, initial) {
+      const h = hub = build();
+      deliver = onEvent;
+      names.clear();
+      for (const n of initial) add(n);
+      h.onclose(() => { if (hub === h) { hub = null; onState('error'); } });
+      h.start().then(() => { if (hub === h) onState('open'); }, () => { if (hub === h) { hub = null; onState('error'); } });
+    },
+    listen: add,
+    close() {
+      const h = hub;
+      hub = null; // nothing is reported after close()
+      h?.stop().catch(() => {});
+    },
+  };
+}
+```
+
+```ts
+import { afterEach, expect, test } from 'vitest';
+import { configure } from '@tiaforge/sinter';
+import { render, mockRequests } from '@tiaforge/sinter/testing';
+import { signalRTransport } from './signalr-transport.js';
+import page from './signalr.html?raw';
+
+// A stand-in for HubConnection: the test calls invoke() where the server would call SendAsync().
+function fakeHub() {
+  const handlers = new Map<string, (payload: unknown) => void>();
+  let onclose = () => {};
+  return {
+    started: false,
+    on(name: string, fn: (payload: unknown) => void) { handlers.set(name, fn); },
+    onclose(fn: () => void) { onclose = fn; },
+    async start() { this.started = true; },
+    async stop() { this.started = false; },
+    invoke(name: string, payload: unknown) { handlers.get(name)?.(payload); },
+    lose() { this.started = false; onclose(); },
+  };
+}
+
+afterEach(() => configure({ transport: null }));
+
+test('applies hub messages to the list', async () => {
+  const hubs: Array<ReturnType<typeof fakeHub>> = [];
+  configure({ transport: (url) => (url.startsWith('/hubs/') ? signalRTransport(() => { hubs.push(fakeHub()); return hubs.at(-1) as never; }) : undefined) });
+  const requests = mockRequests({ 'GET /api/people': [{ id: 1, name: 'Bob' }] });
+  const { root, flush, settle, advance } = await render(page, { requests });
+  await settle();
+  expect(hubs[0]!.started).toBe(true);
+
+  hubs[0]!.invoke('person_updated', { person: { id: 2, name: 'Ada' } });
+  hubs[0]!.invoke('person_removed', { id: 1 });
+  await flush();
+  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Ada']);
+
+  // a lost connection: sinter reconnects with a new hub and refetches what the stream feeds
+  hubs[0]!.lose();
+  await advance(2000); // the backoff (1 s ± jitter) before reconnecting
+  await settle();
+  expect(hubs).toHaveLength(2);
+  expect(requests.calls.filter((c) => c.path === '/api/people')).toHaveLength(2);
+});
+```
+
 ## Testing
 
 Write a test next to the markup. `@tiaforge/sinter/testing` compiles the page with the real compiler and mounts it:
 
 - `render(html, { requests, streams, url, locale, now, helpers, files })` → `{ root, app, flush, settle, advance, navigations }`
 - `mockRequests({ 'GET /api/x': json | {status, body} | (call) => … })`: records `calls`; responses are held until `settle()`; an unmatched request fails the test and lists the routes.
-- `mockStream()`: `emit(name, payload)`, `drop()`, `connected`.
+- `mockStream()`: `emit(name, payload)`, `drop()`, `connected`. A stream URL with no mock uses the transport from `configure({ transport })`, so a custom transport can be tested over a fake connection (see the SignalR recipe).
 - `flush()` runs the scheduler (optimistic changes are visible), `settle()` finishes requests, queues and debounces, `advance(ms)` moves sinter's clock.

@@ -20,13 +20,18 @@ export interface MountOptions {
   /** overrides for the testing module */
   env?: Env;
   request?: Middleware[];
-  /** stream transports by URL (testing); default: EventSource */
+  /** stream transports by URL (testing); then `configure({ transport })`; default: EventSource */
   transport?: (url: string) => Transport | undefined;
 }
 
-/** A server event transport: SSE today, a shared worker later. */
+/**
+ * A server event transport (EventSource, WebSocket, SignalR, …). It delivers named events with
+ * their parsed payload and reports `open` once connected and `error` when the connection is lost;
+ * reconnecting (session probe, backoff, refetch) is the caller's job, so a transport never
+ * reconnects by itself. `names` are the event names the page maps; deliver at least those.
+ */
 export interface Transport {
-  connect(url: string, onEvent: (name: string, data: string) => void, onState: (state: 'open' | 'error') => void, names: string[]): void;
+  connect(url: string, onEvent: (name: string, payload: unknown) => void, onState: (state: 'open' | 'error') => void, names: string[]): void;
   /** start delivering another event name (islands subscribing later) */
   listen?(name: string): void;
   close(): void;

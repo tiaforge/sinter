@@ -37,7 +37,8 @@ Server data enters through the request layer (loads) and the sync adapter (event
 | Import | Contents |
 | --- | --- |
 | `@tiaforge/sinter` | `mount`, store, renderer, actions, request layer, instance API |
-| `@tiaforge/sinter/sse` | SSE transport, `<sn-sync>` |
+| `@tiaforge/sinter/sse` | `<sn-sync>` with the SSE transport (and any configured one) |
+| `@tiaforge/sinter/ws` | WebSocket transport (opt-in from the config module) |
 | `@tiaforge/sinter/optimistic` | optimistic layers |
 | `@tiaforge/sinter/paginate` | keyset, offset, append |
 | `@tiaforge/sinter/persist` | `data-sn-persist` |
@@ -351,8 +352,8 @@ A resource's data can arrive through pluggable sources. v0.1 ships two:
 - Embedded JSON: if the page contains `<script type="application/json" data-sn-data="contacts">`, that payload is the initial data and no first request is made. Who writes it (a server, a build step) is out of scope.
 A cache source (stale-while-revalidate across page loads) can be added later through the same interface.
 
-## Sync: change messages and SSE adapter
-The store only understands one message shape; transports translate server events into it. v0.1 ships one transport, Server-Sent Events.
+## Sync: change messages and transports
+The store only understands one message shape; transports translate server events into it. Server-Sent Events are the default; a WebSocket transport ships as `@tiaforge/sinter/ws`, and others (SignalR) are a few lines in the app (see Transport interface).
 ```ts
 type Change<T> =
   | { resource: string; op: 'upsert';  item: T }
@@ -373,7 +374,7 @@ Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `i
 
 | Attribute | Meaning |
 | --- | --- |
-| `name` | SSE event name |
+| `name` | event name (the SSE event name, or what the transport reports) |
 | `resource` | target resource |
 | `op` | `upsert`, `patch`, `remove` or `refetch` |
 | `item` | value expression for `upsert`; default: the whole payload |
@@ -400,7 +401,23 @@ Later, with a backend change: a `session_expired` event sent before the server c
 On a paginated resource, `upsert` of a key that is not on the current page becomes a `refetch` of the current page. `patch` and `remove` apply only to items present. This keeps page boundaries correct without client-side guessing.
 
 ### Transport interface
-A transport is an object with `connect(url, onEvent, onState)` and `close()`. The SSE adapter implements it; a SharedWorker or BroadcastChannel transport that shares one stream across tabs can implement the same interface later.
+A transport is an object with `connect(url, onEvent, onState, names)`, an optional `listen(name)` and `close()`:
+- `onEvent(name, payload)` delivers one event with its **parsed** payload (the SSE transport parses JSON and passes anything else as the raw string).
+- `onState('open')` once connected; `onState('error')` when the connection is lost, cleanly or not. A transport never reconnects by itself: the connection rules above (session probe, backoff, refetch) apply to every transport. Nothing is reported after `close()`.
+- `names` are the event names the page maps; `listen(name)` adds one an island subscribes to later. A transport delivers at least those.
+
+The transport is chosen per stream URL in the config module; the URL in the HTML stays an http(s) URL under the usual URL template rules, so a value can never choose the host:
+```js
+import { configure } from '@tiaforge/sinter';
+import { webSocketTransport } from '@tiaforge/sinter/ws';
+
+configure({ transport: (url) => url.startsWith('/ws/') ? webSocketTransport() : undefined });   // undefined: EventSource
+```
+- **WebSocket** (`webSocketTransport({ protocols, decode })`): opens the URL as `ws:`/`wss:`. Each text message is JSON `{"event": "<name>", "data": <payload>}`; `decode(message)` returning `[name, payload]` or `null` reads other formats. Server to client only: actions stay on HTTP, so `then`/`catch`, optimistic layers and 401 handling are unchanged.
+- **SignalR**: the `llms.txt` recipe; the adapter lives in the app, so sinter does not depend on `@microsoft/signalr`. Hub method names are the event names; the first argument is the payload. Do not enable SignalR's automatic reconnect.
+- Auth on a WebSocket or hub is the transport's: browsers send cookies, but request middleware does not apply.
+
+A SharedWorker or BroadcastChannel transport that shares one stream across tabs can implement the same interface later.
 
 ## Actions, events and request layer
 An action is an element with one method attribute; it sends a request when its trigger fires and runs `then` or `catch` afterwards. Plain `data-sn-on-<event>` handlers cover everything that needs no request.
@@ -463,7 +480,7 @@ Resource load failures set `$meta.<name>.error` and then take the same path, wit
 A running mutation is never aborted: aborting `fetch` does not stop the server, so the write could still happen, out of order.
 
 ### Request layer
-All requests (resources, actions, the SSE session probe) go through one middleware chain, configured once per app:
+All requests (resources, actions, the stream session probe) go through one middleware chain, configured once per app:
 ```js
 // src/sinter.config.js
 import { configure, credentials, header, onUnauthorized, loginRedirect } from '@tiaforge/sinter';
@@ -477,6 +494,7 @@ configure({
   sessionProbe: '/api/user',
   onError: (error) => showToast(error.message),   // unhandled action and load errors
   locale: { get: getLocale, set: setLocale },      // from the app's i18n library
+  transport: (url) => undefined,                   // per <sn-sync> URL; undefined: EventSource
 });
 ```
 - A middleware is `(request, next) => Promise<Response>`, so retries, timeouts or logging are plain functions.
@@ -774,7 +792,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col` and an 
 The dev build adds checks that need real data: duplicate keys in a response, an item missing a key field, an `items` path that is not an array, a server event payload missing key fields. Warnings name the resource, the page and the offending value.
 
 ### LLM support
-- `llms.txt` in the package: the full attribute reference, the scope rules and five copy-paste recipes (list with filter, form dialog, SSE sync, optimistic toggle, pagination).
+- `llms.txt` in the package: the full attribute reference, the scope rules and six copy-paste recipes (list with filter, form dialog, SSE sync, optimistic toggle, pagination, SignalR transport).
 - A generated VS Code custom-data file (`html-custom-data.json`) so editors and agents get attribute completion.
 - Every diagnostic links to its section in the docs.
 
@@ -818,9 +836,9 @@ test('delete is optimistic and rolls back on failure', async () => {
 | `advance(ms)` | moves sinter's clock: debounce, backoff, `$now` |
 | `navigations` | URLs sinter tried to navigate to (login redirect), instead of navigating the test DOM |
 | `mockRequests(routes)` | request middleware: `'METHOD /path'` → JSON, `{status, body}` or `(req) => response`; records `calls`; an unmatched request fails the test and lists the registered routes |
-| `mockStream()` | SSE transport: `emit(name, payload)`, `drop()`, `connected` |
+| `mockStream()` | stream transport: `emit(name, payload)`, `drop()`, `connected` |
 
-`render` options: `requests` (a `mockRequests` middleware), `streams` (stream URL → `mockStream()`), `url` (for `$url`), `locale`, `now` and `helpers`. Diagnostics from compiling fail the test with the same messages as the build.
+`render` options: `requests` (a `mockRequests` middleware), `streams` (stream URL → `mockStream()`; a URL with no mock uses `configure({ transport })`, so a custom transport is tested over a fake connection), `url` (for `$url`), `locale`, `now` and `helpers`. Diagnostics from compiling fail the test with the same messages as the build.
 The module has no test-runner imports. It works with Vitest, or anything else, on jsdom or happy-dom.
 
 ### Seams this requires in the runtime

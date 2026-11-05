@@ -1,6 +1,7 @@
 // App-wide configuration and the request middleware helpers. Configuration
 // comes only from configure() in JavaScript, never from the DOM.
 import { defaultEnv, type Env } from './env.js';
+import type { Transport } from './app.js';
 
 export type Middleware = (request: Request, next: (request: Request) => Promise<Response>) => Promise<Response>;
 
@@ -11,11 +12,13 @@ export interface Config {
   locale: { get(): string; set(locale: string): void } | null;
   urlSchemes: string[];
   origins: string[];
+  /** the transport for a `<sn-sync>` stream URL; `undefined` (or no function) means EventSource */
+  transport: ((url: string) => Transport | undefined) | null;
   env: Env;
 }
 
 export const config: Config = {
-  request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], env: defaultEnv,
+  request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], transport: null, env: defaultEnv,
 };
 
 export function configure(options: Partial<Omit<Config, 'env'>> & { env?: Partial<Env> }): void {

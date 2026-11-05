@@ -8,6 +8,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./sse": "./dist/sse.js",
+    "./ws": "./dist/ws.js",
     "./optimistic": "./dist/optimistic.js",
     "./paginate": "./dist/paginate.js",
     "./persist": "./dist/persist.js",

@@ -11,11 +11,12 @@ built, what deviates, and what is left.
 | `src/compiler/` | `compile()`: HTML rewrite, includes, expression checking and codegen, helper manifest |
 | `src/runtime/` | store, scheduler, renderer, actions, request layer, config, helpers, security checks |
 | `src/sse.ts`, `src/optimistic.ts`, `src/paginate.ts`, `src/persist.ts` | feature modules |
+| `src/ws.ts` | WebSocket transport (imported by the app's config module, not a feature) |
 | `src/vite.ts` | Vite adapter |
 | `src/testing/` | `render`, `mockRequests`, `mockStream` |
 | `src/compiler/vocabulary.ts` | the attribute/element table; compiler, `llms.txt` and custom data derive from it |
 | `test/` | Vitest suites (happy-dom); `test/compiler/golden/__out__` are file snapshots |
-| `docs/recipes/` | the five `llms.txt` recipes, each with its executed test |
+| `docs/recipes/` | the six `llms.txt` recipes, each with its executed test |
 | `scripts/size.mjs` | min+gzip per module (`npm run size`) |
 
 ## Milestones
@@ -80,6 +81,12 @@ built, what deviates, and what is left.
 - Vite plugin with a real build test; diagnostics fixtures for all 21 codes;
   golden outputs; property-based list and layer tests; security tests;
   recipes; generated docs. 129 tests pass, typecheck clean.
+- 2026-11-05: pluggable stream transports. `configure({ transport })` picks one per `<sn-sync>`
+  URL (EventSource otherwise); `@tiaforge/sinter/ws` is a WebSocket transport (`{event, data}`
+  messages or a `decode` function; http(s) stream URLs are opened as ws(s), so the compiler's URL
+  rules are unchanged); SignalR is an `llms.txt` recipe with its adapter in the app. Transports now
+  deliver parsed payloads (SignalR and WebSocket adapters parse themselves). `render()` falls back
+  to the configured transport for stream URLs without a mock.
 
 ## Decisions and deviations
 

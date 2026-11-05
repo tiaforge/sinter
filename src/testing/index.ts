@@ -137,14 +137,15 @@ export interface MockStream {
 }
 
 export function mockStream(): MockStream {
-  let onEvent: ((name: string, data: string) => void) | null = null;
+  let onEvent: ((name: string, payload: unknown) => void) | null = null;
   let onState: ((s: 'open' | 'error') => void) | null = null;
   let connected = false;
   return {
     get connected() { return connected; },
     emit(name, payload) {
       if (!connected) throw new Error(`mockStream: cannot emit \`${name}\` while disconnected`);
-      onEvent?.(name, JSON.stringify(payload ?? null));
+      // through JSON, as over the wire: the page never shares the test's object
+      onEvent?.(name, JSON.parse(JSON.stringify(payload ?? null)));
     },
     drop() {
       if (!connected) return;
@@ -284,8 +285,11 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     transport: (url) => {
       const path = new URL(url, href).pathname;
       const stream = options.streams?.[url] ?? options.streams?.[path];
-      if (!stream) throw new Error(`no mock stream for ${url}; pass \`streams: { '${url}': mockStream() }\``);
-      return stream.transport();
+      if (stream) return stream.transport();
+      // a transport from configure() (e.g. a WebSocket or SignalR adapter over a fake connection)
+      const configured = config.transport?.(url);
+      if (configured) return configured;
+      throw new Error(`no mock stream for ${url}; pass \`streams: { '${url}': mockStream() }\``);
     },
   });
   current = app;

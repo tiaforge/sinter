@@ -10,6 +10,7 @@ const dir = mkdtempSync(join(tmpdir(), 'sinter-size-'));
 const entries = {
   core: `export { mount, $k } from '${dist}/index.js';`,
   sse: `export { default } from '${dist}/sse.js';`,
+  ws: `export { webSocketTransport } from '${dist}/ws.js';`,
   optimistic: `export { default } from '${dist}/optimistic.js';`,
   paginate: `export { default } from '${dist}/paginate.js';`,
   persist: `export { default } from '${dist}/persist.js';`,

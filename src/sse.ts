@@ -1,6 +1,7 @@
-// Server-Sent Events: translates server events into change messages, gates
-// every reconnect with the session probe, refetches after reconnects and
-// steps aside for the back/forward cache.
+// <sn-sync>: translates server events into change messages, gates every
+// reconnect with the session probe, refetches after reconnects and steps aside
+// for the back/forward cache. The transport is EventSource unless
+// configure({ transport }) picks another for the stream URL.
 import type { EventDef, SyncDef } from './ir.js';
 import { config, SinterError } from './runtime/config.js';
 import type { App, Feature, Transport } from './runtime/app.js';
@@ -9,15 +10,18 @@ import { clean } from './runtime/store.js';
 const MIN_BACKOFF = 1000;
 const MAX_BACKOFF = 30_000;
 
+/** JSON payloads are parsed; anything else is delivered as the raw string. */
+export const parsePayload = (data: string): unknown => { try { return JSON.parse(data); } catch { return data; } };
+
 /** The default transport: one EventSource. */
 export function eventSourceTransport(): Transport {
   let es: EventSource | null = null;
-  let deliver: ((name: string, data: string) => void) | null = null;
+  let deliver: ((name: string, payload: unknown) => void) | null = null;
   const names = new Set<string>();
   const add = (name: string) => {
     if (!es || names.has(name)) return;
     names.add(name);
-    es.addEventListener(name, (e) => deliver?.(name, (e as MessageEvent).data));
+    es.addEventListener(name, (e) => deliver?.(name, parsePayload((e as MessageEvent).data)));
   };
   return {
     connect(url, onEvent, onState, initial) {
@@ -68,7 +72,7 @@ class Connection {
 
   private open(): void {
     if (this.closed && !this.hidden) return;
-    const t = this.app.transport(this.url) ?? eventSourceTransport();
+    const t = this.app.transport(this.url) ?? config.transport?.(this.url) ?? eventSourceTransport();
     this.t = t;
     const reconnect = this.everOpen;
     t.connect(this.url, (name, data) => this.event(name, data), (state) => {
@@ -114,9 +118,7 @@ class Connection {
     this.timer = this.app.env.setTimeout(() => { this.timer = null; fn(); }, delay, 'backoff');
   }
 
-  private event(name: string, data: string): void {
-    let payload: unknown;
-    try { payload = JSON.parse(data); } catch { payload = data; }
+  private event(name: string, payload: unknown): void {
     for (const def of this.def.events) if (def.name === name) this.apply(def, payload);
     this.app.serverEvent(name, payload);
   }
