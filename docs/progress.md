@@ -146,6 +146,11 @@ built, what deviates, and what is left.
   middleware keeps a client away from files of a nested project. Its `html-custom-data.json` is kept
   current by the docs test. `docs/editors.md`: setup for VS Code, Neovim, Helix and Emacs. Tested with
   fakes for `vscode` and the client (`test/vscode/`); not yet run inside VS Code itself.
+- 2026-11-05: data across page loads (roadmap item 3), phase 1. Sharing one stream across tabs was
+  dropped (it changes what servers see per connection; the 6-connection limit is HTTP/1.1's). Instead,
+  dev builds warn (code 18) when an EventSource stream's origin was reached over HTTP/1.1
+  (`protocolOf()` in `dev.ts`, from Resource Timing; the SSE module calls `app.streamOpened` for
+  default-transport streams only), and the spec, README and `llms.txt` say to serve streams over HTTP/2.
 
 ## Decisions and deviations
 

@@ -395,6 +395,7 @@ For `patch` and `remove`, the key is read from the payload using the resource's 
 - Missed events. After a reconnect, every resource fed by that stream is refetched once, since events sent while disconnected are lost.
 - Back/forward cache. The connection closes on `pagehide` and reopens on `pageshow`, so an open stream does not keep the page out of the cache. Reopening goes through the session probe like any reconnect, so a page restored after logout is redirected to login.
 - Coalescing. Several `refetch` messages for one resource within one task cause one request.
+- HTTP version. Each open EventSource holds one HTTP connection. Over HTTP/1.1 browsers allow 6 per origin, so with more than 5 tabs of an app open, the next page stops loading. Serve streams over HTTP/2 or HTTP/3 (one connection carries about 100 streams; any TLS reverse proxy such as nginx or Caddy provides it), or use the WebSocket transport, which is not counted against that limit. Dev builds warn once when a stream's origin was reached over HTTP/1.1, judged from Resource Timing: the page's navigation for a same-origin stream, else the last request to that origin. Streams are not shared across tabs (decided 2026-11-05: it would change what servers see per connection, such as echo suppression and presence).
 Later, with a backend change: a `session_expired` event sent before the server closes the stream could trigger the redirect without a probe.
 
 ### Paginated resources
@@ -417,7 +418,7 @@ configure({ transport: (url) => url.startsWith('/ws/') ? webSocketTransport() : 
 - **SignalR**: the `llms.txt` recipe; the adapter lives in the app, so sinter does not depend on `@microsoft/signalr`. Hub method names are the event names; the first argument is the payload. Do not enable SignalR's automatic reconnect.
 - Auth on a WebSocket or hub is the transport's: browsers send cookies, but request middleware does not apply.
 
-A SharedWorker or BroadcastChannel transport that shares one stream across tabs can implement the same interface later.
+A SharedWorker or BroadcastChannel transport that shares one stream across tabs could implement the same interface; it is not planned (see HTTP version under Connection rules).
 
 ## Actions, events and request layer
 An action is an element with one method attribute; it sends a request when its trigger fires and runs `then` or `catch` afterwards. Plain `data-sn-on-<event>` handlers cover everything that needs no request.

@@ -81,6 +81,10 @@ Each recipe comes with its test; copy both.
 - \`<sn-event … type="ContactEvent">\` types the payload; \`item\` must fit the resource's item, \`set\` part of it; \`cursor\` reads the item. No \`type\` on an event with payload expressions is warning SN506.
 - Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: \`checkPage(html, { files, openapi })\` from \`@tiaforge/sinter/check\`.
 `);
+  out.push(`## Deploying streams
+
+Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origin: with more than 5 tabs open, pages stop loading. Serve streams over HTTP/2 (any TLS reverse proxy such as nginx or Caddy) or use the WebSocket transport; dev builds warn about HTTP/1.1.
+`);
   out.push(`## Editors
 
 \`npx sinter lsp --stdio\` is a language server for the project's HTML files: sinter's diagnostics as you type (partials checked through the pages that include them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix. VS Code: the extension in \`editors/vscode\`. Setup for Neovim, Helix and Emacs: \`docs/editors.md\`. Every diagnostic links to its explanation in \`docs/diagnostics.md\`.

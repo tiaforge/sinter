@@ -72,7 +72,8 @@ class Connection {
 
   private open(): void {
     if (this.closed && !this.hidden) return;
-    const t = this.app.transport(this.url) ?? config.transport?.(this.url) ?? eventSourceTransport();
+    const custom = this.app.transport(this.url) ?? config.transport?.(this.url);
+    const t = custom ?? eventSourceTransport();
     this.t = t;
     const reconnect = this.everOpen;
     t.connect(this.url, (name, data) => this.event(name, data), (state) => {
@@ -80,6 +81,7 @@ class Connection {
       if (state === 'open') {
         this.backoff = MIN_BACKOFF;
         this.everOpen = true;
+        if (!custom) this.app.streamOpened?.(this.url);
         // events sent while disconnected are lost: refetch everything this stream feeds
         if (reconnect) for (const name of this.fed) void this.app.resource(name).refetch();
       } else {

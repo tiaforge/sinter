@@ -96,6 +96,8 @@ export interface App {
   dev: boolean;
   warn(code: number | string, ...args: unknown[]): void;
   prep?: <T>(item: T) => T;
+  /** dev: an EventSource stream opened (its connection counts against HTTP/1.1's 6 per origin) */
+  streamOpened?: (url: string) => void;
 
   resource<T extends object = any>(name: string): Resource<T>;
   request(url: string, init?: SendInit): Promise<unknown>;

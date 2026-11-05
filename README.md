@@ -39,6 +39,8 @@ export default { plugins: [sinter()] };
 - `src/sinter.config.js` (optional): `configure({ request, sessionProbe, onError, locale, origins, urlSchemes, transport })`;
   `transport` picks WebSocket (`@tiaforge/sinter/ws`), SignalR (recipe in `llms.txt`) or another
   transport per `<sn-sync>` URL.
+- Serve `<sn-sync>` streams over HTTP/2: over HTTP/1.1, each tab's EventSource takes one of the
+  browser's 6 connections per origin, and the sixth tab stops loading. Dev builds warn about it.
 - `src/sinter.types.ts` (optional): types that `<sn-resource type="Contact[]">` names. With
   `sinter({ openapi: 'openapi.yml' })`, resources without `type` are typed from your API spec instead.
   `npx sinter check` type-checks every expression with your TypeScript; `sinter({ typecheck: true })` runs it
