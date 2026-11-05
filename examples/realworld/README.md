@@ -28,30 +28,42 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 Everything the pages' expressions cannot do (storage, navigation, HTML rendering) lives in the
 config module and the islands; the pages are declarative.
 
-## e2e status (2026-11-04, public API)
+## e2e status (2026-11-05, local backend)
+
+Against [realworld-django-ninja](https://github.com/c4ffein/realworld-django-ninja) on SQLite
+(see below), with its invalid-token responses fixed to 401 (upstream answers them with a 500):
 
 | suite mode | passed | skipped | failed |
 | --- | ---: | ---: | ---: |
-| `spa` (default; this app holds the token and calls the API from the browser) | 134 | 0 | 6 |
-| `ssr` (`TEST_MODE=ssr`) | 89 | 48 | 3 |
+| `spa` (default; this app holds the token and calls the API from the browser) | 135 | 0 | 5 |
+| `ssr` (`TEST_MODE=ssr`) | 91 | 48 | 1 |
 
-- **Settings (4, spa mode only)**: after "Update Settings" the app navigates to the profile, as
-  the suite expects, but spa mode then reads the PUT response body, which a multi-page app
-  discards on navigation. The ssr-mode branch of the same tests (wait for the redirect, check
-  the profile) passes.
-- **Profile lists (2)**: the public API answers authenticated article lists for a user with two
-  fresh articles without CORS headers (seen in traces); fails in both modes.
-- ssr mode's other 2 failures were registrations that timed out against the public API.
+All remaining failures are assumptions in the suite, not app behaviour:
+
+- **Settings (4, spa mode only)**: the spa branch keeps using the settings page after the PUT:
+  three tests read the response body over CDP, one calls `page.evaluate` right away. This app
+  redirects to the profile with a page load as soon as the PUT succeeds, which drops the body
+  (`Network.getResponseBody: No resource`) and the JS context (`Execution context was
+  destroyed`). The ssr branch of the same tests (wait for the profile, check the bio) passes.
+- **Comments, "should require login to post comment" (both modes)**: asserts on the strict
+  locator `a[href="/login"]`, which matches the nav link and the reference markup's "Sign in or
+  sign up to add comments" link once the article has loaded. Against the slower public API the
+  assertion runs before that, so it passes there.
 
 Follow/unfollow and comment deletion wait for the server; favorites are optimistic.
 
 ## Against a local backend
 
 ```sh
-# a spec-compliant backend, e.g. https://github.com/c4ffein/realworld-django-ninja, on :8000
+# a spec-compliant backend, e.g. https://github.com/c4ffein/realworld-django-ninja, on :8000:
+#   DEBUG=True .venv/bin/python manage.py migrate && DEBUG=True .venv/bin/python manage.py runserver 8000
 API=http://localhost:8000/api CHROME=/path/to/chrome ./e2e-local.sh
 ```
 
 `e2e-local.sh` seeds the demo users the suite expects (`johndoe`, `janedoe`), builds a copy of the
-app pointing at `$API`, and runs the suite. `user-fetch-errors.spec.ts` mocks
-`https://api.realworld.show` itself and cannot pass against another backend.
+app pointing at `$API`, points the specs that hardcode `https://api.realworld.show` for their
+route mocks (`error-handling`, `user-fetch-errors`, `health`) at `$API` in that copy, runs the
+suite and leaves `test-results/` behind.
+
+The public API (`npm run e2e`) is slower and intermittently answers without CORS headers under
+load, so runs against it vary by a few tests.

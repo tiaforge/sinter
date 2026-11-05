@@ -20,7 +20,7 @@ Non-blank lines of app source; tests, mocks, type declarations, generated code (
 
 | implementation | files | lines | by type |
 | --- | ---: | ---: | --- |
-| **sinter** | 17 | **724** | html 585, js 139 |
+| **sinter** | 18 | **735** | html 588, js 147 |
 | SvelteKit | 41 | 1153 | svelte 816, js 312, html 25 |
 | Solid | 27 | 1281 | js 1248, html 33 |
 | Vue 3 | 41 | 1848 | vue 1344, ts 488, html 16 |
@@ -56,7 +56,7 @@ Client JS is the library versions their layouts load, gzipped at level 9.
 
 | implementation | commit | UI layer lines | data layer lines | client JS (gz) |
 | --- | --- | ---: | ---: | ---: |
-| **sinter** | | **724** | – (uses the API) | 12.5–14.2 KB per page |
+| **sinter** | | **735** | – (uses the API) | 12.5–14.2 KB per page |
 | Go + templ + htmx (BerkeleyTrue/conduit-go-htmx) | 4c0990a | 2031 | 2529 | 39.9 KB (htmx 1.9.5 14.7 + hyperscript 25.1) |
 | Clojure + hiccup + htmx (BerkeleyTrue/conduit-clj-htmx) | c46a814 | 1351 | 1525 | 39.9 KB |
 | Go + templ + Datastar (delaneyj/realworld-datastar) | 410de63 | 1949 | 488 | 14.7 KB (Datastar 0.18.9) |
@@ -69,10 +69,11 @@ compiles them, so injected markup stays inert; htmx needs no client build step.
 
 ## Official e2e suite
 
-sinter: 130–133 of 140, depending on the run (see `examples/realworld/README.md` for the rest:
-SPA assumptions in the settings tests, optimistic updates racing tests that navigate at once,
-and the public API failing under load). The other implementations were not run against the
-suite here.
+sinter, against a local backend (2026-11-05): 135 of 140 in the suite's spa mode, 91 passed and
+48 skipped in ssr mode, with 1 failure. The failures come from assumptions in the suite (the
+settings page surviving its redirect; a strict locator that matches the reference markup's
+second "Sign in" link); see `examples/realworld/README.md`. The other implementations were not
+run against the suite here.
 
 ## The same feature: the favorite button
 
