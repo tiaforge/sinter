@@ -5,6 +5,9 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+- `each="a in accounts"` on `<sn-resource>`: one request per list item, merged
+  into one collection. A changed list loads only new sources and drops removed
+  ones; a `refetch` event reloads only the source its payload names.
 - `offset-param` on a keyset `<sn-resource>`: when the server also accepts an
   offset, `page(name, n)` jumps with it and `prev`/`next` continue by cursor;
   `$meta.<name>.page` is available. Without it, `SN304` now suggests it.

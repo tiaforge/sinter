@@ -52,7 +52,8 @@ export interface Resource<T extends object = any> {
   upsert(item: T): void;
   patch(key: string | T, fields: Partial<T>): void;
   remove(key: string | T): void;
-  refetch(): Promise<void>;
+  /** `hint`: a server event's payload; an `each` resource reloads only the source it names */
+  refetch(hint?: object): Promise<void>;
   subscribe(fn: (change: Change<T>) => void): () => void;
   keyOf(item: string | T): string;
   /**
@@ -68,7 +69,7 @@ export interface Resource<T extends object = any> {
   base(): { items: T[] | T | null; total: number | null };
   /** while set, upsert/patch/remove are recorded instead of applied */
   recording: Op[] | null;
-  loader: { refetch(): Promise<void> } | null;
+  loader: { refetch(hint?: object): Promise<void> } | null;
   onDirty(what: 'data' | 'meta'): void;
 }
 
@@ -162,7 +163,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
     upsert: (item) => write({ op: 'upsert', item }),
     patch: (k, fields) => write({ op: 'patch', key: keyOf(k), fields }),
     remove: (k) => write({ op: 'remove', key: keyOf(k) }),
-    refetch: () => r.loader?.refetch() ?? Promise.resolve(),
+    refetch: (hint) => r.loader?.refetch(hint) ?? Promise.resolve(),
     subscribe: (fn) => (subs.add(fn), () => subs.delete(fn)),
     startLoad() {
       loads++;

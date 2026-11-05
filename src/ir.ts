@@ -39,6 +39,8 @@ export interface ResourceDef {
   data: number | null;
   /** `cache`: the oldest cached data to show, in ms (0: any age); absent when not cached */
   cache?: number;
+  /** `each="a in accounts"`: one request per list item (src evaluated with `item` in scope), merged into one collection */
+  each?: { item: string; list: number; of?: string };
 }
 
 export interface EventDef {

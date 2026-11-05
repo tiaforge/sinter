@@ -63,8 +63,21 @@ export interface ResourceLoader {
   res: Resource;
   app: App;
   pager: Pager | null;
+  /** first load (or embedded/cached data) */
+  start(): void;
+  /** `src`, `when` (or an `each` list) may have changed */
+  changed(): void;
   load(move?: unknown): Promise<void>;
-  refetch(): Promise<void>;
+  refetch(hint?: object): Promise<void>;
+  /** for feature modules: the scope `src` and `when` are evaluated in */
+  scope(): any;
+  /** for feature modules: a shared GET (concurrent loads of one URL share one request) */
+  get(url: string, signal: AbortSignal): Promise<unknown>;
+  /** for feature modules: the collection items of a response body (`items` path, checked, cleaned) */
+  items(body: unknown): any[];
+  /** for feature modules: a failed load: `$meta.error`, then the unhandled-error path */
+  failed(e: unknown): void;
+  loading(on: boolean): void;
 }
 
 export interface App {
@@ -77,6 +90,7 @@ export interface App {
   readonly transport: (url: string) => Transport | undefined;
   readonly ext: {
     optimistic?: { begin(fn: number, scope: any): () => void };
+    each?: { fanOut(loader: ResourceLoader): void };
     paginate?: { pager(loader: ResourceLoader): Pager; page(name: string, target: string | number): void };
     persist?: {
       model(rb: BoundBinding, set: (v: unknown) => void): void;
@@ -924,8 +938,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     app.page.$meta[def.name] = r.meta;
     let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null;
 
+    const scope = () => (def.scope < 0 ? app.page : rootScopes[def.scope] ?? app.page);
     const resolve = () => {
-      const s = def.scope < 0 ? app.page : rootScopes[def.scope] ?? app.page;
+      const s = scope();
       try { return def.when != null && !fns[def.when]!(s) ? null : app.url(def.src, s); } catch (e) { warn(17, def.name, (e as Error).message); return null; }
     };
     const loading = (on: boolean) => { if (r.meta.loading != on) { r.meta.loading = on; r.onDirty('meta'); } };
@@ -947,8 +962,20 @@ export function mount(root: Document | Element, o: MountOptions): App {
     /** the request URL for the current page of `u` */
     const request = (u: string, m = l.pager?.current()) => withParams(u, m ? l.pager!.params(m) : null);
 
-    const l = {
+    const fail = (e: unknown) => {
+      const error = toError(e);
+      r.meta.error = error;
+      r.onDirty('meta');
+      unhandled(error, null, def.name);
+    };
+    const l: ResourceLoader = {
       def, res: r, app, pager: null as Pager | null,
+      scope, get: loadShared, failed: fail, loading,
+      items(body) {
+        let items = pick(def.items, body);
+        if (!Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
+        return items.map(clean);
+      },
       start() {
         const el = def.data != null ? found.get(def.data) : null;
         let data;
@@ -1003,10 +1030,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           r.meta.loadedAt = env.now();
         } catch (e) {
           if (n != seq || isAbort(e)) return;
-          const error = toError(e);
-          r.meta.error = error;
-          r.onDirty('meta');
-          unhandled(error, null, def.name);
+          fail(e);
         } finally {
           // writes made while this load ran win over its (older) response
           r.endLoad(mark, loaded);
@@ -1014,6 +1038,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
       },
     };
+    if (def.each) app.ext.each!.fanOut(l);
     if (def.paginate) l.pager = app.ext.paginate!.pager(l);
     r.loader = l;
     loaders.push(l);

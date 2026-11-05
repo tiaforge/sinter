@@ -135,12 +135,12 @@ class Connection {
       const paginated = !!app.ir.resources.find((x) => x.name === def.resource)?.paginate;
       switch (def.op) {
         case 'refetch':
-          void r.refetch();
+          void r.refetch(scope.$p);
           return;
         case 'upsert': {
           const item = def.item != null ? app.fns[def.item]!(scope) : payload;
           if (item == null || typeof item !== 'object') {
-            if (def.fallback === 'refetch') void r.refetch();
+            if (def.fallback === 'refetch') void r.refetch(scope.$p);
             return;
           }
           if (paginated && !r.has(item as object)) { void r.refetch(); return; }

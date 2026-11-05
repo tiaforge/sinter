@@ -13,6 +13,7 @@ const entries = {
   ws: `export { webSocketTransport } from '${dist}/ws.js';`,
   optimistic: `export { default } from '${dist}/optimistic.js';`,
   paginate: `export { default } from '${dist}/paginate.js';`,
+  each: `export { default } from '${dist}/each.js';`,
   persist: `export { default } from '${dist}/persist.js';`,
   cache: `export { default } from '${dist}/cache.js';`,
   dev: `export { default } from '${dist}/dev.js';`,

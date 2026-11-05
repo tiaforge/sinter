@@ -37,7 +37,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 
 ## Elements
 
-- `<sn-resource>` `name`, `src`, `key`, `items`, `total`, `order`, `when`, `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `direction-values`, `page-param`, `offset-param`, `type`, `cache`: a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates
+- `<sn-resource>` `name`, `src`, `each`, `key`, `items`, `total`, `order`, `when`, `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `direction-values`, `page-param`, `offset-param`, `type`, `cache`: a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates
 - `<sn-sync>` `src`: one server event stream
 - `<sn-event>` `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `type`: maps one server event to a change message; child of <sn-sync>
 - `<sn-include>` `src`: inlines a partial at build time

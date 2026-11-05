@@ -157,7 +157,7 @@ class Compiler {
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'each'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces,
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -803,7 +803,32 @@ class Compiler {
     const info = this.page.resources.get(name)!;
     if (attr(el, 'src') == null) this.report(el, null, 'SN401', `resource \`${name}\` needs a \`src\``, 0);
     const deps = new Set<string>();
-    const src = this.urlTemplate(el, 'src', ctx.scope, {}, deps);
+    // `each="a in accounts"`: src is evaluated once per list item, with the item in scope
+    let each: ResourceDef['each'];
+    let srcScope = ctx.scope;
+    const eachAttr = attr(el, 'each');
+    if (eachAttr != null) {
+      const m = /^\s*([A-Za-z_$][\w$]*)\s+in\s+/.exec(eachAttr);
+      if (!m) this.report(el, 'each', 'SN401', '`each` takes `item in list`, e.g. `a in accounts`', 0);
+      else {
+        const list = this.expr(el, 'each', ctx.scope, { mode: 'value' }, eachAttr.slice(m[0].length), m[0].length);
+        const listExpr = this.lastExpr;
+        for (const d of list.deps) deps.add(d);
+        const loop: LoopEntry = { name: m[1]!, kind: 'item', alias: null, resource: list.resource };
+        if (this.check) {
+          this.frameOf.set(loop, this.check.frames.length);
+          this.check.frames.push({ kind: 'loop', item: m[1]!, index: null, init: listExpr, loc: this.locOf(el, 'each', eachAttr.indexOf(m[1]!)) });
+        }
+        srcScope = { loops: [...ctx.scope.loops, loop], states: ctx.scope.states };
+        if (list.ok) each = { item: m[1]!, list: this.fn(list.code), ...(list.resource ? { of: list.resource } : {}) };
+        this.features.add('each');
+        if (!info.key) this.report(el, 'each', 'SN401', 'an `each` resource is a collection: it needs `key`, with a field that tells the sources apart', 0);
+        for (const a of ['paginate', 'total', 'cache']) {
+          if (attr(el, a) != null) this.report(el, a, 'SN401', `\`${a}\` does not combine with \`each\`: the items come from several requests`, 0);
+        }
+      }
+    }
+    const src = this.urlTemplate(el, 'src', srcScope, {}, deps);
     let when: number | null = null;
     if (attr(el, 'when') != null) {
       const r = this.expr(el, 'when', ctx.scope, { mode: 'value' });
@@ -880,6 +905,7 @@ class Compiler {
       name, src, key: info.key, items: attr(el, 'items') ?? null, total: attr(el, 'total') ?? null,
       order: order ? order.trim() : null, when, paginate, deps: [...deps].sort(), scope: ctx.stateIdx, data: null,
       ...(cache !== undefined ? { cache } : {}),
+      ...(each ? { each } : {}),
     });
   }
 

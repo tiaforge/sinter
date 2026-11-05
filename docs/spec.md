@@ -41,6 +41,7 @@ Server data enters through the request layer (loads) and the sync adapter (event
 | `@tiaforge-ui/sinter/ws` | WebSocket transport (opt-in from the config module) |
 | `@tiaforge-ui/sinter/optimistic` | optimistic layers |
 | `@tiaforge-ui/sinter/paginate` | keyset, offset, append |
+| `@tiaforge-ui/sinter/each` | fan-out resources (`each="a in accounts"`) |
 | `@tiaforge-ui/sinter/persist` | `data-sn-persist` |
 | `@tiaforge-ui/sinter/compiler` | `compile()` |
 | `@tiaforge-ui/sinter/vite` | Vite plugin |
@@ -305,6 +306,7 @@ A resource is a named, page-wide cache of one piece of server data: either a key
 | `order` | no | field kept sorted on upserts, `-field` for descending; locale-aware for strings |
 | `when` | no | value expression; while falsy, the resource is empty (null or []) and a running request is aborted |
 | `cache` | no | page-load cache: show the data from the last page load at once, then revalidate (see Data sources). No value: any age; `30s`, `10m`, `2h`, `1d`: ignore older data |
+| `each` | no | `item in list`: one request per list item, `src` evaluated with the item in scope; the responses form one collection (see Fan-out resources) |
 
 
 ### Behaviour
@@ -314,6 +316,22 @@ A resource is a named, page-wide cache of one piece of server data: either a key
 - Identity. Keys are compared as joined strings. A duplicate key in a response is a dev-mode warning; the last one wins.
 - Immutability. Items are frozen in dev builds. Changes always replace the item object.
 Single-object resources (no `key`): `upsert` replaces the object, `patch` merges fields into it, `remove` sets it to `null`. Their change messages need no key.
+
+### Fan-out resources (`each`)
+Some APIs list a collection per parent: mailboxes per account, events per calendar. `each` loads one request per item of another list and keeps the results as one collection (added 2026-11-05):
+```html
+<sn-resource name="accounts" src="/api/email/accounts" key="account_id"></sn-resource>
+<sn-resource name="mailboxes" each="a in accounts" src="/api/email/mailboxes?account_id={a.account_id}"
+             key="account_id,name" order="name"></sn-resource>
+```
+- A source is identified by its resolved URL. When the list changes, only new sources load, and a removed source's items are dropped; the others keep their data.
+- An item belongs to a source when it came in that source's last response, or when `src` resolves to that source's URL with the item in place of the list item (here: its `account_id`). A source's next response replaces exactly its items, including ones a server event added.
+- `key` is required and must tell the sources' items apart (here `account_id` is part of it). `paginate`, `total` and `cache` do not combine with `each`.
+- It ships as the `each` module, imported only by pages that use it.
+- `$meta.<name>.loading` is true while any source loads; `loadedAt` is set once every current source has answered, or, for an empty list, once the list's resource has loaded. `error` is the last failed source's.
+- `refresh(name)` reloads every source. A `refetch` from a server event reloads only the source its payload resolves to, the same way (`mailboxes_changed` with `{account_id}`), and every source otherwise.
+- `when` applies to all sources at once: falsy drops every item and aborts every request.
+- Prefer one endpoint for the whole collection when you control the server: `each` makes one request per list item.
 
 ### Status fields
 Status lives under `$meta.<name>`, never on the data itself. The field set is fixed:
@@ -393,7 +411,7 @@ Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `i
 | `when` | value expression; skip the event unless truthy, e.g. `mailbox === $url.mailbox` |
 | `fallback` | `refetch` when `item` evaluates to null (for servers that send some updates without a body) |
 
-For `patch` and `remove`, the key is read from the payload using the resource's `key` fields. Events with no `<sn-event>` are still dispatched to islands (see JS API).
+For `patch` and `remove`, the key is read from the payload using the resource's `key` fields. On an `each` resource, `refetch` reloads only the source the payload resolves to (see Fan-out resources). Events with no `<sn-event>` are still dispatched to islands (see JS API).
 
 ### Connection rules
 - One connection per stream URL per page, however many elements use it.

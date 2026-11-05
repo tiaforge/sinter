@@ -113,6 +113,7 @@ Then write `data-sn-*` attributes in your HTML pages. Optional:
 | `@tiaforge-ui/sinter/ws` | WebSocket transport for `<sn-sync>` |
 | `@tiaforge-ui/sinter/optimistic` | optimistic layers |
 | `@tiaforge-ui/sinter/paginate` | keyset, offset, append |
+| `@tiaforge-ui/sinter/each` | fan-out resources (`each="a in accounts"`) |
 | `@tiaforge-ui/sinter/persist` | `data-sn-persist` |
 | `@tiaforge-ui/sinter/compiler` | `compile()` |
 | `@tiaforge-ui/sinter/vite` | Vite plugin |

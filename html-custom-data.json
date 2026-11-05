@@ -12,6 +12,9 @@
           "name": "src"
         },
         {
+          "name": "each"
+        },
+        {
           "name": "key"
         },
         {

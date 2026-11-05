@@ -36,6 +36,7 @@
     "./ws": "./dist/ws.js",
     "./optimistic": "./dist/optimistic.js",
     "./paginate": "./dist/paginate.js",
+    "./each": "./dist/each.js",
     "./persist": "./dist/persist.js",
     "./cache": "./dist/cache.js",
     "./compiler": "./dist/compiler/index.js",

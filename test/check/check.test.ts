@@ -89,6 +89,12 @@ describe('sinter check', () => {
     one(page(`<p data-sn-text="m.items_count({ count: 'x' })"></p>`), /Type 'string' is not assignable to type 'number'/, 'count:');
   });
 
+  test('each: the loop variable has the list item type in src', () => {
+    const html = page(`<sn-resource name="emails" each="c in contacts" src="/api/emails?contact={c.nmae}" key="id" type="any"></sn-resource>
+<p data-sn-text="emails.length"></p>`);
+    one(html, /Property 'nmae' does not exist on type 'Contact'/, 'nmae');
+  });
+
   test('a TypeScript helpers module: calls are checked against its signatures', () => {
     const root = project({
       'src/sinter.types.ts': TYPES,

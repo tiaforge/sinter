@@ -13,10 +13,11 @@ import cache from '../cache.js';
 import dev from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
+import each from '../each.js';
 import persist from '../persist.js';
 import sse from '../sse.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each };
 
 // ---- requests
 
