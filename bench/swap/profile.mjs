@@ -9,7 +9,7 @@ import { start } from './server.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const [variant = 'sinter', n = '5000', scenario = 'replace'] = process.argv.slice(2);
-const path = variant === 'sinter' ? '/sinter/' : `/${variant}.html`;
+const path = variant === 'sinter' ? (scenario === 'append' ? '/sinter/append.html' : '/sinter/') : `/${variant}.html`;
 const build = spawnSync('npx', ['vite', 'build', '--logLevel', 'warn'], { cwd: here, stdio: 'inherit', env: { ...process.env, MINIFY: '0' } });
 if (build.status) process.exit(1);
 

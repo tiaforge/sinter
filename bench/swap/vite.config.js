@@ -10,7 +10,10 @@ export default defineConfig({
     outDir: '../dist', emptyOutDir: true, modulePreload: { polyfill: false },
     minify: process.env.MINIFY !== '0', // profile.mjs builds readable function names
     // the harness gets its own chunk so the library size (run.mjs) leaves it out
-    rollupOptions: { output: { manualChunks: (id) => (id.includes('/pages/') ? 'harness' : undefined) } },
+    rollupOptions: {
+      input: { index: 'sinter/index.html', append: 'sinter/append.html' },
+      output: { manualChunks: (id) => (id.includes('/pages/') ? 'harness' : undefined) },
+    },
   },
   server: { fs: { allow: ['..'] } },
 });

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>sinter (append)</title>
+  <link rel="icon" href="data:,">
+  <script type="module" src="../pages/bench.js"></script>
+</head>
+<body>
+<!-- "load more": paginate="append" fetches the rows after the last id and adds them to the list.
+     The server picks the sizes (base list, then n/10); `r` in the URL reloads the first page (reset). -->
+<div data-sn-state="{ r: 0 }">
+  <sn-resource name="rows" src="/rows.json?n={$url.n}&s=append&r={r}" items="rows" key="id"
+    paginate="append" page-size="1" cursor="{after: id}"></sn-resource>
+  <button id="a" data-sn-on-click="r += 1">a</button> <button id="c" data-sn-on-click="page('rows', 'next')">c</button>
+  <table><tbody id="target"><template data-sn-for="r in rows" data-sn-key="r.id"><tr><td class="id" data-sn-text="r.id"></td><td class="label" data-sn-text="r.label"></td></tr></template></tbody></table>
+</div>
+</body>
+</html>

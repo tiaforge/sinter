@@ -9,16 +9,23 @@ import { rows } from './pages/rows.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json' };
+const scenario = (s) => (['update', 'append'].includes(s) ? s : 'replace');
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => `&${{ '&': 'amp', '<': 'lt', '>': 'gt' }[c]};`);
 const trs = (rs) => rs.map((r) => `<tr><td class="id">${r.id}</td><td class="label">${esc(r.label)}</td></tr>`).join('');
 
-/** The response for one data URL, or null. Query: n (rows), s (scenario), v (set a or b). */
+/** The response for one data URL, or null. Query: n (rows), s (scenario), v (set a, b, or c: appended rows). */
 function data(path, q) {
-  const n = Math.min(+q.get('n') || 0, 100_000), s = q.get('s') === 'update' ? 'update' : 'replace', v = q.get('v') === 'b' ? 'b' : 'a';
+  const n = Math.min(+q.get('n') || 0, 100_000), s = scenario(q.get('s'));
+  // sinter's append page asks with paginate parameters: direction=next is the added rows
+  const v = q.get('v') === 'b' ? 'b' : q.get('v') === 'c' || q.get('direction') === 'next' ? 'c' : 'a';
   if (path === '/rows.html') return { type: TYPES['.html'], body: trs(rows(n, s, v)) };
   if (path === '/rows.json') return { type: TYPES['.json'], body: JSON.stringify({ rows: rows(n, s, v) }) };
   // Datastar: an element with the target's id is morphed into place (its default); with mode=replace
   // the response names the selector and mode in headers and the element is replaced without morphing.
+  // Appending: the new rows with mode append.
+  if (path === '/rows-ds.html' && s === 'append' && v === 'c') return {
+    type: TYPES['.html'], body: trs(rows(n, s, v)), headers: { 'datastar-selector': '#target', 'datastar-mode': 'append' },
+  };
   if (path === '/rows-ds.html') return {
     type: TYPES['.html'], body: `<tbody id="target">${trs(rows(n, s, v))}</tbody>`,
     headers: q.get('mode') === 'replace' ? { 'datastar-selector': '#target', 'datastar-mode': 'replace' } : {},
@@ -40,7 +47,7 @@ async function respond(url) {
   if (body == null) return null;
   const type = TYPES[extname(file)] ?? 'application/octet-stream';
   if (type.startsWith('text/html')) { // fill the page's {{n}} / {{s}}
-    const n = String(+u.searchParams.get('n') || 0), s = u.searchParams.get('s') === 'update' ? 'update' : 'replace';
+    const n = String(+u.searchParams.get('n') || 0), s = scenario(u.searchParams.get('s'));
     body = body.toString().replaceAll('{{n}}', n).replaceAll('{{s}}', s);
   }
   return { type, body };

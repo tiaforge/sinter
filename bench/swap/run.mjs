@@ -1,7 +1,7 @@
 // Runs the swap benchmark in headless Chrome over the DevTools protocol (no dependencies) and
 // prints markdown tables; raw samples go to results/<timestamp>.json.
 //   CHROME=/path/to/chrome node run.mjs
-// Environment: N=100,1000,5000  S=replace,update  ROUNDS=3  ITER=50  WARMUP=10  CPU=1 (throttling
+// Environment: N=100,1000,5000  S=replace,update,append  ROUNDS=3  ITER=50  WARMUP=10  CPU=1 (throttling
 // rate)  ONLY=sinter,htmx-4.0.1 (variant name substrings)
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -14,21 +14,24 @@ import { start } from './server.mjs';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const env = (k, d) => process.env[k] ?? d;
 const SIZES = env('N', '100,1000,5000').split(',').map(Number);
-const SCENARIOS = env('S', 'replace,update').split(',');
+const SCENARIOS = env('S', 'replace,update,append').split(',');
 const ROUNDS = +env('ROUNDS', 3), ITER = +env('ITER', 50), WARMUP = +env('WARMUP', 10), CPU = +env('CPU', 1);
 const ONLY = process.env.ONLY?.split(',');
 
-// name → page path and the files the browser loads for the library
+// name → page path (or one per scenario) and the files the browser loads for the library.
+// The morph and replace variants append exactly like their siblings, so they sit out "append".
+const NO_APPEND = { append: null };
 const VARIANTS = [
   ['vanilla-html', '/vanilla-html.html', []],
   ['vanilla-json', '/vanilla-json.html', []],
-  ['sinter', '/sinter/', ['dist/assets']],
+  ['sinter', { replace: '/sinter/', update: '/sinter/', append: '/sinter/append.html' }, ['dist/assets/app-', 'dist/assets/index-']],
   ['htmx-2.0.11', '/htmx-2.0.11.html', ['vendor/htmx-2.0.11.min.js']],
   ['htmx-4.0.1', '/htmx-4.0.1.html', ['vendor/htmx-4.0.1.min.js']],
-  ['htmx-4.0.1-morph', '/htmx-4.0.1-morph.html', ['vendor/htmx-4.0.1.min.js']],
+  ['htmx-4.0.1-morph', { replace: '/htmx-4.0.1-morph.html', update: '/htmx-4.0.1-morph.html', ...NO_APPEND }, ['vendor/htmx-4.0.1.min.js']],
   ['datastar-1.0.4', '/datastar-1.0.4.html', ['vendor/datastar-1.0.4.js']],
-  ['datastar-1.0.4-replace', '/datastar-1.0.4-replace.html', ['vendor/datastar-1.0.4.js']],
+  ['datastar-1.0.4-replace', { replace: '/datastar-1.0.4-replace.html', update: '/datastar-1.0.4-replace.html', ...NO_APPEND }, ['vendor/datastar-1.0.4.js']],
 ].filter(([name]) => !ONLY || ONLY.some((o) => name.includes(o)));
+const pageFor = (paths, s) => (typeof paths === 'string' ? paths : paths[s]);
 
 async function measure(chrome, url) {
   return withPage(chrome, url, (send) => evaluate(send, `window.__bench.run({ warmup: ${WARMUP}, iterations: ${ITER} })`), { cpu: CPU });
@@ -45,7 +48,8 @@ function libBytes(files) {
   let raw = 0, z = 0;
   for (const f of files) {
     const p = join(here, f);
-    const list = f === 'dist/assets' ? readdirSync(p).filter((x) => x.endsWith('.js') && !x.startsWith('harness')).map((x) => join(p, x)) : [p];
+    const dir = join(here, 'dist/assets'), prefix = f.startsWith('dist/assets/') ? f.slice('dist/assets/'.length) : null;
+    const list = prefix ? readdirSync(dir).filter((x) => x.startsWith(prefix) && x.endsWith('.js')).map((x) => join(dir, x)) : [p];
     for (const x of list) { const b = readFileSync(x); raw += b.length; z += gz(b); }
   }
   return { raw, gz: z };
@@ -59,11 +63,13 @@ const server = await start();
 const chrome = await launch();
 const samples = {}; // scenario → n → variant → { dom: [], layout: [] }
 const shuffle = (xs) => xs.map((x) => [Math.random(), x]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
-const total = ROUNDS * SCENARIOS.length * SIZES.length * VARIANTS.length;
+const total = ROUNDS * SIZES.length * SCENARIOS.reduce((t, s) => t + VARIANTS.filter(([, p]) => pageFor(p, s)).length, 0);
 let done = 0;
 try {
   for (let round = 0; round < ROUNDS; round++)
-    for (const s of SCENARIOS) for (const n of SIZES) for (const [name, path] of shuffle(VARIANTS)) {
+    for (const s of SCENARIOS) for (const n of SIZES) for (const [name, paths] of shuffle(VARIANTS)) {
+      const path = pageFor(paths, s);
+      if (!path) continue;
       process.stderr.write(`\r[${++done}/${total}] ${s} n=${n} ${name}`.padEnd(60));
       const r = await measure(chrome, `${server.url}${path}?n=${n}&s=${s}`);
       const slot = ((samples[s] ??= {})[n] ??= {})[name] ??= { dom: [], layout: [] };
@@ -82,7 +88,7 @@ for (const s of SCENARIOS) {
   out.push(`### ${s}\n`);
   out.push(`| variant | ${SIZES.map((n) => `${n} rows`).join(' | ')} |`);
   out.push(`| --- | ${SIZES.map(() => '---:').join(' | ')} |`);
-  for (const [name] of VARIANTS)
+  for (const [name, paths] of VARIANTS) if (pageFor(paths, s))
     out.push(`| ${name} | ${SIZES.map((n) => { const x = samples[s][n][name]; return `${fmt(q(x.dom, 0.5))} / ${fmt(q(x.layout, 0.5))}`; }).join(' | ')} |`);
   out.push('');
 }
