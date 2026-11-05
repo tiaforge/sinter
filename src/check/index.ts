@@ -95,13 +95,13 @@ export function check(o: CheckOptions): CheckResult {
   const outDir = o.outDir ?? join(o.root, '.sinter', 'check');
   const support = writeSupport({ root: o.root, outDir, types: o.types, openapi: o.openapi });
 
-  const shadows = new Map<string, { unit: CheckUnit; regions: Region[] }>();
+  const shadows = new Map<string, { unit: CheckUnit; regions: Region[]; brokenFrom: number | null }>();
   for (const unit of o.units) {
     const file = shadowPath(support, o.root, unit.file);
     const s = shadowOf(unit, support, o.root, o.helpers);
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, s.text);
-    shadows.set(resolve(file), { unit, regions: s.regions });
+    shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom });
   }
   const tsconfig = join(outDir, 'tsconfig.json');
   writeFileSync(tsconfig, JSON.stringify({
@@ -171,7 +171,7 @@ export function typeExports(source: string): string[] {
 }
 
 /** `file(line,col): error TS1234: message`, with indented continuation lines. */
-function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<string, { unit: CheckUnit; regions: Region[] }>): Diagnostic[] {
+function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<string, { unit: CheckUnit; regions: Region[]; brokenFrom: number | null }>): Diagnostic[] {
   const out: Diagnostic[] = [];
   let last: Diagnostic | null = null;
   for (const raw of stdout.split(/\r?\n/)) {
@@ -182,8 +182,8 @@ function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<str
     }
     last = null;
     const s = shadows.get(resolve(outDir, m[1]!));
-    // errors in the app's own modules are its own tsc's business
-    if (!s) continue;
+    // errors in the app's own modules are its own tsc's business; broken expressions are the compiler's
+    if (!s || (s.brokenFrom !== null && Number(m[2]) >= s.brokenFrom)) continue;
     const d = typeDiagnostic(s.unit, s.regions, Number(m[2]), Number(m[3]), m[4]!, m[5]!, root);
     out.push(d);
     last = d;

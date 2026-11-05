@@ -45,8 +45,9 @@ export default { plugins: [sinter()] };
   in `vite build`.
 - Editors: `npx sinter lsp --stdio` is a language server for `html` files. It shows sinter's diagnostics
   as you type, in pages and in partials (checked in the context of the pages that include them), and
-  with TypeScript 7 also type errors (about 300 ms after typing stops) and the type of a name on hover.
-  With older TypeScript, type errors appear on save. Completion and go to definition are in progress.
+  with TypeScript 7 also type errors (about 300 ms after typing stops), hover types, completion inside
+  expressions (also half-typed ones), go to definition (to the declaring attribute, the types module or
+  the OpenAPI spec) and a did-you-mean quick fix. With older TypeScript, type errors appear on save.
 
 ## Packages
 

@@ -4,13 +4,14 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { COMPILER_OPTIONS, shadowOf, shadowPath, typeDiagnostic, writeSupport, type Support } from '../check/index.js';
 import { mapPosition, shadowPosition, type Region } from '../check/shadow.js';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import type { Diagnostic } from '../compiler/index.js';
 import type { Project } from '../project.js';
 import { Connection } from './rpc.js';
+import { specLocation } from './spec-location.js';
 
 /** The major version of the project's TypeScript, from the package next to its `tsc`. */
 export function typescriptMajor(tsc: string): number {
@@ -29,8 +30,15 @@ interface OpenShadow {
   text: string;
   lines: string[];
   regions: Region[];
+  brokenFrom: number | null;
   version: number;
 }
+
+/** A place in a file, 1-based; `end` when known. */
+export interface Target { file: string; line: number; col: number; endLine?: number; endCol?: number }
+
+/** Names the shadow declares for itself, never offered as completions. */
+const INTERNAL = /^(\$any|\$item|\$p|\$e\d+)$/;
 
 interface LspRange { start: { line: number; character: number }; end: { line: number; character: number } }
 
@@ -73,10 +81,10 @@ export class TypeScriptBridge {
     for (const [page, unit] of units) {
       const s = shadowOf(unit, support, this.root, project.helpers);
       const prev = this.shadows.get(page);
-      if (prev?.text === s.text) { prev.unit = unit; prev.regions = s.regions; continue; }
+      if (prev?.text === s.text) { prev.unit = unit; prev.regions = s.regions; prev.brokenFrom = s.brokenFrom; continue; }
       const path = shadowPath(support, this.root, page);
       const uri = pathToFileURL(path).href;
-      const next: OpenShadow = { unit, path, uri, text: s.text, lines: s.text.split('\n'), regions: s.regions, version: (prev?.version ?? 0) + 1 };
+      const next: OpenShadow = { unit, path, uri, text: s.text, lines: s.text.split('\n'), regions: s.regions, brokenFrom: s.brokenFrom, version: (prev?.version ?? 0) + 1 };
       this.shadows.set(page, next);
       if (prev) {
         this.conn.notify('textDocument/didChange', { textDocument: { uri, version: next.version }, contentChanges: [{ text: s.text }] });
@@ -106,6 +114,8 @@ export class TypeScriptBridge {
       // hints and suggestions (unused imports of the shadow itself) are not the page's business
       if (item.severity !== 1) continue;
       const { start, end } = item.range;
+      // broken expressions are the compiler's to report
+      if (s.brokenFrom !== null && start.line + 1 >= s.brokenFrom) continue;
       const d = typeDiagnostic(s.unit, s.regions, start.line + 1, start.character + 1, `TS${item.code}`, item.message, this.root);
       const a = mapPosition(s.regions, start.line + 1, start.character + 1);
       const b = mapPosition(s.regions, end.line + 1, end.character + 1);
@@ -146,6 +156,82 @@ export class TypeScriptBridge {
     if (!h) return null;
     const range = h.range ? this.toHtml(at.shadow, h.range, file) : null;
     return range ? { contents: h.contents, range } : { contents: h.contents };
+  }
+
+  /** Completions at a 1-based HTML position inside an expression, with edits mapped to the HTML. */
+  async completion(file: string, line: number, col: number, context: unknown): Promise<{ isIncomplete: boolean; items: any[] } | null> {
+    await this.ready;
+    const at = this.locate(file, line, col);
+    if (!at) return null;
+    const r = await this.conn.request<any>('textDocument/completion', {
+      textDocument: { uri: at.shadow.uri }, position: { line: at.line - 1, character: at.col - 1 }, context,
+    });
+    if (!r) return null;
+    const list: any[] = Array.isArray(r) ? r : r.items ?? [];
+    const items: any[] = [];
+    for (const item of list) {
+      // the shadow's own names, and auto-imports that would edit the shadow's header
+      if (INTERNAL.test(item.label) || item.additionalTextEdits?.length) continue;
+      const edit = item.textEdit;
+      if (edit) {
+        const range = edit.range ?? edit.replace;
+        const mapped = range && this.toHtml(at.shadow, range, file);
+        if (mapped) item.textEdit = { range: mapped, newText: edit.newText };
+        else delete item.textEdit;
+      }
+      item.data = { sinter: this.root, ts: item.data ?? null, uri: at.shadow.uri };
+      items.push(item);
+    }
+    return { isIncomplete: Array.isArray(r) ? false : !!r.isIncomplete, items };
+  }
+
+  /** Details for a completion item this bridge returned (documentation, signature). */
+  async resolve(item: any): Promise<any> {
+    const ours = item.data;
+    const r = await this.conn.request<any>('completionItem/resolve', { ...item, data: ours.ts, textEdit: undefined });
+    return { ...item, documentation: r?.documentation ?? item.documentation, detail: r?.detail ?? item.detail };
+  }
+
+  /**
+   * Definitions of the name at a 1-based HTML position: where the HTML declares it (resources,
+   * state, loop variables), the spec for types generated from OpenAPI, else TypeScript's own
+   * answer (helpers, the types module).
+   */
+  async definition(file: string, line: number, col: number, project: Project): Promise<Target[]> {
+    await this.ready;
+    const at = this.locate(file, line, col);
+    if (!at) return [];
+    const r = await this.conn.request<any>('textDocument/definition', {
+      textDocument: { uri: at.shadow.uri }, position: { line: at.line - 1, character: at.col - 1 },
+    });
+    const list: any[] = !r ? [] : Array.isArray(r) ? r : [r];
+    const out: Target[] = [];
+    for (const d of list) {
+      const uri: string = d.targetUri ?? d.uri;
+      const range: LspRange = d.targetSelectionRange ?? d.range;
+      if (!uri?.startsWith('file:') || !range) continue;
+      const path = fileURLToPath(uri);
+      const shadow = [...this.shadows.values()].find((s) => s.path === path);
+      if (shadow) {
+        const loc = mapPosition(shadow.regions, range.start.line + 1, range.start.character + 1);
+        if (loc) out.push({ file: loc.file, line: loc.line, col: loc.col });
+        continue;
+      }
+      const spec = this.support?.openapi.indexOf(path) ?? -1;
+      if (spec >= 0) {
+        const text = readFileSync(path, 'utf8').split('\n')[range.start.line] ?? '';
+        const name = /^export (?:interface|type) ([\w$]+)/.exec(text)?.[1];
+        const ident = text.slice(range.start.character, range.end.character);
+        const specFile = project.openapi[spec]?.file;
+        const loc = name && specFile ? specLocation(specFile, name, ident !== name ? ident : undefined) : null;
+        if (loc && specFile) out.push({ file: specFile, ...loc });
+        continue;
+      }
+      // sinter's own declarations say nothing useful about the app
+      if (path === this.support?.declarations) continue;
+      out.push({ file: path, line: range.start.line + 1, col: range.start.character + 1, endLine: range.end.line + 1, endCol: range.end.character + 1 });
+    }
+    return out;
   }
 
   /** Tells TypeScript that files it may have read changed on disk. */

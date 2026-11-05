@@ -821,7 +821,10 @@ The dev build adds checks that need real data: duplicate keys in a response, an 
 - Diagnostics underline the whole attribute or tag when they are about it (`span` on `Diagnostic`), else the name at their position.
 - Type errors (`SN208`) as you type: with TypeScript 7, `sinter lsp` keeps each page's shadow file open in TypeScript's own language server (`tsc --lsp --stdio`, one per project, shadows under `.sinter/lsp/`) and pulls its errors 300 ms after the last change, mapped to the HTML with TypeScript's range. Before TypeScript 7 (no `--lsp`), it runs the `sinter check` pipeline on save.
 - Hover on a name in an expression shows its TypeScript type (TypeScript 7 only).
-- Planned (roadmap item 4): completion, go to definition and a did-you-mean quick fix; a VS Code extension that starts the project's own `sinter lsp`.
+- Completion inside expressions comes from TypeScript, minus the shadow's own names and auto-imports. An expression the compiler rejects (it may not even parse, like `article.`) stays in the check unit marked broken: it is written after all other expressions, completes like any other, and TypeScript's errors in it are dropped, since the compiler has reported it.
+- Go to definition: a resource goes to its `name` attribute, a state field to its key in `data-sn-state`, a loop variable or index to `data-sn-for`, a type generated from OpenAPI to its schema (or property) in the spec file, an `<sn-include>` `src` to the partial; helpers and types-module names go where TypeScript says.
+- Quick fix: a diagnostic whose message ends in a suggestion ("Did you mean `count`?", TypeScript's "Did you mean 'title'?") offers to replace the misspelled name with it.
+- Planned (roadmap item 4): a VS Code extension that starts the project's own `sinter lsp`.
 
 ### Stability
 - Attribute names, function names and diagnostic codes are part of the public API.

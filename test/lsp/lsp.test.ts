@@ -7,7 +7,8 @@ import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, test } from 'vitest';
 import { Connection } from '../../src/lsp/rpc.js';
 import { findTsc } from '../../src/check/index.js';
-import { rangeOf, startServer, type LspDiagnostic } from '../../src/lsp/server.js';
+import { includeAt, rangeOf, startServer, type LspDiagnostic } from '../../src/lsp/server.js';
+import { didYouMeanEdit, suggestionOf } from '../../src/lsp/quickfix.js';
 
 const tsc = findTsc(process.cwd());
 
@@ -55,6 +56,20 @@ async function editor(root: string, options: { tsc?: string } = {}) {
     },
     save(rel: string) {
       client.notify('textDocument/didSave', { textDocument: { uri: uri(rel) } });
+    },
+    completion(rel: string, line: number, character: number) {
+      return client.request<{ items: Array<{ label: string; textEdit?: { range: unknown; newText: string }; data?: unknown }> } | null>('textDocument/completion', { textDocument: { uri: uri(rel) }, position: { line, character }, context: { triggerKind: 1 } });
+    },
+    resolve(item: unknown) {
+      return client.request<{ detail?: string }>('completionItem/resolve', item);
+    },
+    definition(rel: string, line: number, character: number) {
+      return client.request<Array<{ uri: string; range: { start: { line: number; character: number } } }> | null>('textDocument/definition', { textDocument: { uri: uri(rel) }, position: { line, character } });
+    },
+    codeActions(rel: string, diagnostics: LspDiagnostic[]) {
+      return client.request<Array<{ title: string; edit: { changes: Record<string, Array<{ range: unknown; newText: string }>> } }>>('textDocument/codeAction', {
+        textDocument: { uri: uri(rel) }, range: diagnostics[0]!.range, context: { diagnostics },
+      });
     },
     /** tells the server files changed on disk, as an editor's file watcher does */
     changed(...rels: string[]) {
@@ -223,5 +238,140 @@ describe('sinter lsp', () => {
       const d = await e.diagnostics('index.html', (d) => d.length > 0);
       expect(d[0]!.message).toContain("Property 'nmae' does not exist on type 'Contact'");
     });
+  });
+});
+
+describe('did-you-mean', () => {
+  test('finds the misspelled name next to the suggestion', () => {
+    expect(suggestionOf('`contcts` is not defined here. Did you mean `contacts`?')).toEqual({ wrong: 'contcts', right: 'contacts' });
+    expect(suggestionOf("Property 'titel' does not exist on type 'Article'. Did you mean 'title'?")).toEqual({ wrong: 'titel', right: 'title' });
+    expect(suggestionOf('`m.inbox_titel` is not exported by namespace `m`. Did you mean `inbox_title`?')).toEqual({ wrong: 'inbox_titel', right: 'inbox_title' });
+    expect(suggestionOf('`$meta.contacts.loadng` is not a status field. Did you mean `loading`?')).toEqual({ wrong: 'loadng', right: 'loading' });
+    expect(suggestionOf('the response of `GET /articles` has no `articls`. Did you mean `articles`?')).toEqual({ wrong: 'articls', right: 'articles' });
+    expect(suggestionOf('`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`?')).toEqual({ wrong: 'data-sn-txt', right: 'data-sn-text' });
+    expect(suggestionOf('resource `x` is declared twice')).toBeNull();
+  });
+
+  test('replaces the whole name nearest the diagnostic', () => {
+    const text = '<p data-sn-txt="txt"></p>';
+    const range = { start: { line: 0, character: 3 }, end: { line: 0, character: 20 } };
+    expect(didYouMeanEdit(text, range, '`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`?')).toEqual({
+      range: { start: { line: 0, character: 3 }, end: { line: 0, character: 14 } }, newText: 'data-sn-text',
+    });
+    // `cnt` inside `cnt2` is not the name
+    const t2 = 'a cnt2 + cnt';
+    expect(didYouMeanEdit(t2, { start: { line: 0, character: 9 }, end: { line: 0, character: 12 } }, '`cnt` is not defined here. Did you mean `count`?')!.range)
+      .toEqual({ start: { line: 0, character: 9 }, end: { line: 0, character: 12 } });
+  });
+});
+
+test('includeAt finds the partial under the cursor', () => {
+  const line = '  <sn-include src="./partials/row.html"></sn-include>';
+  expect(includeAt(line, 0, 22)).toBe('./partials/row.html');
+  expect(includeAt(line, 0, 5)).toBeNull();
+});
+
+describe('completion, definition, quick fixes', () => {
+  const TYPES = 'export interface Contact {\n  id: number;\n  name: string;\n  tags: string[];\n}\n';
+  const PAGE = (expr: string) => `<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>
+<div data-sn-state="{ query: '', open: false }">
+  <template data-sn-for="(c, i) in contacts">
+    <li data-sn-text="${expr}"></li>
+  </template>
+</div>
+`;
+
+  test('completes members, also in an expression that does not parse yet', async () => {
+    const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
+    const e = await editor(root);
+    e.open('index.html', PAGE('c.'));
+    await e.diagnostics('index.html', (d) => d.some((x) => x.code.startsWith('SN401')));
+    const r = await e.completion('index.html', 3, 24);
+    const labels = r!.items.map((i) => i.label);
+    expect(labels).toEqual(expect.arrayContaining(['id', 'name', 'tags']));
+    const resolved = await e.resolve(r!.items.find((i) => i.label === 'name'));
+    expect(resolved.detail).toContain('string');
+  });
+
+  test('completes names in scope, without the shadow\'s own', async () => {
+    const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
+    const e = await editor(root);
+    e.open('index.html', PAGE('qu'));
+    await e.diagnostics('index.html', (d) => d.length > 0);
+    const labels = (await e.completion('index.html', 3, 24))!.items.map((i) => i.label);
+    expect(labels).toEqual(expect.arrayContaining(['query', 'open', 'contacts', 'c', 'i', '$meta', 'date']));
+    expect(labels.filter((l) => /^\$(any|item|p|e\d+)$/.test(l))).toEqual([]);
+  });
+
+  test('go to definition lands where the HTML declares a name', async () => {
+    const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name + query + contacts.length + i') });
+    const e = await editor(root);
+    e.open('index.html', PAGE('c.name + query + contacts.length + i'));
+    await e.diagnostics('index.html');
+    const at = async (character: number) => (await e.definition('index.html', 3, character))!.map((d) => [d.uri.split('/').pop(), d.range.start.line, d.range.start.character]);
+    expect(await at(22)).toEqual([['index.html', 2, 26]]); // c → data-sn-for
+    expect(await at(31)).toEqual([['index.html', 1, 22]]); // query → the state literal
+    expect(await at(40)).toEqual([['index.html', 0, 19]]); // contacts → name="contacts"
+    expect(await at(58)).toEqual([['index.html', 2, 29]]); // i → the index
+    expect(await at(25)).toEqual([['sinter.types.ts', 2, 2]]); // name → the types module
+  });
+
+  test('go to definition of a type from OpenAPI opens the spec', async () => {
+    const spec = `openapi: 3.0.0
+info: { title: t, version: '1' }
+paths:
+  /api/contacts:
+    get:
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Contact' }
+components:
+  schemas:
+    Contact:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+`;
+    const page = '<sn-resource name="contacts" src="/api/contacts" key="id"></sn-resource>\n<p data-sn-text="contacts[0].name"></p>\n';
+    const root = project({ 'openapi.yml': spec, 'index.html': page, 'vite.config.js': `import sinter from ${JSON.stringify(join(process.cwd(), 'src/vite.ts'))};\nexport default { plugins: [sinter({ openapi: 'openapi.yml' })] };\n` });
+    const e = await editor(root);
+    e.open('index.html', page);
+    await e.diagnostics('index.html');
+    const d = await e.definition('index.html', 1, 30);
+    expect(d!.map((x) => [x.uri.split('/').pop(), x.range.start.line, x.range.start.character])).toEqual([['openapi.yml', 18, 8]]);
+  });
+
+  test('go to definition on an include opens the partial', async () => {
+    const page = '<sn-include src="./row.html"></sn-include>\n';
+    const root = project({ 'index.html': page, 'row.html': '<p>row</p>\n' });
+    const e = await editor(root);
+    e.open('index.html', page);
+    const d = await e.definition('index.html', 0, 20);
+    expect(d![0]!.uri).toBe(e.uri('row.html'));
+  });
+
+  test('quick fixes apply the suggestion of compiler and type errors', async () => {
+    const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
+    const e = await editor(root);
+    // an unknown attribute's value is not compiled, so the attribute typo has its own element
+    e.open('index.html', PAGE('c.name + qeury').replace('</div>', '  <p data-sn-txt="query"></p>\n</div>'));
+    const d = await e.diagnostics('index.html', (d) => d.length === 2 && d.some((x) => x.code.startsWith('SN101')));
+    const fix = async (code: string) => {
+      const diag = d.find((x) => x.code.startsWith(code))!;
+      const [a] = await e.codeActions('index.html', [diag]);
+      return a!.edit.changes[e.uri('index.html')]![0];
+    };
+    expect(await fix('SN101')).toEqual({ range: { start: { line: 5, character: 5 }, end: { line: 5, character: 16 } }, newText: 'data-sn-text' });
+    expect(await fix('SN201')).toEqual({ range: { start: { line: 3, character: 31 }, end: { line: 3, character: 36 } }, newText: 'query' });
+    // TypeScript suggests only close names (`nam`, not `nmae`)
+    e.change('index.html', PAGE('c.nam'));
+    const t = await e.diagnostics('index.html', (d) => d.some((x) => x.code.startsWith('SN208')));
+    const [a] = await e.codeActions('index.html', t.filter((x) => x.code.startsWith('SN208')));
+    expect(a!.edit.changes[e.uri('index.html')]![0]).toEqual({ range: { start: { line: 3, character: 24 }, end: { line: 3, character: 27 } }, newText: 'name' });
   });
 });

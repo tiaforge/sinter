@@ -6,7 +6,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CODES, docsUrl, type Diagnostic } from '../compiler/index.js';
 import { check, findTsc } from '../check/index.js';
 import { Connection } from './rpc.js';
-import { TypeScriptBridge, typescriptMajor } from './typescript.js';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { didYouMeanEdit } from './quickfix.js';
+import { TypeScriptBridge, typescriptMajor, type Target } from './typescript.js';
 import { Workspace, type ProjectState } from './workspace.js';
 
 /** How long typing must pause before TypeScript checks the pages. */
@@ -132,6 +135,9 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
         // full text on every change
         textDocumentSync: { openClose: true, change: 1, save: { includeText: false } },
         hoverProvider: true,
+        completionProvider: { triggerCharacters: ['.'], resolveProvider: true },
+        definitionProvider: true,
+        codeActionProvider: { codeActionKinds: ['quickfix'] },
       },
       serverInfo: { name: 'sinter' },
     };
@@ -192,6 +198,67 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     return mode.hover(file, p.position.line + 1, p.position.character + 1);
   });
 
+  /** the bridge for a file's project, with its shadows brought up to date */
+  const bridgeFor = async (file: string) => {
+    const state = await workspace.projectFor(file);
+    const mode = modeOf(state.root);
+    if (!(mode instanceof TypeScriptBridge)) return null;
+    await mode.update(state.project, state.units);
+    return { bridge: mode, state };
+  };
+
+  conn.onRequest('textDocument/completion', async (p: any) => {
+    if (!local(p.textDocument.uri)) return null;
+    const file = uriToPath(p.textDocument.uri);
+    const b = await bridgeFor(file);
+    return b ? b.bridge.completion(file, p.position.line + 1, p.position.character + 1, p.context) : null;
+  });
+
+  conn.onRequest('completionItem/resolve', async (item: any) => {
+    const m = item?.data?.sinter ? typescript.get(item.data.sinter) : null;
+    return m instanceof TypeScriptBridge ? m.resolve(item) : item;
+  });
+
+  const location = (t: Target) => {
+    let text = '';
+    try { text = workspace.read(t.file); } catch { /* the target's range falls back to its start */ }
+    const range = t.endLine !== undefined && t.endCol !== undefined
+      ? { start: { line: t.line - 1, character: t.col - 1 }, end: { line: t.endLine - 1, character: t.endCol - 1 } }
+      : rangeOf(text, t.line, t.col);
+    return { uri: pathToUri(t.file), range };
+  };
+
+  conn.onRequest('textDocument/definition', async (p: any) => {
+    if (!local(p.textDocument.uri)) return null;
+    const file = uriToPath(p.textDocument.uri);
+    const partial = includeAt(workspace.read(file), p.position.line, p.position.character);
+    if (partial !== null) {
+      const target = resolve(dirname(file), partial);
+      return existsSync(target) ? [{ uri: pathToUri(target), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } }] : null;
+    }
+    const b = await bridgeFor(file);
+    if (!b) return null;
+    const targets = await b.bridge.definition(file, p.position.line + 1, p.position.character + 1, b.state.project);
+    return targets.map(location);
+  });
+
+  conn.onRequest('textDocument/codeAction', (p: any) => {
+    if (!local(p.textDocument.uri)) return [];
+    let text: string;
+    try { text = workspace.read(uriToPath(p.textDocument.uri)); } catch { return []; }
+    const actions = [];
+    for (const d of p.context?.diagnostics ?? []) {
+      if (d.source !== 'sinter') continue;
+      const edit = didYouMeanEdit(text, d.range, d.message);
+      if (!edit) continue;
+      actions.push({
+        title: `Change to '${edit.newText}'`, kind: 'quickfix', isPreferred: true, diagnostics: [d],
+        edit: { changes: { [p.textDocument.uri]: [edit] } },
+      });
+    }
+    return actions;
+  });
+
   const dispose = () => {
     disposed = true;
     for (const t of timers.values()) clearTimeout(t);
@@ -205,4 +272,14 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
   conn.onNotification('exit', () => { conn.close(); o.exit?.(shutdown ? 0 : 1); });
   conn.onUnhandled = () => {};
   return conn;
+}
+
+/** The `src` of an `<sn-include>` when the 0-based position is inside its value, else null. */
+export function includeAt(text: string, line: number, character: number): string | null {
+  const t = text.split('\n')[line] ?? '';
+  for (const m of t.matchAll(/<sn-include\b[^>]*?\bsrc\s*=\s*(["'])([^"']*)\1/g)) {
+    const start = m.index! + m[0].length - 1 - m[2]!.length;
+    if (character >= start && character <= start + m[2]!.length) return m[2]!;
+  }
+  return null;
 }

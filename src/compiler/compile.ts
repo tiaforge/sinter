@@ -5,7 +5,7 @@ import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, type ExprOptions, type ExprResult, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
 import { ATTRIBUTES, ELEMENTS } from './vocabulary.js';
-import type { CheckExpr, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
+import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { matchOperation, matchResource, queryNames, walk, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, Binding, EventDef, IR, NodeDef, Paginate, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 
@@ -402,7 +402,9 @@ class Compiler {
         const entry = { sid, names: new Set(r.entries!.map((e) => e.key)) };
         if (this.check) {
           this.frameOf.set(entry, this.check.frames.length);
-          this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr });
+          const first = [...entry.names].map((n) => r.entries!.find((e) => e.key === n)!);
+          const locs = first.map((e) => this.locOf(el, 'data-sn-state', e.offset));
+          this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs });
         }
         scope = { loops: scope.loops, states: [...scope.states, entry] };
         if (has('persist') && !has('model')) {
@@ -520,7 +522,12 @@ class Compiler {
     const src = value ?? attr(el, attrName) ?? '';
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
     this.lastExpr = null;
-    if (this.check && r.ok) this.lastExpr = this.recordExpr(el, attrName, scope, o, src, shift, r);
+    if (this.check) {
+      const i = this.recordExpr(el, attrName, scope, o, src, shift, r);
+      // a broken expression is there for editor completion only; nothing refers to it
+      if (r.ok) this.lastExpr = i;
+      else this.check.exprs[i]!.broken = true;
+    }
     return r;
   }
 
@@ -691,7 +698,10 @@ class Compiler {
     if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias });
     if (this.check) {
       for (const l of loops.slice(scope.loops.length)) this.frameOf.set(l, this.check.frames.length);
-      this.check.frames.push({ kind: 'loop', item, index, init: listExpr });
+      const itemAt = value.indexOf(item, value.indexOf('(') >= 0 && value.indexOf('(') < m[0].length ? value.indexOf('(') : 0);
+      const frame: CheckFrame = { kind: 'loop', item, index, init: listExpr, loc: this.locOf(el, 'data-sn-for', itemAt) };
+      if (index) frame.indexLoc = this.locOf(el, 'data-sn-for', value.indexOf(index, itemAt + item.length));
+      this.check.frames.push(frame);
     }
     const inner: Scope = { loops, states: scope.states };
     t.key = null;
@@ -800,7 +810,7 @@ class Compiler {
     const type = attr(el, 'type')?.trim() || null;
     const openapi = type ? null : this.openapi(el, src, attr(el, 'items') ?? null, attr(el, 'total') ?? null);
     if (this.check) {
-      const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null) };
+      const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
       this.check.resources.push(r);
       if (!type && !r.openapi) {

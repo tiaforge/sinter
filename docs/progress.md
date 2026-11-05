@@ -131,6 +131,14 @@ built, what deviates, and what is left.
   pipeline runs on save (tested with a fake TypeScript 5 package). `check()` is split into
   `writeSupport`, `shadowOf` and `typeDiagnostic` so both share them. RealWorld over stdio: a planted
   `article.titel` is reported 340 ms after the edit; a hover takes 6 ms.
+- 2026-11-05: editor integration, phase 3: completion (`completionItem/resolve` forwarded to
+  TypeScript), go to definition and the did-you-mean quick fix (`src/lsp/quickfix.ts`, which reads the
+  suggestion from the message, so TypeScript's suggestions work too). In check mode the compiler keeps
+  expressions with errors as `broken` (written last in the shadow; their TypeScript errors dropped,
+  also in `sinter check`); state and loop frames and resources carry the location of their names, and
+  the shadow maps its declarations there. `src/lsp/spec-location.ts` finds a schema or property in the
+  spec with `yaml`'s source ranges. RealWorld over stdio: completion after `article.` 22 ms,
+  definition of `title` → `openapi.yml:561` 23 ms.
 
 ## Decisions and deviations
 

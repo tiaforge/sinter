@@ -33,7 +33,12 @@ export interface Region {
   fixed?: boolean;
 }
 
-export interface Shadow { text: string; regions: Region[] }
+export interface Shadow {
+  text: string;
+  regions: Region[];
+  /** first line of the broken expressions (written last); nothing from there on is reported */
+  brokenFrom: number | null;
+}
 
 export function shadow(o: ShadowOptions): Shadow {
   const { unit } = o;
@@ -95,6 +100,7 @@ export function shadow(o: ShadowOptions): Shadow {
       regions.push({ start: out.length + 1, lines: 1, loc: r.loc, fixed: true });
       line(`/** @type {${t}} ${r.openapi.label.replace(/\*\//g, '')} */`);
     } else line('/** @type {any} */');
+    regions.push({ start: out.length + 1, lines: 1, loc: r.nameLoc ?? r.loc, fixed: true });
     line(`const ${r.name} = $any;`);
   }
   const names = unit.resources.map((r) => JSON.stringify(r.name)).join(' | ') || 'never';
@@ -131,16 +137,26 @@ export function shadow(o: ShadowOptions): Shadow {
     for (const i of frames) {
       const f = unit.frames[i]!;
       line('{');
-      if (f.kind === 'state') line(`let { ${f.names.join(', ')} } = ${f.init === null ? '$any' : `$e${f.init}()`};`);
-      else {
+      // declarations map to where the HTML writes the names, for go to definition
+      const at = (loc: CheckLoc | undefined) => { if (loc) regions.push({ start: out.length + 1, lines: 1, loc, fixed: true }); };
+      if (f.kind === 'state') {
+        line('let {');
+        f.names.forEach((n, k) => { at(f.locs?.[k]); line(`${n},`); });
+        line(`} = ${f.init === null ? '$any' : `$e${f.init}()`};`);
+      } else {
+        at(f.loc);
         line(`const ${f.item} = ${f.init === null ? '$any' : `$item($e${f.init}())`};`);
-        if (f.index) line(`const ${f.index} = 0;`);
+        if (f.index) { at(f.indexLoc); line(`const ${f.index} = 0;`); }
       }
     }
     return frames.length;
   };
 
-  unit.exprs.forEach((e, i) => {
+  // broken expressions last, so their syntax errors cannot spill into checked code
+  const order = unit.exprs.map((e, i) => [e, i] as const).sort(([a], [b]) => Number(!!a.broken) - Number(!!b.broken));
+  let brokenFrom: number | null = null;
+  order.forEach(([e, i]) => {
+    if (e.broken && brokenFrom === null) brokenFrom = out.length + 1;
     line('');
     if (e.returns) tagged('returns', e.returns);
     line(`function $e${i}() {`);
@@ -174,7 +190,7 @@ export function shadow(o: ShadowOptions): Shadow {
     for (let b = 0; b < blocks; b++) line('}');
     line('}');
   });
-  return { text: out.join('\n') + '\n', regions };
+  return { text: out.join('\n') + '\n', regions, brokenFrom };
 }
 
 /** Maps a 1-based shadow position to the HTML, or null for generated lines. */

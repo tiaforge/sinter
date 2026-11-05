@@ -16,8 +16,10 @@ export interface CheckLoc {
  * expression did not compile.
  */
 export type CheckFrame =
-  | { kind: 'state'; names: string[]; init: number | null }
-  | { kind: 'loop'; item: string; index: string | null; init: number | null };
+  /** `locs[i]`: where `names[i]` is written in the literal */
+  | { kind: 'state'; names: string[]; init: number | null; locs?: CheckLoc[] }
+  /** `loc`, `indexLoc`: where the item and index names are written */
+  | { kind: 'loop'; item: string; index: string | null; init: number | null; loc?: CheckLoc; indexLoc?: CheckLoc };
 
 /** A type the checker writes for something other than a resource. */
 export type TypeRef =
@@ -48,6 +50,8 @@ export interface CheckExpr {
   returns?: TypeRef;
   /** payload expressions (`<sn-event>`, `cursor`): the payload fields read, and the payload's type (null: any) */
   payload?: { names: string[]; type: TypeRef | null };
+  /** the compiler reported an error in it (it may not even parse); kept for editor completion, never type-checked */
+  broken?: boolean;
 }
 
 export interface CheckResource {
@@ -56,6 +60,8 @@ export interface CheckResource {
   type: string | null;
   /** start of the `type` value, or of the element when absent */
   loc: CheckLoc;
+  /** start of the `name` value, where go to definition lands */
+  nameLoc?: CheckLoc;
   /** without `type`: the OpenAPI operation `src` matched and the schema of what `items` selects */
   openapi?: { spec: number; label: string; schema: unknown };
 }
