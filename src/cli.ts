@@ -31,20 +31,20 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const p = project(root, options);
-  const diagnostics: Diagnostic[] = [];
+  const diagnostics: Diagnostic[] = [...p.diagnostics];
   const units: CheckUnit[] = [];
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, config: p.config, readFile: p.readFile, check: true });
+    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
-  const r = check({ root, units, helpers: p.helpers, types: p.types });
+  const r = check({ root, units, helpers: p.helpers, types: p.types, openapi: p.openapi });
   diagnostics.push(...r.diagnostics);
 
   for (const d of diagnostics) console.log(formatDiagnostic({ ...d, file: relative(process.cwd(), d.file) || d.file }) + '\n');
   const errors = diagnostics.filter((d) => d.severity === 'error').length;
   const warnings = diagnostics.length - errors;
-  console.log(`sinter check: ${files.length} page(s), ${errors} error(s), ${warnings} warning(s); ${r.typed} of ${r.resources} resources typed`);
+  console.log(`sinter check: ${files.length} page(s), ${errors} error(s), ${warnings} warning(s); ${r.typed} of ${r.resources} resources typed${r.openapi ? ` (${r.openapi} via OpenAPI)` : ''}`);
   return errors ? 1 : 0;
 }
 

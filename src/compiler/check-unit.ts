@@ -41,6 +41,8 @@ export interface CheckResource {
   type: string | null;
   /** start of the `type` value, or of the element when absent */
   loc: CheckLoc;
+  /** without `type`: the OpenAPI operation `src` matched and the schema of what `items` selects */
+  openapi?: { spec: number; label: string; schema: unknown };
 }
 
 export interface CheckUnit {

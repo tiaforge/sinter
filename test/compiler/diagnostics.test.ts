@@ -7,9 +7,17 @@ const files: Record<string, string> = {
   '/p/partials/bad.html': '<p>\n  <b data-sn-txt="x"></b></p>',
 };
 
-function diags(html: string, check = false) {
+const SPEC = { file: '/p/openapi.json', doc: {
+  openapi: '3.0.3',
+  paths: { '/api/c': { get: { parameters: [{ name: 'q', in: 'query' }], responses: { '200': { description: 'ok', content: { 'application/json': {
+    schema: { type: 'object', properties: { contacts: { type: 'array', items: { type: 'object' } }, total: { type: 'integer' } } } } } } } } } },
+} };
+
+interface Opts { check?: boolean; openapi?: boolean }
+
+function diags(html: string, o: Opts = {}) {
   return compile(html, {
-    file: '/p/page.html', root: '/p', dev: false, check,
+    file: '/p/page.html', root: '/p', dev: false, check: o.check, openapi: o.openapi ? [SPEC] : undefined,
     readFile: (p) => { if (!(p in files)) throw new Error('missing'); return files[p]!; },
     helpers: { module: '/h.js', names: ['fmt'], namespaces: { m: { module: '/m.js', members: ['inbox_title'] } } },
   }).diagnostics;
@@ -20,7 +28,7 @@ const R = `<sn-resource name="contacts" src="/api/c" key="id"></sn-resource>
 const use = '<p data-sn-text="contacts.length + messages.length"></p>';
 
 /** One failing fixture per diagnostic code; the message text is part of the public API. */
-const cases: Array<[string, string, RegExp, boolean?]> = [
+const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-txt="1"></p>', /`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`\?/],
   ['SN102', '<div data-sn-for="x in [1]"></div>', /`data-sn-for` must be on a `<template>`/],
   ['SN103', '<template data-sn-for="x in [1, 2]"><i></i></template>', /needs `data-sn-key`/],
@@ -37,16 +45,18 @@ const cases: Array<[string, string, RegExp, boolean?]> = [
   ['SN303', `${R}${use}<p data-sn-text="$meta.contacts.loadng"></p>`, /`\$meta.contacts.loadng` is not a status field. Did you mean `loading`\?/],
   ['SN304', `${R}${use}<button data-sn-on-click="page('messages', 7)"></button>`, /keyset pagination cannot jump to a page number/],
   ['SN305', '<sn-include src="./partials/contact-dialg.html"></sn-include>', /partial `\.\/partials\/contact-dialg.html` not found or outside the project root/],
+  ['SN308', '<sn-resource name="c" src="/api/c" items="contcts"></sn-resource><p data-sn-text="c"></p>', /the response of `GET \/api\/c` has no `contcts`. Did you mean `contacts`\?/, { openapi: true }],
   ['SN306', '<sn-include src="./partials/a.html"></sn-include>', /a.html → b.html → a.html includes itself/],
   ['SN401', '<p data-sn-text="a +"></p>', /Unexpected token/],
   ['SN501', R + '<p data-sn-text="messages.length"></p>', /resource `contacts` is declared but never read/],
   ['SN502', '<p data-sn-text="Date.now()"></p>', /`Date.now\(\)` in a binding never updates. Use `\$now`/],
   ['SN503', `${R}${use}<template data-sn-for="c in contacts"><a data-sn-attr="{id: c.id}"></a></template>`, /`id` bound from data can shadow globals/],
-  ['SN504', `${R}${use}`, /resource `contacts` has no type: expressions using it are not checked/, true],
+  ['SN504', `${R}${use}`, /resource `contacts` has no type: expressions using it are not checked/, { check: true }],
+  ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
 ];
 
-/** Codes only `sinter check` reports (it runs TypeScript); their fixtures are in test/check. */
-const CHECK_ONLY = ['SN208'];
+/** Codes that do not come from compile(): `sinter check` runs TypeScript (SN208), loading a spec fails (SN307). Fixtures in test/check. */
+const CHECK_ONLY = ['SN208', 'SN307'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {

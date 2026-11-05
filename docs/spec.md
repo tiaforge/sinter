@@ -783,11 +783,14 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col` and an 
 | `SN304 keyset-jump` | error | keyset pagination cannot jump to a page number. Use `paginate="offset"` |
 | `SN305 include-not-found` | error | partial `./partials/contact-dialg.html` not found or outside the project root |
 | `SN306 include-cycle` | error | `a.html` → `b.html` → `a.html` includes itself |
+| `SN307 openapi-invalid` | error | OpenAPI spec `api.yml` is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`) |
+| `SN308 unknown-schema-field` | error | the response of `GET /articles` has no `articls`. Did you mean `articles`? |
 | `SN401 parse-error` | error | JS syntax error, with the column inside the attribute |
 | `SN501 unused-resource` | warning | resource `addressbooks` is declared but never read |
 | `SN502 non-reactive-value` | warning | `Date.now()` in a binding never updates. Use `$now` |
 | `SN503 data-bound-id` | warning | `id` bound from data can shadow globals other scripts read (DOM clobbering) |
 | `SN504 untyped-resource` | warning | resource `contacts` has no type: expressions using it are not checked — `sinter check` only |
+| `SN505 unknown-query-param` | warning | `GET /articles` declares no query parameter `tagg`. Did you mean `tag`? |
 
 
 ### Type checking
@@ -798,6 +801,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col` and an 
 - The check generates one JavaScript file per page under `.sinter/check/`, with every expression verbatim inside blocks that declare its scope, and runs `tsc` on them with `checkJs`. Errors map back to the HTML position (`SN208`).
 - Null checks and implicit `any` are off: a binding that reads `null` renders nothing at runtime, and expressions in separate attributes cannot narrow each other.
 - `sinter check` reads the pages and options from the Vite config, or takes pages as arguments. `sinter({ typecheck: true })` runs it at the end of `vite build` and fails the build on errors.
+- OpenAPI: `sinter({ openapi: 'openapi.yml' })` (or a list, one per API; local JSON or YAML files, so builds stay deterministic). A resource without `type` is matched to a GET operation: the `servers` URL prefix is stripped from `src`, the query string dropped, literal segments match literally, a segment that is one interpolation matches a `{param}`, and a literal path beats a templated one. Its type is the first 2xx JSON response's schema at `items`, converted to TypeScript by sinter (named schemas become named types). The match runs in every build, not only in the check: an `items` or `total` the schema lacks is `SN308`, a literal query parameter the operation does not declare is warning `SN505`. No match leaves the resource untyped (`SN504`, naming the closest path).
 - Not yet checked: `<sn-event>` payloads and `cursor` (payload expressions), action responses (`$result` is `any`).
 
 ### Dev runtime

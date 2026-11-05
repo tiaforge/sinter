@@ -28,7 +28,7 @@ function rewrite(req, _res, next) {
 export default defineConfig({
   appType: 'mpa',
   plugins: [
-    sinter(),
+    sinter({ openapi: 'openapi.yml' }),
     {
       name: 'conduit-routes',
       configureServer: (server) => () => server.middlewares.use(rewrite),

@@ -60,7 +60,7 @@ export default function sinter(options: SinterOptions = {}): Plugin & { api: { o
       if (error || !options.typecheck || dev || !units.size) return;
       const { check } = await import('./check/index.js');
       const p = project(root, options);
-      const r = check({ root, units: [...units.values()], helpers: p.helpers, types: p.types });
+      const r = check({ root, units: [...units.values()], helpers: p.helpers, types: p.types, openapi: p.openapi });
       units.clear();
       if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
     },
@@ -72,9 +72,10 @@ export default function sinter(options: SinterOptions = {}): Plugin & { api: { o
         const rel = relative(root, file).split(sep).join('/');
         const moduleSrc = `${PREFIX}${rel}.js`;
         const p = project(root, options);
+        if (p.diagnostics.length) throw new Error(`sinter: ${p.diagnostics.map(formatDiagnostic).join('\n')}`);
         const out = compile(html, {
           file, root, dev, helpers: p.helpers, moduleSrc, config: p.config, readFile: p.readFile,
-          check: !!options.typecheck && !dev,
+          check: !!options.typecheck && !dev, openapi: p.openapi,
         });
         if (out.check) units.set(file, out.check);
         for (const f of out.files) watch(f);

@@ -73,6 +73,7 @@ Each recipe comes with its test; copy both.
 \`npx sinter check\` type-checks every expression with the project's TypeScript (pages and options come from the Vite config). \`sinter({ typecheck: true })\` runs it in \`vite build\`.
 
 - \`<sn-resource … type="Contact[]">\`: the type of what \`items\` selects, using names exported by \`src/sinter.types.ts\`. \`type="any"\` opts out; no \`type\` is warning SN504.
+- \`sinter({ openapi: 'openapi.yml' })\`: resources without \`type\` are matched to a GET operation by \`src\` (server prefix stripped, \`{…}\` matches a path parameter) and typed from its JSON response at \`items\`. Every build then checks \`items\`/\`total\` against the schema (SN308) and query parameter names (SN505).
 - State takes a JSDoc cast where the literal is not enough: \`data-sn-state="{ editing: /** @type {Contact|null} */ (null) }"\`.
 - Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off.
 `);

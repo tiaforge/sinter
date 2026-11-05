@@ -39,8 +39,10 @@ export default { plugins: [sinter()] };
 - `src/sinter.config.js` (optional): `configure({ request, sessionProbe, onError, locale, origins, urlSchemes, transport })`;
   `transport` picks WebSocket (`@tiaforge/sinter/ws`), SignalR (recipe in `llms.txt`) or another
   transport per `<sn-sync>` URL.
-- `src/sinter.types.ts` (optional): types that `<sn-resource type="Contact[]">` names. `npx sinter check`
-  type-checks every expression with your TypeScript; `sinter({ typecheck: true })` runs it in `vite build`.
+- `src/sinter.types.ts` (optional): types that `<sn-resource type="Contact[]">` names. With
+  `sinter({ openapi: 'openapi.yml' })`, resources without `type` are typed from your API spec instead.
+  `npx sinter check` type-checks every expression with your TypeScript; `sinter({ typecheck: true })` runs it
+  in `vite build`.
 
 ## Packages
 

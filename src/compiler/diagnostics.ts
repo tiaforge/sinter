@@ -29,11 +29,14 @@ export const CODES = {
   SN304: 'keyset-jump',
   SN305: 'include-not-found',
   SN306: 'include-cycle',
+  SN307: 'openapi-invalid',
+  SN308: 'unknown-schema-field',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',
   SN503: 'data-bound-id',
   SN504: 'untyped-resource',
+  SN505: 'unknown-query-param',
 } as const;
 
 export type Code = keyof typeof CODES;

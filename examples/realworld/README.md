@@ -23,7 +23,8 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `partials/` | header (declares the `user` resource), footer, article meta, preview, errors | |
 | `src/sinter.config.js` | origin allowlist, JWT middleware (`localStorage.jwtToken`), current-user error handling | |
 | `src/islands.js` | sign-in/out and navigation events, `<conduit-redirect>`, `<conduit-markdown>` (marked + DOMPurify), `window.__conduit_debug__` | |
-| `vite.config.js` | page entries and the dev/preview rewrites for the path patterns | |
+| `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ openapi })` | |
+| `openapi.yml` | the Conduit API spec ([realworld-apps/realworld](https://github.com/realworld-apps/realworld), MIT), which types every resource for `npx sinter check` | |
 
 Everything the pages' expressions cannot do (storage, navigation, HTML rendering) lives in the
 config module and the islands; the pages are declarative.

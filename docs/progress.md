@@ -98,6 +98,12 @@ built, what deviates, and what is left.
   `<sn-resource>`, `SN208 type-error`, `SN504 untyped-resource`, `sinter check` CLI,
   `sinter({ typecheck, types })`. The untyped RealWorld example (377 expressions) checks with no errors;
   that is a test.
+- 2026-11-05: type checking, phase 3: OpenAPI. `sinter({ openapi })` loads JSON/YAML specs (`yaml` is now a
+  dependency, required only when a spec is configured); `src/compiler/openapi.ts` matches resources to
+  GET operations in every build (`SN307`, `SN308`, `SN505`); `src/check/openapi-types.ts` converts schemas
+  to TypeScript. RealWorld now uses the Conduit spec (`examples/realworld/openapi.yml`): 15 of 15
+  resources typed with no annotations, 0 errors (a test); a planted `article.titel` reports
+  "Property 'titel' does not exist on type 'Article'. Did you mean 'title'?".
 
 ## Decisions and deviations
 
@@ -129,6 +135,10 @@ built, what deviates, and what is left.
   nothing at runtime, one attribute cannot narrow another (`data-sn-if="x"` around `x.y`), and
   `{ error: null }` state stays unchecked unless it has a JSDoc cast. With them on, the untyped
   RealWorld example had 26 errors, none of them bugs.
+- OpenAPI types come from sinter's own schema converter, not `openapi-typescript`: that package builds
+  its output with the TypeScript 5 compiler API and declares `typescript@^5` as a peer, which conflicts
+  with TypeScript 7 projects (this one included). The converter also turns named schemas into named
+  declarations, so messages say `type 'Article'` instead of spelling out the object.
 - `type` on `<sn-resource>` is any TypeScript type over the types module's exports (`Contact[]`,
   `Page<Article>`); the shadow file brings the exports into scope with a JSDoc `@import`, so state casts
   use plain names too.

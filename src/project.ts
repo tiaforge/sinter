@@ -1,8 +1,10 @@
 // The app's conventional files (helpers, config and types modules), found the same
 // way by the Vite plugin and by `sinter check`.
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, resolve, sep } from 'node:path';
-import { readHelperManifest, type HelperManifest } from './compiler/index.js';
+import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
+import type { OpenApiSpec } from './compiler/openapi.js';
 
 export interface ProjectOptions {
   /** helpers module, relative to the root (default `src/sinter.helpers.js`, or `.ts`) */
@@ -11,6 +13,8 @@ export interface ProjectOptions {
   config?: string;
   /** module whose exported types `type="…"` on `<sn-resource>` may name (default `src/sinter.types.ts`, `.d.ts` or `.js`) */
   types?: string;
+  /** OpenAPI specs (JSON or YAML, inside the root) that resources without `type` are matched against */
+  openapi?: string | string[];
 }
 
 export interface Project {
@@ -24,6 +28,9 @@ export interface Project {
   types: string | null;
   /** reads a file only if it resolves inside the root, symlinks included */
   readFile: (path: string) => string;
+  openapi: OpenApiSpec[];
+  /** problems loading the specs (SN307) */
+  diagnostics: Diagnostic[];
 }
 
 export function project(root: string, options: ProjectOptions = {}): Project {
@@ -58,8 +65,27 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   }
   const configRel = find(options.config, 'src/sinter.config');
   const typesRel = find(options.types, 'src/sinter.types', ['.ts', '.d.ts', '.js']);
+  const openapi: OpenApiSpec[] = [];
+  const diagnostics: Diagnostic[] = [];
+  for (const rel of options.openapi == null ? [] : Array.isArray(options.openapi) ? options.openapi : [options.openapi]) {
+    const file = resolve(root, rel);
+    const fail = (why: string) => diagnostics.push({ severity: 'error', code: 'SN307', message: `OpenAPI spec \`${rel}\` ${why}`, file, line: 1, col: 1 });
+    let text: string;
+    try { text = readFile(file); } catch (e) { fail(`cannot be read: ${(e as Error).message}`); continue; }
+    let doc: unknown;
+    try { doc = /\.json$/i.test(file) ? JSON.parse(text) : (createRequire(import.meta.url)('yaml') as typeof import('yaml')).parse(text); } catch (e) {
+      fail(`is not valid ${/\.json$/i.test(file) ? 'JSON' : 'YAML'}: ${(e as Error).message.split('\n')[0]}`);
+      continue;
+    }
+    const d = doc as { openapi?: unknown; paths?: unknown } | null;
+    if (!d || typeof d.openapi !== 'string' || !/^3\./.test(d.openapi) || typeof d.paths !== 'object') {
+      fail('is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`)');
+      continue;
+    }
+    openapi.push({ file, doc });
+  }
   return {
-    root, helpers, helpersFile, readFile,
+    root, helpers, helpersFile, readFile, openapi, diagnostics,
     config: configRel ? url(configRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,
   };

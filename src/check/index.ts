@@ -7,6 +7,8 @@ import { dirname, join, relative, resolve } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
+import type { OpenApiSpec } from '../compiler/openapi.js';
+import { specDeclarations } from './openapi-types.js';
 import { DECLARATIONS, mapPosition, shadow, type Region } from './shadow.js';
 
 export interface CheckOptions {
@@ -16,6 +18,8 @@ export interface CheckOptions {
   helpers: HelperManifest;
   /** absolute path of the types module, or null */
   types: string | null;
+  /** the specs the pages were compiled with (`compile(…, { openapi })`) */
+  openapi?: OpenApiSpec[];
   /** where the shadow files go (default `<root>/.sinter/check`) */
   outDir?: string;
   /** path of TypeScript's `tsc` script (default: resolved from the project) */
@@ -25,7 +29,10 @@ export interface CheckOptions {
 export interface CheckResult {
   diagnostics: Diagnostic[];
   resources: number;
+  /** resources with `type` or an OpenAPI match */
   typed: number;
+  /** of those, typed from OpenAPI */
+  openapi: number;
 }
 
 export function check(o: CheckOptions): CheckResult {
@@ -35,10 +42,16 @@ export function check(o: CheckOptions): CheckResult {
   mkdirSync(outDir, { recursive: true });
   writeFileSync(declarations, DECLARATIONS);
 
+  const openapi = (o.openapi ?? []).map((s, i) => {
+    const file = join(outDir, `openapi-${i}.d.ts`);
+    writeFileSync(file, specDeclarations(s.doc, relative(o.root, s.file).split('\\').join('/')));
+    return file;
+  });
+
   const shadows = new Map<string, { unit: CheckUnit; regions: Region[] }>();
   for (const unit of o.units) {
     const file = join(outDir, relative(o.root, unit.file) + '.js');
-    const s = shadow({ unit, file, root: o.root, declarations, types, helpers: o.helpers });
+    const s = shadow({ unit, file, root: o.root, declarations, types, helpers: o.helpers, openapi });
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, s.text);
     shadows.set(resolve(file), { unit, regions: s.regions });
@@ -49,7 +62,7 @@ export function check(o: CheckOptions): CheckResult {
       allowJs: true, checkJs: true, strict: true, strictNullChecks: false, noImplicitAny: false, noEmit: true, skipLibCheck: true,
       target: 'es2022', module: 'esnext', moduleResolution: 'bundler', lib: ['es2023', 'dom', 'dom.iterable'], types: [],
     },
-    files: ['sinter.d.ts', ...[...shadows.keys()].map((f) => relative(outDir, f).split('\\').join('/'))],
+    files: ['sinter.d.ts', ...openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map((f) => relative(outDir, f).split('\\').join('/'))],
   }, null, 2) + '\n');
 
   const tsc = o.tsc ?? findTsc(o.root);
@@ -58,8 +71,9 @@ export function check(o: CheckOptions): CheckResult {
   const diagnostics = parseTsc(run.stdout, outDir, o.root, shadows);
 
   const resources = o.units.reduce((n, u) => n + u.resources.length, 0);
-  const typed = o.units.reduce((n, u) => n + u.resources.filter((r) => r.type).length, 0);
-  return { diagnostics, resources, typed };
+  const typed = o.units.reduce((n, u) => n + u.resources.filter((r) => r.type || r.openapi).length, 0);
+  const viaOpenapi = o.units.reduce((n, u) => n + u.resources.filter((r) => !r.type && r.openapi).length, 0);
+  return { diagnostics, resources, typed, openapi: viaOpenapi };
 }
 
 /** TypeScript's `tsc` script, resolved from the project like its own imports. */

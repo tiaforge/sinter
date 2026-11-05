@@ -5,7 +5,8 @@ import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, type ExprOptions, type ExprResult, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
 import { ATTRIBUTES, ELEMENTS } from './vocabulary.js';
-import type { CheckExpr, CheckLoc, CheckUnit } from './check-unit.js';
+import type { CheckExpr, CheckLoc, CheckResource, CheckUnit } from './check-unit.js';
+import { matchResource, queryNames, walk, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, Binding, EventDef, IR, NodeDef, Paginate, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 
 type P5Node = DefaultTreeAdapterMap['node'];
@@ -32,6 +33,8 @@ export interface CompileOptions {
   config?: string | null;
   /** also return a check unit for `sinter check`, and warn about resources without `type` */
   check?: boolean;
+  /** parsed OpenAPI specs: resources without `type` are matched against them */
+  openapi?: OpenApiSpec[];
 }
 
 export interface CompileResult {
@@ -770,18 +773,52 @@ class Compiler {
       if (attr(el, a) != null && !paginate && mode == null) this.report(el, a, 'SN102', `\`${a}\` needs \`paginate\``, 0);
     }
     const order = attr(el, 'order');
+    const type = attr(el, 'type')?.trim() || null;
+    const openapi = type ? null : this.openapi(el, src, attr(el, 'items') ?? null, attr(el, 'total') ?? null);
     if (this.check) {
-      const type = attr(el, 'type')?.trim() || null;
-      this.check.resources.push({ name, type, loc: this.locOf(el, type ? 'type' : null) });
-      if (!type) {
-        this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0,
-          'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked');
+      const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null) };
+      if (openapi && 'schema' in openapi) r.openapi = openapi;
+      this.check.resources.push(r);
+      if (!type && !r.openapi) {
+        const hint = openapi && 'closest' in openapi
+          ? `no OpenAPI GET operation matches \`src\`${openapi.closest ? ` (closest path: \`${openapi.closest}\`)` : ''}; add \`type="…"\`, or \`type="any"\` to leave it unchecked`
+          : 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked';
+        this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, hint);
       }
     }
     this.resources.push({
       name, src, key: info.key, items: attr(el, 'items') ?? null, total: attr(el, 'total') ?? null,
       order: order ? order.trim() : null, when, paginate, deps: [...deps].sort(), scope: ctx.stateIdx, data: null,
     });
+  }
+
+  /** Matches a resource against the OpenAPI specs; checks `items`, `total` and query parameter names. */
+  openapi(el: P5Element, src: UrlTemplate, items: string | null, total: string | null):
+    { spec: number; label: string; schema: unknown } | { closest: string | null } | null {
+    const specs = this.opts.openapi;
+    if (!specs?.length) return null;
+    const m = matchResource(specs, src);
+    if ('closest' in m) return m;
+    const doc = specs[m.spec]!.doc;
+    const label = `GET ${m.path}`;
+    let schema = m.body;
+    if (schema == null) return { closest: m.path };
+    for (const [field, path] of [['items', items], ['total', total]] as const) {
+      if (!path) continue;
+      const w = walk(doc, m.body, path);
+      if ('missing' in w) {
+        this.report(el, field, 'SN308', `the response of \`${label}\` has no \`${w.missing}\`.${didYouMean(w.missing, w.have)}`, 0,
+          w.have.length ? `it has ${w.have.map((h) => `\`${h}\``).join(', ')}` : undefined);
+        if (field === 'items') return { closest: m.path };
+      } else if (field === 'items') schema = w.schema;
+    }
+    const raw = attr(el, 'src') ?? '';
+    for (const q of queryNames(src)) {
+      if (m.query.includes(q)) continue;
+      const at = raw.indexOf(q + '=', raw.indexOf('?'));
+      this.report(el, 'src', 'SN505', `\`${label}\` declares no query parameter \`${q}\`.${didYouMean(q, m.query)}`, Math.max(at, 0));
+    }
+    return { spec: m.spec, label, schema };
   }
 
   sync(el: P5Element, ctx: Ctx) {
