@@ -1,0 +1,18 @@
+{
+  "name": "sinter-e2e-transports",
+  "private": true,
+  "type": "module",
+  "description": "sinter's <sn-sync> transports (SSE, WebSocket, SignalR) against real servers in headless Chrome",
+  "scripts": {
+    "build": "vite build --logLevel warn",
+    "test": "node run.mjs"
+  },
+  "dependencies": {
+    "@microsoft/signalr": "10.0.11",
+    "@tiaforge/sinter": "file:../.."
+  },
+  "devDependencies": {
+    "vite": "8.3.5",
+    "ws": "8.22.0"
+  }
+}

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>signalr</title>
+  <link rel="icon" href="data:,">
+</head>
+<body>
+<!-- the same page for every transport; src/sinter.config.js picks the transport by URL -->
+<sn-resource name="people" src="/api/people" key="id" order="name"></sn-resource>
+<sn-sync src="/hubs/people">
+  <sn-event name="person_updated" resource="people" op="upsert" item="person"></sn-event>
+  <sn-event name="person_removed" resource="people" op="remove"></sn-event>
+</sn-sync>
+<ul id="people"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
+</body>
+</html>

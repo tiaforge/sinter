@@ -37,6 +37,8 @@ built, what deviates, and what is left.
       generated `llms.txt` and `html-custom-data.json`
 - [ ] M12 size budget: measured, not met (see below)
 - [ ] M13 real-browser suite (Playwright on Chromium, Firefox, WebKit; Trusted Types + strict CSP run)
+      (started: `e2e/transports` runs `<sn-sync>` over SSE, WebSocket and SignalR against real
+      servers in headless Chrome)
 
 ## How it fits together
 
