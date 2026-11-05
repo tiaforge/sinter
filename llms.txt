@@ -470,6 +470,10 @@ test('an event payload that does not fit the resource is an error', () => {
 - `<sn-event … type="ContactEvent">` types the payload; `item` must fit the resource's item, `set` part of it; `cursor` reads the item. No `type` on an event with payload expressions is warning SN506.
 - Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: `checkPage(html, { files, openapi })` from `@tiaforge/sinter/check`.
 
+## Editors
+
+`npx sinter lsp --stdio` is a language server for the project's HTML files: sinter's diagnostics as you type (partials checked through the pages that include them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix. VS Code: the extension in `editors/vscode`. Setup for Neovim, Helix and Emacs: `docs/editors.md`. Every diagnostic links to its explanation in `docs/diagnostics.md`.
+
 ## Testing
 
 Write a test next to the markup. `@tiaforge/sinter/testing` compiles the page with the real compiler and mounts it:

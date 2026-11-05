@@ -48,6 +48,7 @@ export default { plugins: [sinter()] };
   with TypeScript 7 also type errors (about 300 ms after typing stops), hover types, completion inside
   expressions (also half-typed ones), go to definition (to the declaring attribute, the types module or
   the OpenAPI spec) and a did-you-mean quick fix. With older TypeScript, type errors appear on save.
+  VS Code: the extension in [`editors/vscode`](editors/vscode); Neovim, Helix, Emacs: [`docs/editors.md`](docs/editors.md).
 
 ## Packages
 
@@ -69,6 +70,7 @@ export default { plugins: [sinter()] };
 - [`docs/spec.md`](docs/spec.md): the v0.1 specification.
 - [`llms.txt`](llms.txt): attribute reference, scope rules and seven recipes with tests.
 - [`docs/diagnostics.md`](docs/diagnostics.md): every `SN` code, what it means and how to fix it; each diagnostic links here.
+- [`docs/editors.md`](docs/editors.md): `sinter lsp` in VS Code, Neovim, Helix and Emacs.
 - [`docs/progress.md`](docs/progress.md): implementation status and decisions.
 
 ## Development
@@ -78,7 +80,7 @@ npm test          # vitest (happy-dom)
 npm run typecheck
 npm run build     # dist/
 npm run size      # size budget per module
-npm run docs      # regenerate llms.txt, html-custom-data.json and docs/diagnostics.md
+npm run docs      # regenerate llms.txt, html-custom-data.json (also the VS Code extension's) and docs/diagnostics.md
 ```
 
 License: MIT. Contributions are accepted under the Developer Certificate of

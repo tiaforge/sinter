@@ -1,0 +1,44 @@
+{
+  "name": "sinter-vscode",
+  "displayName": "sinter",
+  "description": "Diagnostics, type errors, hover, completion and go to definition for sinter pages, from the project's own sinter lsp.",
+  "version": "0.1.0",
+  "publisher": "tiaforge",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/tiaforge/sinter", "directory": "editors/vscode" },
+  "engines": { "vscode": "^1.91.0" },
+  "categories": ["Programming Languages", "Linters"],
+  "keywords": ["sinter", "html", "lsp"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:html"],
+  "contributes": {
+    "html.customData": ["./html-custom-data.json"],
+    "commands": [{ "command": "sinter.restart", "title": "sinter: Restart language server" }],
+    "configuration": {
+      "title": "sinter",
+      "properties": {
+        "sinter.server.path": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Path to sinter's CLI (dist/cli.js), relative to the workspace folder. Empty: the project's node_modules/@tiaforge/sinter."
+        },
+        "sinter.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Log the messages between VS Code and sinter lsp to the sinter output channel."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "10.1.2"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "4.0.0"
+  }
+}

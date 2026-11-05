@@ -81,6 +81,10 @@ Each recipe comes with its test; copy both.
 - \`<sn-event … type="ContactEvent">\` types the payload; \`item\` must fit the resource's item, \`set\` part of it; \`cursor\` reads the item. No \`type\` on an event with payload expressions is warning SN506.
 - Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: \`checkPage(html, { files, openapi })\` from \`@tiaforge/sinter/check\`.
 `);
+  out.push(`## Editors
+
+\`npx sinter lsp --stdio\` is a language server for the project's HTML files: sinter's diagnostics as you type (partials checked through the pages that include them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix. VS Code: the extension in \`editors/vscode\`. Setup for Neovim, Helix and Emacs: \`docs/editors.md\`. Every diagnostic links to its explanation in \`docs/diagnostics.md\`.
+`);
   out.push(`## Testing
 
 Write a test next to the markup. \`@tiaforge/sinter/testing\` compiles the page with the real compiler and mounts it:
@@ -132,6 +136,7 @@ function check(path: string, content: string) {
 test('llms.txt is current', () => check('llms.txt', llms()));
 test('docs/diagnostics.md is current', () => check('docs/diagnostics.md', diagnostics()));
 test('html-custom-data.json is current', () => check('html-custom-data.json', customData()));
+test('the VS Code extension\'s custom data is current', () => check('editors/vscode/html-custom-data.json', customData()));
 test('every recipe has a test', () => {
   const html = readdirSync(recipes).filter((f) => f.endsWith('.html')).map((f) => f.replace(/\.html$/, ''));
   expect(html.sort()).toEqual(RECIPES.map((r) => r[0]).sort());

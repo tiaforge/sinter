@@ -812,7 +812,7 @@ The dev build adds checks that need real data: duplicate keys in a response, an 
 
 ### LLM support
 - `llms.txt` in the package: the full attribute reference, the scope rules and seven copy-paste recipes (list with filter, form dialog, SSE sync, optimistic toggle, pagination, SignalR transport, typed resources).
-- A generated VS Code custom-data file (`html-custom-data.json`) so editors and agents get attribute completion.
+- A generated VS Code custom-data file (`html-custom-data.json`) so editors and agents get attribute completion; the VS Code extension ships it.
 - Every diagnostic links to its section in `docs/diagnostics.md`, which is generated from the compiler's table of codes (example, meaning, fix).
 
 ### Editor integration
@@ -824,7 +824,7 @@ The dev build adds checks that need real data: duplicate keys in a response, an 
 - Completion inside expressions comes from TypeScript, minus the shadow's own names and auto-imports. An expression the compiler rejects (it may not even parse, like `article.`) stays in the check unit marked broken: it is written after all other expressions, completes like any other, and TypeScript's errors in it are dropped, since the compiler has reported it.
 - Go to definition: a resource goes to its `name` attribute, a state field to its key in `data-sn-state`, a loop variable or index to `data-sn-for`, a type generated from OpenAPI to its schema (or property) in the spec file, an `<sn-include>` `src` to the partial; helpers and types-module names go where TypeScript says.
 - Quick fix: a diagnostic whose message ends in a suggestion ("Did you mean `count`?", TypeScript's "Did you mean 'title'?") offers to replace the misspelled name with it.
-- Planned (roadmap item 4): a VS Code extension that starts the project's own `sinter lsp`.
+- VS Code: the extension in `editors/vscode` starts the `sinter lsp` of the nearest `node_modules/@tiaforge/sinter` above each HTML file (one server per installation, so nested projects keep their own) and contributes `html-custom-data.json`. Other editors run `npx sinter lsp --stdio`; `docs/editors.md` has the setup.
 
 ### Stability
 - Attribute names, function names and diagnostic codes are part of the public API.

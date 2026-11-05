@@ -15,7 +15,8 @@ built, what deviates, and what is left.
 | `src/vite.ts` | Vite adapter |
 | `src/project.ts` | the app's helpers, config and types modules, found the same way by the plugin and the CLI; pages from the Vite config |
 | `src/check/`, `src/cli.ts` | `sinter check`: shadow files, `tsc`, error mapping |
-| `src/lsp/` | `sinter lsp`: JSON-RPC, the workspace of projects and open buffers, the LSP glue |
+| `src/lsp/` | `sinter lsp`: JSON-RPC, the workspace of projects and open buffers, the TypeScript bridge, quick fixes |
+| `editors/vscode/` | the VS Code extension: starts the project's `sinter lsp` |
 | `src/compiler/diagnostic-docs.ts` | example, meaning and fix per code; `docs/diagnostics.md` is generated from it |
 | `src/testing/` | `render`, `mockRequests`, `mockStream` |
 | `src/compiler/vocabulary.ts` | the attribute/element table; compiler, `llms.txt` and custom data derive from it |
@@ -139,6 +140,12 @@ built, what deviates, and what is left.
   the shadow maps its declarations there. `src/lsp/spec-location.ts` finds a schema or property in the
   spec with `yaml`'s source ranges. RealWorld over stdio: completion after `article.` 22 ms,
   definition of `title` → `openapi.yml:561` 23 ms.
+- 2026-11-05: editor integration, phase 4: the VS Code extension (`editors/vscode`, plain CommonJS,
+  `vscode-languageclient` 10.1.2, packaged with `@vscode/vsce` 4.0.0 to a 694 KB `.vsix`). It starts
+  the `sinter lsp` of the nearest installation above each HTML file, one client per installation;
+  middleware keeps a client away from files of a nested project. Its `html-custom-data.json` is kept
+  current by the docs test. `docs/editors.md`: setup for VS Code, Neovim, Helix and Emacs. Tested with
+  fakes for `vscode` and the client (`test/vscode/`); not yet run inside VS Code itself.
 
 ## Decisions and deviations
 
