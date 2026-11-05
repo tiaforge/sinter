@@ -5,6 +5,11 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+- `direction-values` on a keyset or append `<sn-resource>` maps sinter's
+  directions to the values a server expects, e.g.
+  `{first: 'forward', prev: 'backward', next: 'forward'}`. Directions not
+  listed are sent by name, as before.
+
 - A TypeScript helpers module (`src/sinter.helpers.ts`) works: its export
   names are read with TypeScript syntax, type-only exports are not helpers,
   and `sinter check` accepts `.ts` import paths. Before, any type annotation

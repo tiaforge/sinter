@@ -1,6 +1,7 @@
 // The compiler: one pure, deterministic function from annotated HTML to a
 // rewritten page plus its IR and function table.
 import * as parse5 from 'parse5';
+import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, type ExprOptions, type ExprResult, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
@@ -204,6 +205,37 @@ class Compiler {
   }
 
   /** `inExpr`: the offset points into an expression; otherwise offset 0 is about the whole attribute (or element) */
+  /** `direction-values="{prev: 'backward', next: 'forward'}"`: static data, string values for known directions only */
+  directionValues(el: P5Element): Paginate['directionValues'] | null {
+    const text = attr(el, 'direction-values')!;
+    const DIRS = ['first', 'prev', 'next', 'last'] as const;
+    const fail = (message: string, offset = 0) => { this.report(el, 'direction-values', 'SN401', message, offset); return null; };
+    let ast: ReturnType<typeof parseExpressionAt>;
+    try {
+      ast = parseExpressionAt(text, 0, { ecmaVersion: 'latest' });
+    } catch (e) {
+      return fail(`\`direction-values\`: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, (e as { pos?: number }).pos ?? 0);
+    }
+    if (ast.type !== 'ObjectExpression' || ast.end !== text.trimEnd().length) {
+      return fail("`direction-values` is an object literal of strings, e.g. `{prev: 'backward', next: 'forward'}`");
+    }
+    const out: NonNullable<Paginate['directionValues']> = {};
+    for (const p of ast.properties) {
+      if (p.type !== 'Property' || p.computed || p.kind !== 'init' || p.method || p.shorthand) {
+        return fail("`direction-values` is an object literal of strings, e.g. `{prev: 'backward', next: 'forward'}`", p.start);
+      }
+      const key = p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : '';
+      if (!(DIRS as readonly string[]).includes(key)) {
+        return fail(`\`${key}\` is not a direction; directions are \`first\`, \`prev\`, \`next\` and \`last\`.${didYouMean(key, DIRS)}`, p.key.start);
+      }
+      if (p.value.type !== 'Literal' || typeof p.value.value !== 'string') {
+        return fail(`the value for \`${key}\` must be a string literal`, p.value.start);
+      }
+      out[key as typeof DIRS[number]] = p.value.value;
+    }
+    return out;
+  }
+
   report(el: P5Element | null, attr: string | null, code: Code, message: string, offset: number, hint?: string, inExpr = false) {
     const origin = (el && this.origins.get(el)) || { file: this.opts.file, src: '', chain: [] };
     const base = el ? this.valueOffset(el, attr) : 0;
@@ -800,10 +832,17 @@ class Compiler {
           mode: mode as Paginate['mode'], size, sizeParam: attr(el, 'size-param') ?? 'limit', cursor,
           directionParam: attr(el, 'direction-param') ?? 'direction', pageParam: attr(el, 'page-param') ?? 'page',
         };
+        if (attr(el, 'direction-values') != null) {
+          if (mode === 'offset') this.report(el, 'direction-values', 'SN401', '`direction-values` applies to `paginate="keyset"` and `paginate="append"`; offset pages send `page-param`', 0);
+          else {
+            const values = this.directionValues(el);
+            if (values) paginate.directionValues = values;
+          }
+        }
         this.features.add('paginate');
       }
     }
-    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'page-param']) {
+    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param']) {
       if (attr(el, a) != null && !paginate && mode == null) this.report(el, a, 'SN102', `\`${a}\` needs \`paginate\``, 0);
     }
     let cache: number | undefined;

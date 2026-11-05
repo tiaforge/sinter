@@ -36,7 +36,7 @@ export const ATTRIBUTES: AttrDoc[] = [
 export const ON_DOC: AttrDoc = { name: 'on-<event>', value: 'handler expression', doc: 'plain event handler, no request; e.g. data-sn-on-click' };
 
 export const ELEMENTS: Array<{ name: string; attrs: string[]; doc: string }> = [
-  { name: 'sn-resource', attrs: ['name', 'src', 'key', 'items', 'total', 'order', 'when', 'paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'page-param', 'type', 'cache'], doc: 'a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates' },
+  { name: 'sn-resource', attrs: ['name', 'src', 'key', 'items', 'total', 'order', 'when', 'paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'type', 'cache'], doc: 'a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates' },
   { name: 'sn-sync', attrs: ['src'], doc: 'one server event stream' },
   { name: 'sn-event', attrs: ['name', 'resource', 'op', 'item', 'set', 'when', 'fallback', 'type'], doc: 'maps one server event to a change message; child of <sn-sync>' },
   { name: 'sn-include', attrs: ['src'], doc: 'inlines a partial at build time' },

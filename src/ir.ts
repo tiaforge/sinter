@@ -13,6 +13,8 @@ export interface Paginate {
   /** keyset/append: object literal evaluated with the boundary item as `$.$p` */
   cursor: number | null;
   directionParam: string;
+  /** keyset/append: the value sent for each direction, where it differs from the direction's name */
+  directionValues?: Partial<Record<'first' | 'prev' | 'next' | 'last', string>>;
   pageParam: string;
 }
 

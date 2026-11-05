@@ -583,7 +583,7 @@ Pagination is declared on the resource and driven by `page()` calls; v0.1 suppor
 Keyset mode never jumps: `page('messages', 7)` on a keyset resource is error `SN304`, with a hint to use offset mode. sinter does not simulate jumps by stepping through pages.
 
 ### Server requirements for keyset
-- `direction` takes `first`, `prev`, `next` and `last`. `first` and `last` ignore the cursor.
+- `direction` takes `first`, `prev`, `next` and `last` (or the values `direction-values` maps them to). `first` and `last` send no cursor.
 - `prev` and `last` read the list in reverse on the server, but the response is always in display order.
 - The cursor fields must form a unique, stable sort key (e.g. a timestamp plus a row id).
 
@@ -596,6 +596,7 @@ Keyset mode never jumps: `page('messages', 7)` on a keyset resource is error `SN
 | `size-param` | name of the size query parameter, default `limit` |
 | `cursor` | object literal evaluated on the boundary item: last item for `next`, first for `prev` |
 | `direction-param` | name of the direction parameter; values `first`, `prev`, `next`, `last` |
+| `direction-values` | keyset/append: object literal of strings, the value sent for a direction where the server names it differently, e.g. `{first: 'forward', prev: 'backward', next: 'forward'}`; directions not listed are sent by name |
 | `page-param` | offset mode: name of the page parameter, default `page` |
 
 

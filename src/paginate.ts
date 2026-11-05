@@ -27,7 +27,7 @@ class PagerImpl implements Pager {
 
   private base(dir: Dir | null, size = this.cfg.size): Record<string, string> {
     const p: Record<string, string> = { [this.cfg.sizeParam]: String(size) };
-    if (dir) p[this.cfg.directionParam] = dir;
+    if (dir) p[this.cfg.directionParam] = this.cfg.directionValues?.[dir] ?? dir;
     return p;
   }
 

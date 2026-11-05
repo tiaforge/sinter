@@ -1,4 +1,5 @@
-import { expect, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
+import { compile } from '../../src/compiler/index.js';
 import { render, mockRequests, mockStream, type RecordedCall } from '../../src/testing/index.js';
 
 const ALL = Array.from({ length: 7 }, (_, i) => ({ uid: i + 1, at: 100 - i }));
@@ -106,4 +107,61 @@ test('append mode keeps loaded items and refetches them in one request', async (
   stream.emit('r', {});
   await settle();
   expect(requests.calls.at(-1)!.url).toBe('/api/m?limit=6&direction=first');
+});
+
+test('direction-values: the server names the directions its own way', async () => {
+  // Caley's mail API: `forward` (also the first page), `backward`, `last`
+  const requests = mockRequests({
+    'GET /api/m': (call) => {
+      const q = new URL(call.url, 'http://x').searchParams;
+      const dir = q.get('direction');
+      const map: Record<string, string> = { forward: q.has('at') ? 'next' : 'first', backward: 'prev', last: 'last' };
+      if (!(dir! in map)) return { status: 400, body: `unknown direction ${dir}` };
+      q.set('direction', map[dir!]!);
+      return keyset({ ...call, url: `/api/m?${q}` });
+    },
+  });
+  const page = PAGE.replace('cursor="{at}"', `cursor="{at}" direction-values="{first: 'forward', prev: 'backward', next: 'forward'}"`);
+  const { root, settle } = await render(page, { requests });
+  await settle();
+  const go = async (id: string) => { root.querySelector<HTMLElement>(`#${id}`)!.click(); await settle(); };
+  const items = () => [...root.querySelectorAll('li')].map((l) => l.textContent).join(',');
+  expect(requests.calls.at(-1)!.url).toBe('/api/m?limit=3&direction=forward');
+  await go('next');
+  expect(requests.calls.at(-1)!.url).toBe('/api/m?at=98&limit=3&direction=forward');
+  expect(items()).toBe('4,5,6');
+  await go('prev');
+  expect(requests.calls.at(-1)!.url).toBe('/api/m?at=97&limit=3&direction=backward');
+  expect(items()).toBe('1,2,3');
+  await go('last');
+  expect(requests.calls.at(-1)!.url).toBe('/api/m?limit=3&direction=last');
+  expect(items()).toBe('5,6,7');
+});
+
+describe('direction-values diagnostics', () => {
+  const diags = (attrs: string) => compile(`<sn-resource name="m" src="/api/m" key="uid" ${attrs}></sn-resource><p data-sn-text="m.length"></p>`, {
+    file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+  }).diagnostics.map((d) => `${d.code} ${d.message}`);
+  const keyset = 'paginate="keyset" page-size="5" cursor="{uid}"';
+
+  test('valid values compile without diagnostics', () => {
+    expect(diags(`${keyset} direction-values="{prev: 'backward', 'next': 'forward'}"`)).toEqual([]);
+  });
+  test('an unknown direction, with a suggestion', () => {
+    expect(diags(`${keyset} direction-values="{nxt: 'forward'}"`)).toEqual([
+      'SN401 `nxt` is not a direction; directions are `first`, `prev`, `next` and `last`. Did you mean `next`?',
+    ]);
+    expect(diags(`${keyset} direction-values="{previous: 'backward'}"`)).toEqual([
+      'SN401 `previous` is not a direction; directions are `first`, `prev`, `next` and `last`.',
+    ]);
+  });
+  test('values are string literals; the whole value is one object literal', () => {
+    expect(diags(`${keyset} direction-values="{prev: dir}"`)).toEqual(['SN401 the value for `prev` must be a string literal']);
+    expect(diags(`${keyset} direction-values="['backward']"`)[0]).toMatch(/^SN401 `direction-values` is an object literal of strings/);
+    expect(diags(`${keyset} direction-values="{prev: 'a'} + 1"`)[0]).toMatch(/^SN401 `direction-values` is an object literal of strings/);
+  });
+  test('offset mode has no directions; without paginate it is misplaced', () => {
+    expect(diags(`paginate="offset" page-size="5" direction-values="{prev: 'b'}"`)[0]).toMatch(/^SN401 `direction-values` applies to `paginate="keyset"`/);
+    expect(diags(`direction-values="{prev: 'b'}"`)).toEqual(['SN102 `direction-values` needs `paginate`']);
+  });
 });

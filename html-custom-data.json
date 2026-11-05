@@ -42,6 +42,9 @@
           "name": "direction-param"
         },
         {
+          "name": "direction-values"
+        },
+        {
           "name": "page-param"
         },
         {
