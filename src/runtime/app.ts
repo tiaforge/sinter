@@ -465,10 +465,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * need the check when their template contains a dialog; outer dialogs defer the whole list.
    */
   function bindNodes(defs: NodeDef[], els: Array<Element | null>, base: any, rbs: RB[], dialogs = true) {
-    const scopes: any[] = [];
+    // scopes of elements that declare state (and their descendants); most rows have none
+    let scopes: any[] | null = null;
     for (let i = 0; i < defs.length; i++) {
       const nd = defs[i]!, el = els[i] as Tagged | null;
-      let s = scopes[nd.p] ?? base;
+      let s = scopes?.[nd.p] ?? base;
       if (nd.state != null && el) {
         const obj = fns[nd.state]!(s), sid = nd.sid!, key = nd.persist;
         s = child(s, { ['$s' + sid]: obj });
@@ -479,7 +480,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           app.afterFlush.push((d) => d.some((p) => p[0] == '$s' + sid) && app.ext.persist?.saveState(key, obj));
         }
       }
-      scopes[i] = s;
+      if (s !== base) (scopes ??= [])[i] = s;
       if (rbs == rootRbs) rootScopes[i] = s;
       if (el) for (const b of nd.b) {
         const rb: RB = { b, el, s, v: UNSET, c: dialogs };
@@ -672,10 +673,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (deferred.size || selects.size) for (const o of gone) forget(old[o]!.rbs);
     const ref = ne < n ? rows[ne]!.first ?? end : end;
     if (!seq.some((o) => o >= 0)) {
-      // only new rows in the middle: one insertion
-      const frag = new DocumentFragment();
-      for (let i = a; i < ne; i++) frag.append(...rows[i]!.nodes);
-      (ref as ChildNode).before(frag);
+      // only new rows in the middle: insert each straight before the reference (going through a
+      // fragment first moves every node twice)
+      const parent = ref.parentNode!;
+      for (let i = a; i < ne; i++) for (const node of rows[i]!.nodes) parent.insertBefore(node, ref);
     } else {
       // move the fewest rows: those outside a longest increasing subsequence of old positions
       let at: Node = ref;
