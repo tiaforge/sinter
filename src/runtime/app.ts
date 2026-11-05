@@ -708,13 +708,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number): Inst {
-    const frag = tpl.content.cloneNode(true) as DocumentFragment, defs = t.nodes, els: Array<Element | null> = new Array(defs.length);
+    // one element in the template (a <tr>, an <li>): clone just that, no fragment per row. Not a
+    // nested <template>: an anchor needs a parent for its end marker
+    const content = tpl.content, f = content.firstChild;
+    const one = !!f && f == content.lastChild && f.nodeType == 1 && (f as Element).localName != 'template';
+    const top: Node = one ? content.firstChild!.cloneNode(true) : content.cloneNode(true);
+    const defs = t.nodes, els: Array<Element | null> = new Array(defs.length);
     for (let k = 0; k < defs.length; k++) {
-      let node: Node | null = frag;
-      for (const j of defs[k]!.path!) {
-        node = node!.firstChild;
-        for (let c = j; c-- && node;) node = node.nextSibling;
-        if (!node) break;
+      const path = defs[k]!.path!;
+      // path[0] picks a child of the content; with one node that child is `top` itself
+      let node: Node | null = one ? (path[0] == 0 ? top : null) : top;
+      for (let x = one ? 1 : 0; x < path.length && node; x++) {
+        node = node.firstChild;
+        for (let c = path[x]!; c-- && node;) node = node.nextSibling;
       }
       els[k] = node && (node as Element).localName == defs[k]!.tag ? (node as Element) : null;
     }
@@ -722,7 +728,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     bindNodes(defs, els, s, rbs, hasDialog(tpl));
     walk(rbs, 2);
     const nodes: Node[] = [];
-    for (let c = frag.firstChild; c; c = c.nextSibling) nodes.push(c);
+    if (one) nodes.push(top);
+    else for (let c = top.firstChild; c; c = c.nextSibling) nodes.push(c);
     return { first: nodes[0] ?? null, nodes, rbs, s, key, item, i, f: 0, r: round };
   }
 
