@@ -124,7 +124,10 @@ class Compiler {
     }
     for (const el of this.remove) detach(el);
     this.injectScript(doc);
-    for (const t of this.templates) if (t.nodes.length) t.find = this.fn(findCode(t.nodes));
+    // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
+    // toggle and use the generic path walk, which costs no code per template
+    const rowTemplates = new Set([...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((n) => n.b.filter((b) => b.k === 'for').map((b) => b.x!)));
+    for (const t of this.templates) if (t.nodes.length && rowTemplates.has(t.id)) t.find = this.fn(findCode(t.nodes));
 
     const ir: IR = { v: 1, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;

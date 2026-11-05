@@ -104,7 +104,7 @@ export interface TemplateDef {
   /** for: explicit key function, or resource key fields */
   key?: number | null;
   keyFields?: string[] | null;
-  /** function that finds the bound elements of one cloned row: (first content node) => elements, in `nodes` order */
+  /** for: function that finds the bound elements of one cloned row: (first content node) => elements, in `nodes` order */
   find?: number;
 }
 
