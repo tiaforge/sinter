@@ -1,57 +1,24 @@
 // Vite adapter: a thin wrapper around compile(). Every HTML entry is compiled
 // in transformIndexHtml; its page module is served as a virtual module.
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, relative, resolve, sep } from 'node:path';
+import { relative, sep } from 'node:path';
 import type { Plugin, ViteDevServer } from 'vite';
-import { compile, formatDiagnostic, readHelperManifest, type HelperManifest } from './compiler/index.js';
+import { compile, formatDiagnostic, type CheckUnit } from './compiler/index.js';
+import { project, type ProjectOptions } from './project.js';
 
-export interface SinterOptions {
-  /** helpers module, relative to the Vite root (default `src/sinter.helpers.js`, or `.ts`) */
-  helpers?: string;
-  /** app configuration module imported before mount (default `src/sinter.config.js`, or `.ts`) */
-  config?: string;
+export interface SinterOptions extends ProjectOptions {
+  /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
+  typecheck?: boolean;
 }
 
 const PREFIX = '/@sinter/';
 
-export default function sinter(options: SinterOptions = {}): Plugin {
+export default function sinter(options: SinterOptions = {}): Plugin & { api: { options: SinterOptions } } {
   let root = process.cwd();
   let dev = false;
   let server: ViteDevServer | null = null;
   const modules = new Map<string, string>();
   const watched = new Set<string>();
-
-  const find = (given: string | undefined, base: string): string | null => {
-    const candidates = given ? [given] : [`${base}.js`, `${base}.ts`];
-    for (const c of candidates) if (existsSync(resolve(root, c))) return c;
-    return null;
-  };
-
-  /** Reads a file only if it resolves inside the root, symlinks included. */
-  const readInRoot = (path: string): string => {
-    const real = realpathSync(path);
-    const realRoot = realpathSync(root);
-    if (real !== realRoot && !real.startsWith(realRoot + sep)) throw new Error(`outside the project root: ${path}`);
-    return readFileSync(real, 'utf8');
-  };
-
-  const manifest = (): { helpers: HelperManifest; file: string | null } => {
-    const rel = find(options.helpers, 'src/sinter.helpers');
-    if (!rel) return { helpers: { module: null, names: [], namespaces: {} }, file: null };
-    const file = resolve(root, rel);
-    const helpers = readHelperManifest(readFileSync(file, 'utf8'), {
-      module: '/' + rel.split(sep).join('/'),
-      file,
-      readFile: readInRoot,
-      resolve: (spec, from) => {
-        if (!spec.startsWith('.')) return null;
-        const base = resolve(dirname(from), spec);
-        for (const p of [base, base.replace(/\.js$/, '.ts'), `${base}.js`, `${base}.ts`]) if (existsSync(p)) return p;
-        return null;
-      },
-    });
-    return { helpers, file };
-  };
+  const units = new Map<string, CheckUnit>();
 
   const watch = (file: string) => {
     if (watched.has(file)) return;
@@ -62,6 +29,7 @@ export default function sinter(options: SinterOptions = {}): Plugin {
   return {
     name: 'sinter',
     enforce: 'pre',
+    api: { options },
 
     configResolved(config) {
       root = config.root;
@@ -88,21 +56,29 @@ export default function sinter(options: SinterOptions = {}): Plugin {
       return code;
     },
 
+    async buildEnd(error) {
+      if (error || !options.typecheck || dev || !units.size) return;
+      const { check } = await import('./check/index.js');
+      const p = project(root, options);
+      const r = check({ root, units: [...units.values()], helpers: p.helpers, types: p.types });
+      units.clear();
+      if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
+    },
+
     transformIndexHtml: {
       order: 'pre',
       handler(html, ctx) {
         const file = ctx.filename;
         const rel = relative(root, file).split(sep).join('/');
         const moduleSrc = `${PREFIX}${rel}.js`;
-        const { helpers, file: helpersFile } = manifest();
-        const configRel = find(options.config, 'src/sinter.config');
+        const p = project(root, options);
         const out = compile(html, {
-          file, root, dev, helpers, moduleSrc,
-          config: configRel ? '/' + configRel.split(sep).join('/') : null,
-          readFile: readInRoot,
+          file, root, dev, helpers: p.helpers, moduleSrc, config: p.config, readFile: p.readFile,
+          check: !!options.typecheck && !dev,
         });
+        if (out.check) units.set(file, out.check);
         for (const f of out.files) watch(f);
-        if (helpersFile) watch(helpersFile);
+        if (p.helpersFile) watch(p.helpersFile);
         const errors = out.diagnostics.filter((d) => d.severity === 'error');
         for (const d of out.diagnostics) if (d.severity === 'warning') console.warn(formatDiagnostic(d));
         if (errors.length) {

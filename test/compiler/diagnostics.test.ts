@@ -7,9 +7,9 @@ const files: Record<string, string> = {
   '/p/partials/bad.html': '<p>\n  <b data-sn-txt="x"></b></p>',
 };
 
-function diags(html: string) {
+function diags(html: string, check = false) {
   return compile(html, {
-    file: '/p/page.html', root: '/p', dev: false,
+    file: '/p/page.html', root: '/p', dev: false, check,
     readFile: (p) => { if (!(p in files)) throw new Error('missing'); return files[p]!; },
     helpers: { module: '/h.js', names: ['fmt'], namespaces: { m: { module: '/m.js', members: ['inbox_title'] } } },
   }).diagnostics;
@@ -20,7 +20,7 @@ const R = `<sn-resource name="contacts" src="/api/c" key="id"></sn-resource>
 const use = '<p data-sn-text="contacts.length + messages.length"></p>';
 
 /** One failing fixture per diagnostic code; the message text is part of the public API. */
-const cases: Array<[string, string, RegExp]> = [
+const cases: Array<[string, string, RegExp, boolean?]> = [
   ['SN101', '<p data-sn-txt="1"></p>', /`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`\?/],
   ['SN102', '<div data-sn-for="x in [1]"></div>', /`data-sn-for` must be on a `<template>`/],
   ['SN103', '<template data-sn-for="x in [1, 2]"><i></i></template>', /needs `data-sn-key`/],
@@ -42,16 +42,20 @@ const cases: Array<[string, string, RegExp]> = [
   ['SN501', R + '<p data-sn-text="messages.length"></p>', /resource `contacts` is declared but never read/],
   ['SN502', '<p data-sn-text="Date.now()"></p>', /`Date.now\(\)` in a binding never updates. Use `\$now`/],
   ['SN503', `${R}${use}<template data-sn-for="c in contacts"><a data-sn-attr="{id: c.id}"></a></template>`, /`id` bound from data can shadow globals/],
+  ['SN504', `${R}${use}`, /resource `contacts` has no type: expressions using it are not checked/, true],
 ];
+
+/** Codes only `sinter check` reports (it runs TypeScript); their fixtures are in test/check. */
+const CHECK_ONLY = ['SN208'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
-    expect(new Set(cases.map((c) => c[0]))).toEqual(new Set(Object.keys(CODES)));
+    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY])).toEqual(new Set(Object.keys(CODES)));
   });
-  for (const [code, html, message] of cases) {
+  for (const [code, html, message, check] of cases) {
     test(code, () => {
-      const d = diags(html).find((x) => x.code === code);
-      expect(d, JSON.stringify(diags(html), null, 2)).toBeDefined();
+      const d = diags(html, check).find((x) => x.code === code);
+      expect(d, JSON.stringify(diags(html, check), null, 2)).toBeDefined();
       expect(d!.message).toMatch(message);
       expect(d!.severity).toBe(code >= 'SN500' ? 'warning' : 'error');
     });

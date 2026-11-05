@@ -22,6 +22,7 @@ export const CODES = {
   SN205: 'resource-mutation',
   SN206: 'unknown-namespace-member',
   SN207: 'unsafe-sink',
+  SN208: 'type-error',
   SN301: 'unknown-resource',
   SN302: 'duplicate-resource',
   SN303: 'unknown-meta-field',
@@ -32,6 +33,7 @@ export const CODES = {
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',
   SN503: 'data-bound-id',
+  SN504: 'untyped-resource',
 } as const;
 
 export type Code = keyof typeof CODES;

@@ -13,6 +13,8 @@ built, what deviates, and what is left.
 | `src/sse.ts`, `src/optimistic.ts`, `src/paginate.ts`, `src/persist.ts` | feature modules |
 | `src/ws.ts` | WebSocket transport (imported by the app's config module, not a feature) |
 | `src/vite.ts` | Vite adapter |
+| `src/project.ts` | the app's helpers, config and types modules, found the same way by the plugin and the CLI |
+| `src/check/`, `src/cli.ts` | `sinter check`: shadow files, `tsc`, error mapping |
 | `src/testing/` | `render`, `mockRequests`, `mockStream` |
 | `src/compiler/vocabulary.ts` | the attribute/element table; compiler, `llms.txt` and custom data derive from it |
 | `test/` | Vitest suites (happy-dom); `test/compiler/golden/__out__` are file snapshots |
@@ -89,6 +91,13 @@ built, what deviates, and what is left.
   rules are unchanged); SignalR is an `llms.txt` recipe with its adapter in the app. Transports now
   deliver parsed payloads (SignalR and WebSocket adapters parse themselves). `render()` falls back
   to the configured transport for stream URLs without a mock.
+- 2026-11-05: type checking, phase 2 of the adoption roadmap (`type=` only; OpenAPI is phase 3).
+  `compile(…, { check: true })` returns a check unit (expressions with positions and scope frames);
+  `src/check/` writes one checked JS file per page to `.sinter/check/` and runs the project's `tsc`
+  (TypeScript 7's native `tsc` works; no in-process compiler API is needed). New `type` attribute on
+  `<sn-resource>`, `SN208 type-error`, `SN504 untyped-resource`, `sinter check` CLI,
+  `sinter({ typecheck, types })`. The untyped RealWorld example (377 expressions) checks with no errors;
+  that is a test.
 
 ## Decisions and deviations
 
@@ -116,6 +125,13 @@ built, what deviates, and what is left.
   still encoded as specified.
 - `SN503` fires for any non-literal `id`/`name` value (row-local reads have no
   dependency paths, so "bound from data" means "not a literal").
+- Type checking turns off `strictNullChecks` and `noImplicitAny`: bindings that read `null` render
+  nothing at runtime, one attribute cannot narrow another (`data-sn-if="x"` around `x.y`), and
+  `{ error: null }` state stays unchecked unless it has a JSDoc cast. With them on, the untyped
+  RealWorld example had 26 errors, none of them bugs.
+- `type` on `<sn-resource>` is any TypeScript type over the types module's exports (`Contact[]`,
+  `Page<Article>`); the shadow file brings the exports into scope with a JSDoc `@import`, so state casts
+  use plain names too.
 - The compiler's browser-API list does not include very generic names (`name`,
   `open`, `print`, `event`); they are `SN201` instead of `SN202`.
 

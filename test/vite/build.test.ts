@@ -43,3 +43,18 @@ test('compile errors fail the build with the diagnostic', async () => {
     writeFileSync(page, original);
   }
 });
+
+test('typecheck: type errors fail `vite build` with SN208', async () => {
+  const page = join(root, 'index.html');
+  const original = readFileSync(page, 'utf8');
+  writeFileSync(page, original.replace('</body>', '<p data-sn-text="(1).nope"></p></body>'));
+  try {
+    await expect(build({
+      root, logLevel: 'silent', plugins: [sinter({ typecheck: true })], resolve: { alias },
+      build: { outDir: join(out, 'typecheck'), emptyOutDir: true, minify: false },
+    })).rejects.toThrow(/SN208 type-error: Property 'nope' does not exist on type '1'/);
+  } finally {
+    writeFileSync(page, original);
+    rmSync(join(root, '.sinter'), { recursive: true, force: true });
+  }
+});

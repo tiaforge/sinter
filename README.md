@@ -39,6 +39,8 @@ export default { plugins: [sinter()] };
 - `src/sinter.config.js` (optional): `configure({ request, sessionProbe, onError, locale, origins, urlSchemes, transport })`;
   `transport` picks WebSocket (`@tiaforge/sinter/ws`), SignalR (recipe in `llms.txt`) or another
   transport per `<sn-sync>` URL.
+- `src/sinter.types.ts` (optional): types that `<sn-resource type="Contact[]">` names. `npx sinter check`
+  type-checks every expression with your TypeScript; `sinter({ typecheck: true })` runs it in `vite build`.
 
 ## Packages
 
@@ -52,6 +54,7 @@ export default { plugins: [sinter()] };
 | `@tiaforge/sinter/persist` | `data-sn-persist` |
 | `@tiaforge/sinter/compiler` | `compile()` |
 | `@tiaforge/sinter/vite` | Vite plugin |
+| `@tiaforge/sinter/check` | `check()`, used by `sinter check` |
 | `@tiaforge/sinter/testing` | `render`, `mockRequests`, `mockStream` |
 
 ## Docs

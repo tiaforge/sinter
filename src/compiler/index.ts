@@ -3,6 +3,7 @@ import { compileParts, type CompileOptions, type CompileResult, type CompiledPar
 
 export type { CompileOptions, CompileResult, CompiledParts, HelperManifest };
 export type { Diagnostic } from './diagnostics.js';
+export type { CheckUnit } from './check-unit.js';
 export { formatDiagnostic, CODES } from './diagnostics.js';
 export { compileParts };
 
@@ -11,7 +12,9 @@ export const PACKAGE = '@tiaforge/sinter';
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
   const parts = compileParts(html, options);
-  return { html: parts.html, module: pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files };
+  const out: CompileResult = { html: parts.html, module: pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files };
+  if (parts.check) out.check = parts.check;
+  return out;
 }
 
 export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config'>): string {

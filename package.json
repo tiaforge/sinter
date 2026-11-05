@@ -14,8 +14,12 @@
     "./persist": "./dist/persist.js",
     "./compiler": "./dist/compiler/index.js",
     "./vite": "./dist/vite.js",
+    "./check": "./dist/check/index.js",
     "./testing": "./dist/testing/index.js",
     "./dev": "./dist/dev.js"
+  },
+  "bin": {
+    "sinter": "./dist/cli.js"
   },
   "files": [
     "dist",

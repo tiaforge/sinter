@@ -5,6 +5,7 @@ import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, type ExprOptions, type ExprResult, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
 import { ATTRIBUTES, ELEMENTS } from './vocabulary.js';
+import type { CheckExpr, CheckLoc, CheckUnit } from './check-unit.js';
 import type { ActionDef, Binding, EventDef, IR, NodeDef, Paginate, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 
 type P5Node = DefaultTreeAdapterMap['node'];
@@ -29,6 +30,8 @@ export interface CompileOptions {
   moduleSrc?: string;
   /** app configuration module imported before mount (e.g. `/src/sinter.config.js`) */
   config?: string | null;
+  /** also return a check unit for `sinter check`, and warn about resources without `type` */
+  check?: boolean;
 }
 
 export interface CompileResult {
@@ -36,6 +39,8 @@ export interface CompileResult {
   module: string;
   diagnostics: Diagnostic[];
   files: string[];
+  /** with `check: true` */
+  check?: CheckUnit;
 }
 
 export interface CompiledParts {
@@ -48,6 +53,8 @@ export interface CompiledParts {
   namespaces: Record<string, string[]>;
   diagnostics: Diagnostic[];
   files: string[];
+  /** with `check: true` */
+  check?: CheckUnit;
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
@@ -94,8 +101,14 @@ class Compiler {
   readonly features = new Set<string>();
   nextId = 0;
   nextSid = 0;
+  readonly check: CheckUnit | null;
+  /** StateEntry / LoopEntry → frame index in `check.frames` */
+  readonly frameOf = new Map<object, number>();
+  /** index in `check.exprs` of the expression `expr()` recorded last, or null */
+  lastExpr: number | null = null;
 
   constructor(readonly opts: CompileOptions) {
+    this.check = opts.check ? { file: opts.file, resources: [], frames: [], exprs: [] } : null;
     const ns = new Map<string, Set<string>>();
     for (const [k, v] of Object.entries(opts.helpers.namespaces)) ns.set(k, new Set(v.members));
     this.page = {
@@ -143,6 +156,7 @@ class Compiler {
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces,
       diagnostics: this.diagnostics, files: [...this.files].sort(),
+      ...(this.check ? { check: this.check } : {}),
     };
   }
 
@@ -373,7 +387,12 @@ class Compiler {
         const sid = this.nextSid++;
         node.state = this.fn(r.code);
         node.sid = sid;
-        scope = { loops: scope.loops, states: [...scope.states, { sid, names: new Set(r.entries!.map((e) => e.key)) }] };
+        const entry = { sid, names: new Set(r.entries!.map((e) => e.key)) };
+        if (this.check) {
+          this.frameOf.set(entry, this.check.frames.length);
+          this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr });
+        }
+        scope = { loops: scope.loops, states: [...scope.states, entry] };
         if (has('persist') && !has('model')) {
           node.persist = get('persist')!;
           this.features.add('persist');
@@ -487,7 +506,38 @@ class Compiler {
 
   expr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, value?: string, shift = 0): ExprResult {
     const src = value ?? attr(el, attrName) ?? '';
-    return analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
+    const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
+    this.lastExpr = null;
+    // payload expressions (sn-event, cursor) read server payloads, which have no types yet
+    if (this.check && r.ok && !o.payload) this.lastExpr = this.recordExpr(el, attrName, scope, o, src, shift);
+    return r;
+  }
+
+  // ---- check unit
+
+  locOf(el: P5Element, attrName: string | null, shift = 0): CheckLoc {
+    const origin = this.origins.get(el) ?? { file: this.opts.file, src: '', chain: [] };
+    const { line, col } = el.sourceCodeLocation ? this.lineCol(origin.src, this.valueOffset(el, attrName) + shift) : { line: 1, col: 1 };
+    return { file: origin.file, line, col, chain: origin.chain };
+  }
+
+  recordExpr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, src: string, shift: number): number {
+    const frames: number[] = [];
+    for (const f of [...scope.states, ...scope.loops]) {
+      const i = this.frameOf.get(f);
+      if (i !== undefined && !frames.includes(i)) frames.push(i);
+    }
+    let event: string | null = null;
+    if (attrName.startsWith('data-sn-on-')) event = attrName.slice('data-sn-on-'.length);
+    else if (o.mode !== 'value') {
+      event = attr(el, 'data-sn-trigger') ?? (el.tagName === 'form' ? 'submit' : FORM_CONTROLS.has(el.tagName) ? 'change' : 'click');
+    }
+    const e: CheckExpr = {
+      src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: el.tagName, event,
+      result: attrName === 'data-sn-then', error: attrName === 'data-sn-catch',
+    };
+    this.check!.exprs.push(e);
+    return this.check!.exprs.length - 1;
   }
 
   // ---- bindings
@@ -602,6 +652,7 @@ class Compiler {
     const item = (m[1] ?? m[3])!;
     const index = m[2] ?? null;
     const list = this.expr(el, 'data-sn-for', scope, { mode: 'value' }, value.slice(m[0].length), m[0].length);
+    const listExpr = this.lastExpr;
     const tid = this.newTemplate();
     const t = this.templates[tid]!;
     const ii = `$i${tid}`;
@@ -612,6 +663,10 @@ class Compiler {
     const alias = list.path && list.path[0]!.startsWith('$s') ? [...list.path, `{${ii}}`] : null;
     const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource }];
     if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias });
+    if (this.check) {
+      for (const l of loops.slice(scope.loops.length)) this.frameOf.set(l, this.check.frames.length);
+      this.check.frames.push({ kind: 'loop', item, index, init: listExpr });
+    }
     const inner: Scope = { loops, states: scope.states };
     t.key = null;
     t.keyFields = null;
@@ -715,6 +770,14 @@ class Compiler {
       if (attr(el, a) != null && !paginate && mode == null) this.report(el, a, 'SN102', `\`${a}\` needs \`paginate\``, 0);
     }
     const order = attr(el, 'order');
+    if (this.check) {
+      const type = attr(el, 'type')?.trim() || null;
+      this.check.resources.push({ name, type, loc: this.locOf(el, type ? 'type' : null) });
+      if (!type) {
+        this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0,
+          'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked');
+      }
+    }
     this.resources.push({
       name, src, key: info.key, items: attr(el, 'items') ?? null, total: attr(el, 'total') ?? null,
       order: order ? order.trim() : null, when, paginate, deps: [...deps].sort(), scope: ctx.stateIdx, data: null,

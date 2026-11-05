@@ -68,6 +68,14 @@ Each recipe comes with its test; copy both.
     for (const x of extra) out.push('```js\n' + readFileSync(`${recipes}/${x}`, 'utf8').trim() + '\n```\n');
     out.push('```ts\n' + readFileSync(`${recipes}/${file}.test.ts`, 'utf8').trim() + '\n```\n');
   }
+  out.push(`## Type checking
+
+\`npx sinter check\` type-checks every expression with the project's TypeScript (pages and options come from the Vite config). \`sinter({ typecheck: true })\` runs it in \`vite build\`.
+
+- \`<sn-resource … type="Contact[]">\`: the type of what \`items\` selects, using names exported by \`src/sinter.types.ts\`. \`type="any"\` opts out; no \`type\` is warning SN504.
+- State takes a JSDoc cast where the literal is not enough: \`data-sn-state="{ editing: /** @type {Contact|null} */ (null) }"\`.
+- Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off.
+`);
   out.push(`## Testing
 
 Write a test next to the markup. \`@tiaforge/sinter/testing\` compiles the page with the real compiler and mounts it:

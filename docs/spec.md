@@ -776,6 +776,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col` and an 
 | `SN205 resource-mutation` | error | `m.is_read = true` mutates a resource. Use `patch('messages', m, {is_read: true})` |
 | `SN206 unknown-namespace-member` | error | `m.inbox_titel` is not exported by namespace `m`. Did you mean `inbox_title`? |
 | `SN207 unsafe-sink` | error | `onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click` |
+| `SN208 type-error` | error | Property 'nmae' does not exist on type 'Contact'. (TS2339) — `sinter check` only |
 | `SN301 unknown-resource` | error | resource `mesages` is not declared on this page |
 | `SN302 duplicate-resource` | error | resource `contacts` is declared twice |
 | `SN303 unknown-meta-field` | error | `$meta.contacts.loadng` is not a status field. Did you mean `loading`? |
@@ -786,7 +787,18 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col` and an 
 | `SN501 unused-resource` | warning | resource `addressbooks` is declared but never read |
 | `SN502 non-reactive-value` | warning | `Date.now()` in a binding never updates. Use `$now` |
 | `SN503 data-bound-id` | warning | `id` bound from data can shadow globals other scripts read (DOM clobbering) |
+| `SN504 untyped-resource` | warning | resource `contacts` has no type: expressions using it are not checked — `sinter check` only |
 
+
+### Type checking
+`sinter check` type-checks every expression of the pages with the project's own TypeScript; it is opt-in and never runs in the dev server.
+- A resource names the type of what `items` selects with `type`, a TypeScript type over the names the types module (`src/sinter.types.ts`, `.d.ts` or `.js`) exports: `<sn-resource name="contacts" … type="Contact[]">`. `type="any"` leaves a resource unchecked on purpose; a resource without `type` is warning `SN504`.
+- State is typed by its literal. A value the literal cannot show takes a JSDoc cast: `{ editing: /** @type {Contact|null} */ (null) }`.
+- Helpers and namespace members are typed by their own modules; `$event` and `$el` by the DOM types of the event and element; `$meta`, `$error` and the store functions by sinter.
+- The check generates one JavaScript file per page under `.sinter/check/`, with every expression verbatim inside blocks that declare its scope, and runs `tsc` on them with `checkJs`. Errors map back to the HTML position (`SN208`).
+- Null checks and implicit `any` are off: a binding that reads `null` renders nothing at runtime, and expressions in separate attributes cannot narrow each other.
+- `sinter check` reads the pages and options from the Vite config, or takes pages as arguments. `sinter({ typecheck: true })` runs it at the end of `vite build` and fails the build on errors.
+- Not yet checked: `<sn-event>` payloads and `cursor` (payload expressions), action responses (`$result` is `any`).
 
 ### Dev runtime
 The dev build adds checks that need real data: duplicate keys in a response, an item missing a key field, an `items` path that is not an array, a server event payload missing key fields. Warnings name the resource, the page and the offending value.
