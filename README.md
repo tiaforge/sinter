@@ -2,8 +2,9 @@
 
 **Your JSON API, bound to plain HTML.** sinter loads and caches server data, keeps it current from
 server events, renders it through `<template>` bindings and runs mutations with optimistic updates,
-without components, a router or a store library. A build step compiles the HTML, so the browser runs
-no parser and no `eval`.
+without components, a router or a store library. A compiler resolves every name in every expression
+at build time, and type-checks it when you give it your TypeScript types or OpenAPI spec. A typo
+fails the build instead of the page, and the browser runs no parser and no `eval`.
 
 ```html
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
@@ -30,6 +31,26 @@ That page loads the contacts, keeps them sorted, applies updates other users mak
 filters as you type, and removes a contact at once when you click Delete, putting it back if the
 server refuses.
 
+## Mistakes fail the build
+
+The compiler knows every name an expression can use: the state around it, loop variables,
+resources, helpers. Misspell `q` in the filter above and the build stops:
+
+```text
+contacts.html:11:70 error SN201 unknown-identifier: `qq` is not defined here. Did you mean `q`?
+```
+
+The same pass rejects code that would break at runtime: writing to server data
+(`c.name = 'x'` is `SN205`, use `patch('contacts', c, {…})`) and browser APIs inside expressions
+(`localStorage` is `SN202`, use an island). With a `type` on the resource or your OpenAPI spec,
+`sinter check` also type-checks fields, request bodies and event payloads, so `article.titel`
+reports `Property 'titel' does not exist on type 'Article'. Did you mean 'title'?`. Your editor
+shows these errors as you type.
+
+htmx, Datastar and Alpine read their attribute strings in the browser. Nothing checks them against
+your data before they ship, so the same typo shows up only when that code runs: as a console error,
+or as an element that stays empty.
+
 ## Why sinter
 
 - **The server-state plumbing is gone.** You don't write loading flags, stale-response guards,
@@ -37,11 +58,11 @@ server refuses.
   They are attributes.
 - **Optimistic updates that stay correct**, also when requests overlap or a server event arrives
   while a request is in flight.
+- **Checked before it ships.** Every name in every expression is resolved at build time and
+  type-checked against your TypeScript types or your OpenAPI spec. Your editor shows the errors as
+  you type, with hover, completion and go to definition.
 - **Less code.** The [RealWorld](examples/realworld) app takes 735 lines in sinter. The official
   Angular version takes 2,210. Each page downloads 14–16 KB of JS.
-- **Errors at build time.** Every expression is type-checked against your TypeScript types or your
-  OpenAPI spec. Your editor shows the errors as you type, with hover, completion and go to
-  definition.
 - **Safe by construction.** Directives are compiled, not read from the live DOM. Pages run under
   `script-src 'self'` with no `unsafe-eval`, and markup injected at runtime stays inert.
 - **Plain, valid HTML.** There is one way to do each thing, and everything is visible on the element.
@@ -57,11 +78,14 @@ page load (the shared code comes from the browser cache).
 
 **htmx, Datastar.** These expect a server that renders HTML for every page and interaction. If you
 have a JSON API, you would have to build and maintain that server. sinter uses the API you already
-have, and its mutations are optimistic where htmx waits for the server's answer. If your backend
-renders HTML anyway and you want no build step, htmx is a good choice.
+have, and its mutations are optimistic where htmx waits for the server's answer. Their attributes
+are read in the browser, so a wrong name surfaces at runtime; sinter's are checked at build time.
+If your backend renders HTML anyway and you want no build step, htmx is a good choice.
 
 **Alpine, petite-vue.** These also render JSON with client-side templates, but they leave fetching,
-caching, live updates and rollback to you.
+caching, live updates and rollback to you. Their expressions are compiled in the browser with
+`new Function`, so they need `unsafe-eval` in the CSP (Alpine has a restricted CSP build), and
+nothing checks the names or fields they use until the code runs.
 
 Measurements and sources: [`docs/realworld-comparison.md`](docs/realworld-comparison.md).
 
