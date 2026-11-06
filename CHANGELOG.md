@@ -5,6 +5,17 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+- Writes to an ordered resource patch its sorted list instead of re-sorting it:
+  one upsert into 5,000 items takes 0.007 ms instead of 10 ms. Ties in `order`
+  keep arrival order, as before.
+- `$meta.<name>.total` updates when the total or an optimistic removal changes
+  it; before, it updated only when something on the page read the list.
+- Resource lists are frozen in dev builds only, like their items (`SN205`
+  refuses writes at build time). In production, code outside expressions that
+  mutates `app.resource(name).all()` corrupts the store; copy it first.
+- `npm run size` budgets pages (minimal page, RealWorld article) instead of the
+  core; `npm run bench` times the store and the flush.
+
 - Local actions: `data-sn-call="ns.fn(args)"` calls a function from the actions
   module (`src/sinter.actions.js` or `.ts`) with the lifecycle of an action
   (busy, concurrency, optimistic layers, `then`/`catch`), and

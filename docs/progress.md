@@ -180,6 +180,10 @@ built, what deviates, and what is left.
   needs a second flush pass. `setTotal` marks only `meta`. Lists are frozen in dev builds only
   (frozen arrays are 3–50× slower to copy and filter in V8). Core +481 B gzip.
 
+- 2026-11-06: 0.2 phases 3–4 (builder calls, per-page core) stopped after measuring: positional
+  builder calls save 250–345 B gzip per RealWorld page (~2 %), a per-page core about 0.3 KB on two
+  pages (every page uses lists, conditionals and handlers). Both stay possible features.
+
 ## Decisions and deviations
 
 - `CompileOptions` gains optional `moduleSrc` (URL of the injected
