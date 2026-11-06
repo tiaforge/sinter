@@ -418,6 +418,35 @@ test('closed dialogs are evaluated when they open', async () => {
   expect(root.querySelector('input')!.value).toBe('Ada');
 });
 
+test('bindings in a closed dialog wait for it to open; bindings outside it do not', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ n: 1 }">
+      <p data-sn-text="n"></p>
+      <dialog><b data-sn-text="n"></b></dialog>
+    </div>`);
+  const dialog = root.querySelector('dialog')!;
+  expect(root.querySelector('p')!.textContent).toBe('1');
+  expect(root.querySelector('b')!.textContent).toBe('');
+  dialog.setAttribute('open', '');
+  dialog.dispatchEvent(new Event('toggle'));
+  await flush();
+  expect(root.querySelector('b')!.textContent).toBe('1');
+});
+
+test('a dialog inside a row template defers the bindings inside it', async () => {
+  const { root, flush } = await render(`
+    <ul data-sn-state="{ xs: [{ t: 'a' }] }"><template data-sn-for="x in xs">
+      <li><i data-sn-text="x.t"></i><dialog><b data-sn-text="x.t"></b></dialog></li>
+    </template></ul>`);
+  expect(root.querySelector('i')!.textContent).toBe('a');
+  expect(root.querySelector('b')!.textContent).toBe('');
+  const dialog = root.querySelector('dialog')!;
+  dialog.setAttribute('open', '');
+  dialog.dispatchEvent(new Event('toggle'));
+  await flush();
+  expect(root.querySelector('b')!.textContent).toBe('a');
+});
+
 test('list structure changes still update index reads, length and shifted rows', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ xs: [{t: 'a'}, {t: 'b'}, {t: 'c'}] }">

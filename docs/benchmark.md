@@ -1,5 +1,22 @@
 # js-framework-benchmark results
 
+## 2026-11-06, flush per root binding
+
+Only bindings inside a `<dialog>` (marked by the compiler) check for a closed one; each binding
+keeps its parsed dependencies. Real Chrome 156 (headless, minified bundle, median of 8 page loads,
+each timing 1,500 flushes), and `npm run bench` in happy-dom:
+
+| case | before ms | after ms |
+| --- | ---: | ---: |
+| Chrome: one state change, 4,000 root bindings | 0.49 | 0.18–0.24 |
+| happy-dom: one state change, 100 root bindings | 0.016–0.024 | 0.004 |
+| happy-dom: one state change, 2,000 root bindings | 0.41 | 0.10 |
+
+Mount (4,000 bindings, about 40–47 ms, mostly first calls of the expression functions), creating
+1,000 rows (2.1 ms), select and update every 10th row did not change beyond the run-order effect
+seen when the variants swap places. Most of the remaining mount time is V8 compiling each
+expression function on its first call.
+
 ## 2026-11-06, after the store fixes (0.2 phase 2)
 
 The store keeps its sorted list and patches it per write (binary search, arrival numbers break

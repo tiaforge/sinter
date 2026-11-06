@@ -5,6 +5,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+- A flush tests fewer bindings expensively: only bindings the compiler found
+  inside a `<dialog>` check for a closed one, and each binding keeps its parsed
+  dependencies. One state change on a page with 4,000 root bindings flushes in
+  0.18–0.24 ms instead of 0.49 ms in Chrome.
 - Writes to an ordered resource patch its sorted list instead of re-sorting it:
   one upsert into 5,000 items takes 0.007 ms instead of 10 ms. Ties in `order`
   keep arrival order, as before.

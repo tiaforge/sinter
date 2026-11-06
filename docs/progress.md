@@ -184,6 +184,16 @@ built, what deviates, and what is left.
   builder calls save 250–345 B gzip per RealWorld page (~2 %), a per-page core about 0.3 KB on two
   pages (every page uses lists, conditionals and handlers). Both stay possible features.
 
+- 2026-11-06: flush cost per root binding. A profile of one flush on a page with 4,000 root bindings
+  showed two per-binding costs besides matching: every binding that matched ran
+  `el.closest('dialog:not([open])')`, and every binding tested did a `WeakMap` lookup for its parsed
+  dependencies, plus a `Set` lookup in the deferred set. The compiler now marks nodes that are a
+  `<dialog>` or inside one of their block (`dl` in the IR; it replaces the runtime's
+  `querySelector('dialog')` per row template), bindings keep their parsed dependencies, and the
+  deferred set is consulted only when non-empty. Chrome 156, one change on 4,000 root bindings:
+  0.49 → 0.18–0.24 ms; happy-dom (`npm run bench`), 2,000 root bindings: 0.41 → 0.10 ms. Row
+  creation, select and update of 1,000 rows and mount unchanged within noise. Core −30 B gzip.
+
 ## Decisions and deviations
 
 - `CompileOptions` gains optional `moduleSrc` (URL of the injected

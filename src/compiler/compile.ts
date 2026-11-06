@@ -85,6 +85,8 @@ interface Ctx {
   tid: number;
   path: number[];
   stateIdx: number;
+  /** inside a `<dialog>` of the same block (page or template) */
+  dialog?: boolean;
 }
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
@@ -478,6 +480,8 @@ class Compiler {
     }
 
     const node: NodeDef = { tag: el.tagName, p: ctx.stateIdx, b: [] };
+    const inDialog = ctx.dialog || el.tagName === 'dialog';
+    if (inDialog) node.dl = 1;
     const nodeIdx = ctx.list.length;
     let scope = ctx.scope;
     let result: { node: NodeDef; binding: Binding } | null = null;
@@ -592,7 +596,7 @@ class Compiler {
       }
     } else {
       this.walkChildren(el, {
-        ...ctx, scope,
+        ...ctx, scope, dialog: inDialog,
         stateIdx: node.state !== undefined && hasDirectives ? nodeIdx : ctx.stateIdx,
         path: ctx.tid >= 0 ? [...ctx.path, index] : ctx.path,
       });

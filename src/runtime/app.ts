@@ -154,6 +154,8 @@ interface RB extends BoundBinding {
   e?: any;
   /** may be inside a closed dialog of its block */
   c?: boolean;
+  /** the binding's dependencies (shared by every row of a template), looked up on the first flush that tests them */
+  d?: Dep[] | undefined;
   /** for: rows; if: the rendered branch (0 or 1 entries) */
   rows?: Inst[];
   t?: TemplateDef;
@@ -224,11 +226,10 @@ const ET = EventTarget.prototype;
 const HANDLERS = Symbol('sinter.on'), MODEL = Symbol('sinter.model'), STATE = Symbol('sinter.state');
 /** HANDLERS: one handler binding, or an array when the element has several */
 type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
-const dialogsIn = new WeakMap<HTMLTemplateElement, boolean>(), indexReaders = new WeakMap<TemplateDef, boolean>();
+const indexReaders = new WeakMap<TemplateDef, boolean>();
 /** row templates: whether each holds one element (see oneElement()) */
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
 const simple = new WeakMap<TemplateDef, boolean>(), SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
-const hasDialog = (tpl: HTMLTemplateElement) => dialogsIn.get(tpl) ?? (dialogsIn.set(tpl, !!tpl.content.querySelector('dialog')), dialogsIn.get(tpl)!);
 
 /** The instance mount() created on `root`; throws if none. */
 export function instance(root: Document | Element): App {
@@ -520,10 +521,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   /**
-   * `dialogs`: whether these elements can sit in a closed dialog of their own block. Rows only
-   * need the check when their template contains a dialog; outer dialogs defer the whole list.
+   * Only elements the compiler marked as in a dialog of their own block (`dl`) are checked for a
+   * closed dialog; dialogs outside a template defer the whole list.
    */
-  function bindNodes(defs: NodeDef[], els: Array<Element | null>, base: any, rbs: RB[], dialogs = true) {
+  function bindNodes(defs: NodeDef[], els: Array<Element | null>, base: any, rbs: RB[]) {
     // scopes of elements that declare state (and their descendants); most rows have none
     let scopes: any[] | null = null;
     for (let i = 0; i < defs.length; i++) {
@@ -542,7 +543,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (s !== base) (scopes ??= [])[i] = s;
       if (rbs == rootRbs) rootScopes[i] = s;
       if (el) for (const b of nd.b) {
-        const rb: RB = { b, el, s, v: UNSET, c: dialogs };
+        const rb: RB = { b, el, s, v: UNSET, c: !!nd.dl };
         if (b.k == 'on') {
           const h: RB | RB[] | undefined = el[HANDLERS];
           el[HANDLERS] = h == null ? rb : Array.isArray(h) ? (h.push(rb), h) : [h, rb];
@@ -594,7 +595,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** Evaluates and writes one binding if needed; false while it waits in a closed dialog. */
   function process(rb: RB, level: number): boolean {
     const force = level == 2 || (level == 1 && !!rb.b.i);
-    if (!force && !deferred.has(rb) && !(rb.b.d && hit(depsOf(rb.b, rb.b.d), rb.s))) return true;
+    if (!force && !(deferred.size && deferred.has(rb)) && !(rb.b.d && hit(rb.d ??= depsOf(rb.b, rb.b.d), rb.s))) return true;
     if (rb.c && rb.el.closest('dialog:not([open])')) { deferred.add(rb); return false; }
     if (deferred.size) deferred.delete(rb);
     const v = evaluate(rb), k = rb.b.k;
@@ -791,7 +792,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         els[k] = node && (node as Element).localName == defs[k]!.tag ? (node as Element) : null;
       }
     }
-    if (isSimple(tpl, t)) {
+    if (isSimple(t)) {
       // only value bindings and handlers: bind and write each once, as walk(rbs, 2) would
       for (let k = 0; k < defs.length; k++) {
         const el = els[k] as Tagged | null;
@@ -809,7 +810,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
       }
     } else {
-      bindNodes(defs, els, s, rbs, hasDialog(tpl));
+      bindNodes(defs, els, s, rbs);
       walk(rbs, 2);
     }
     const nodes: Node[] = [];
@@ -830,10 +831,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   /** A row template whose elements only have value bindings and handlers (no state, model, nested template or dialog). */
-  function isSimple(tpl: HTMLTemplateElement, t: TemplateDef): boolean {
+  function isSimple(t: TemplateDef): boolean {
     let v = simple.get(t);
     if (v == null) {
-      v = !hasDialog(tpl) && t.nodes.every((nd) => nd.state == null && nd.b.every((b) => SIMPLE.has(b.k)));
+      v = t.nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE.has(b.k)));
       simple.set(t, v);
     }
     return v;

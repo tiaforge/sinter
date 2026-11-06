@@ -105,6 +105,8 @@ export interface NodeDef {
   sid?: number;
   /** persist key for the whole state object */
   persist?: string;
+  /** the element is a `<dialog>` or inside one of its block, so its bindings wait while that dialog is closed */
+  dl?: 1;
   b: Binding[];
 }
 
