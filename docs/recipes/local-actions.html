@@ -1,0 +1,12 @@
+<section data-sn-state="{ file: null, url: '', error: '' }">
+  <sn-resource name="digest" call="sha256(file)" when="file"></sn-resource>
+
+  <input type="file" data-sn-on-change="file = $el.files[0] ?? null; url = ''">
+  <p data-sn-show="$meta.digest.loading">Hashing…</p>
+  <code data-sn-text="digest"></code>
+
+  <button data-sn-call="upload(file, digest)" data-sn-attr="{disabled: !digest}"
+          data-sn-then="url = $result.url; error = ''" data-sn-catch="error = $error.message">Upload</button>
+  <a data-sn-show="url" data-sn-attr="{href: url}">Uploaded</a>
+  <p role="alert" data-sn-text="error"></p>
+</section>
