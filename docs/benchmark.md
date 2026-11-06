@@ -1,5 +1,28 @@
 # js-framework-benchmark results
 
+## 2026-11-06, after the store fixes (0.2 phase 2)
+
+The store keeps its sorted list and patches it per write (binary search, arrival numbers break
+ties so the order equals a full sort of arrival order); a full sort runs after `replace`, after a
+locale change and when more than 64 keys changed since the last read. Collators are cached per
+locale. Lists are frozen in dev builds only: in V8, copying or filtering a frozen 5,000-item
+array takes 170–250 µs instead of 3–77 µs, and the compiler already refuses writes to resources
+(SN205), as it does for the items, which only dev builds freeze.
+
+| case (5,000 items ordered by name) | before ms | after ms |
+| --- | ---: | ---: |
+| upsert one (new name) | 9.9 | 0.007 |
+| patch one (field outside the order) | 9.8 | 0.007 |
+| remove one | 10.4 | 0.005 |
+| burst of 50 upserts | 7.4 | 0.19 |
+| replace all | 10.2 | 10.1 |
+| upsert one, one optimistic layer pending | 10.0 | 0.009 |
+| flush: one server upsert, 1,000 sorted rows | 1.6 | 0.20 |
+| flush: one server upsert, 5,000 sorted rows | 11.3 | 0.77 |
+
+`replace` still sorts from the response's order. Cost: the core grew by 481 B gzip (10,887 →
+11,368 B); the minimal page is 11,707 B (budget 11,776 B).
+
 ## 2026-11-06, runtime baseline for 0.2 (`npm run bench`)
 
 `bench/runtime/`: the store alone and one flush on a mounted production page (no dev feature),

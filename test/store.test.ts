@@ -29,3 +29,41 @@ test('a failed or aborted load replays nothing', () => {
   r.endLoad(mark, false);
   expect(r.all()).toEqual([]);
 });
+
+test('meta.total is current without reading the items, and a total alone marks only meta', () => {
+  const r = createResource<{ id: number }>('c', { key: ['id'], order: null });
+  const marks: string[] = [];
+  r.onDirty = (what) => marks.push(what);
+  r.replace([{ id: 1 }]);
+  r.setTotal(5);
+  expect(r.meta.total).toBe(5);
+  expect(marks).toEqual(['data', 'meta']);
+  marks.length = 0;
+  r.setTotal(5);
+  expect(marks).toEqual([]);
+  // an optimistic removal counts against the total at once
+  r.addLayer([{ op: 'remove', key: '1' }]);
+  expect(r.meta.total).toBe(4);
+});
+
+test('a sorted list changed in place matches a full sort, ties in arrival order', () => {
+  const r = createResource<{ id: number; n: string }>('c', { key: ['id'], order: 'n' });
+  r.replace([{ id: 1, n: 'b' }, { id: 2, n: 'a' }, { id: 3, n: 'b' }]);
+  expect(r.all().map((x) => x.id)).toEqual([2, 1, 3]);
+  r.patch('3', { n: 'a' });          // ties with 2, which arrived first
+  r.upsert({ id: 4, n: 'a' });       // a new key ties last
+  r.patch('2', { n: 'a' });          // an updated key keeps its arrival place among ties
+  expect(r.all().map((x) => x.id)).toEqual([2, 3, 4, 1]);
+  r.remove('3');
+  r.upsert({ id: 3, n: 'a' });       // removed and added again: arrives anew
+  expect(r.all().map((x) => x.id)).toEqual([2, 4, 3, 1]);
+});
+
+test('a page that shows only the total updates when it loads', async () => {
+  const { render, mockRequests } = await import('../src/testing/index.js');
+  const requests = mockRequests({ 'GET /api/rows': { rows: [{ id: 1 }], total: 42 } });
+  const { root, settle } = await render(`<sn-resource name="rows" src="/api/rows" items="rows" total="total" key="id"></sn-resource>
+    <p data-sn-text="$meta.rows.total"></p>`, { requests });
+  await settle();
+  expect(root.querySelector('p')!.textContent).toBe('42');
+});

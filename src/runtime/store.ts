@@ -35,6 +35,8 @@ export interface ResourceOptions {
   warn?: (code: number, ...args: unknown[]) => void;
   /** applied to every stored item (dev builds freeze them) */
   prep?: <T>(item: T) => T;
+  /** hand out frozen lists (dev builds) */
+  freeze?: boolean;
 }
 
 /** The public store handle (`app.resource(name)`), plus the hooks loaders and features use. */
@@ -81,14 +83,29 @@ export function clean<T>(obj: T): T {
   return out as T;
 }
 
+/** One collator per locale: constructing one is costly in some engines. */
+const collators = new Map<string, Intl.Collator>();
+const collator = (l = '') => collators.get(l) ?? (collators.set(l, new Intl.Collator(l || undefined, { numeric: true })), collators.get(l)!);
+
 export function createResource<T extends object = any>(name: string, o: ResourceOptions): Resource<T> {
   const meta: Meta = { loading: false, error: null, loadedAt: null, pending: 0, total: null };
   const coll = !!o.key, field = o.order?.replace(/^-/, ''), dir = o.order?.[0] == '-' ? -1 : 1;
   const subs = new Set<(c: Change<T>) => void>();
   const prep = (x: any) => (o.prep ? o.prep(x) : x);
-  let base = new Map<string, T>(), single: T | null = null, total: number | null = null;
+  /** base items in arrival order, and each key's arrival number (ties in `order` keep arrival order) */
+  let base = new Map<string, T>(), seq = new Map<string, number>(), next = 0;
+  let single: T | null = null, total: number | null = null;
   let layers: Array<{ id: number; ops: Op[] }> = [], lastLayer = 0;
-  let view: { l: readonly T[]; m: Map<string, T>; s: T | null } | null = null;
+  /**
+   * The base in display order, the locale it was sorted for, and the keys written since, with
+   * their value before the first write. Reads patch it instead of sorting
+   * again. Arrays handed out are never changed afterwards.
+   */
+  let sorted: T[] | null = null, sortedFor: string | undefined, touched = new Map<string, T | undefined>();
+  /** Optimistic layers applied over the base: changed keys (null: removed), keys they add (arrival numbers), removals counted for `total`. */
+  let over: { m: Map<string, T | null>; add: Map<string, number>; removed: number; s: T | null } | null = null;
+  /** what readers see; rebuilt on the first read after a change */
+  let view: { l: readonly T[]; get: (k: string) => T | undefined; s: T | null } | null = null;
   let journal: Op[] | null = null, loads = 0;
 
   const keyOf = (x: any): string => typeof x == 'string' ? x : (o.key ?? []).map((f) => {
@@ -100,61 +117,137 @@ export function createResource<T extends object = any>(name: string, o: Resource
     : op.op == 'remove' ? null
     : cur && prep({ ...cur, ...clean(op.fields) });
 
-  /** Applies one op to a keyed map; counts removals of present items. */
-  const applyTo = (m: Map<string, T>, op: Op, removed?: { n: number }) => {
-    const k = op.op == 'upsert' ? keyOf(op.item) : op.key, v = merge(m.get(k), op);
-    if (v) m.set(k, v);
-    else if (m.delete(k) && removed) removed.n++;
+  /** Applies one op to the base. */
+  const apply = (op: Op) => {
+    if (!coll) return void (single = merge(single, op));
+    const k = op.op == 'upsert' ? keyOf(op.item) : op.key, cur = base.get(k), v = merge(cur, op);
+    if (sorted && !touched.has(k)) touched.set(k, cur);
+    if (v) { if (!cur) seq.set(k, next++); base.set(k, v); }
+    else if (cur) { base.delete(k); seq.delete(k); }
   };
 
-  const changed = (what: 'data' | 'meta' = 'data') => {
+  /** By `order` (none: all equal, so arrival order decides). */
+  const compare = (a: any, b: any) => {
+    if (!field) return 0;
+    const x = a[field], y = b[field];
+    if (x == null || y == null) return +(x == null) - +(y == null);
+    return dir * (typeof x == 'string' && typeof y == 'string' ? collator(sortedFor).compare(x, y) : +(x > y) - +(x < y));
+  };
+
+  /** A sorted copy of `list` without the `drop` items and with the `add` items (each with its arrival number). */
+  function patch(list: readonly T[], drop: T[], add: Array<[T, number]>, arrival: (k: string) => number): T[] {
+    const out = list.slice();
+    /** the first index whose item does not sort before `v` (with arrival number `n`, after its ties) */
+    const find = (v: T, n?: number) => {
+      let lo = 0, hi = out.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1, c = compare(out[mid], v) || (n == null ? 0 : arrival(keyOf(out[mid])) - n);
+        c < 0 ? (lo = mid + 1) : (hi = mid);
+      }
+      return lo;
+    };
+    for (const v of drop) {
+      // among its ties, by identity; an item whose order field was changed in place is found by a scan
+      let i = find(v);
+      while (out[i] !== v && i < out.length && !compare(out[i], v)) i++;
+      out.splice(out[i] === v ? i : out.indexOf(v), 1);
+    }
+    for (const [v, n] of add) out.splice(find(v, n), 0, v);
+    return out;
+  }
+
+  /** The base in display order. */
+  function baseList(): T[] {
+    const locale = o.locale?.();
+    if (sorted && locale === sortedFor && touched.size <= 64) {
+      if (touched.size) {
+        const drop: T[] = [], add: Array<[T, number]> = [];
+        for (const [k, old] of touched) {
+          if (old) drop.push(old);
+          const v = base.get(k);
+          if (v) add.push([v, seq.get(k)!]);
+        }
+        sorted = patch(sorted, drop, add, (k) => seq.get(k)!);
+      }
+    } else {
+      sortedFor = locale;
+      // a stable sort of the Map's arrival order
+      sorted = [...base.values()].sort(compare);
+    }
+    touched = new Map();
+    return sorted;
+  }
+
+  /** Recomputes the layers' effect and `meta.total` after any change; marks `meta` if the total changed. */
+  function sync() {
+    over = null;
+    if (layers.length) {
+      const m = new Map<string, T | null>(), add = new Map<string, number>();
+      let removed = 0, n = next, s = single;
+      for (const l of layers) for (const op of l.ops) {
+        if (!coll) { s = merge(s, op); continue; }
+        const k = op.op == 'upsert' ? keyOf(op.item) : op.key, cur = m.has(k) ? m.get(k) : base.get(k), v = merge(cur, op);
+        if (v) { if (!cur) add.set(k, n++); m.set(k, v); }
+        else { if (cur) removed++; m.set(k, null); add.delete(k); }
+      }
+      over = { m, add, removed, s };
+    }
+    const t = total == null ? null : Math.max(0, total - (over?.removed ?? 0));
+    if (meta.total !== t) { meta.total = t; r.onDirty('meta'); }
+  }
+
+  /** A data change: readers rebuild their view; `meta` too when the pending count changed. */
+  const changed = (pending?: boolean) => {
     view = null;
+    sync();
     r.onDirty('data');
-    if (what == 'meta') r.onDirty('meta');
+    if (pending) { meta.pending = layers.length; r.onDirty('meta'); }
   };
 
   function visible() {
     if (view) return view;
-    let t = total, m = base, s = single;
-    const removed = { n: 0 };
-    for (const l of layers) for (const op of l.ops) coll ? (m == base && (m = new Map(base)), applyTo(m, op, removed)) : (s = merge(s, op));
-    if (t != null) t = Math.max(0, t - removed.n);
-    const l = [...m.values()];
-    if (field) {
-      const c = new Intl.Collator(o.locale?.(), { numeric: true });
-      l.sort((a: any, b: any) => {
-        const x = a[field], y = b[field];
-        if (x == null || y == null) return +(x == null) - +(y == null);
-        return dir * (typeof x == 'string' && typeof y == 'string' ? c.compare(x, y) : +(x > y) - +(x < y));
-      });
+    if (!coll) return (view = { l: [], get: () => undefined, s: over ? over.s : single });
+    let l: readonly T[] = baseList(), get = (k: string) => base.get(k);
+    if (over) {
+      const { m, add } = over, drop: T[] = [], put: Array<[T, number]> = [], at = (k: string) => add.get(k) ?? seq.get(k)!;
+      for (const [k, v] of m) {
+        const b = base.get(k);
+        if (b) drop.push(b);
+        if (v) put.push([v, at(k)]);
+      }
+      l = patch(l, drop, put, at);
+      get = (k) => (m.has(k) ? m.get(k) ?? undefined : base.get(k));
     }
-    view = { l: Object.freeze(l), m, s };
-    if (meta.total !== t) { meta.total = t; r.onDirty('meta'); }
-    return view;
+    // dev builds freeze what expressions see; the compiler refuses writes to resources (SN205)
+    return (view = { l: o.freeze ? Object.freeze(l.slice()) : l, get, s: null });
   }
 
   function write(op: Op) {
     if (r.recording) return void r.recording.push(op);
     journal?.push(op);
-    coll ? applyTo(base, op) : (single = merge(single, op));
+    apply(op);
     changed();
     for (const f of subs) f({ resource: name, ...op } as Change<T>);
   }
 
   const r: Resource<T> = {
     name, meta, key: o.key, isCollection: coll, keyOf, recording: null, loader: null, onDirty() {},
-    get: (k) => (coll ? visible().m.get(keyOf(k)) : visible().s ?? undefined),
+    get: (k) => (coll ? visible().get(keyOf(k)) : visible().s ?? undefined),
     has: (k) => r.get(k) !== undefined,
     all: () => visible().l,
     value: () => (coll ? visible().l : visible().s),
     replace(items) {
       if (coll) {
         base = new Map();
+        seq = new Map();
+        sorted = null;
+        touched = new Map();
         for (const x of Array.isArray(items) ? items : []) {
           const k = keyOf(x);
           if (base.has(k)) o.warn?.(13, name, k);
           base.delete(k);
           base.set(k, prep(x));
+          seq.set(k, next++);
         }
       } else single = items == null ? null : prep(items);
       changed();
@@ -174,22 +267,21 @@ export function createResource<T extends object = any>(name: string, o: Resource
       const ops = journal!.slice(mark);
       if (--loads == 0) journal = null;
       if (!loaded || !ops.length) return;
-      for (const op of ops) coll ? applyTo(base, op) : (single = merge(single, op));
+      for (const op of ops) apply(op);
       changed();
     },
     addLayer(ops) {
       layers.push({ id: ++lastLayer, ops });
-      meta.pending = layers.length;
-      changed('meta');
+      changed(true);
       return lastLayer;
     },
     dropLayer(id) {
       const n = layers.length;
       layers = layers.filter((l) => l.id != id);
-      meta.pending = layers.length;
-      if (n != layers.length) changed('meta');
+      if (n != layers.length) changed(true);
     },
-    setTotal(t) { total = t; changed(); },
+    /** the total changes `meta` only: bindings that read the items do not re-run */
+    setTotal(t) { total = t; sync(); },
     base: () => ({ items: coll ? [...base.values()] : single, total }),
   };
   return r;

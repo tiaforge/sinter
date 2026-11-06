@@ -316,7 +316,7 @@ A resource is a named, page-wide cache of one piece of server data: either a key
 - Latest wins. When `src` changes, the in-flight request is aborted; a late response for an old URL is discarded.
 - Status. `$meta.<name>` exposes `loading`, `error` and `loadedAt`. During a refetch the old data stays visible; `loading` is true.
 - Identity. Keys are compared as joined strings. A duplicate key in a response is a dev-mode warning; the last one wins.
-- Immutability. Items are frozen in dev builds. Changes always replace the item object.
+- Immutability. Items and the lists that hold them are frozen in dev builds (production relies on `SN205`; frozen arrays are slow to copy and filter). Changes always replace the item object.
 Single-object resources (no `key`): `upsert` replaces the object, `patch` merges fields into it, `remove` sets it to `null`. Their change messages need no key.
 
 ### Fan-out resources (`each`)

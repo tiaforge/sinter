@@ -49,10 +49,11 @@ test('random list changes: DOM order matches state, surviving rows keep their no
 type Item = { id: string; n: number };
 
 test('random interleavings of server writes and optimistic layers match a reference store', () => {
-  for (const seed of [11, 12, 13, 14, 15, 16]) {
+  for (const seed of [11, 12, 13, 14, 15, 16, 17, 18, 19, 20]) {
     const rand = rng(seed);
     const int = (n: number) => Math.floor(rand() * n);
     const r = createResource<Item>('xs', { key: ['id'], order: 'n' });
+    r.setTotal(50);
     let base = new Map<string, Item>();
     const layers: Array<{ id: number; ops: Op[] }> = [];
     const key = () => String(int(6));
@@ -85,13 +86,14 @@ test('random interleavings of server writes and optimistic layers match a refere
         r.dropLayer(l!.id);
       }
       const view = new Map(base);
-      for (const l of layers) for (const op of l.ops) apply(view, op);
+      // the total drops by every layer removal of an item present at that point (adds do not raise it)
+      let removed = 0;
+      for (const l of layers) for (const op of l.ops) { if (op.op === 'remove' && view.has(op.key)) removed++; apply(view, op); }
+      // a full stable sort of arrival (Map) order: the store patches its sorted list in place and must agree exactly
       const expected = [...view.values()].sort((a, b) => a.n - b.n).map((i) => `${i.id}:${i.n}`);
-      const got = r.all().map((i) => `${i.id}:${i.n}`);
-      // equal n may tie in either order; compare as sorted multisets plus order of n
-      expect(got.slice().sort(), `seed ${seed} step ${step}`).toEqual(expected.slice().sort());
-      expect(r.all().map((i) => i.n), `seed ${seed} step ${step}`).toEqual([...view.values()].map((i) => i.n).sort((a, b) => a - b));
+      expect(r.all().map((i) => `${i.id}:${i.n}`), `seed ${seed} step ${step}`).toEqual(expected);
       expect(r.meta.pending).toBe(layers.length);
+      expect(r.meta.total, `seed ${seed} step ${step}`).toBe(Math.max(0, 50 - removed));
     }
     base = new Map();
   }

@@ -173,6 +173,13 @@ built, what deviates, and what is left.
   and every RealWorld page from a production build; budgets moved from the core to pages. Vitest 5
   dropped `bench()`, so the cases are plain tests that print tables.
 
+- 2026-11-06: 0.2 phase 2, store fixes. The sorted list is patched per write instead of re-sorted
+  (one upsert on 5,000 items: 9.9 → 0.007 ms); ties keep arrival order exactly, which the property
+  test now checks against a full sort. `meta.total` is computed when the total or a layer changes,
+  not when the list is read: a page that shows only `$meta.x.total` updates, and a load no longer
+  needs a second flush pass. `setTotal` marks only `meta`. Lists are frozen in dev builds only
+  (frozen arrays are 3–50× slower to copy and filter in V8). Core +481 B gzip.
+
 ## Decisions and deviations
 
 - `CompileOptions` gains optional `moduleSrc` (URL of the injected
