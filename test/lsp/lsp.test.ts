@@ -172,6 +172,22 @@ describe('sinter lsp', () => {
     await e.diagnostics('index.html', (d) => d.length === 0);
   });
 
+  test('a changed actions module reloads the project', async () => {
+    const root = project({ 'index.html': '<p>hi</p>\n' });
+    const e = await editor(root);
+    e.open('index.html', '<button data-sn-call="archive(1)"></button>\n');
+    const [d] = await e.diagnostics('index.html', (d) => d.some((x) => x.code.startsWith('SN310')));
+    expect(d!.message).toContain('`archive` is not exported by the actions module');
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src/sinter.actions.js'), 'export const archive = async (id) => id;\n');
+    e.changed('src/sinter.actions.js');
+    await e.diagnostics('index.html', (d) => d.length === 0);
+    writeFileSync(join(root, 'src/sinter.actions.js'), 'export const archived = async (id) => id;\n');
+    e.changed('src/sinter.actions.js');
+    const [again] = await e.diagnostics('index.html', (d) => d.some((x) => x.code.startsWith('SN310')));
+    expect(again!.message).toContain('Did you mean `archived`?');
+  });
+
   describe('types', () => {
     const TYPES = 'export interface Contact { id: number; name: string; tags: string[] }\n';
     const PAGE = (expr: string) => `<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>

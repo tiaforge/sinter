@@ -21,7 +21,7 @@ built, what deviates, and what is left.
 | `src/testing/` | `render`, `mockRequests`, `mockStream` |
 | `src/compiler/vocabulary.ts` | the attribute/element table; compiler, `llms.txt` and custom data derive from it |
 | `test/` | Vitest suites (happy-dom); `test/compiler/golden/__out__` are file snapshots |
-| `docs/recipes/` | the eight `llms.txt` recipes, each with its executed test |
+| `docs/recipes/` | the nine `llms.txt` recipes, each with its executed test |
 | `scripts/size.mjs` | min+gzip per module (`npm run size`) |
 
 ## Milestones

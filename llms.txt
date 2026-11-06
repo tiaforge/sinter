@@ -503,6 +503,106 @@ test('the next page load shows the cached list while it revalidates', async () =
 });
 ```
 
+### Local actions: hash a file, then upload it
+
+```html
+<section data-sn-state="{ file: null, url: '', error: '' }">
+  <sn-resource name="digest" call="sha256(file)" when="file"></sn-resource>
+
+  <input type="file" data-sn-on-change="file = $el.files[0] ?? null; url = ''">
+  <p data-sn-show="$meta.digest.loading">Hashing…</p>
+  <code data-sn-text="digest"></code>
+
+  <button data-sn-call="upload(file, digest)" data-sn-attr="{disabled: !digest}"
+          data-sn-then="url = $result.url; error = ''" data-sn-catch="error = $error.message">Upload</button>
+  <a data-sn-show="url" data-sn-attr="{href: url}">Uploaded</a>
+  <p role="alert" data-sn-text="error"></p>
+</section>
+```
+
+```js
+// src/sinter.actions.js: functions pages call with data-sn-call and <sn-resource call>.
+// The last argument is sinter's context; with JSDoc types, `sinter check` checks the calls.
+/** @import { CallContext } from '@tiaforge-ui/sinter' */
+
+/**
+ * The file's SHA-256 as hex; choosing another file aborts the running hash through ctx.signal.
+ * @param {File} file
+ * @param {CallContext} ctx
+ * @returns {Promise<string>}
+ */
+export async function sha256(file, ctx) {
+  const bytes = await file.arrayBuffer();
+  ctx.signal.throwIfAborted();
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * ctx.request goes through the app's middleware (headers, 401 handling, allowed origins).
+ * @param {File} file
+ * @param {string} digest
+ * @param {CallContext} ctx
+ * @returns {Promise<{ url: string }>}
+ */
+export async function upload(file, digest, ctx) {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('sha256', digest);
+  return /** @type {Promise<{ url: string }>} */ (ctx.request('/api/uploads', { method: 'POST', body: form }));
+}
+```
+
+```ts
+import { expect, test } from 'vitest';
+import { checkPage } from '@tiaforge-ui/sinter/check';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
+import * as actions from './local-actions.actions.js';
+import source from './local-actions.actions.js?raw';
+import page from './local-actions.html?raw';
+
+const DIGEST = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'; // sha256('abc')
+
+function choose(input: HTMLInputElement, file: File) {
+  Object.defineProperty(input, 'files', { value: [file], configurable: true });
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+test('hashes the chosen file, then uploads it with its digest', async () => {
+  const requests = mockRequests({ 'POST /api/uploads': { url: '/files/1' } });
+  const { root, settle } = await render(page, { actions, requests });
+  const button = root.querySelector('button')!;
+  expect(button.disabled).toBe(true);
+
+  choose(root.querySelector('input')!, new File(['abc'], 'abc.txt'));
+  await settle();
+  expect(root.querySelector('code')!.textContent).toBe(DIGEST);
+  expect(button.disabled).toBe(false);
+
+  button.click();
+  await settle();
+  expect((requests.calls[0]!.body as FormData).get('sha256')).toBe(DIGEST);
+  expect(root.querySelector('a')!.getAttribute('href')).toBe('/files/1');
+});
+
+test('a failed upload shows the server message', async () => {
+  const requests = mockRequests({ 'POST /api/uploads': { status: 413, body: { message: 'File too large' } } });
+  const { root, settle } = await render(page, { actions, requests });
+  choose(root.querySelector('input')!, new File(['abc'], 'abc.txt'));
+  await settle();
+  root.querySelector('button')!.click();
+  await settle();
+  expect(root.querySelector('[role=alert]')!.textContent).toBe('File too large');
+});
+
+test('sinter check: arguments are checked against the actions', () => {
+  const files = { 'src/sinter.actions.js': source };
+  expect(checkPage(page, { files })).toEqual([]);
+  const [d] = checkPage(page.replace('upload(file, digest)', 'upload(file)'), { files });
+  expect([d!.code, d!.message]).toEqual(['SN208', expect.stringContaining("is not assignable to type '[file: File, digest: string]'")]);
+});
+```
+
 ## Type checking
 
 `npx sinter check` type-checks every expression with the project's TypeScript (pages and options come from the Vite config). `sinter({ typecheck: true })` runs it in `vite build`.
@@ -526,7 +626,7 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 
 Write a test next to the markup. `@tiaforge-ui/sinter/testing` compiles the page with the real compiler and mounts it:
 
-- `render(html, { requests, streams, url, locale, now, helpers, files, storage, session })` → `{ root, app, flush, settle, advance, navigations, window }`. Pass one `memoryStorage()` as `session` to two renders to test what carries over between page loads (the `cache` attribute).
+- `render(html, { requests, streams, url, locale, now, helpers, actions, files, storage, session })` → `{ root, app, flush, settle, advance, navigations, window }`. Pass one `memoryStorage()` as `session` to two renders to test what carries over between page loads (the `cache` attribute).
 - `mockRequests({ 'GET /api/x': json | {status, body} | (call) => … })`: records `calls`; responses are held until `settle()`; an unmatched request fails the test and lists the routes.
 - `mockStream()`: `emit(name, payload)`, `drop()`, `connected`. A stream URL with no mock uses the transport from `configure({ transport })`, so a custom transport can be tested over a fake connection (see the SignalR recipe).
 - `flush()` runs the scheduler (optimistic changes are visible), `settle()` finishes requests, queues and debounces, `advance(ms)` moves sinter's clock.

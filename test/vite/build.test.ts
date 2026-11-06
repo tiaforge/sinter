@@ -19,7 +19,7 @@ async function run(outDir: string) {
   return build({ root, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir, emptyOutDir: true, minify: false } });
 }
 
-test('builds a page: rewritten HTML, page module, helpers and namespace members', async () => {
+test('builds a page: rewritten HTML, page module, helpers, namespace members and called actions', async () => {
   await run(out);
   const html = readFileSync(join(out, 'index.html'), 'utf8');
   expect(html).not.toContain('data-sn-');
@@ -29,6 +29,8 @@ test('builds a page: rewritten HTML, page module, helpers and namespace members'
   expect(js).toContain('People');
   expect(js).toContain('toUpperCase');
   expect(js).toContain('X-Sinter');
+  expect(js).toContain('hello from the actions module');
+  expect(js).not.toContain('never called');
   expect(js).not.toContain('tree-shaken');
   expect(js).not.toMatch(/(^|[^.\w$])eval\(|new Function\(/);
 });
