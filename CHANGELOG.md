@@ -5,41 +5,33 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## 0.2.0 (2026-11-06)
 
-- A flush tests fewer bindings expensively: only bindings the compiler found
-  inside a `<dialog>` check for a closed one, and each binding keeps its parsed
-  dependencies. One state change on a page with 4,000 root bindings flushes in
-  0.18–0.24 ms instead of 0.49 ms in Chrome.
-- Identical expressions share one function in the compiled page module: the
-  RealWorld article page has 60 functions instead of 112 and is 214 B smaller
-  (gzip).
-- Writes to an ordered resource patch its sorted list instead of re-sorting it:
-  one upsert into 5,000 items takes 0.007 ms instead of 10 ms. Ties in `order`
-  keep arrival order, as before.
-- `$meta.<name>.total` updates when the total or an optimistic removal changes
-  it; before, it updated only when something on the page read the list.
-- Resource lists are frozen in dev builds only, like their items (`SN205`
-  refuses writes at build time). In production, code outside expressions that
-  mutates `app.resource(name).all()` corrupts the store; copy it first.
-- `npm run size` budgets pages (minimal page, RealWorld article) instead of the
-  core; `npm run bench` times the store and the flush.
+### Faster
+
+Compared with 0.1.0 in Chrome 156, production builds:
+
+- Writes to an ordered resource patch its sorted list instead of re-sorting
+  it. Into 5,000 items, one upsert, patch or remove takes 0.005 ms instead of
+  10 ms, a burst of 50 upserts 0.19 ms instead of 7.2 ms. A server event
+  landing in a rendered sorted list flushes in 0.14 ms instead of 1.35 ms at
+  1,000 rows, 0.7 ms instead of 11.2 ms at 5,000. Ties in `order` keep arrival
+  order, as before; `replace` costs the same.
+- A flush is about 2.5× cheaper per root binding: only bindings inside a
+  `<dialog>` check for a closed one, and each binding keeps its parsed
+  dependencies. One state change on a page with 4,000 root bindings: 0.18 ms
+  instead of 0.44 ms.
+- Identical expressions share one function in the compiled page module (the
+  RealWorld article page has 60 instead of 112).
+
+Row rendering (js-framework-benchmark) and mount time are unchanged. Pages are
+0.6–0.8 KB gzip larger than with 0.1, mostly for the features below.
+
+### New
 
 - Local actions: `data-sn-call="ns.fn(args)"` calls a function from the actions
   module (`src/sinter.actions.js` or `.ts`) with the lifecycle of an action
   (busy, concurrency, optimistic layers, `then`/`catch`), and
   `<sn-resource call="…">` loads a resource from one, latest wins. Functions get
   a trailing context `{signal, request, el}`. New code `SN310 unknown-action`.
-- `$error.status` (and `SinterError.status`) is `null` for a failed action call;
-  its type is now `number | null`.
-- `data-sn-debounce` on an element without a method delays its
-  `data-sn-on-*` handlers: `<input data-sn-model="q" data-sn-on-input="query = q"
-  data-sn-debounce="250">` updates `q` at once and `query` once typing pauses.
-- `<sn-event>` expressions can read the state declared around their
-  `<sn-sync>` (`when="mailbox === sel.mailbox"`); before, those names silently
-  meant payload fields. A state name shadows a payload field of the same name,
-  a `sinter check` error when the payload is typed. `<sn-sync src>` is also
-  evaluated in that state's scope now.
-- Pagination cursor fields that are `null` or `undefined` are left out of the
-  request instead of being sent empty, like URL template query parameters.
 - `each="a in accounts"` on `<sn-resource>`: one request per list item, merged
   into one collection. A changed list loads only new sources and drops removed
   ones; a `refetch` event reloads only the source its payload names.
@@ -50,15 +42,35 @@ Attribute names, function names and diagnostic codes are public API. Before
   directions to the values a server expects, e.g.
   `{first: 'forward', prev: 'backward', next: 'forward'}`. Directions not
   listed are sent by name, as before.
+- `data-sn-debounce` on an element without a method delays its
+  `data-sn-on-*` handlers: `<input data-sn-model="q" data-sn-on-input="query = q"
+  data-sn-debounce="250">` updates `q` at once and `query` once typing pauses.
+- `<sn-event>` expressions can read the state declared around their
+  `<sn-sync>` (`when="mailbox === sel.mailbox"`), and `<sn-sync src>` is
+  evaluated in that state's scope.
+- A TypeScript helpers module (`src/sinter.helpers.ts`): export names are read
+  with TypeScript syntax, type-only exports are not helpers, and
+  `sinter check` accepts `.ts` import paths. Before, any type annotation in it
+  failed every page's build with an acorn parse error.
+- Helper and namespace modules may re-export with `export * from './x.js'`
+  (relative paths only). Paraglide 2's message index is built this way, so
+  `export * as m from './paraglide/messages.js'` used to find no messages
+  (`SN206` on every `m.…()` call).
 
-- A TypeScript helpers module (`src/sinter.helpers.ts`) works: its export
-  names are read with TypeScript syntax, type-only exports are not helpers,
-  and `sinter check` accepts `.ts` import paths. Before, any type annotation
-  in it failed every page's build with an acorn parse error.
-- Helper and namespace modules may re-export with `export * from './x.js'`;
-  the members are followed (relative paths only). Paraglide 2's message index
-  is built this way, so `export * as m from './paraglide/messages.js'` found
-  no messages (`SN206` on every `m.…()` call).
+### Changed
+
+- `<sn-event>`: a name declared by the surrounding state now shadows a payload
+  field of the same name (before, it silently meant the payload field); a
+  `sinter check` error when the payload is typed.
+- `$error.status` (and `SinterError.status`) is `null` for a failed action
+  call; its type is now `number | null`.
+- Pagination cursor fields that are `null` or `undefined` are left out of the
+  request instead of being sent empty, like URL template query parameters.
+- `$meta.<name>.total` updates when the total or an optimistic removal changes
+  it; before, it updated only when something on the page read the list.
+- Resource lists are frozen in dev builds only, like their items (`SN205`
+  refuses writes at build time). In production, code outside expressions that
+  mutates `app.resource(name).all()` corrupts the store; copy it first.
 
 ## 0.1.0 (2026-11-05)
 
