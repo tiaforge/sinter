@@ -217,7 +217,7 @@ class Compiler {
    * `ns.name(args)`. Compiles to two table entries: the arguments as one array expression, and a
    * runner that calls the imported function with them and the context.
    */
-  callExpr(el: P5Element, attrName: string, scope: Scope, deps?: Set<string>): { args: number; run: number; name: string } | null {
+  callExpr(el: P5Element, attrName: string, scope: Scope, deps?: Set<string>, magic?: string[]): { args: number; run: number; name: string } | null {
     const text = attr(el, attrName) ?? '';
     const shape = `\`${attrName}\` is one call of an action, e.g. \`pgp.decrypt(msg)\``;
     let ast: ReturnType<typeof parseExpressionAt>;
@@ -254,7 +254,7 @@ class Compiler {
       return null;
     }
     const open = text.indexOf('(', callee.end);
-    const r = this.expr(el, attrName, scope, { mode: 'value' }, `[${text.slice(open + 1, ast.end - 1)}]`, open);
+    const r = this.expr(el, attrName, scope, { mode: 'value', ...(magic ? { magic } : {}) }, `[${text.slice(open + 1, ast.end - 1)}]`, open);
     if (this.check) this.typeLast({ returns: { kind: 'call', name, args: true } });
     if (deps) for (const d of r.deps) deps.add(d);
     if (!r.ok) return null;
@@ -656,7 +656,7 @@ class Compiler {
     }
     let event: string | null = null;
     if (attrName.startsWith('data-sn-on-')) event = attrName.slice('data-sn-on-'.length);
-    else if (o.mode !== 'value') {
+    else if (o.mode !== 'value' || o.magic?.includes('$event')) {
       event = attr(el, 'data-sn-trigger') ?? (el.tagName === 'form' ? 'submit' : FORM_CONTROLS.has(el.tagName) ? 'change' : 'click');
     }
     const e: CheckExpr = {
@@ -740,7 +740,8 @@ class Compiler {
   }
 
   action(el: P5Element, node: NodeDef, scope: Scope, method: typeof METHODS[number] | 'call', get: (n: string) => string | undefined) {
-    const call = method === 'call' ? this.callExpr(el, 'data-sn-call', scope) : null;
+    // arguments and body are taken when the trigger fires, so they see its event
+    const call = method === 'call' ? this.callExpr(el, 'data-sn-call', scope, undefined, ['$event']) : null;
     if (method === 'call' && get('body') !== undefined) this.report(el, 'data-sn-body', 'SN102', '`data-sn-body` belongs to a method attribute; a call takes its arguments in `data-sn-call`', 0);
     const url = method === 'call' ? [] : this.urlTemplate(el, `data-sn-${method}`, scope);
     const tag = el.tagName;
@@ -764,7 +765,7 @@ class Compiler {
     // with OpenAPI specs: the body must fit the request schema, `$result` gets the response's type
     const op = method !== 'call' && this.check && this.opts.openapi?.length ? matchOperation(this.opts.openapi, url, method) : null;
     const typed = op && 'spec' in op ? op : null;
-    const body = fnOf('body', { mode: 'value' }, typed?.request != null ? { returns: { kind: 'openapi', spec: typed.spec, schema: typed.request } } : undefined);
+    const body = fnOf('body', { mode: 'value', magic: ['$event'] }, typed?.request != null ? { returns: { kind: 'openapi', spec: typed.spec, schema: typed.request } } : undefined);
     const optimistic = fnOf('optimistic', { mode: 'optimistic' });
     if (optimistic.f !== null) this.features.add('optimistic');
     const then = fnOf('then', { mode: 'handler', magic: ['$event', '$result'] },

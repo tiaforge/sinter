@@ -34,6 +34,20 @@ describe('data-sn-call: actions that call a function', () => {
     expect(button.hasAttribute('aria-busy')).toBe(false);
   });
 
+  test('arguments see $event: a form tells its submit buttons apart', async () => {
+    const seen: string[] = [];
+    const actions = { run: async (op: string) => { seen.push(op); } };
+    const { root, settle } = await render(`
+      <form data-sn-call="run($event.submitter.value)">
+        <button value="read">Read</button><button value="delete">Delete</button>
+      </form>`, { actions });
+    root.querySelectorAll('button')[1]!.click();
+    await settle();
+    root.querySelectorAll('button')[0]!.click();
+    await settle();
+    expect(seen).toEqual(['delete', 'read']);
+  });
+
   test('namespaces, and ctx.request through the request layer', async () => {
     const requests = mockRequests({ 'POST /api/archive': { ok: true } });
     const actions = {

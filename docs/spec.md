@@ -277,7 +277,7 @@ A resource whose `src` interpolates state or `$url` refetches when those values 
 
 | Name | Available in | Value |
 | --- | --- | --- |
-| `$event` | `on-*`, `then`, `catch` | the DOM event |
+| `$event` | `on-*`, `then`, `catch`, `data-sn-body`, `data-sn-call` arguments | the DOM event (for an action, the one that triggered it) |
 | `$el` | everywhere | the current element |
 | `$url` | everywhere | reactive view of `location.search` params plus the path parameters of `data-sn-path`; assigning to `$url.x` calls `history.replaceState` (path parameters are read-only, `SN203`) |
 | `$now` | everywhere | current time as a `Date`, refreshed every 60 s; the timer runs only on pages that use it |
@@ -544,7 +544,7 @@ Work that is not one request (crypto, MIME, WebAuthn, other browser APIs) runs i
 - The actions module is `src/sinter.actions.js` or `.ts` (`sinter({ actions })` overrides it), read like the helpers module: export names, `export * as ns` namespaces, re-exports followed. Its functions may be async and have side effects.
 - `data-sn-call` is exactly one call of an exported function or namespace member; anything else is `SN401`, an unknown name `SN310`. A method attribute and `data-sn-call` on one element is `SN102`, and so is `data-sn-body` on a call.
 - An action is an action: the same triggers, `data-sn-trigger`, `data-sn-debounce`, `aria-busy`, the mutation concurrency rules (`block` for forms, `queue`, `latest`; a running call is never aborted), optimistic layers, `then` with `$result`, `catch` with `$error`, and the unhandled-error path.
-- Arguments are value expressions evaluated when the action triggers. The function receives them, then a context: `{signal, request, el}`. `request` goes through the request layer (401 handling, origins, timeout); `signal` aborts when the page is hidden; `el` is the element (null for a resource).
+- Arguments are value expressions evaluated when the action triggers; like `data-sn-body`, they see `$event`, e.g. `$event.submitter` to tell a form's submit buttons apart. The function receives them, then a context: `{signal, request, el}`. `request` goes through the request layer (401 handling, origins, timeout); `signal` aborts when the page is hidden; `el` is the element (null for a resource).
 - A thrown `SinterError` reaches `$error` as it is; anything else becomes `{status: null, body: <the thrown value>, message}`.
 - Action functions never write to sinter-managed nodes or to state: they return data, and `then` puts it where it belongs. Expressions cannot call them (`SN203`); helpers stay pure.
 - Code that wants to run an action (keyboard shortcuts) clicks the element that carries it. There is no `app.call()`.

@@ -153,6 +153,9 @@ export async function rename(c: Contact, name: string, ctx: CallContext): Promis
   <button data-sn-call="rename(c, 5)"></button>
 </template>
 <button data-sn-call="mail.count(3)" data-sn-then="total = $result.totl"></button>
+<form data-sn-call="mail.count($event.submitter.offsetTop + $event.timeStamp)"><button></button></form>
+<form data-sn-call="mail.count($event.detail)" data-sn-trigger="pick"></form>
+<form data-sn-call="mail.count($event.submiter)"></form>
 <p data-sn-text="label + total"></p></div>`);
     const file = join(root, 'index.html');
     writeFileSync(file, html);
@@ -160,9 +163,10 @@ export async function rename(c: Contact, name: string, ctx: CallContext): Promis
     expect(out.diagnostics).toEqual([]);
     const r = check({ root, units: [out.check!], helpers: p.helpers, actions: p.actions, types: p.types, tsc });
     const msgs = r.diagnostics.map((d) => d.message).sort();
-    expect(msgs).toHaveLength(2);
-    expect(msgs[0]).toMatch(/Property 'totl' does not exist on type '\{ total: number; \}'/);
-    expect(msgs[1]).toMatch(/'number' is not assignable to type 'string'/);
+    expect(msgs).toHaveLength(3);
+    expect(msgs[0]).toMatch(/Property 'submiter' does not exist on type 'SubmitEvent'/);
+    expect(msgs[1]).toMatch(/Property 'totl' does not exist on type '\{ total: number; \}'/);
+    expect(msgs[2]).toMatch(/'number' is not assignable to type 'string'/);
   });
 
   test('each: the loop variable has the list item type in src', () => {

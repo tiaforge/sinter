@@ -202,6 +202,8 @@ export function shadow(o: ShadowOptions): Shadow {
       }
     }
     if (e.mode === 'value') {
+      // action arguments and bodies are taken when the trigger fires
+      if (e.event !== null) line(`/** @type {${decl(`Ev<${JSON.stringify(e.event)}>`)}} */ const $event = $any;`);
       // a value of the wrong type as a whole is reported on `return`
       regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
       line('return (');
