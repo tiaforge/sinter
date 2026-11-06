@@ -117,7 +117,7 @@ export function check(o: CheckOptions): CheckResult {
   const diagnostics = parseTsc(run.stdout, outDir, o.root, shadows);
 
   const resources = o.units.reduce((n, u) => n + u.resources.length, 0);
-  const typed = o.units.reduce((n, u) => n + u.resources.filter((r) => r.type || r.openapi).length, 0);
+  const typed = o.units.reduce((n, u) => n + u.resources.filter((r) => r.type || r.openapi || r.call).length, 0);
   const viaOpenapi = o.units.reduce((n, u) => n + u.resources.filter((r) => !r.type && r.openapi).length, 0);
   return { diagnostics, resources, typed, openapi: viaOpenapi };
 }

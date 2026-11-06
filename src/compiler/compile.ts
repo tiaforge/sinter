@@ -972,8 +972,10 @@ class Compiler {
     if (this.check) {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
+      if (call) r.call = { name: call.name, items: attr(el, 'items') ?? null };
       this.check.resources.push(r);
-      if (!type && !r.openapi) {
+      // a resource fed by an action is typed by the action's result
+      if (!type && !r.openapi && !r.call) {
         const hint = openapi && 'closest' in openapi
           ? `no OpenAPI GET operation matches \`src\`${openapi.closest ? ` (closest path: \`${openapi.closest}\`)` : ''}; add \`type="…"\`, or \`type="any"\` to leave it unchecked`
           : 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked';

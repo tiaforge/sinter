@@ -140,7 +140,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   SN504: {
     example: 'resource `contacts` has no type: expressions using it are not checked',
     means: 'The type checker has no type for the resource, so expressions that use it are not checked. Reported by `sinter check` only.',
-    fix: 'Add `type="Contact[]"` with a type from `src/sinter.types.ts`, configure an OpenAPI spec that matches `src`, or write `type="any"` to opt out.',
+    fix: 'Add `type="Contact[]"` with a type from `src/sinter.types.ts`, configure an OpenAPI spec that matches `src`, load it with `call` (typed by what the action returns), or write `type="any"` to opt out.',
   },
   SN505: {
     example: '`GET /articles` declares no query parameter `tagg`. Did you mean `tag`?',

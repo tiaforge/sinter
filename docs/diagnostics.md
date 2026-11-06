@@ -260,7 +260,7 @@ Warning, for example:
 
 The type checker has no type for the resource, so expressions that use it are not checked. Reported by `sinter check` only.
 
-**Fix:** Add `type="Contact[]"` with a type from `src/sinter.types.ts`, configure an OpenAPI spec that matches `src`, or write `type="any"` to opt out.
+**Fix:** Add `type="Contact[]"` with a type from `src/sinter.types.ts`, configure an OpenAPI spec that matches `src`, load it with `call` (typed by what the action returns), or write `type="any"` to opt out.
 
 ## SN505 unknown-query-param
 

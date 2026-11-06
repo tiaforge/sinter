@@ -549,7 +549,7 @@ Work that is not one request (crypto, MIME, WebAuthn, other browser APIs) runs i
 - Action functions never write to sinter-managed nodes or to state: they return data, and `then` puts it where it belongs. Expressions cannot call them (`SN203`); helpers stay pure.
 - Code that wants to run an action (keyboard shortcuts) clicks the element that carries it. There is no `app.call()`.
 - `<sn-resource call>` is a resource fed by a function: the arguments' dependencies play the role of `src`'s, so a change aborts the running call through `ctx.signal`, drops its late result and calls again (latest wins). `$meta`, `refresh()` and `refetch` events work as for `src`. `paginate`, `each` and `cache` do not combine with `call` in v0.2.
-- `sinter check` types the arguments against the function's parameters without a trailing `CallContext`, and `$result` as the awaited return type. The page module imports only the actions it calls.
+- `sinter check` types the arguments against the function's parameters without a trailing `CallContext`, and `$result` as the awaited return type. The page module imports only the actions it calls. A resource fed by `call` holds the awaited result at `items`: without `type` that is its type (no `SN504`); with `type`, the result must fit it, reported on `type`.
 
 ## Optimistic updates
 An action with `data-sn-optimistic` changes the store before the request is sent and undoes exactly that change if the request fails. It ships in v0.1 as the `optimistic` module.
@@ -848,7 +848,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 
 ### Type checking
 `sinter check` type-checks every expression of the pages with the project's own TypeScript; it is opt-in and never runs in the dev server.
-- A resource names the type of what `items` selects with `type`, a TypeScript type over the names the types module (`src/sinter.types.ts`, `.d.ts` or `.js`) exports: `<sn-resource name="contacts" … type="Contact[]">`. `type="any"` leaves a resource unchecked on purpose; a resource without `type` is warning `SN504`.
+- A resource names the type of what `items` selects with `type`, a TypeScript type over the names the types module (`src/sinter.types.ts`, `.d.ts` or `.js`) exports: `<sn-resource name="contacts" … type="Contact[]">`. `type="any"` leaves a resource unchecked on purpose; a resource without `type` is warning `SN504`, unless `call` types it.
 - State is typed by its literal. A value the literal cannot show takes a JSDoc cast: `{ editing: /** @type {Contact|null} */ (null) }`.
 - Helpers and namespace members are typed by their own modules; `$event` and `$el` by the DOM types of the event and element; `$meta`, `$error` and the store functions by sinter.
 - The check generates one JavaScript file per page under `.sinter/check/`, with every expression verbatim inside blocks that declare its scope, and runs `tsc` on them with `checkJs`. Errors map back to the HTML position (`SN208`).

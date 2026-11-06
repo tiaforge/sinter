@@ -66,6 +66,8 @@ export interface CheckResource {
   nameLoc?: CheckLoc;
   /** without `type`: the OpenAPI operation `src` matched and the schema of what `items` selects */
   openapi?: { spec: number; label: string; schema: unknown };
+  /** `call`: the action and the `items` path into its result; with `type`, the result must fit it */
+  call?: { name: string; items: string | null };
 }
 
 export interface CheckUnit {

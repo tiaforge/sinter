@@ -83,10 +83,13 @@ export function shadow(o: ShadowOptions): Shadow {
   for (const [ns, { module }] of Object.entries(o.helpers.namespaces)) {
     if (!taken.has(ns)) line(`import * as ${ns} from '${moduleSpec(module)}';`);
   }
-  if (o.actions?.module && unit.exprs.some((e) => e.returns?.kind === 'call' || e.resultType?.kind === 'call')) {
+  if (o.actions?.module && (unit.resources.some((r) => r.call) || unit.exprs.some((e) => e.returns?.kind === 'call' || e.resultType?.kind === 'call'))) {
     line(`import * as $A from '${moduleSpec(o.actions.module)}';`);
   }
   line('const $any = /** @type {any} */ (null);');
+  /** what a resource fed by `call` holds: the awaited result, at its `items` path */
+  const callResult = (c: { name: string; items: string | null }) =>
+    `Awaited<ReturnType<typeof $A.${c.name}>>${(c.items ? c.items.split('.') : []).map((k) => `[${JSON.stringify(k)}]`).join('')}`;
 
   const types: string[] = [];
   for (const r of unit.resources) {
@@ -99,6 +102,10 @@ export function shadow(o: ShadowOptions): Shadow {
       regions[regions.length - 1]!.fixed = true;
       line(' * }');
       line(' */');
+    } else if (r.call) {
+      const t = callResult(r.call);
+      types[types.length - 1] = `${JSON.stringify(r.name)}: ${t}`;
+      line(`/** @type {${t}} */`);
     } else if (r.openapi) {
       const t = schemaToTs(r.openapi.schema, (n) => `$O${r.openapi!.spec}.${typeName(n)}`);
       types[types.length - 1] = `${JSON.stringify(r.name)}: ${t}`;
@@ -107,6 +114,14 @@ export function shadow(o: ShadowOptions): Shadow {
     } else line('/** @type {any} */');
     regions.push({ start: out.length + 1, lines: 1, loc: r.nameLoc ?? r.loc, fixed: true });
     line(`const ${r.name} = $any;`);
+    // with `type`, what the action returns (at `items`) must fit it; reported on `type`
+    if (r.call && r.type) {
+      // own line: TypeScript drops a JSDoc tag that follows `{` on the same line
+      line('{');
+      regions.push({ start: out.length + 1, lines: 1, loc: r.loc, fixed: true });
+      line(`/** @type {${r.type.replace(/\s+/g, ' ')}} */ const $fits = /** @type {${callResult(r.call)}} */ ($any); void $fits;`);
+      line('}');
+    }
   }
   const names = unit.resources.map((r) => JSON.stringify(r.name)).join(' | ') || 'never';
   line(`/** @type {Record<${names}, ${decl('Meta')}>} */`);

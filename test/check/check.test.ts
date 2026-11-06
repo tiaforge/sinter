@@ -103,6 +103,38 @@ describe('sinter check', () => {
     expect(d[0]!.message).toMatch(/state `account_id` shadows the payload field `account_id`: rename the state/);
   });
 
+  test('<sn-resource call>: the result at `items` must fit `type`; without `type` it is the type', () => {
+    const root = project({
+      'src/sinter.types.ts': `${TYPES}export interface Body { text: string }\n`,
+      'src/sinter.actions.ts': `export async function body(id: number): Promise<{ text: string }> { return { text: String(id) }; }
+export async function list(): Promise<{ page: { contacts: { id: number; name: string; emails: string[] }[] } }> { return { page: { contacts: [] } }; }
+`,
+    });
+    const p = projectOf(root);
+    const run = (html: string) => {
+      const file = join(root, 'index.html');
+      writeFileSync(file, html);
+      const out = compile(html, { file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: (f) => readFileSync(f, 'utf8'), check: true });
+      return { out, r: check({ root, units: [out.check!], helpers: p.helpers, actions: p.actions, types: p.types, tsc }) };
+    };
+    const fits = run(`<sn-resource name="b" call="body(1)" type="Body"></sn-resource>
+<sn-resource name="people" call="list()" items="page.contacts" key="id" type="Contact[]"></sn-resource>
+<p data-sn-text="b.text + people.length"></p>`);
+    expect(fits.out.diagnostics).toEqual([]);
+    expect(fits.r.diagnostics).toEqual([]);
+
+    const html = `<sn-resource name="b" call="body(1)" type="Contact"></sn-resource><p data-sn-text="b.name"></p>`;
+    const wrong = run(html);
+    expect(wrong.r.diagnostics).toHaveLength(1);
+    expect(wrong.r.diagnostics[0]!.message).toMatch(/Type '\{ text: string; \}' is missing the following properties from type 'Contact'/);
+    expect([wrong.r.diagnostics[0]!.line, wrong.r.diagnostics[0]!.col]).toEqual(at(html, 'Contact'));
+
+    // no `type`: typed by the action, and no SN504 warning
+    const untyped = run(`<sn-resource name="b" call="body(1)"></sn-resource><p data-sn-text="b.txt"></p>`);
+    expect(untyped.out.diagnostics).toEqual([]);
+    expect(untyped.r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Property 'txt' does not exist on type '\{ text: string; \}'/)]);
+  });
+
   test('data-sn-call: arguments checked against the action (minus its context), $result typed', () => {
     const root = project({
       'src/sinter.types.ts': TYPES,
