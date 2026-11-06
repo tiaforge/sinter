@@ -97,6 +97,7 @@ class Compiler {
   readonly diagnostics: Diagnostic[] = [];
   readonly files = new Set<string>();
   readonly fns: string[] = [];
+  readonly fnIndex = new Map<string, number>();
   readonly origins = new WeakMap<object, Origin>();
   readonly lineStarts = new Map<string, number[]>();
   readonly page: PageInfo;
@@ -617,9 +618,11 @@ class Compiler {
     return tid;
   }
 
+  /** Index of a function in the page's table; identical code shares one entry (one compile in the engine). */
   fn(code: string): number {
-    this.fns.push(code);
-    return this.fns.length - 1;
+    let i = this.fnIndex.get(code);
+    if (i === undefined) this.fnIndex.set(code, (i = this.fns.push(code) - 1));
+    return i;
   }
 
   expr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, value?: string, shift = 0): ExprResult {

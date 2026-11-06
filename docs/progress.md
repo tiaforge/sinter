@@ -193,6 +193,10 @@ built, what deviates, and what is left.
   deferred set is consulted only when non-empty. Chrome 156, one change on 4,000 root bindings:
   0.49 → 0.18–0.24 ms; happy-dom (`npm run bench`), 2,000 root bindings: 0.41 → 0.10 ms. Row
   creation, select and update of 1,000 rows and mount unchanged within noise. Core −30 B gzip.
+- 2026-11-06: identical expressions share one entry in the page's function table (`fn()` in the
+  compiler keys by code). RealWorld article: 112 → 60 functions, 16,507 → 16,293 B gzip; index,
+  profile and editor 28–55 B smaller. A first call costs about 5 µs per function in Chrome, so mount
+  gains at most about 0.26 ms on the article page, not measurable in a page load's script time.
 
 ## Decisions and deviations
 

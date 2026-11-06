@@ -14,8 +14,14 @@ each timing 1,500 flushes), and `npm run bench` in happy-dom:
 
 Mount (4,000 bindings, about 40–47 ms, mostly first calls of the expression functions), creating
 1,000 rows (2.1 ms), select and update every 10th row did not change beyond the run-order effect
-seen when the variants swap places. Most of the remaining mount time is V8 compiling each
-expression function on its first call.
+seen when the variants swap places. About half of that mount time is V8 compiling each expression
+function on its first call: 5 µs per function in Chrome 156.
+
+Identical expressions now share one function in the page module. RealWorld, gzip of what each page
+loads: article 16,507 → 16,293 B (112 → 60 functions), index 16,224 → 16,169, profile 16,249 →
+16,196, editor 15,308 → 15,280; the other pages are unchanged. At 5 µs per function the article page
+saves at most about 0.26 ms of mount; script time per page load (about 9 ms, API answering 404) did
+not change measurably.
 
 ## 2026-11-06, after the store fixes (0.2 phase 2)
 
