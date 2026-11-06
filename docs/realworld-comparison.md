@@ -43,8 +43,9 @@ ones above); sinter on `vite preview` of its production build.
 | Solid | 11.7 | — | 31.8 | 9.3 | demo shows no articles (backend gone); lazy route code not loaded |
 | React + Redux | — | — | — | — | demo no longer online |
 
-Every sinter page loads 12.5–14.2 KB of JS when opened (its page module plus the shared chunk:
-core, config, islands). As a multi-page app, each navigation is a page load; the shared chunk
+Every sinter page loads 14.0–15.7 KB of JS when opened (its page module plus the shared chunk:
+core, config, islands; `npm run size`, 2026-11-06). It was 12.5–14.2 KB when the table above was
+measured, before the page-load cache and local actions. As a multi-page app, each navigation is a page load; the shared chunk
 comes from the browser cache.
 
 ## htmx and Datastar

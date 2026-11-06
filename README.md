@@ -38,7 +38,7 @@ server refuses.
 - **Optimistic updates that stay correct**, also when requests overlap or a server event arrives
   while a request is in flight.
 - **Less code.** The [RealWorld](examples/realworld) app takes 735 lines in sinter. The official
-  Angular version takes 2,210. Each page downloads 12–14 KB of JS.
+  Angular version takes 2,210. Each page downloads 14–16 KB of JS.
 - **Errors at build time.** Every expression is type-checked against your TypeScript types or your
   OpenAPI spec. Your editor shows the errors as you type, with hover, completion and go to
   definition.
@@ -126,7 +126,8 @@ Then write `data-sn-*` attributes in your HTML pages. Optional:
 npm test          # vitest (happy-dom)
 npm run typecheck
 npm run build     # dist/
-npm run size      # size budget per module
+npm run size      # size per page and module, with budgets
+npm run bench     # store and flush benchmarks (docs/benchmark.md)
 npm run docs      # regenerate llms.txt, html-custom-data.json (also the VS Code extension's) and docs/diagnostics.md
 ```
 

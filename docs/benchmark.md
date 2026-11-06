@@ -1,5 +1,42 @@
 # js-framework-benchmark results
 
+## 2026-11-06, runtime baseline for 0.2 (`npm run bench`)
+
+`bench/runtime/`: the store alone and one flush on a mounted production page (no dev feature),
+in Node 26.5 with happy-dom. Medians; runs on this machine vary by up to ±50 % between runs
+(flush, 2,000 bindings: 0.39 and 0.62 ms), so compare within one run or across several.
+
+Store, 5,000 items ordered by a string field, one write (or a burst), then one read:
+
+| case | median ms |
+| --- | ---: |
+| upsert one (new name) | 9.9 |
+| patch one (field outside the order) | 9.8 |
+| remove one | 10.4 |
+| burst of 50 upserts | 7.4 |
+| replace all | 10.2 |
+| upsert one, one optimistic layer pending | 10.0 |
+
+Every write re-sorts the whole list from the Map's arrival order, so a patch that does not touch
+the order field costs as much as replacing everything. Phase 2's gate: one upsert under 0.1 ms.
+
+Flush, one state field of n changes (one text node written):
+
+| root bindings | median ms |
+| ---: | ---: |
+| 100 | 0.031 |
+| 500 | 0.128 |
+| 2,000 | 0.620 |
+
+Matching dirty paths costs about 0.2–0.3 µs per root binding, so integer dependency ids would
+save little; they stay out of 0.2.
+
+Flush, one server upsert into a sorted list (store + reconcile): 1.6 ms for 1,000 rows,
+11.3 ms for 5,000.
+
+Sizes (`npm run size`, gzip -9): minimal page 11,236 B (budget 11.5 KB), RealWorld pages
+14,298 B (login) to 16,074 B (article, budget 16.5 KB), core 10,887 B.
+
 Entry: [`bench/js-framework-benchmark`](../bench/js-framework-benchmark). Quick comparison against
 Svelte with `bench/js-framework-benchmark/run.sh` (5 iterations, headless Chrome 156, local machine;
 treat single runs as ±10 % — totals are dominated by paint time, which is noisy).

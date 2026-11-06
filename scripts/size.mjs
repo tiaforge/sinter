@@ -1,13 +1,24 @@
-// Size budget: min+gzip of the core as a page imports it, and of each feature module.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+// Size budgets, per page (decided for 0.2): min+gzip of a minimal page (one resource, one
+// text binding) and of what each RealWorld page loads; the core and each feature module are
+// reported for reference.
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { build, minify } from 'vite';
+import { compile } from '../dist/compiler/index.js';
 
 const dist = resolve(import.meta.dirname, '../dist');
+const realworld = resolve(import.meta.dirname, '../examples/realworld');
 const dir = mkdtempSync(join(tmpdir(), 'sinter-size-'));
+
+/** The page module the compiler emits for a minimal page, its imports pointed at dist/. */
+const minimal = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', {
+  file: '/min/index.html', root: '/min', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '', moduleSrc: '/m.js',
+}).module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
+
 const entries = {
+  minimal,
   core: `export { mount, $k } from '${dist}/index.js';`,
   sse: `export { default } from '${dist}/sse.js';`,
   ws: `export { webSocketTransport } from '${dist}/ws.js';`,
@@ -20,13 +31,21 @@ const entries = {
   // what the contacts example loads: core + sse + optimistic + persist
   page: `export { mount, $k } from '${dist}/index.js'; export { default as a } from '${dist}/sse.js'; export { default as b } from '${dist}/optimistic.js'; export { default as c } from '${dist}/persist.js';`,
 };
-const BUDGET = { core: 11 * 1024 };
+// bytes, gzip -9; article: what the page loads, its page module and the app's own code included
+const BUDGET = { minimal: 11.5 * 1024, 'realworld article': 16.5 * 1024 };
 let failed = false;
+const gz = (b) => gzipSync(b, { level: 9 }).length;
+function report(name, min, size) {
+  const budget = BUDGET[name];
+  const over = budget && size > budget;
+  if (over) failed = true;
+  console.log(`${name.padEnd(19)} ${String(min).padStart(6)} B min  ${String(size).padStart(6)} B gzip${budget ? `  (budget ${budget})${over ? '  OVER' : ''}` : ''}`);
+}
 try {
   for (const [name, code] of Object.entries(entries)) {
     const entry = join(dir, `${name}.js`);
     writeFileSync(entry, code);
-    const external = name === 'core' || name === 'page' ? [] : [/\/runtime\//];
+    const external = name === 'core' || name === 'page' || name === 'minimal' ? [] : [/\/runtime\//];
     await build({
       logLevel: 'silent', configFile: false,
       build: { outDir: join(dir, 'out', name), lib: { entry, formats: ['es'], fileName: name }, minify: false, rollupOptions: { external } },
@@ -34,11 +53,22 @@ try {
     // lib mode keeps whitespace in ES output; minify fully, as an app build would
     const out = await minify(`${name}.js`, readFileSync(join(dir, 'out', name, `${name}.js`), 'utf8'), { compress: true, mangle: true });
     const js = Buffer.from(out.code);
-    const gz = gzipSync(js, { level: 9 }).length;
-    const budget = BUDGET[name];
-    const over = budget && gz > budget;
-    if (over) failed = true;
-    console.log(`${name.padEnd(11)} ${String(js.length).padStart(6)} B min  ${String(gz).padStart(6)} B gzip${budget ? `  (budget ${budget})${over ? '  OVER' : ''}` : ''}`);
+    report(name, js.length, gz(js));
+  }
+
+  // RealWorld: a production build; per page, the gzip of every script it loads (entry + modulepreload)
+  const out = join(dir, 'realworld');
+  await build({ root: realworld, configFile: join(realworld, 'vite.config.js'), logLevel: 'silent', build: { outDir: out, emptyOutDir: true } });
+  for (const f of readdirSync(out).filter((f) => f.endsWith('.html')).sort()) {
+    const html = readFileSync(join(out, f), 'utf8');
+    const srcs = [...html.matchAll(/<script type="module"[^>]* src="([^"]+)"|<link rel="modulepreload"[^>]* href="([^"]+)"/g)].map((m) => m[1] ?? m[2]);
+    let raw = 0, size = 0;
+    for (const s of srcs) {
+      const code = readFileSync(join(out, s));
+      raw += code.length;
+      size += gz(code);
+    }
+    report(`realworld ${f.replace('.html', '')}`, raw, size);
   }
 } finally {
   rmSync(dir, { recursive: true, force: true });

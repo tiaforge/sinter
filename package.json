@@ -58,6 +58,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "bench": "vitest run --config bench/runtime/vitest.config.ts",
     "size": "npm run build && node scripts/size.mjs",
     "docs": "UPDATE_DOCS=1 vitest run test/docs.test.ts",
     "prepublishOnly": "rm -rf dist && npm run build && npm test"

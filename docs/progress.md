@@ -166,6 +166,13 @@ built, what deviates, and what is left.
   (e582d83). After that: 134/140, the same 5 known failures plus 1 `page.goto` load timeout that
   passes alone (the baseline without cache had 5 such timeouts in one run).
 
+- 2026-11-06: 0.2 roadmap, phase 1: benchmarks. `npm run bench` (`bench/runtime/`, its own Vitest
+  config, not part of `npm test`) times the store (5,000 items ordered by name: ~10 ms per write,
+  because every write re-sorts from arrival order) and one flush (0.2–0.3 µs per root binding;
+  1.6 / 11.3 ms for one upsert into 1,000 / 5,000 sorted rows). `npm run size` measures a minimal page
+  and every RealWorld page from a production build; budgets moved from the core to pages. Vitest 5
+  dropped `bench()`, so the cases are plain tests that print tables.
+
 ## Decisions and deviations
 
 - `CompileOptions` gains optional `moduleSrc` (URL of the injected
@@ -208,7 +215,10 @@ built, what deviates, and what is left.
 
 ## Open / not yet done
 
-- **Size budget: 11 KB for the core, met** (it was 5 KB until 2026-11-05, which the core never reached). `npm run size` (rolldown bundle, oxc minify, gzip -9), 2026-11-05:
+- **Size budgets per page since 2026-11-06** (0.2 roadmap, decision 2): the minimal page (one resource, one
+  text binding) ≤ 11.5 KB gzip, replacing "core ≤ 11 KB", and the RealWorld article page ≤ 16.5 KB, with
+  every other RealWorld page reported (baseline in [benchmark.md](benchmark.md)). The table below is the
+  core budget's last measurement. Until then: **11 KB for the core, met** (it was 5 KB until 2026-11-05, which the core never reached). `npm run size` (rolldown bundle, oxc minify, gzip -9), 2026-11-05:
 
   | Module | min | gzip |
   | --- | ---: | ---: |
