@@ -3,7 +3,7 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
-## Unreleased
+## 0.2.0 (2026-11-06)
 
 - A flush tests fewer bindings expensively: only bindings the compiler found
   inside a `<dialog>` check for a closed one, and each binding keeps its parsed
