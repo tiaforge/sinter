@@ -937,7 +937,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       else {
         url = app.url(a.url, s);
         const fields = a.form && !get && a.method != 'DELETE';
-        body = a.body != null ? fns[a.body]!(s) : fields ? (a.enc == 'form' ? formFields(rb.el as HTMLFormElement) : serialize(rb.el as HTMLFormElement)) : undefined;
+        // form encoding: the fields as the browser would submit them (FormData), then as one of its bodies
+        body = a.body != null ? fns[a.body]!(s) : fields ? (a.enc == 'form' ? new FormData(rb.el as HTMLFormElement) : serialize(rb.el as HTMLFormElement)) : undefined;
         if (a.enc == 'form') body = formBody(body);
       }
     } catch (err) {
@@ -1199,18 +1200,6 @@ export function formBody(body: unknown): URLSearchParams | FormData | null {
   const out = new URLSearchParams();
   for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
     for (const x of Array.isArray(v) ? v : [v]) if (x != null) out.append(k, typeof x == 'object' ? JSON.stringify(x) : String(x));
-  }
-  return out;
-}
-
-/** A form's fields as browsers submit them; with a file input, multipart. */
-function formFields(form: HTMLFormElement): URLSearchParams | FormData {
-  const out = new URLSearchParams();
-  for (const c of form.elements as unknown as Array<HTMLInputElement & { selectedOptions?: HTMLCollectionOf<HTMLOptionElement> }>) {
-    if (!c.name || c.disabled || /^(submit|button|reset|image|fieldset|output)$/.test(c.type)) continue;
-    if (c.type == 'file') return new FormData(form);
-    if ((c.type == 'checkbox' || c.type == 'radio') && !c.checked) continue;
-    for (const v of c.type == 'select-multiple' ? [...c.selectedOptions!].map((o) => o.value) : [c.value]) out.append(c.name, v);
   }
   return out;
 }

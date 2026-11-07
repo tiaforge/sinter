@@ -35,6 +35,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   pagination: `page(name, 'prev')` on page 1 and `page(name, 'next')` on the last known page send
   no request.
 - `bytes('')` returns an empty string, like `number('')`.
+- `data-sn-encoding="form"` serializes a form through `FormData`, as the browser would, instead of
+  its own control walk (same fields, about 100 B less core).
 - The compiler closes three lint gaps: a literal origin followed by a value needs its `/`
   (`https://api.example.com{x}` let the value extend the host; the runtime's origin check still
   refused the request), `Object.assign()` and `Object.defineProperty()` on a resource item are
