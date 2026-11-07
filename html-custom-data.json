@@ -261,6 +261,18 @@
     {
       "name": "data-sn-on-keydown",
       "description": "plain event handler, no request; e.g. data-sn-on-click"
+    },
+    {
+      "name": "data-sn-debounce-input",
+      "description": "delays only that event's data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input"
+    },
+    {
+      "name": "data-sn-debounce-keyup",
+      "description": "delays only that event's data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input"
+    },
+    {
+      "name": "data-sn-debounce-scroll",
+      "description": "delays only that event's data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input"
     }
   ]
 }

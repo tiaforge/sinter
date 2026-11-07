@@ -6,7 +6,7 @@ import { expect, test } from 'vitest';
 import { CODES, severityOf, type Code } from '../src/compiler/diagnostics.js';
 import { DIAGNOSTIC_DOCS } from '../src/compiler/diagnostic-docs.js';
 import { ALL_MAGIC, BUILTIN_HELPERS, STORE_FNS } from '../src/compiler/expr.js';
-import { ATTRIBUTES, ELEMENTS, ON_DOC } from '../src/compiler/vocabulary.js';
+import { ATTRIBUTES, DEBOUNCE_ON_DOC, ELEMENTS, ON_DOC } from '../src/compiler/vocabulary.js';
 
 const root = resolve(__dirname, '..');
 const recipes = resolve(root, 'docs/recipes');
@@ -35,7 +35,7 @@ Package: @tiaforge-ui/sinter. Every directive is a \`data-sn-*\` attribute or an
 
 ## Attributes
 `);
-  for (const a of [...ATTRIBUTES, ON_DOC]) out.push(`- \`data-sn-${a.name}\`${a.value ? ` (${a.value})` : ''}: ${a.doc}`);
+  for (const a of [...ATTRIBUTES, ON_DOC, DEBOUNCE_ON_DOC]) out.push(`- \`data-sn-${a.name}\`${a.value ? ` (${a.value})` : ''}: ${a.doc}`);
   out.push('\n## Elements\n');
   for (const e of ELEMENTS) out.push(`- \`<${e.name}>\` ${e.attrs.map((x) => `\`${x}\``).join(', ')}: ${e.doc}`);
   out.push(`
@@ -126,6 +126,7 @@ function customData(): string {
     globalAttributes: [
       ...ATTRIBUTES.map((a) => ({ name: `data-sn-${a.name}`, description: `${a.doc}${a.value ? ` (${a.value})` : ''}` })),
       ...['click', 'input', 'change', 'submit', 'keydown'].map((e) => ({ name: `data-sn-on-${e}`, description: ON_DOC.doc })),
+      ...['input', 'keyup', 'scroll'].map((e) => ({ name: `data-sn-debounce-${e}`, description: DEBOUNCE_ON_DOC.doc })),
     ],
   };
   return JSON.stringify(data, null, 2) + '\n';

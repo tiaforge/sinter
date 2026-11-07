@@ -1,4 +1,4 @@
-// data-sn-confirm, data-sn-encoding="form", $error.detail and data-sn-listbox.
+// data-sn-confirm, data-sn-encoding="form", $error.detail, data-sn-listbox and per-event debounce.
 import { afterEach, expect, test } from 'vitest';
 import { configure } from '../../src/index.js';
 import { render, mockRequests } from '../../src/testing/index.js';
@@ -110,4 +110,30 @@ test('data-sn-listbox without an id controls the nearest listbox around the inpu
   for (const k of ['ArrowDown', 'Enter']) input.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
   await flush();
   expect(root.querySelector('b')!.textContent).toBe('cc');
+});
+
+test('data-sn-debounce-<event> delays only that handler', async () => {
+  const { root, flush, advance } = await render(`
+    <div data-sn-state="{ q: '', blurred: 0, typed: 0, clicks: 0 }">
+      <input data-sn-on-input="q = $el.value" data-sn-debounce-input="200" data-sn-on-blur="blurred++">
+      <button data-sn-debounce="300" data-sn-on-click="clicks++" data-sn-on-focus="typed++" data-sn-debounce-focus="0">b</button>
+      <p data-sn-text="q + '|' + blurred + '|' + clicks + '|' + typed"></p>
+    </div>`);
+  const input = root.querySelector('input')!, p = root.querySelector('p')!;
+  input.value = 'ad'; input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new FocusEvent('blur'));
+  input.dispatchEvent(new Event('focusout', { bubbles: true }));
+  await flush();
+  expect(p.textContent).toBe('|1|0|0');          // blur at once, input still waiting
+  await advance(200);
+  await flush();
+  expect(p.textContent).toBe('ad|1|0|0');
+  const b = root.querySelector('button')!;
+  b.click();
+  b.dispatchEvent(new FocusEvent('focus'));
+  await flush();
+  expect(p.textContent).toBe('ad|1|0|1');        // data-sn-debounce-focus="0" overrides data-sn-debounce
+  await advance(300);
+  await flush();
+  expect(p.textContent).toBe('ad|1|1|1');
 });

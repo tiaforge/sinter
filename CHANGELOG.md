@@ -23,6 +23,9 @@ Attribute names, function names and diagnostic codes are public API. Before
 - `data-sn-listbox="list-id"` on a text input: the combobox keys for a suggestion list (arrows
   mark an option, Enter/Tab pick it, Escape fires `dismiss`), in the new `listbox` module.
 - `$error.detail`: the server's message or a thrown error's, `null` when there is none.
+- `data-sn-debounce-<event>="ms"` delays only that event's handler, e.g. a debounced
+  `data-sn-on-input` next to an immediate `data-sn-on-blur`; it overrides `data-sn-debounce`
+  for that handler, `0` makes it immediate.
 
 ## 0.2.0 (2026-11-06)
 

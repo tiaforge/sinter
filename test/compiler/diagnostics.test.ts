@@ -171,3 +171,14 @@ test('a data-sn-let name cannot be assigned or shadowed', () => {
   expect(ds('<div data-sn-let="{ b: 1 }"><template data-sn-for="b in [1]" data-sn-key="b"><i></i></template></div>'))
     .toEqual([expect.stringMatching(/`b` is already defined here by `data-sn-let`/)]);
 });
+
+test('data-sn-debounce-<event> needs that handler and milliseconds', () => {
+  const ds = (html: string) => compile(html, {
+    file: '/p/page.html', root: '/p', dev: false, readFile: () => { throw new Error('missing'); },
+    helpers: { module: '/h.js', names: [], namespaces: {} },
+  }).diagnostics.map((d) => `${d.code} ${d.message}`);
+  expect(ds('<div data-sn-state="{ a: 0 }"><input data-sn-debounce-input="200" data-sn-on-change="a++"></div>'))
+    .toEqual(['SN102 `data-sn-debounce-input` needs a `data-sn-on-input` handler on the same element']);
+  expect(ds('<div data-sn-state="{ a: 0 }"><input data-sn-debounce-input="soon" data-sn-on-input="a++"></div>'))
+    .toEqual(['SN401 `data-sn-debounce-input` takes milliseconds']);
+});

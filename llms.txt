@@ -39,6 +39,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-path` (URL patterns /a/:b …): on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url
 - `data-sn-data` (resource name): on <script type="application/json"> in <head>: initial data for a resource
 - `data-sn-on-<event>` (handler expression): plain event handler, no request; e.g. data-sn-on-click
+- `data-sn-debounce-<event>` (milliseconds): delays only that event's data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input
 
 ## Elements
 

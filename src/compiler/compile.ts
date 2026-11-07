@@ -452,7 +452,7 @@ class Compiler {
     // unknown attributes
     const known = new Set<string>(ATTRS.map((a) => `data-sn-${a}`));
     for (const a of sn) {
-      if (known.has(a.name) || a.name.startsWith('data-sn-on-')) continue;
+      if (known.has(a.name) || a.name.startsWith('data-sn-on-') || a.name.startsWith('data-sn-debounce-')) continue;
       this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
     }
 
@@ -562,6 +562,13 @@ class Compiler {
       if (!Number.isFinite(handlerDebounce) || handlerDebounce < 0) this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
       if (!sn.some((a) => a.name.startsWith('data-sn-on-'))) this.report(el, 'data-sn-debounce', 'SN102', '`data-sn-debounce` needs a method attribute (`data-sn-get`, `-post`, …) or a `data-sn-on-*` handler on the same element', 0);
     }
+    // `data-sn-debounce-<event>`: only that event's handler waits
+    for (const a of sn) {
+      if (!a.name.startsWith('data-sn-debounce-')) continue;
+      const event = a.name.slice('data-sn-debounce-'.length), ms = Number(a.value);
+      if (!Number.isFinite(ms) || ms < 0 || a.value.trim() === '') this.report(el, a.name, 'SN401', `\`${a.name}\` takes milliseconds`, 0);
+      if (!has(`on-${event}`)) this.report(el, a.name, 'SN102', `\`${a.name}\` needs a \`data-sn-on-${event}\` handler on the same element`, 0);
+    }
     for (const a of sn) {
       if (!a.name.startsWith('data-sn-on-')) continue;
       const event = a.name.slice('data-sn-on-'.length);
@@ -570,7 +577,8 @@ class Compiler {
         continue;
       }
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'] });
-      if (r.ok) node.b.push(binding({ k: 'on', n: event, f: this.fn(r.code), w: r.writes, ...(handlerDebounce > 0 ? { ms: handlerDebounce } : {}) }));
+      const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
+      if (r.ok) node.b.push(binding({ k: 'on', n: event, f: this.fn(r.code), w: r.writes, ...(ms > 0 ? { ms } : {}) }));
     }
 
     if (methods.length > 1) this.report(el, `data-sn-${methods[1]}`, 'SN102', 'an element can have only one method attribute', 0);

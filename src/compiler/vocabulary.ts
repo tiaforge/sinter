@@ -39,6 +39,7 @@ export const ATTRIBUTES: AttrDoc[] = [
 ];
 
 export const ON_DOC: AttrDoc = { name: 'on-<event>', value: 'handler expression', doc: 'plain event handler, no request; e.g. data-sn-on-click' };
+export const DEBOUNCE_ON_DOC: AttrDoc = { name: 'debounce-<event>', value: 'milliseconds', doc: 'delays only that event\'s data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input' };
 
 export const ELEMENTS: Array<{ name: string; attrs: string[]; doc: string }> = [
   { name: 'sn-resource', attrs: ['name', 'src', 'call', 'each', 'key', 'items', 'total', 'order', 'when', 'paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'type', 'cache'], doc: 'a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates' },
