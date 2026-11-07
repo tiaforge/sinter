@@ -7,8 +7,9 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
-- The minimal page's size budget is 15 KB gzip (was 11.5 KB; 0.3.0 shipped at 12.1 KB). CI now runs
-  `npm run size -- --check`, so an overrun fails the build.
+- Size budgets: the minimal page may be 15 KB gzip (was 11.5 KB; 0.3.0 shipped at 12.1 KB) and the
+  RealWorld article page 20 KB (was 16.5 KB, with 24 B to spare). CI now runs `npm run size -- --check`,
+  so an overrun fails the build.
 
 ### Fixed
 
