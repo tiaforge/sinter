@@ -62,6 +62,7 @@
     "bench": "vitest run --config bench/runtime/vitest.config.ts",
     "size": "npm run build && node scripts/size.mjs",
     "docs": "UPDATE_DOCS=1 vitest run test/docs.test.ts",
+    "release": "node scripts/release.mjs",
     "prepublishOnly": "rm -rf dist && npm run build && npm test"
   },
   "dependencies": {

@@ -23,6 +23,7 @@ built, what deviates, and what is left.
 | `test/` | Vitest suites (happy-dom); `test/compiler/golden/__out__` are file snapshots |
 | `docs/recipes/` | the nine `llms.txt` recipes, each with its executed test |
 | `scripts/size.mjs` | min+gzip per module (`npm run size`) |
+| `scripts/release.mjs` | bump versions, date the changelog, commit and tag (`npm run release -- 0.3.0`) |
 
 ## Milestones
 

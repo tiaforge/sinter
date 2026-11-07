@@ -153,6 +153,7 @@ npm run build     # dist/
 npm run size      # size per page and module, with budgets
 npm run bench     # store and flush benchmarks (docs/benchmark.md)
 npm run docs      # regenerate llms.txt, html-custom-data.json (also the VS Code extension's) and docs/diagnostics.md
+npm run release -- 0.3.0   # bump versions, date the changelog, commit "Release 0.3.0", tag v0.3.0 (not pushed)
 ```
 
 License: MIT. Contributions are accepted under the Developer Certificate of Origin
