@@ -77,8 +77,8 @@ class PagerImpl implements Pager {
       let n: number;
       if (typeof target === 'number') n = target;
       else if (target === 'first') n = 1;
-      else if (target === 'prev') n = page - 1;
-      else if (target === 'next') n = page + 1;
+      else if (target === 'prev') { if (page <= 1) return; n = page - 1; }
+      else if (target === 'next') { if (meta.pages != null && page >= meta.pages) return; n = page + 1; }
       else if (target === 'last') {
         if (meta.pages == null) { this.loader.app.warn(`page('${this.loader.def.name}', 'last') needs a known total`); return; }
         n = meta.pages;
@@ -135,8 +135,9 @@ class PagerImpl implements Pager {
           from = all ? 1 : 0; to = all; hasPrev = false; hasNext = full;
           break;
         }
-        from = move.to != null ? move.to + 1 : null;
-        to = from != null ? from + n - 1 : null;
+        // past the end: nothing to count (`to` would come before `from`)
+        from = n && move.to != null ? move.to + 1 : n ? null : 0;
+        to = n ? (from != null ? from + n - 1 : null) : 0;
         hasPrev = true; hasNext = full;
         break;
       case 'prev':

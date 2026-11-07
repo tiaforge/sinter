@@ -956,8 +956,10 @@ class Compiler {
     }
     if (lit) parts.push(lit);
     const first = parts[0];
-    if (typeof first !== 'string' || !(/^\/[^/\\]/.test(first) || first === '/' || /^https?:\/\/[^/{}]+(\/|$)/i.test(first))) {
-      this.report(el, attrName, 'SN207', 'a URL template must start with a literal same-origin path (`/api/…`) or a literal `https://` origin', 0,
+    // a literal origin followed by a value needs its `/`: `https://api.example.com{x}` lets `x` extend the host
+    const origin = parts.length > 1 ? /^https?:\/\/[^/{}]+\//i : /^https?:\/\/[^/{}]+(\/|$)/i;
+    if (typeof first !== 'string' || !(/^\/[^/\\]/.test(first) || first === '/' || origin.test(first))) {
+      this.report(el, attrName, 'SN207', 'a URL template must start with a literal same-origin path (`/api/…`) or a literal `https://` origin (with a `/` after the host when a value follows)', 0,
         'a leading interpolation or `//` lets a value choose the host');
     }
     return parts;

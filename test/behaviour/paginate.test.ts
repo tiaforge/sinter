@@ -240,3 +240,30 @@ test('cursor fields that are null are left out, like URL template parameters', a
   await settle();
   expect(requests.calls.at(-1)!.url).toBe('/api/n?cursor_rowid=2&limit=2&direction=next');
 });
+
+test('an empty next page shows no positions; offset prev on page 1 and next on the last page do nothing', async () => {
+  const requests = mockRequests({ 'GET /api/e': { items: [] } });
+  const r = await render(`
+    <sn-resource name="e" src="/api/e" key="id" items="items" paginate="keyset" page-size="2" cursor="{after: id}"></sn-resource>
+    <button data-sn-on-click="page('e', 'next')">n</button>
+    <p data-sn-text="[$meta.e.from, $meta.e.to, $meta.e.hasPrev, $meta.e.hasNext].join()"></p>`, { requests });
+  await r.settle();
+  expect(r.root.querySelector('p')!.textContent).toBe('0,0,false,false');
+  r.root.querySelector('button')!.click();
+  await r.settle();
+  expect(r.root.querySelector('p')!.textContent).toBe('0,0,true,false');
+
+  const offset = mockRequests({ 'GET /api/o': { items: [{ id: 1 }], total: 10 } });
+  const o = await render(`
+    <sn-resource name="o" src="/api/o" key="id" items="items" total="total" paginate="offset" page-size="10"></sn-resource>
+    <button id="p" data-sn-on-click="page('o', 'prev')">p</button><button id="n" data-sn-on-click="page('o', 'next')">n</button>
+    <p data-sn-text="$meta.o.page"></p>`, { requests: offset });
+  await o.settle();
+  expect(offset.calls.length).toBe(1);
+  o.root.querySelector<HTMLElement>('#p')!.click();
+  await o.settle();
+  o.root.querySelector<HTMLElement>('#n')!.click();   // pages = 1: nothing after this page
+  await o.settle();
+  expect(offset.calls.length).toBe(1);
+  expect(o.root.querySelector('p')!.textContent).toBe('1');
+});

@@ -179,9 +179,11 @@ class Connection {
 const sse: Feature = {
   name: 'sse',
   install(app: App) {
-    // connect after mount has created resources and loaders
+    // connect after mount has created resources and loaders, unless the app is gone by then
+    let alive = true;
+    app.addCleanup(() => { alive = false; });
     app.env.queueMicrotask(() => {
-      for (const def of app.ir.syncs) new Connection(app, def).start();
+      if (alive) for (const def of app.ir.syncs) new Connection(app, def).start();
     });
   },
 };

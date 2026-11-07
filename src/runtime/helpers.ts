@@ -52,7 +52,7 @@ const BYTE_UNITS = ['byte', 'kilobyte', 'megabyte', 'gigabyte', 'terabyte'];
 
 export function bytes(v: unknown): string {
   let n = Number(v);
-  if (v == null || Number.isNaN(n)) return '';
+  if (v == null || v === '' || Number.isNaN(n)) return '';
   let i = 0;
   while (Math.abs(n) >= 1024 && i < BYTE_UNITS.length - 1) { n /= 1024; i++; }
   return new Intl.NumberFormat(locale(), { style: 'unit', unit: BYTE_UNITS[i], unitDisplay: 'short', maximumFractionDigits: i ? 1 : 0 }).format(n);

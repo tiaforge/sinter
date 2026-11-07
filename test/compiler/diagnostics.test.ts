@@ -77,6 +77,26 @@ describe('every diagnostic code has a failing fixture', () => {
   }
 });
 
+describe('sandbox gaps closed', () => {
+  const codes = (html: string) => diags(html).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
+  test('a literal origin followed by a value needs its `/`', () => {
+    expect(codes('<div data-sn-state="{x: 1}"><button data-sn-get="https://api.example.com{x}/p"></button></div>')).toEqual([expect.stringMatching(/^SN207 a URL template must start/)]);
+    expect(codes('<div data-sn-state="{x: 1}"><button data-sn-get="https://api.example.com/{x}"></button></div>')).toEqual([]);
+    expect(codes('<button data-sn-get="https://api.example.com"></button>')).toEqual([]);
+  });
+  test('Object.assign() on a resource item is a mutation; on state it is a write', () => {
+    expect(codes(`${R}${use}<template data-sn-for="c in contacts"><button data-sn-on-click="Object.assign(c, {name: 'x'})"></button></template>`))
+      .toEqual([expect.stringMatching(/^SN205 `Object.assign\(c, …\)` mutates a resource/)]);
+    expect(codes('<div data-sn-state="{d: {a: 1}}"><p data-sn-text="Object.assign(d, {a: 2})"></p></div>'))
+      .toEqual([expect.stringMatching(/^SN203 value expressions cannot change state; move `Object.assign\(\)`/)]);
+    expect(codes('<div data-sn-state="{d: {a: 1}}"><button data-sn-on-click="Object.assign(d, {a: 2})"></button><p data-sn-text="d.a"></p></div>')).toEqual([]);
+  });
+  test('forbidden keys cannot be named as Object.* arguments', () => {
+    expect(codes(`<p data-sn-text="Object.getOwnPropertyDescriptor(Object.getPrototypeOf(x => x), 'constructor').value"></p>`))
+      .toEqual([expect.stringMatching(/^SN207 `'constructor'` is not allowed as an argument of `Object.getOwnPropertyDescriptor\(\)`/)]);
+  });
+});
+
 describe('positions', () => {
   test('point into the attribute value', () => {
     const d = diags('<div>\n  <p data-sn-text="1 + contcts"></p>\n</div>')[0]!;

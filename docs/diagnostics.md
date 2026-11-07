@@ -88,7 +88,7 @@ Error, for example:
 
 > `m.is_read = true` mutates a resource. Use `patch('messages', m, {is_read: true})`
 
-Resource data is read-only in expressions: it mirrors the server, and a direct write would be lost on the next refresh or event.
+Resource data is read-only in expressions: it mirrors the server, and a direct write (an assignment, a mutating method such as `push()`, or `Object.assign()` on an item) would be lost on the next refresh or event.
 
 **Fix:** Use the `patch()` call from the message, or copy the item with `structuredClone(c)` to edit it in state.
 
@@ -108,9 +108,9 @@ Error, for example:
 
 > `onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click`
 
-The binding could run script or inject markup from data: event-handler attributes, `style`, `srcdoc`, `innerHTML`, bindings on `<script>` and similar elements, URL templates that do not start with a literal path, or persisted password fields.
+The binding could run script or inject markup from data: event-handler attributes, `style`, `srcdoc`, `innerHTML`, bindings on `<script>` and similar elements, URL templates that do not start with a literal path (or with a literal origin that lacks its `/` before a value), persisted password fields, or `constructor`, `__proto__` and `prototype` named in an expression.
 
-**Fix:** Use the safe equivalent the message names: `data-sn-on-*` for events, `data-sn-style` for styles, a literal `/path` at the start of a URL template.
+**Fix:** Use the safe equivalent the message names: `data-sn-on-*` for events, `data-sn-style` for styles, a literal `/path` (or `https://host/`) at the start of a URL template.
 
 ## SN208 type-error
 

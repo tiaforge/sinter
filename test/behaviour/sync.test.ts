@@ -187,3 +187,26 @@ test('<sn-sync> inside a state element: src and event expressions read that stat
   await settle();
   expect(loads()).toBe(3);
 });
+
+test('an app destroyed before its streams connect opens none', async () => {
+  const { mount } = await import('../../src/runtime/app.js');
+  const { defaultEnv } = await import('../../src/runtime/env.js');
+  const sse = (await import('../../src/sse.js')).default;
+  const { compileParts } = await import('../../src/compiler/index.js');
+  const parts = compileParts(`<html><head></head><body>${PAGE}</body></html>`, {
+    file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+  });
+  const fns = new Function('$k', `return [${parts.fns.join(',')}]`)((x: unknown) => x);
+  // its own root: the previous test's page is still mounted on the document
+  const host = document.createElement('div');
+  host.innerHTML = /<body>([\s\S]*)<\/body>/i.exec(parts.html)![1]!;
+  let open = 0;
+  const env = { ...defaultEnv, href: () => 'http://localhost/', fetch: async () => new Response('{"contacts":[]}', { headers: { 'Content-Type': 'application/json' } }) };
+  const app = mount(host, { ir: parts.ir, fns, env, features: [sse], transport: () => ({ connect() { open++; }, close() { open--; } }) });
+  app.destroy();
+  await new Promise((r) => setTimeout(r, 10));
+  expect(open).toBe(0);
+  let ran = false;
+  app.addCleanup(() => { ran = true; });   // after destroy(): runs at once
+  expect(ran).toBe(true);
+});

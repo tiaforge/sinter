@@ -137,3 +137,15 @@ test('data-sn-debounce-<event> delays only that handler', async () => {
   await flush();
   expect(p.textContent).toBe('ad|1|1|1');
 });
+
+test('a debounced handler whose row was removed meanwhile does not run', async () => {
+  const { root, flush, advance } = await render(`
+    <ul data-sn-state="{ items: [{id: 1}], hits: 0 }">
+      <template data-sn-for="it in items" data-sn-key="it.id"><li><input data-sn-on-input="hits++" data-sn-debounce="100"></li></template>
+      <button data-sn-on-click="items = []">x</button><p data-sn-text="hits"></p></ul>`);
+  root.querySelector('input')!.dispatchEvent(new Event('input', { bubbles: true }));
+  root.querySelector('button')!.click();
+  await flush();
+  await advance(200);
+  expect(root.querySelector('p')!.textContent).toBe('0');
+});

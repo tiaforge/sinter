@@ -257,7 +257,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id */
   const dialog = (id: string) => [...root.querySelectorAll('dialog')].find((d) => d.id === id);
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element>();
-  let dirty: string[][] = [], cur: string[][] = [], scheduled = false, flushing = false, round = 0;
+  let dirty: string[][] = [], cur: string[][] = [], scheduled = false, flushing = false, round = 0, destroyed = false;
 
   const res = (name: string): Resource => {
     const r = resources.get(name);
@@ -374,6 +374,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       throw Error('sinter: no data-sn-state scope');
     },
     destroy() {
+      destroyed = true;
       for (const c of cleanups.splice(0)) c();
       instances.delete(root);
     },
@@ -455,7 +456,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     serverEvent(name, payload) {
       for (const fn of listeners.get(name) ?? []) try { fn(payload); } catch (e) { console.error(e); }
     },
-    addCleanup: (fn) => void cleanups.push(fn),
+    // after destroy(), nothing waits for the next one: run it now
+    addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),
   };
   app.page.$f = app.storeFns(null);
   instances.set(root, app);
@@ -903,7 +905,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const t = timers.get(rb);
     if (t) { env.clearTimeout(t); app.busy--; }
     app.busy++;
-    timers.set(rb, env.setTimeout(() => { timers.delete(rb); app.busy--; handle(rb, rb.b.f!, e, rb.b.w); }, rb.b.ms!, 'debounce'));
+    // the element may have left the page (its row removed) while the handler waited
+    timers.set(rb, env.setTimeout(() => { timers.delete(rb); app.busy--; if (rb.el.isConnected) handle(rb, rb.b.f!, e, rb.b.w); }, rb.b.ms!, 'debounce'));
   }
 
   // ---- actions
@@ -1157,7 +1160,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
 export function withParams(url: string, params: Record<string, string> | null): string {
   if (!params) return url;
-  const [path, hash] = url.split('#'), [base, query] = path!.split('?'), q = new URLSearchParams(query);
+  const [path, hash] = url.split('#'), i = path!.indexOf('?'), base = i < 0 ? path! : path!.slice(0, i), q = new URLSearchParams(i < 0 ? '' : path!.slice(i + 1));
   for (const k in params) q.set(k, params[k]!);
   return `${base}?${q}${hash ? '#' + hash : ''}`;
 }
@@ -1222,7 +1225,8 @@ export function serialize(form: HTMLFormElement): unknown {
     if (!segs || c.disabled || /^(submit|button|reset|image|fieldset|output)$/.test(type) || (type == 'radio' && !c.checked) || segs.some((s) => BAD_KEY.test(s))) continue;
     const k = segs.pop()!;
     let o = out;
-    segs.forEach((s, i) => (o = o[s] ??= /^\d+$/.test(segs[i + 1] ?? k) ? [] : Object.create(null)));
+    // a container at each step; a scalar written there earlier (`a`, then `a.b`) is replaced
+    segs.forEach((s, i) => (o = typeof o[s] == 'object' && o[s] ? o[s] : (o[s] = /^\d+$/.test(segs[i + 1] ?? k) ? [] : Object.create(null))));
     if (type == 'checkbox' && boxes[name]! > 1) (o[k] ??= []).push(...(c.checked ? [c.value] : []));
     else o[k] = type == 'checkbox' ? c.checked
       : /^(number|range)$/.test(type) ? (c.value === '' ? null : +c.value)

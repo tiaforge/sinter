@@ -19,6 +19,21 @@ Attribute names, function names and diagnostic codes are public API. Before
 - A resource cannot take a store function's name (`remove`, `patch`, …): new `SN209` case. Such a
   page compiled, but `sinter check` failed with an internal error on it.
 - `validateIR` accepts pages with `data-sn-call` and `<sn-resource call>`.
+- A URL with a second `?` in its query keeps it when pagination parameters are added.
+- A form with a scalar control and a nested one under the same name (`a`, `a.b`) serializes
+  (the later control wins) instead of throwing.
+- An app destroyed before its `<sn-sync>` streams connected opens none; a cleanup added after
+  `destroy()` runs at once.
+- A debounced `data-sn-on-*` handler does not run when its element left the page meanwhile.
+- Keyset pagination: an empty `next` page reports `from` and `to` as 0 instead of 1 and 0. Offset
+  pagination: `page(name, 'prev')` on page 1 and `page(name, 'next')` on the last known page send
+  no request.
+- `bytes('')` returns an empty string, like `number('')`.
+- The compiler closes three lint gaps: a literal origin followed by a value needs its `/`
+  (`https://api.example.com{x}` let the value extend the host; the runtime's origin check still
+  refused the request), `Object.assign()` and `Object.defineProperty()` on a resource item are
+  `SN205` (on state, a write, or `SN203` in a value expression), and `constructor`, `__proto__`
+  and `prototype` named literally as `Object.*` arguments are `SN207`.
 
 ## 0.3.0 (2026-11-07)
 

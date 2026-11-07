@@ -137,6 +137,8 @@ const READ_ONLY = new Set([
   'getMinutes', 'getSeconds', 'test', 'exec',
 ]);
 const MUTATORS = new Set(['push', 'pop', 'splice', 'sort', 'reverse', 'shift', 'unshift', 'fill', 'copyWithin', 'add', 'delete', 'clear', 'set']);
+/** `Object.<static>(target, …)` calls that change their first argument */
+const OBJECT_MUTATORS = new Set(['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf']);
 /** callbacks of these methods receive elements of the receiver as first parameter */
 const ELEMENT_CALLBACKS = new Set(['forEach', 'map', 'filter', 'find', 'findIndex', 'findLast', 'findLastIndex', 'some', 'every', 'flatMap', 'toSorted', 'sort']);
 
@@ -585,6 +587,22 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
               writes.add(track(recv, recv.segs, n).join('.') + (MUTATORS.has(method) ? '.#' : ''));
             } else if (mode === 'handler' && recv.segs && recv.root === '$url') {
               writes.add(recv.segs.slice(0, 2).join('.'));
+            }
+          }
+        }
+        // `Object.assign(target, …)` and friends write to their first argument like `target.x = …` would;
+        // a forbidden key named literally in an `Object.*` call reaches what `.constructor` is refused for
+        if (m.object.type === 'Identifier' && m.object.name === 'Object' && !locals.has('Object') && method) {
+          for (const a of n.arguments) {
+            if (a.type === 'Literal' && FORBIDDEN_KEYS.has(String((a as acorn.Literal).value))) report('SN207', `\`${(a as acorn.Literal).raw}\` is not allowed as an argument of \`Object.${method}()\``, a.start);
+          }
+          const target = n.arguments[0];
+          const cp = OBJECT_MUTATORS.has(method) && target && (target.type === 'Identifier' || target.type === 'MemberExpression') ? chainPath(target as Node, locals) : null;
+          if (cp) {
+            if (cp.resource) report('SN205', `\`Object.${method}(${src.slice(target!.start, target!.end)}, …)\` mutates a resource. Use \`patch('${cp.resource}', …)\` or copy with structuredClone()`, n.start);
+            else if (cp.segs && cp.res.kind === 'state') {
+              if (mode === 'value') report('SN203', `value expressions cannot change state; move \`Object.${method}()\` to \`data-sn-on-*\``, n.start);
+              else if (mode === 'handler') writes.add(track(cp, cp.segs, n).join('.'));
             }
           }
         }
