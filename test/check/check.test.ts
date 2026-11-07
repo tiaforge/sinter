@@ -84,6 +84,15 @@ describe('sinter check', () => {
     one(page(`<div data-sn-state="{ q: '' }"><input data-sn-on-input="q = $el.valu"></div>`), /Did you mean 'value'\?/, 'valu');
   });
 
+  test('data-sn-attr values are checked against SinterAttributes, which a library or the types module extends', () => {
+    const typed = `${TYPES}declare global { interface SinterAttributes { 'data-tone'?: 'danger' | 'success' | null | false } }\n`;
+    const html = page(`<p data-sn-attr="{'data-tone': contacts.length ? 'danger' : 'sucess', title: 'x'}"></p>`);
+    one(html, /Type '"sucess"' is not assignable to type '"danger" \| "success"/, "'data-tone'", { 'src/sinter.types.ts': typed });
+    // other keys and untyped projects are unaffected
+    expect(run(page(`<p data-sn-attr="{'data-tone': contacts.length ? 'danger' : null, href: 1}"></p>`), { 'src/sinter.types.ts': typed }).diagnostics).toEqual([]);
+    expect(run(html).diagnostics).toEqual([]);
+  });
+
   test('helpers and namespace members are checked against their JSDoc signatures', () => {
     one(page(`<p data-sn-text="twice('2')"></p>`), /'string' is not assignable to parameter of type 'number'/, "'2'");
     one(page(`<p data-sn-text="m.items_count({ count: 'x' })"></p>`), /Type 'string' is not assignable to type 'number'/, 'count:');

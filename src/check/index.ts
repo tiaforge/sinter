@@ -108,7 +108,8 @@ export function check(o: CheckOptions): CheckResult {
   const tsconfig = join(outDir, 'tsconfig.json');
   writeFileSync(tsconfig, JSON.stringify({
     compilerOptions: COMPILER_OPTIONS,
-    files: ['sinter.d.ts', ...support.openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map((f) => relative(outDir, f).split('\\').join('/'))],
+    // the types module always, so augmentations in it (declare global, a library's import type {}) apply
+    files: ['sinter.d.ts', ...(support.types ? [relative(outDir, support.types.file).split('\\').join('/')] : []), ...support.openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map((f) => relative(outDir, f).split('\\').join('/'))],
   }, null, 2) + '\n');
 
   const tsc = o.tsc ?? findTsc(o.root);

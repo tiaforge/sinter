@@ -146,7 +146,7 @@ export function shadow(o: ShadowOptions): Shadow {
       line(`} */${after}`);
       return;
     }
-    const text = t.kind === 'openapi'
+    const text = t.kind === 'decl' ? decl(t.name) : t.kind === 'openapi'
       ? schemaToTs(t.schema, (n) => `$O${t.spec}.${typeName(n)}`)
       : t.kind === 'call'
         ? (t.args ? `${decl('CallArgs')}<typeof $A.${t.name}>` : `Awaited<ReturnType<typeof $A.${t.name}>>`)
@@ -255,6 +255,15 @@ export interface Meta {
   hasNext?: boolean;
 }
 export interface Err { status: number | null; body: any; message: string; detail: string | null }
+declare global {
+  /**
+   * Value types for attributes bound with data-sn-attr. Empty here; a library extends it to type its own
+   * attributes, e.g. tinystyle (import type {} from '@tiaforge-ui/tinystyle/sinter' in the types module).
+   */
+  interface SinterAttributes {}
+}
+/** what data-sn-attr accepts: the keys SinterAttributes types, anything else as before */
+export type Attrs = { [K in keyof SinterAttributes]?: SinterAttributes[K] } & Record<string, unknown>;
 export interface CallContext { signal: AbortSignal; request(url: string, init?: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal }): Promise<any>; el: Element | null }
 /** an action's parameters without its trailing context */
 export type CallArgs<F> = F extends (...a: infer P) => any ? (P extends [...infer A, infer L] ? ([L] extends [CallContext] ? A : P) : P) : never;

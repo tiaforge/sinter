@@ -7,6 +7,12 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### New
 
+- `sinter check` types `data-sn-attr` values: a global `SinterAttributes` interface (empty by
+  default) lists attribute value types, and a library extends it. With tinystyle,
+  `import type {} from '@tiaforge-ui/tinystyle/sinter'` in the types module makes
+  `{'data-tone': bad ? 'danger' : 'sucess'}` a type error. Keys it does not list are unchecked,
+  as before. The types module is now always part of the check, so its `declare global`
+  augmentations apply.
 - `showModal('id')` opens `<dialog id="id">` as a modal from a handler, for
   example after a request (`data-sn-then="…; showModal('detail')"`) or from a
   custom event. `close('id')` closes a dialog by id; `close()` still closes

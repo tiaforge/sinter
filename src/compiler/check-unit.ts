@@ -32,7 +32,9 @@ export type TypeRef =
   /** an item of a resource on the page, or a partial one */
   | { kind: 'item'; resource: string; partial?: boolean }
   /** an action (`archive`, `pgp.decrypt`): its arguments (`args`) or its awaited result */
-  | { kind: 'call'; name: string; args?: boolean };
+  | { kind: 'call'; name: string; args?: boolean }
+  /** a type sinter declares itself (\`Attrs\` for \`data-sn-attr\`) */
+  | { kind: 'decl'; name: string };
 
 export interface CheckExpr {
   src: string;
