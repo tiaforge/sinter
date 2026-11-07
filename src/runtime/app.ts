@@ -250,6 +250,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const types = new Set<string>(), selects = new Set<RB>(), deferred = new Set<RB>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<unknown> }>();
+  /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id */
+  const dialog = (id: string) => [...root.querySelectorAll('dialog')].find((d) => d.id === id);
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element>();
   let dirty: string[][] = [], cur: string[][] = [], scheduled = false, flushing = false, round = 0;
 
@@ -419,12 +421,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
       return () => { if (!done) { done = true; for (const [r, id] of ids) r.dropLayer(id); } };
     },
     storeFns: (el) => ({
+      showModal: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
       refresh: (n: string) => res(n).refetch(),
       upsert: forward('upsert'),
       patch: forward('patch'),
       remove: forward('remove'),
       page: (n: string, t: string | number) => app.ext.paginate!.page(n, t),
-      close: () => el?.closest('dialog')?.close(),
+      close: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
       reset: () => {
         const form = el?.closest('form');
         if (!form) return;

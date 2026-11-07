@@ -202,6 +202,16 @@ The resource matched an operation in the OpenAPI spec, but its `items` or `total
 
 **Fix:** Fix the path in `items` or `total`, or the spec if the API changed.
 
+## SN309 unknown-dialog
+
+Error, for example:
+
+> no `<dialog id="compose-dialg">` on this page. Did you mean `compose-dialog`?
+
+`showModal(id)` and `close(id)` name a `<dialog>` by its literal `id`, which must be on the page or one of its partials.
+
+**Fix:** Fix the id, or add `id` to the `<dialog>`. `close()` without an argument closes the dialog around the element.
+
 ## SN310 unknown-action
 
 Error, for example:

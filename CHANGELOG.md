@@ -3,6 +3,16 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### New
+
+- `showModal('id')` opens `<dialog id="id">` as a modal from a handler, for
+  example after a request (`data-sn-then="…; showModal('detail')"`) or from a
+  custom event. `close('id')` closes a dialog by id; `close()` still closes
+  the nearest one. The id must be a string literal naming a `<dialog>` on the
+  page or its partials: new diagnostic `SN309 unknown-dialog`.
+
 ## 0.2.0 (2026-11-06)
 
 ### Faster

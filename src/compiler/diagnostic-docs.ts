@@ -112,6 +112,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'The resource matched an operation in the OpenAPI spec, but its `items` or `total` path is not in the response schema.',
     fix: 'Fix the path in `items` or `total`, or the spec if the API changed.',
   },
+  SN309: {
+    example: 'no `<dialog id="compose-dialg">` on this page. Did you mean `compose-dialog`?',
+    means: '`showModal(id)` and `close(id)` name a `<dialog>` by its literal `id`, which must be on the page or one of its partials.',
+    fix: 'Fix the id, or add `id` to the `<dialog>`. `close()` without an argument closes the dialog around the element.',
+  },
   SN310: {
     example: '`pgp.decrpyt` is not exported by the actions module. Did you mean `pgp.decrypt`?',
     means: '`data-sn-call` and `<sn-resource call>` name a function the actions module (`src/sinter.actions.js` or `.ts`) exports, directly or through `export * as ns`.',

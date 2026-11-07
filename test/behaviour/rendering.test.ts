@@ -418,6 +418,38 @@ test('closed dialogs are evaluated when they open', async () => {
   expect(root.querySelector('input')!.value).toBe('Ada');
 });
 
+test('showModal(id) opens a dialog anywhere on the page; close(id) closes it from outside', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ draft: null }">
+      <section><button class="open" data-sn-on-click="draft = {name: 'Ada'}; showModal('edit')">edit</button></section>
+      <button class="shut" data-sn-on-click="close('edit')">close</button>
+      <dialog id="edit"><input data-sn-model="draft.name"><button class="inner" data-sn-on-click="close()">x</button></dialog>
+    </div>`);
+  const dialog = root.querySelector('dialog')!;
+  root.querySelector<HTMLButtonElement>('.open')!.click();
+  await flush();
+  expect(dialog.open).toBe(true);
+  dialog.dispatchEvent(new Event('toggle'));
+  await flush();
+  expect(root.querySelector('input')!.value).toBe('Ada');
+  // opening an open dialog again is a no-op, not an InvalidStateError
+  root.querySelector<HTMLButtonElement>('.open')!.click();
+  await flush();
+  expect(dialog.open).toBe(true);
+  root.querySelector<HTMLButtonElement>('.shut')!.click();
+  await flush();
+  expect(dialog.open).toBe(false);
+  root.querySelector<HTMLButtonElement>('.open')!.click();
+  root.querySelector<HTMLButtonElement>('.inner')!.click();
+  await flush();
+  expect(dialog.open).toBe(false);
+});
+
+test('showModal() and close() check the dialog id at build time', async () => {
+  await expect(render(`<dialog id="a"></dialog><button data-sn-on-click="showModal('b')"></button>`)).rejects.toThrow(/SN309/);
+  await expect(render(`<div data-sn-state="{ id: 'a' }"><dialog id="a"></dialog><button data-sn-on-click="close(id)"></button></div>`)).rejects.toThrow(/SN309/);
+});
+
 test('bindings in a closed dialog wait for it to open; bindings outside it do not', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ n: 1 }">

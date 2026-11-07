@@ -47,6 +47,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN305', '<sn-include src="./partials/contact-dialg.html"></sn-include>', /partial `\.\/partials\/contact-dialg.html` not found or outside the project root/],
   ['SN308', '<sn-resource name="c" src="/api/c" items="contcts"></sn-resource><p data-sn-text="c"></p>', /the response of `GET \/api\/c` has no `contcts`. Did you mean `contacts`\?/, { openapi: true }],
   ['SN306', '<sn-include src="./partials/a.html"></sn-include>', /a.html → b.html → a.html includes itself/],
+  ['SN309', '<dialog id="compose"></dialog><button data-sn-on-click="showModal(\'compse\')"></button>', /no `<dialog id="compse">` on this page. Did you mean `compose`\?/],
   ['SN310', '<button data-sn-call="archive(1)"></button>', /`archive` is not exported by the actions module/],
   ['SN401', '<p data-sn-text="a +"></p>', /Unexpected token/],
   ['SN501', R + '<p data-sn-text="messages.length"></p>', /resource `contacts` is declared but never read/],

@@ -264,7 +264,8 @@ export interface Store<R> {
   patch<K extends keyof R & string>(name: K, item: Partial<Item<R[K]>>, set: Partial<Item<R[K]>>): void;
   remove<K extends keyof R & string>(name: K, item: Partial<Item<R[K]>>): void;
   page(name: keyof R & string, to: 'next' | 'prev' | 'first' | 'last' | number): void;
-  close(): void;
+  showModal(id: string): void;
+  close(id?: string): void;
   reset(): void;
   emit(event: string, detail?: unknown): void;
 }

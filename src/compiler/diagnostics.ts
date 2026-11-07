@@ -33,6 +33,7 @@ export const CODES = {
   SN306: 'include-cycle',
   SN307: 'openapi-invalid',
   SN308: 'unknown-schema-field',
+  SN309: 'unknown-dialog',
   SN310: 'unknown-action',
   SN401: 'parse-error',
   SN501: 'unused-resource',

@@ -44,6 +44,8 @@ export interface PageInfo {
   usesNow: boolean;
   /** `:name` segments of the page's `data-sn-path` patterns */
   pathParams: Set<string>;
+  /** literal `id`s of the page's `<dialog>` elements, for `showModal()` and `close()` */
+  dialogs: Set<string>;
 }
 
 export interface ExprOptions {
@@ -83,7 +85,7 @@ export interface ExprResult {
 
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
-export const STORE_FNS = ['refresh', 'upsert', 'patch', 'remove', 'page', 'close', 'reset', 'emit'];
+export const STORE_FNS = ['refresh', 'upsert', 'patch', 'remove', 'page', 'showModal', 'close', 'reset', 'emit'];
 export const BUILTIN_HELPERS = ['date', 'time', 'datetime', 'relative', 'number', 'bytes'];
 export const META_FIELDS = ['loading', 'error', 'loadedAt', 'pending', 'total', 'page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
 const PAGE_FIELDS = ['page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
@@ -590,6 +592,14 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     const first = n.arguments[0];
+    if (name === 'showModal' || (name === 'close' && first)) {
+      if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
+        report('SN309', `\`${name}()\` takes the dialog's \`id\` as a string literal`, n.start);
+      } else if (!page.dialogs.has(first.value)) {
+        report('SN309', `no \`<dialog id="${first.value}">\` on this page.${didYouMean(first.value, page.dialogs)}`, first.start);
+      }
+      return;
+    }
     if (['refresh', 'upsert', 'patch', 'remove', 'page'].includes(name)) {
       if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
         report('SN301', `\`${name}()\` takes the resource name as a string literal`, n.start);

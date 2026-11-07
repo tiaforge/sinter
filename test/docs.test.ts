@@ -56,7 +56,7 @@ ${ALL_MAGIC.map((m) => `\`${m}\``).join(', ')}. \`$event\` in handlers, \`$resul
 
 ## Store functions
 
-${STORE_FNS.map((f) => `\`${f}()\``).join(', ')}: \`refresh('name')\`, \`upsert('name', item)\`, \`patch('name', item, {…})\`, \`remove('name', item)\`, \`page('name', 'next' | 'prev' | 'first' | 'last' | n)\`, \`close()\` the nearest dialog, \`reset()\` the nearest form, \`emit('event', detail)\`.
+${STORE_FNS.map((f) => `\`${f}()\``).join(', ')}: \`refresh('name')\`, \`upsert('name', item)\`, \`patch('name', item, {…})\`, \`remove('name', item)\`, \`page('name', 'next' | 'prev' | 'first' | 'last' | n)\`, \`showModal('id')\` opens a dialog by its literal id, \`close()\` the nearest dialog or \`close('id')\` that one, \`reset()\` the nearest form, \`emit('event', detail)\`.
 
 ## Diagnostics
 

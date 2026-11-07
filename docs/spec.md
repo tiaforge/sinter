@@ -140,7 +140,7 @@ A free identifier resolves to the first match, innermost first:
 - State variables declared by the nearest enclosing `data-sn-state`.
 - Resource names declared on the page.
 - Magic names: `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`.
-- Registered helpers, helper namespaces and the store/action functions (`refresh`, `upsert`, `patch`, `remove`, `page`, `close`, `reset`, `emit`).
+- Registered helpers, helper namespaces and the store/action functions (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close`, `reset`, `emit`).
 - Allowed globals (below).
 Anything else is a build error with a suggestion: `contcts` → "did you mean `contacts`?".
 Globals: JavaScript yes, browser no. Expressions may use the ECMAScript standard library, including `new`: `Math`, `JSON`, `Object`, `Array`, `Set`, `Map`, `Date`, `Intl.*`, `RegExp` and the rest. Three pure web-platform utilities are allowed as well: `URL`, `URLSearchParams`, `structuredClone`. Forbidden are browser and I/O APIs (`window`, `document`, `fetch`, `localStorage`, `navigator`, timers, …) and the language's meta-tools (`eval`, `Function`, `Proxy`, `Reflect`, `globalThis`, `WeakRef`, `FinalizationRegistry`, `Atomics`). Browser work belongs in islands. `$el` and `$event` are handed in explicitly, so their properties and methods may be used: `$event.preventDefault()`, `$el.focus()`, `$el.form.requestSubmit()`.
@@ -484,11 +484,13 @@ An action is an element with one method attribute; it sends a request when its t
 | `patch('contacts', item, {…})` | change fields of an item |
 | `remove('contacts', item)` | remove an item |
 | `page('messages', 'next')` | change page (see Pagination) |
-| `close()` | close the nearest `<dialog>` |
+| `showModal('edit')` | open `<dialog id="edit">` as a modal; nothing if it is open |
+| `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
 | `reset()` | reset the nearest `<form>` |
 | `emit('name', detail)` | dispatch a `CustomEvent` from the element |
 
 State assignments work too: `data-sn-then="editing = null; close()"`.
+The dialog id of `showModal()` and `close()` is a string literal that must name a `<dialog id>` on the page or its partials (`SN309`), so a typo fails the build. A button that only opens a dialog needs no handler: `commandfor="edit" command="show-modal"` is the platform's. `showModal()` is for opening after a request or call (`data-sn-then`), from a custom event, or after setting state in the same handler. Bindings inside the dialog render when it opens.
 
 ### Unhandled errors
 When an action fails and has no `data-sn-catch`:

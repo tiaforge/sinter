@@ -127,7 +127,7 @@ class Compiler {
     this.page = {
       resources: new Map(), helpers: new Set(opts.helpers.names), namespaces: ns,
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
-      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(),
+      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(),
     };
   }
 
@@ -368,7 +368,7 @@ class Compiler {
     mergeText(parent);
   }
 
-  // ---- declarations (first pass: names only, so expressions can see every resource)
+  // ---- declarations (first pass: names only, so expressions can see every resource and dialog)
 
   declare(parent: P5Parent, inTemplate = false) {
     for (const child of parent.childNodes) {
@@ -391,6 +391,10 @@ class Compiler {
         this.page.resources.set(name, info);
         this.resourceEls.set(name, child);
         continue;
+      }
+      if (child.tagName === 'dialog') {
+        const id = attr(child, 'id');
+        if (id) this.page.dialogs.add(id);
       }
       this.declare(child, inTemplate);
       if (child.tagName === 'template') this.declare((child as P5Template).content, true);
