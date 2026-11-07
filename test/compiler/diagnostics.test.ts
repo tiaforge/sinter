@@ -40,6 +40,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN205', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="m.is_read = true"></button></template>`, /`m.is_read` mutates a resource. Use `patch\('messages'/],
   ['SN206', '<p data-sn-text="m.inbox_titel()"></p>', /`m.inbox_titel` is not exported by namespace `m`. Did you mean `inbox_title`\?/],
   ['SN207', '<a data-sn-attr="{onclick: 1}"></a>', /`onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click`/],
+  ['SN209', '<div data-sn-state="{ s: 1 }" data-sn-let="{ s: 2 }"><p data-sn-text="s"></p></div>', /`s` is already defined here; use another name/],
   ['SN301', `${R}${use}<button data-sn-on-click="refresh('mesages')"></button>`, /resource `mesages` is not declared on this page/],
   ['SN302', `${R}${use}<sn-resource name="contacts" src="/x" key="id"></sn-resource>`, /resource `contacts` is declared twice/],
   ['SN303', `${R}${use}<p data-sn-text="$meta.contacts.loadng"></p>`, /`\$meta.contacts.loadng` is not a status field. Did you mean `loading`\?/],
@@ -158,4 +159,15 @@ test('output is byte-identical for the same input', () => {
   const html = `${R}${use}<div data-sn-state="{q: ''}"><input data-sn-model="q"></div>`;
   const opts = { file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} } };
   expect(compile(html, opts)).toEqual(compile(html, opts));
+});
+
+test('a data-sn-let name cannot be assigned or shadowed', () => {
+  const ds = (html: string) => compile(html, {
+    file: '/p/page.html', root: '/p', dev: false, readFile: () => { throw new Error('missing'); },
+    helpers: { module: '/h.js', names: [], namespaces: {} },
+  }).diagnostics.map((d) => d.message);
+  expect(ds('<div data-sn-state="{ a: 1 }" data-sn-let="{ b: a + 1 }"><button data-sn-on-click="b = 3"></button></div>'))
+    .toEqual([expect.stringMatching(/`b` is derived \(`data-sn-let`\) and cannot be assigned/)]);
+  expect(ds('<div data-sn-let="{ b: 1 }"><template data-sn-for="b in [1]" data-sn-key="b"><i></i></template></div>'))
+    .toEqual([expect.stringMatching(/`b` is already defined here by `data-sn-let`/)]);
 });

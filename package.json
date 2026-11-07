@@ -38,6 +38,7 @@
     "./paginate": "./dist/paginate.js",
     "./each": "./dist/each.js",
     "./persist": "./dist/persist.js",
+    "./listbox": "./dist/listbox.js",
     "./cache": "./dist/cache.js",
     "./compiler": "./dist/compiler/index.js",
     "./vite": "./dist/vite.js",

@@ -25,6 +25,7 @@ export const CODES = {
   SN206: 'unknown-namespace-member',
   SN207: 'unsafe-sink',
   SN208: 'type-error',
+  SN209: 'name-conflict',
   SN301: 'unknown-resource',
   SN302: 'duplicate-resource',
   SN303: 'unknown-meta-field',

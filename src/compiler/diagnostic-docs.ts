@@ -72,6 +72,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'TypeScript found a type error in an expression. Reported by `sinter check`, `sinter({ typecheck: true })` and the editor integration.',
     fix: 'Fix the expression, or the type: `type` on `<sn-resource>`, the OpenAPI spec, or a JSDoc cast in `data-sn-state`.',
   },
+  SN209: {
+    example: '`s` is already defined here by `data-sn-let`; use another name',
+    means: 'A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it.',
+    fix: 'Rename the let, or the state or loop variable.',
+  },
   SN301: {
     example: 'resource `mesages` is not declared on this page',
     means: 'A store call, `$meta` or embedded data (`data-sn-data`) names a resource that no `<sn-resource>` on the page or its partials declares.',

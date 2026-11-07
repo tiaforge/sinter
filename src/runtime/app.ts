@@ -94,6 +94,8 @@ export interface App {
   readonly ir: IR;
   readonly fns: Fn[];
   readonly env: Env;
+  /** the element or document this instance is mounted on */
+  readonly root: Document | Element;
   readonly req: RequestLayer;
   /** the base scope: resources, status, magic names */
   readonly page: any;
@@ -277,7 +279,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     try { return await fns[run]!(args, ctx); } finally { app.busy--; }
   }
   /** a failed call: SinterErrors as they are, anything else with status null */
-  const callError = (e: unknown) => (e instanceof SinterError ? e : new SinterError(null, e, (e as Error)?.message || String(e)));
+  const callError = (e: unknown) => {
+    if (e instanceof SinterError) return e;
+    const detail = (e instanceof Error ? e.message : typeof e == 'string' ? e : '') || null;
+    return new SinterError(null, e, detail ?? String(e), detail);
+  };
   /** Per flush round: how dirty paths reach a template's rows (0 not, 1 only marked elements, 2 any row). */
   let rowHits = new Map<TemplateDef, number>();
 
@@ -327,7 +333,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   };
 
   const app: App = {
-    ir, fns, env, req, transport: o.transport ?? (() => undefined), ext: {},
+    ir, fns, env, req, root, transport: o.transport ?? (() => undefined), ext: {},
     beforeFlush: [], afterFlush: [], onListen: [], states: [], busy: 0,
     get isDirty() { return dirty.length > 0 || scheduled; },
     dev: false,
@@ -917,11 +923,22 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (a.call) body = fns[a.call.args]!(s);
       else {
         url = app.url(a.url, s);
-        body = a.body != null ? fns[a.body]!(s) : a.form && !get && a.method != 'DELETE' ? serialize(rb.el as HTMLFormElement) : undefined;
+        const fields = a.form && !get && a.method != 'DELETE';
+        body = a.body != null ? fns[a.body]!(s) : fields ? (a.enc == 'form' ? formFields(rb.el as HTMLFormElement) : serialize(rb.el as HTMLFormElement)) : undefined;
+        if (a.enc == 'form') body = formBody(body);
       }
     } catch (err) {
       return unhandled(toError(err), rb.el);
     }
+    // a question first: the action runs only when the user agrees
+    const question = a.confirm != null ? fns[a.confirm]!(s) : null;
+    if (question) {
+      const yes = config.confirm(String(question));
+      if (yes instanceof Promise) return void yes.then((y) => y && go());
+      if (!yes) return;
+    }
+    go();
+    function go() {
     const drop = a.optimistic != null ? app.ext.optimistic!.begin(a.optimistic, s) : () => {};
     if (get) {
       st.c?.abort();
@@ -931,6 +948,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (!st.n) run();
     else if (a.concurrency == 'latest') { st.w ? st.w.drop() : app.busy++; st.w = { run, drop }; }
     else { app.busy++; st.q.push(run); }
+    }
   }
 
   async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: () => void, c?: AbortController) {
@@ -1149,6 +1167,40 @@ export function lis(seq: number[]): Set<number> {
 }
 
 /** Serializes a form's named controls to nested JSON, or FormData if it has a file input. */
+/**
+ * A body as form fields (`data-sn-encoding="form"`): a form's own fields, or an object's keys with
+ * arrays as repeated keys; null and undefined values are left out. Files stay multipart.
+ */
+export function formBody(body: unknown): URLSearchParams | FormData | null {
+  if (body == null) return null;
+  if (body instanceof FormData) {
+    const out = new URLSearchParams();
+    for (const [k, v] of body) {
+      if (typeof v != 'string') return body;
+      out.append(k, v);
+    }
+    return out;
+  }
+  if (body instanceof URLSearchParams) return body;
+  const out = new URLSearchParams();
+  for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
+    for (const x of Array.isArray(v) ? v : [v]) if (x != null) out.append(k, typeof x == 'object' ? JSON.stringify(x) : String(x));
+  }
+  return out;
+}
+
+/** A form's fields as browsers submit them; with a file input, multipart. */
+function formFields(form: HTMLFormElement): URLSearchParams | FormData {
+  const out = new URLSearchParams();
+  for (const c of form.elements as unknown as Array<HTMLInputElement & { selectedOptions?: HTMLCollectionOf<HTMLOptionElement> }>) {
+    if (!c.name || c.disabled || /^(submit|button|reset|image|fieldset|output)$/.test(c.type)) continue;
+    if (c.type == 'file') return new FormData(form);
+    if ((c.type == 'checkbox' || c.type == 'radio') && !c.checked) continue;
+    for (const v of c.type == 'select-multiple' ? [...c.selectedOptions!].map((o) => o.value) : [c.value]) out.append(c.name, v);
+  }
+  return out;
+}
+
 export function serialize(form: HTMLFormElement): unknown {
   const controls = [...form.elements] as Array<HTMLInputElement & { selectedOptions: HTMLCollectionOf<HTMLOptionElement> }>;
   if (controls.some((c) => c.type == 'file')) return new FormData(form);

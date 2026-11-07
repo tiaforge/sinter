@@ -11,7 +11,7 @@ export interface CheckLoc {
 }
 
 /**
- * A scope frame: a `data-sn-state` object or a `data-sn-for` loop. `init` is the
+ * A scope frame: a `data-sn-state` object, a `data-sn-for` loop or a `data-sn-let` name. `init` is the
  * expression that creates it (the state literal, the list), or null when that
  * expression did not compile.
  */
@@ -19,7 +19,9 @@ export type CheckFrame =
   /** `locs[i]`: where `names[i]` is written in the literal */
   | { kind: 'state'; names: string[]; init: number | null; locs?: CheckLoc[] }
   /** `loc`, `indexLoc`: where the item and index names are written */
-  | { kind: 'loop'; item: string; index: string | null; init: number | null; loc?: CheckLoc; indexLoc?: CheckLoc };
+  | { kind: 'loop'; item: string; index: string | null; init: number | null; loc?: CheckLoc; indexLoc?: CheckLoc }
+  /** a `data-sn-let` name; `loc`: where the name is written */
+  | { kind: 'let'; name: string; init: number | null; loc?: CheckLoc };
 
 /** A type the checker writes for something other than a resource. */
 export type TypeRef =
@@ -37,7 +39,7 @@ export interface CheckExpr {
   /** `value` returns the expression; `handler` runs it as statements */
   mode: 'value' | 'handler';
   loc: CheckLoc;
-  /** frames visible here, in the order sinter resolves them last: states outer to inner, then loops outer to inner */
+  /** frames visible here, in the order sinter resolves them last: states, then loops, then lets, each outer to inner */
   frames: number[];
   /** tag of the element the expression sits on, for `$el` */
   tag: string;

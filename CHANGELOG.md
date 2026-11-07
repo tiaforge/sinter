@@ -12,6 +12,17 @@ Attribute names, function names and diagnostic codes are public API. Before
   custom event. `close('id')` closes a dialog by id; `close()` still closes
   the nearest one. The id must be a string literal naming a `<dialog>` on the
   page or its partials: new diagnostic `SN309 unknown-dialog`.
+- `data-sn-let="{ hits: suggestions(q), n: hits.length }"`: derived names for an element
+  and its subtree, compiled into the expressions that read them (no runtime cost). Read-only;
+  new diagnostic `SN209 name-conflict` when one shares a name with state or a loop variable.
+- `data-sn-confirm="question"` asks before an action runs (nothing when the value is falsy);
+  `configure({ confirm })` replaces `window.confirm`.
+- `data-sn-encoding="form"` sends a form or `data-sn-body` as
+  `application/x-www-form-urlencoded` (arrays as repeated keys); `ctx.request` accepts a
+  `URLSearchParams` body.
+- `data-sn-listbox="list-id"` on a text input: the combobox keys for a suggestion list (arrows
+  mark an option, Enter/Tab pick it, Escape fires `dismiss`), in the new `listbox` module.
+- `$error.detail`: the server's message or a thrown error's, `null` when there is none.
 
 ## 0.2.0 (2026-11-06)
 

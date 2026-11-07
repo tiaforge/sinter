@@ -404,6 +404,29 @@ test('islands: props in, events out, state().update()', async () => {
   expect(root.querySelector('i')!.textContent).toBe('2');
 });
 
+test('data-sn-let names a derived value for bindings and handlers in the subtree', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ q: 'a', picked: '' }" data-sn-let="{ hits: ['ab', 'ac', 'b'].filter(w => w.startsWith(q)), n: hits.length }">
+      <p data-sn-text="n + ' of 3'"></p>
+      <ul><template data-sn-for="(w, i) in hits" data-sn-key="w">
+        <li data-sn-let="{ label: i + 1 + '. ' + w }" data-sn-text="label"></li>
+      </template></ul>
+      <input data-sn-model="q">
+      <button data-sn-on-click="picked = hits[0] ?? ''">pick</button>
+      <b data-sn-text="picked"></b>
+    </div>`);
+  const p = root.querySelector('p')!;
+  expect(p.textContent).toBe('2 of 3');
+  expect([...root.querySelectorAll('li')].map(li => li.textContent)).toEqual(['1. ab', '2. ac']);
+  input(root.querySelector('input')!, 'b');
+  await flush();
+  expect(p.textContent).toBe('1 of 3');
+  expect([...root.querySelectorAll('li')].map(li => li.textContent)).toEqual(['1. b']);
+  root.querySelector('button')!.click();
+  await flush();
+  expect(root.querySelector('b')!.textContent).toBe('b');
+});
+
 test('closed dialogs are evaluated when they open', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ draft: null }">

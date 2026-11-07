@@ -1,0 +1,113 @@
+// data-sn-confirm, data-sn-encoding="form", $error.detail and data-sn-listbox.
+import { afterEach, expect, test } from 'vitest';
+import { configure } from '../../src/index.js';
+import { render, mockRequests } from '../../src/testing/index.js';
+
+const asked: string[] = [];
+afterEach(() => { asked.length = 0; configure({ request: [], onError: null, confirm: (q) => globalThis.confirm(q) }); });
+
+test('data-sn-confirm asks first; no means no request, a falsy question means no question', async () => {
+  let answer: boolean | Promise<boolean> = false;
+  configure({ confirm: (q) => { asked.push(q); return answer; } });
+  const requests = mockRequests({ 'DELETE /api/x': null });
+  const { root, settle } = await render(`
+    <div data-sn-state="{ inTrash: false, n: 0 }">
+      <button class="a" data-sn-delete="/api/x" data-sn-confirm="'Delete ' + n + '?'" data-sn-then="n++">a</button>
+      <button class="b" data-sn-delete="/api/x" data-sn-confirm="inTrash ? 'Really?' : null" data-sn-then="n++">b</button>
+    </div>`, { requests });
+  root.querySelector<HTMLButtonElement>('.a')!.click();
+  await settle();
+  expect(asked).toEqual(['Delete 0?']);
+  expect(requests.calls).toHaveLength(0);
+  answer = Promise.resolve(true);
+  root.querySelector<HTMLButtonElement>('.a')!.click();
+  await settle();
+  expect(requests.calls).toHaveLength(1);
+  root.querySelector<HTMLButtonElement>('.b')!.click();
+  await settle();
+  expect(asked).toHaveLength(2);            // no question asked
+  expect(requests.calls).toHaveLength(2);
+});
+
+test('data-sn-encoding="form" sends the body or the form as urlencoded fields', async () => {
+  const requests = mockRequests({ 'POST /api/event': { ok: true }, 'POST /api/login': { ok: true } });
+  const { root, settle } = await render(`
+    <div data-sn-state="{ alarms: ['5', '10'] }">
+      <button data-sn-post="/api/event" data-sn-encoding="form" data-sn-body="{summary: 'Lunch & co', allDay: true, alarm: alarms, skip: null}">save</button>
+      <form data-sn-post="/api/login" data-sn-encoding="form"><input name="user" value="ada"><input name="tag" value="a"><input name="tag" value="b"></form>
+    </div>`, { requests });
+  root.querySelector('button')!.click();
+  await settle();
+  expect(requests.calls[0]!.headers['content-type']).toMatch(/application\/x-www-form-urlencoded/);
+  expect(requests.calls[0]!.body).toBe('summary=Lunch+%26+co&allDay=true&alarm=5&alarm=10');
+  root.querySelector('form')!.requestSubmit();
+  await settle();
+  expect(requests.calls[1]!.body).toBe('user=ada&tag=a&tag=b');
+});
+
+test('$error.detail: the server\'s words or a thrown message, else null', async () => {
+  const requests = mockRequests({
+    'POST /api/text': { status: 400, body: 'Name taken' },
+    'POST /api/json': { status: 422, body: { error: 'Bad date' } },
+    'POST /api/bare': { status: 500 },
+  });
+  const { root, settle } = await render(`
+    <div data-sn-state="{ e: [] }">
+      <button class="t" data-sn-post="/api/text" data-sn-catch="e.push($error.detail)">t</button>
+      <button class="j" data-sn-post="/api/json" data-sn-catch="e.push($error.detail)">j</button>
+      <button class="b" data-sn-post="/api/bare" data-sn-catch="e.push($error.detail ?? 'fallback: ' + $error.message)">b</button>
+      <p data-sn-text="e.join('|')"></p>
+    </div>`, { requests });
+  for (const c of ['t', 'j', 'b']) { root.querySelector<HTMLButtonElement>(`.${c}`)!.click(); await settle(); }
+  expect(root.querySelector('p')!.textContent).toBe('Name taken|Bad date|fallback: 500');
+});
+
+test('data-sn-listbox: arrows mark an option, Enter and Tab pick it, Escape dismisses', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ q: '', open: true, picked: '' }" data-sn-let="{ hits: ['ab', 'ac', 'ad'].filter(w => w.startsWith(q)) }">
+      <input data-sn-model="q" data-sn-listbox="hits" data-sn-on-dismiss="open = false">
+      <ul id="hits" role="listbox" data-sn-show="open && hits.length">
+        <template data-sn-for="w in hits" data-sn-key="w"><li role="option" data-sn-on-click="picked = w; q = ''" data-sn-text="w"></li></template>
+      </ul>
+      <b data-sn-text="picked"></b>
+    </div>`);
+  const input = root.querySelector('input')!;
+  expect(input.getAttribute('role')).toBe('combobox');
+  expect(input.getAttribute('aria-controls')).toBe('hits');
+  const key = (k: string) => { const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }); input.dispatchEvent(e); return e.defaultPrevented; };
+  const marked = () => [...root.querySelectorAll('li')].findIndex((li) => li.getAttribute('aria-selected') == 'true');
+  expect(key('ArrowDown')).toBe(true);
+  expect(key('ArrowDown')).toBe(true);
+  expect(marked()).toBe(1);
+  expect(key('ArrowUp')).toBe(true);
+  expect(marked()).toBe(0);
+  expect(key('Enter')).toBe(true);
+  await flush();
+  expect(root.querySelector('b')!.textContent).toBe('ab');
+  // Enter without a marked option is not taken (the form may submit)
+  expect(key('Enter')).toBe(false);
+  input.value = 'ad'; input.dispatchEvent(new Event('input', { bubbles: true }));
+  await flush();
+  expect(key('Tab')).toBe(true);               // the only option
+  await flush();
+  expect(root.querySelector('b')!.textContent).toBe('ad');
+  expect(key('Escape')).toBe(true);
+  await flush();
+  expect(root.querySelector('ul')!.hidden).toBe(true);
+  expect(key('ArrowDown')).toBe(false);        // hidden list: keys pass through
+});
+
+test('data-sn-listbox without an id controls the nearest listbox around the input', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ fields: ['to', 'cc'], picked: '' }">
+      <template data-sn-for="f in fields" data-sn-key="f">
+        <div><input data-sn-listbox>
+          <ul role="listbox"><li role="option" data-sn-on-click="picked = f" data-sn-text="f"></li></ul></div>
+      </template>
+      <b data-sn-text="picked"></b>
+    </div>`);
+  const input = root.querySelectorAll('input')[1]!;
+  for (const k of ['ArrowDown', 'Enter']) input.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+  await flush();
+  expect(root.querySelector('b')!.textContent).toBe('cc');
+});

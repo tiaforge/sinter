@@ -179,6 +179,17 @@ Helper namespaces. The helpers module may re-export a whole ES module as a names
 This is how i18n works: sinter ships no message format and no `t()` of its own, and works with any ESM-based i18n library.
 Locale. `configure({ locale: { get, set } })` connects the app's locale source. `$locale` reads it; assigning `$locale = 'de'` in a handler calls `set` and re-runs every locale-dependent binding: those that call a namespace member or a `date`/`number` helper.
 
+### Derived names
+`data-sn-let` names values computed from state, resources and loop variables, for the element and its subtree:
+```html
+<div data-sn-let="{ hits: suggestions(contacts, q), n: hits.length }">
+  <ul data-sn-show="n"><template data-sn-for="h in hits">…</template></ul>
+</div>
+```
+- Each entry is a value expression; later entries may use earlier ones.
+- A name is compiled into every expression that reads it, so it is always current, costs no runtime and is tracked like the expression itself; handlers see the value at the time they run.
+- Names are read-only (`SN203` on assignment) and may not share a name with a state or loop variable in their scope (`SN209`).
+
 ### Reactivity
 State is plain, mutable JavaScript; resource items are immutable. The compiler works out what each handler may have changed, so the runtime needs no proxies and no read tracking.
 Invalidation by path. After a handler runs, generated code marks the state paths it may have changed as dirty:
@@ -208,6 +219,7 @@ The whole vocabulary is the tables below; any other `data-sn-*` name is a build 
 | Attribute | Value | Notes |
 | --- | --- | --- |
 | `data-sn-state` | object literal | declares state for the subtree |
+| `data-sn-let` | object literal `{name: expression}` | derived names for the element and its subtree; see Derived names |
 | `data-sn-text` | value expression | sets `textContent`; never HTML |
 | `data-sn-attr` | object literal `{href: …, title: …}` | literal keys; `null`/`false` removes, `true` sets empty; URL values are checked (see Security) |
 | `data-sn-class` | object literal `{unread: !m.is_read}` | toggles each class |
@@ -250,6 +262,9 @@ Text-like controls update on `input`, all others on `change`.
 | `data-sn-optimistic` | handler expression | store changes applied before the request |
 | `data-sn-then` | handler expression | runs after a 2xx response, `$result` = parsed body |
 | `data-sn-catch` | handler expression | runs after an error, `$error` = error object |
+| `data-sn-confirm` | value expression | a question asked before the action runs; no request when the answer is no, no question when the value is falsy |
+| `data-sn-encoding` | `json` or `form` | `form`: the body is sent as `application/x-www-form-urlencoded` (see Request body) |
+| `data-sn-listbox` | the `id` of a suggestion list | on a text input: the combobox keys (see Suggestion lists) |
 | `data-sn-on-<event>` | handler expression | plain event handler, no request; e.g. `data-sn-on-click` |
 
 
@@ -283,7 +298,7 @@ A resource whose `src` interpolates state or `$url` refetches when those values 
 | `$now` | everywhere | current time as a `Date`, refreshed every 60 s; the timer runs only on pages that use it |
 | `$locale` | everywhere | current locale from `configure({ locale })`; assignable in handlers |
 | `$result` | `then` | parsed response body |
-| `$error` | `catch` | `{status, body, message}` |
+| `$error` | `catch` | `{status, body, message, detail}`; `detail` is the server's message or a thrown error's, else `null` |
 | `$meta` | everywhere | per resource status fields (see Resources and store) |
 
 
@@ -473,6 +488,10 @@ An action is an element with one method attribute; it sends a request when its t
   - Disabled controls are skipped, as in native forms.
 - A form containing `<input type="file">` is sent as `multipart/form-data` instead.
 - `GET` and `DELETE` without `data-sn-body` send no body.
+- With `data-sn-encoding="form"` the body goes as `application/x-www-form-urlencoded`: a form's fields as a browser submits them (repeated names stay repeated), or the keys of `data-sn-body`, an array as a repeated key; `null` and `undefined` values are left out, objects are sent as JSON text. Action functions get the same with a `URLSearchParams` body in `ctx.request`.
+
+### Confirmation
+`data-sn-confirm="m.delete_confirm({name: c.fn_name})"` asks before the action runs: no optimistic change, no request when the answer is no. The value is evaluated when the action triggers; when it is falsy nothing is asked, so a question can depend on state: `data-sn-confirm="inTrash ? m.delete_forever() : null"`. `configure({ confirm })` replaces `window.confirm`, for example with a dialog of the app's own (it may return a promise).
 
 ### After the response
 `then` and `catch` are handler expressions. The built-in functions:
@@ -533,7 +552,7 @@ configure({
 ```
 - A middleware is `(request, next) => Promise<Response>`, so retries, timeouts or logging are plain functions.
 - `loginRedirect` stores the return URL (same-origin, allowlisted prefixes only), navigates to login, and never resolves, so `then` and `catch` do not run.
-- Non-2xx responses reject with `$error = {status, body, message}`. Network errors give `status: 0`; a failed action call gives `status: null`.
+- Non-2xx responses reject with `$error = {status, body, message, detail}`. Network errors give `status: 0`; a failed action call gives `status: null`. `detail` is the error in words when there are any: a short text body, a JSON body's `message` or `error`, or a thrown error's message; otherwise `null` and `message` falls back to the HTTP status, so `error = $error.detail ?? m.save_failed()` shows the server's reason or the app's own text.
 - Defaults: 30 s timeout; one automatic retry for idempotent requests on network errors only.
 Response bodies. 204 or an empty body → `null`. A JSON content type → parsed; invalid JSON is an error with the response's status and the message `invalid JSON`. Any other content type → text. Error bodies are parsed the same way into `$error.body`.
 
@@ -552,6 +571,19 @@ Work that is not one request (crypto, MIME, WebAuthn, other browser APIs) runs i
 - Code that wants to run an action (keyboard shortcuts) clicks the element that carries it. There is no `app.call()`.
 - `<sn-resource call>` is a resource fed by a function: the arguments' dependencies play the role of `src`'s, so a change aborts the running call through `ctx.signal`, drops its late result and calls again (latest wins). `$meta`, `refresh()` and `refetch` events work as for `src`. `paginate`, `each` and `cache` do not combine with `call` in v0.2.
 - `sinter check` types the arguments against the function's parameters without a trailing `CallContext`, and `$result` as the awaited return type. The page module imports only the actions it calls. A resource fed by `call` holds the awaited result at `items`: without `type` that is its type (no `SN504`); with `type`, the result must fit it, reported on `type`.
+
+### Suggestion lists (`data-sn-listbox`)
+A text input with suggestions below it, the WAI-ARIA combobox pattern:
+```html
+<input data-sn-model="q" data-sn-listbox="hits" data-sn-on-dismiss="open = false">
+<ul id="hits" role="listbox" data-sn-show="open && hits.length">
+  <template data-sn-for="h in hits"><li role="option" data-sn-on-click="pick(h)" data-sn-text="h"></li></template>
+</ul>
+```
+- The compiler marks the input (`role="combobox"`, `aria-controls`, `aria-autocomplete="list"`); the `listbox` module handles its keys while the list shows options.
+- Without an id (`data-sn-listbox`), the list is the nearest `[role="listbox"]` around the input (in its parent, else further up), for inputs rendered in a loop.
+- ArrowDown and ArrowUp mark an option (`aria-selected="true"`, scrolled into view); Enter clicks the marked option, Tab the marked one or the only one; Escape fires `dismiss` on the input. Other keys, and Enter without a marked option, do what they always do.
+- Typing unmarks. A mouse press on an option does not take the focus from the input. Picking is the option's own click handler.
 
 ## Optimistic updates
 An action with `data-sn-optimistic` changes the store before the request is sent and undoes exactly that change if the request fails. It ships in v0.1 as the `optimistic` module.

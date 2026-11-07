@@ -21,6 +21,17 @@ export interface LoopEntry {
 
 export interface StateEntry { sid: number; names: Set<string> }
 
+/** A `data-sn-let` name: a value expression inlined wherever the name is read. */
+export interface LetEntry {
+  name: string;
+  /** the compiled expression (without the `($) =>` wrapper) */
+  code: string;
+  deps: string[];
+  usesEl: boolean;
+  usesIndex: boolean;
+  resource: string | null;
+}
+
 export interface ResourceInfo {
   name: string; key: string[] | null; paginate: string | null; used: boolean;
   /** keyset with `offset-param`: `page(name, n)` and `$meta.<name>.page` are available */
@@ -30,6 +41,8 @@ export interface ResourceInfo {
 export interface Scope {
   loops: LoopEntry[];
   states: StateEntry[];
+  /** `data-sn-let` names, outer to inner */
+  lets?: LetEntry[];
 }
 
 export interface PageInfo {
@@ -66,6 +79,8 @@ export interface ObjectEntry { key: string; code: string; deps: string[]; offset
 export interface ExprResult {
   ok: boolean;
   code: string;
+  /** `code` without its `($) =>` wrapper (value expressions) */
+  inner: string;
   deps: string[];
   writes: string[];
   usesEl: boolean;
@@ -128,6 +143,7 @@ const ELEMENT_CALLBACKS = new Set(['forEach', 'map', 'filter', 'find', 'findInde
 type Resolved =
   | { kind: 'local'; info: LocalInfo }
   | { kind: 'loop'; entry: LoopEntry }
+  | { kind: 'let'; entry: LetEntry }
   | { kind: 'state'; sid: number }
   | { kind: 'resource' }
   | { kind: 'magic' }
@@ -206,7 +222,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   }
 
   function fail(): ExprResult {
-    return { ok: false, code: '() => undefined', deps: [], writes: [], usesEl: false, usesIndex: false, path: null, resource: null, ast: null };
+    return { ok: false, code: '() => undefined', inner: 'undefined', deps: [], writes: [], usesEl: false, usesIndex: false, path: null, resource: null, ast: null };
   }
 
   // ---- resolution
@@ -232,6 +248,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
     }
     if (!opts.payload) {
+      // a let cannot share a name with a loop or state in its scope (SN209), so lets resolve first
+      const lets = scope.lets ?? [];
+      for (let i = lets.length - 1; i >= 0; i--) {
+        if (lets[i]!.name === name) return { kind: 'let', entry: lets[i]! };
+      }
       for (let i = scope.loops.length - 1; i >= 0; i--) {
         if (scope.loops[i]!.name === name) return { kind: 'loop', entry: scope.loops[i]! };
       }
@@ -260,7 +281,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     if (opts.payload) { payloadNames.add(name); return { kind: 'payload' }; }
     const candidates = [
-      ...scope.loops.map((l) => l.name), ...scope.states.flatMap((s) => [...s.names]),
+      ...(scope.lets ?? []).map((l) => l.name), ...scope.loops.map((l) => l.name), ...scope.states.flatMap((s) => [...s.names]),
       ...page.resources.keys(), ...page.helpers, ...page.namespaces.keys(), ...STORE_FNS, ...BUILTIN_HELPERS,
     ];
     report('SN201', `\`${name}\` is not defined here.${didYouMean(name, candidates)}`, offset);
@@ -272,6 +293,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     switch (res.kind) {
       case 'local': case 'global': case 'helper': return name;
       case 'loop': return `$.${name}`;
+      case 'let': return `(${res.entry.code})`;
       case 'state': return `$.$s${sid}.${name}`;
       case 'resource': return `$.$r.${name}`;
       case 'magic': return `$.${name}`;
@@ -292,6 +314,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         return { segs: res.entry.alias ? [...res.entry.alias] : null, resource: res.entry.resource };
       case 'local':
         return { segs: res.info.alias ? [...res.info.alias] : null, resource: res.info.resource };
+      case 'let': return { segs: null, resource: res.entry.resource };
       default: return { segs: null, resource: null };
     }
   }
@@ -383,6 +406,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     let sid: number | undefined;
     if (res.kind === 'state') sid = res.sid;
     if (res.kind === 'loop' && res.entry.kind === 'index') usesIndex = true;
+    if (res.kind === 'let') {
+      // the inlined expression reads what the let reads
+      for (const d of res.entry.deps) deps.add(d);
+      if (res.entry.usesEl) usesEl = true;
+      if (res.entry.usesIndex) usesIndex = true;
+    }
     const text = emitName(n.name, res, sid);
     if (text !== n.name || shorthand) edits.push({ start: n.start, end: n.end, text: shorthand ? `${n.name}: ${text}` : text });
   }
@@ -507,6 +536,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     const cp = chainPath(target, locals);
     if (!cp) { report('SN203', 'only state variables and their properties can be assigned', at); return; }
+    if (cp.res.kind === 'let') {
+      report('SN203', `\`${cp.root}\` is derived (\`data-sn-let\`) and cannot be assigned; assign the state it is computed from`, at);
+      return;
+    }
     if (cp.resource) {
       report('SN205', `\`${src.slice(target.start, target.end)}\` mutates a resource. Use \`patch('${cp.resource}', …, {…})\``, at,
         'resources are read-only in expressions; copy with structuredClone() to edit');
@@ -829,7 +862,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
   }
 
-  return { ok, code, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort() } : {}) };
+  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort() } : {}) };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

@@ -5,6 +5,7 @@ export interface AttrDoc { name: string; value: string; doc: string }
 
 export const ATTRIBUTES: AttrDoc[] = [
   { name: 'state', value: 'object literal', doc: 'declares local reactive state for the element and its subtree' },
+  { name: 'let', value: 'object literal {name: expression}', doc: 'derived names for the element and its subtree, computed where they are read; later names may use earlier ones' },
   { name: 'text', value: 'value expression', doc: 'sets textContent; never HTML' },
   { name: 'attr', value: 'object literal {href: …}', doc: 'literal keys; null/false removes, true sets empty; URL values are checked' },
   { name: 'class', value: 'object literal {unread: …}', doc: 'toggles each class' },
@@ -16,6 +17,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'key', value: 'value expression', doc: 'row identity; defaults to the resource key or object identity' },
   { name: 'if', value: 'value expression', doc: 'renders a <template> while truthy' },
   { name: 'else', value: '', doc: 'on a <template> directly after an if template' },
+  { name: 'listbox', value: 'id of the suggestion list, or empty', doc: 'on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox] around the input), Enter or Tab clicks it, Escape fires `dismiss`' },
   { name: 'persist', value: 'storage key', doc: 'persists the model or state in localStorage under sn:' },
   { name: 'get', value: 'URL template', doc: 'GET action; latest wins' },
   { name: 'post', value: 'URL template', doc: 'POST action' },
@@ -29,7 +31,9 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'concurrency', value: 'block | queue | latest', doc: 'mutations only; default block for forms, queue otherwise' },
   { name: 'optimistic', value: 'handler expression', doc: 'patch/upsert/remove calls applied before the request, rolled back on failure' },
   { name: 'then', value: 'handler expression', doc: 'runs after a 2xx response; $result = parsed body' },
-  { name: 'catch', value: 'handler expression', doc: 'runs after an error; $error = {status, body, message}' },
+  { name: 'catch', value: 'handler expression', doc: 'runs after an error; $error = {status, body, message, detail}' },
+  { name: 'confirm', value: 'value expression', doc: 'asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy' },
+  { name: 'encoding', value: 'json | form', doc: 'form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded' },
   { name: 'path', value: 'URL patterns /a/:b …', doc: 'on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url' },
   { name: 'data', value: 'resource name', doc: 'on <script type="application/json"> in <head>: initial data for a resource' },
 ];

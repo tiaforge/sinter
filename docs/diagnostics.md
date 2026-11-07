@@ -122,6 +122,16 @@ TypeScript found a type error in an expression. Reported by `sinter check`, `sin
 
 **Fix:** Fix the expression, or the type: `type` on `<sn-resource>`, the OpenAPI spec, or a JSDoc cast in `data-sn-state`.
 
+## SN209 name-conflict
+
+Error, for example:
+
+> `s` is already defined here by `data-sn-let`; use another name
+
+A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it.
+
+**Fix:** Rename the let, or the state or loop variable.
+
 ## SN301 unknown-resource
 
 Error, for example:

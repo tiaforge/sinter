@@ -4,7 +4,7 @@ import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
-import { analyze, type ExprOptions, type ExprResult, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
 import { ATTRIBUTES, ELEMENTS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { matchOperation, matchResource, queryNames, walk, type OpenApiSpec } from './openapi.js';
@@ -67,7 +67,7 @@ export interface CompiledParts {
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
-const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch'];
+const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
 const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs;
@@ -167,7 +167,7 @@ class Compiler {
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'each'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'each', 'listbox'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -505,11 +505,28 @@ class Compiler {
           const locs = first.map((e) => this.locOf(el, 'data-sn-state', e.offset));
           this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs });
         }
-        scope = { loops: scope.loops, states: [...scope.states, entry] };
+        this.checkNames(el, 'data-sn-state', scope, [...entry.names]);
+        scope = { ...scope, states: [...scope.states, entry] };
         if (has('persist') && !has('model')) {
           node.persist = get('persist')!;
           this.features.add('persist');
         }
+      }
+    }
+
+    // derived names: the element and its subtree read them like state
+    if (has('let')) scope = this.lets(el, scope);
+
+    // a text field with suggestions: the listbox feature handles the keys (see src/listbox.ts)
+    if (has('listbox')) {
+      const list = get('listbox')!;
+      if (!['input', 'textarea'].includes(el.tagName)) this.report(el, 'data-sn-listbox', 'SN102', '`data-sn-listbox` belongs on a text `<input>` or `<textarea>`', 0);
+      else if (list && !/^[A-Za-z][\w-]*$/.test(list)) this.report(el, 'data-sn-listbox', 'SN401', '`data-sn-listbox` takes the literal `id` of the suggestion list, or nothing for the nearest `[role="listbox"]` around the input', 0);
+      else {
+        setAttr(el, 'role', 'combobox');
+        if (list) setAttr(el, 'aria-controls', list);
+        setAttr(el, 'aria-autocomplete', 'list');
+        this.features.add('listbox');
       }
     }
 
@@ -642,6 +659,59 @@ class Compiler {
     return r;
   }
 
+  // ---- derived names
+
+  /**
+   * `data-sn-let="{ s: suggestions(q), n: s.length }"`: each name is a value expression, inlined
+   * where it is read; later names may use earlier ones.
+   */
+  lets(el: P5Element, scope: Scope): Scope {
+    const src = attr(el, 'data-sn-let') ?? '';
+    let obj: import('acorn').Node & { type: string; properties?: Array<import('acorn').Property | import('acorn').SpreadElement> };
+    try {
+      obj = parseExpressionAt(src, 0, { ecmaVersion: 'latest' }) as typeof obj;
+    } catch (e) {
+      this.report(el, 'data-sn-let', 'SN401', (e as Error).message.replace(/ \(\d+:\d+\)$/, ''), (e as { pos?: number }).pos ?? 0);
+      return scope;
+    }
+    if (obj.type !== 'ObjectExpression') {
+      this.report(el, 'data-sn-let', 'SN401', '`data-sn-let` takes an object literal: `{ name: expression, … }`', 0);
+      return scope;
+    }
+    for (const p of obj.properties!) {
+      if (p.type !== 'Property' || p.computed || p.shorthand || p.key.type !== 'Identifier' || p.kind !== 'init' || p.method) {
+        this.report(el, 'data-sn-let', 'SN401', '`data-sn-let` entries are `name: expression`', p.start);
+        continue;
+      }
+      const name = p.key.name;
+      if (name.startsWith('$')) { this.report(el, 'data-sn-let', 'SN401', 'names starting with `$` are reserved', p.key.start); continue; }
+      if (!this.checkNames(el, 'data-sn-let', scope, [name], p.key.start)) continue;
+      const v = p.value as import('acorn').Expression & { start: number; end: number };
+      const r = this.expr(el, 'data-sn-let', scope, { mode: 'value' }, src.slice(v.start, v.end), v.start);
+      const entry: LetEntry = { name, code: r.inner, deps: r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource };
+      if (this.check) {
+        this.frameOf.set(entry, this.check.frames.length);
+        this.check.frames.push({ kind: 'let', name, init: r.ok ? this.lastExpr : null, loc: this.locOf(el, 'data-sn-let', p.key.start) });
+      }
+      scope = { ...scope, lets: [...(scope.lets ?? []), entry] };
+    }
+    return scope;
+  }
+
+  /** A name declared here must not hide a let, or be hidden by one (SN209); false on a conflict. */
+  checkNames(el: P5Element, attrName: string, scope: Scope, names: string[], offset = 0): boolean {
+    let ok = true;
+    for (const n of names) {
+      const isLet = (scope.lets ?? []).some((l) => l.name === n);
+      const other = attrName === 'data-sn-let' && (scope.loops.some((l) => l.name === n) || scope.states.some((s) => s.names.has(n)));
+      if (isLet || other) {
+        this.report(el, attrName, 'SN209', `\`${n}\` is already defined here${isLet ? ' by `data-sn-let`' : ''}; use another name`, offset);
+        ok = false;
+      }
+    }
+    return ok;
+  }
+
   // ---- check unit
 
   /** Adds type information to the expression `expr()` recorded last. */
@@ -661,7 +731,7 @@ class Compiler {
 
   recordExpr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, src: string, shift: number, r: ExprResult): number {
     const frames: number[] = [];
-    for (const f of [...scope.states, ...scope.loops]) {
+    for (const f of [...scope.states, ...scope.loops, ...(scope.lets ?? [])]) {
       const i = this.frameOf.get(f);
       if (i !== undefined && !frames.includes(i)) frames.push(i);
     }
@@ -783,10 +853,16 @@ class Compiler {
       typed?.body != null ? { resultType: { kind: 'openapi', spec: typed.spec, schema: typed.body } }
         : call ? { resultType: { kind: 'call', name: call.name } } : undefined);
     const catch_ = fnOf('catch', { mode: 'handler', magic: ['$event', '$error'] });
+    const confirm = fnOf('confirm', { mode: 'value', magic: ['$event'] });
+    const encoding = get('encoding');
+    if (encoding !== undefined && encoding !== 'form' && encoding !== 'json') this.report(el, 'data-sn-encoding', 'SN401', '`data-sn-encoding` is `json` (the default) or `form`', 0);
+    if (encoding !== undefined && method === 'call') this.report(el, 'data-sn-encoding', 'SN102', '`data-sn-encoding` belongs to a method attribute; a call sends its own requests', 0);
     const def: ActionDef = {
       method: method.toUpperCase() as ActionDef['method'], url, body: body.f, trigger, debounce, concurrency,
       optimistic: optimistic.f, then: then.f, catch: catch_.f, w: [...new Set([...then.w, ...catch_.w])].sort(), form: isForm,
       ...(call ? { call: { args: call.args, run: call.run } } : {}),
+      ...(confirm.f !== null ? { confirm: confirm.f } : {}),
+      ...(encoding === 'form' ? { enc: 'form' as const } : {}),
     };
     this.actions.push(def);
     node.b.push(binding({ k: 'on', n: trigger, x: this.actions.length - 1 }));
@@ -819,7 +895,8 @@ class Compiler {
       if (index) frame.indexLoc = this.locOf(el, 'data-sn-for', value.indexOf(index, itemAt + item.length));
       this.check.frames.push(frame);
     }
-    const inner: Scope = { loops, states: scope.states };
+    this.checkNames(el, 'data-sn-for', scope, index ? [item, index] : [item]);
+    const inner: Scope = { ...scope, loops };
     t.key = null;
     t.keyFields = null;
     if (keySrc !== undefined) {
@@ -909,7 +986,7 @@ class Compiler {
           this.frameOf.set(loop, this.check.frames.length);
           this.check.frames.push({ kind: 'loop', item: m[1]!, index: null, init: listExpr, loc: this.locOf(el, 'each', eachAttr.indexOf(m[1]!)) });
         }
-        srcScope = { loops: [...ctx.scope.loops, loop], states: ctx.scope.states };
+        srcScope = { ...ctx.scope, loops: [...ctx.scope.loops, loop] };
         if (list.ok) each = { item: m[1]!, list: this.fn(list.code), ...(list.resource ? { of: list.resource } : {}) };
         this.features.add('each');
         if (!info.key) this.report(el, 'each', 'SN401', 'an `each` resource is a collection: it needs `key`, with a field that tells the sources apart', 0);

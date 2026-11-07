@@ -7,6 +7,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 ## Attributes
 
 - `data-sn-state` (object literal): declares local reactive state for the element and its subtree
+- `data-sn-let` (object literal {name: expression}): derived names for the element and its subtree, computed where they are read; later names may use earlier ones
 - `data-sn-text` (value expression): sets textContent; never HTML
 - `data-sn-attr` (object literal {href: …}): literal keys; null/false removes, true sets empty; URL values are checked
 - `data-sn-class` (object literal {unread: …}): toggles each class
@@ -18,6 +19,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-key` (value expression): row identity; defaults to the resource key or object identity
 - `data-sn-if` (value expression): renders a <template> while truthy
 - `data-sn-else`: on a <template> directly after an if template
+- `data-sn-listbox` (id of the suggestion list, or empty): on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox] around the input), Enter or Tab clicks it, Escape fires `dismiss`
 - `data-sn-persist` (storage key): persists the model or state in localStorage under sn:
 - `data-sn-get` (URL template): GET action; latest wins
 - `data-sn-post` (URL template): POST action
@@ -31,7 +33,9 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-concurrency` (block | queue | latest): mutations only; default block for forms, queue otherwise
 - `data-sn-optimistic` (handler expression): patch/upsert/remove calls applied before the request, rolled back on failure
 - `data-sn-then` (handler expression): runs after a 2xx response; $result = parsed body
-- `data-sn-catch` (handler expression): runs after an error; $error = {status, body, message}
+- `data-sn-catch` (handler expression): runs after an error; $error = {status, body, message, detail}
+- `data-sn-confirm` (value expression): asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy
+- `data-sn-encoding` (json | form): form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded
 - `data-sn-path` (URL patterns /a/:b …): on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url
 - `data-sn-data` (resource name): on <script type="application/json"> in <head>: initial data for a resource
 - `data-sn-on-<event>` (handler expression): plain event handler, no request; e.g. data-sn-on-click
@@ -64,7 +68,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 
 ## Diagnostics
 
-`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN305 include-not-found`, `SN306 include-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`.
+`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN209 name-conflict`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN305 include-not-found`, `SN306 include-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`.
 
 ## Recipes
 

@@ -8,7 +8,7 @@ export const TIMEOUT = 30_000;
 
 export interface SendInit {
   method?: string;
-  /** JSON-serialized unless FormData */
+  /** JSON-serialized unless FormData or URLSearchParams (sent form-encoded) */
   body?: unknown;
   headers?: Record<string, string>;
   signal?: AbortSignal | undefined;
@@ -62,7 +62,10 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     const method = (init.method ?? 'GET').toUpperCase(), headers = new Headers(init.headers);
     let body = init.body as BodyInit | undefined;
     if (body == null || method == 'GET') body = undefined;
-    else if (!(body instanceof FormData)) {
+    else if (body instanceof URLSearchParams) {
+      body = body.toString();
+      headers.set('Content-Type', 'application/x-www-form-urlencoded;charset=UTF-8');
+    } else if (!(body instanceof FormData)) {
       body = JSON.stringify(body);
       headers.set('Content-Type', 'application/json');
     }
@@ -87,7 +90,8 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     const res = await raw(url, init), body = await parseBody(res);
     if (!res.ok) {
       const b = body as any, m = typeof body == 'string' ? body.length < 200 && body.trim() : b?.message ?? b?.error;
-      throw new SinterError(res.status, body, typeof m == 'string' && m ? m : `${res.status} ${res.statusText}`.trim());
+      const detail = typeof m == 'string' && m ? m : null;
+      throw new SinterError(res.status, body, detail ?? `${res.status} ${res.statusText}`.trim(), detail);
     }
     return body;
   }

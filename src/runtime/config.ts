@@ -14,11 +14,14 @@ export interface Config {
   origins: string[];
   /** the transport for a `<sn-sync>` stream URL; `undefined` (or no function) means EventSource */
   transport: ((url: string) => Transport | undefined) | null;
+  /** `data-sn-confirm`: asks the question; the action runs on true (window.confirm by default) */
+  confirm: (question: string) => boolean | Promise<boolean>;
   env: Env;
 }
 
 export const config: Config = {
-  request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], transport: null, env: defaultEnv,
+  request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], transport: null,
+  confirm: (question) => globalThis.confirm(question), env: defaultEnv,
 };
 
 export function configure(options: Partial<Omit<Config, 'env'>> & { env?: Partial<Env> }): void {
@@ -29,7 +32,11 @@ export function configure(options: Partial<Omit<Config, 'env'>> & { env?: Partia
 
 /** `$error`: a non-2xx response, a network error (status 0), a refused request, or a failed action call (status null). */
 export class SinterError extends Error {
-  constructor(readonly status: number | null, readonly body: unknown, message: string) {
+  /**
+   * @param detail what went wrong in words: the server's message or text, or a thrown error's
+   *   message; null when there is none (`message` then falls back to the HTTP status)
+   */
+  constructor(readonly status: number | null, readonly body: unknown, message: string, readonly detail: string | null = null) {
     super(message);
     this.name = 'SinterError';
   }

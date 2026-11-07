@@ -165,6 +165,9 @@ export function shadow(o: ShadowOptions): Shadow {
         line('let {');
         f.names.forEach((n, k) => { at(f.locs?.[k]); line(`${n},`); });
         line(`} = ${f.init === null ? '$any' : `$e${f.init}()`};`);
+      } else if (f.kind === 'let') {
+        at(f.loc);
+        line(`const ${f.name} = ${f.init === null ? '$any' : `$e${f.init}()`};`);
       } else {
         at(f.loc);
         line(`const ${f.item} = ${f.init === null ? '$any' : `$item($e${f.init}())`};`);
@@ -251,7 +254,7 @@ export interface Meta {
   hasPrev?: boolean;
   hasNext?: boolean;
 }
-export interface Err { status: number | null; body: any; message: string }
+export interface Err { status: number | null; body: any; message: string; detail: string | null }
 export interface CallContext { signal: AbortSignal; request(url: string, init?: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal }): Promise<any>; el: Element | null }
 /** an action's parameters without its trailing context */
 export type CallArgs<F> = F extends (...a: infer P) => any ? (P extends [...infer A, infer L] ? ([L] extends [CallContext] ? A : P) : P) : never;

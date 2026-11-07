@@ -146,6 +146,10 @@ export interface ActionDef {
   w: string[];
   /** element is a form (serialize, disable in block mode) */
   form: boolean;
+  /** `data-sn-confirm`: the question asked before the action runs (none when it is falsy) */
+  confirm?: number;
+  /** `data-sn-encoding="form"`: the body goes as application/x-www-form-urlencoded */
+  enc?: 'form';
 }
 
 export interface IR {
