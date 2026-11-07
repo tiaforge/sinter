@@ -189,3 +189,18 @@ test('a guard on loadedAt does not act on cached data', async () => {
   await r.settle();
   expect(r.root.querySelector('b')!.hidden).toBe(true);
 });
+
+test('a resource turned off by `when` does not replace its cache entry with nothing', async () => {
+  const session = memoryStorage();
+  const html = `<div data-sn-state="{ on: true }">
+    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" when="on" cache></sn-resource>
+    <button data-sn-on-click="on = false">off</button>
+    <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul></div>`;
+  const first = await visit(session, html);
+  first.root.querySelector('button')!.click();
+  await first.flush();
+  expect(names(first.root)).toEqual([]);
+  await first.window('pagehide');
+  const second = await render(html, { session, requests: mockRequests({ 'GET /api/contacts': { contacts: [] } }) });
+  expect(names(second.root)).toEqual(['Ada', 'Grace']);
+});

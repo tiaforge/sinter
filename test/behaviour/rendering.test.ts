@@ -601,3 +601,30 @@ test('bindings after a partial inside a template keep their node paths', async (
   expect(root.querySelector('i')!.textContent).toBe('after!');
   expect(root.querySelector('b')!.textContent).toBe('after');
 });
+
+test('an island\'s update() reaches row bindings and nested lists', async () => {
+  const { root, flush, app } = await render(`
+    <div data-sn-state="{ items: [{id: 1, t: 'a'}], rows: [{cols: ['x']}], n: 0 }">
+      <template data-sn-for="it in items" data-sn-key="it.id"><li data-sn-text="it.t"></li></template>
+      <template data-sn-for="r in rows"><p><template data-sn-for="c in r.cols" data-sn-key="c"><span data-sn-text="c"></span></template></p></template>
+      <output data-sn-text="n"></output>
+    </div>`);
+  app.state(root.querySelector('div')!).update((s) => { s.items[0].t = 'b'; s.rows[0].cols.push('y'); s.n = 1; });
+  await flush();
+  expect(root.querySelector('li')!.textContent).toBe('b');
+  expect([...root.querySelectorAll('span')].map((s) => s.textContent)).toEqual(['x', 'y']);
+  expect(root.querySelector('output')!.textContent).toBe('1');
+});
+
+test('a locale change re-sorts an ordered resource', async () => {
+  const requests = mockRequests({ 'GET /api/c': [{ id: 1, n: 'z' }, { id: 2, n: 'ä' }, { id: 3, n: 'a' }] });
+  const { root, settle, flush } = await render(`
+    <sn-resource name="cs" src="/api/c" key="id" order="n"></sn-resource>
+    <ul><template data-sn-for="c in cs"><li data-sn-text="c.n"></li></template></ul>
+    <button data-sn-on-click="$locale = 'sv'">sv</button>`, { requests, locale: 'en' });
+  await settle();
+  expect([...root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['a', 'ä', 'z']);
+  root.querySelector('button')!.click();
+  await flush();
+  expect([...root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['a', 'z', 'ä']);
+});

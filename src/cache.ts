@@ -12,7 +12,7 @@ import type { Resource } from './runtime/store.js';
 /** entries larger than this (serialized) are not written */
 export const MAX_ENTRY = 256 * 1024;
 
-interface Tracked { def: ResourceDef; r: Resource; url: string; dirty: boolean; appended: boolean }
+interface Tracked { def: ResourceDef; r: Resource; url: string; dirty: boolean; appended: boolean; off: boolean }
 
 const cache: Feature = {
   name: 'cache',
@@ -62,22 +62,28 @@ const cache: Feature = {
       loaded(def, r, url, items, total, appended) {
         let t = tracked.get(def.name);
         if (!t) {
-          const entry: Tracked = (t = { def, r, url, dirty: false, appended });
+          const entry: Tracked = (t = { def, r, url, dirty: false, appended, off: false });
           // confirmed changes after the load (server events, action results); layers never fire this
           r.subscribe(() => { entry.dirty = true; });
           tracked.set(def.name, t);
         }
         t.url = url;
         t.appended = appended;
+        t.off = false;
         // `append` caches only its first page: later pages would be shown as if they were it
         if (!appended) write(def, url, items, total);
         t.dirty = false;
+      },
+      // the emptied resource must not replace the entry of its last URL
+      cleared(def) {
+        const t = tracked.get(def.name);
+        if (t) t.off = true;
       },
     };
 
     app.addCleanup(app.env.listen('pagehide', () => {
       for (const t of tracked.values()) {
-        if (!t.dirty || t.appended || t.def.paginate?.mode == 'append') continue;
+        if (!t.dirty || t.off || t.appended || t.def.paginate?.mode == 'append') continue;
         const b = t.r.base();
         write(t.def, t.url, b.items, b.total);
         t.dirty = false;

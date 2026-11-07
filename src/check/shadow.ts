@@ -133,7 +133,7 @@ export function shadow(o: ShadowOptions): Shadow {
   line('/** @type {string} */');
   line('let $locale = $any;');
   line(`/** @type {${decl('Store')}<{ ${types.join('; ')} }>} */`);
-  line(`const { ${STORE_FNS.join(', ')} } = $any;`);
+  line(`const { ${STORE_FNS.filter((f) => !unit.resources.some((r) => r.name === f)).join(', ')} } = $any;`);
   line(`/** @template T @param {T} list @returns {${decl('Item')}<T>} */`);
   line('function $item(list) { return $any; }');
 

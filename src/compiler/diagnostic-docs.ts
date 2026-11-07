@@ -74,8 +74,8 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN209: {
     example: '`s` is already defined here by `data-sn-let`; use another name',
-    means: 'A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it.',
-    fix: 'Rename the let, or the state or loop variable.',
+    means: 'A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it. A resource cannot take the name of a store function (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close`, `reset`, `emit`).',
+    fix: 'Rename the let, the state or loop variable, or the resource.',
   },
   SN301: {
     example: 'resource `mesages` is not declared on this page',

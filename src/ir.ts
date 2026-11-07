@@ -189,7 +189,8 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     if (!/^[A-Za-z_]\w*$/.test(r.name)) errs.push(`${at}: bad name`);
     if (names.has(r.name)) errs.push(`${at}: duplicate name ${r.name}`);
     names.add(r.name);
-    url(r.src, `${at}.src`);
+    if (r.call) { fn(r.call.args, `${at}.call.args`, false); fn(r.call.run, `${at}.call.run`, false); if (r.src.length) errs.push(`${at}: a call resource has no src`); }
+    else url(r.src, `${at}.src`);
     fn(r.when, `${at}.when`);
     if (r.paginate) {
       if (!['keyset', 'offset', 'append'].includes(r.paginate.mode)) errs.push(`${at}: bad paginate mode`);
@@ -235,9 +236,13 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
   });
   o.actions.forEach((a, i) => {
     const at = `actions[${i}]`;
-    if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(a.method)) errs.push(`${at}: bad method`);
+    if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'CALL'].includes(a.method)) errs.push(`${at}: bad method`);
     if (!['block', 'queue', 'latest'].includes(a.concurrency)) errs.push(`${at}: bad concurrency`);
-    url(a.url, `${at}.url`);
+    if (a.method === 'CALL') {
+      if (!a.call) errs.push(`${at}: CALL needs call`);
+      else { fn(a.call.args, `${at}.call.args`, false); fn(a.call.run, `${at}.call.run`, false); }
+      if (a.url.length) errs.push(`${at}: a call action has no url`);
+    } else url(a.url, `${at}.url`);
     for (const k of ['body', 'optimistic', 'then', 'catch'] as const) fn(a[k], `${at}.${k}`);
   });
   return errs;

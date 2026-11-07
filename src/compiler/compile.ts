@@ -4,7 +4,7 @@ import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
-import { analyze, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, STORE_FNS, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
 import { ATTRIBUTES, ELEMENTS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { matchOperation, matchResource, queryNames, walk, type OpenApiSpec } from './openapi.js';
@@ -382,6 +382,10 @@ class Compiler {
         }
         if (this.page.resources.has(name)) {
           this.report(child, 'name', 'SN302', `resource \`${name}\` is declared twice`, 0);
+          continue;
+        }
+        if (STORE_FNS.includes(name)) {
+          this.report(child, 'name', 'SN209', `\`${name}\` is a store function (\`${name}()\`); a resource cannot take its name`, 0);
           continue;
         }
         const key = attr(child, 'key');

@@ -3,6 +3,23 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Fixed
+
+- `app.state(el).update()` now reaches bindings inside `data-sn-for` rows: an island that changes a
+  row's field or a nested list in place re-renders those rows. Before, only bindings outside the
+  rows updated.
+- Assigning `$locale` re-sorts resources with `order` by the new locale's collation. The store's
+  cached view was never dropped for a locale change.
+- A resource whose `when` turned false no longer overwrites its page-load cache entry with an
+  empty list on pagehide.
+- The 64 KiB `keepalive` limit is measured in UTF-8 bytes. A mutation body of 22,000 to 60,000
+  non-ASCII characters was sent with `keepalive` and refused by the browser.
+- A resource cannot take a store function's name (`remove`, `patch`, …): new `SN209` case. Such a
+  page compiled, but `sinter check` failed with an internal error on it.
+- `validateIR` accepts pages with `data-sn-call` and `<sn-resource call>`.
+
 ## 0.3.0 (2026-11-07)
 
 ### New

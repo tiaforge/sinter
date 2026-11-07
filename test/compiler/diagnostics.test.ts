@@ -41,6 +41,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN206', '<p data-sn-text="m.inbox_titel()"></p>', /`m.inbox_titel` is not exported by namespace `m`. Did you mean `inbox_title`\?/],
   ['SN207', '<a data-sn-attr="{onclick: 1}"></a>', /`onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click`/],
   ['SN209', '<div data-sn-state="{ s: 1 }" data-sn-let="{ s: 2 }"><p data-sn-text="s"></p></div>', /`s` is already defined here; use another name/],
+  ['SN209', '<sn-resource name="remove" src="/api/r" key="id"></sn-resource><p data-sn-text="1"></p>', /`remove` is a store function \(`remove\(\)`\); a resource cannot take its name/],
   ['SN301', `${R}${use}<button data-sn-on-click="refresh('mesages')"></button>`, /resource `mesages` is not declared on this page/],
   ['SN302', `${R}${use}<sn-resource name="contacts" src="/x" key="id"></sn-resource>`, /resource `contacts` is declared twice/],
   ['SN303', `${R}${use}<p data-sn-text="$meta.contacts.loadng"></p>`, /`\$meta.contacts.loadng` is not a status field. Did you mean `loading`\?/],

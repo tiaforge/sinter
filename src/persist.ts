@@ -39,7 +39,10 @@ const persist: Feature = {
 
 function overlaps(a: string[], b: string[]): boolean {
   const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) if (a[i] !== b[i] && a[i] !== '*' && b[i] !== '*') return false;
+  for (let i = 0; i < n; i++) {
+    if (b[i] === '**') return true;
+    if (a[i] !== b[i] && a[i] !== '*' && b[i] !== '*') return false;
+  }
   return true;
 }
 

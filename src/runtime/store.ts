@@ -205,7 +205,8 @@ export function createResource<T extends object = any>(name: string, o: Resource
   };
 
   function visible() {
-    if (view) return view;
+    // a locale change re-sorts strings: a view sorted for another locale is stale
+    if (view && !(coll && field && o.locale?.() !== sortedFor)) return view;
     if (!coll) return (view = { l: [], get: () => undefined, s: over ? over.s : single });
     let l: readonly T[] = baseList(), get = (k: string) => base.get(k);
     if (over) {

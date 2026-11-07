@@ -114,6 +114,8 @@ export interface App {
       read(def: ResourceDef, url: string): { t: number; items: unknown; total: number | null } | null;
       /** a load (or embedded data) stored `items`: cache them, and the resource's later changes */
       loaded(def: ResourceDef, r: Resource, url: string, items: unknown, total: number | null, appended: boolean): void;
+      /** the resource was emptied (`when` is false): nothing to write until the next load */
+      cleared(def: ResourceDef): void;
     };
   };
   readonly beforeFlush: Array<(dirty: string[][]) => void>;
@@ -292,16 +294,18 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * absent) and dirty path `d` are prefixes of each other; `*` matches any segment. A change
    * that ends above a row's own element, or only changes the list structure (`#`), does not
    * reach it: reconcile re-evaluates rows whose item or index changed. `~` reaches only rows
-   * whose element was marked.
+   * whose element was marked. A path ending in `**` (an island's `update()`) reaches everything
+   * under its prefix, at any depth.
    */
   const overlaps = (dep: Dep, d: string[], s?: any) => reach(dep, d, s) > 0;
 
   /** 0: no overlap; 1: only through a marked element (`~`) of the row; 2: overlap. */
   function reach({ p, n, a, t }: Dep, d: string[], s?: any): number {
-    if (a >= 0 && d.length <= a) return 0;
+    if (a >= 0 && d.length <= a && d[d.length - 1] != '**') return 0;
     let via = 2;
     for (let i = 0, len = Math.min(p.length, d.length); i < len; i++) {
       const y = d[i]!;
+      if (y == '**') return 2;
       // a list's structure dependency: reached by changes to the list itself or a whole element, not element fields
       if (p[i] == '#') return d.length <= i + 1 ? 2 : 0;
       if (y == '#' || y == '~') {
@@ -342,7 +346,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
       $r: {}, $meta: {}, $url: readUrl(), $now: new Date(env.now()),
       $m: (el: unknown, v: unknown) => (marked.add(el), v),
       get $locale() { return config.locale?.get(); },
-      set $locale(v: any) { config.locale?.set(v); app.mark('$locale'); },
+      set $locale(v: any) {
+        config.locale?.set(v);
+        app.mark('$locale');
+        // ordered lists sort strings by locale
+        for (const def of ir.resources) if (def.order) app.mark('$r.' + def.name);
+      },
     },
     resource: res as App['resource'],
     request: (url, init) => req.send(url, init),
@@ -359,7 +368,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     state(el) {
       for (let e: Element | null = el; e; e = e.parentElement) {
         const s = (e as Tagged)[STATE];
-        if (s) return { get: () => s[1], update: (fn) => { fn(s[1]); app.mark('$s' + s[0]); } };
+        // `**`: the island may have changed anything under the state, rows included
+        if (s) return { get: () => s[1], update: (fn) => { fn(s[1]); app.mark('$s' + s[0] + '.**'); } };
       }
       throw Error('sinter: no data-sn-state scope');
     },
@@ -1082,6 +1092,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (u != null) return void l.load();
         c?.abort();
         r.replace(r.isCollection ? [] : null);
+        if (def.cache != null) app.ext.cache?.cleared(def);
         loading(false);
       },
       /** Repeats the current request; several calls in one task share one request. */

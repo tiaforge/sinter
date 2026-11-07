@@ -238,6 +238,15 @@ describe('call diagnostics', () => {
     expect(out.module).toContain(`import { decrypt as $a$pgp$decrypt } from "/src/pgp.js";`);
     expect(out.module).not.toContain('archive');
   });
+  test('the IR of a page with calls validates', async () => {
+    const { compileParts } = await import('../../src/compiler/index.js');
+    const { validateIR } = await import('../../src/ir.js');
+    const parts = compileParts('<sn-resource name="r" call="archive(1)" key="id"></sn-resource><div data-sn-state="{ m: 1 }"><button data-sn-call="pgp.decrypt(m)"></button><p data-sn-text="r.length"></p></div>', {
+      file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} }, actions,
+    });
+    expect(parts.diagnostics).toEqual([]);
+    expect(validateIR(parts.ir, parts.fns.length)).toEqual([]);
+  });
   test('unknown actions, with a suggestion', () => {
     expect(diags('<button data-sn-call="pgp.decrpyt(1)"></button>')).toEqual(['SN310 `pgp.decrpyt` is not exported by the actions module. Did you mean `pgp.decrypt`?']);
     expect(diags('<button data-sn-call="archiv(1)"></button>')).toEqual(['SN310 `archiv` is not exported by the actions module. Did you mean `archive`?']);

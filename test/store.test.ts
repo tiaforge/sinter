@@ -67,3 +67,14 @@ test('a page that shows only the total updates when it loads', async () => {
   await settle();
   expect(root.querySelector('p')!.textContent).toBe('42');
 });
+
+test('a locale change re-sorts strings, and later writes patch the new order', () => {
+  let locale = 'en';
+  const r = createResource<{ id: number; n: string }>('c', { key: ['id'], order: 'n', locale: () => locale });
+  r.replace([{ id: 1, n: 'z' }, { id: 2, n: 'ä' }, { id: 3, n: 'a' }]);
+  expect(r.all().map((x) => x.id)).toEqual([3, 2, 1]);
+  locale = 'sv';
+  expect(r.all().map((x) => x.id)).toEqual([3, 1, 2]);
+  r.upsert({ id: 4, n: 'b' });
+  expect(r.all().map((x) => x.id)).toEqual([3, 4, 1, 2]);
+});

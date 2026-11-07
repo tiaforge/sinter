@@ -71,8 +71,8 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     }
     headers.has('Accept') || headers.set('Accept', 'application/json');
     // mutations outlive the page: a navigation right after a click must not cancel the write
-    // (keepalive bodies are limited to 64 KB; larger ones and uploads go without it)
-    const keepalive = method != 'GET' && method != 'HEAD' && (body == null || (typeof body == 'string' && body.length < 60_000));
+    // (keepalive bodies are limited to 64 KiB; larger ones and uploads go without it)
+    const keepalive = method != 'GET' && method != 'HEAD' && (body == null || (typeof body == 'string' && bytes(body) < 60_000));
     inflight++;
     try {
       const res = await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null, keepalive }));
@@ -98,6 +98,9 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
 
   return { send, raw, get inflight() { return inflight; } };
 }
+
+/** UTF-8 size of a string; a short one cannot reach the limit (at most 3 bytes per UTF-16 unit). */
+const bytes = (s: string) => (s.length < 20_000 ? s.length : new TextEncoder().encode(s).length);
 
 /** 204 or empty → null; JSON content type → parsed; anything else → text. */
 export async function parseBody(res: Response): Promise<unknown> {
