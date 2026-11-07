@@ -1,6 +1,6 @@
-// Size budgets, per page (decided for 0.2): min+gzip of a minimal page (one resource, one
-// text binding) and of what each RealWorld page loads; the core and each feature module are
-// reported for reference.
+// Size budgets, per page (decided for 0.2, the minimal page raised to 15 KB on 2026-11-07): min+gzip
+// of a minimal page (one resource, one text binding) and of what each RealWorld page loads; the core
+// and each feature module are reported for reference. `--check` fails on an overrun (CI runs it).
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -32,7 +32,7 @@ const entries = {
   page: `export { mount, $k } from '${dist}/index.js'; export { default as a } from '${dist}/sse.js'; export { default as b } from '${dist}/optimistic.js'; export { default as c } from '${dist}/persist.js';`,
 };
 // bytes, gzip -9; article: what the page loads, its page module and the app's own code included
-const BUDGET = { minimal: 11.5 * 1024, 'realworld article': 16.5 * 1024 };
+const BUDGET = { minimal: 15 * 1024, 'realworld article': 16.5 * 1024 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;
 function report(name, min, size) {

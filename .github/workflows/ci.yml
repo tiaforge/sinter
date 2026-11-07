@@ -22,3 +22,6 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+      # size budgets: the minimal page and the RealWorld example's pages (its own dependencies first)
+      - run: npm ci --prefix examples/realworld
+      - run: npm run size -- --check

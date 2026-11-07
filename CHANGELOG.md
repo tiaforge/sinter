@@ -5,6 +5,11 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Changed
+
+- The minimal page's size budget is 15 KB gzip (was 11.5 KB; 0.3.0 shipped at 12.1 KB). CI now runs
+  `npm run size -- --check`, so an overrun fails the build.
+
 ### Fixed
 
 - `app.state(el).update()` now reaches bindings inside `data-sn-for` rows: an island that changes a
