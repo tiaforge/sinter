@@ -147,7 +147,7 @@ Then write `data-sn-*` attributes in your HTML pages. Optional:
 ## Development
 
 ```sh
-npm test          # vitest (happy-dom)
+npm test          # vitest (happy-dom); CI runs typecheck, build and tests on every push (Node 22/24/26)
 npm run typecheck
 npm run build     # dist/
 npm run size      # size per page and module, with budgets
