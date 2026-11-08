@@ -630,6 +630,40 @@ An action is an element with one method attribute; it sends a request when its t
 State assignments work too: `data-sn-then="editing = null; close()"`.
 The dialog id of `showModal()` and `close()` is a string literal that must name a `<dialog id>` on the page or its partials (`SN309`), so a typo fails the build. A button that only opens a dialog needs no handler: `commandfor="edit" command="show-modal"` is the platform's. `showModal()` is for opening after a request or call (`data-sn-then`), from a custom event, or after setting state in the same handler. Bindings inside the dialog render when it opens.
 
+### Proposal: resource names chosen by an expression (under review)
+Status: proposal, 2026-11-08, for Caley's mail page; not implemented. Decisions are listed under Open questions.
+
+`refresh()`, `upsert()`, `patch()`, `remove()` and `page()` take the resource name as a string literal (`SN301`), and that literal is what lets the compiler check the call: the name exists, the resource is paginated (`SN303`), the target fits its mode (`SN304`), it counts as used (`SN501`), and it is an edge for `SN509`. Caley's mail list shows either `messages` or `results`, so "page the list shown" needs a handler per resource or a branch:
+```html
+<!-- today: two guarded statements, or one `?:` over two guarded steps, which is SN507 -->
+data-sn-on-list-next="searching && $meta.results.hasNext && page('results', 'next'); !searching && $meta.messages.hasNext && page('messages', 'next')"
+```
+Wanted: `page(shown, 'next')` with `shown` naming the resource, checked like a literal.
+
+**Option A: a closed set of literal names (recommended).** The name argument may be any expression whose possible values the compiler can list from the source: a string literal; `c ? x : y` where `x` and `y` are such expressions; `x || y` and `x ?? y` where both are; parentheses; and a `data-sn-let` name whose value is such an expression (lets are inlined, so the compiler has their expression). The test of a `?:` is any value expression.
+```html
+<div data-sn-let="{ shown: searching ? 'results' : 'messages', list: searching ? results : messages }"
+     data-sn-on-list-next="page(shown, 'next')"
+     data-sn-on-mail-saved="refresh(shown, 'unread')">
+```
+- **Compile time.** Every candidate gets the checks a literal gets: `SN301` (did-you-mean on that literal, and the LSP quick fix), `SN303` and `SN304` per candidate for `page()` (a literal page number on a `?:` that may name a keyset resource without `offset-param` is `SN304`), `SN501` counts each candidate as used, `SN509` adds an edge per candidate. An expression the compiler cannot list (a state variable, a helper's result, `$event.detail`) stays `SN301`, with a new message: "takes a resource name: a string literal, or a `?:` between them".
+- **`sinter check`.** The shadow already types the name as `K extends keyof R & string`, so `searching ? 'results' : 'messages'` infers `'results' | 'messages'`, and a let is a `const` whose type is that union. Two typing changes: `page()`'s target must suit *every* candidate (today `[K] extends [D]` allows a page number when only some are keyset resources without `offset-param`; it becomes `[Extract<K, D>] extends [never] ? Direction | number : Direction | NoPageNumber`), and `upsert`/`patch`/`remove` accept an item of any candidate's type (`Item<R[K]>` over a union; requiring it to fit all of them needs an intersection type that gives poor messages, and both lists in the cases seen hold the same type).
+- **Runtime.** Unchanged: the store functions already look the name up when they run (`res(name)`). The compiler guarantees every value is a declared resource, so an unknown name cannot happen in a compiled page. If it did (a hand-written IR), it stays what it is today: the store function throws, the rest of the handler is skipped, the error is logged.
+- **`$meta`.** `$meta[shown].hasNext` already compiles, but unchecked: today a computed `$meta[…]` passes even with a typo in the resource or the field (`$meta[s ? 'reslts' : 'messages'].hasNxt` gives no diagnostic) and depends on all of `$meta`. With A, a listable key gets `SN301` and `SN303` per candidate and depends only on `$meta.<candidate>`; any other computed key keeps today's behaviour (accepted, unchecked), so nothing breaks.
+- Pros: one rule for the five store functions and `$meta`; every name still checked by the build, without `sinter check`; no runtime cost; covers the Caley case and any "one of N lists" choice. Cons: the choice is written twice when the page also needs the data (`shown` and `list` above); a name kept in state (`tab: 'inbox'`) must be turned into a `?:` or a let.
+- Size: compiler only; runtime 0 B.
+- Breaking: none. Only `SN301`'s message for non-literal names changes.
+
+**Option B: any expression, checked by `sinter check` only.** The compiler accepts any name expression on the five store functions; `sinter check` types it as `keyof R`, so `page(which, 'next')` with `which: 'messages'` in state fails the check (`string` is not a resource name) until the state is typed (`/** @type {'messages' | 'results'} */ ('messages')`). Unknown names at run time would take a defined path: no store change, the unhandled-error path with the element (there is no `$meta` for a name that is not a resource), a dev warning, and the handler continues.
+- Pros: names may come from state, helpers and events. Cons: without `typecheck` a typo reaches the browser; `SN303`/`SN304`/`SN501`/`SN509` cannot see through the expression; about +40 B gzip for the error path. No case needs it yet.
+
+**Option C: resources as values.** The name argument may be a resource identifier, or a let or `?:` that yields one: `list: searching ? results : messages`, then `page(list, 'next')`. The compiler rewrites each resource identifier in that position to its name.
+- Pros: Caley's existing `list` let works for data and paging; no strings; go-to-definition and rename follow identifiers. Cons: the same identifier means the data everywhere else and the handle here, so `page(list.slice(1))` or a helper returning `list` cannot work, and `$meta[list]` would need the same rewrite in a value expression; two spellings for every store call (`refresh(messages)`, `refresh('messages')`); `sinter check` cannot type it from the shadow's verbatim expression (both lists are `Message[]`, so a type cannot tell which resource), so the shadow would need rewritten expressions and lose its 1:1 position mapping. A runtime mapping from data to resource is not an option: optimistic layers make new arrays, and a single-object resource may be `null`.
+
+**Option D: a store function over an alias declaration** (`<sn-alias name="list" of="searching ? 'results' : 'messages'">`): what A gives with a plain `data-sn-let`, plus a new element. Not proposed.
+
+Recommendation: A. It keeps the property that makes literals valuable (the build checks every name), needs no runtime code, and covers `$meta` with the same rule. B can follow later, if a name from state or a helper turns up; C is a second meaning for resource names.
+
 ### Unhandled errors
 When an action fails and has no `data-sn-catch`:
 - An `sn-error` `CustomEvent` bubbles from the element, `detail = {error, element}`. A listener on a container (`data-sn-on-sn-error`) handles it by calling `$event.preventDefault()`.
@@ -845,6 +879,35 @@ For keyset, `hasNext` is true when the page came back full; `hasPrev` is false a
 - `append` mode keeps all loaded items; `refetch` reloads them as one request with `size = loaded count`.
 - Server events on paginated resources follow the rule in Sync: unknown keys trigger a refetch of the current page.
 
+### Proposal: paging in a computed direction (under review)
+Status: proposal, 2026-11-08, for Caley's mail page; not implemented. Decisions are listed under Open questions.
+
+`page()` takes a computed direction (0.6.0), but its guard does not: `$meta` has `hasNext` and `hasPrev`, not "can page in `dir`". Caley's `j`/`k` at the end of a page emit `list-next` or `list-prev` so that two handlers can pick the field:
+```html
+data-sn-on-list-step="…; !hit && emit($event.detail > 0 ? 'list-next' : 'list-prev')"
+data-sn-on-list-next="searching && $meta.results.hasNext && page('results', 'next'); !searching && …"
+data-sn-on-list-prev="searching && $meta.results.hasPrev && page('results', 'prev'); !searching && …"
+```
+With the resource-name proposal (above, Actions) and one of the options below, both go into the step handler: `!hit && page(shown, $event.detail > 0 ? 'next' : 'prev')`.
+
+What each mode does today when the move is impossible: offset `prev` on page 1 and `next` on the last known page send nothing; keyset and append always send the request (`next` after a short page loads an empty page, which sets `hasPrev`).
+
+**Option E: `page()` skips moves that have nowhere to go (recommended).** `prev` does nothing while `hasPrev` is false, `next` while `hasNext` is false, in every mode. `first` and `last` always load (they send no cursor, so they also serve as "reload from the top"), and page numbers keep their clamping. The guard moves into `page()`, so a handler never reads `$meta` to page: `page(shown, dir)`.
+- Pros: no new `$meta` field and no new name; one rule for all modes, which offset mode already follows half-way; `append` with infinite scroll stops sending empty requests at the end. Buttons keep their `disabled: !$meta.x.hasNext`, a binding with a fixed direction.
+- Cons: a page that relied on `next` past a short keyset page to look for items added since (a live list) no longer gets that request; `refresh()` or a server event's `refetch` covers it, since a refetch repeats the current page and recomputes `hasNext`. Before the first load both flags are false, so `page()` does nothing then (today it sends a `next` without a cursor).
+- Breaking: behaviour change for keyset and append `next`/`prev` where the flag is false. Survey (`page()` instrumented, the suite run, the file restored): of 25 `page()` calls in sinter's tests, recipes included, 3 are impossible moves: offset `prev` and `next` on page 1 of 1, already no-ops, and keyset `next` after an empty first page in "an empty next page shows no positions…" (`paginate.test.ts`), which would send nothing and keep `hasPrev` false; that test changes. RealWorld uses no `page()`. Caley guards every call (`$meta.x.hasNext && page(…)`) or disables the button, so it sees no change.
+- Size: the paginate module, about +20 B gzip; the core is unchanged.
+
+**Option F: `$meta.<name>.can(dir)`.** A method on the status object: `can('next')` is `hasNext`, `can('prev')` is `hasPrev`, `can(n)` is true where the resource can jump and `n` is within `pages`. Pros: also answers for page numbers; reads naturally in a binding. Cons: the first function in `$meta`, whose fields are data (`SN303` lists a fixed field set; `can` would be one more name, with call syntax); the handler still has to guard, one step more for `SN507`. About +40 B gzip in the paginate module; `Meta` in `sinter.d.ts` gains `can(to: Direction | number): boolean`.
+
+**Option G: `$meta.<name>.has[dir]`.** A plain object `{first, prev, next, last}` updated with the flags (`has.first` is `hasPrev`, `has.last` is `hasNext`), read with the existing guarded computed access: `$meta[shown].has[dir] && page(shown, dir)`. Pros: data, not a function; `SN303` grows by one field; `has[dir]` depends on `$meta.<name>` like any field. Cons: two names for one fact (`has.next` and `hasNext`); page numbers not covered; the handler still guards. About +30 B gzip in the paginate module.
+
+**Option H: a `canPage(name, dir)` store function or built-in helper.** Store functions run only in handlers (`SN203` in value expressions), and helpers are pure functions of their arguments; this would be the first value-side function that reads the store, with its own dependency rule (`$meta.<name>`). Not proposed.
+
+**Option I: nothing new.** With the resource-name proposal, `(dir === 'next' ? $meta[shown].hasNext : $meta[shown].hasPrev) && page(shown, dir)`, or an app helper `canGo($meta[shown], dir)` (pure: it reads the object it is given), works without sinter changes. Pros: 0 B. Cons: every page that merges directions writes the same ternary or helper; the handler still guards.
+
+Recommendation: E. It removes the guard instead of giving it a new spelling, follows what offset mode does already, and keeps `$meta` as it is. If a binding ever needs the flag for a computed direction, G is the smallest addition.
+
 ## Rendering and scheduler
 sinter updates the DOM fine-grained, without a virtual DOM: every binding knows its node, and only bindings whose inputs changed are re-evaluated and written.
 
@@ -902,6 +965,39 @@ Delegation walks from the target up, and the first element that **handles** the 
 - Cost: one property read per ancestor for the event types the page binds; the walk goes past an element only for a key it did not prevent.
 
 Why this rule (decided 2026-11-08, from Caley's calendar, whose week-grid arrow handler hid the page's N and P): nearest-wins is what clickable rows with buttons, actions and forms rely on, so it stays; only plain key handlers changed, and their signal is the DOM's own for a consumed key, which handlers already give for keys they take from their default. Full DOM-like bubbling would have needed a stop at every inner handler, and opt-in attributes would have needed markup in each place.
+
+#### Proposal: custom events as notifications (under review)
+Status: proposal, 2026-11-08, the follow-up the dispatch decision above left open; not implemented. Decisions are listed under Open questions.
+
+A custom event (`emit()`, an island's event, `sn-error`) ends the walk at the nearest element with a handler for it, so one event cannot be handled at two levels: a row that clears its own `saving` flag and a page that shows a toast for the same `saved` need one merged handler on the page, which then reaches into the row's state. Caley merged such handlers (the reader's `mail-patched` and `mail-removed` are handled once, on the page). Clicks need nearest-wins (a button in a row is not a click on the row); a custom event says that something happened, and every level that cares should hear it.
+
+**The model.** A custom event goes to every element from the target up to the mount root that has a handler for it, until a handler calls `$event.preventDefault()`:
+```html
+<main data-sn-state="{ toast: '' }" data-sn-on-saved="toast = m.saved()">
+  <template data-sn-for="r in rows">
+    <li data-sn-state="{ saving: false }" data-sn-on-saved="saving = false">       <!-- runs first, passes it on -->
+      <button data-sn-post="/api/r/{r.id}" data-sn-on-click="saving = true" data-sn-then="emit('saved', $result)">
+```
+- **Which events.** Events that are `CustomEvent`s: `emit()`, `sn-error`, the `listbox` module's `dismiss`, and islands' events (the spec already asks islands for `CustomEvent`s). Native events, and an island's plain `Event`, keep the rule above (nearest element that handled it; keys pass on when not prevented). A custom event that does not bubble (`bubbles: false`) keeps its nearest-ancestor reach: the island said it should not travel.
+- **Order.** Inner to outer, as the event bubbles; on each element its handlers in attribute order, with its action's trigger, as today. Everything runs synchronously inside the dispatch, so an outer handler sees the state the inner one wrote, every handler sees the same `$event.detail`, and statements after `emit()` in the emitting handler run after all of them. Each level has its own scope: `$el` is that element, its own state and lets. One flush renders all their writes.
+- **Saying "final".** `$event.preventDefault()`: the walk stops after the element whose handler prevented it (the other handlers on that element still run, as for keys). `emit()` dispatches a cancelable event (today it does not, so `preventDefault()` there does nothing); `sn-error` already is cancelable, and preventing it already means "handled, no `onError`", so the sentence in Unhandled errors ("a container handles it with `preventDefault()`") becomes literally true: an inner `data-sn-on-sn-error` that only logs lets the page's handler and then `onError` see the error. A handler on a non-cancelable custom event cannot stop it (the DOM ignores `preventDefault()` there): every level runs. Islands whose events may be final at some level dispatch them with `cancelable: true`.
+- **Debounced handlers** (`data-sn-debounce-<event>`) have not run when the walk decides, so they pass the event on; a level that must be final does not debounce, or prevents in a plain handler next to the debounced one.
+- **Actions** triggered by a custom event (`data-sn-trigger="saved"`) pass it on too: an action does not prevent a custom event.
+- **Islands and other listeners.** sinter's walk runs in its capture listener at the root, before the event reaches its target and bubbles to `document`, so app code listening outside sinter (RealWorld's `document.addEventListener('navigate', …)`) still gets every event, and can read `defaultPrevented` to see whether a page handler took it. The cost of using `preventDefault()` as the signal: an island that dispatches a cancelable event and checks `dispatchEvent()`'s result to skip its own default (a `reader-close` the page may veto) sees a page handler that ends the walk as a veto too. The two meanings coincide for every case seen; an island that needs them apart dispatches two events.
+- **`$event.stopPropagation()`** keeps its native meaning, as above: it does not end sinter's walk (which already runs at the root), and it keeps the event from its target and from listeners outside sinter.
+- `run('id')` dispatches no event and is unaffected.
+
+**Opt-in or default.**
+- *Default (recommended).* All custom events behave as above. Breaking only for an element tree with handlers for the same custom event at two levels where the inner one does not prevent it; the fix is `$event.preventDefault()` in the inner handler. Survey (dispatch instrumented to log, for every handled custom event, the ancestors that also handle it; the suite run, recipes included; the file restored): 5 handled custom events (2 `sn-error`, both prevented; `dismiss`; `picked`; `note`), and 1 with a handler further up: `note` in "the nearest element that handles a click or custom event wins…" (`rendering.test.ts`), the test written to pin today's rule, which would expect `row note page note`. RealWorld has no `data-sn-on-*` for its emitted events (its `document` listeners are unaffected). Caley: no custom event is handled at two nested levels on any page (its 22 custom event names, checked per page and partial: the names handled more than once are on sibling elements or on different pages), because it merged them.
+- *Opt-in on the emitter* (`emit('saved', d, { notify: true })`, or a detail flag for islands): the receiver cannot tell how far an event goes without reading the emitter; islands would need a sinter-specific flag. *Opt-in on the receiver* (an attribute such as `data-sn-also-<name>`): custom event names are kebab-case, so a suffix modifier (`-all`) cannot be told from the name; a new attribute family would be needed at every outer level. Both keep nearest-wins as the default for no case that needs it.
+
+**Alternatives for "final".**
+- `$event.stopPropagation()` as the signal: works for non-cancelable events, and it is the DOM's own word for "stop bubbling". But it also hides the event from its target and from `document` listeners (RealWorld's navigation), and for `sn-error` "stop the walk" and "handled" would be two calls.
+- A store function (`stop()`, `handled()`): works for every event without side effects outside sinter, but the dispatch decision chose no sinter-level stop, and it is one more name for what `preventDefault()` already says for keys and `sn-error`.
+
+**Size.** Core about +25 B gzip: the walk goes on after a handled `CustomEvent` unless it is prevented, and `emit()` sets `cancelable`. No compiler change; `sinter check` already types `$event` in these handlers as `CustomEvent`.
+
+Recommendation: default, with `$event.preventDefault()` as "final" and `emit()` cancelable; native events and non-bubbling custom events unchanged. A behaviour change for a minor version (0.7.0), listed in the CHANGELOG with the one-line fix.
 
 ## Security
 sinter never creates HTML from data, and every remaining DOM sink is closed at build time or checked at runtime. The core uses no Trusted Types sinks, so pages can run under `require-trusted-types-for 'script'`.
@@ -1256,8 +1352,10 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 - Optional query parameters. Decided (2026-11-04): a query parameter whose interpolated value is `null`/`undefined` is omitted from the URL, so one resource covers lists whose filters come and go.
 - Templates shared across pages. Decided: static `<sn-include>` resolved at build time, lexical scope, no parameters. See Compiler contract.
 - Handlers at several levels. Decided (2026-11-08): nearest wins unless the element did not handle the event; a plain key handler handles a key only when it prevents it. See Events, Which handlers run.
-- Custom events at several levels. Open: `emit()`, island events and `sn-error` stay nearest-wins. A possible follow-up treats them as notifications that go on to every container with a handler until one calls `$event.preventDefault()` (`emit()` would dispatch a cancelable event; `sn-error` already is one), for pages where a row and the page both handle one event.
+- Custom events at several levels. Under review (2026-11-08): custom events as notifications, see Events, Proposal: custom events as notifications. Open: default or opt-in (recommended: default, a 0.7.0 behaviour change); the signal for "final" (recommended: `$event.preventDefault()`, `emit()` cancelable; not `stopPropagation()`, no `stop()`); which events (recommended: `CustomEvent`s that bubble; native events, plain `Event`s and non-bubbling custom events keep nearest-wins); debounced handlers and actions pass the event on (recommended).
 - Running an action from a handler. Decided (2026-11-08): `run('id')` starts the action of the element with that literal id (`SN311`), keeping its lifecycle; `$event` is null (forms are submitted), disabled and inert targets do nothing, no return value, no `app.run()` for islands, cycle check `SN509` opt-in. See Running an action from a handler.
+- Resource names from an expression. Under review (2026-11-08): see Actions, Proposal: resource names chosen by an expression. Open: which option (recommended: A, a closed set of literal names, through `?:`, `||`, `??` and lets, checked per candidate at build time; not B, any expression checked by `sinter check` only; not C, resources as values); whether computed `$meta[…]` keys get the same per-candidate checks (recommended: yes, other computed keys stay accepted unchecked); whether `upsert`/`patch`/`remove` items must fit every candidate's type (recommended: any candidate's, for now).
+- Paging in a computed direction. Under review (2026-11-08): see Pagination, Proposal: paging in a computed direction. Open: which option (recommended: E, `page()` skips `prev`/`next` where `hasPrev`/`hasNext` is false, in every mode, `first`/`last` always load; fallback G, `$meta.<name>.has[dir]`; not F `can(dir)`, H `canPage()`, or I nothing); whether `first`/`last` should be skipped too where the flag is false (recommended: no, they double as a reload).
 
 ## Sources
 Advisories and guidance the Security section was checked against:
