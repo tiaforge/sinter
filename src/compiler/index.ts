@@ -27,7 +27,8 @@ export function compile(html: string, options: CompileOptions): CompileResult {
 
 /**
  * The page's early module: the app's early module first (it runs before any binding, e.g. to pick
- * the language), then the early bindings with only the helpers they call. Null when there is
+ * the language), then the early bindings with only the helpers they call, started by `start()`
+ * (with the built-in messages' locale source and wait, if the app has them). Null when there is
  * neither.
  */
 export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early'>): string | null {
@@ -35,12 +36,12 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
   if (!early && !app) return null;
   const lines: string[] = [];
   if (app) lines.push(`import ${JSON.stringify(app)};`);
+  lines.push(`import { start${early ? ', $k' : ''} } from '${PACKAGE}/early';`);
   let messages: string | null = null;
+  const byModule = new Map<string, string[]>();
   if (early) {
-    lines.push(`import { early, $k } from '${PACKAGE}/early';`);
     // each from the module that declares it: past the helpers module and barrels, whose other
     // exports (a namespace object of every message) would otherwise load before the first paint
-    const byModule = new Map<string, string[]>();
     const add = (mod: string, spec: string) => byModule.set(mod, [...(byModule.get(mod) ?? []), spec]);
     const as = (o: HelperOrigin, local: string) => (o.name === local ? local : `${o.name} as ${local}`);
     if (options.helpers.module) for (const h of early.helpers) {
@@ -55,21 +56,25 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
         add(o?.module ?? info.module, `${o?.name ?? m} as ${ns}$${m}`);
       }
     }
-    // helpers the early bindings call may use `m` without the markup doing so: wait for the dictionary as well
-    if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) messages = messagesImport('m', []);
-    for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
-    if (messages) lines.push(messages);
-    lines.push('', `const ir = ${JSON.stringify(early.ir)};`, 'const fns = [');
-    for (const f of early.fns) lines.push(`  ${f},`);
-    // the messages: the picker script has added this page's language file; the first paint waits for it
-    lines.push('];', '', ...(messages ? ['$use();', 'await $ready();'] : []), 'early(document, { ir, fns });');
   }
+  // an app with built-in messages: the first paint waits for the dictionary (helpers may call `m` too)
+  if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) messages = messagesImport('m', []);
+  for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
+  if (messages) lines.push(messages);
+  lines.push('');
+  if (early) {
+    lines.push('const page = () => {', `  const ir = ${JSON.stringify(early.ir)};`, '  const fns = [');
+    for (const f of early.fns) lines.push(`    ${f},`);
+    lines.push('  ];', '  return { ir, fns };', '};');
+  }
+  lines.push(`start(${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'});`);
   return lines.join('\n') + '\n';
 }
 
 export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions'>): string {
   const lines: string[] = [];
-  const core = ['mount', '$k', ...parts.helpers.builtin];
+  // the page module is `async`: it waits for the parse, and for the early file if the page has one
+  const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
   lines.push(`import { ${core.join(', ')} } from '${PACKAGE}';`);
   for (const f of parts.features) lines.push(`import ${f} from '${PACKAGE}/${f}';`);
   if (parts.helpers.user.length && options.helpers.module) {
@@ -108,6 +113,8 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
   for (const f of parts.fns) lines.push(`  ${f},`);
   lines.push('];');
   lines.push('');
+  // the early file renders part of this page: mount once it has (they meet through a global)
+  lines.push(parts.early ? 'await rendered();' : 'await parsed();');
   if (messages) {
     // sinter's messages are the locale source; the dictionary the early step loaded, once it is there
     lines.push('$use();', 'await $ready();', `$use(mount(document, { ir, fns, features: [${parts.features.join(', ')}] }));`);

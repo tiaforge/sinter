@@ -24,7 +24,8 @@ test('builds a page: rewritten HTML, page module, helpers, namespace members and
   const html = readFileSync(join(out, 'index.html'), 'utf8');
   expect(html).not.toContain('data-sn-');
   expect(html).not.toContain('sn-resource');
-  expect(html).toMatch(/<script type="module" crossorigin src="\/assets\/[^"]+\.js"><\/script>/);
+  // the page bundle is async: it does not wait for the stylesheets
+  expect(html).toMatch(/<script type="module" crossorigin src="\/assets\/[^"]+\.js" async><\/script>/);
   const js = readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(out, 'assets', f), 'utf8')).join('\n');
   expect(js).toContain('People');
   expect(js).toContain('toUpperCase');
@@ -72,7 +73,7 @@ test('first paint: one self-contained early file per page, render-blocking befor
   const html = readFileSync(join(dir, 'index.html'), 'utf8');
   const early = /<script type="module" crossorigin src="\/assets\/(index-early-[\w-]+\.js)" blocking="render"><\/script>/.exec(html);
   expect(early).not.toBeNull();
-  const page = /<script type="module" crossorigin src="\/assets\/(index-[\w-]+\.js)"><\/script>/.exec(html);
+  const page = /<script type="module" crossorigin src="\/assets\/(index-[\w-]+\.js)" async><\/script>/.exec(html);
   expect(page).not.toBeNull();
   expect(html.indexOf(early![0])).toBeLessThan(html.indexOf(page![0]));
   const code = readFileSync(join(dir, 'assets', early![1]!), 'utf8');
@@ -84,6 +85,8 @@ test('first paint: one self-contained early file per page, render-blocking befor
   // not the page's other helpers, nor the runtime
   expect(code).not.toContain('toUpperCase');
   expect(code).not.toContain('mount(');
+  // the page module (async) mounts once the early file has rendered
+  expect(readFileSync(join(dir, 'assets', page![1]!), 'utf8')).toMatch(/await rendered\(\);[\s\S]*mount\(document/);
   // the build reports the early file's size, and warns over the budget with the largest modules
   expect(logs.find((l) => l.includes('early file of index.html'))).toMatch(/early file of index\.html: assets\/index-early-[\w-]+\.js [\d.]+ kB gzip, over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
   // `firstPaint: false`: everything waits for the page module

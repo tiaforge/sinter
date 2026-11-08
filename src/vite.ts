@@ -271,8 +271,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       order: 'post',
       handler(html, ctx) {
         const rel = relOf(ctx.filename), early = earlyFiles.get(rel), langs = languageFiles.get(rel);
-        if (!early && !langs) return;
         const base = resolved?.base ?? '/';
+        // the page bundle is `async`: it does not wait for the stylesheets as a deferred module does,
+        // and mounts once the document is parsed and the early file has rendered (see the page module)
+        if (ctx.chunk) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');
+        if (!early && !langs) return html;
         const tags: string[] = [];
         // the picker before the early file: it runs while the head is parsed, so the language file it adds blocks the first paint too
         if (langs) tags.push(pickerTag(base + pickerFile, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName]))));

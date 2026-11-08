@@ -101,6 +101,7 @@ const fns = [
   // one function per expression, identifiers already resolved
 ];
 
+await parsed();   // the page module is `async`; on a page with an early file: `await rendered()` (see First paint)
 mount(document, { ir, fns, features: [sse, optimistic] });
 ```
 
@@ -123,7 +124,7 @@ Dependencies are extracted at compile time: every binding lists the state and re
 - Later: esbuild or a CLI wrap the same `compile()`; nothing in the core changes.
 
 ### First paint
-The page renders correctly before its module has run; the module then fills in data. The page bundle is not render-blocking.
+The page renders correctly before its module has run; the module then fills in data. The page bundle is not render-blocking, and it is `async` (below).
 
 **Build-time constants.** With the `prerender` compile option (the Vite plugin passes it unless `sinter({ firstPaint: false })`), a binding outside any `<template>` whose value is a build-time constant is written into the HTML as the runtime would write it: it reads only `data-sn-state` fields with a constant initializer (each field on its own: `{ here: '/mail/', at: $now }` leaves `here` constant) and constants. No helpers, no `$locale`, nothing persisted. Kinds: `text` (content without elements), `attr`, `class` (literal keys), `style`, `show`, and `model` on checkboxes, radios and text/number fields. A refused URL or style is left out. This is what a browser without scripts shows.
 
@@ -136,6 +137,10 @@ The page renders correctly before its module has run; the module then fills in d
 **One file, own copies.** Modules the early file and the page bundle both use are in both: small, and the page bundle never waits on the early file's network. They are separate instances, so state the app sets early is not seen by the page bundle: the app sets it again there, e.g. by calling the same language function from `src/sinter.config.ts` (same inputs, same result). sinter's own state is handed over through the DOM (rendered values, the early branch on its template).
 
 The runtime owns every binding: on mount it computes the same values, and its writes change nothing, so there is no flash and no reset. Early code runs once and keeps no listeners.
+
+**The page bundle is `async`.** In builds its entry script carries `async`: a deferred module script waits for every pending stylesheet before it runs, an async one does not, so on a warm load the page module starts its requests one round trip earlier. It may now run before the body is parsed, or before the early file, so the page module waits before it mounts: `await parsed()` (`readyState` past `loading`), or on a page with an early file `await rendered()` (both from `@tiaforge-ui/sinter`: the core is in every page bundle, so no chunk more), which waits for the parse and for the early file to have rendered (with messages, once the dictionary is there). The early file is bundled apart, so the two meet through a global (`Symbol.for('sinter.early.page')`): the early file marks that it started and when it has rendered. An early file that failed to load does not hold the page: if it has not started by DOMContentLoaded (by then every deferred script has run or failed), the page module mounts. The takeover is the same as with a deferred page module. What changes for app code: the modules of the page bundle (islands, `src/sinter.config.ts`) may run while the body is still being parsed, so top-level code must not read the body, and an island defined then is upgraded as the parser creates it (its `connectedCallback` can run before later siblings or its children are parsed: read them when sinter sets a prop or on an event, not on connect). In dev the page module stays a plain module script; the same waits apply.
+
+**The early file is not `async`.** It renders the body, so it has to run after the parse, and before the first paint. A deferred render-blocking module script is the one that does both: an `async` one runs whenever it arrives, during the parse, and a render-blocking module that then waits (for the parse) with `await` does not hold the paint (see Messages). Waiting for the stylesheets costs the early file nothing: the first paint waits for them anyway.
 
 **Size.** The build prints each page's early file and its size, gzip, and warns above `sinter({ earlyBudget })` (default 10000 bytes), naming the largest modules: a heavy import in the early module or in a helper an early binding calls is noticed.
 

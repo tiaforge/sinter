@@ -47,11 +47,13 @@ test('the early module: the app\'s early module first, then the bindings that ne
       <span data-sn-text="date(at)"></span>
       <span data-sn-text="fmt(here)"></span>
     </nav>`), { m: ['nav', 'mail', 'hello', 'unused'] }, ['fmt', 'other'], { module: '/src/sinter.early.ts', src: '/@sinter/early/index.html.js' });
-  expect(early).toMatch(/^import "\/src\/sinter\.early\.ts";\nimport \{ early, \$k \} from '@tiaforge-ui\/sinter\/early';\nimport \{ fmt \} from "\/h\.js";\nimport \{ nav as m\$nav, mail as m\$mail \} from "\/m\.js";\n/);
+  expect(early).toMatch(/^import "\/src\/sinter\.early\.ts";\nimport \{ start, \$k \} from '@tiaforge-ui\/sinter\/early';\nimport \{ fmt \} from "\/h\.js";\nimport \{ nav as m\$nav, mail as m\$mail \} from "\/m\.js";\n/);
   expect(early).not.toContain('hello');
   expect(early).not.toContain('user');
   expect(early).not.toContain('date(');
-  expect(early).toContain('early(document, { ir, fns });');
+  // started by the early runtime: it renders once the document is parsed, and tells the page module
+  expect(early).toContain('const page = () => {');
+  expect(early!.endsWith('start(page, null);\n')).toBe(true);
   // the early chunk loads render-blocking before the page module
   expect(html).toContain('<script type="module" src="/@sinter/early/index.html.js" blocking="render"></script><script type="module" src="/page.js"></script>');
 });
@@ -77,7 +79,7 @@ test('early state: fields that need no data, persisted values, and the branch of
 
 test('no early module when nothing runs early and the app has no early module', () => {
   expect(build(page('<sn-resource name="u" src="/api/u"></sn-resource><p data-sn-text="u.x"></p>')).early).toBeNull();
-  expect(build(page('<p data-sn-text="here"></p>'), {}, [], { module: '/src/sinter.early.ts' }).early).toBe('import "/src/sinter.early.ts";\nimport { early, $k } from \'@tiaforge-ui/sinter/early\';\n\nconst ir = {"roots":[{"tag":"body","p":-1,"b":[],"id":0,"sid":0,"state":1},{"tag":"p","p":0,"b":[{"k":"text","f":0}],"id":1}],"templates":[]};\nconst fns = [\n  ($) => ($.$s0.here),\n  ($) => ({ "here": (\'/a/\') }),\n];\n\nearly(document, { ir, fns });\n');
+  expect(build(page('<p data-sn-text="here"></p>'), {}, [], { module: '/src/sinter.early.ts' }).early).toBe('import "/src/sinter.early.ts";\nimport { start, $k } from \'@tiaforge-ui/sinter/early\';\n\nconst page = () => {\n  const ir = {"roots":[{"tag":"body","p":-1,"b":[],"id":0,"sid":0,"state":1},{"tag":"p","p":0,"b":[{"k":"text","f":0}],"id":1}],"templates":[]};\n  const fns = [\n    ($) => ($.$s0.here),\n    ($) => ({ "here": (\'/a/\') }),\n  ];\n  return { ir, fns };\n};\nstart(page, null);\n');
 });
 
 test('without the options the compiler writes nothing ahead and makes no early module', () => {

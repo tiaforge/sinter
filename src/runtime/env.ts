@@ -36,3 +36,37 @@ export const defaultEnv: Env = {
   random: Math.random,
   listen: (type, fn) => (g.addEventListener(type, fn), () => g.removeEventListener(type, fn)),
 };
+
+/**
+ * Resolves once the document is parsed (`readyState` past `loading`): the page module is `async`
+ * and may run while the body is still being parsed, so it mounts after this.
+ */
+export const parsed = (doc: Document = document): Promise<void> => new Promise((done) => {
+  if (doc.readyState != 'loading') return done();
+  const on = () => { if (doc.readyState != 'loading') { doc.removeEventListener('readystatechange', on); done(); } };
+  doc.addEventListener('readystatechange', on);
+});
+
+/** Where the early file and the page module meet: whether the early file started, and when it has rendered. */
+export interface Meeting { started: boolean; done: Promise<void>; finish(): void }
+export const meeting = (): Meeting => ((globalThis as any)[Symbol.for('sinter.early.page')] ??= (() => {
+  let finish!: () => void;
+  const done = new Promise<void>((r) => { finish = r; });
+  return { started: false, done, finish };
+})());
+
+/** Whether DOMContentLoaded has fired: every deferred script (the early file among them) has run or failed. */
+const contentLoaded = (doc: Document) => doc.readyState == 'complete' || ((performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined)?.domContentLoadedEventStart ?? 0) > 0;
+
+/**
+ * What the page module awaits before it mounts on a page with an early file (`@tiaforge-ui/sinter/early`): the document is
+ * parsed and the early file has rendered (with built-in messages, once the dictionary arrived).
+ * The page module is `async` and may run before the early file: it waits for it to start, or for
+ * DOMContentLoaded (by then the early file has started, unless it failed to load).
+ */
+export async function rendered(doc: Document = document): Promise<void> {
+  await parsed(doc);
+  const m = meeting();
+  if (!m.started && !contentLoaded(doc)) await new Promise((r) => doc.addEventListener('DOMContentLoaded', r, { once: true }));
+  if (m.started) await m.done;
+}

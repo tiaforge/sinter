@@ -1,4 +1,4 @@
-import { mount, $k } from '@tiaforge-ui/sinter';
+import { mount, $k, parsed } from '@tiaforge-ui/sinter';
 import sse from '@tiaforge-ui/sinter/sse';
 import optimistic from '@tiaforge-ui/sinter/optimistic';
 import persist from '@tiaforge-ui/sinter/persist';
@@ -44,4 +44,5 @@ const fns = [
   (c) => { const n0 = c, n1 = n0?.nextSibling, n2 = n1?.firstChild, n3 = n2?.nextSibling, n4 = n3?.nextSibling, n5 = n4?.nextSibling; return [n3?.localName == "input" ? n3 : null, n5?.localName == "button" ? n5 : null]; },
 ];
 
+await parsed();
 mount(document, { ir, fns, features: [sse, optimistic, persist] });

@@ -105,7 +105,7 @@ Each recipe comes with its test; copy both.
 `);
   out.push(`## First paint
 
-The built page shows its chrome before the page module has run; the page bundle is not render-blocking.
+The built page shows its chrome before the page module has run; the page bundle is not render-blocking and is \`async\` (it does not wait for stylesheets), so it may run while the body is still being parsed: keep app code at module top level from reading the body, and don't read an island's children or later siblings in \`connectedCallback\`. The page module waits for the parse and for the early file before it mounts.
 
 - Build-time constants are written into the HTML: bindings outside templates that read only literal \`data-sn-state\` fields and constants (\`aria-current\` from \`here === '/mail/'\`). No helpers.
 - Each page gets an early chunk, bundled into one file with nothing to import and loaded \`type="module" blocking="render"\` before the page module (one request before the first paint): first \`src/sinter.early.ts\` (optional app code), then, once, the bindings outside \`data-sn-for\` templates that need no data: they read state fields whose initial value needs no data, persisted values (read from \`sn:<key>\` in localStorage), \`$locale\` and helpers. A \`data-sn-if\` of that kind renders its branch; the page module adopts it. Only the helpers and message members those bindings call are included. Modules it shares with the page bundle are copies: state the early module sets must be set again by the page bundle (sinter's messages share theirs through a global).

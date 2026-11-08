@@ -1,4 +1,4 @@
-import { mount, $k, relative } from '@tiaforge-ui/sinter';
+import { mount, $k, parsed, relative } from '@tiaforge-ui/sinter';
 import sse from '@tiaforge-ui/sinter/sse';
 import optimistic from '@tiaforge-ui/sinter/optimistic';
 import paginate from '@tiaforge-ui/sinter/paginate';
@@ -31,4 +31,5 @@ const fns = [
   (c) => { const n0 = c, n1 = n0?.nextSibling, n2 = n1?.firstChild, n3 = n2?.nextSibling, n4 = n3?.nextSibling, n5 = n4?.nextSibling; return [n1?.localName == "article" ? n1 : null, n3?.localName == "time" ? n3 : null, n5?.localName == "button" ? n5 : null]; },
 ];
 
+await parsed();
 mount(document, { ir, fns, features: [sse, optimistic, paginate] });

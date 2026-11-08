@@ -100,3 +100,53 @@ test('an early branch that is not the one to show is replaced', async () => {
   await flush();
   expect([...document.querySelectorAll('main h1')].map((h) => h.textContent)).toEqual(['Month']);
 });
+
+/** A document as the browser has it while it loads: readyState and its events, driven by the test. */
+function loadingDoc() {
+  let state = 'loading';
+  const on: Record<string, Array<() => void>> = {};
+  const doc = {
+    get readyState() { return state; },
+    addEventListener: (t: string, f: () => void) => (on[t] ??= []).push(f),
+    removeEventListener: () => {},
+    querySelectorAll: () => [],
+  } as unknown as Document;
+  const fire = (t: string) => { for (const f of on[t]?.splice(0) ?? []) f(); };
+  return { doc, interactive: () => { state = 'interactive'; fire('readystatechange'); }, contentLoaded: () => fire('DOMContentLoaded') };
+}
+const tick = () => new Promise((r) => setTimeout(r));
+
+test('the async page module mounts after the parse and after the early file has rendered, whichever runs first', async () => {
+  const { start } = await import('../../src/early.js');
+  const { rendered } = await import('../../src/runtime/env.js');
+  delete (globalThis as any)[Symbol.for('sinter.early.page')];
+  const order: string[] = [];
+  const page = () => { order.push('early renders'); return { ir: { roots: [], templates: [] }, fns: [] }; };
+  const { doc, interactive, contentLoaded } = loadingDoc();
+  // the page module runs first, while the body is parsed
+  void rendered(doc).then(() => order.push('page module mounts'));
+  await tick();
+  interactive();
+  await tick();
+  expect(order).toEqual([]);
+  // then the deferred early file
+  start(page, null, doc);
+  await tick();
+  contentLoaded();
+  await tick();
+  expect(order).toEqual(['early renders', 'page module mounts']);
+});
+
+test('an early file that failed to load does not hold the page module: it mounts at DOMContentLoaded', async () => {
+  const { rendered } = await import('../../src/runtime/env.js');
+  delete (globalThis as any)[Symbol.for('sinter.early.page')];
+  const { doc, interactive, contentLoaded } = loadingDoc();
+  let mounted = false;
+  void rendered(doc).then(() => { mounted = true; });
+  interactive();
+  await tick();
+  expect(mounted).toBe(false);
+  contentLoaded();
+  await tick();
+  expect(mounted).toBe(true);
+});

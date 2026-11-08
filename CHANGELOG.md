@@ -53,6 +53,15 @@ Attribute names, function names and diagnostic codes are public API. Before
   `sinter({ messages: false })` keeps the old behaviour.
 - `date`, `time`, `datetime`, `relative`, `number` and `bytes` reuse one `Intl` formatter per
   locale and options instead of building one per call (the largest script cost of a list of dates).
+- The page bundle's script is `async` in builds (a deferred module waits for every pending
+  stylesheet; on a warm load this starts the page's requests a round trip earlier). The page module
+  waits before it mounts: `await parsed()`, or on a page with an early
+  file `await rendered()` (both from the core, which every page bundle loads anyway) (the parse, then the early file's render;
+  an early file that failed to load does not hold it past DOMContentLoaded). Also for apps without
+  first paint or messages: their page entry gets `async` and the page module awaits `parsed()`.
+  App code in the page bundle may now run while the body is parsed: it must not read the body at
+  module top level, and an island's `connectedCallback` may run before its children are parsed.
+  The early module calls `start()` from `@tiaforge-ui/sinter/early` (was `early(document, …)`).
 - `sinter()` from `@tiaforge-ui/sinter/vite` returns two plugins (`sinter` and `sinter:early`);
   `plugins: [sinter()]` works as before.
 

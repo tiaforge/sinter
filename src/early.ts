@@ -1,9 +1,12 @@
-// @tiaforge-ui/sinter/early: what a page's early chunk runs before the first paint. It renders,
+// @tiaforge-ui/sinter/early: what a page's early file runs before the first paint. It renders,
 // once, the bindings the compiler found renderable before any data: page-level values from state
 // (persisted values read from storage) and helpers, and the branch of each such `data-sn-if`.
-// No reactivity, no requests: the page module mounts later and takes the rendered DOM over
-// (an early branch is adopted, not rendered again).
+// No reactivity: the page module mounts later and takes the rendered DOM over (an early branch is
+// adopted, not rendered again). The early file and the page bundle are bundled apart (each holds
+// its own copy of what it imports), so what they share goes through a global: `start` (early
+// file) and `rendered` (page module, from the core) meet there.
 import { config } from './runtime/config.js';
+import { meeting } from './runtime/env.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
 import type { Binding, EarlyIR, NodeDef } from './ir.js';
 
@@ -15,7 +18,35 @@ export interface EarlyBranch { br: number; nodes: Node[]; end: Comment }
 
 type Fn = (...a: any[]) => any;
 
+/** The page's early part, built when the early file starts. */
+export type EarlyPage = () => { ir: EarlyIR; fns: Fn[] };
+
+/**
+ * The early file's entry: renders the page's early part once the dictionary (if any) is there.
+ * The early file is a deferred module: it runs after the parse, before the first paint (it blocks
+ * rendering until it has run; a language file the picker added holds the paint until it is there).
+ */
+export function start(page: EarlyPage | null, messages: { use(): void; ready(): Promise<void> } | null, doc: Document = document): void {
+  const m = meeting();
+  m.started = true;
+  messages?.use();
+  const fail = (e: unknown) => { setTimeout(() => { throw e; }); };
+  let p: ReturnType<typeof prepare> | null = null;
+  try { if (page) p = prepare(page()); } catch (e) { fail(e); }
+  void (async () => {
+    await messages?.ready();
+    // a failure is reported, and the page module mounts all the same
+    try { p?.render(doc); } catch (e) { fail(e); }
+    m.finish();
+  })();
+}
+
+/** Renders a page's early part (tests; the early file goes through `start`). */
 export function early(doc: Document, o: { ir: EarlyIR; fns: Fn[] }): void {
+  prepare(o).render(doc);
+}
+
+function prepare(o: { ir: EarlyIR; fns: Fn[] }) {
   const { ir, fns } = o, env = config.env, schemes = schemesOf(config.urlSchemes);
   // what is not available before data throws, and the binding is left to the page module
   const base = new Proxy(Object.create(null), {
@@ -30,31 +61,40 @@ export function early(doc: Document, o: { ir: EarlyIR; fns: Fn[] }): void {
       return v == null ? undefined : JSON.parse(v);
     } catch { return undefined; }
   };
-  const byId = new Map<number, Element>();
-  for (const el of doc.querySelectorAll('[data-sn]')) byId.set(+el.getAttribute('data-sn')!, el);
-  bind(ir.roots, ir.roots.map((n) => byId.get(n.id!) ?? null), base);
-
-  function bind(defs: NodeDef[], els: Array<Element | null>, s0: any) {
-    const scopes: any[] = [], todo: Array<[Binding, Element, any]> = [];
+  /** each node's scope: its state (persisted values applied, as the persist feature does at mount) */
+  const scopesOf = (defs: NodeDef[], s0: any): any[] => {
+    const scopes: any[] = [];
     defs.forEach((nd, i) => {
-      const el = els[i];
       let s = nd.p >= 0 ? scopes[nd.p] ?? s0 : s0;
       if (nd.state != null) {
         let obj: any = {};
         try { obj = fns[nd.state]!(s); } catch { /* a field that throws: none known */ }
-        // as the persist feature does at mount
         const v = nd.persist ? read(nd.persist) : undefined;
         if (v && typeof v == 'object') for (const k of Object.keys(obj)) if (Object.hasOwn(v, k)) obj[k] = (v as any)[k];
         s = Object.assign(Object.create(s), { ['$s' + nd.sid]: obj });
       }
       scopes[i] = s;
-      if (el) for (const b of nd.b) {
-        if (b.k == 'model' && b.p != null) {
-          const v = read(b.p);
-          if (v !== undefined) try { fns[b.a!]!(s, v); } catch { /* ignored */ }
-        }
-        todo.push([b, el, s]);
+      for (const b of nd.b) if (b.k == 'model' && b.p != null) {
+        const v = read(b.p);
+        if (v !== undefined) try { fns[b.a!]!(s, v); } catch { /* ignored */ }
       }
+    });
+    return scopes;
+  };
+  const roots = scopesOf(ir.roots, base);
+  return {
+    render(doc: Document) {
+      const byId = new Map<number, Element>();
+      for (const el of doc.querySelectorAll('[data-sn]')) byId.set(+el.getAttribute('data-sn')!, el);
+      bind(ir.roots, ir.roots.map((n) => byId.get(n.id!) ?? null), base, roots);
+    },
+  };
+
+  function bind(defs: NodeDef[], els: Array<Element | null>, s0: any, scopes = scopesOf(defs, s0)) {
+    const todo: Array<[Binding, Element, any]> = [];
+    defs.forEach((nd, i) => {
+      const el = els[i];
+      if (el) for (const b of nd.b) todo.push([b, el, scopes[i]]);
     });
     // persisted values are in place before anything is written, as at mount
     for (const [b, el, s] of todo) {
