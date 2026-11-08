@@ -100,6 +100,8 @@ export interface ExprResult {
   payloadNames?: string[];
   /** state names read where the payload is the scope (they shadow payload fields of the same name) */
   payloadStates?: string[];
+  /** `data-sn-let` names read where the payload is the scope (they shadow payload fields of the same name) */
+  payloadLets?: string[];
   /** handlers: the action elements `run('id')` starts and the resources `refresh('name')` reloads, with offsets (for `SN509`) */
   runs?: Array<{ id: string; offset: number }>;
   refreshes?: Array<{ name: string; offset: number }>;
@@ -187,6 +189,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   let ok = true;
   const payloadNames = new Set<string>();
   const payloadStates = new Set<string>();
+  const payloadLets = new Set<string>();
   const runs: NonNullable<ExprResult['runs']> = [];
   const refreshes: NonNullable<ExprResult['refreshes']> = [];
   const mode = opts.mode;
@@ -254,6 +257,15 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return null;
     }
     if (opts.payload && opts.payloadState) {
+      // lets and state around the <sn-sync> win over payload fields of the same name
+      const lets = scope.lets ?? [];
+      for (let i = lets.length - 1; i >= 0; i--) {
+        if (lets[i]!.name !== name) continue;
+        // an element-less handler has no element for a let that reads `$el`
+        if (lets[i]!.usesEl) { report('SN201', `\`${name}\` (\`data-sn-let\`) reads \`$el\`, and \`<sn-event>\` has no element`, offset); return null; }
+        payloadLets.add(name);
+        return { kind: 'let', entry: lets[i]! };
+      }
       for (let i = scope.states.length - 1; i >= 0; i--) {
         if (scope.states[i]!.names.has(name)) { payloadStates.add(name); return { kind: 'state', sid: scope.states[i]!.sid }; }
       }
@@ -933,7 +945,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
   }
 
-  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}) };
+  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort(), payloadLets: [...payloadLets].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}) };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

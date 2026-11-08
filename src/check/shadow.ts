@@ -186,9 +186,9 @@ export function shadow(o: ShadowOptions): Shadow {
     line('');
     if (e.returns) tagged('returns', e.returns);
     line(`function $e${i}() {`);
-    const blocks = open(e.frames);
-    line(`/** @type {${decl(`El<${JSON.stringify(e.tag)}>`)}} */ const $el = $any;`);
+    // the payload's block is outside the frames: state and lets shadow its fields, as sinter resolves them
     if (e.payload) {
+      line('{');
       if (e.payload.type) tagged('type', e.payload.type, ' const $p = $any;');
       else line('const $p = $any;');
       // a field the payload type lacks is reported at the start of the expression
@@ -196,15 +196,18 @@ export function shadow(o: ShadowOptions): Shadow {
         regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
         line(`const ${n} = $p.${n};`);
       }
-      // a state name shadows a payload field of the same name: an error when the payload type has it
+      // a state or let name shadows a payload field of the same name: an error when the payload type has it
       if (e.payload.type) {
-        for (const n of e.payload.states ?? []) {
-          const msg = `state \`${n}\` shadows the payload field \`${n}\`: rename the state`;
+        const shadowing = [...(e.payload.states ?? []).map((n) => [n, 'state', 'the state'] as const), ...(e.payload.lets ?? []).map((n) => [n, '`data-sn-let` name', 'it'] as const)];
+        for (const [n, what, it] of shadowing) {
+          const msg = `${what} \`${n}\` shadows the payload field \`${n}\`: rename ${it}`;
           regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
           line(`/** @type {${JSON.stringify(n)} extends keyof typeof $p ? ${JSON.stringify(msg)} : true} */ const $shadows_${n} = true; void $shadows_${n};`);
         }
       }
     }
+    const blocks = open(e.frames) + (e.payload ? 1 : 0);
+    line(`/** @type {${decl(`El<${JSON.stringify(e.tag)}>`)}} */ const $el = $any;`);
     if (e.mode === 'value') {
       // action arguments and bodies are taken when the trigger fires
       // run('id') starts the action without an event: unguarded reads are reported

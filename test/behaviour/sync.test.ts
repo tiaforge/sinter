@@ -188,6 +188,39 @@ test('<sn-sync> inside a state element: src and event expressions read that stat
   expect(loads()).toBe(3);
 });
 
+test('<sn-event> reads data-sn-let names around the sync in when and then; a let wins over a payload field', async () => {
+  // Caley's mail page: `open` is derived from state on an ancestor of the <sn-sync>
+  const stream = mockStream();
+  const { root, settle } = await render(`<main data-sn-state="{ sel: { uid: 1, mailbox: 'inbox' }, seen: 0 }" data-sn-let="{ open: sel, box: sel.mailbox, items: m.length }">
+    <sn-resource name="m" src="/api/m" key="id"></sn-resource>
+    <div data-sn-state="{ hits: '' }">
+      <sn-sync src="/s">
+        <sn-event name="updated" when="mailbox === box" then="open.uid === uid && seen++; hits = hits + items"></sn-event>
+        <sn-event name="named" then="hits = hits + open.uid"></sn-event>
+      </sn-sync>
+      <button data-sn-on-click="sel = { uid: 2, mailbox: 'sent' }"></button>
+      <p data-sn-text="seen + ' ' + hits"></p>
+    </div></main>`, { requests: mockRequests({ 'GET /api/m': [{ id: 1 }, { id: 2 }] }), streams: { '/s': stream } });
+  await settle();
+  const text = () => root.querySelector('p')!.textContent;
+  stream.emit('updated', { uid: 1, mailbox: 'inbox' });
+  await settle();
+  expect(text()).toBe('1 2');
+  stream.emit('updated', { uid: 1, mailbox: 'sent' });
+  await settle();
+  expect(text()).toBe('1 2');
+  // the lets follow the state they are computed from
+  root.querySelector('button')!.click();
+  await settle();
+  stream.emit('updated', { uid: 2, mailbox: 'sent' });
+  await settle();
+  expect(text()).toBe('2 22');
+  // a payload field named like a let is hidden by it
+  stream.emit('named', { open: { uid: 9 } });
+  await settle();
+  expect(text()).toBe('2 222');
+});
+
 test('an app destroyed before its streams connect opens none', async () => {
   const { mount } = await import('../../src/runtime/app.js');
   const { defaultEnv } = await import('../../src/runtime/env.js');

@@ -131,6 +131,25 @@ describe('sinter check', () => {
     expect(d[0]!.message).toMatch(/state `account_id` shadows the payload field `account_id`: rename the state/);
   });
 
+  test('sn-event: `data-sn-let` names around the sync are in scope like state, in `when` and `then`', () => {
+    const types = `${TYPES}export interface Updated { uid: number; mailbox: string; seen: boolean }\n`;
+    // the let is the innermost frame (`open`) or under a state (`box`); both once gave errors here
+    const sync = (attrs: string) => page(`<main data-sn-state="{ sel: /** @type {Contact|null} */ (null), n: 0 }" data-sn-let="{ open: sel, box: 'inbox' }">
+<div data-sn-state="{ last: '' }">
+<sn-sync src="/api/events"><sn-event name="u" type="Updated" ${attrs}></sn-event></sn-sync>
+<p data-sn-text="contacts.length + n + last + open?.name + box"></p></div></main>`);
+    const errors = (attrs: string) => checkPage(sync(attrs), { files: { 'src/sinter.types.ts': types } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    expect(errors(`when="mailbox === box" then="open && open.id === uid && n++; last = open?.name ?? last"`)).toEqual([]);
+    expect(errors(`then="last = open.id"`)).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
+    expect(errors(`then="n = box.lenght"`)).toEqual([expect.stringMatching(/^SN208 Property 'lenght' does not exist on type 'string'/)]);
+    // a let named like a field of the typed payload hides it: an error, as for state
+    const shadowing = page(`<main data-sn-state="{ n: 0 }" data-sn-let="{ seen: n > 0 }">
+<sn-sync src="/api/events"><sn-event name="u" type="Updated" then="seen && n++"></sn-event></sn-sync>
+<p data-sn-text="contacts.length + n + (seen ? 1 : 0)"></p></main>`);
+    expect(checkPage(shadowing, { files: { 'src/sinter.types.ts': types } }).map((d) => d.message))
+      .toEqual([expect.stringMatching(/`data-sn-let` name `seen` shadows the payload field `seen`: rename it/)]);
+  });
+
   test('sn-event `then`: the typed payload and the state are checked; SN506 without a type', () => {
     const files = { 'src/sinter.types.ts': `${TYPES}export interface Removed { id: number }\n` };
     const html = (then: string, type = ' type="Removed"') => page(`<main data-sn-state="{ sel: /** @type {Contact|null} */ (null), last: '' }">

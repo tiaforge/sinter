@@ -117,6 +117,18 @@ describe('<sn-event then>', () => {
     expect(codes(`<sn-event name="n" then="sel = id"></sn-event>`)).toEqual([]);
     expect(codes(`<sn-event name="n" when="id = 1"></sn-event>`)).toEqual([expect.stringMatching(/^SN301 resource `` is not declared/)]);
   });
+  test('data-sn-let names around the sync resolve like state, before payload fields; they cannot be assigned', () => {
+    const lets = (events: string) => diags(`${R}${use}<main data-sn-state="{ sel: null }" data-sn-let="{ open: sel, tag: $el.id }"><p data-sn-text="open + tag"></p>
+      <sn-sync src="/api/events">${events}</sn-sync></main>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
+    expect(lets(`<sn-event name="n" when="open && open.id === id" then="open && sel === open && refresh('messages')"></sn-event>`)).toEqual([]);
+    expect(lets(`<sn-event name="n" then="open = id"></sn-event>`)).toEqual(['SN203 `open` is derived (`data-sn-let`) and cannot be assigned; assign the state it is computed from']);
+    expect(lets(`<sn-event name="n" then="sel = tag"></sn-event>`)).toEqual(['SN201 `tag` (`data-sn-let`) reads `$el`, and `<sn-event>` has no element']);
+    const parts = compileParts(`${R}${use}<main data-sn-state="{ sel: null }" data-sn-let="{ open: sel }"><p data-sn-text="open"></p>
+      <sn-sync src="/api/events"><sn-event name="n" then="sel = open || id"></sn-event></sn-sync></main>`, {
+      file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+    });
+    expect(parts.fns.find((f) => f.includes('$.$p.id'))).toContain('($.$s0.sel) || $.$p.id');
+  });
   test('errors: unknown dialogs, element-less store functions, payload writes, a misspelt attribute', () => {
     expect(codes(`<sn-event name="n" then="close('detial')"></sn-event>`)).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page. Did you mean `detail`\?/)]);
     expect(codes(`<sn-event name="n" then="close(); reset(); emit('x')"></sn-event>`)).toEqual([

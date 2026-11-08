@@ -940,7 +940,7 @@ class Compiler {
       src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: el.tagName, event,
       result: attrName === 'data-sn-then' || !!o.magic?.includes('$result'), error: attrName === 'data-sn-catch',
     };
-    if (o.payload) e.payload = { names: r.payloadNames ?? [], type: null, ...(r.payloadStates?.length ? { states: r.payloadStates } : {}) };
+    if (o.payload) e.payload = { names: r.payloadNames ?? [], type: null, ...(r.payloadStates?.length ? { states: r.payloadStates } : {}), ...(r.payloadLets?.length ? { lets: r.payloadLets } : {}) };
     this.check!.exprs.push(e);
     const list = this.exprsOf.get(el) ?? [];
     list.push({ attr: attrName, i: this.check!.exprs.length - 1 });

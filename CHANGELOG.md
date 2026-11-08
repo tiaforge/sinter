@@ -13,6 +13,16 @@ Attribute names, function names and diagnostic codes are public API. Before
   statement for `SN507`, however many names it lists, and each name is an edge for `SN509`.
   `sinter check` types it as `refresh(...names)`. Core +8 B gzip.
 
+### Fixed
+
+- `<sn-event>` `when`, `then`, `item` and `set` see the `data-sn-let` names declared around the
+  `<sn-sync>`, resolved like state there: before payload fields of the same name. They were taken
+  for payload fields, so a typed payload reported them as missing (`not on type EmailUpdatedEvent`),
+  and `sinter check` declared a let and a payload field of one name in the same block (TS2451
+  redeclare errors). The shadow now declares the payload outside the state and let blocks. With
+  a typed payload, a let named like a payload field is a check error, as for state; a let that
+  reads `$el` is `SN201` there.
+
 ## 0.5.0 (2026-11-08)
 
 ### Added
