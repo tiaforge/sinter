@@ -130,7 +130,7 @@ Every attribute value that is not a URL or a name is a JavaScript expression, pa
 | Kind | Used in | Allowed | Refused |
 | --- | --- | --- | --- |
 | Value | `text`, `attr`, `class`, `show`, `prop`, `for` (after `in`), `if`, `key`, `body`, `state`, resource `when` and `cursor`, `<sn-event>` `item`, `set` and `when`, URL interpolations | any JS expression, `new` on allowed globals, arrow functions as arguments, template strings, `?.`, `??` | assignment, `++`/`--`, `delete`, `await`, `import()` |
-| Handler | `on-*`, `then`, `catch`, `optimistic`, `<sn-event>` and `<sn-resource>` `then` | statements separated by `;`, assignment to state variables, calls to store and action functions | declarations (`let`, `const`, `function`), loops, `await` |
+| Handler | `on-*`, `then`, `catch`, `optimistic`, `<sn-event>` and `<sn-resource>` `then` | statements separated by `;`, assignment to state variables, calls to store functions (action functions run on elements, `SN203`) | declarations (`let`, `const`, `function`), loops, `await` |
 
 Value expressions must be side-effect free, so the runtime may evaluate them any number of times.
 
@@ -151,7 +151,7 @@ A free identifier resolves to the first match, innermost first:
 - State variables declared by the nearest enclosing `data-sn-state`.
 - Resource names declared on the page.
 - Magic names: `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`.
-- Registered helpers, helper namespaces and the store/action functions (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close`, `reset`, `emit`).
+- Registered helpers, helper namespaces and the store functions (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close`, `reset`, `emit`).
 - Allowed globals (below).
 Anything else is a build error with a suggestion: `contcts` → "did you mean `contacts`?".
 Globals: JavaScript yes, browser no. Expressions may use the ECMAScript standard library, including `new`: `Math`, `JSON`, `Object`, `Array`, `Set`, `Map`, `Date`, `Intl.*`, `RegExp` and the rest. Three pure web-platform utilities are allowed as well: `URL`, `URLSearchParams`, `structuredClone`. Forbidden are browser and I/O APIs (`window`, `document`, `fetch`, `localStorage`, `navigator`, timers, …) and the language's meta-tools (`eval`, `Function`, `Proxy`, `Reflect`, `globalThis`, `WeakRef`, `FinalizationRegistry`, `Atomics`). Browser work belongs in islands. `$el` and `$event` are handed in explicitly, so their properties and methods may be used: `$event.preventDefault()`, `$el.focus()`, `$el.form.requestSubmit()`.
