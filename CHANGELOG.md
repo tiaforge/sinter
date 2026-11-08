@@ -87,6 +87,12 @@ Attribute names, function names and diagnostic codes are public API. Before
   (Caley's share-to-mail). A resource with `then` now counts as used, whether or not the
   handler reads `$result`: a `then` that only notes the arrival (`then="loaded = true"`) is a
   reason to load it too.
+- `data-sn-model` on a `<select>` inside a closed `<dialog>` was evaluated on every flush:
+  bindings there wait for the dialog to open, but the pass that sets each select's value again
+  after its options render did not. Caley's import dialog, `data-sn-model="imp.target"` while
+  `imp` is null, warned "binding `model` on <select> threw" on each page load. That pass now
+  defers selects in a closed dialog too, and runs once more when a dialog opens, so a select
+  whose options render in the dialog gets its value. 13 B gzip on the core.
 
 ## 0.4.0 (2026-11-08)
 

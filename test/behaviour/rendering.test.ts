@@ -536,6 +536,38 @@ test('bindings in a closed dialog wait for it to open; bindings outside it do no
   expect(root.querySelector('b')!.textContent).toBe('1');
 });
 
+test('a select in a closed dialog waits for it to open, then picks its value from options rendered there', async () => {
+  // Caley's import dialog: data-sn-model="imp.target" while imp is null and the dialog closed
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const { root, flush } = await render(`
+    <div data-sn-state="{ imp: null, cals: ['a', 'b'] }">
+      <button data-sn-on-click="imp = { target: 'b' }; showModal('imp')">import</button>
+      <button class="other" data-sn-on-click="cals = ['a', 'b', 'c']; imp = { target: 'c' }">other</button>
+      <dialog id="imp"><select data-sn-model="imp.target"><template data-sn-for="c in cals" data-sn-key="c"><option data-sn-attr="{value: c}" data-sn-text="c"></option></template></select></dialog>
+      <p data-sn-text="cals.length"></p><i data-sn-on-click="cals = [...cals]">x</i>
+    </div>`);
+  // later flushes do not evaluate it either
+  root.querySelector('i')!.click();
+  await flush();
+  expect(warn).not.toHaveBeenCalled();
+  root.querySelector('button')!.click();
+  await flush();
+  const dialog = root.querySelector('dialog')!;
+  dialog.dispatchEvent(new Event('toggle'));
+  await flush();
+  expect(root.querySelector('select')!.value).toBe('b');
+  // opened with nothing else to render: the toggle renders the options after the model
+  dialog.close();
+  root.querySelector<HTMLButtonElement>('.other')!.click();
+  await flush();
+  dialog.setAttribute('open', '');
+  dialog.dispatchEvent(new Event('toggle'));
+  await flush();
+  expect(root.querySelector('select')!.value).toBe('c');
+  expect(warn).not.toHaveBeenCalled();
+  warn.mockRestore();
+});
+
 test('a dialog inside a row template defers the bindings inside it', async () => {
   const { root, flush } = await render(`
     <ul data-sn-state="{ xs: [{ t: 'a' }] }"><template data-sn-for="x in xs">

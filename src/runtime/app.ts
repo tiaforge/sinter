@@ -702,8 +702,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
   }
 
+  /** Sets each select's value again, as its options may have changed; one in a closed dialog waits, as in process(). */
   function syncSelects() {
-    for (const rb of selects) writeModel(rb, evaluate(rb));
+    for (const rb of selects) {
+      if (rb.c && rb.el.closest('dialog:not([open])')) deferred.add(rb);
+      else writeModel(rb, evaluate(rb));
+    }
   }
 
   // ---- models
@@ -921,6 +925,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (!el) return;
     if (e.type == 'toggle' && el.localName == 'dialog' && el.hasAttribute('open')) {
       for (const rb of [...deferred]) if (deferred.has(rb) && el.contains(rb.el)) { cur = []; walk([rb], 2); }
+      // a select's options inside the dialog render after its model: set its value again
+      syncSelects();
     }
     // models update state before other handlers on the same event
     const m = (el as Tagged)[MODEL];
