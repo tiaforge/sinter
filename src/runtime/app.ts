@@ -456,7 +456,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     },
     storeFns: (el) => ({
       showModal: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
-      refresh: (n: string) => res(n).refetch(),
+      refresh: (...n: string[]) => { for (const x of n) res(x).refetch(); },
       upsert: forward('upsert'),
       patch: forward('patch'),
       remove: forward('remove'),

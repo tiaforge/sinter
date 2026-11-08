@@ -677,8 +677,19 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
       return;
     }
-    if (name === 'refresh' && first?.type === 'Literal' && typeof first.value === 'string') refreshes.push({ name: first.value, offset: (first as Node).start });
-    if (['refresh', 'upsert', 'patch', 'remove', 'page'].includes(name)) {
+    if (name === 'refresh') {
+      // `refresh('a', 'b')`: every name is a literal resource
+      if (!first) report('SN301', '`refresh()` takes resource names as string literals', n.start);
+      for (const a of n.arguments) {
+        if (a.type !== 'Literal' || typeof a.value !== 'string') {
+          report('SN301', '`refresh()` takes resource names as string literals', (a as Node).start);
+        } else if (!page.resources.has(a.value)) {
+          report('SN301', `resource \`${a.value}\` is not declared on this page.${didYouMean(a.value, page.resources.keys())}`, (a as Node).start);
+        } else refreshes.push({ name: a.value, offset: (a as Node).start });
+      }
+      return;
+    }
+    if (['upsert', 'patch', 'remove', 'page'].includes(name)) {
       if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
         report('SN301', `\`${name}()\` takes the resource name as a string literal`, n.start);
         return;

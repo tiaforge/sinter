@@ -92,6 +92,11 @@ describe('sinter check', () => {
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES }, complexity: { statements: 5 } })).toEqual([]);
   });
 
+  test('refresh() with several names types each against the page\'s resources', () => {
+    const html = page(`<sn-resource name="other" src="/api/o" type="any"></sn-resource><button data-sn-on-click="refresh('contacts', 'other')" data-sn-text="contacts.length + other"></button>`);
+    expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
+  });
+
   test('a key filter\'s $event is the KeyboardEvent of its keydown or keyup', () => {
     one(page(`<div data-sn-state="{ q: '', n: 0 }" data-sn-on-keydown-shift-j="q = $event.key" data-sn-on-keyup-escape="n = $event.code">
   <p data-sn-text="q + n"></p>

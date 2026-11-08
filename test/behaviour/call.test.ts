@@ -224,6 +224,21 @@ describe('<sn-resource call>: resources fed by a function', () => {
   });
 });
 
+test('refresh() with several names reloads each', async () => {
+  const requests = mockRequests({ 'GET /api/a': [{ id: 1 }], 'GET /api/b': [{ id: 2 }], 'GET /api/c': [{ id: 3 }] });
+  const { root, settle } = await render(`
+    <sn-resource name="a" src="/api/a" key="id"></sn-resource>
+    <sn-resource name="b" src="/api/b" key="id"></sn-resource>
+    <sn-resource name="c" src="/api/c" key="id"></sn-resource>
+    <p data-sn-text="a.length + b.length + c.length"></p>
+    <button data-sn-on-click="refresh('a', 'c')"></button>`, { requests });
+  await settle();
+  requests.calls.length = 0;
+  root.querySelector('button')!.click();
+  await settle();
+  expect(requests.calls.map((c) => c.path).sort()).toEqual(['/api/a', '/api/c']);
+});
+
 describe('call diagnostics', () => {
   const actions = { module: '/src/sinter.actions.js', names: ['archive'], namespaces: { pgp: { module: '/src/pgp.js', members: ['decrypt'] } } };
   const diags = (html: string) => compile(html, {

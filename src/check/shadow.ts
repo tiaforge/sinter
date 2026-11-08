@@ -280,7 +280,7 @@ export type Ev<K extends string> = K extends keyof HTMLElementEventMap ? HTMLEle
  */
 export type RunEvent<E> = E | void;
 export interface Store<R> {
-  refresh(name: keyof R & string): void;
+  refresh(...names: [keyof R & string, ...(keyof R & string)[]]): void;
   upsert<K extends keyof R & string>(name: K, item: Item<R[K]>): void;
   patch<K extends keyof R & string>(name: K, item: Partial<Item<R[K]>>, set: Partial<Item<R[K]>>): void;
   remove<K extends keyof R & string>(name: K, item: Partial<Item<R[K]>>): void;

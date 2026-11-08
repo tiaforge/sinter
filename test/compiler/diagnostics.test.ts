@@ -101,6 +101,14 @@ describe('sandbox gaps closed', () => {
   });
 });
 
+test('refresh() with several names: each is a literal, declared resource', () => {
+  const msgs = (h: string) => diags(`${R}${use}${h}`).map((d) => `${d.code} ${d.message}`);
+  expect(msgs(`<button data-sn-on-click="refresh('contacts', 'messages')"></button>`)).toEqual([]);
+  expect(msgs(`<button data-sn-on-click="refresh('contacts', 'mesages')"></button>`)).toEqual(['SN301 resource `mesages` is not declared on this page. Did you mean `messages`?']);
+  expect(msgs(`<div data-sn-state="{ r: 'contacts' }"><button data-sn-on-click="refresh('contacts', r)"></button></div>`)).toEqual(['SN301 `refresh()` takes resource names as string literals']);
+  expect(msgs(`<button data-sn-on-click="refresh()"></button>`)).toEqual(['SN301 `refresh()` takes resource names as string literals']);
+});
+
 describe('<sn-event then>', () => {
   const codes = (events: string) => diags(`${R}${use}<dialog id="detail"></dialog><main data-sn-state="{ sel: null }"><p data-sn-text="sel"></p>
     <sn-sync src="/api/events">${events}</sn-sync></main>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
@@ -331,6 +339,8 @@ describe('SN507 complex expressions', () => {
       `<button data-sn-on-click="open ? close('person') : showModal('person')"></button>`,
       `<div data-sn-state="{ draft: { name: '', emails: [{ value: '', type: 'home' }], phones: [], tags: ['a', 'b', 'c'], nested: { a: 1, b: { c: 2 } } } }"><p data-sn-text="draft.name"></p></div>`,
       `<button data-sn-on-click="d = { tags: [...d.tags, q.trim()], title: q, size: n + 1, open: !open }"></button>`,
+      // a resource list is one call: one statement, however many names
+      `<sn-resource name="a" src="/a"></sn-resource><sn-resource name="b" src="/b"></sn-resource><sn-resource name="c" src="/c"></sn-resource><p data-sn-text="a + b + c"></p><button data-sn-on-click="n++; open = false; sel = null; refresh('people', 'a', 'b', 'c')"></button>`,
     ]) expect(warned(body), body).toEqual([]);
   });
 

@@ -267,6 +267,11 @@ describe('run() diagnostics', () => {
       'SN509 `run()` cycle: `#a` `data-sn-then` (page.html:4) runs `#b`, then `#b` `data-sn-catch` (page.html:5) runs `#a`, which starts the first step again',
       'SN509 `run()` cycle: `#self` `data-sn-catch` (page.html:6) runs `#self`, which starts the first step again',
     ]);
+    // every name of refresh('a', 'b') is an edge
+    expect(diags(`<sn-resource name="a" src="/a"></sn-resource><sn-resource name="body" src="/b" then="run('mark')"></sn-resource><p data-sn-text="a + body"></p>
+<span id="mark" data-sn-post="/m" data-sn-then="refresh('a', 'body')"></span>`, true)).toEqual([
+      'SN509 `run()` cycle: `<sn-resource name="body">` `then` (page.html:1) runs `#mark`, then `#mark` `data-sn-then` (page.html:2) refreshes `body`, which starts the first step again',
+    ]);
     // refresh alone is not a run() cycle
     expect(diags('<sn-resource name="r" src="/r" then="refresh(\'r\')"></sn-resource>', true)).toEqual([]);
   });

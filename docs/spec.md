@@ -571,7 +571,7 @@ An action is an element with one method attribute; it sends a request when its t
 
 | Function | Effect |
 | --- | --- |
-| `refresh('contacts')` | refetch a resource |
+| `refresh('contacts')`, `refresh('messages', 'unread')` | refetch each named resource (string literals; one call, one statement for `SN507`) |
 | `upsert('contacts', $result)` | insert or replace an item |
 | `patch('contacts', item, {…})` | change fields of an item |
 | `remove('contacts', item)` | remove an item |

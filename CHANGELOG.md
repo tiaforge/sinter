@@ -3,6 +3,16 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Added
+
+- `refresh()` takes several names: `refresh('messages', 'results', 'unread')` refetches each
+  named resource, instead of one `refresh()` statement per resource. Every name is a string
+  literal naming a resource of the page (`SN301` otherwise, with a did-you-mean); the call is one
+  statement for `SN507`, however many names it lists, and each name is an edge for `SN509`.
+  `sinter check` types it as `refresh(...names)`. Core +8 B gzip.
+
 ## 0.5.0 (2026-11-08)
 
 ### Added
