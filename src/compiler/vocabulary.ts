@@ -44,6 +44,6 @@ export const DEBOUNCE_ON_DOC: AttrDoc = { name: 'debounce-<event>', value: 'mill
 export const ELEMENTS: Array<{ name: string; attrs: string[]; doc: string }> = [
   { name: 'sn-resource', attrs: ['name', 'src', 'call', 'each', 'key', 'items', 'total', 'order', 'when', 'paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'type', 'cache'], doc: 'a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates' },
   { name: 'sn-sync', attrs: ['src'], doc: 'one server event stream' },
-  { name: 'sn-event', attrs: ['name', 'resource', 'op', 'item', 'set', 'when', 'fallback', 'type'], doc: 'maps one server event to a change message; child of <sn-sync>' },
+  { name: 'sn-event', attrs: ['name', 'resource', 'op', 'item', 'set', 'when', 'fallback', 'then', 'type'], doc: 'maps one server event to a change message; child of <sn-sync>. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close(\'detail\'); with `then`, `resource` and `op` may be left out' },
   { name: 'sn-include', attrs: ['src'], doc: 'inlines a partial at build time' },
 ];

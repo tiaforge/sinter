@@ -148,6 +148,8 @@ export interface App {
   record(change: () => void): () => void;
   storeFns(el: Element | null): Record<string, (...a: any[]) => unknown>;
   serverEvent(name: string, payload: unknown): void;
+  /** runs handler `f` in `scope` and invalidates the paths it writes */
+  run(f: number, scope: any, writes?: string[]): void;
   addCleanup(fn: () => void): void;
 }
 
@@ -455,6 +457,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }),
     serverEvent(name, payload) {
       for (const fn of listeners.get(name) ?? []) try { fn(payload); } catch (e) { console.error(e); }
+    },
+    run(f, s, writes) {
+      try { fns[f]!(s); } catch (err) { console.error(err); }
+      for (const w of writes ?? []) app.mark(w, s);
+      if (writes?.some((w) => w.startsWith('$url'))) writeUrl();
     },
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),
@@ -894,10 +901,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Runs a handler expression and invalidates what it may have changed. */
   function handle(rb: RB, f: number, e: Event | null, writes: string[] | undefined, extra?: object) {
-    const s = child(rb.s, { $el: rb.el, $event: e, $f: app.storeFns(rb.el), ...extra });
-    try { fns[f]!(s); } catch (err) { console.error(err); }
-    for (const w of writes ?? []) app.mark(w, s);
-    if (writes?.some((w) => w.startsWith('$url'))) writeUrl();
+    app.run(f, child(rb.s, { $el: rb.el, $event: e, $f: app.storeFns(rb.el), ...extra }), writes);
   }
 
   /** A debounced handler: runs once `ms` after the last event, with that event. */

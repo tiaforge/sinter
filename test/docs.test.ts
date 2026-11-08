@@ -43,6 +43,7 @@ Package: @tiaforge-ui/sinter. Every directive is a \`data-sn-*\` attribute or an
 
 - Attribute values are JavaScript expressions, checked at build time. Value expressions (text, attr, class, show, for, if, key, body, state, URL interpolations) cannot assign, use \`++\`, \`delete\`, \`await\` or \`import()\`.
 - Handlers (\`data-sn-on-*\`, \`then\`, \`catch\`) are statements separated by \`;\`: assignments to state, \`$url.<param>\` and \`$locale\`, and calls. No declarations or loops.
+- \`then\` on \`<sn-event>\` is a handler run after the event's change is applied: payload fields are bare names, the state around the \`<sn-sync>\` is in scope and assignable, store functions work (\`close('id')\` names its dialog: there is no element). With \`then\`, \`resource\` and \`op\` may be left out.
 - \`data-sn-optimistic\` may only call \`patch\`, \`upsert\`, \`remove\`.
 - A name resolves innermost first: loop variables, then the nearest \`data-sn-state\`, then resources, then magic names, helpers and store functions, then JavaScript globals. Browser APIs (\`window\`, \`document\`, \`fetch\`, timers, …) are refused: use an island.
 - Resources are read-only: copy an item with \`structuredClone(c)\` to edit it, write with \`patch()\`.
@@ -80,7 +81,7 @@ Each recipe comes with its test; copy both.
 - \`sinter({ openapi: 'openapi.yml' })\`: resources without \`type\` are matched to a GET operation by \`src\` (server prefix stripped, \`{…}\` matches a path parameter) and typed from its JSON response at \`items\`. Every build then checks \`items\`/\`total\` against the schema (SN308) and query parameter names (SN505).
 - State takes a JSDoc cast where the literal is not enough: \`data-sn-state="{ editing: /** @type {Contact|null} */ (null) }"\`.
 - Actions matched in the spec: \`data-sn-body\` is checked against the request schema, \`$result\` in \`then\` has the response type.
-- \`<sn-event … type="ContactEvent">\` types the payload; \`item\` must fit the resource's item, \`set\` part of it; \`cursor\` reads the item. No \`type\` on an event with payload expressions is warning SN506.
+- \`<sn-event … type="ContactEvent">\` types the payload; \`item\` must fit the resource's item, \`set\` part of it, and \`then\` is checked against it; \`cursor\` reads the item. No \`type\` on an event with payload expressions is warning SN506.
 - Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: \`checkPage(html, { files, openapi })\` from \`@tiaforge-ui/sinter/check\`.
 `);
   out.push(`## Deploying streams

@@ -47,12 +47,16 @@ export interface ResourceDef {
 
 export interface EventDef {
   name: string;
-  resource: string;
-  op: 'upsert' | 'patch' | 'remove' | 'refetch';
+  /** null for an event that only runs `then` */
+  resource: string | null;
+  op: 'upsert' | 'patch' | 'remove' | 'refetch' | null;
   item: number | null;
   set: number | null;
   when: number | null;
   fallback: 'refetch' | null;
+  /** `then`: handler run after the change is applied; `w`: the state paths it writes */
+  then?: number;
+  w?: string[];
 }
 
 export interface SyncDef {
@@ -201,9 +205,14 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     url(s.src, `syncs[${i}].src`);
     s.events.forEach((e, j) => {
       const at = `syncs[${i}].events[${j}]`;
-      if (!names.has(e.resource)) errs.push(`${at}: unknown resource ${e.resource}`);
-      if (!['upsert', 'patch', 'remove', 'refetch'].includes(e.op)) errs.push(`${at}: bad op`);
-      fn(e.item, `${at}.item`); fn(e.set, `${at}.set`); fn(e.when, `${at}.when`);
+      // without a resource and op, the event only runs `then`
+      if (e.resource === null && e.op === null) { if (e.then === undefined) errs.push(`${at}: needs a resource or then`); }
+      else {
+        if (!names.has(e.resource!)) errs.push(`${at}: unknown resource ${e.resource}`);
+        if (!['upsert', 'patch', 'remove', 'refetch'].includes(e.op!)) errs.push(`${at}: bad op`);
+      }
+      fn(e.item, `${at}.item`); fn(e.set, `${at}.set`); fn(e.when, `${at}.when`); fn(e.then, `${at}.then`);
+      for (const d of e.w ?? []) if (typeof d !== 'string' || !d) errs.push(`${at}: bad path`);
     });
   });
   const kinds = new Set(['text', 'attr', 'class', 'style', 'show', 'model', 'prop', 'for', 'if', 'else', 'on']);

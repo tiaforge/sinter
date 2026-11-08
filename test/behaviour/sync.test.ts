@@ -286,3 +286,62 @@ test('<sn-sync>s with different stream URLs keep their own connections', async (
   await flush();
   expect(names(root)).toEqual(['Ada', 'Bob']);
 });
+
+test('`then` on <sn-event> runs after the change, with the payload and the sync\'s state in scope', async () => {
+  // Caley: a removed contact closes the detail dialog that shows it
+  const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }, { id: 2, name: 'Bob' }] } });
+  const stream = mockStream();
+  let app: any;
+  const seen: unknown[] = [];
+  const r = await render(`<main data-sn-state="{ sel: null, removed: 0 }">
+    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
+    <sn-sync src="/api/events/stream">
+      <sn-event name="contact_removed" resource="contacts" op="remove"
+                then="removed++; seen(id); sel?.id === id && (sel = null, close('detail'))"></sn-event>
+    </sn-sync>
+    <ul><template data-sn-for="c in contacts"><li data-sn-on-click="sel = c; showModal('detail')" data-sn-text="c.name"></li></template></ul>
+    <p data-sn-text="removed + ' ' + (sel?.name ?? '-')"></p>
+    <dialog id="detail"><h2 data-sn-text="sel?.name"></h2></dialog></main>`, {
+    requests, streams: { '/api/events/stream': stream },
+    helpers: { seen: (id: number) => seen.push([id, app.resource('contacts').all().map((c: any) => c.name)]) },
+  });
+  app = r.app;
+  await r.settle();
+  r.root.querySelectorAll('li')[1]!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await r.flush();
+  const dialog = r.root.querySelector('dialog')!;
+  expect(dialog.open).toBe(true);
+  expect(dialog.querySelector('h2')!.textContent).toBe('Bob');
+
+  // another contact: the dialog stays open; the state write re-renders
+  stream.emit('contact_removed', { id: 1 });
+  await r.flush();
+  expect(dialog.open).toBe(true);
+  expect(r.root.querySelector('p')!.textContent).toBe('1 Bob');
+  // the one it shows: the handler sees the list without it, clears `sel` and closes the dialog
+  stream.emit('contact_removed', { id: 2 });
+  await r.flush();
+  expect(seen).toEqual([[1, ['Bob']], [2, []]]);
+  expect(dialog.open).toBe(false);
+  expect(r.root.querySelector('p')!.textContent).toBe('2 -');
+});
+
+test('`then` without resource and op only runs the handler; `when` gates it; a payload that cannot apply skips it', async () => {
+  const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] } });
+  const stream = mockStream();
+  const { root, flush } = await render(`<main data-sn-state="{ last: '', n: 0 }">
+    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
+    <sn-sync src="/api/events/stream">
+      <sn-event name="notice" then="last = text" when="text !== 'skip'"></sn-event>
+      <sn-event name="contact_removed" resource="contacts" op="remove" then="n++"></sn-event>
+    </sn-sync>
+    <p data-sn-text="last + ' ' + n + ' ' + contacts.length"></p></main>`, { requests, streams: { '/api/events/stream': stream } });
+  const text = () => root.querySelector('p')!.textContent;
+  await flush();
+  stream.emit('notice', { text: 'hello' });
+  stream.emit('notice', { text: 'skip' });
+  // no key in the payload: nothing is removed and `then` does not run
+  stream.emit('contact_removed', {});
+  await flush();
+  expect(text()).toBe('hello 0 0');
+});

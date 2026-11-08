@@ -130,7 +130,7 @@ Every attribute value that is not a URL or a name is a JavaScript expression, pa
 | Kind | Used in | Allowed | Refused |
 | --- | --- | --- | --- |
 | Value | `text`, `attr`, `class`, `show`, `prop`, `for` (after `in`), `if`, `key`, `body`, `state`, resource `when` and `cursor`, `<sn-event>` `item`, `set` and `when`, URL interpolations | any JS expression, `new` on allowed globals, arrow functions as arguments, template strings, `?.`, `??` | assignment, `++`/`--`, `delete`, `await`, `import()` |
-| Handler | `on-*`, `then`, `catch`, `optimistic` | statements separated by `;`, assignment to state variables, calls to store and action functions | declarations (`let`, `const`, `function`), loops, `await` |
+| Handler | `on-*`, `then`, `catch`, `optimistic`, `<sn-event>` `then` | statements separated by `;`, assignment to state variables, calls to store and action functions | declarations (`let`, `const`, `function`), loops, `await` |
 
 Value expressions must be side-effect free, so the runtime may evaluate them any number of times.
 
@@ -275,7 +275,7 @@ Text-like controls update on `input`, all others on `change`.
 | --- | --- | --- |
 | `<sn-resource>` | `name`, `src`, `key`, `items`, `total`, `order`, `when`, pagination attributes | see Resources and Pagination |
 | `<sn-sync>` | `src` | one server event stream |
-| `<sn-event>` (child of `<sn-sync>`) | `name`, `resource`, `op`, `item`, `set`, `when`, `fallback` | maps one server event to a change message |
+| `<sn-event>` (child of `<sn-sync>`) | `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type` | maps one server event to a change message, and runs `then` after it |
 | `<sn-include>` | `src` | inlines a partial at build time; see Partials |
 
 Custom elements with a hyphen are valid HTML, so these pass a validator before compilation.
@@ -428,8 +428,24 @@ Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `i
 | `set` | object literal for `patch`, e.g. `{flags, is_read: flags.includes('\\Seen')}` |
 | `when` | value expression; skip the event unless truthy, e.g. `mailbox === $url.mailbox` |
 | `fallback` | `refetch` when `item` evaluates to null (for servers that send some updates without a body) |
+| `then` | handler expression, run after the change is applied (see Handlers on server events) |
+| `type` | the payload's type, for `sinter check` (see Type checking) |
 
 For `patch` and `remove`, the key is read from the payload using the resource's `key` fields. On an `each` resource, `refetch` reloads only the source the payload resolves to (see Fan-out resources). Events with no `<sn-event>` are still dispatched to islands (see JS API).
+
+### Handlers on server events
+`then` on `<sn-event>` is a handler expression, like `data-sn-then` on an action, run after the event's change is applied to the store (for `refetch`: once the reload is requested; it does not wait for it). It sees the same scope as the event's other attributes: payload fields as bare names and the state around the `<sn-sync>`, which it may assign. It runs for every event that passes `when`; not when the payload cannot be applied (a `patch` or `remove` without the key fields, an `upsert` without an item and no `fallback`). With `then`, `resource` and `op` may be left out: the event only runs its handler. (Added 2026-11-08, for Caley's detail dialogs.)
+```html
+<body data-sn-state="{ sel: null, notice: '' }">
+  <sn-sync src="/api/events/stream">
+    <sn-event name="contact_removed" resource="contacts" op="remove" type="ContactRemoved"
+              then="sel?.uid === uid && (sel = null, close('contact-detail'))"></sn-event>
+    <sn-event name="notice" type="Notice" then="notice = text"></sn-event>
+  </sn-sync>
+```
+- Store functions are in scope (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close('id')`), and their names win over payload fields. There is no element, so `close()` names its dialog and `reset()` and `emit()` are errors (`SN203`); `$event` and `$result` are not defined here, and assigning to a payload field is an error.
+- State writes re-render what reads them, as from any handler. Bindings inside a dialog the handler closes keep their last values until it opens again.
+- Islands still receive the event through `app.on(name)`, after every mapping has run.
 
 ### Connection rules
 - One connection per stream URL per page, however many elements use it: `<sn-sync>` elements whose `src` resolves to the same URL (at connect time, after the page mounts) share one transport, and all their `<sn-event>` mappings apply, each evaluated in its own `<sn-sync>`'s scope. An event mapped by several of them applies once per mapping; islands receive it once.
@@ -891,7 +907,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 - `sinter check` reads the pages and options from the Vite config, or takes pages as arguments. `sinter({ typecheck: true })` runs it at the end of `vite build` and fails the build on errors.
 - OpenAPI: `sinter({ openapi: 'openapi.yml' })` (or a list, one per API; local JSON or YAML files, so builds stay deterministic). A resource without `type` is matched to a GET operation: the `servers` URL prefix is stripped from `src`, the query string dropped, literal segments match literally, a segment that is one interpolation matches a `{param}`, and a literal path beats a templated one. Its type is the first 2xx JSON response's schema at `items`, converted to TypeScript by sinter (named schemas become named types). The match runs in every build, not only in the check: an `items` or `total` the schema lacks is `SN308`, a literal query parameter the operation does not declare is warning `SN505`. No match leaves the resource untyped (`SN504`, naming the closest path).
 - Actions are matched like resources, with their own method: `data-sn-body` must fit the JSON request schema, and `$result` in `then` has the response's type (`any` without a match).
-- Server events: `type` on `<sn-event>` types the payload, using the types module's names. `item` must be assignable to the resource's item and `set` to a part of it, so a payload that does not fit the resource is an error. `cursor` reads the resource's own item. An event with payload expressions and no `type` is warning `SN506`; `type="any"` opts out.
+- Server events: `type` on `<sn-event>` types the payload, using the types module's names. `item` must be assignable to the resource's item and `set` to a part of it, so a payload that does not fit the resource is an error. `then` is checked with the payload and the state around the `<sn-sync>` in scope. `cursor` reads the resource's own item. An event with payload expressions and no `type` is warning `SN506`; `type="any"` opts out.
 - `checkPage(html, { files, types, openapi })` from `@tiaforge-ui/sinter/check` runs the same check on one page in a temporary project, for tests.
 
 ### Dev runtime

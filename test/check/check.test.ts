@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { compile, readHelperManifest } from '../../src/compiler/index.js';
-import { check, findTsc, typeExports } from '../../src/check/index.js';
+import { check, checkPage, findTsc, typeExports } from '../../src/check/index.js';
 import { schemaToTs, specDeclarations } from '../../src/check/openapi-types.js';
 import { project as projectOf } from '../../src/project.js';
 
@@ -110,6 +110,18 @@ describe('sinter check', () => {
     const d = run(sync('account_id === sel'), { 'src/sinter.types.ts': types }).diagnostics;
     expect(d).toHaveLength(1);
     expect(d[0]!.message).toMatch(/state `account_id` shadows the payload field `account_id`: rename the state/);
+  });
+
+  test('sn-event `then`: the typed payload and the state are checked; SN506 without a type', () => {
+    const files = { 'src/sinter.types.ts': `${TYPES}export interface Removed { id: number }\n` };
+    const html = (then: string, type = ' type="Removed"') => page(`<main data-sn-state="{ sel: /** @type {Contact|null} */ (null), last: '' }">
+<sn-sync src="/api/events"><sn-event name="r" resource="contacts" op="remove"${type} then="${then}"></sn-event></sn-sync>
+<dialog id="detail"></dialog><p data-sn-text="contacts.length + (sel?.name ?? last)"></p></main>`);
+    expect(checkPage(html("sel?.id === id && (sel = null, close('detail'))"), { files })).toEqual([]);
+    const errors = (then: string, type?: string) => checkPage(html(then, type), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    expect(errors('last = id')).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
+    expect(errors('sel?.id === uid && close(\'detail\')')).toEqual([expect.stringMatching(/^SN208 Property 'uid' does not exist on type 'Removed'/)]);
+    expect(errors('last = id', '')).toEqual(['SN506 event `r` has no type: expressions reading its payload are not checked']);
   });
 
   test('<sn-resource call>: the result at `items` must fit `type`; without `type` it is the type', () => {

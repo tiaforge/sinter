@@ -264,7 +264,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       const r = page.resources.get(name);
       if (r) { r.used = true; return { kind: 'resource' }; }
     }
-    if (STORE_FNS.includes(name) && !opts.payload) return { kind: 'store' };
+    // an <sn-event> `then` calls store functions; its value expressions do not
+    if (STORE_FNS.includes(name) && (!opts.payload || mode === 'handler')) return { kind: 'store' };
     if (page.namespaces.has(name)) return { kind: 'ns' };
     if (page.helpers.has(name) || BUILTIN_HELPERS.includes(name)) return { kind: 'helper' };
     if (GLOBALS.has(name)) return { kind: 'global' };
@@ -643,6 +644,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     const first = n.arguments[0];
+    // an <sn-event> handler has no element: no nearest dialog or form, nothing to dispatch from
+    if (opts.payload && (name === 'reset' || name === 'emit' || (name === 'close' && !first))) {
+      report('SN203', `\`${name}()\` needs an element; an \`<sn-event>\` handler has none${name === 'close' ? `: name the dialog, \`close('id')\`` : ''}`, n.start);
+      return;
+    }
     if (name === 'showModal' || (name === 'close' && first)) {
       if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
         report('SN309', `\`${name}()\` takes the dialog's \`id\` as a string literal`, n.start);

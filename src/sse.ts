@@ -79,7 +79,7 @@ class Connection {
         this.everOpen = true;
         if (!custom) this.app.streamOpened?.(this.url);
         // events sent while disconnected are lost: refetch everything this stream feeds
-        if (reconnect) for (const name of new Set(subs.map((e) => e.resource))) void this.app.resource(name).refetch();
+        if (reconnect) for (const name of new Set(subs.map((e) => e.resource))) if (name) void this.app.resource(name).refetch();
       } else {
         t.close();
         this.t = null;
@@ -125,41 +125,47 @@ class Connection {
     const app = this.app;
     const scope = Object.create(base);
     scope.$p = payload && typeof payload === 'object' ? payload : {};
-    const r = app.resource(def.resource);
     try {
       if (def.when != null && !app.fns[def.when]!(scope)) return;
-      const paginated = !!app.ir.resources.find((x) => x.name === def.resource)?.paginate;
-      switch (def.op) {
-        case 'refetch':
-          void r.refetch(scope.$p);
-          return;
-        case 'upsert': {
-          const item = def.item != null ? app.fns[def.item]!(scope) : payload;
-          if (item == null || typeof item !== 'object') {
-            if (def.fallback === 'refetch') void r.refetch(scope.$p);
-            return;
-          }
-          if (paginated && !r.has(item as object)) { void r.refetch(); return; }
-          r.upsert(clean(item) as object);
-          return;
-        }
-        case 'patch': {
-          if (r.isCollection && !this.hasKey(r.key!, scope.$p, def)) return;
-          const key = r.keyOf(scope.$p);
-          if (r.isCollection && !r.has(key)) return;
-          r.patch(key, clean(app.fns[def.set!]!(scope)));
-          return;
-        }
-        case 'remove': {
-          if (r.isCollection && !this.hasKey(r.key!, scope.$p, def)) return;
-          const key = r.keyOf(scope.$p);
-          r.remove(key);
-          return;
-        }
-      }
+      // `then` runs once the change is applied (a refetch: requested), unless the payload could not be applied
+      if (def.resource && !this.change(def, def.resource, scope, payload)) return;
+      if (def.then != null) app.run(def.then, scope, def.w);
     } catch (e) {
       app.warn(`event \`${def.name}\` could not be applied: ${(e as Error).message}`, payload);
     }
+  }
+
+  /** Applies the event's change message; false when the payload lacks what it needs. */
+  private change(def: EventDef, name: string, scope: any, payload: unknown): boolean {
+    const app = this.app;
+    const r = app.resource(name);
+    const paginated = !!app.ir.resources.find((x) => x.name === name)?.paginate;
+    switch (def.op) {
+      case 'refetch':
+        void r.refetch(scope.$p);
+        break;
+      case 'upsert': {
+        const item = def.item != null ? app.fns[def.item]!(scope) : payload;
+        if (item == null || typeof item !== 'object') {
+          if (def.fallback !== 'refetch') return false;
+          void r.refetch(scope.$p);
+        } else if (paginated && !r.has(item as object)) void r.refetch();
+        else r.upsert(clean(item) as object);
+        break;
+      }
+      case 'patch': {
+        if (r.isCollection && !this.hasKey(r.key!, scope.$p, def)) return false;
+        const key = r.keyOf(scope.$p);
+        if (!r.isCollection || r.has(key)) r.patch(key, clean(app.fns[def.set!]!(scope)));
+        break;
+      }
+      case 'remove': {
+        if (r.isCollection && !this.hasKey(r.key!, scope.$p, def)) return false;
+        r.remove(r.keyOf(scope.$p));
+        break;
+      }
+    }
+    return true;
   }
 
   private hasKey(fields: string[], payload: Record<string, unknown>, def: EventDef): boolean {

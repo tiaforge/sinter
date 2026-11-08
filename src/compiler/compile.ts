@@ -749,7 +749,8 @@ class Compiler {
     }
     let event: string | null = null;
     if (attrName.startsWith('data-sn-on-')) event = attrName.slice('data-sn-on-'.length);
-    else if (o.mode !== 'value' || o.magic?.includes('$event')) {
+    // an <sn-event> handler runs for a server event, not a DOM event
+    else if ((o.mode !== 'value' || o.magic?.includes('$event')) && el.tagName !== 'sn-event') {
       event = attr(el, 'data-sn-trigger') ?? (el.tagName === 'form' ? 'submit' : FORM_CONTROLS.has(el.tagName) ? 'change' : 'click');
     }
     const e: CheckExpr = {
@@ -1148,30 +1149,34 @@ class Compiler {
       if (!EVENT_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-event>\`.${didYouMean(a.name, EVENT_ATTRS)}`, 0);
     }
     const name = attr(el, 'name');
-    const resource = attr(el, 'resource');
-    const op = attr(el, 'op') as EventDef['op'] | undefined;
+    const resource = attr(el, 'resource') ?? null;
+    const op = (attr(el, 'op') ?? null) as EventDef['op'];
     if (!name) { this.report(el, null, 'SN401', '`<sn-event>` needs `name`', 0); return null; }
-    if (!resource || !this.page.resources.has(resource)) {
+    // with `then`, an event may only run its handler
+    const only = resource === null && op === null && attr(el, 'then') != null;
+    if (!only && (!resource || !this.page.resources.has(resource))) {
       this.report(el, 'resource', 'SN301', `resource \`${resource ?? ''}\` is not declared on this page.${didYouMean(resource ?? '', this.page.resources.keys())}`, 0);
       return null;
     }
-    if (!op || !['upsert', 'patch', 'remove', 'refetch'].includes(op)) {
+    if (!only && (!op || !['upsert', 'patch', 'remove', 'refetch'].includes(op))) {
       this.report(el, 'op', 'SN401', '`op` is `upsert`, `patch`, `remove` or `refetch`', 0);
       return null;
     }
     const scope = ctx.scope;
     const typeAttr = attr(el, 'type')?.trim() || null;
     const payloadType: TypeRef | null = typeAttr && typeAttr !== 'any' ? { kind: 'ts', text: typeAttr, loc: this.locOf(el, 'type') } : null;
-    if (this.check && !typeAttr && ['item', 'set', 'when'].some((n) => attr(el, n) != null)) {
+    if (this.check && !typeAttr && ['item', 'set', 'when', 'then'].some((n) => attr(el, n) != null)) {
       this.report(el, null, 'SN506', `event \`${name}\` has no type: expressions reading its payload are not checked`, 0,
         'add `type="…"` with the payload type from the types module, or `type="any"` to leave it unchecked');
     }
+    let writes: string[] = [];
     const fnOf = (n: string, object = false) => {
       if (attr(el, n) == null) return null;
-      const r = this.expr(el, n, scope, { mode: 'value', payload: true, payloadState: true });
+      const r = this.expr(el, n, scope, { mode: n === 'then' ? 'handler' : 'value', payload: true, payloadState: true });
+      writes = r.writes;
       this.typeLast({
         payload: payloadType,
-        ...(n === 'item' ? { returns: { kind: 'item', resource } } : n === 'set' ? { returns: { kind: 'item', resource, partial: true } } : {}),
+        ...(!resource ? {} : n === 'item' ? { returns: { kind: 'item', resource } } : n === 'set' ? { returns: { kind: 'item', resource, partial: true } } : {}),
       });
       if (object && r.ast && r.ast.type !== 'ObjectExpression') this.report(el, n, 'SN401', `\`${n}\` must be an object literal`, 0);
       return this.fn(r.code);
@@ -1183,7 +1188,12 @@ class Compiler {
     if (op === 'patch' && set === null) this.report(el, null, 'SN401', '`op="patch"` needs `set`', 0);
     const fallback = attr(el, 'fallback');
     if (fallback != null && fallback !== 'refetch') this.report(el, 'fallback', 'SN401', '`fallback` takes `refetch`', 0);
-    return { name, resource, op, item, set, when: fnOf('when'), fallback: fallback === 'refetch' ? 'refetch' : null };
+    const when = fnOf('when');
+    const then = fnOf('then');
+    return {
+      name, resource, op, item, set, when, fallback: fallback === 'refetch' ? 'refetch' : null,
+      ...(then !== null ? { then, ...(writes.length ? { w: writes } : {}) } : {}),
+    };
   }
 
   injectScript(doc: DefaultTreeAdapterMap['document']) {

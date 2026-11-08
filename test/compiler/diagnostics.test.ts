@@ -97,6 +97,28 @@ describe('sandbox gaps closed', () => {
   });
 });
 
+describe('<sn-event then>', () => {
+  const codes = (events: string) => diags(`${R}${use}<dialog id="detail"></dialog><main data-sn-state="{ sel: null }"><p data-sn-text="sel"></p>
+    <sn-sync src="/api/events">${events}</sn-sync></main>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
+  test('a handler: state writes, store functions and payload fields; with `then`, resource and op may be left out', () => {
+    expect(codes(`<sn-event name="r" resource="contacts" op="remove" then="sel?.id === id && (sel = null, close('detail')); refresh('messages')"></sn-event>`)).toEqual([]);
+    expect(codes(`<sn-event name="n" then="sel = id"></sn-event>`)).toEqual([]);
+    expect(codes(`<sn-event name="n" when="id = 1"></sn-event>`)).toEqual([expect.stringMatching(/^SN301 resource `` is not declared/)]);
+  });
+  test('errors: unknown dialogs, element-less store functions, payload writes, a misspelt attribute', () => {
+    expect(codes(`<sn-event name="n" then="close('detial')"></sn-event>`)).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page. Did you mean `detail`\?/)]);
+    expect(codes(`<sn-event name="n" then="close(); reset(); emit('x')"></sn-event>`)).toEqual([
+      "SN203 `close()` needs an element; an `<sn-event>` handler has none: name the dialog, `close('id')`",
+      'SN203 `reset()` needs an element; an `<sn-event>` handler has none',
+      'SN203 `emit()` needs an element; an `<sn-event>` handler has none',
+    ]);
+    expect(codes(`<sn-event name="n" then="id = 2"></sn-event>`)).toEqual([expect.stringMatching(/^SN203 `id` cannot be assigned/)]);
+    expect(codes(`<sn-event name="n" then="$event.x"></sn-event>`)).toEqual([expect.stringMatching(/^SN201 `\$event` is not available here/)]);
+    expect(codes(`<sn-event name="r" resource="contacts" op="remove" thn="sel = null"></sn-event>`))
+      .toEqual(['SN101 `thn` is not an attribute of `<sn-event>`. Did you mean `then`?']);
+  });
+});
+
 describe('positions', () => {
   test('point into the attribute value', () => {
     const d = diags('<div>\n  <p data-sn-text="1 + contcts"></p>\n</div>')[0]!;

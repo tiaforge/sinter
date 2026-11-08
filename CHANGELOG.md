@@ -3,6 +3,19 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Added
+
+- `then` on `<sn-event>`: a handler expression run after the event's change is applied to the
+  store, in the event's scope (payload fields as bare names, the state around the `<sn-sync>`,
+  assignable). Store functions work in it; with no element, `close()` must name its dialog and
+  `reset()`/`emit()` are `SN203`. With `then`, `resource` and `op` may be left out, so an event
+  can only run a handler. `sinter check` types it with the payload's `type`, and an untyped
+  event with `then` is `SN506`. For pages that close a detail dialog when the item it shows is
+  removed: `then="sel?.uid === uid && (sel = null, close('contact-detail'))"`. The sse module
+  grows by 51 B gzip, the core by 8 B.
+
 ## 0.3.2 (2026-11-08)
 
 ### Fixed
