@@ -1,5 +1,37 @@
 # js-framework-benchmark results
 
+## 2026-11-08, rank in the official Chrome 156 table
+
+`bench/js-framework-benchmark/rank.mjs` places a local run into the official results
+(`webdriver-ts/results.json` of the checkout, 207 keyed frameworks): every framework is scored by
+the geometric mean of its ratios to vanillajs measured on the same machine, which ranks like the
+official score. sinter 0.8.0 and vanillajs, headless Chrome 156 (flatpak), 10 iterations, Steam Deck:
+
+| | rank of 208 | for comparison (official) |
+| --- | ---: | --- |
+| CPU, 9 benchmarks | 46 | vue-vapor 35, solid 50, svelte 5 75, vue 95, lit 106, react-hooks 161 |
+| memory, 3 benchmarks | 56 | solid 36, lit 71, svelte 5 81, vue 134, react-hooks 161 |
+
+| benchmark | sinter / vanillajs | svelte 5 | solid | react-hooks |
+| --- | ---: | ---: | ---: | ---: |
+| 01 create 1k | 1.03 | 1.10 | 1.08 | 1.24 |
+| 02 replace 1k | 1.07 | 1.16 | 1.11 | 1.36 |
+| 03 update every 10th | 1.02 | 1.17 | 1.13 | 1.57 |
+| 04 select row | 1.59 | 1.85 | 1.19 | 2.04 |
+| 05 swap rows | 1.54 | 1.18 | 1.15 | 7.97 |
+| 06 remove row | 0.80 | 1.07 | 1.04 | 1.15 |
+| 07 create 10k | 1.01 | 1.11 | 1.10 | 1.68 |
+| 08 append 1k | 1.11 | 1.09 | 1.08 | 1.23 |
+| 09 clear 1k | 1.09 | 1.32 | 1.32 | 2.14 |
+| 21 ready memory | 1.19 | 1.20 | 1.05 | 2.12 |
+| 22 run memory (1k rows) | 1.34 | 1.54 | 1.44 | 2.38 |
+| 25 run-clear memory | 1.42 | 1.52 | 1.19 | 3.07 |
+
+Paint time on this machine is noisy (10 runs, not the official 15), so the CPU rank is a band of
+about 35–60. Swap rows (1.54; 1.0 against svelte on 2026-11-04) is the outlier to look at; remove
+row below vanillajs is noise. Memory: 0.68 MB ready, 2.51 MB with 1,000 rows, 0.91 MB after
+creating and clearing them five times (vanillajs 0.57 / 1.87 / 0.64).
+
 ## 2026-11-06, flush per root binding
 
 Only bindings inside a `<dialog>` (marked by the compiler) check for a closed one; each binding
