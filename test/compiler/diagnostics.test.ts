@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { compile, compileParts, CODES } from '../../src/compiler/index.js';
+import { compile, compileParts, CODES, type ComplexityOptions } from '../../src/compiler/index.js';
+import { complexityOf } from '../../src/project.js';
 
 const files: Record<string, string> = {
   '/p/partials/a.html': '<sn-include src="./b.html"></sn-include>',
@@ -13,11 +14,11 @@ const SPEC = { file: '/p/openapi.json', doc: {
     schema: { type: 'object', properties: { contacts: { type: 'array', items: { type: 'object' } }, total: { type: 'integer' } } } } } } } } } },
 } };
 
-interface Opts { check?: boolean; openapi?: boolean }
+interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions }
 
 function diags(html: string, o: Opts = {}) {
   return compile(html, {
-    file: '/p/page.html', root: '/p', dev: false, check: o.check, openapi: o.openapi ? [SPEC] : undefined,
+    file: '/p/page.html', root: '/p', dev: false, check: o.check, openapi: o.openapi ? [SPEC] : undefined, complexity: o.complexity,
     readFile: (p) => { if (!(p in files)) throw new Error('missing'); return files[p]!; },
     helpers: { module: '/h.js', names: ['fmt'], namespaces: { m: { module: '/m.js', members: ['inbox_title'] } } },
   }).diagnostics;
@@ -57,6 +58,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN503', `${R}${use}<template data-sn-for="c in contacts"><a data-sn-attr="{id: c.id}"></a></template>`, /`id` bound from data can shadow globals/],
   ['SN504', `${R}${use}`, /resource `contacts` has no type: expressions using it are not checked/, { check: true }],
   ['SN506', `${R}${use}<sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>`, /event `contact_updated` has no type: expressions reading its payload are not checked/, { check: true }],
+  ['SN507', '<div data-sn-state="{ a: 0 }"><button data-sn-on-click="a = 1; a = 2; a = 3; a = 4; a = 5" data-sn-text="a"></button></div>', /`data-sn-on-click` is too complex for markup: 5 statements in one handler \(limit `statements`: 4\)\. Move the logic into a helper/],
   ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
 ];
 
@@ -299,5 +301,61 @@ describe('key filters', () => {
     const on = r.ir.roots.flatMap((n) => n.b).filter((b) => b.k === 'on').map(({ n, q, m }) => ({ n, q, m }));
     expect(on).toEqual([{ n: 'keydown', q: 'Enter', m: 20 }, { n: 'keyup', q: '?', m: 32 }, { n: 'keydown', q: 'j', m: undefined }]);
     expect(r.features).toContain('keys');
+  });
+});
+
+describe('SN507 complex expressions', () => {
+  const page = (body: string) => `<sn-resource name="people" src="/api/p" key="id"></sn-resource>
+    <main data-sn-state="{ q: '', sel: null, n: 0, list: [], open: false, d: { tags: [] } }"><p data-sn-text="people.length + q + sel + n + list + open + d"></p>${body}</main>`;
+  const warned = (body: string, o: Opts = {}) => diags(page(body), o).filter((d) => d.code === 'SN507').map((d) => d.message.replace(/ Move the logic.*/, ''));
+
+  test('idiomatic expressions are left alone', () => {
+    for (const body of [
+      `<template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))"><li data-sn-on-click="sel = p; showModal('person')" data-sn-text="p.name"></li></template>`,
+      `<dialog id="person" data-sn-on-close="sel = null"></dialog><button data-sn-on-click="open && close('person')"></button>`,
+      `<button data-sn-on-click="sel = fmt(sel, n)"></button><button data-sn-on-click="n++; open = !open; sel = null; refresh('people')"></button>`,
+      `<p data-sn-class="{active: sel === q, muted: !open, big: n > 10 && !open}" data-sn-attr="{title: n ? fmt(n) : null, 'aria-pressed': open ? 'true' : 'false'}"></p>`,
+      `<p data-sn-text="n === 0 ? 'none' : n === 1 ? 'one' : 'many'"></p>`,
+      `<p data-sn-text="people.find(p => p.id === sel?.id && p.name !== q)?.name ?? ''"></p>`,
+      `<template data-sn-for="c in people.filter(c => !q || (c.fn_name + ' ' + c.org).toLowerCase().includes(q.toLowerCase()))"><i></i></template>`,
+      `<button data-sn-on-click="open ? close('person') : showModal('person')"></button>`,
+      `<div data-sn-state="{ draft: { name: '', emails: [{ value: '', type: 'home' }], phones: [], tags: ['a', 'b', 'c'], nested: { a: 1, b: { c: 2 } } } }"><p data-sn-text="draft.name"></p></div>`,
+      `<button data-sn-on-click="d = { tags: [...d.tags, q.trim()], title: q, size: n + 1, open: !open }"></button>`,
+    ]) expect(warned(body), body).toEqual([]);
+  });
+
+  test('each limit, named in the message', () => {
+    expect(warned(`<button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: 5 statements in one handler (limit `statements`: 4).']);
+    expect(warned(`<button data-sn-on-click="open && (sel = null, close())"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: a condition used as a statement runs 2 steps (limit `guarded`: 1).']);
+    expect(warned(`<button data-sn-on-click="open && (n ? close() : refresh('people'))"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: a condition used as a statement runs 2 steps (limit `guarded`: 1).']);
+    expect(warned(`<button data-sn-on-click="(sel = null, close())"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: 1 comma sequence `(a, b)` (limit `sequences`: 0).']);
+    expect(warned(`<p data-sn-text="n === 0 ? 'a' : n === 1 ? 'b' : n === 2 ? 'c' : 'd'"></p>`)).toEqual(['`data-sn-text` is too complex for markup: `?:` nested 3 deep (limit `ternaries`: 2).']);
+    expect(warned(`<p data-sn-text="people.filter(p => p.name.trim().toLowerCase().startsWith(q.trim().toLowerCase()) && !p.hidden && p.age * 2 > n).length"></p>`))
+      .toEqual(['`data-sn-text` is too complex for markup: 10 operations in one arrow function (limit `arrow`: 8).']);
+    expect(warned(`<p data-sn-text="people.map(p => { return p.name; }).join()"></p>`)).toEqual(['`data-sn-text` is too complex for markup: an arrow function with a block body `{ … }` (limit `arrow`).']);
+    expect(warned(`<p data-sn-text="(n + 1) * 2 - (n % 3) / 4 + fmt(n, n * 2) + fmt(n - 1) + (open ? n * 3 : n / 3) + (q.length > 2 ? 1 : 0) + -n"></p>`))
+      .toEqual([expect.stringMatching(/^`data-sn-text` is too complex for markup: \d+ operations in one expression \(limit `operations`: 15\)\.$/)]);
+  });
+
+  test('object attributes are measured per property value', () => {
+    expect(warned(`<p data-sn-class="{a: n === 0 ? 'x' : n === 1 ? 'y' : n === 2 ? 'z' : 'w', b: open}"></p>`))
+      .toEqual(['`a` in `data-sn-class` is too complex for markup: `?:` nested 3 deep (limit `ternaries`: 2).']);
+  });
+
+  test('limits and the level are configurable', () => {
+    const body = `<button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5"></button>`;
+    expect(warned(body, { complexity: { statements: 5 } })).toEqual([]);
+    expect(warned(`<button data-sn-on-click="open && (sel = null, close())"></button>`, { complexity: { guarded: 2, sequences: 1 } })).toEqual([]);
+    expect(diags(page(body), { complexity: { level: 'off' } }).filter((d) => d.code === 'SN507')).toEqual([]);
+    const err = diags(page(body), { complexity: { level: 'error' } }).filter((d) => d.code === 'SN507');
+    expect(err.map((d) => d.severity)).toEqual(['error']);
+    expect(diags(page(body)).find((d) => d.code === 'SN507')!.severity).toBe('warning');
+  });
+
+  test('the option is checked', () => {
+    expect(complexityOf({ statements: 2, level: 'error' })).toEqual({ statements: 2, level: 'error' });
+    expect(() => complexityOf({ statments: 2 } as ComplexityOptions)).toThrow(/`statments` is not a limit; the limits are `statements`/);
+    expect(() => complexityOf({ level: 'loud' } as unknown as ComplexityOptions)).toThrow(/`level` is `warn`, `error` or `off`/);
+    expect(() => complexityOf({ arrow: -1 })).toThrow(/`arrow` takes a number of 0 or more/);
   });
 });

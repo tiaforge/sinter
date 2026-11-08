@@ -56,7 +56,7 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 - Attribute values are JavaScript expressions, checked at build time. Value expressions (text, attr, class, show, for, if, key, body, state, URL interpolations) cannot assign, use `++`, `delete`, `await` or `import()`.
 - Handlers (`data-sn-on-*`, `then`, `catch`) are statements separated by `;`: assignments to state, `$url.<param>` and `$locale`, and calls. No declarations or loops.
 - `then` on `<sn-event>` is a handler run after the event's change is applied: payload fields are bare names, the state around the `<sn-sync>` is in scope and assignable, store functions work (`close('id')` names its dialog: there is no element). With `then`, `resource` and `op` may be left out.
-- `then` on `<sn-resource>` is a handler run after each successful load (first load, `refresh()`, refetch events, `src` changes, every `page()`; per source for `each`), not for cached data shown at once, failed loads or optimistic/event changes. `$result` is what the load stored (what `items` selects; the page just loaded). The state around the resource is in scope and assignable; `close('id')` names its dialog. It runs on every refetch, so a once-only handler guards itself: `then="$result && (draft = $result, showModal('compose'))"`.
+- `then` on `<sn-resource>` is a handler run after each successful load (first load, `refresh()`, refetch events, `src` changes, every `page()`; per source for `each`), not for cached data shown at once, failed loads or optimistic/event changes. `$result` is what the load stored (what `items` selects; the page just loaded). The state around the resource is in scope and assignable; `close('id')` names its dialog. It runs on every refetch, so a once-only handler guards itself, one step per guard: `then="draft = $result ?? draft; $result && showModal('compose')"`.
 - `data-sn-optimistic` may only call `patch`, `upsert`, `remove`. The change shows at once, stays when the request succeeds (committed under what `then` writes) and is rolled back when it fails.
 - A name resolves innermost first: loop variables, then the nearest `data-sn-state`, then resources, then magic names, helpers and store functions, then JavaScript globals. Browser APIs (`window`, `document`, `fetch`, timers, …) are refused: use an island.
 - Resources are read-only: copy an item with `structuredClone(c)` to edit it, write with `patch()`.
@@ -74,7 +74,7 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 
 ## Diagnostics
 
-`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN209 name-conflict`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN305 include-not-found`, `SN306 include-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`.
+`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN209 name-conflict`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN305 include-not-found`, `SN306 include-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`, `SN507 complex-expression`.
 
 ## Recipes
 
@@ -188,9 +188,9 @@ test('saves the draft and upserts the result', async () => {
 <main data-sn-state="{ sel: null }">
   <sn-sync src="/api/events">
     <sn-event name="person_updated" resource="people" op="upsert" item="person" fallback="refetch"></sn-event>
-    <!-- after the removal: close the dialog if it shows that person -->
+    <!-- after the removal: close the dialog if it shows that person (closing clears `sel`) -->
     <sn-event name="person_removed" resource="people" op="remove"
-              then="sel?.id === id && (sel = null, close('person'))"></sn-event>
+              then="sel?.id === id && close('person')"></sn-event>
   </sn-sync>
 
   <ul>
@@ -198,7 +198,7 @@ test('saves the draft and upserts the result', async () => {
       <li><button data-sn-on-click="sel = p; showModal('person')" data-sn-text="p.name"></button></li>
     </template>
   </ul>
-  <dialog id="person"><h2 data-sn-text="sel?.name"></h2></dialog>
+  <dialog id="person" data-sn-on-close="sel = null"><h2 data-sn-text="sel?.name"></h2></dialog>
 </main>
 ```
 

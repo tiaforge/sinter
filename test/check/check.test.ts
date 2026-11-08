@@ -84,6 +84,14 @@ describe('sinter check', () => {
     one(page(`<div data-sn-state="{ q: '' }"><input data-sn-on-input="q = $el.valu"></div>`), /Did you mean 'value'\?/, 'valu');
   });
 
+  test('SN507 complex expressions: in checkPage like other diagnostics, with the complexity option', () => {
+    const html = page(`<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5" data-sn-text="n + contacts.length"></button></div>`);
+    const d = checkPage(html, { files: { 'src/sinter.types.ts': TYPES } });
+    expect(d.map((x) => `${x.severity} ${x.code} ${x.file}:${x.line}`)).toEqual(['warning SN507 index.html:3']);
+    expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES }, complexity: { level: 'error' } }).map((x) => x.severity)).toEqual(['error']);
+    expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES }, complexity: { statements: 5 } })).toEqual([]);
+  });
+
   test('a key filter\'s $event is the KeyboardEvent of its keydown or keyup', () => {
     one(page(`<div data-sn-state="{ q: '', n: 0 }" data-sn-on-keydown-shift-j="q = $event.key" data-sn-on-keyup-escape="n = $event.code">
   <p data-sn-text="q + n"></p>
@@ -123,7 +131,7 @@ describe('sinter check', () => {
     const html = (then: string, type = ' type="Removed"') => page(`<main data-sn-state="{ sel: /** @type {Contact|null} */ (null), last: '' }">
 <sn-sync src="/api/events"><sn-event name="r" resource="contacts" op="remove"${type} then="${then}"></sn-event></sn-sync>
 <dialog id="detail"></dialog><p data-sn-text="contacts.length + (sel?.name ?? last)"></p></main>`);
-    expect(checkPage(html("sel?.id === id && (sel = null, close('detail'))"), { files })).toEqual([]);
+    expect(checkPage(html("sel?.id === id && close('detail'); sel = sel?.id === id ? null : sel"), { files })).toEqual([]);
     const errors = (then: string, type?: string) => checkPage(html(then, type), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     expect(errors('last = id')).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
     expect(errors('sel?.id === uid && close(\'detail\')')).toEqual([expect.stringMatching(/^SN208 Property 'uid' does not exist on type 'Removed'/)]);
@@ -141,7 +149,7 @@ describe('sinter check', () => {
 <sn-resource name="p" call="pending()" then="${call}"></sn-resource>
 <dialog id="compose"></dialog><p data-sn-text="contacts.length + (sel?.name ?? subject) + p?.subject"></p></main></body></html>`;
     const errors = (then: string, call = '') => checkPage(html(then, call), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
-    expect(errors('sel = $result[0]', "$result && (subject = $result.subject, showModal('compose'))")).toEqual([]);
+    expect(errors('sel = $result[0]', "subject = $result?.subject ?? subject; $result && showModal('compose')")).toEqual([]);
     expect(errors('subject = $result[0].id')).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
     expect(errors('sel = $result')).toEqual([expect.stringMatching(/^SN208 Type 'Contact\[\]' is missing the following properties from type 'Contact'/)]);
     expect(errors('', 'subject = $result.files')).toEqual(["SN208 Type 'string[]' is not assignable to type 'string'."]);

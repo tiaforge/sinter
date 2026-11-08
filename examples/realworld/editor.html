@@ -30,7 +30,7 @@
               <fieldset class="form-group"><textarea class="form-control" rows="8" name="body" placeholder="Write your article (in markdown)" data-sn-model="d.body"></textarea></fieldset>
               <fieldset class="form-group">
                 <input type="text" class="form-control" placeholder="Enter tags" data-sn-model="tag"
-                       data-sn-on-keydown="$event.key == 'Enter' && ($event.preventDefault(), tag.trim() && !d.tagList.includes(tag.trim()) && d.tagList.push(tag.trim()), tag = '')">
+                       data-sn-on-keydown-enter="d.tagList = withTag(d.tagList, tag); tag = ''">
                 <div class="tag-list">
                   <template data-sn-for="(t, i) in d.tagList" data-sn-key="t">
                     <span class="tag-default tag-pill"><i class="ion-close-round" data-sn-on-click="d.tagList.splice(i, 1)"></i> <span data-sn-text="t"></span></span>

@@ -20,3 +20,9 @@ export const pages = (count, size) => Array.from({ length: Math.ceil((count || 0
 
 /** Offset of a 1-based page number from `$url.page`. */
 export const offset = (page, size) => (Math.max(1, Number.parseInt(page, 10) || 1) - 1) * size;
+
+/** The tag list with `tag` added (trimmed), unless it is empty or already there. */
+export function withTag(list, tag) {
+  const t = tag.trim();
+  return !t || list.includes(t) ? list : [...list, t];
+}

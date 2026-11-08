@@ -75,7 +75,7 @@ export default function sinter(options: SinterOptions = {}): Plugin & { api: { o
         if (p.diagnostics.length) throw new Error(`sinter: ${p.diagnostics.map(formatDiagnostic).join('\n')}`);
         const out = compile(html, {
           file, root, dev, helpers: p.helpers, actions: p.actions, moduleSrc, config: p.config, readFile: p.readFile,
-          check: !!options.typecheck && !dev, openapi: p.openapi,
+          check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity,
         });
         if (out.check) units.set(file, out.check);
         for (const f of out.files) watch(f);

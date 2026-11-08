@@ -149,6 +149,17 @@ describe('sinter lsp', () => {
     expect(d[0]!.code).toBe('SN201 unknown-identifier');
   });
 
+  test('SN507 is published as a warning on the whole attribute', async () => {
+    const root = project({ 'index.html': '<p>hi</p>\n' });
+    const e = await editor(root);
+    e.open('index.html', '<div data-sn-state="{ n: 0 }">\n  <button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5" data-sn-text="n"></button>\n</div>\n');
+    const [d] = await e.diagnostics('index.html', (d) => d.length === 1);
+    expect(d!.code).toBe('SN507 complex-expression');
+    expect(d!.severity).toBe(2);
+    expect(d!.message).toMatch(/5 statements in one handler \(limit `statements`: 4\)/);
+    expect(d!.range).toEqual({ start: { line: 1, character: 10 }, end: { line: 1, character: 62 } });
+  });
+
   test('pages listed in the Vite config are compiled before they are opened', async () => {
     const root = project({
       'vite.config.js': `export default { build: { rollupOptions: { input: { a: 'a.html', b: 'b.html' } } } };\n`,

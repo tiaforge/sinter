@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { dirname, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
+import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
 
 export interface ProjectOptions {
   /** helpers module, relative to the root (default `src/sinter.helpers.js`, or `.ts`) */
@@ -17,6 +18,8 @@ export interface ProjectOptions {
   types?: string;
   /** OpenAPI specs (JSON or YAML, inside the root) that resources without `type` are matched against */
   openapi?: string | string[];
+  /** SN507: limits for expressions too complex for markup (`statements`, `sequences`, `guarded`, `ternaries`, `arrow`, `operations`) and `level`: `warn` (default), `error` or `off` */
+  complexity?: ComplexityOptions;
 }
 
 export interface Project {
@@ -37,6 +40,8 @@ export interface Project {
   openapi: OpenApiSpec[];
   /** problems loading the specs (SN307) */
   diagnostics: Diagnostic[];
+  /** the `complexity` option, checked */
+  complexity: ComplexityOptions;
 }
 
 export function project(root: string, options: ProjectOptions = {}): Project {
@@ -93,7 +98,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     openapi.push({ file, doc });
   }
   return {
-    root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics,
+    root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics, complexity: complexityOf(options.complexity),
     config: configRel ? url(configRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,
   };
@@ -119,4 +124,17 @@ export async function viteProject(root: string): Promise<{ pages: string[]; opti
   let pages = (list as string[]).filter((f) => typeof f === 'string' && f.endsWith('.html')).map((f) => resolve(config.root, f));
   if (!pages.length) pages = fallback();
   return { pages, options: plugin?.api?.options ?? {} };
+}
+
+/** The `complexity` option, refused when it names an unknown limit or level, or a limit is not a number of 0 or more. */
+export function complexityOf(c: ComplexityOptions | undefined): ComplexityOptions {
+  if (c == null) return {};
+  const bad = (m: string) => { throw new Error(`sinter: complexity: ${m}`); };
+  if (typeof c !== 'object') bad('takes an object, e.g. `{ statements: 4, level: \'warn\' }`');
+  for (const [k, v] of Object.entries(c)) {
+    if (k === 'level') { if (!['warn', 'error', 'off'].includes(v as string)) bad(`\`level\` is \`warn\`, \`error\` or \`off\`, not \`${String(v)}\``); }
+    else if (!(COMPLEXITY_LIMITS as string[]).includes(k)) bad(`\`${k}\` is not a limit; the limits are ${COMPLEXITY_LIMITS.map((l) => `\`${l}\``).join(', ')}`);
+    else if (typeof v !== 'number' || !(v >= 0)) bad(`\`${k}\` takes a number of 0 or more`);
+  }
+  return c;
 }

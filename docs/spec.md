@@ -369,11 +369,11 @@ Single-object resources (no `key`): `upsert` replaces the object, `patch` merges
 ```html
 <main data-sn-state="{ compose: null }">
   <sn-resource name="pending" call="mail.pendingCompose()"
-    then="$result && (compose = composeDraft('new', null, identities, '', null, $result.files, $result.subject), showModal('mail-compose'))"></sn-resource>
+    then="compose = $result ? composeDraft('new', null, identities, '', null, $result.files, $result.subject) : compose; $result && showModal('mail-compose')"></sn-resource>
 ```
 - `$result` is what the load stored: what `items` selects (the response itself without `items`, the function's result for `call`), the same value the store received, before `order`. For a paginated resource it is the page just loaded (in `append` mode: the new items only); for an `each` resource, the items of the one source that answered.
 - When: after every response the store takes: the first load, `refresh()`, a `refetch` from a server event (or a reconnect), a change of `src`, `call` arguments or `when` that loads again, every `page()`, and embedded JSON (the page's first load). For `each`, once per source response, not once per round. Not for the cached data `cache` shows at once (only once the revalidation succeeds), not for a failed, aborted or superseded load, not when `when` empties the resource, and not for changes that are not loads: optimistic layers, `upsert`/`patch`/`remove` from handlers or server events, action results.
-- So it runs again on every refetch: a handler meant to run once guards itself with state or with the data (`!opened && (opened = true, …)`, `$result && …` for a resource that is empty when nothing is pending). A handler that refreshes its own resource loops.
+- So it runs again on every refetch: a handler meant to run once guards itself with state or with the data, one guard per step (`!opened && showModal('x'); opened = true`, `$result && …` for a resource that is empty when nothing is pending). A handler that refreshes its own resource loops.
 - Order: after the store has the response (writes made during the load replayed on top) and `$meta.<name>` is current (`loading` false, `loadedAt` set, `error` null), so the handler reads the resource and other resources as they now are. Its state writes re-render like any handler's, in the same flush.
 - Scope: the scope the resource's `src` and `when` see, so the state around the `<sn-resource>` element, which it may assign, and every resource. Store functions work; there is no element, so `close()` names its dialog and `reset()` and `emit()` are errors (`SN203`), as in `<sn-event then>`. `$event` and `$error` are not defined here; `$result` is not defined in the resource's other expressions. The `each` item name is not in scope.
 - An exception in the handler is logged; the load still counts as successful.
@@ -482,10 +482,11 @@ For `patch` and `remove`, the key is read from the payload using the resource's 
 <body data-sn-state="{ sel: null, notice: '' }">
   <sn-sync src="/api/events/stream">
     <sn-event name="contact_removed" resource="contacts" op="remove" type="ContactRemoved"
-              then="sel?.uid === uid && (sel = null, close('contact-detail'))"></sn-event>
+              then="sel?.uid === uid && close('contact-detail')"></sn-event>
     <sn-event name="notice" type="Notice" then="notice = text"></sn-event>
   </sn-sync>
 ```
+- The dialog clears the selection itself (`<dialog id="contact-detail" data-sn-on-close="sel = null">`), so the handler runs one step under its condition (two would be `SN507`).
 - Store functions are in scope (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close('id')`), and their names win over payload fields. There is no element, so `close()` names its dialog and `reset()` and `emit()` are errors (`SN203`); `$event` and `$result` are not defined here, and assigning to a payload field is an error.
 - State writes re-render what reads them, as from any handler. Bindings inside a dialog the handler closes keep their last values until it opens again.
 - Islands still receive the event through `app.on(name)`, after every mapping has run.
@@ -941,7 +942,24 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 | `SN504 untyped-resource` | warning | resource `contacts` has no type: expressions using it are not checked — `sinter check` only |
 | `SN505 unknown-query-param` | warning | `GET /articles` declares no query parameter `tagg`. Did you mean `tag`? |
 | `SN506 untyped-event` | warning | event `contact_updated` has no type: expressions reading its payload are not checked — `sinter check` only |
+| `SN507 complex-expression` | warning | `data-sn-on-click` is too complex for markup: 5 statements in one handler (limit `statements`: 4). Move the logic into a helper (pure, `x = fn(…)`) or an action |
 
+
+### Complexity (`SN507`)
+Expressions that are too complex for markup are warning `SN507`, with the limit they exceed in the message. The measure is structure, never length in characters (added 2026-11-08):
+
+| Limit | Default | Counts |
+| --- | --- | --- |
+| `statements` | 4 | `;`-separated statements in one handler |
+| `sequences` | 0 | comma sequences `(a, b)` |
+| `guarded` | 1 | steps one `&&`, `\|\|`, `??` or `?:` used as a statement runs: `a && close()` is 1, `a && (b = 1, close())` and `a && (b ? c() : d())` are 2 |
+| `ternaries` | 2 | nesting of `?:`: `n === 0 ? 'none' : n === 1 ? 'one' : 'many'` is 2 |
+| `arrow` | 8 | operations in one arrow function's body (`p => p.name.toLowerCase().includes(q)` has 3); a block body `{ … }` is always too many |
+| `operations` | 15 | operations in one expression (each statement of a handler), the backstop |
+
+Operations are calls, `new`, operators, assignments, updates, computed member access and functions; names, member paths (`a.b.c`), literals, and object and array literal structure are free, so a draft literal of plain fields costs nothing. Object attributes (`data-sn-state`, `-let`, `-attr`, `-class`, `-style`, `-prop`) are measured per property value, and the warning names the property. The defaults leave filters (`people.filter(p => p.name.includes(q))`), single assignments of a helper's result, a guard over one call (`open && close()`), short object literals and one nested ternary alone; they were checked against the recipes, the RealWorld example and the e2e pages, which pass.
+- Options of the Vite plugin, read by `sinter check` and `sinter lsp` too: `sinter({ complexity: { statements: 6, ternaries: 1, level: 'warn' } })`. `level` is `warn` (default), `error` (fails the build like any error) or `off`. Each limit can be set alone; an unknown name or level is refused when the config loads.
+- What to do instead: move the logic into a helper (pure) and assign its result, or into an action (side effects).
 
 ### Type checking
 `sinter check` type-checks every expression of the pages with the project's own TypeScript; it is opt-in and never runs in the dev server.

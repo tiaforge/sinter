@@ -8,6 +8,7 @@ export type { CheckUnit } from './check-unit.js';
 export { formatDiagnostic, docsUrl, CODES } from './diagnostics.js';
 export { DIAGNOSTIC_DOCS, type DiagnosticDoc } from './diagnostic-docs.js';
 export { compileParts };
+export { COMPLEXITY_DEFAULTS, type ComplexityLimits, type ComplexityOptions } from './complexity.js';
 
 export const PACKAGE = '@tiaforge-ui/sinter';
 

@@ -27,6 +27,21 @@ Attribute names, function names and diagnostic codes are public API. Before
   (578 B gzip), loaded only by pages with a key filter; the core grows by about 17 B gzip.
   New recipe: keyboard shortcuts.
 
+- `SN507 complex-expression`, a warning for expressions too complex for markup, naming the
+  limit exceeded. It measures structure, not characters: statements in a handler
+  (`statements`, 4), comma sequences (`sequences`, 0), steps one `&&`/`||`/`?:` used as a
+  statement runs (`guarded`, 1: `a && close()` passes, `a && (b = null, close())` does not),
+  `?:` nesting (`ternaries`, 2), operations in an arrow function (`arrow`, 8; block bodies
+  always warn) and operations in one expression (`operations`, 15). Names, member paths,
+  literals and object/array literal structure are free; object attributes are measured per
+  property value. Configured with `sinter({ complexity: { …limits, level: 'warn' | 'error' |
+  'off' } })`, which `sinter check`, `checkPage()` and `sinter lsp` read too; unknown limits or
+  levels are refused. The recipes, RealWorld and the e2e pages pass: the SSE recipe's
+  `<sn-event then>` closes the dialog and the dialog's `data-sn-on-close` clears the
+  selection; RealWorld's tag input is `data-sn-on-keydown-enter="d.tagList = withTag(d.tagList, tag); tag = ''"`
+  with a `withTag` helper (its editor page now loads the keys module, +550 B gzip). The docs' once-only `then` example is
+  `draft = $result ?? draft; $result && showModal('compose')`.
+
 ### Changed
 
 - `data-sn-on-keydown-…` and `data-sn-on-keyup-…` are key filters now; a custom event whose

@@ -5,6 +5,8 @@ import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, STORE_FNS, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
+import type { Node } from 'acorn';
+import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { matchOperation, matchResource, queryNames, walk, type OpenApiSpec } from './openapi.js';
@@ -38,6 +40,8 @@ export interface CompileOptions {
   openapi?: OpenApiSpec[];
   /** the actions module (`data-sn-call`, `<sn-resource call>`), same shape as helpers */
   actions?: HelperManifest;
+  /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
+  complexity?: ComplexityOptions;
 }
 
 export interface CompileResult {
@@ -99,6 +103,8 @@ class Compiler {
   readonly fns: string[] = [];
   readonly fnIndex = new Map<string, number>();
   readonly origins = new WeakMap<object, Origin>();
+  /** attributes SN507 has measured, so an expression analysed twice is reported once */
+  readonly measured = new WeakMap<P5Element, Set<string>>();
   readonly lineStarts = new Map<string, number[]>();
   readonly page: PageInfo;
   readonly resources: ResourceDef[] = [];
@@ -683,6 +689,31 @@ class Compiler {
     return m ? { q, m } : { q };
   }
 
+  /** SN507: an expression too complex for markup; object attributes are measured per property value */
+  complexity(el: P5Element, attrName: string, o: Omit<ExprOptions, 'report'>, ast: Node) {
+    const c = this.opts.complexity ?? {};
+    if (c.level === 'off') return;
+    const seen = this.measured.get(el) ?? new Set<string>();
+    this.measured.set(el, seen);
+    if (seen.has(attrName)) return;
+    seen.add(attrName);
+    const limits = { ...COMPLEXITY_DEFAULTS };
+    for (const k of COMPLEXITY_LIMITS) if (typeof c[k] === 'number') limits[k] = c[k]!;
+    const a = ast as Node & { type: string; properties?: any[]; body?: any[] };
+    const found: Array<[string, ReturnType<typeof measure>]> = [];
+    if (o.object && a.type === 'ObjectExpression') {
+      for (const p of a.properties!) if (p.type === 'Property') found.push([p.key.name ?? p.key.value ?? '', measure([p.value], false, limits)]);
+    } else if (a.type === 'Program') found.push(['', measure(a.body!.filter((st) => st.type === 'ExpressionStatement').map((st) => st.expression), true, limits)]);
+    else found.push(['', measure([a], false, limits)]);
+    for (const [key, x] of found) {
+      if (!x) continue;
+      const where = key ? `\`${key}\` in \`${attrName}\`` : `\`${attrName}\``;
+      this.report(el, attrName, 'SN507', `${where} is too complex for markup: ${x.message}. Move the logic into a helper (pure, \`x = fn(…)\`) or an action`, 0,
+        'markup holds filters, conditions, single assignments and short calls; limits: sinter({ complexity: { … } })');
+      if (c.level === 'error') this.diagnostics[this.diagnostics.length - 1]!.severity = 'error';
+    }
+  }
+
   position(el: P5Element): string {
     const o = this.origins.get(el);
     if (!o || !el.sourceCodeLocation) return this.opts.file;
@@ -706,6 +737,7 @@ class Compiler {
   expr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, value?: string, shift = 0): ExprResult {
     const src = value ?? attr(el, attrName) ?? '';
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
+    if (r.ok && r.ast) this.complexity(el, attrName, o, r.ast);
     this.lastExpr = null;
     if (this.check) {
       const i = this.recordExpr(el, attrName, scope, o, src, shift, r);

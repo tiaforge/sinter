@@ -43,6 +43,7 @@ export const CODES = {
   SN504: 'untyped-resource',
   SN505: 'unknown-query-param',
   SN506: 'untyped-event',
+  SN507: 'complex-expression',
 } as const;
 
 export type Code = keyof typeof CODES;
