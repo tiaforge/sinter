@@ -51,6 +51,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   error then; remove it, drop the i18n library's Vite plugin and `configure({ locale })` (sinter is
   the locale source), and import `m` from `@tiaforge-ui/sinter/messages` in app code.
   `sinter({ messages: false })` keeps the old behaviour.
+- `date`, `time`, `datetime`, `relative`, `number` and `bytes` reuse one `Intl` formatter per
+  locale and options instead of building one per call (the largest script cost of a list of dates).
 - `sinter()` from `@tiaforge-ui/sinter/vite` returns two plugins (`sinter` and `sinter:early`);
   `plugins: [sinter()]` works as before.
 

@@ -201,6 +201,8 @@ Helpers are plain functions called like any JS function: `date(c.birthday, 'shor
 | `relative(v)` | `Intl.RelativeTimeFormat`, e.g. "3 days ago" |
 | `number(v, opts)`, `bytes(v)` | `Intl.NumberFormat`, file sizes |
 
+Each built-in builds its `Intl` formatter once per locale and options and reuses it (building one costs far more than formatting with it); a locale switch reads another entry, so nothing goes stale.
+
 User helpers live in one module (`sinter.helpers.js` or `.ts`) whose export names the compiler reads; type-only exports are not helpers. A helper must be pure.
 Helper namespaces. The helpers module may re-export a whole ES module as a namespace, e.g. `export * as m from './paraglide/messages.js'`. Templates call its members like functions: `m.inbox_title()`, `m.items_count({count: n})`.
 - The compiler resolves `m.<name>` statically, following `export * from './…'` re-exports (relative paths only). An unknown member is error `SN206` with a suggestion.

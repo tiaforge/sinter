@@ -1,7 +1,8 @@
 // Small pure functions of the runtime.
 import { expect, test } from 'vitest';
 import { serialize, withParams } from '../src/runtime/app.js';
-import { bytes, number } from '../src/runtime/helpers.js';
+import { bytes, date, number, relative } from '../src/runtime/helpers.js';
+import { configure } from '../src/runtime/config.js';
 
 test('withParams: only the first `?` starts the query; the hash stays last', () => {
   expect(withParams('/a?x=1?y', { p: '2' })).toBe('/a?x=1%3Fy&p=2');
@@ -21,4 +22,27 @@ test('bytes and number agree on empty input', () => {
   expect(bytes(null)).toBe('');
   expect(bytes('abc')).toBe('');
   expect(bytes(0)).not.toBe('');
+});
+
+test('built-in formatters: one Intl formatter per kind, locale and options, reused; a locale switch formats with the new one', () => {
+  const made: string[] = [];
+  const Real = Intl.DateTimeFormat;
+  const spy = function (this: unknown, l?: string, o?: Intl.DateTimeFormatOptions) { made.push(`${l}|${JSON.stringify(o)}`); return new Real(l, o); } as unknown as typeof Intl.DateTimeFormat;
+  let locale = 'en-US';
+  configure({ locale: { get: () => locale, set: (l) => { locale = l; } } });
+  Intl.DateTimeFormat = spy;
+  try {
+    const d = '2026-11-08T10:00:00Z';
+    expect(date(d, 'long')).toBe(date(d, 'long'));
+    date(d, 'short');
+    expect(made).toEqual(['en-US|{"dateStyle":"long"}', 'en-US|{"dateStyle":"short"}']);
+    locale = 'de-DE';
+    expect(date(d, 'long')).toBe('8. November 2026');
+    expect(made).toHaveLength(3);
+    expect(number(1234.5)).toBe(number(1234.5));
+    expect(relative('2026-11-07T10:00:00Z', d)).toBe('gestern');
+  } finally {
+    Intl.DateTimeFormat = Real;
+    configure({ locale: null });
+  }
 });
