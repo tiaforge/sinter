@@ -11,7 +11,15 @@
     "rootDir": ".",
     "skipLibCheck": true,
     "types": ["node"],
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    // the tests import the package by name (as vitest.config.ts aliases it): typecheck resolves to src, not to a built dist
+    "paths": {
+      "@tiaforge-ui/sinter": ["./src/index.ts"],
+      "@tiaforge-ui/sinter/testing": ["./src/testing/index.ts"],
+      "@tiaforge-ui/sinter/check": ["./src/check/index.ts"],
+      "@tiaforge-ui/sinter/messages": ["./src/messages.ts"],
+      "@tiaforge-ui/sinter/early": ["./src/early.ts"]
+    }
   },
   "include": ["src", "test"]
 }
