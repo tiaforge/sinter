@@ -857,34 +857,16 @@ For keyset, `hasNext` is true when the page came back full; `hasPrev` is false a
 - `append` mode keeps all loaded items; `refetch` reloads them as one request with `size = loaded count`.
 - Server events on paginated resources follow the rule in Sync: unknown keys trigger a refetch of the current page.
 
-### Proposal: paging in a computed direction (under review)
-Status: proposal, 2026-11-08, for Caley's mail page; not implemented. Decisions are listed under Open questions.
-
-`page()` takes a computed direction (0.6.0), but its guard does not: `$meta` has `hasNext` and `hasPrev`, not "can page in `dir`". Caley's `j`/`k` at the end of a page emit `list-next` or `list-prev` so that two handlers can pick the field:
+### Past the ends
+`page()` with `prev` does nothing while `$meta.<name>.hasPrev` is false, and with `next` while `hasNext` is false, in every mode: no request, no change. `first` and `last` always load (they send no cursor, so they also serve as "reload from the top"), and page numbers keep their clamping. A handler that pages in a computed direction needs no guard:
 ```html
-data-sn-on-list-step="…; !hit && emit($event.detail > 0 ? 'list-next' : 'list-prev')"
-data-sn-on-list-next="searching && $meta.results.hasNext && page('results', 'next'); !searching && …"
-data-sn-on-list-prev="searching && $meta.results.hasPrev && page('results', 'prev'); !searching && …"
+<div data-sn-let="{ shown: searching ? 'results' : 'messages' }"
+     data-sn-on-list-step="page(shown, $event.detail > 0 ? 'next' : 'prev')">
 ```
-With the resource-name proposal (above, Actions) and one of the options below, both go into the step handler: `!hit && page(shown, $event.detail > 0 ? 'next' : 'prev')`.
-
-What each mode does today when the move is impossible: offset `prev` on page 1 and `next` on the last known page send nothing; keyset and append always send the request (`next` after a short page loads an empty page, which sets `hasPrev`).
-
-**Option E: `page()` skips moves that have nowhere to go (recommended).** `prev` does nothing while `hasPrev` is false, `next` while `hasNext` is false, in every mode. `first` and `last` always load (they send no cursor, so they also serve as "reload from the top"), and page numbers keep their clamping. The guard moves into `page()`, so a handler never reads `$meta` to page: `page(shown, dir)`.
-- Pros: no new `$meta` field and no new name; one rule for all modes, which offset mode already follows half-way; `append` with infinite scroll stops sending empty requests at the end. Buttons keep their `disabled: !$meta.x.hasNext`, a binding with a fixed direction.
-- Cons: a page that relied on `next` past a short keyset page to look for items added since (a live list) no longer gets that request; `refresh()` or a server event's `refetch` covers it, since a refetch repeats the current page and recomputes `hasNext`. Before the first load both flags are false, so `page()` does nothing then (today it sends a `next` without a cursor).
-- Breaking: behaviour change for keyset and append `next`/`prev` where the flag is false. Survey (`page()` instrumented, the suite run, the file restored): of 25 `page()` calls in sinter's tests, recipes included, 3 are impossible moves: offset `prev` and `next` on page 1 of 1, already no-ops, and keyset `next` after an empty first page in "an empty next page shows no positions…" (`paginate.test.ts`), which would send nothing and keep `hasPrev` false; that test changes. RealWorld uses no `page()`. Caley guards every call (`$meta.x.hasNext && page(…)`) or disables the button, so it sees no change.
-- Size: the paginate module, about +20 B gzip; the core is unchanged.
-
-**Option F: `$meta.<name>.can(dir)`.** A method on the status object: `can('next')` is `hasNext`, `can('prev')` is `hasPrev`, `can(n)` is true where the resource can jump and `n` is within `pages`. Pros: also answers for page numbers; reads naturally in a binding. Cons: the first function in `$meta`, whose fields are data (`SN303` lists a fixed field set; `can` would be one more name, with call syntax); the handler still has to guard, one step more for `SN507`. About +40 B gzip in the paginate module; `Meta` in `sinter.d.ts` gains `can(to: Direction | number): boolean`.
-
-**Option G: `$meta.<name>.has[dir]`.** A plain object `{first, prev, next, last}` updated with the flags (`has.first` is `hasPrev`, `has.last` is `hasNext`), read with the existing guarded computed access: `$meta[shown].has[dir] && page(shown, dir)`. Pros: data, not a function; `SN303` grows by one field; `has[dir]` depends on `$meta.<name>` like any field. Cons: two names for one fact (`has.next` and `hasNext`); page numbers not covered; the handler still guards. About +30 B gzip in the paginate module.
-
-**Option H: a `canPage(name, dir)` store function or built-in helper.** Store functions run only in handlers (`SN203` in value expressions), and helpers are pure functions of their arguments; this would be the first value-side function that reads the store, with its own dependency rule (`$meta.<name>`). Not proposed.
-
-**Option I: nothing new.** With the resource-name proposal, `(dir === 'next' ? $meta[shown].hasNext : $meta[shown].hasPrev) && page(shown, dir)`, or an app helper `canGo($meta[shown], dir)` (pure: it reads the object it is given), works without sinter changes. Pros: 0 B. Cons: every page that merges directions writes the same ternary or helper; the handler still guards.
-
-Recommendation: E. It removes the guard instead of giving it a new spelling, follows what offset mode does already, and keeps `$meta` as it is. If a binding ever needs the flag for a computed direction, G is the smallest addition.
+- Buttons keep their `disabled: !$meta.x.hasNext`, a binding with a fixed direction.
+- `append` with infinite scroll stops sending requests at the end: after a short page `hasNext` is false.
+- A live list that wants the items added after a short keyset page uses `refresh()` or a server event's `refetch`: a refetch repeats the current page and recomputes `hasNext`.
+- Before the first load has come back both flags are false, so `prev` and `next` do nothing then.
 
 ## Rendering and scheduler
 sinter updates the DOM fine-grained, without a virtual DOM: every binding knows its node, and only bindings whose inputs changed are re-evaluated and written.
@@ -1332,7 +1314,6 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 - Handlers at several levels. Decided (2026-11-08): nearest wins unless the element did not handle the event; a plain key handler handles a key only when it prevents it. See Events, Which handlers run.
 - Custom events at several levels. Under review (2026-11-08): custom events as notifications, see Events, Proposal: custom events as notifications. Open: default or opt-in (recommended: default, a 0.7.0 behaviour change); the signal for "final" (recommended: `$event.preventDefault()`, `emit()` cancelable; not `stopPropagation()`, no `stop()`); which events (recommended: `CustomEvent`s that bubble; native events, plain `Event`s and non-bubbling custom events keep nearest-wins); debounced handlers and actions pass the event on (recommended).
 - Running an action from a handler. Decided (2026-11-08): `run('id')` starts the action of the element with that literal id (`SN311`), keeping its lifecycle; `$event` is null (forms are submitted), disabled and inert targets do nothing, no return value, no `app.run()` for islands, cycle check `SN509` opt-in. See Running an action from a handler.
-- Paging in a computed direction. Under review (2026-11-08): see Pagination, Proposal: paging in a computed direction. Open: which option (recommended: E, `page()` skips `prev`/`next` where `hasPrev`/`hasNext` is false, in every mode, `first`/`last` always load; fallback G, `$meta.<name>.has[dir]`; not F `can(dir)`, H `canPage()`, or I nothing); whether `first`/`last` should be skipped too where the flag is false (recommended: no, they double as a reload).
 
 ## Sources
 Advisories and guidance the Security section was checked against:

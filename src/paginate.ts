@@ -69,6 +69,8 @@ class PagerImpl implements Pager {
       return l.failed(e);
     }
     const meta = this.loader.res.meta;
+    // nowhere to go: prev and next do nothing past the ends (before the first load too), in every mode
+    if (target == 'prev' ? !meta.hasPrev : target == 'next' && !meta.hasNext) return;
     const items = this.loader.res.all();
     const cursor = (item: unknown) => {
       if (this.cfg.cursor == null || item === undefined) return {};
@@ -87,8 +89,8 @@ class PagerImpl implements Pager {
       let n: number;
       if (typeof target === 'number') n = target;
       else if (target === 'first') n = 1;
-      else if (target === 'prev') { if (page <= 1) return; n = page - 1; }
-      else if (target === 'next') { if (meta.pages != null && page >= meta.pages) return; n = page + 1; }
+      else if (target === 'prev') n = page - 1;
+      else if (target === 'next') n = page + 1;
       else {
         if (meta.pages == null) { this.loader.app.warn(`page('${this.loader.def.name}', 'last') needs a known total`); return; }
         n = meta.pages;

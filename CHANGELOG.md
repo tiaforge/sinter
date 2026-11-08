@@ -25,6 +25,14 @@ Attribute names, function names and diagnostic codes are public API. Before
 - A resource named only in a store call (`refresh('x')`, `page('x', 'next')`) counts as used: no
   `SN501`.
 
+- Breaking (behaviour): `page()` with `prev` does nothing while `$meta.<name>.hasPrev` is false,
+  and with `next` while `hasNext` is false, in every mode. Before, keyset and append sent the
+  request anyway (`next` after a short page loaded an empty page), and offset `next` without a
+  known total went on. `first` and `last` always load. Before the first load has come back, `prev`
+  and `next` do nothing. Migration: a handler no longer needs `$meta.x.hasNext && page('x', 'next')`
+  (the guard still works); a live keyset list that relied on `next` past a short page to find new
+  items uses `refresh('x')` or a server event's `refetch` instead.
+
 ### Fixed
 
 - `SN301` for an unknown resource in `$meta.<name>.<field>` was reported twice.

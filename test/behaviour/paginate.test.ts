@@ -281,16 +281,18 @@ test('cursor fields that are null are left out, like URL template parameters', a
 });
 
 test('an empty next page shows no positions; offset prev on page 1 and next on the last page do nothing', async () => {
-  const requests = mockRequests({ 'GET /api/e': { items: [] } });
+  // a full first page, then nothing after it
+  const requests = mockRequests({ 'GET /api/e': (call) => ({ items: call.url.includes('after=') ? [] : [{ id: 1 }, { id: 2 }] }) });
   const r = await render(`
     <sn-resource name="e" src="/api/e" key="id" items="items" paginate="keyset" page-size="2" cursor="{after: id}"></sn-resource>
     <button data-sn-on-click="page('e', 'next')">n</button>
     <p data-sn-text="[$meta.e.from, $meta.e.to, $meta.e.hasPrev, $meta.e.hasNext].join()"></p>`, { requests });
   await r.settle();
-  expect(r.root.querySelector('p')!.textContent).toBe('0,0,false,false');
+  expect(r.root.querySelector('p')!.textContent).toBe('1,2,false,true');
   r.root.querySelector('button')!.click();
   await r.settle();
   expect(r.root.querySelector('p')!.textContent).toBe('0,0,true,false');
+  expect(requests.calls.length).toBe(2);
 
   const offset = mockRequests({ 'GET /api/o': { items: [{ id: 1 }], total: 10 } });
   const o = await render(`
@@ -305,4 +307,66 @@ test('an empty next page shows no positions; offset prev on page 1 and next on t
   await o.settle();
   expect(offset.calls.length).toBe(1);
   expect(o.root.querySelector('p')!.textContent).toBe('1');
+});
+
+test('page() does nothing past the ends: prev without hasPrev, next without hasNext, in every mode; first and last always load', async () => {
+  const flags = (n: string) => `<b id="${n}-f" data-sn-text="[$meta.${n}.hasPrev, $meta.${n}.hasNext].join()"></b>`;
+  const requests = mockRequests({ 'GET /api/m': keyset, 'GET /api/a': keyset, 'GET /api/o': { items: [{ id: 1 }], total: 1 } });
+  const r = await render(`
+    <sn-resource name="messages" src="/api/m" items="messages" total="total" key="uid" paginate="keyset" page-size="3" cursor="{at}"></sn-resource>
+    <sn-resource name="feed" src="/api/a" items="messages" key="uid" paginate="append" page-size="4" cursor="{at}"></sn-resource>
+    <sn-resource name="o" src="/api/o" items="items" total="total" key="id" paginate="offset" page-size="10"></sn-resource>
+    ${flags('messages')}${flags('feed')}${flags('o')}
+    <div data-sn-state="{ to: 'prev' }">
+      <button id="k-dir" data-sn-on-click="page('messages', to)"></button>
+      <button id="k-next" data-sn-on-click="page('messages', 'next')"></button>
+      <button id="k-first" data-sn-on-click="page('messages', 'first')"></button>
+      <button id="k-last" data-sn-on-click="page('messages', 'last')"></button>
+      <button id="a-next" data-sn-on-click="page('feed', 'next')"></button>
+      <button id="o-dir" data-sn-on-click="page('o', to); to = 'next'"></button>
+      <button id="o-first" data-sn-on-click="page('o', 'first')"></button>
+    </div>
+    <p data-sn-text="messages.length + feed.length + o.length"></p>`, { requests });
+  await r.settle();
+  const urls = () => requests.calls.map((c) => c.url.replace(/^\/api\//, ''));
+  const go = async (id: string) => { r.root.querySelector<HTMLElement>(`#${id}`)!.click(); await r.settle(); };
+  const f = (n: string) => r.root.querySelector(`#${n}-f`)!.textContent;
+  expect(urls()).toEqual(['m?limit=3&direction=first', 'a?limit=4&direction=first', 'o?page=1&limit=10']);
+  // keyset: a computed prev on the first page sends nothing
+  await go('k-dir');
+  expect(urls()).toHaveLength(3);
+  // keyset: next until the short page, then nothing
+  await go('k-next');
+  await go('k-next');
+  expect(f('messages')).toBe('true,false');
+  await go('k-next');
+  expect(urls()).toHaveLength(5);
+  // first and last load whatever the flags say
+  await go('k-last');
+  await go('k-last');
+  await go('k-first');
+  expect(urls().slice(5)).toEqual(['m?limit=3&direction=last', 'm?limit=3&direction=last', 'm?limit=3&direction=first']);
+  // append: next past the last page sends nothing
+  await go('a-next');
+  expect(f('feed')).toBe('false,false');
+  await go('a-next');
+  expect(urls().filter((u) => u.startsWith('a?'))).toEqual(['a?limit=4&direction=first', 'a?at=97&limit=4&direction=next']);
+  // offset, one page: prev and next do nothing, first loads
+  await go('o-dir');
+  await go('o-dir');
+  expect(f('o')).toBe('false,false');
+  await go('o-first');
+  expect(urls().filter((u) => u.startsWith('o?'))).toEqual(['o?page=1&limit=10', 'o?page=1&limit=10']);
+});
+
+test('page() before the first load has come back does nothing for prev and next', async () => {
+  const requests = mockRequests({ 'GET /api/m': keyset });
+  const r = await render(`
+    <sn-resource name="messages" src="/api/m" items="messages" key="uid" paginate="keyset" page-size="3" cursor="{at}"></sn-resource>
+    <button data-sn-on-click="page('messages', 'next')"></button>
+    <ul><template data-sn-for="m in messages"><li data-sn-text="m.uid"></li></template></ul>`, { requests });
+  r.root.querySelector('button')!.click();
+  await r.settle();
+  expect(requests.calls.map((c) => c.url)).toEqual(['/api/m?limit=3&direction=first']);
+  expect([...r.root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['1', '2', '3']);
 });
