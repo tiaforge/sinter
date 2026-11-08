@@ -104,10 +104,10 @@ interface ModuleExports {
   reexports: string[];
 }
 
-/** acorn extended with TypeScript syntax, for `.ts` helper and namespace modules */
+/** acorn extended with TypeScript syntax, for `.ts` helper and namespace modules (and the LSP's extract refactoring) */
 let tsParser: typeof acorn.Parser | null = null;
 
-function parseModule(source: string, file: string): acorn.Program {
+export function parseModule(source: string, file: string): acorn.Program {
   const options: acorn.Options = { ecmaVersion: 'latest', sourceType: 'module' };
   if (!/\.[cm]?tsx?$/.test(file)) return acorn.parse(source, options);
   tsParser ??= acorn.Parser.extend(tsPlugin() as never);

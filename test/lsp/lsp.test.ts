@@ -1,13 +1,14 @@
 // The language server, driven over in-memory streams the way an editor drives it.
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, test } from 'vitest';
 import { Connection } from '../../src/lsp/rpc.js';
 import { findTsc } from '../../src/check/index.js';
-import { includeAt, rangeOf, startServer, type LspDiagnostic } from '../../src/lsp/server.js';
+import { EXTRACT_FIX_CODES, includeAt, rangeOf, startServer, type LspDiagnostic } from '../../src/lsp/server.js';
+import { typeFromHover } from '../../src/lsp/extract.js';
 import { didYouMeanEdit, suggestionOf } from '../../src/lsp/quickfix.js';
 
 const tsc = findTsc(process.cwd());
@@ -22,11 +23,21 @@ function project(files: Record<string, string>): string {
   return root;
 }
 
+interface Range { start: { line: number; character: number }; end: { line: number; character: number } }
+interface TextEdit { range: Range; newText: string }
+interface Action {
+  title: string;
+  kind: string;
+  diagnostics?: LspDiagnostic[];
+  data?: unknown;
+  edit?: { changes?: Record<string, TextEdit[]>; documentChanges?: Array<{ kind?: string; uri?: string; textDocument?: { uri: string }; edits?: TextEdit[] }> };
+}
+
 const open: Connection[] = [];
 afterEach(() => { for (const c of open.splice(0)) c.close(); });
 
 /** A server and an editor-side connection to it, with the diagnostics it published per file. */
-async function editor(root: string, options: { tsc?: string } = {}) {
+async function editor(root: string, options: { tsc?: string; capabilities?: object } = {}) {
   const toServer = new PassThrough();
   const toClient = new PassThrough();
   const server = startServer(toServer, toClient, { tsc: options.tsc ?? tsc, typecheckDelay: 10 });
@@ -38,7 +49,7 @@ async function editor(root: string, options: { tsc?: string } = {}) {
     published.set(p.uri, p.diagnostics);
     for (const w of waiters.splice(0)) w();
   });
-  await client.request('initialize', { processId: null, rootUri: pathToFileURL(root).href, capabilities: {} });
+  await client.request('initialize', { processId: null, rootUri: pathToFileURL(root).href, capabilities: options.capabilities ?? {} });
   client.notify('initialized', {});
   const uri = (rel: string) => pathToFileURL(join(root, rel)).href;
   let version = 1;
@@ -70,6 +81,15 @@ async function editor(root: string, options: { tsc?: string } = {}) {
       return client.request<Array<{ title: string; edit: { changes: Record<string, Array<{ range: unknown; newText: string }>> } }>>('textDocument/codeAction', {
         textDocument: { uri: uri(rel) }, range: diagnostics[0]!.range, context: { diagnostics },
       });
+    },
+    /** the code actions for a selection, without diagnostics */
+    actions(rel: string, range: Range, only?: string[]) {
+      return client.request<Action[]>('textDocument/codeAction', {
+        textDocument: { uri: uri(rel) }, range, context: { diagnostics: [], ...(only ? { only } : {}) },
+      });
+    },
+    resolveAction(action: Action) {
+      return client.request<Action>('codeAction/resolve', action);
     },
     /** tells the server files changed on disk, as an editor's file watcher does */
     changed(...rels: string[]) {
@@ -401,4 +421,365 @@ components:
     const [a] = await e.codeActions('index.html', t.filter((x) => x.code.startsWith('SN208')));
     expect(a!.edit.changes[e.uri('index.html')]![0]).toEqual({ range: { start: { line: 3, character: 24 }, end: { line: 3, character: 27 } }, newText: 'name' });
   });
+});
+
+/** The 0-based range of `needle` in `text` (its `n`th occurrence); `cursor`: an empty range at its start plus `cursor`. */
+function find(text: string, needle: string, o: { cursor?: number; n?: number } = {}): Range {
+  let at = -1;
+  for (let k = 0; k <= (o.n ?? 0); k++) at = text.indexOf(needle, at + 1);
+  if (at < 0) throw new Error(`no ${needle}`);
+  const pos = (off: number) => {
+    const before = text.slice(0, off).split('\n');
+    return { line: before.length - 1, character: before[before.length - 1]!.length };
+  };
+  return o.cursor !== undefined ? { start: pos(at + o.cursor), end: pos(at + o.cursor) } : { start: pos(at), end: pos(at + needle.length) };
+}
+
+function applyEdits(text: string, edits: TextEdit[]): string {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) if (text[i] === '\n') starts.push(i + 1);
+  const off = (p: { line: number; character: number }) => (starts[p.line] ?? text.length) + p.character;
+  for (const e of [...edits].sort((a, b) => off(b.range.start) - off(a.range.start))) {
+    text = text.slice(0, off(e.range.start)) + e.newText + text.slice(off(e.range.end));
+  }
+  return text;
+}
+
+/** Applies a workspace edit to the files on disk, as an editor does on save; returns the new texts by file name relative to `root`. */
+function apply(root: string, edit: Action['edit']): Record<string, string> {
+  const out: Record<string, string> = {};
+  const write = (uri: string, edits: TextEdit[]) => {
+    const path = fileURLToPath(uri);
+    const text = applyEdits(existsSync(path) ? readFileSync(path, 'utf8') : '', edits);
+    mkdirSync(join(path, '..'), { recursive: true });
+    writeFileSync(path, text);
+    out[path.slice(root.length + 1)] = text;
+  };
+  for (const [uri, edits] of Object.entries(edit?.changes ?? {})) write(uri, edits);
+  for (const c of edit?.documentChanges ?? []) {
+    if (c.kind === 'create') { const path = fileURLToPath(c.uri!); if (!existsSync(path)) { mkdirSync(join(path, '..'), { recursive: true }); writeFileSync(path, ''); } }
+    else write(c.textDocument!.uri, c.edits!);
+  }
+  return out;
+}
+
+describe('extract to helper', () => {
+  const TYPES = 'export interface Contact { id: number; name: string; tags: string[] }\n';
+  const CREATE = { workspace: { workspaceEdit: { documentChanges: true, resourceOperations: ['create'] } } };
+  const PAGE = `<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>
+<div data-sn-state="{ query: '', open: false }">
+  <template data-sn-for="(c, i) in contacts">
+    <li data-sn-text="c.name.toUpperCase() + ' (' + c.tags.join(', ') + ')'"></li>
+    <button data-sn-on-click="query = c.name.trim() + i; open = !open">Pick</button>
+  </template>
+</div>
+`;
+  const extracts = (list: Action[]) => list.filter((a) => a.kind === 'refactor.extract');
+
+  test('a value expression becomes a call of a new helper, typed by TypeScript (JS module, JSDoc)', async () => {
+    const root = project({ 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': 'export const shout = (s) => s.toUpperCase();\n', 'index.html': PAGE });
+    const e = await editor(root);
+    e.open('index.html', PAGE);
+    await e.diagnostics('index.html');
+    const list = extracts(await e.actions('index.html', find(PAGE, 'c.name.toUpperCase', { cursor: 3 })));
+    expect(list.map((a) => a.title)).toEqual(['Extract to helper `textValue` in src/sinter.helpers.js']);
+    const files = apply(root, list[0]!.edit);
+    expect(files['index.html']).toContain(`<li data-sn-text="textValue(c)"></li>`);
+    expect(files['src/sinter.helpers.js']).toBe(`export const shout = (s) => s.toUpperCase();
+
+/**
+ * @param {import('./sinter.types').Contact} c
+ */
+export function textValue(c) {
+  return c.name.toUpperCase() + ' (' + c.tags.join(', ') + ')';
+}
+`);
+    // the result builds and type-checks
+    e.changed('src/sinter.helpers.js');
+    e.change('index.html', files['index.html']!);
+    await e.diagnostics('index.html', (d) => d.length === 0);
+  });
+
+  test('a selection inside the expression extracts just that part', async () => {
+    const root = project({ 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': '', 'index.html': PAGE });
+    const e = await editor(root);
+    e.open('index.html', PAGE);
+    await e.diagnostics('index.html');
+    const [a] = extracts(await e.actions('index.html', find(PAGE, "c.tags.join(', ')")));
+    const files = apply(root, a!.edit);
+    expect(files['index.html']).toContain(`data-sn-text="c.name.toUpperCase() + ' (' + textValue(c) + ')'"`);
+    expect(files['src/sinter.helpers.js']).toContain("export function textValue(c) {\n  return c.tags.join(', ');\n}\n");
+    // a selection that is not one expression (half of `+`) takes the smallest expression around it
+    writeFileSync(join(root, 'index.html'), PAGE);
+    const [b] = extracts(await e.actions('index.html', find(PAGE, "' (' + c.tags")));
+    // (`textValue` is taken now: the module has it)
+    expect(apply(root, b!.edit)['index.html']).toContain(`data-sn-text="textValue2(c) + ')'"`);
+    // a plain name or member path is not worth a helper
+    expect(extracts(await e.actions('index.html', find(PAGE, 'c.name', { n: 0 })))).toEqual([]);
+  });
+
+  test('in a handler, the assignment stays and its value is extracted', async () => {
+    const root = project({ 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.ts': '', 'index.html': PAGE });
+    const e = await editor(root);
+    e.open('index.html', PAGE);
+    await e.diagnostics('index.html');
+    const list = extracts(await e.actions('index.html', find(PAGE, 'query = c.name', { cursor: 10 })));
+    expect(list.map((a) => a.title)).toEqual(['Extract to helper `nextQuery` in src/sinter.helpers.ts']);
+    const files = apply(root, list[0]!.edit);
+    expect(files['index.html']).toContain('data-sn-on-click="query = nextQuery(c, i); open = !open"');
+    expect(files['src/sinter.helpers.ts']).toBe(`import type { Contact } from './sinter.types';
+
+export function nextQuery(c: Contact, i: number) {
+  return c.name.trim() + i;
+}
+`);
+    // selecting the whole assignment extracts its value too
+    writeFileSync(join(root, 'src/sinter.helpers.ts'), '');
+    const [w] = extracts(await e.actions('index.html', find(PAGE, 'query = c.name.trim() + i')));
+    expect(w!.title).toContain('`nextQuery`');
+    // `open = !open` is not worth one, and a store call is not a helper
+    expect(extracts(await e.actions('index.html', find(PAGE, 'open = !open', { cursor: 2 })))).toEqual([]);
+    const refresh = PAGE.replace('open = !open', "refresh('contacts')");
+    e.change('index.html', refresh);
+    await e.diagnostics('index.html');
+    expect(extracts(await e.actions('index.html', find(refresh, "refresh('contacts')")))).toEqual([]);
+  });
+
+  test('a handler writing several properties of one state object: one helper per value, or one returning an object', async () => {
+    const page = `<div data-sn-state="{ draft: { title: '', body: '' }, sig: '-- me', note: '' }">
+  <button data-sn-on-click="draft.title = draft.title.trim(); draft.body = draft.body.trim() + sig; close()">Tidy</button>
+  <button data-sn-on-click="note = sig.trim(); draft.title = note.toUpperCase()">Other</button>
+</div>
+`;
+    const root = project({ 'src/sinter.helpers.js': '', 'index.html': page });
+    const e = await editor(root);
+    e.open('index.html', page);
+    await e.diagnostics('index.html');
+    const sel = find(page, 'draft.title = draft.title.trim(); draft.body = draft.body.trim() + sig');
+    const list = extracts(await e.actions('index.html', sel));
+    expect(list.map((a) => a.title)).toEqual([
+      'Extract 2 computed values to helpers (`nextTitle`, `nextBody`)',
+      'Extract the 2 assignments to helper `draftChanges` (returns an object, merged with Object.assign)',
+    ]);
+    const values = apply(root, list[0]!.edit);
+    expect(values['index.html']).toContain('data-sn-on-click="draft.title = nextTitle(draft); draft.body = nextBody(draft, sig); close()"');
+    writeFileSync(join(root, 'index.html'), page);
+    writeFileSync(join(root, 'src/sinter.helpers.js'), '');
+    const merged = apply(root, list[1]!.edit);
+    expect(merged['index.html']).toContain('data-sn-on-click="Object.assign(draft, draftChanges(draft, sig)); close()"');
+    expect(merged['src/sinter.helpers.js']).toContain(`export function draftChanges(draft, sig) {
+  return {
+    title: draft.title.trim(),
+    body: draft.body.trim() + sig,
+  };
+}`);
+    e.changed('src/sinter.helpers.js');
+    e.change('index.html', merged['index.html']!);
+    await e.diagnostics('index.html', (d) => d.length === 0);
+    // the second handler writes two roots, and its second value reads the first: values only
+    const other = extracts(await e.actions('index.html', find(page, 'note = sig.trim(); draft.title = note.toUpperCase()')));
+    expect(other.map((a) => a.title)).toEqual(['Extract 2 computed values to helpers (`nextNote`, `nextTitle`)']);
+  });
+
+  test('free names: loop variables, state, resources, magic names and locals become parameters; helpers and globals do not', async () => {
+    const page = `<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>
+<div data-sn-state="{ query: '', note: '' }">
+  <template data-sn-for="c in contacts">
+    <button data-sn-on-click="note = shout(c.name) + query + $event.button + $el.tagName + $meta.contacts.total + date($now) + Math.max(1, contacts.length) + c.tags.map((t) => t + query).join()">x</button>
+  </template>
+</div>
+`;
+    const root = project({ 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.ts': 'export const shout = (s: string) => s.toUpperCase();\n', 'index.html': page });
+    const e = await editor(root);
+    e.open('index.html', page);
+    await e.diagnostics('index.html');
+    const [a] = extracts(await e.actions('index.html', find(page, 'note = shout', { cursor: 1 })));
+    const files = apply(root, a!.edit);
+    expect(files['index.html']).toContain('data-sn-on-click="note = nextNote(c, query, $event, $el, $meta.contacts, $now, contacts)"');
+    const mod = files['src/sinter.helpers.ts']!;
+    expect(mod).toContain(`export function nextNote(c: Contact, query: string, $event: PointerEvent, $el: HTMLButtonElement, contactsMeta: Meta, $now: Date, contacts: Contact[]) {
+  return shout(c.name) + query + $event.button + $el.tagName + contactsMeta.total + date($now) + Math.max(1, contacts.length) + c.tags.map((t) => t + query).join();
+}`);
+    expect(mod).toContain("import type { Contact } from './sinter.types';");
+    expect(mod).toContain("import type { Meta } from '@tiaforge-ui/sinter';");
+    expect(mod).toContain("import { date } from '@tiaforge-ui/sinter';");
+    // a part that uses an arrow function's parameter takes it as one
+    writeFileSync(join(root, 'src/sinter.helpers.ts'), 'export const shout = (s: string) => s.toUpperCase();\n');
+    writeFileSync(join(root, 'index.html'), page);
+    const [b] = extracts(await e.actions('index.html', find(page, 't + query')));
+    const sub = apply(root, b!.edit);
+    expect(sub['index.html']).toContain('c.tags.map((t) => nextNote(t, query)).join()');
+    expect(sub['src/sinter.helpers.ts']).toContain('export function nextNote(t: string, query: string) {');
+  });
+
+  test('without TypeScript 7 the parameters are `unknown`', async () => {
+    const root = project({
+      'src/sinter.types.ts': TYPES, 'src/sinter.helpers.ts': '', 'index.html': PAGE,
+      'old-ts/package.json': '{"name":"typescript","version":"5.9.3","bin":{"tsc":"bin/tsc"}}',
+      'old-ts/bin/tsc': 'process.exitCode = 0;\n',
+    });
+    const e = await editor(root, { tsc: join(root, 'old-ts/bin/tsc') });
+    e.open('index.html', PAGE);
+    await e.diagnostics('index.html');
+    const [a] = extracts(await e.actions('index.html', find(PAGE, 'query = c.name', { cursor: 10 })));
+    expect(apply(root, a!.edit)['src/sinter.helpers.ts']).toBe('export function nextQuery(c: unknown, i: unknown) {\n  return c.name.trim() + i;\n}\n');
+  });
+
+  test('a missing helpers module is created: .ts in a TypeScript project, .js otherwise', async () => {
+    const ts = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE });
+    const e = await editor(ts, { capabilities: CREATE });
+    e.open('index.html', PAGE);
+    await e.diagnostics('index.html');
+    const [a] = extracts(await e.actions('index.html', find(PAGE, 'c.name.toUpperCase', { cursor: 3 })));
+    expect(a!.title).toBe('Extract to helper `textValue` in src/sinter.helpers.ts');
+    expect(a!.edit!.documentChanges![0]).toEqual({ kind: 'create', uri: e.uri('src/sinter.helpers.ts'), options: { ignoreIfExists: true } });
+    expect(apply(ts, a!.edit)['src/sinter.helpers.ts']).toBe(`import type { Contact } from './sinter.types';
+
+export function textValue(c: Contact) {
+  return c.name.toUpperCase() + ' (' + c.tags.join(', ') + ')';
+}
+`);
+    const plain = '<div data-sn-state="{ n: 2 }"><p data-sn-text="n * 2 + 1"></p></div>\n';
+    const js = project({ 'index.html': plain });
+    const j = await editor(js, { capabilities: CREATE });
+    j.open('index.html', plain);
+    await j.diagnostics('index.html');
+    const [b] = extracts(await j.actions('index.html', find(plain, 'n * 2', { cursor: 0 })));
+    expect(apply(js, b!.edit)['src/sinter.helpers.js']).toBe('/**\n * @param {number} n\n */\nexport function textValue(n) {\n  return n * 2 + 1;\n}\n');
+    // a configured path is used as it is
+    const conf = project({ 'index.html': plain, 'vite.config.js': `import sinter from ${JSON.stringify(join(process.cwd(), 'src/vite.ts'))};\nexport default { plugins: [sinter({ helpers: 'lib/helpers.js' })] };\n` });
+    const k = await editor(conf, { capabilities: CREATE });
+    k.open('index.html', plain);
+    await k.diagnostics('index.html');
+    const [c] = extracts(await k.actions('index.html', find(plain, 'n * 2', { cursor: 0 })));
+    expect(c!.title).toBe('Extract to helper `textValue` in lib/helpers.js');
+    // a client that cannot create files is not offered one that needs a new module
+    const none = project({ 'index.html': plain });
+    const n = await editor(none);
+    n.open('index.html', plain);
+    await n.diagnostics('index.html');
+    expect(extracts(await n.actions('index.html', find(plain, 'n * 2', { cursor: 0 })))).toEqual([]);
+  });
+
+  test('the name is unique: helpers, state and the module\'s own declarations are taken', async () => {
+    const page = '<div data-sn-state="{ n: 2, textValue2: 0 }"><p data-sn-text="n * 2 + textValue2"></p></div>\n';
+    const root = project({ 'src/sinter.helpers.js': 'export const textValue = (x) => x;\nconst textValue3 = 1;\n', 'index.html': page });
+    const e = await editor(root);
+    e.open('index.html', page);
+    await e.diagnostics('index.html');
+    const [a] = extracts(await e.actions('index.html', find(page, 'n * 2', { cursor: 0 })));
+    expect(a!.title).toBe('Extract to helper `textValue4` in src/sinter.helpers.js');
+  });
+
+  test('what the compiler would reject is not offered: a state literal, a `data-sn-attr` object', async () => {
+    const page = '<div data-sn-state="{ n: [1, 2].length }"><p data-sn-attr="{ title: n + 1 }"></p></div>\n';
+    const root = project({ 'src/sinter.helpers.js': '', 'index.html': page });
+    const e = await editor(root);
+    e.open('index.html', page);
+    await e.diagnostics('index.html');
+    expect(extracts(await e.actions('index.html', find(page, '{ n: [1', { cursor: 1 })))).toEqual([]);
+    expect(extracts(await e.actions('index.html', find(page, '{ title', { cursor: 1 })))).toEqual([]);
+    // the values inside them are fine
+    const [a] = extracts(await e.actions('index.html', find(page, '[1, 2].length')));
+    expect(a!.title).toBe('Extract to helper `stateValue` in src/sinter.helpers.js');
+    const [b] = extracts(await e.actions('index.html', find(page, 'n + 1')));
+    expect(apply(root, b!.edit)['index.html']).toContain('data-sn-attr="{ title: attrValue(n) }"');
+  });
+
+  test('extract to action: a `data-sn-call` becomes a call of a new action that makes it', async () => {
+    const page = `<div data-sn-state="{ draft: { to: '', body: '' }, sig: '' }">
+  <button data-sn-call="send(wrap(draft.body, sig), draft.to)">Send</button>
+</div>
+`;
+    const root = project({
+      'src/sinter.helpers.js': 'export const wrap = (b, s) => b + s;\n',
+      'src/sinter.actions.js': 'export async function send(body, to, ctx) {\n  return ctx.request(`/send?to=${to}`, { method: \'POST\', body });\n}\n',
+      'index.html': page,
+    });
+    const e = await editor(root);
+    e.open('index.html', page);
+    await e.diagnostics('index.html');
+    const list = extracts(await e.actions('index.html', find(page, 'send(', { cursor: 1 })));
+    expect(list.map((a) => a.title)).toEqual(['Extract to action `runSend` in src/sinter.actions.js']);
+    const files = apply(root, list[0]!.edit);
+    expect(files['index.html']).toContain('data-sn-call="runSend(draft, sig)"');
+    expect(files['src/sinter.actions.js']).toBe(`import { wrap } from './sinter.helpers';
+
+export async function send(body, to, ctx) {
+  return ctx.request(\`/send?to=\${to}\`, { method: 'POST', body });
+}
+
+/**
+ * @param {{ to: string; body: string; }} draft
+ * @param {string} sig
+ * @param {import('@tiaforge-ui/sinter').CallContext} ctx
+ */
+export function runSend(draft, sig, ctx) {
+  return send(wrap(draft.body, sig), draft.to, ctx);
+}
+`);
+    e.changed('src/sinter.actions.js');
+    e.change('index.html', files['index.html']!);
+    await e.diagnostics('index.html', (d) => d.length === 0);
+    // an argument is a value expression: it can be a helper instead
+    writeFileSync(join(root, 'index.html'), page);
+    e.change('index.html', page);
+    await e.diagnostics('index.html', (d) => d.length > 0 || true);
+    const inArg = extracts(await e.actions('index.html', find(page, 'wrap(draft', { cursor: 6 })));
+    expect(inArg.map((a) => a.title)).toEqual(expect.arrayContaining(['Extract to helper `callValue` in src/sinter.helpers.js']));
+  });
+
+  test('in a partial, the names come from the page that includes it', async () => {
+    const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <sn-include src="./row.html"></sn-include>\n</div>\n';
+    const row = '<template data-sn-for="c in contacts">\n  <p data-sn-show="c.name.includes(q)"></p>\n</template>\n';
+    const root = project({ 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.ts': '', 'index.html': page, 'row.html': row });
+    const e = await editor(root);
+    e.open('row.html', row);
+    await e.diagnostics('row.html');
+    const [a] = extracts(await e.actions('row.html', find(row, 'c.name.includes', { cursor: 0 })));
+    const files = apply(root, a!.edit);
+    expect(files['row.html']).toContain('data-sn-show="showValue(c, q)"');
+    expect(files['src/sinter.helpers.ts']).toContain('export function showValue(c: Contact, q: string) {\n  return c.name.includes(q);\n}');
+  });
+
+  test('a client with code action resolve gets the edit when it picks the action', async () => {
+    const root = project({ 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.ts': '', 'index.html': PAGE });
+    const e = await editor(root, { capabilities: { textDocument: { codeAction: { resolveSupport: { properties: ['edit'] } } } } });
+    e.open('index.html', PAGE);
+    await e.diagnostics('index.html');
+    const [a] = extracts(await e.actions('index.html', find(PAGE, 'query = c.name', { cursor: 10 })));
+    expect(a!.edit).toBeUndefined();
+    const r = await e.resolveAction(a!);
+    expect(apply(root, r.edit)['src/sinter.helpers.ts']).toContain('export function nextQuery(c: Contact, i: number) {');
+    // `only` without refactorings leaves them out
+    expect(await e.actions('index.html', find(PAGE, 'query = c.name', { cursor: 10 }), ['quickfix'])).toEqual([]);
+  });
+
+  test('diagnostics listed in EXTRACT_FIX_CODES get the extraction as a quick fix', async () => {
+    // stands in for the complexity warning: any diagnostic about one expression
+    const page = "<p data-sn-text=\"'at ' + Date.now()\"></p>\n";
+    const root = project({ 'src/sinter.helpers.js': '', 'index.html': page });
+    const e = await editor(root);
+    e.open('index.html', page);
+    const d = await e.diagnostics('index.html', (d) => d.some((x) => x.code.startsWith('SN502')));
+    EXTRACT_FIX_CODES.add('SN502');
+    try {
+      const fixes = (await e.codeActions('index.html', d.filter((x) => x.code.startsWith('SN502')))) as Action[];
+      const fix = fixes.find((a) => a.kind === 'quickfix' && a.title.startsWith('Extract'))!;
+      expect(fix.title).toBe('Extract to helper `textValue` in src/sinter.helpers.js');
+      expect(fix.diagnostics![0]!.code).toMatch(/^SN502/);
+      expect(apply(root, fix.edit)['index.html']).toBe('<p data-sn-text="textValue()"></p>\n');
+    } finally {
+      EXTRACT_FIX_CODES.delete('SN502');
+    }
+  });
+});
+
+test('typeFromHover reads the type of a declaration and widens literals', () => {
+  expect(typeFromHover('let query: string')).toBe('string');
+  expect(typeFromHover('const i: 0')).toBe('number');
+  expect(typeFromHover('const s: "a"')).toBe('string');
+  expect(typeFromHover('(property) contacts: Meta')).toBe('Meta');
+  expect(typeFromHover('const c: Contact')).toBe('Contact');
+  expect(typeFromHover('function shout(s: string): string')).toBeNull();
 });

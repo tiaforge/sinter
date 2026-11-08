@@ -4,16 +4,24 @@
 import type { Readable, Writable } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CODES, docsUrl, type Diagnostic } from '../compiler/index.js';
-import { check, findTsc } from '../check/index.js';
+import { check, findTsc, typeExports } from '../check/index.js';
 import { Connection } from './rpc.js';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { didYouMeanEdit } from './quickfix.js';
+import { editFor, fixPlans, plans, type ExtractContext, type Plan } from './extract.js';
 import { TypeScriptBridge, typescriptMajor, type Target } from './typescript.js';
 import { Workspace, type ProjectState } from './workspace.js';
 
 /** How long typing must pause before TypeScript checks the pages. */
 export const TYPECHECK_DELAY = 300;
+
+/**
+ * Diagnostic codes (`SN…`) whose quick fixes include "Extract to helper" for the expression they
+ * are about (`fixPlans` in `extract.ts`).
+ * TODO(complexity): add the complexity warning's code once it is on main.
+ */
+export const EXTRACT_FIX_CODES = new Set<string>();
 
 export interface Position { line: number; character: number }
 export interface Range { start: Position; end: Position }
@@ -123,9 +131,16 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
   });
   let watchDynamic = false;
   let shutdown = false;
+  /** the client resolves code actions lazily (`codeAction/resolve` fills in `edit`) */
+  let resolveEdits = false;
+  /** the client applies `CreateFile` in workspace edits */
+  let canCreate = false;
 
   conn.onRequest('initialize', (params: any) => {
     watchDynamic = !!params?.capabilities?.workspace?.didChangeWatchedFiles?.dynamicRegistration;
+    resolveEdits = !!params?.capabilities?.textDocument?.codeAction?.resolveSupport?.properties?.includes('edit');
+    const we = params?.capabilities?.workspace?.workspaceEdit;
+    canCreate = !!we?.documentChanges && !!we?.resourceOperations?.includes('create');
     const folders: string[] = (params?.workspaceFolders ?? []).map((f: { uri: string }) => uriToPath(f.uri));
     if (!folders.length && params?.rootUri) folders.push(uriToPath(params.rootUri));
     // load the projects of the open folders early, so the first open file is quick
@@ -137,7 +152,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
         hoverProvider: true,
         completionProvider: { triggerCharacters: ['.'], resolveProvider: true },
         definitionProvider: true,
-        codeActionProvider: { codeActionKinds: ['quickfix'] },
+        codeActionProvider: { codeActionKinds: ['quickfix', 'refactor.extract'], resolveProvider: true },
       },
       serverInfo: { name: 'sinter' },
     };
@@ -242,21 +257,76 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     return targets.map(location);
   });
 
-  conn.onRequest('textDocument/codeAction', (p: any) => {
+  /** what the extraction needs to know about a file; types come from TypeScript 7, asked once it is up to date */
+  const extractContext = async (file: string): Promise<ExtractContext> => {
+    const state = await workspace.projectFor(file);
+    const mode = modeOf(state.root);
+    const read = (f: string) => { try { return workspace.read(f); } catch { return null; } };
+    let ready: Promise<void> | null = null;
+    const types = state.project.types ? read(state.project.types) : null;
+    return {
+      file, text: workspace.read(file), root: state.root, units: [...state.units.values()], project: state.project, options: state.options, read,
+      trial: (text, helpers, actions) => workspace.trial(state, file, text, helpers, actions),
+      typeNames: types ? typeExports(types) : [],
+      canCreate,
+      ...(mode instanceof TypeScriptBridge ? {
+        typeAt: async (line: number, col: number) => {
+          ready ??= mode.update(state.project, state.units);
+          await ready;
+          return mode.typeAt(file, line, col);
+        },
+      } : {}),
+    };
+  };
+
+  /** Extract actions for a range (a selection, or a diagnostic's), with the edit or the data to resolve it. */
+  const extractActions = async (uri: string, range: Range, diagnostic: LspDiagnostic | null) => {
+    const file = uriToPath(uri);
+    let ctx: ExtractContext;
+    try { ctx = await extractContext(file); } catch { return []; }
+    const list: Plan[] = diagnostic ? fixPlans(ctx, diagnostic) : plans(ctx, range);
+    const out = [];
+    for (const [index, plan] of list.entries()) {
+      const action: Record<string, unknown> = diagnostic
+        ? { title: plan.title, kind: 'quickfix', diagnostics: [diagnostic], isPreferred: index === 0 }
+        : { title: plan.title, kind: 'refactor.extract' };
+      if (resolveEdits) action.data = { sinter: 'extract', uri, range, index, title: plan.title, diagnostic };
+      else action.edit = await editFor(ctx, plan, pathToUri);
+      out.push(action);
+    }
+    return out;
+  };
+
+  conn.onRequest('textDocument/codeAction', async (p: any) => {
     if (!local(p.textDocument.uri)) return [];
     let text: string;
     try { text = workspace.read(uriToPath(p.textDocument.uri)); } catch { return []; }
-    const actions = [];
+    const only: string[] | undefined = p.context?.only;
+    const wants = (kind: string) => !only || only.some((k) => kind === k || kind.startsWith(k + '.'));
+    const actions: unknown[] = [];
     for (const d of p.context?.diagnostics ?? []) {
       if (d.source !== 'sinter') continue;
+      if (wants('quickfix') && EXTRACT_FIX_CODES.has(String(d.code).split(' ')[0])) actions.push(...await extractActions(p.textDocument.uri, d.range, d));
       const edit = didYouMeanEdit(text, d.range, d.message);
-      if (!edit) continue;
+      if (!edit || !wants('quickfix')) continue;
       actions.push({
         title: `Change to '${edit.newText}'`, kind: 'quickfix', isPreferred: true, diagnostics: [d],
         edit: { changes: { [p.textDocument.uri]: [edit] } },
       });
     }
+    if (wants('refactor.extract') && p.range) actions.push(...await extractActions(p.textDocument.uri, p.range, null));
     return actions;
+  });
+
+  conn.onRequest('codeAction/resolve', async (action: any) => {
+    const d = action?.data;
+    if (d?.sinter !== 'extract' || !local(d.uri)) return action;
+    const ctx = await extractContext(uriToPath(d.uri));
+    const list = d.diagnostic ? fixPlans(ctx, d.diagnostic) : plans(ctx, d.range);
+    const plan = list[d.index];
+    // the file changed since the list was made: nothing to apply
+    if (!plan || plan.title !== d.title) return action;
+    return { ...action, edit: await editFor(ctx, plan, pathToUri) };
   });
 
   const dispose = () => {

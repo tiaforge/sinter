@@ -42,6 +42,18 @@ Attribute names, function names and diagnostic codes are public API. Before
   with a `withTag` helper (its editor page now loads the keys module, +550 B gzip). The docs' once-only `then` example is
   `draft = $result ?? draft; $result && showModal('compose')`.
 
+- `sinter lsp`: an "Extract to helper" refactoring (`refactor.extract`). On an expression, or a
+  selection inside one, it moves the expression into a new exported function of the helpers module
+  (created when missing, `.ts` in a TypeScript project) and calls it in its place. Free names (loop
+  variables, state, resources, `$event`, `$el`, `$result`, `$meta.<resource>`, …) become parameters,
+  typed from TypeScript 7 when the project has it (`unknown` otherwise, JSDoc in a `.js` module);
+  helpers, store functions and globals do not. In a handler the assignment stays and its value is
+  extracted (`query = nextQuery(c)`); several assignments become one helper each, or one helper
+  returning an object merged with `Object.assign` when they write properties of one state object. On
+  `data-sn-call` and `<sn-resource call>`, "Extract to action" moves the call into a new action. Each
+  extraction is compiled before it is offered. Code actions resolve their edit lazily when the
+  client supports it. Runtime size is unchanged.
+
 ### Docs
 
 - "What belongs in markup" in the spec and `llms.txt`: markup holds filters, conditions,

@@ -127,7 +127,7 @@ const BROWSER = new Set([
 ]);
 const FORBIDDEN_KEYS = new Set(['constructor', '__proto__', 'prototype']);
 
-const READ_ONLY = new Set([
+export const READ_ONLY = new Set([
   'includes', 'indexOf', 'lastIndexOf', 'map', 'filter', 'slice', 'find', 'findIndex', 'findLast',
   'findLastIndex', 'some', 'every', 'reduce', 'reduceRight', 'join', 'concat', 'flat', 'flatMap', 'at',
   'entries', 'keys', 'values', 'forEach', 'toString', 'toLocaleString', 'toSorted', 'toReversed',
@@ -138,7 +138,7 @@ const READ_ONLY = new Set([
   'getTime', 'toISOString', 'toJSON', 'getFullYear', 'getMonth', 'getDate', 'getDay', 'getHours',
   'getMinutes', 'getSeconds', 'test', 'exec',
 ]);
-const MUTATORS = new Set(['push', 'pop', 'splice', 'sort', 'reverse', 'shift', 'unshift', 'fill', 'copyWithin', 'add', 'delete', 'clear', 'set']);
+export const MUTATORS = new Set(['push', 'pop', 'splice', 'sort', 'reverse', 'shift', 'unshift', 'fill', 'copyWithin', 'add', 'delete', 'clear', 'set']);
 /** `Object.<static>(target, …)` calls that change their first argument */
 const OBJECT_MUTATORS = new Set(['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf']);
 /** callbacks of these methods receive elements of the receiver as first parameter */

@@ -158,6 +158,16 @@ export class TypeScriptBridge {
     return range ? { contents: h.contents, range } : { contents: h.contents };
   }
 
+  /** TypeScript's declaration of the name at a 1-based HTML position (`const c: Contact`), from its hover; null outside expressions. */
+  async typeAt(file: string, line: number, col: number): Promise<string | null> {
+    const h = await this.hover(file, line, col);
+    const c = h?.contents as { value?: unknown } | string | undefined;
+    const v = typeof c === 'string' ? c : typeof c?.value === 'string' ? c.value : null;
+    if (!v) return null;
+    const m = /```\w*\n([^]*?)\n```/.exec(v);
+    return m ? m[1]! : v;
+  }
+
   /** Completions at a 1-based HTML position inside an expression, with edits mapped to the HTML. */
   async completion(file: string, line: number, col: number, context: unknown): Promise<{ isIncomplete: boolean; items: any[] } | null> {
     await this.ready;

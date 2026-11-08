@@ -836,7 +836,7 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 
 ## Editors
 
-`npx sinter lsp --stdio` is a language server for the project's HTML files: sinter's diagnostics as you type (partials checked through the pages that include them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix. VS Code: the extension in `editors/vscode`. Setup for Neovim, Helix and Emacs: `docs/editors.md`. Every diagnostic links to its explanation in `docs/diagnostics.md`.
+`npx sinter lsp --stdio` is a language server for the project's HTML files: sinter's diagnostics as you type (partials checked through the pages that include them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix; "Extract to helper" moves an expression into a typed function of the helpers module. VS Code: the extension in `editors/vscode`. Setup for Neovim, Helix and Emacs: `docs/editors.md`. Every diagnostic links to its explanation in `docs/diagnostics.md`.
 
 ## Testing
 

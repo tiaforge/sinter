@@ -4,7 +4,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
-import { compile, type Diagnostic } from '../compiler/index.js';
+import { compile, type Diagnostic, type HelperManifest } from '../compiler/index.js';
 import { project, viteProject, type Project, type ProjectOptions } from '../project.js';
 
 const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
@@ -193,6 +193,33 @@ export class Workspace {
     }
     this.publishAll(state);
     this.hooks.compiled?.(state, pages.filter((x) => state.pages.has(x)));
+  }
+
+  /**
+   * The compiler's errors in `file` if it read `text` and the modules exported what `helpers` and
+   * `actions` say, for every page that compiles it (the file itself, or the pages including it).
+   * Nothing is stored or published.
+   */
+  trial(state: ProjectState, file: string, text: string, helpers: HelperManifest, actions: HelperManifest): Diagnostic[] {
+    const p = state.project;
+    const readFile = (path: string): string => {
+      if (resolve(path) === file) return text;
+      const disk = p.readFile(path); // refuses files outside the root
+      return this.docs.get(resolve(path)) ?? disk;
+    };
+    const pages = state.pages.has(file) ? [file] : [...state.includes].filter(([, files]) => files.includes(file)).map(([page]) => page);
+    const out: Diagnostic[] = [];
+    for (const page of pages) {
+      let html: string;
+      try { html = page === file ? text : this.read(page); } catch { continue; }
+      try {
+        const r = compile(html, { file: page, root: state.root, dev: false, helpers, actions, config: p.config, readFile, check: true, openapi: p.openapi });
+        out.push(...r.diagnostics.filter((d) => d.severity === 'error' && d.file === file));
+      } catch (e) {
+        out.push({ severity: 'error', code: 'SN401', message: (e as Error).message, file, line: 1, col: 1 });
+      }
+    }
+    return out;
   }
 
   /** Sets TypeScript's diagnostics under `key` (a page) and publishes. Ignored for a replaced project state. */
