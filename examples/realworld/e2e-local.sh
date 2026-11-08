@@ -15,7 +15,8 @@ node "$here/e2e-seed.mjs" "$API"
 
 tar -C "$here" --exclude=node_modules --exclude=dist --exclude=test-results --exclude=playwright-report -cf - . | tar -C "$work" -xf -
 ln -s "$here/node_modules" "$work/node_modules"
-grep -rl 'https://api.realworld.show/api' "$work" --include='*.html' --include='*.js' | grep -v '/e2e/' \
+# The spec's `servers` URL moves with the pages: resources and mutations are matched to operations under it.
+grep -rl 'https://api.realworld.show/api' "$work" --include='*.html' --include='*.js' --include='openapi.yml' | grep -v '/e2e/' \
   | xargs sed -i "s#https://api.realworld.show/api#$API#g"
 # Two specs (and the health check) hardcode the public API for their route mocks; point the copy at $API.
 sed -i "s#https://api.realworld.show/api#$API#g" "$work"/e2e/{error-handling,user-fetch-errors,health}.spec.ts

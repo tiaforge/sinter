@@ -34,19 +34,24 @@ Signing in or out calls `clearPersisted()`, since the cached data belongs to the
 Run alongside the e2e suite, this found that cached data must not set `$meta.<name>.loadedAt`
 (the login-redirect guards read it); sinter now leaves it null until the server answers.
 
-## e2e status (2026-11-05, local backend)
+## e2e status (2026-11-08, local backend)
 
 Against [realworld-django-ninja](https://github.com/c4ffein/realworld-django-ninja) on SQLite
 (see below), with its invalid-token responses fixed to 401 (upstream answers them with a 500):
 
 | suite mode | passed | skipped | failed |
 | --- | ---: | ---: | ---: |
-| `spa` (default; this app holds the token and calls the API from the browser) | 135 | 0 | 5 |
+| `spa` (default; this app holds the token and calls the API from the browser) | 136 | 0 | 4 |
 | `ssr` (`TEST_MODE=ssr`) | 91 | 48 | 1 |
 
-With `cache` on every resource (2026-11-05, `spa`): the same five failures; in a full run, one or
-two tests more can time out in `page.goto` (10 s) under load on a slow machine, and pass when run
-alone. `ssr` mode was not rerun.
+2026-11-08, `spa`, after write-through replaced 12 `then` handlers (favorites, follow, comments):
+136 passed, the four Settings failures below remain, 6.2 minutes on the Steam Deck with the flatpak
+Chrome (`CHROME` is a one-line wrapper, `exec flatpak run com.google.Chrome "$@"`; `TMPDIR` must be
+under `$HOME`, since the sandbox cannot see a profile in `/tmp`). The copy's `openapi.yml` is pointed
+at `$API` too: operations are matched under the spec's `servers` URL, so without that the build is
+untyped and write-through has nothing to apply (the first run after the change failed 12 tests that
+way). Earlier (2026-11-05): the same five failures as above; in a full run, one or two tests more
+can time out in `page.goto` (10 s) under load, and pass when run alone. `ssr` mode was not rerun.
 
 The remaining failures are assumptions in the suite, not app behaviour:
 
@@ -55,8 +60,7 @@ The remaining failures are assumptions in the suite, not app behaviour:
   redirects to the profile with a page load as soon as the PUT succeeds, which drops the body
   (`Network.getResponseBody: No resource`) and the JS context (`Execution context was
   destroyed`). The ssr branch of the same tests (wait for the profile, check the bio) passes.
-- **Comments, "should require login to post comment" (both modes, fixed 2026-11-08, not yet
-  rerun)**: asserts on the strict locator `a[href="/login"]`, which matched the nav link and the
+- **Comments, "should require login to post comment" (both modes, fixed 2026-11-08, passes since)**: asserts on the strict locator `a[href="/login"]`, which matched the nav link and the
   reference markup's "Sign in or sign up to add comments" link once the article had loaded
   (against the slower public API the assertion ran before that, so it passed there). The
   article's link now carries the way back, `/login?next=/article/<slug>`, and the login page
