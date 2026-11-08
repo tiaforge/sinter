@@ -22,7 +22,9 @@ async function run(outDir: string) {
 test('builds a page: rewritten HTML, page module, helpers, namespace members and called actions', async () => {
   await run(out);
   const html = readFileSync(join(out, 'index.html'), 'utf8');
-  expect(html).not.toContain('data-sn-');
+  // no directive is left; the paint script's marker is the build's own (a page with an early file and no messages)
+  expect(html).toMatch(/<script src="\/assets\/sinter-paint-[\w-]+\.js" data-sn-early><\/script>\s*<script type="module" crossorigin src="\/assets\/index-early-[\w-]+\.js" blocking="render">/);
+  expect(html.replace(' data-sn-early>', '>')).not.toContain('data-sn-');
   expect(html).not.toContain('sn-resource');
   // the page bundle is async: it does not wait for the stylesheets
   expect(html).toMatch(/<script type="module" crossorigin src="\/assets\/[^"]+\.js" async><\/script>/);
@@ -143,7 +145,7 @@ test('messages: one file per page and language with only the keys it calls (mark
   const dir = join(out, 'i18n');
   await build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ typecheck: true })] });
   const html = readFileSync(join(dir, 'index.html'), 'utf8');
-  const picker = /<script src="\/assets\/(sinter-i18n-[\w-]+\.js)" data-sn-i18n="([^"]+)"><\/script>\s*<script type="module" crossorigin src="\/assets\/index-early-[\w-]+\.js" blocking="render">/.exec(html);
+  const picker = /<script src="\/assets\/(sinter-i18n-[\w-]+\.js)" data-sn-i18n="([^"]+)" data-sn-early><\/script>\s*<script type="module" crossorigin src="\/assets\/index-early-[\w-]+\.js" blocking="render">/.exec(html);
   expect(picker).not.toBeNull();
   const data = JSON.parse(picker![2]!.replace(/&#34;/g, '"'));
   expect(data).toMatchObject({ base: 'en', locales: ['en', 'de'], storage: 'locale' });
@@ -163,7 +165,7 @@ test('messages: a page whose markup has no `m` but whose modules call it gets th
   const dir = join(out, 'i18n-other');
   await build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: dir, emptyOutDir: true, minify: false, rollupOptions: { input: join(i18nRoot, 'other.html') } }, plugins: [sinter({ typecheck: true })] });
   const html = readFileSync(join(dir, 'other.html'), 'utf8');
-  const picker = /<script src="\/assets\/sinter-i18n-[\w-]+\.js" data-sn-i18n="([^"]+)"><\/script>/.exec(html);
+  const picker = /<script src="\/assets\/sinter-i18n-[\w-]+\.js" data-sn-i18n="([^"]+)"( data-sn-early)?><\/script>/.exec(html);
   expect(picker).not.toBeNull();
   const data = JSON.parse(picker![1]!.replace(/&#34;/g, '"'));
   const lang = (l: string) => readFileSync(join(dir, data.files[l].slice(1)), 'utf8');

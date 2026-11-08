@@ -10,6 +10,7 @@ import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult } from './compiler/index.js';
 import { project, type ProjectOptions } from './project.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
+import { PAINT_SCRIPT } from './paint-build.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -39,6 +40,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
   let pickerFile = '';
+  let paintFile = '';
   /** build: the pages with an early module, and each one's bundled early file */
   const earlyPages = new Map<string, string>();
   const earlyFiles = new Map<string, { fileName: string; code: string; modules: Record<string, { renderedLength: number }> }>();
@@ -49,8 +51,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const languageFiles = new Map<string, Record<string, { fileName: string; code: string }>>();
   let messages: MessagesProject | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
-  /** the picker script's tag: it picks the locale and adds the page's language file before the first paint */
-  const pickerTag = (src: string, files: Record<string, string>) => `<script src="${attr(src)}" data-sn-i18n="${attr(JSON.stringify({ base: messages!.base, locales: messages!.locales, storage: 'locale', files }))}"></script>`;
+  /**
+   * the picker script's tag: it picks the locale and adds the page's language file before the first paint;
+   * `early`: the page has an early file, so it also holds the first paint where `blocking` is not supported (paint-build.ts)
+   */
+  const pickerTag = (src: string, files: Record<string, string>, early: boolean) => `<script src="${attr(src)}" data-sn-i18n="${attr(JSON.stringify({ base: messages!.base, locales: messages!.locales, storage: 'locale', files }))}"${early ? ' data-sn-early' : ''}></script>`;
+  /** a page with an early file and no messages: the render-blocking fallback alone */
+  const paintTag = (src: string) => `<script src="${attr(src)}" data-sn-early></script>`;
   /** `m.key` in a module: collected for the page's language file; any other use of `m` is refused */
   const collect = (ctx: { error(m: string): never }, code: string, id: string) => {
     if (!messages || id.includes('/node_modules/') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return;
@@ -175,7 +182,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         this.emitFile({ type: 'asset', fileName, source: chunk.code! });
         earlyFiles.set(rel, { fileName, code: chunk.code!, modules: chunk.modules ?? {} });
       }
-      if (!messages) return;
+      // the render-blocking fallback, for the pages with an early file and no picker to carry it (emitted at the end)
+      paintFile = `${r.build.assetsDir}/sinter-paint-${createHash('sha256').update(PAINT_SCRIPT).digest('base64url').slice(0, 8)}.js`;
+      const paint = () => { if ([...earlyFiles.keys()].some((rel) => !languageFiles.has(rel))) this.emitFile({ type: 'asset', fileName: paintFile, source: PAINT_SCRIPT }); };
+      if (!messages) return paint();
       // per page and language, the keys the page calls: its markup, the modules of its bundle, its early file
       for (const [rel, own] of markupMessages) {
         const entry = Object.values(bundle).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
@@ -204,6 +214,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const picker = `${r.build.assetsDir}/sinter-i18n-${createHash('sha256').update(I18N_PICKER).digest('base64url').slice(0, 8)}.js`;
       if (languageFiles.size) this.emitFile({ type: 'asset', fileName: picker, source: I18N_PICKER });
       pickerFile = picker;
+      paint();
     },
 
     transform(code, id) {
@@ -219,6 +230,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     load(id) {
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
+      if (id === `\0${PREFIX}paint.js`) return PAINT_SCRIPT;
       const lang = id.startsWith(`\0${PREFIX}messages/`) && messages ? id.slice(`\0${PREFIX}messages/`.length, -3) : null;
       if (lang && messages?.dicts[lang]) return languageFile(lang, { ...messages.dicts[messages.base], ...messages.dicts[lang] });
       if (!id.startsWith('\0' + PREFIX)) return null;
@@ -258,13 +270,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         modules.set(moduleSrc, out.module);
         invalidate(moduleSrc);
         invalidate(`${EARLY}${rel}.js`);
-        // dev: the picker first in the head, with every language's whole dictionary; a build adds it after bundling
+        // dev: the picker first in the head, with every language's whole dictionary (else, with an early
+        // file, the paint script); a build adds them after bundling
+        const base = resolved?.base ?? '/', early = out.early != null;
         if (dev && out.messages && messages) {
-          const base = resolved?.base ?? '/';
           for (const f of Object.values(messages.files)) watch(f);
-          const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])));
+          const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])), early);
           return out.html.replace(/<head[^>]*>/, (h) => h + tag);
         }
+        if (dev && early) return out.html.replace(/<head[^>]*>/, (h) => h + paintTag(`${base}${PREFIX.slice(1)}paint.js`));
         return out.html;
       },
     },
@@ -286,8 +300,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (ctx.chunk) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');
         if (!early && !langs) return html;
         const tags: string[] = [];
-        // the picker before the early file: it runs while the head is parsed, so the language file it adds blocks the first paint too
-        if (langs) tags.push(pickerTag(base + pickerFile, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName]))));
+        // the picker before the early file: it runs while the head is parsed, so the language file it adds blocks the first paint too;
+        // it (or, without messages, the paint script) also holds the first paint where `blocking` is not supported
+        if (langs) tags.push(pickerTag(base + pickerFile, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName])), !!early));
+        else if (early) tags.push(paintTag(base + paintFile));
         if (early) tags.push(`<script type="module" crossorigin src="${attr(base + early.fileName)}" blocking="render"></script>`);
         report(rel, early ?? null, langs ?? null);
         const at = html.search(/<script type="module"|<link rel="modulepreload"/);

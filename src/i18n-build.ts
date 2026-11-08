@@ -8,6 +8,7 @@ import type { Diagnostic } from './compiler/index.js';
 
 export { MESSAGES as MESSAGES_MODULE } from './compiler/index.js';
 import { MESSAGES as MESSAGES_MODULE } from './compiler/index.js';
+import { RENDER_FALLBACK } from './paint-build.js';
 const IDENT = /^[A-Za-z_$][\w$]*$/;
 
 export interface MessagesProject {
@@ -134,5 +135,7 @@ export function languageFile(locale: string, dict: Record<string, string>): stri
  * parsed, picks the locale (the stored choice, then navigator.languages, exactly or by language,
  * then the base), sets `<html lang>` and adds the page's language file as a render-blocking module,
  * so the first paint waits for the dictionary. Its data is in `data-sn-i18n` on its own tag.
+ * It starts with the render-blocking fallback (see paint-build.ts), which acts when the tag has
+ * `data-sn-early`.
  */
-export const I18N_PICKER = `/* sinter i18n */(function(){try{var e=document.currentScript,c=JSON.parse(e.getAttribute("data-sn-i18n")),K=Symbol.for("sinter.i18n"),g=globalThis[K]||(globalThis[K]={dicts:{}}),L=c.locales,s=null;try{s=localStorage.getItem(c.storage)}catch(x){}function f(l){if(!l)return;l=l.toLowerCase();for(var i=0;i<L.length;i++)if(L[i].toLowerCase()==l)return L[i];for(i=0;i<L.length;i++)if(L[i].toLowerCase()==l.split("-")[0])return L[i]}var n=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language],r=f(s);for(var i=0;!r&&i<n.length;i++)r=f(n[i]);g.locale=r||c.base;g.base=c.base;g.locales=L;g.storage=c.storage;g.files=c.files;g.dicts=g.dicts||{};document.documentElement.lang=g.locale;var t=document.createElement("script");t.type="module";t.src=c.files[g.locale];t.setAttribute("blocking","render");document.head.appendChild(t)}catch(x){}})();\n`;
+export const I18N_PICKER = `/* sinter i18n */${RENDER_FALLBACK}(function(){try{var e=document.currentScript,c=JSON.parse(e.getAttribute("data-sn-i18n")),K=Symbol.for("sinter.i18n"),g=globalThis[K]||(globalThis[K]={dicts:{}}),L=c.locales,s=null;try{s=localStorage.getItem(c.storage)}catch(x){}function f(l){if(!l)return;l=l.toLowerCase();for(var i=0;i<L.length;i++)if(L[i].toLowerCase()==l)return L[i];for(i=0;i<L.length;i++)if(L[i].toLowerCase()==l.split("-")[0])return L[i]}var n=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language],r=f(s);for(var i=0;!r&&i<n.length;i++)r=f(n[i]);g.locale=r||c.base;g.base=c.base;g.locales=L;g.storage=c.storage;g.files=c.files;g.dicts=g.dicts||{};document.documentElement.lang=g.locale;var t=document.createElement("script");t.type="module";t.src=c.files[g.locale];t.setAttribute("blocking","render");document.head.appendChild(t)}catch(x){}})();\n`;
