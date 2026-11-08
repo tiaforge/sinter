@@ -61,7 +61,7 @@ test('typecheck: type errors fail `vite build` with SN208', async () => {
   }
 });
 
-test('first paint: the early chunk is an entry of its own, render-blocking before the page module, sharing modules with it', async () => {
+test('first paint: one self-contained early file per page, render-blocking before the page module', async () => {
   const dir = join(out, 'first-paint');
   const logs: string[] = [];
   await build({
@@ -75,19 +75,17 @@ test('first paint: the early chunk is an entry of its own, render-blocking befor
   const page = /<script type="module" crossorigin src="\/assets\/(index-[\w-]+\.js)"><\/script>/.exec(html);
   expect(page).not.toBeNull();
   expect(html.indexOf(early![0])).toBeLessThan(html.indexOf(page![0]));
-  const code = (f: string) => readFileSync(join(dir, 'assets', f), 'utf8');
-  // the app's early module and the message the early binding calls; not the page's other helpers
-  const loaded = [early![1]!, ...[...code(early![1]!).matchAll(/from "\.\/([\w-]+\.js)"/g)].map((m) => m[1]!)];
-  const all = loaded.map(code).join('\n');
-  expect(all).toMatch(/dataset\.early = ["']yes["']/);
-  expect(all).toContain('People');
-  expect(all).not.toContain('toUpperCase');
-  expect(all).not.toContain('mount(');
-  // a module both entries need is loaded once: the page module imports the same shared chunk
-  for (const f of loaded.slice(1)) expect(code(page![1]!)).toContain(f);
-  for (const f of loaded.slice(1)) expect(html.split(`<link rel="modulepreload" crossorigin href="/assets/${f}">`).length).toBe(2);
-  // the build reports the early chunk's size, and warns over the budget with the largest modules
-  expect(logs.find((l) => l.includes('early chunk of index.html'))).toMatch(/early chunk of index\.html: [\d.]+ kB gzip \(\d+ files?\), over the early budget of 0\.0 kB.*Largest \(minified, before gzip\): .*sinter\.early\.js|early chunk of index\.html: [\d.]+ kB gzip \(\d+ files?\), over the early budget of 0\.0 kB.*Largest/s);
+  const code = readFileSync(join(dir, 'assets', early![1]!), 'utf8');
+  // everything in one file: the app's early module, the early runtime, the message the early binding calls
+  expect(code).not.toMatch(/^\s*import\b|\bimport\(/m);
+  expect(code).toMatch(/dataset\.early = ["']yes["']/);
+  expect(code).toContain('People');
+  expect(code).toContain('not available early');
+  // not the page's other helpers, nor the runtime
+  expect(code).not.toContain('toUpperCase');
+  expect(code).not.toContain('mount(');
+  // the build reports the early file's size, and warns over the budget with the largest modules
+  expect(logs.find((l) => l.includes('early file of index.html'))).toMatch(/early file of index\.html: assets\/index-early-[\w-]+\.js [\d.]+ kB gzip, over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
   // `firstPaint: false`: everything waits for the page module
   await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: join(dir, 'off'), emptyOutDir: true, minify: false }, plugins: [sinter({ firstPaint: false })] });
   const off = readFileSync(join(dir, 'off', 'index.html'), 'utf8');

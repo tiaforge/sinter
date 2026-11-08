@@ -2,6 +2,7 @@
 // in transformIndexHtml; its page module is served as a virtual module. With
 // first paint on, each page also gets an early chunk: a second entry, loaded
 // render-blocking before the page module, that renders what needs no data.
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -18,7 +19,7 @@ export interface SinterOptions extends ProjectOptions {
    * loaded render-blocking before the page module. `false`: everything waits for the page module.
    */
   firstPaint?: boolean;
-  /** an early chunk (with the shared chunks it loads) above this many bytes gzip is a build warning (default 10000) */
+  /** an early file above this many bytes gzip is a build warning (default 10000) */
   earlyBudget?: number;
 }
 
@@ -36,6 +37,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const watched = new Set<string>();
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
+  /** build: the pages with an early module, and each one's bundled early file */
+  const earlyPages = new Map<string, string>();
+  const earlyFiles = new Map<string, { fileName: string; code: string; modules: Record<string, { renderedLength: number }> }>();
   const budget = options.earlyBudget ?? 10_000;
 
   const watch = (file: string) => {
@@ -82,8 +86,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       });
     },
 
-    /** build: one early chunk per page that has something to run early, as an entry of its own */
+    /** build: the pages that have something to run early (bundled into one file each in generateBundle) */
     buildStart(input) {
+      earlyPages.clear();
+      earlyFiles.clear();
       if (dev || !firstPaint) return;
       const list = typeof input.input === 'string' ? [input.input] : Array.isArray(input.input) ? input.input : Object.values(input.input ?? {});
       for (const entry of list) {
@@ -91,10 +97,36 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const file = resolve(root, entry);
         try {
           const { out } = build(readFileSync(file, 'utf8'), file, null);
-          if (!out.early) continue;
-          const name = relOf(file).replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
-          this.emitFile({ type: 'chunk', id: `${EARLY}${relOf(file)}.js`, name: `${name}-early` });
+          if (out.early) earlyPages.set(relOf(file), out.early);
         } catch { /* reported when the page itself is compiled */ }
+      }
+    },
+
+    /**
+     * build: each page's early module bundled on its own into one file, with nothing imported, so
+     * the first paint waits for one request. Modules it shares with the page bundle are copies:
+     * state the app sets early (an i18n library's locale, configure()) is set again by the page.
+     */
+    async generateBundle() {
+      if (!earlyPages.size) return;
+      const vite = await import('vite');
+      const r = resolved!, ENTRY = `${PREFIX}early-entry.js`;
+      for (const [rel, code] of earlyPages) {
+        const out = await vite.build({
+          configFile: false, root, base: r.base, mode: r.mode, logLevel: 'silent', publicDir: false, define: r.define,
+          resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions },
+          plugins: [{ name: 'sinter:early-entry', resolveId: (id) => (id === ENTRY ? '\0' + ENTRY : null), load: (id) => (id === '\0' + ENTRY ? code : null) }],
+          build: {
+            write: false, minify: r.build.minify, target: r.build.target, modulePreload: false, copyPublicDir: false, reportCompressedSize: false,
+            rollupOptions: { input: ENTRY, output: { format: 'es', inlineDynamicImports: true } },
+          },
+        });
+        const output = (Array.isArray(out) ? out[0] : out) as { output: Array<{ type: string; isEntry?: boolean; code?: string; modules?: Record<string, { renderedLength: number }> }> };
+        const chunk = output.output.find((c) => c.type === 'chunk' && c.isEntry)!;
+        const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
+        const fileName = `${r.build.assetsDir}/${name}-early-${createHash('sha256').update(chunk.code!).digest('base64url').slice(0, 8)}.js`;
+        this.emitFile({ type: 'asset', fileName, source: chunk.code! });
+        earlyFiles.set(rel, { fileName, code: chunk.code!, modules: chunk.modules ?? {} });
       }
     },
 
@@ -146,8 +178,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
   };
 
-  // After bundling: the early chunk's tag (render-blocking, before the page module, where Vite's
-  // HTML processing cannot merge it into the page entry), its preloads, and its size.
+  // After bundling: the early file's tag (render-blocking, before the page module, where Vite's
+  // HTML processing cannot merge it into the page entry) and its size.
   const post: Plugin = {
     name: 'sinter:early',
     enforce: 'post',
@@ -155,41 +187,27 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     transformIndexHtml: {
       order: 'post',
       handler(html, ctx) {
-        if (!ctx.bundle || !ctx.filename.endsWith('.html')) return;
-        const rel = relOf(ctx.filename);
-        const chunk = Object.values(ctx.bundle).find((c) => c.type === 'chunk' && c.facadeModuleId === `\0${EARLY}${rel}.js`);
-        if (!chunk || chunk.type !== 'chunk') return;
-        const base = resolved?.base ?? '/';
-        // what loads before the first paint: the chunk and its static imports, transitively
-        const loads = [chunk];
-        for (let i = 0; i < loads.length; i++) {
-          for (const f of loads[i]!.imports) {
-            const c = ctx.bundle[f];
-            if (c?.type === 'chunk' && !loads.includes(c)) loads.push(c);
-          }
-        }
-        const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
-        const tags = [
-          ...loads.slice(1).filter((c) => !html.includes(`href="${attr(base + c.fileName)}"`)).map((c) => `<link rel="modulepreload" crossorigin href="${attr(base + c.fileName)}">`),
-          `<script type="module" crossorigin src="${attr(base + chunk.fileName)}" blocking="render"></script>`,
-        ].join('\n    ');
-        report(rel, loads);
+        const rel = relOf(ctx.filename), early = earlyFiles.get(rel);
+        if (!early) return;
+        const src = `${resolved?.base ?? '/'}${early.fileName}`.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+        const tag = `<script type="module" crossorigin src="${src}" blocking="render"></script>`;
+        report(rel, early);
         const at = html.search(/<script type="module"|<link rel="modulepreload"/);
-        return at >= 0 ? html.slice(0, at) + tags + '\n    ' + html.slice(at) : html.replace('</head>', `    ${tags}\n  </head>`);
+        return at >= 0 ? html.slice(0, at) + tag + '\n    ' + html.slice(at) : html.replace('</head>', `    ${tag}\n  </head>`);
       },
     },
   };
 
-  /** One line per page: the early chunk's size (gzip, with the shared chunks it loads); over the budget a warning naming the largest modules. */
-  function report(rel: string, loads: Array<{ fileName: string; code: string; modules: Record<string, { renderedLength: number }> }>) {
-    const gz = loads.reduce((n, c) => n + gzipSync(c.code).length, 0);
+  /** One line per page: the early file's size (gzip); over the budget a warning naming the largest modules. */
+  function report(rel: string, early: { fileName: string; code: string; modules: Record<string, { renderedLength: number }> }) {
+    const gz = gzipSync(early.code).length;
     const kb = (n: number) => `${(n / 1000).toFixed(1)} kB`;
-    const line = `sinter: early chunk of ${rel}: ${kb(gz)} gzip (${loads.length} file${loads.length > 1 ? 's' : ''})`;
+    const line = `sinter: early file of ${rel}: ${early.fileName} ${kb(gz)} gzip`;
     const logger = resolved?.logger;
     if (gz <= budget) { logger?.info(line); return; }
-    const top = loads.flatMap((c) => Object.entries(c.modules)).sort((a, b) => b[1].renderedLength - a[1].renderedLength).slice(0, 5)
-      .map(([id, m]) => `${id.includes(EARLY) ? `the early bindings of ${rel}` : relative(root, id.replace(/^\0/, '')).split(sep).join('/')} ${kb(m.renderedLength)}`);
-    const msg = `${line}, over the early budget of ${kb(budget)}. It renders before the first paint: keep heavy imports out of src/sinter.early.ts and of the helpers early bindings call. Largest (minified, before gzip): ${top.join(', ')}`;
+    const top = Object.entries(early.modules).sort((a, b) => b[1].renderedLength - a[1].renderedLength).slice(0, 5)
+      .map(([id, m]) => `${id.includes(PREFIX) ? `the early bindings of ${rel}` : relative(root, id.replace(/^\0/, '')).split(sep).join('/')} ${kb(m.renderedLength)}`);
+    const msg = `${line}, over the early budget of ${kb(budget)}. It renders before the first paint: keep heavy imports out of src/sinter.early.ts and of the helpers early bindings call. Largest (before gzip): ${top.join(', ')}`;
     if (logger) logger.warn(msg); else console.warn(msg);
   }
 

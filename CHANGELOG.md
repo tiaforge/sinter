@@ -12,16 +12,17 @@ Attribute names, function names and diagnostic codes are public API. Before
   - Build-time constants are written into the HTML: bindings outside templates that read only
     literal `data-sn-state` fields (each on its own) and constants, e.g. `aria-current` from
     `here === '/mail/'`.
-  - The early chunk: per page, a second entry loaded `type="module" blocking="render"` before
-    the page module. It runs the app's optional `src/sinter.early.ts` first (e.g. to pick the
+  - The early chunk: per page, one file with nothing to import, loaded `type="module"
+    blocking="render"` before the page module, so the first paint waits for one request. It runs the app's optional `src/sinter.early.ts` first (e.g. to pick the
     language), then, once, the bindings outside `data-sn-for` templates that need no data: state
     fields that need no data, persisted values read from storage, `$locale` and helpers, and the
-    branch of a `data-sn-if` over them. It imports only the helpers those bindings call; modules
-    shared with the page bundle load once. Resources, `$url`, `$now`, `$meta`, `$el` and the
+    branch of a `data-sn-if` over them. It holds only the helpers those bindings call, and copies of
+    modules it shares with the page bundle: state the early module sets (an i18n locale) is set
+    again by the page bundle. Resources, `$url`, `$now`, `$meta`, `$el` and the
     built-in formatters wait for the page module.
   - The runtime takes the rendered DOM over: its first write changes nothing, and it adopts an
     early `data-sn-if` branch instead of rendering it again.
-  - The build prints each page's early chunk size (gzip) and warns above `earlyBudget` (default
+  - The build prints each page's early file and its size (gzip) and warns above `earlyBudget` (default
     10000 bytes), naming the largest modules.
 - `sinter({ firstPaint: false })` turns it off; `sinter({ early: 'path' })` names another early
   module. Compiler options `prerender` and `early`; `CompileResult.early` is the page's early
