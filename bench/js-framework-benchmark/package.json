@@ -5,7 +5,7 @@
   "type": "module",
   "description": "sinter entry for js-framework-benchmark",
   "js-framework-benchmark": {
-    "frameworkVersion": "0.3.0",
+    "frameworkVersion": "0.3.1",
     "frameworkHomeURL": "https://github.com/tiaforge/sinter",
     "customURL": "/dist",
     "language": "JavaScript"
