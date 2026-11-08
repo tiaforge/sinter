@@ -270,8 +270,9 @@ const prepared = new WeakMap<HTMLTemplateElement, boolean>();
 /** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
 const EARLY = Symbol.for('sinter.early');
 const simple = new WeakMap<TemplateDef, Simple | null>(), SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
-/** rows of simple templates with handlers, by each of their nodes */
-const rowOf = new WeakMap<Node, Inst>();
+/** ROW: on each node of a simple row with handlers, its instance */
+const ROW = Symbol('sinter.row');
+type RowNode = Node & { [ROW]?: Inst };
 const rowNodes = (x: Inst) => x.nodes ?? [x.first!];
 
 /** The instance mount() created on `root`; throws if none. */
@@ -983,7 +984,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         write(b, el, (v[j] = evalB(b, s, el, null)), undefined, true);
       }
       const nodes = one ? null : collect(), x: Inst = { first, nodes, rbs: null, v, t, s, key, item, i, f: 0, r: round };
-      if (meta.hs.length) for (const n of nodes ?? [top]) if (n.nodeType == 1) rowOf.set(n, x);
+      if (meta.hs.length) for (const n of nodes ?? [top]) if (n.nodeType == 1) (n as RowNode)[ROW] = x;
       return x;
     }
     bindNodes(defs, els, s, rbs);
@@ -1031,7 +1032,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const h = el[HANDLERS];
     if (h != null) return h;
     let a: Element | null = el, x: Inst | undefined;
-    while (a && a != root && !(x = rowOf.get(a))) a = a.parentElement;
+    while (a && a != root && !(x = (a as RowNode)[ROW])) a = a.parentElement;
     if (!x) return undefined;
     const t = x.t!, els: Array<Element | null> = fns[t.find!]!(x.first), k = els.indexOf(el);
     const rbs = k < 0 ? [] : isSimple(t)!.hs.filter((y) => y[0] == k).map(([, b]): RB => ({ b, el, s: x!.s, v: UNSET, c: false }));

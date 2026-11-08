@@ -1,5 +1,33 @@
 # js-framework-benchmark results
 
+## 2026-11-08, selection bindings and simple rows
+
+Two runtime changes, measured on the entry against vanillajs on the same machine (headless Chrome 156,
+Steam Deck); the ranking method is the section below.
+
+| benchmark | before | after | vanillajs | ratio before → after |
+| --- | ---: | ---: | ---: | ---: |
+| 04 select row, script ms | 5.2 | 2.2 | 0.9 | 1.59 → 1.26 (total) |
+| 04 select row, sinter's own flush ms | 4.1 | 0.7 first / 0.2 next | | |
+| 01 create 1k rows, script ms | 6.25 | 6.2 | 3.2–3.9 | unchanged |
+| 07 create 10k rows, script ms | 43.4 | 43.7 | 28.9 | unchanged |
+| 21 ready memory MB | 0.68 | 0.68 | 0.57 | 1.19 → 1.19 |
+| 22 run memory, 1,000 rows MB | 2.51 | 2.19 | 1.87 | 1.34 → 1.17 |
+| 25 run-clear memory MB | 0.91 | 0.94 | 0.65 | 1.42 → 1.46 |
+
+- Selection bindings: `{danger: row.id === selected}` is marked by the compiler; a change to `selected`
+  re-evaluates it on the two rows concerned, through an index built on the first selection (0.5 ms
+  for 1,000 rows) and dropped when the rows render for another reason. The benchmark's remaining
+  select time is Chrome's event dispatch.
+- Simple rows (value bindings and handlers only) keep no binding objects: one array of last values per
+  row, elements found again from the row's first node when it renders, handlers bound on their first
+  event. Memory per row 640 → 320 B over vanillajs. Creation time did not move: the per-row cost is
+  the clone, the lookup and the writes, not the binding objects. The 30 KB more after five
+  create-and-clear cycles do not come from the row registry (measured with it off); they are within
+  what the larger core costs.
+- Memory runs are deterministic to about 1 %: one iteration of sinter alone is enough to measure a
+  change; vanillajs's figures above are reused.
+
 ## 2026-11-08, rank in the official Chrome 156 table
 
 `bench/js-framework-benchmark/rank.mjs` places a local run into the official results
