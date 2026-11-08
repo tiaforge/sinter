@@ -1,93 +1,102 @@
-// First paint in the browser: the first-paint script picks the locale and writes its text and the
-// persisted controls; the page module then takes the page over without changing what was shown.
+// First paint in the browser: the early chunk renders what needs no data (after the app's early
+// module has picked the language), and the page module takes the DOM over without changing it.
 import { expect, test } from 'vitest';
-import { firstPaint, memoryStorage, render } from '@tiaforge-ui/sinter/testing';
-import { compile, FIRST_PAINT_SCRIPT, pickLocale } from '../../src/compiler/index.js';
+import { firstPaint, memoryStorage, mockRequests, render } from '@tiaforge-ui/sinter/testing';
 
-let current = 'en';
-const messages: Record<string, Record<string, string>> = {
-  en: { nav: 'Main navigation', mail: 'Mail', collapse: 'Collapse menu' },
-  de: { nav: 'Hauptnavigation', mail: 'E-Mail', collapse: 'Menü einklappen' },
+let lang = 'en';
+const text: Record<string, Record<string, string>> = {
+  en: { nav: 'Main navigation', mail: 'Mail', week: 'Week', month: 'Month' },
+  de: { nav: 'Hauptnavigation', mail: 'E-Mail', week: 'Woche', month: 'Monat' },
 };
-const m = { nav: () => messages[current]!.nav!, mail: () => messages[current]!.mail!, collapse: () => messages[current]!.collapse! };
-const locale = { locales: ['en', 'de'], storage: 'locale', use: (l: string) => { current = l; } };
+const m = Object.fromEntries(Object.keys(text.en!).map((k) => [k, () => text[lang]![k]!]));
+// stands for the app's src/sinter.early.ts: picks the language before anything renders
+const early = (storage: Storage) => () => { lang = storage.getItem('locale') ?? 'en'; };
 
-const page = `<!doctype html><html lang="en"><head></head>
+const page = `<!doctype html><html lang="en" data-sn-state="{ view: 'week' }" data-sn-persist="view"><head></head>
 <body data-sn-state="{ here: '/mail/' }">
   <sn-resource name="user" src="/api/user"></sn-resource>
   <nav data-sn-attr="{'aria-label': m.nav()}" data-sn-state="{ collapsed: false }">
-    <input type="checkbox" data-sn-model="collapsed" data-sn-persist="nav-collapsed" data-sn-attr="{'aria-label': m.collapse()}">
+    <input type="checkbox" data-sn-model="collapsed" data-sn-persist="nav-collapsed">
     <a href="/mail/" data-sn-attr="{'aria-current': here === '/mail/' ? 'page' : null, 'data-tooltip': m.mail()}"><span data-sn-text="m.mail()"></span></a>
     <span id="name" data-sn-text="user.name"></span>
   </nav>
+  <main>
+    <template data-sn-if="view === 'week'"><h1 data-sn-text="m.week()"></h1><p data-sn-text="user.name"></p></template>
+    <template data-sn-else><h1 data-sn-text="m.month()"></h1></template>
+  </main>
 </body></html>`;
 
-const rail = () => {
-  const nav = document.querySelector('nav')!, input = nav.querySelector('input')!, a = nav.querySelector('a')!;
-  return { lang: document.documentElement.lang, label: nav.getAttribute('aria-label'), collapse: input.getAttribute('aria-label'), checked: input.checked, current: a.getAttribute('aria-current'), tooltip: a.dataset.tooltip, text: a.textContent };
+const shown = () => {
+  const nav = document.querySelector('nav')!, a = nav.querySelector('a')!;
+  return {
+    label: nav.getAttribute('aria-label'), checked: nav.querySelector('input')!.checked, current: a.getAttribute('aria-current'),
+    tooltip: a.dataset.tooltip, text: a.textContent, view: [...document.querySelectorAll('main h1')].map((h) => h.textContent).join(),
+  };
 };
 
-test('pickLocale: the stored choice, then the browser languages (exact, then the language), then the first', () => {
-  expect(pickLocale(['en', 'de'], 'de', ['en-US'])).toBe('de');
-  expect(pickLocale(['en', 'de'], 'fr', ['de-AT', 'en'])).toBe('de');
-  expect(pickLocale(['en', 'pt-BR', 'pt'], null, ['pt-BR'])).toBe('pt-BR');
-  expect(pickLocale(['en', 'pt'], null, ['PT-br'])).toBe('pt');
-  expect(pickLocale(['en', 'de'], null, ['fr', 'it'])).toBe('en');
-});
-
-test('the first paint in the fallback locale: text, current page and labels before any module has run', async () => {
-  await firstPaint(page, { helpers: { m }, locale });
-  expect(rail()).toEqual({ lang: 'en', label: 'Main navigation', collapse: 'Collapse menu', checked: false, current: 'page', tooltip: 'Mail', text: 'Mail' });
+test('first paint: build-time constants, then the early chunk in the visitor\'s language, persisted values read from storage', async () => {
+  let storage = memoryStorage();
+  await firstPaint(page, { helpers: { m }, storage, early: early(storage) });
+  expect(shown()).toEqual({ label: 'Main navigation', checked: false, current: 'page', tooltip: 'Mail', text: 'Mail', view: 'Week' });
   expect(document.getElementById('name')!.textContent).toBe('');
+
+  storage = memoryStorage();
+  storage.setItem('locale', 'de');
+  storage.setItem('sn:nav-collapsed', 'true');
+  storage.setItem('sn:view', JSON.stringify({ view: 'month' }));
+  await firstPaint(page, { helpers: { m }, storage, early: early(storage) });
+  expect(shown()).toEqual({ label: 'Hauptnavigation', checked: true, current: 'page', tooltip: 'E-Mail', text: 'E-Mail', view: 'Monat' });
+  lang = 'en';
 });
 
-test('the visitor\'s locale (stored, else the browser\'s) and persisted controls, before any module has run', async () => {
+test('without the early chunk (no script) the HTML has the build-time constants only', async () => {
+  const { html } = await firstPaint(page, { helpers: { m } });
+  expect(html).toContain('<a href="/mail/" data-sn="4" aria-current="page"><span data-sn="5"></span></a>');
+});
+
+test('the page module takes the first paint over without changing it, and adopts the early branch', async () => {
   const storage = memoryStorage();
   storage.setItem('locale', 'de');
   storage.setItem('sn:nav-collapsed', 'true');
-  await firstPaint(page, { helpers: { m }, locale, storage });
-  expect(rail()).toEqual({ lang: 'de', label: 'Hauptnavigation', collapse: 'Menü einklappen', checked: true, current: 'page', tooltip: 'E-Mail', text: 'E-Mail' });
-
-  await firstPaint(page, { helpers: { m }, locale, languages: ['de-CH', 'en'] });
-  expect(rail().text).toBe('E-Mail');
-  await firstPaint(page, { helpers: { m }, locale: { ...locale, navigator: false }, languages: ['de-CH'] });
-  expect(rail().text).toBe('Mail');
-});
-
-test('the page module takes the first paint over without changing it', async () => {
-  const storage = memoryStorage();
-  storage.setItem('locale', 'de');
-  storage.setItem('sn:nav-collapsed', 'true');
-  await firstPaint(page, { helpers: { m }, locale, storage });
-  const before = rail(), html = document.querySelector('nav')!.outerHTML;
-  const requests = (await import('@tiaforge-ui/sinter/testing')).mockRequests({ 'GET /api/user': { name: 'Ada' } });
-  // render() starts the helpers in the locale the first-paint script picked, as the app's i18n would
-  const { settle } = await render(page, { helpers: { m }, storage, requests, firstPaint: { locale } });
-  expect(current).toBe('de');
-  expect(rail()).toEqual(before);
-  expect(document.querySelector('nav')!.outerHTML).toBe(html);
-  await settle();
-  expect(document.getElementById('name')!.textContent).toBe('Ada');
-  expect(rail()).toEqual(before);
-  current = 'en';
-});
-
-test('FIRST_PAINT_SCRIPT runs on its own as a classic script', () => {
-  current = 'en';
-  const out = compile(page, {
-    file: '/app/index.html', root: '/app', dev: false, readFile: () => '', helpers: { module: '/h.js', names: [], namespaces: { m: { module: '/m.js', members: ['nav', 'mail', 'collapse'] } } },
-    firstPaint: { helpers: { m }, locale },
+  const requests = mockRequests({ 'GET /api/user': { name: 'Ada' } });
+  // record what the page module changes after the early chunk
+  const changes: string[] = [];
+  let branch: Element | null = null;
+  const watch = new MutationObserver((records) => {
+    for (const r of records) {
+      if (r.type === 'attributes' && (r.target as Element).getAttribute(r.attributeName!) !== r.oldValue) changes.push(`${(r.target as Element).localName}[${r.attributeName}]`);
+      if (r.type === 'childList' && [...r.removedNodes].some((n) => n.nodeType === 1)) changes.push(`removed from ${(r.target as Element).localName}`);
+      if (r.type === 'characterData' && r.target.textContent !== r.oldValue) changes.push(`text ${r.oldValue} → ${r.target.textContent}`);
+    }
   });
-  const doc = new DOMParser().parseFromString(out.html, 'text/html');
-  document.documentElement.innerHTML = doc.documentElement.innerHTML;
-  localStorage.setItem('locale', 'de');
-  localStorage.setItem('sn:nav-collapsed', 'true');
-  try {
-    // eslint-disable-next-line no-new-func -- the script as the browser runs it
-    new Function(FIRST_PAINT_SCRIPT)();
-    expect(rail()).toMatchObject({ lang: 'de', label: 'Hauptnavigation', checked: true, text: 'E-Mail' });
-  } finally {
-    localStorage.clear();
-  }
-  expect(FIRST_PAINT_SCRIPT.length).toBeLessThan(4096);
+  const { settle } = await render(page, {
+    helpers: { m }, storage, requests,
+    firstPaint: {
+      early: early(storage),
+      afterEarly: () => {
+        branch = document.querySelector('main h1');
+        watch.observe(document.body, { subtree: true, attributes: true, attributeOldValue: true, childList: true, characterData: true, characterDataOldValue: true });
+      },
+    },
+  });
+  expect(shown()).toEqual({ label: 'Hauptnavigation', checked: true, current: 'page', tooltip: 'E-Mail', text: 'E-Mail', view: 'Woche' });
+  expect(changes).toEqual([]);
+  await settle();
+  watch.disconnect();
+  // the branch element is the one the early chunk rendered, now bound: its data arrived
+  expect(document.querySelector('main h1')).toBe(branch);
+  expect(document.querySelector('main p')!.textContent).toBe('Ada');
+  expect(document.getElementById('name')!.textContent).toBe('Ada');
+  // after the data: only the elements waiting for it changed
+  expect(changes.every((c) => /^text|^removed from (span|p)/.test(c))).toBe(true);
+  lang = 'en';
+});
+
+test('an early branch that is not the one to show is replaced', async () => {
+  const storage = memoryStorage();
+  // the early chunk sees `week`; the page module's state says `month` (as if it changed in between)
+  const { flush } = await render(page.replace("data-sn-state=\"{ view: 'week' }\"", "data-sn-state=\"{ view: 'week' }\" data-sn-on-x=\"view = 'month'\""), { helpers: { m }, storage, firstPaint: true, requests: mockRequests({ 'GET /api/user': {} }) });
+  document.documentElement.dispatchEvent(new Event('x'));
+  await flush();
+  expect([...document.querySelectorAll('main h1')].map((h) => h.textContent)).toEqual(['Month']);
 });

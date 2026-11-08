@@ -4,7 +4,7 @@
 import { compileParts } from '../compiler/compile.js';
 import { formatDiagnostic } from '../compiler/diagnostics.js';
 import type { CompiledParts, HelperManifest } from '../compiler/compile.js';
-import { firstPaint as runFirstPaint, pickLocale } from '../first-paint.js';
+import { early as runEarly } from '../early.js';
 import { mount, type App, type Feature, type Transport } from '../runtime/app.js';
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
@@ -191,17 +191,17 @@ export interface RenderOptions {
   storage?: Storage;
   session?: Storage;
   /**
-   * first paint: compile with the values known at build time and run the first-paint script
-   * (locale text, persisted controls) before mounting, as the built page does in the browser
+   * first paint: compile with build-time constants and run the page's early chunk (the app's
+   * early module, then the early bindings) before mounting, as the built page does in the browser
    */
   firstPaint?: true | FirstPaintTestOptions;
 }
 
 export interface FirstPaintTestOptions {
-  /** the app's locales, as the Vite plugin's `locale` option, with `use` as a function that switches the helpers' locale */
-  locale?: { locales: string[]; storage?: string; navigator?: boolean; use?: (locale: string) => void };
-  /** the browser's `navigator.languages` (default `['en-US']`) */
-  languages?: string[];
+  /** stands for the app's early module (`src/sinter.early.ts`): runs before the early bindings */
+  early?: () => void;
+  /** runs after the early chunk, before the page module mounts (e.g. to watch what mounting changes) */
+  afterEarly?: () => void;
 }
 
 export interface Rendered {
@@ -229,21 +229,33 @@ const tick = () => new Promise<void>((r) => realSetTimeout(r, 0));
 const PAGE = '/test/page.html';
 
 /**
- * What the built page shows before its module has run: the page compiled with the values known at
- * build time, written into the document, and the first-paint script run over it. Nothing is
- * mounted: bindings that wait for the module are as the HTML has them.
+ * What the built page shows before its module has run: the page compiled with its build-time
+ * constants, written into the document, and its early chunk run over it. Nothing is mounted:
+ * bindings that wait for data are as the HTML has them.
  */
 export async function firstPaint(html: string, options: Pick<RenderOptions, 'helpers' | 'files' | 'storage'> & FirstPaintTestOptions = {}): Promise<{ root: HTMLElement; html: string }> {
   if (current) { current.destroy(); current = null; }
-  const { helpers, files, locale } = options;
-  const { parts } = compilePage(html, { ...(helpers ? { helpers } : {}), ...(files ? { files } : {}), firstPaint: locale ? { locale } : {} });
+  const { helpers, files } = options;
+  const { parts } = compilePage(html, { ...(helpers ? { helpers } : {}), ...(files ? { files } : {}), firstPaint: true });
   writePage(parts.html);
-  paint(options.storage ?? memoryStorage(), options.languages);
+  const env = config.env;
+  config.env = { ...env, storage: () => options.storage ?? null };
+  try { paint(parts, helpers ?? {}, options.early); } finally { config.env = env; }
   return { root: document.body, html: parts.html };
 }
 
-function paint(storage: Storage, languages: string[] = ['en-US']) {
-  runFirstPaint(document, storage, languages, pickLocale);
+/** The early chunk: the app's early module, then the early bindings with the helpers in scope. */
+function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () => void) {
+  app?.();
+  if (!parts.early) return;
+  const names: string[] = ['$k'], values: unknown[] = [$k];
+  for (const h of parts.early.helpers) { names.push(h); values.push(helpers[h]); }
+  for (const [ns, members] of Object.entries(parts.early.namespaces)) {
+    for (const m of members) { names.push(`${ns}$${m}`); values.push((helpers[ns] as Record<string, unknown>)[m]); }
+  }
+  // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
+  const fns = new Function(...names, `"use strict"; return [\n${parts.early.fns.join(',\n')}\n];`)(...values);
+  runEarly(document, { ir: parts.early.ir, fns });
 }
 
 function compilePage(html: string, options: RenderOptions): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown> } {
@@ -260,7 +272,6 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
     else if (v && typeof v === 'object') actionManifest.namespaces[k] = { module: k, members: Object.keys(v) };
   }
   const files = options.files ?? {};
-  const fp = options.firstPaint === true ? {} : options.firstPaint;
   const parts = compileParts(html, {
     file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank',
     readFile: (p) => {
@@ -269,7 +280,7 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
       if (hit === undefined) throw new Error(`no such file: ${p}`);
       return hit;
     },
-    ...(fp ? { firstPaint: { helpers, locale: fp.locale ?? null } } : {}),
+    ...(options.firstPaint ? { prerender: true, early: { module: null } } : {}),
   });
   const errors = parts.diagnostics.filter((d) => d.severity === 'error');
   if (errors.length) throw new Error(`sinter: build failed\n${errors.map(formatDiagnostic).join('\n')}`);
@@ -322,12 +333,6 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   let nextTimer = 1;
   const navigations: string[] = [];
   const store = options.storage ?? memoryStorage(), session = options.session ?? memoryStorage();
-  if (options.firstPaint) {
-    const fp = options.firstPaint === true ? {} : options.firstPaint;
-    paint(store, fp.languages);
-    // as the app does: its i18n starts in the locale the first-paint script picked (`<html lang>`)
-    if (fp.locale?.use) fp.locale.use(doc.documentElement.lang);
-  }
   const winListeners = new Map<string, Set<(e: Event) => void>>();
   const env: Env = {
     now: () => now,
@@ -348,6 +353,11 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     },
   };
   config.env = env;
+  if (options.firstPaint) {
+    const fp = options.firstPaint === true ? {} : options.firstPaint;
+    paint(parts, helpers, fp.early);
+    fp.afterEarly?.();
+  }
   if (options.locale !== undefined) {
     let locale = options.locale;
     config.locale = { get: () => locale, set: (l) => { locale = l; } };

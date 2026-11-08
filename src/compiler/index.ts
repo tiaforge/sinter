@@ -1,9 +1,8 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type FirstPaintLocale, type FirstPaintOptions, type HelperManifest } from './compile.js';
+import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type HelperManifest, type HelperOrigin } from './compile.js';
 
-export type { CompileOptions, CompileResult, CompiledParts, FirstPaintLocale, FirstPaintOptions, HelperManifest };
-export { FIRST_PAINT_SCRIPT, firstPaint, pickLocale, type FirstPaintData, type FirstPaintWrite } from '../first-paint.js';
+export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, HelperManifest, HelperOrigin };
 export type { Diagnostic } from './diagnostics.js';
 export type { CheckUnit } from './check-unit.js';
 export { formatDiagnostic, docsUrl, CODES } from './diagnostics.js';
@@ -18,8 +17,44 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   const parts = compileParts(html, options);
   const out: CompileResult = { html: parts.html, module: pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files };
   if (parts.check) out.check = parts.check;
-  if (parts.firstPaint !== undefined) out.firstPaint = parts.firstPaint;
+  if (parts.early !== undefined) out.early = earlyModule(parts.early, options);
   return out;
+}
+
+/**
+ * The page's early module: the app's early module first (it runs before any binding, e.g. to pick
+ * the language), then the early bindings with only the helpers they call. Null when there is
+ * neither.
+ */
+export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early'>): string | null {
+  const app = options.early?.module ?? null;
+  if (!early && !app) return null;
+  const lines: string[] = [];
+  if (app) lines.push(`import ${JSON.stringify(app)};`);
+  if (early) {
+    lines.push(`import { early, $k } from '${PACKAGE}/early';`);
+    // each from the module that declares it: past the helpers module and barrels, whose other
+    // exports (a namespace object of every message) would otherwise load before the first paint
+    const byModule = new Map<string, string[]>();
+    const add = (mod: string, spec: string) => byModule.set(mod, [...(byModule.get(mod) ?? []), spec]);
+    const as = (o: HelperOrigin, local: string) => (o.name === local ? local : `${o.name} as ${local}`);
+    if (options.helpers.module) for (const h of early.helpers) {
+      const o = options.helpers.from?.[h];
+      add(o?.module ?? options.helpers.module, o ? as(o, h) : h);
+    }
+    for (const [ns, members] of Object.entries(early.namespaces)) {
+      const info = options.helpers.namespaces[ns]!;
+      for (const m of members) {
+        const o = info.from?.[m];
+        add(o?.module ?? info.module, `${o?.name ?? m} as ${ns}$${m}`);
+      }
+    }
+    for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
+    lines.push('', `const ir = ${JSON.stringify(early.ir)};`, 'const fns = [');
+    for (const f of early.fns) lines.push(`  ${f},`);
+    lines.push('];', '', 'early(document, { ir, fns });');
+  }
+  return lines.join('\n') + '\n';
 }
 
 export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions'>): string {
@@ -73,26 +108,44 @@ export function readHelperManifest(
   const read = (file: string): ModuleExports | null => {
     try { return exportsOf(options.readFile(file), file); } catch { return null; }
   };
-  /** the module's own value exports plus those of its `export *` re-exports, transitively */
-  const valueNames = (file: string, exports: ModuleExports, seen: Set<string>): string[] => {
+  /** the module's own value exports plus those of its `export *` re-exports, transitively; `origin`: name → declaring file and name */
+  const valueNames = (file: string, exports: ModuleExports, seen: Set<string>, origin?: Map<string, { file: string; name: string }>): string[] => {
     const names = new Set(exports.names);
+    for (const n of exports.names) {
+      if (origin?.has(n)) continue;
+      const re = exports.named.get(n), at = re && re.spec.startsWith('.') ? resolve(re.spec, file) : null;
+      origin?.set(n, at ? { file: at, name: re!.name } : { file, name: n });
+    }
     for (const spec of exports.reexports) {
       const path = spec.startsWith('.') ? resolve(spec, file) : null;
       if (!path || seen.has(path)) continue;
       seen.add(path);
       const sub = read(path);
-      if (sub) for (const n of valueNames(path, sub, seen)) names.add(n);
+      if (sub) for (const n of valueNames(path, sub, seen, origin)) names.add(n);
     }
     return [...names].sort();
   };
   const top = exportsOf(source, options.file);
-  manifest.names = valueNames(options.file, top, new Set([options.file]));
+  const own = new Map<string, { file: string; name: string }>();
+  manifest.names = valueNames(options.file, top, new Set([options.file]), own);
+  const fromOf = (origin: Map<string, { file: string; name: string }>, file: string, spec: string) => {
+    const from: Record<string, HelperOrigin> = {};
+    for (const [n, o] of origin) if (o.file !== file) from[n] = { module: joinPath(spec, relPath(file, o.file)), name: o.name };
+    return Object.keys(from).length ? from : null;
+  };
+  const topFrom = fromOf(own, options.file, options.module);
+  if (topFrom) manifest.from = topFrom;
   for (const [ns, spec] of top.namespaces) {
     const path = resolve(spec, options.file);
     const exports = path ? read(path) : null;
-    const members = path && exports ? valueNames(path, exports, new Set([path])) : [];
+    const origin = new Map<string, { file: string; name: string }>();
+    const members = path && exports ? valueNames(path, exports, new Set([path]), origin) : [];
     const modSpec = spec.startsWith('.') ? joinPath(options.module, spec) : spec;
     manifest.namespaces[ns] = { module: modSpec, members };
+    // members declared in a re-exported module (a barrel such as paraglide's message index makes a
+    // namespace object; importing past it keeps the early chunk to what it calls)
+    const from = path && spec.startsWith('.') ? fromOf(origin, path, modSpec) : null;
+    if (from) manifest.namespaces[ns]!.from = from;
   }
   return manifest;
 }
@@ -104,6 +157,8 @@ interface ModuleExports {
   namespaces: Array<[string, string]>;
   /** `export * from 'spec'` */
   reexports: string[];
+  /** `export { name as exported } from 'spec'`, by exported name */
+  named: Map<string, { spec: string; name: string }>;
 }
 
 /** acorn extended with TypeScript syntax, for `.ts` helper and namespace modules (and the LSP's extract refactoring) */
@@ -122,6 +177,7 @@ function exportsOf(source: string, file: string): ModuleExports {
   const names: string[] = [];
   const namespaces: Array<[string, string]> = [];
   const reexports: string[] = [];
+  const named = new Map<string, { spec: string; name: string }>();
   const typeOnly = (n: unknown) => (n as { exportKind?: string }).exportKind === 'type';
   for (const st of ast.body) {
     if (typeOnly(st)) continue;
@@ -137,6 +193,8 @@ function exportsOf(source: string, file: string): ModuleExports {
         if (typeOnly(s)) continue;
         const exported = s.exported.type === 'Identifier' ? s.exported.name : String(s.exported.value);
         if (exported !== 'default') names.push(exported);
+        const local = s.local.type === 'Identifier' ? s.local.name : String(s.local.value);
+        if (st.source && exported !== 'default' && local !== 'default') named.set(exported, { spec: String(st.source.value), name: local });
       }
     } else if (st.type === 'ExportAllDeclaration' && st.exported) {
       const ns = st.exported.type === 'Identifier' ? st.exported.name : String(st.exported.value);
@@ -145,7 +203,16 @@ function exportsOf(source: string, file: string): ModuleExports {
       reexports.push(String(st.source.value));
     }
   }
-  return { names: [...new Set(names)].sort(), namespaces, reexports };
+  return { names: [...new Set(names)].sort(), namespaces, reexports, named };
+}
+
+/** `to` relative to the directory of `from` (both absolute, `/`-separated), as `./x.js` or `../y/x.js` */
+function relPath(from: string, to: string): string {
+  const a = from.split('/').slice(0, -1), b = to.split('/');
+  let i = 0;
+  while (i < a.length && i < b.length - 1 && a[i] === b[i]) i++;
+  const up = a.length - i;
+  return (up ? '../'.repeat(up) : './') + b.slice(i).join('/');
 }
 
 function joinPath(from: string, spec: string): string {

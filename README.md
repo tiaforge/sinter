@@ -116,7 +116,7 @@ Then write `data-sn-*` attributes in your HTML pages. Optional:
 - `src/sinter.helpers.js`: functions and namespaces your expressions can call (`export * as m from './paraglide/messages.js'`).
 - `src/sinter.types.ts`: types named by `<sn-resource type="Contact[]">`. Or use `sinter({ openapi: 'openapi.yml' })` to type resources from your API spec.
 - `npx sinter check` type-checks every expression. `sinter({ typecheck: true })` runs it in `vite build`.
-- First paint: what the build knows (literal state, helper text) is written into the HTML, so page chrome outside templates shows before the script. If the browser picks the locale, `sinter({ locale: { locales: ['en', 'de'], storage: 'locale', use: 'src/paraglide/runtime.js#setLocale' } })`: a small render-blocking script writes the visitor's locale and persisted controls before the first paint.
+- First paint: page chrome outside data templates shows before the page bundle. Build-time constants go into the HTML; a small render-blocking early chunk per page runs `src/sinter.early.ts` (e.g. pick the language) and the bindings that need no data, persisted values included. The build reports its size.
 - `<sn-resource … cache>` shows the last page load's data at once, then revalidates. Call `clearPersisted()` on logout.
 - Serve `<sn-sync>` streams over HTTP/2. Over HTTP/1.1, each tab's stream takes one of six connections per origin.
 - Editors: `npx sinter lsp --stdio`. There is a VS Code extension in [`editors/vscode`](editors/vscode). For Neovim, Helix and Emacs, see [`docs/editors.md`](docs/editors.md).

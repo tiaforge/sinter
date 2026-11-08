@@ -240,6 +240,8 @@ type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [numbe
 const indexReaders = new WeakMap<TemplateDef, boolean>();
 /** row templates: whether each holds one element (see oneElement()) */
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
+/** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
+const EARLY = Symbol.for('sinter.early');
 const simple = new WeakMap<TemplateDef, boolean>(), SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
 
 /** The instance mount() created on `root`; throws if none. */
@@ -833,6 +835,20 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   function toggle(rb: RB, br: number) {
+    // a branch the early chunk rendered: adopted when it is the one to show, else removed
+    const pre: { br: number; nodes: Node[]; end: Comment } | undefined = (rb.el as any)[EARLY];
+    if (pre) {
+      delete (rb.el as any)[EARLY];
+      if (pre.br == br) {
+        const [anchor, tid] = br == 1 ? [rb.el, rb.b.x!] : rb.else!;
+        rb.end = pre.end;
+        rb.br = br;
+        rb.rows = [instantiate(anchor as HTMLTemplateElement, ir.templates[tid]!, Object.create(rb.s), '', null, 0, pre.nodes)];
+        return;
+      }
+      for (const n of pre.nodes) (n as ChildNode).remove();
+      pre.end.remove();
+    }
     if (br == rb.br) return;
     const end = (rb.end ??= after(rb.el)), [old] = rb.rows ?? [];
     if (old) {
@@ -848,20 +864,22 @@ export function mount(root: Document | Element, o: MountOptions): App {
     rb.rows = [x];
   }
 
-  function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number): Inst {
+  /** `pre`: nodes the early chunk already rendered from this template, bound instead of a clone. */
+  function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number, pre?: Node[]): Inst {
     const content = tpl.content, one = prepared.get(tpl) ?? oneElement(tpl);
-    const top: Node = one ? content.firstChild!.cloneNode(true) : content.cloneNode(true);
+    const top: Node = pre ? (one ? pre[0]! : content) : one ? content.firstChild!.cloneNode(true) : content.cloneNode(true);
+    const first = pre ? pre[0] ?? null : one ? top : top.firstChild;
     const defs = t.nodes, rbs: RB[] = [];
     let els: Array<Element | null>;
-    if (t.find != null) els = fns[t.find]!(one ? top : top.firstChild);
+    if (t.find != null) els = fns[t.find]!(first);
     else {
-      // IR without lookup functions (compiled before they existed)
+      // if/else branches (and IR compiled before lookup functions): path[0] picks a child of the content
       els = new Array(defs.length);
       for (let k = 0; k < defs.length; k++) {
         const path = defs[k]!.path!;
-        // path[0] picks a child of the content; with one node that child is `top` itself
-        let node: Node | null = one ? (path[0] == 0 ? top : null) : top;
-        for (let x = one ? 1 : 0; x < path.length && node; x++) {
+        let node: Node | null = first;
+        for (let c = path[0]!; c-- && node;) node = node.nextSibling;
+        for (let x = 1; x < path.length && node; x++) {
           node = node.firstChild;
           for (let c = path[x]!; c-- && node;) node = node.nextSibling;
         }
@@ -890,7 +908,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       walk(rbs, 2);
     }
     const nodes: Node[] = [];
-    if (one) nodes.push(top);
+    if (pre) nodes.push(...pre);
+    else if (one) nodes.push(top);
     else for (let c = top.firstChild; c; c = c.nextSibling) nodes.push(c);
     return { first: nodes[0] ?? null, nodes, rbs, s, key, item, i, f: 0, r: round };
   }

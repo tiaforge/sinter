@@ -1,4 +1,4 @@
-// The app's conventional files (helpers, config and types modules), found the same
+// The app's conventional files (helpers, config, early and types modules), found the same
 // way by the Vite plugin and by `sinter check`.
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -14,6 +14,8 @@ export interface ProjectOptions {
   actions?: string;
   /** app configuration module imported before mount (default `src/sinter.config.js`, or `.ts`) */
   config?: string;
+  /** app module the early chunk runs before the first paint (default `src/sinter.early.js`, or `.ts`), e.g. to pick the language */
+  early?: string;
   /** module whose exported types `type="…"` on `<sn-resource>` may name (default `src/sinter.types.ts`, `.d.ts` or `.js`) */
   types?: string;
   /** OpenAPI specs (JSON or YAML, inside the root) that resources without `type` are matched against */
@@ -35,6 +37,8 @@ export interface Project {
   actionsFile: string | null;
   /** root-relative URL of the config module (`/src/sinter.config.js`), or null */
   config: string | null;
+  /** root-relative URL of the early module (`/src/sinter.early.ts`), or null */
+  early: string | null;
   /** absolute path of the types module, or null */
   types: string | null;
   /** reads a file only if it resolves inside the root, symlinks included */
@@ -80,6 +84,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   const [helpers, helpersFile] = manifest(options.helpers, 'src/sinter.helpers');
   const [actions, actionsFile] = manifest(options.actions, 'src/sinter.actions');
   const configRel = find(options.config, 'src/sinter.config');
+  const earlyRel = find(options.early, 'src/sinter.early');
   const typesRel = find(options.types, 'src/sinter.types', ['.ts', '.d.ts', '.js']);
   const openapi: OpenApiSpec[] = [];
   const diagnostics: Diagnostic[] = [];
@@ -103,6 +108,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   return {
     root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
     config: configRel ? url(configRel) : null,
+    early: earlyRel ? url(earlyRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,
   };
 }

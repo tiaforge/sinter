@@ -104,14 +104,14 @@ Each recipe comes with its test; copy both.
 `);
   out.push(`## First paint
 
-The built page shows its chrome before any script of the app has run; the page bundle is not render-blocking.
+The built page shows its chrome before the page module has run; the page bundle is not render-blocking.
 
-- Outside \`<template>\`s, a binding whose value the build knows is written into the HTML: literal \`data-sn-state\` fields (each field on its own), constants and helper calls (run in Node; helpers must be pure, a throwing one is skipped). \`aria-current\` from \`here === '/mail/'\`, labels from \`m.nav_mail()\`, a checkbox's \`checked\` from its state. Kinds: text, attr, class, style, show, and models on checkboxes, radios and text fields.
-- Resources, \`$url\`, \`$now\`, \`Date\`, \`Intl\`, the built-in formatters and persisted state stay runtime-only. The runtime still owns every binding and its first write changes nothing.
-- \`sinter({ locale: { locales: ['en', 'de'], storage: 'locale', use: 'src/paraglide/runtime.js#setLocale' } })\`: the browser picks the locale (stored choice, then \`navigator.languages\`, then the first). The HTML is in the first locale; a small \`defer blocking="render"\` script (\`/assets/sinter-first-paint-*.js\`, no imports, \`script-src 'self'\` is enough) sets \`<html lang>\` and writes the others' text. Start the app's i18n from \`document.documentElement.lang\`. Without \`use\`, bindings that call helpers wait for the page module.
-- The same script applies persisted model values (\`data-sn-persist\`, localStorage \`sn:<key>\`) to their controls, e.g. a collapse checkbox whose \`:checked\` collapses a sidebar in CSS.
-- Keep page chrome outside templates: \`<template data-sn-if="user">\` around the navigation hides it until the user has loaded. Put only what needs data in templates.
-- \`sinter({ firstPaint: false })\` turns it off. Test it with \`firstPaint(html, { helpers, locale, storage, languages })\` from the testing module, and \`render(html, { firstPaint: { locale } })\` for the takeover.
+- Build-time constants are written into the HTML: bindings outside templates that read only literal \`data-sn-state\` fields and constants (\`aria-current\` from \`here === '/mail/'\`). No helpers.
+- Each page gets an early chunk, a second entry the plugin loads \`type="module" blocking="render"\` before the page module: first \`src/sinter.early.ts\` (optional, app code: pick the language, \`setLocale(lang, { reload: false })\`, set \`<html lang>\`), then, once, the bindings outside \`data-sn-for\` templates that need no data: they read state fields whose initial value needs no data, persisted values (read from \`sn:<key>\` in localStorage), \`$locale\` and helpers. A \`data-sn-if\` of that kind renders its branch; the page module adopts it. Only the helpers and message members those bindings call are imported; modules shared with the page bundle load once (shared chunks).
+- Resources, \`$url\`, \`$now\`, \`$meta\`, \`$el\`, loops and the built-in formatters (\`date()\`, …) wait for the page module. The runtime then owns every binding; its first write changes nothing.
+- The build prints each page's early chunk size (gzip, with the shared chunks it loads) and warns over \`sinter({ earlyBudget })\` (default 10000 bytes), naming the largest modules: keep heavy imports out of early code.
+- Keep page chrome outside data templates: \`<template data-sn-if="user">\` around the navigation hides it until the user has loaded.
+- \`sinter({ firstPaint: false })\` turns it off. Test with \`firstPaint(html, { helpers, storage, early })\` from the testing module (\`early\` stands for \`src/sinter.early.ts\`), and \`render(html, { firstPaint: { early, afterEarly } })\` for the takeover.
 `);
   out.push(`## Deploying streams
 
@@ -129,7 +129,7 @@ Write a test next to the markup. \`@tiaforge-ui/sinter/testing\` compiles the pa
 - \`mockRequests({ 'GET /api/x': json | {status, body} | (call) => … })\`: records \`calls\`; responses are held until \`settle()\`; an unmatched request fails the test and lists the routes.
 - \`mockStream()\`: \`emit(name, payload)\`, \`drop()\`, \`connected\`. A stream URL with no mock uses the transport from \`configure({ transport })\`, so a custom transport can be tested over a fake connection (see the SignalR recipe).
 - \`flush()\` runs the scheduler (optimistic changes are visible), \`settle()\` finishes requests, queues and debounces, \`advance(ms)\` moves sinter's clock.
-- \`firstPaint(html, { helpers, files, locale, storage, languages })\` → \`{ root }\`: the page as the browser shows it before the page module runs (build-time values, then the first-paint script). \`render(…, { firstPaint: { locale, languages } })\` mounts over that first paint, so a test can check the takeover changes nothing.
+- \`firstPaint(html, { helpers, files, storage, early })\` → \`{ root, html }\`: the page as the browser shows it before the page module runs (build-time constants, then the early chunk). \`render(…, { firstPaint: { early, afterEarly } })\` mounts over that first paint; \`afterEarly\` runs in between, so a test can watch what mounting changes.
 `);
   return out.join('\n');
 }

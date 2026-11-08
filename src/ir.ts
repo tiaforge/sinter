@@ -121,6 +121,16 @@ export interface NodeDef {
   b: Binding[];
 }
 
+/**
+ * The early chunk's part of a page: page nodes (by `data-sn` id) and `data-sn-if` templates with
+ * only the bindings that can render before data; function indexes point into the early table.
+ */
+export interface EarlyIR {
+  roots: NodeDef[];
+  /** by template id; null for templates the early chunk does not render */
+  templates: Array<{ nodes: NodeDef[] } | null>;
+}
+
 export interface TemplateDef {
   id: number;
   nodes: NodeDef[];

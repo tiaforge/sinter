@@ -11,7 +11,7 @@ const src = resolve(__dirname, '../../src');
 const out = mkdtempSync(join(tmpdir(), 'sinter-vite-'));
 afterAll(() => rmSync(out, { recursive: true, force: true }));
 
-const alias = ['sse', 'optimistic', 'paginate', 'persist']
+const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early']
   .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
   .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
 
@@ -61,46 +61,48 @@ test('typecheck: type errors fail `vite build` with SN208', async () => {
   }
 });
 
-test('first paint: build-time values in the HTML, the locale data and the first-paint script as an asset', async () => {
+test('first paint: the early chunk is an entry of its own, render-blocking before the page module, sharing modules with it', async () => {
   const dir = join(out, 'first-paint');
+  const logs: string[] = [];
   await build({
-    root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false },
-    plugins: [sinter({ locale: { locales: ['en', 'de'], storage: 'locale', use: 'src/i18n/locale.js#setLocale' } })],
+    root, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false },
+    customLogger: { info: (m: string) => { logs.push(m); }, warn: (m: string) => { logs.push(m); }, warnOnce: () => {}, error: () => {}, clearScreen: () => {}, hasErrorLogged: () => false, hasWarned: false } as never,
+    plugins: [sinter({ earlyBudget: 1 })],
   });
   const html = readFileSync(join(dir, 'index.html'), 'utf8');
-  expect(html).toContain('<h1 data-sn="1">People</h1>');
-  expect(html).toContain('<p data-sn="2">Hello</p>');
-  expect(html).toMatch(/<script type="application\/json" id="sn-first-paint">\{"l":\{"locales":\["en","de"\],"storage":"locale"\},"t":\{"de":\[\[2,"text",null,"Hallo"\]\]\}\}<\/script>/);
-  const script = /<script src="\/assets\/(sinter-first-paint-[0-9a-f]{8}\.js)" defer="" blocking="render"\s*><\/script>/.exec(html);
-  expect(script).not.toBeNull();
-  expect(html.indexOf(script![0])).toBeLessThan(html.indexOf('<script type="module"'));
-  expect(readFileSync(join(dir, 'assets', script![1]!), 'utf8')).toContain('sinter first paint');
-  // the page bundle is not render-blocking
-  expect(html).not.toMatch(/<script type="module"[^>]*blocking/);
+  const early = /<script type="module" crossorigin src="\/assets\/(index-early-[\w-]+\.js)" blocking="render"><\/script>/.exec(html);
+  expect(early).not.toBeNull();
+  const page = /<script type="module" crossorigin src="\/assets\/(index-[\w-]+\.js)"><\/script>/.exec(html);
+  expect(page).not.toBeNull();
+  expect(html.indexOf(early![0])).toBeLessThan(html.indexOf(page![0]));
+  const code = (f: string) => readFileSync(join(dir, 'assets', f), 'utf8');
+  // the app's early module and the message the early binding calls; not the page's other helpers
+  const loaded = [early![1]!, ...[...code(early![1]!).matchAll(/from "\.\/([\w-]+\.js)"/g)].map((m) => m[1]!)];
+  const all = loaded.map(code).join('\n');
+  expect(all).toMatch(/dataset\.early = ["']yes["']/);
+  expect(all).toContain('People');
+  expect(all).not.toContain('toUpperCase');
+  expect(all).not.toContain('mount(');
+  // a module both entries need is loaded once: the page module imports the same shared chunk
+  for (const f of loaded.slice(1)) expect(code(page![1]!)).toContain(f);
+  for (const f of loaded.slice(1)) expect(html.split(`<link rel="modulepreload" crossorigin href="/assets/${f}">`).length).toBe(2);
+  // the build reports the early chunk's size, and warns over the budget with the largest modules
+  expect(logs.find((l) => l.includes('early chunk of index.html'))).toMatch(/early chunk of index\.html: [\d.]+ kB gzip \(\d+ files?\), over the early budget of 0\.0 kB.*Largest \(minified, before gzip\): .*sinter\.early\.js|early chunk of index\.html: [\d.]+ kB gzip \(\d+ files?\), over the early budget of 0\.0 kB.*Largest/s);
   // `firstPaint: false`: everything waits for the page module
   await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: join(dir, 'off'), emptyOutDir: true, minify: false }, plugins: [sinter({ firstPaint: false })] });
   const off = readFileSync(join(dir, 'off', 'index.html'), 'utf8');
-  expect(off).toContain('<h1 data-sn="1"></h1>');
-  expect(off).not.toContain('first-paint');
+  expect(off).not.toContain('early');
+  expect(off).not.toContain('blocking');
 });
 
-test('first paint in the dev server: the helpers through the server, the script as a module of its own', async () => {
-  const server = await createServer({
-    root, logLevel: 'silent', resolve: { alias }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom',
-    plugins: [sinter({ locale: { locales: ['en', 'de'], use: 'src/i18n/locale.js#setLocale' } })],
-  });
+test('first paint in the dev server: the early chunk as a module of its own, before the page module', async () => {
+  const server = await createServer({ root, logLevel: 'silent', resolve: { alias }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', plugins: [sinter()] });
   try {
     const html = await server.transformIndexHtml('/index.html', readFileSync(join(root, 'index.html'), 'utf8'));
-    expect(html).toContain('<p data-sn="2">Hello</p>');
-    expect(html).toContain('<script src="/@sinter/first-paint.js" defer="" blocking="render"');
-    const js = await server.transformRequest('/@sinter/first-paint.js');
-    expect(js?.code).toContain('sinter first paint');
+    expect(html).toMatch(/<script type="module" src="\/@sinter\/early\/index\.html\.js" blocking="render"><\/script><script type="module" src="\/@sinter\/index\.html\.js"><\/script>/);
+    const js = await server.transformRequest('/@sinter/early/index.html.js');
+    expect(js?.code).toContain('sinter.early.js');
   } finally {
     await server.close();
   }
-});
-
-test('the locale option is checked', () => {
-  expect(() => sinter({ locale: { locales: [] } })).toThrow(/`locales` is a non-empty list/);
-  expect(() => sinter({ locale: { locales: ['en'], store: 'x' } as never })).toThrow(/`store` is not an option/);
 });

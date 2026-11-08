@@ -5,7 +5,6 @@
   <sn-resource name="people" src="/api/people" key="id"></sn-resource>
   <div data-sn-state="{ q: '' }">
     <h1 data-sn-text="m.title()"></h1>
-    <p data-sn-text="m.hello()"></p>
     <input data-sn-model="q">
     <button data-sn-call="greet(q)" data-sn-then="q = $result">Greet</button>
     <ul><template data-sn-for="p in people"><sn-include src="./partials/row.html"></sn-include></template></ul>
