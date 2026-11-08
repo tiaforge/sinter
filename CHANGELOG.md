@@ -37,7 +37,7 @@ Attribute names, function names and diagnostic codes are public API. Before
   `CustomEvent`s, `sn-error` and the `listbox` module's `dismiss` no longer stop at the nearest
   element with a handler: every element from the target up with a `data-sn-on-<name>` for the
   event runs, inner first, until a handler calls `$event.preventDefault()` (the other handlers on
-  that element and its action still run). `emit()` dispatches a cancelable event. Debounced
+  that element and its action still run). `emit()` and `dismiss` are cancelable. Debounced
   handlers and actions triggered by a custom event pass it on (an `<a>` action no longer prevents
   a custom event). `sn-error`: an inner handler that does not prevent it lets outer handlers and
   then `onError` see the error. Native events, plain `Event`s and custom events with
@@ -56,6 +56,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   no preload: the early file sends same-origin requests only. A page with nothing else to run
   early has no early file. RealWorld: article 21.1 → 17.9 kB gzip, profile 21.1 → 17.9 kB, under the
   20 kB budget again.
+- The `listbox` module kept its document listeners after `destroy()`: in tests, each earlier
+  `render()` with a `data-sn-listbox` fired `dismiss` (and handled arrows, Enter and Tab) once more.
 
 ## 0.7.0 (2026-11-08)
 

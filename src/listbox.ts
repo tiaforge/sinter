@@ -33,6 +33,9 @@ const listbox: Feature = {
   name: 'listbox',
   install(app: App) {
     const root = app.root;
+    // removed on destroy, so a page mounted again (tests) does not handle each key twice
+    const ctl = new AbortController(), on = { signal: ctl.signal };
+    app.addCleanup(() => ctl.abort());
     root.addEventListener('keydown', (e: Event) => {
       const input = (e.target as Element).closest?.('[role="combobox"]');
       if (!input || (e as KeyboardEvent).isComposing) return;
@@ -50,19 +53,19 @@ const listbox: Feature = {
       } else if (key == 'Escape') {
         e.preventDefault();
         mark(all, null);
-        input.dispatchEvent(new CustomEvent('dismiss', { bubbles: true }));
+        input.dispatchEvent(new CustomEvent('dismiss', { bubbles: true, cancelable: true }));
       }
-    });
+    }, on);
     root.addEventListener('input', (e: Event) => {
       const input = (e.target as Element).closest?.('[role="combobox"]');
       if (input) mark(options(input), null);
-    });
+    }, on);
     root.addEventListener('mousedown', (e: Event) => {
       // only in lists that belong to a combobox: keep the focus in the input
       const option = (e.target as Element).closest?.('[role="option"]');
       const list = option?.closest('[role="listbox"]');
       if (list && [...root.querySelectorAll('[role="combobox"]')].some((c) => listOf(c) == list)) e.preventDefault();
-    });
+    }, on);
   },
 };
 

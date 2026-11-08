@@ -97,6 +97,20 @@ test('data-sn-listbox: arrows mark an option, Enter and Tab pick it, Escape dism
   expect(key('ArrowDown')).toBe(false);        // hidden list: keys pass through
 });
 
+test('dismiss bubbles to a form handler and is cancelable: an input can keep it', async () => {
+  const { root, flush } = await render(`
+    <form data-sn-state="{ log: '' }" data-sn-on-dismiss="log += 'form;'">
+      <input class="a" data-sn-listbox="opts">
+      <input class="b" data-sn-listbox="opts" data-sn-on-dismiss="log += 'b;'; $event.preventDefault()">
+      <ul id="opts" role="listbox"><li role="option">x</li></ul>
+      <b data-sn-text="log"></b>
+    </form>`);
+  const esc = (sel: string) => root.querySelector(sel)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  esc('.a'); await flush();
+  esc('.b'); await flush();
+  expect(root.querySelector('b')!.textContent).toBe('form;b;');
+});
+
 test('data-sn-listbox without an id controls the nearest listbox around the input', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ fields: ['to', 'cc'], picked: '' }">
