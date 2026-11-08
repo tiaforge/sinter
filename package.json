@@ -1,6 +1,6 @@
 {
   "name": "@tiaforge-ui/sinter",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Bind JSON APIs to plain HTML: keyed resources, SSE sync, template bindings and optimistic mutations, compiled at build time.",
   "license": "MIT",
   "author": "Tia Heinrich",
