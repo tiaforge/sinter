@@ -219,7 +219,12 @@ class Compiler {
     // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
     // toggle and use the generic path walk, which costs no code per template
     const rowTemplates = new Set([...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((n) => n.b.filter((b) => b.k === 'for').map((b) => b.x!)));
-    for (const t of this.templates) if (t.nodes.length && rowTemplates.has(t.id)) t.find = this.fn(findCode(t.nodes));
+    for (const t of this.templates) {
+      if (!t.nodes.length || !rowTemplates.has(t.id)) continue;
+      t.find = this.fn(findCode(t.nodes));
+      const make = makeCode(t.nodes, this.fns);
+      if (make) t.make = this.fn(make);
+    }
 
     const ir: IR = { v: 1, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;
@@ -1048,6 +1053,7 @@ class Compiler {
         continue;
       }
       if (k === 'style' && !key.startsWith('--')) key = key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+      if (k === 'class' && attr(el, 'class') != null) node.cl = 1;
       if (r.ok) node.b.push(binding({ k, n: key, f: this.fn(e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', entryValue(r, e), r) }));
     }
   }
@@ -1977,6 +1983,12 @@ function resolvePath(dir: string, rel: string): string {
  * The argument is the clone's first content node (the row element itself for a one-element row).
  */
 export function findCode(nodes: NodeDef[]): string {
+  const { decls, els } = lookup(nodes);
+  return `(c) => { const ${decls.join(', ')}; return [${els.join(', ')}]; }`;
+}
+
+/** Declarations walking from `c` to each bound node, and per node the expression giving its element (null if the tag differs). */
+function lookup(nodes: NodeDef[]): { decls: string[]; els: string[] } {
   const names = new Map<string, string>(), decls: string[] = [];
   const node = (p: number[]): string => {
     const key = p.join('.');
@@ -1990,11 +2002,42 @@ export function findCode(nodes: NodeDef[]): string {
     decls.push(`${name} = ${expr}`);
     return name;
   };
-  const out = nodes.map((nd) => {
+  const els = nodes.map((nd) => {
     const x = node(nd.path!);
     return `${x}?.localName == ${JSON.stringify(nd.tag)} ? ${x} : null`;
   });
-  return `(c) => { const ${decls.join(', ')}; return [${out.join(', ')}]; }`;
+  return { decls, els };
+}
+
+const SIMPLE_KINDS = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
+const WRITER: Record<string, string> = { text: 't', attr: 'a', class: 'c', style: 's', show: 'h', prop: 'p' };
+
+/**
+ * The creation function of a simple row template (see `TemplateDef.make`): the lookup, then every
+ * value binding evaluated inline (`$` is the row scope) and written with the runtime's writer of its
+ * kind (`w.t(el, name, value)`, …; a class binding tells whether the source element has a `class`
+ * attribute, so a false first value has nothing to remove otherwise). Null when the template is not
+ * simple, a binding reads `$el`, or an expression is not of the value form.
+ */
+export function makeCode(nodes: NodeDef[], fns: string[]): string | null {
+  if (!nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE_KINDS.has(b.k) && !b.e))) return null;
+  const { decls, els } = lookup(nodes);
+  const vals: string[] = [], writes: string[] = [], names: string[] = [];
+  for (let k = 0; k < nodes.length; k++) {
+    const e = 'e' + k;
+    decls.push(`${e} = ${els[k]}`);
+    for (const b of nodes[k]!.b) {
+      if (b.k === 'on') continue;
+      const code = fns[b.f!]!;
+      if (!code.startsWith('($) => (') || !code.endsWith(')')) return null;
+      const v = 'v' + names.length;
+      names.push(v);
+      vals.push(`${v} = ${e} ? (${code.slice('($) => ('.length, -1)}) : w.U`);
+      writes.push(`${e} && w.${WRITER[b.k]}(${e}, ${JSON.stringify(b.n ?? '')}, ${v}${b.k === 'class' ? `, ${nodes[k]!.cl ? 1 : 0}` : ''})`);
+    }
+  }
+  if (!names.length) return null;
+  return `(c, $, w) => { const ${decls.join(', ')}; const ${vals.join(', ')}; ${writes.join('; ')}; return [${names.join(', ')}]; }`;
 }
 
 // ---- first paint

@@ -316,6 +316,37 @@ export function mount(root: Document | Element, o: MountOptions): App {
     try { return fns[b.f!]!(b.e ? (rb ? (rb.e ??= child(s, { $el: el })) : child(s, { $el: el })) : s); } catch (e) { warn(6, b.k, el.localName, (e as Error)?.message); }
   };
   const evaluate = (rb: RB): any => evalB(rb.b, rb.s, rb.el, rb);
+  /** The writers, one per binding kind: `(element, name, value)`; a template's creation function calls them too. */
+  const W = {
+    U: UNSET,
+    t(el: HTMLElement, _n: string, v: any) {
+      const t = el.firstChild as Text | null;
+      v = '' + (v ?? '');
+      if (t?.nodeType == 3 && !t.nextSibling) t.data = v;
+      else el.textContent = v;
+    },
+    h(el: HTMLElement, _n: string, v: any) { el.hidden = !v; },
+    p(el: HTMLElement, n: string, v: any) {
+      (el as any)[n] = v;
+      // not defined yet, or defined but not upgraded yet (a row cloned from a template)
+      if (early.has(el) || !(el instanceof (customElements.get(el.localName) ?? Boolean))) upgrade(el, n, v);
+    },
+    /** `has`: the element may have the class (it is not a new clone of an element without a `class` attribute) */
+    c(el: HTMLElement, n: string, v: any, has: unknown) { if (v || has) el.classList.toggle(n, !!v); },
+    a(el: HTMLElement, n: string, v: any) {
+      // form state: the attribute is only the default once the user has changed the control
+      if (/^(checked|selected|indeterminate|value)$/.test(n) && n in el) (el as any)[n] = n == 'value' ? (v == null || v === false || v === true ? '' : v) : v != null && v !== false;
+      if (v == null || v === false) el.removeAttribute(n);
+      else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), /^https?:/.test(el.baseURI) ? el.baseURI : env.href(), schemes)) el.setAttribute(n, v);
+      else { el.removeAttribute(n); warn(7, n, el.localName, v); }
+    },
+    s(el: HTMLElement, n: string, v: any) {
+      if (v == null || v === false) el.style.removeProperty(n);
+      else if (STYLE_BAD.test(v)) { el.style.removeProperty(n); warn(8, n, v); }
+      else el.style.setProperty(n, v);
+    },
+  };
+
   /** Elements written through callbacks (`$.$m(row, …)`) since the last flush. */
   const marked = new Set<unknown>();
   /** debounced handlers' pending timers */
@@ -760,38 +791,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
   function write(b: Binding, e: Element, v: any, prev: any, fresh: boolean) {
     const el = e as HTMLElement, n = b.n!;
     switch (b.k) {
-      case 'text': {
-        const t = el.firstChild as Text | null;
-        v = '' + (v ?? '');
-        if (t?.nodeType == 3 && !t.nextSibling) t.data = v;
-        else el.textContent = v;
-        break;
-      }
-      case 'show': el.hidden = !v; break;
-      case 'prop':
-        (el as any)[n] = v;
-        // not defined yet, or defined but not upgraded yet (a row cloned from a template)
-        if (early.has(el) || !(el instanceof (customElements.get(el.localName) ?? Boolean))) upgrade(el, n, v);
-        break;
+      case 'text': W.t(el, n, v); break;
+      case 'show': W.h(el, n, v); break;
+      case 'prop': W.p(el, n, v); break;
       case 'class':
         // a new element without a class attribute cannot have the class: skip removing it
-        if (n) { if (v || !fresh || el.hasAttribute('class')) el.classList.toggle(n, !!v); }
+        if (n) W.c(el, n, v, !fresh || el.hasAttribute('class'));
         else {
           if (prev?.[0] && prev[0] != v?.[0]) el.classList.remove(prev[0]);
           if (v?.[0]) el.classList.toggle(v[0], !!v[1]);
         }
         break;
-      case 'attr':
-        // form state: the attribute is only the default once the user has changed the control
-        if (/^(checked|selected|indeterminate|value)$/.test(n) && n in el) (el as any)[n] = n == 'value' ? (v == null || v === false || v === true ? '' : v) : v != null && v !== false;
-        if (v == null || v === false) el.removeAttribute(n);
-        else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), /^https?:/.test(el.baseURI) ? el.baseURI : env.href(), schemes)) el.setAttribute(n, v);
-        else { el.removeAttribute(n); warn(7, n, el.localName, v); }
-        break;
-      case 'style':
-        if (v == null || v === false) el.style.removeProperty(n);
-        else if (STYLE_BAD.test(v)) { el.style.removeProperty(n); warn(8, n, v); }
-        else el.style.setProperty(n, v);
+      case 'attr': W.a(el, n, v); break;
+      case 'style': W.s(el, n, v);
     }
   }
 
@@ -955,11 +967,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const top: Node = pre ? (one ? pre[0]! : content) : one ? content.firstChild!.cloneNode(true) : content.cloneNode(true);
     const first = pre ? pre[0] ?? null : one ? top : top.firstChild;
     const defs = t.nodes, rbs: RB[] = [];
-    let els: Array<Element | null>;
-    if (t.find != null) els = fns[t.find]!(first);
-    else {
+    const find = (): Array<Element | null> => {
+      if (t.find != null) return fns[t.find]!(first);
       // if/else branches (and IR compiled before lookup functions): path[0] picks a child of the content
-      els = new Array(defs.length);
+      const els: Array<Element | null> = new Array(defs.length);
       for (let k = 0; k < defs.length; k++) {
         const path = defs[k]!.path!;
         let node: Node | null = first;
@@ -970,24 +981,32 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
         els[k] = node && (node as Element).localName == defs[k]!.tag ? (node as Element) : null;
       }
-    }
+      return els;
+    };
     // a fragment's nodes, after the bindings ran: a nested list adds its rows and end marker to it
     const collect = () => { const nodes: Node[] = []; if (pre) nodes.push(...pre); else if (!one) for (let c = top.firstChild; c; c = c.nextSibling) nodes.push(c); return nodes; };
     const meta = isSimple(t);
     if (meta) {
       // only value bindings and handlers: no binding objects. The values are written once and kept in
       // one array; the elements are found again when the row renders; handlers bind on their first event
-      const v: unknown[] = new Array(meta.vals.length);
-      for (let j = 0; j < meta.vals.length; j++) {
-        const [k, b] = meta.vals[j]!, el = els[k];
-        if (!el) { v[j] = UNSET; continue; }
-        write(b, el, (v[j] = evalB(b, s, el, null)), undefined, true);
+      let v: unknown[] | null = null;
+      // the compiled creation function; one that throws (an expression error) gives way to the generic
+      // path, which evaluates binding by binding and names the failing one
+      if (t.make != null) try { v = (fns[t.make] as (c: Node | null, s: any, w: typeof W) => unknown[])(first, s, W); } catch { v = null; }
+      if (!v) {
+        const els = find();
+        v = new Array(meta.vals.length);
+        for (let j = 0; j < meta.vals.length; j++) {
+          const [k, b] = meta.vals[j]!, el = els[k];
+          if (!el) { v[j] = UNSET; continue; }
+          write(b, el, (v[j] = evalB(b, s, el, null)), undefined, true);
+        }
       }
       const nodes = one ? null : collect(), x: Inst = { first, nodes, rbs: null, v, t, s, key, item, i, f: 0, r: round };
       if (meta.hs.length) for (const n of nodes ?? [top]) if (n.nodeType == 1) (n as RowNode)[ROW] = x;
       return x;
     }
-    bindNodes(defs, els, s, rbs);
+    bindNodes(defs, find(), s, rbs);
     walk(rbs, 2);
     const nodes = one ? null : collect();
     return { first: nodes ? nodes[0] ?? null : first, nodes, rbs, v: null, s, key, item, i, f: 0, r: round };

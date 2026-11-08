@@ -128,6 +128,8 @@ export interface NodeDef {
   persist?: string;
   /** the element is a `<dialog>` or inside one of its block, so its bindings wait while that dialog is closed */
   dl?: 1;
+  /** the element has a `class` attribute in the source (a class binding's first write on a clone must remove the class), set when it has class bindings */
+  cl?: 1;
   b: Binding[];
 }
 
@@ -157,6 +159,13 @@ export interface TemplateDef {
   keyFields?: string[] | null;
   /** for: function that finds the bound elements of one cloned row: (first content node) => elements, in `nodes` order */
   find?: number;
+  /**
+   * for, simple templates (value bindings and handlers only, no `$el`): creation function
+   * `(first content node, scope, writers) => last values` that finds the elements, evaluates every
+   * value binding inline and writes it through the runtime's per-kind writers; null (UNSET) for a
+   * binding whose element is missing. The generic path creates rows of templates without one.
+   */
+  make?: number;
 }
 
 /** a local action call: `args` evaluates the arguments (an array), `run(args, ctx)` calls the function */
@@ -299,6 +308,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     nodes(t.nodes, `templates[${i}].nodes`, true);
     fn(t.key, `templates[${i}].key`);
     fn(t.find, `templates[${i}].find`);
+    fn(t.make, `templates[${i}].make`);
   });
   o.actions.forEach((a, i) => {
     const at = `actions[${i}]`;

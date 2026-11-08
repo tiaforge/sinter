@@ -7,6 +7,14 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- Compiled row creation. For a simple row template whose bindings do not read `$el`, the compiler
+  emits a creation function (`make` on the template in the IR) that walks to the bound elements,
+  evaluates the value expressions inline and writes them through the runtime's per-kind writers,
+  which are the same code the generic path uses (URL and style checks included). Creating 1,000 rows
+  in Chrome: sinter's click-to-flush time 2.07 → 1.9 ms against vanillajs's 1.6 (10,000 rows: 20.5 →
+  18 ms against 15.5). A class binding's first write on a clone knows whether the source element has a
+  `class` attribute (`cl` on the node). Core +0.1 KB gzip; a page module grows by one function per
+  simple row template.
 - Simple rows keep no binding objects. A row template whose elements carry only value bindings and
   handlers (no state, model, nested template or dialog) now stores its last values in one array per
   row and finds its elements again from the row's first node when it renders; handlers in such rows
