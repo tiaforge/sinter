@@ -4,7 +4,7 @@ import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
-import { analyze, STORE_FNS, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, literalNames, STORE_FNS, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
 import type { Node } from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
@@ -889,6 +889,11 @@ class Compiler {
     if (r.runs || r.refreshes) this.flows.push({ el, attr: attrName, shift, runs: r.runs ?? [], refreshes: r.refreshes ?? [] });
     this.lastExpr = null;
     if (this.check) {
+      // a let read as a resource name is typed as its names (TypeScript would widen `'messages'` to string)
+      for (const l of r.nameLets ?? []) {
+        const f = this.check.frames[this.frameOf.get(l) ?? -1];
+        if (f?.kind === 'let' && f.init !== null && l.names) this.check.exprs[f.init]!.returns = { kind: 'names', names: l.names };
+      }
       const i = this.recordExpr(el, attrName, scope, o, src, shift, r);
       // a broken expression is there for editor completion only; nothing refers to it
       if (r.ok) this.lastExpr = i;
@@ -927,6 +932,12 @@ class Compiler {
       const v = p.value as import('acorn').Expression & { start: number; end: number };
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value' }, src.slice(v.start, v.end), v.start);
       const entry: LetEntry = { name, code: r.inner, deps: r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource };
+      // the resource names it can be, for store calls and `$meta[…]` that read it as one
+      if (r.ok) {
+        const lets = scope.lets ?? [], from: LetEntry[] = [];
+        const names = literalNames(v, (n) => lets.findLast((l) => l.name === n) ?? null, from);
+        if (names) Object.assign(entry, { names: [...new Set(names.map((c) => c.name))], from });
+      }
       if (this.check) {
         this.frameOf.set(entry, this.check.frames.length);
         this.check.frames.push({ kind: 'let', name, init: r.ok ? this.lastExpr : null, loc: this.locOf(el, 'data-sn-let', p.key.start) });

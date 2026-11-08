@@ -105,8 +105,86 @@ test('refresh() with several names: each is a literal, declared resource', () =>
   const msgs = (h: string) => diags(`${R}${use}${h}`).map((d) => `${d.code} ${d.message}`);
   expect(msgs(`<button data-sn-on-click="refresh('contacts', 'messages')"></button>`)).toEqual([]);
   expect(msgs(`<button data-sn-on-click="refresh('contacts', 'mesages')"></button>`)).toEqual(['SN301 resource `mesages` is not declared on this page. Did you mean `messages`?']);
-  expect(msgs(`<div data-sn-state="{ r: 'contacts' }"><button data-sn-on-click="refresh('contacts', r)"></button></div>`)).toEqual(['SN301 `refresh()` takes resource names as string literals']);
-  expect(msgs(`<button data-sn-on-click="refresh()"></button>`)).toEqual(['SN301 `refresh()` takes resource names as string literals']);
+  expect(msgs(`<div data-sn-state="{ r: 'contacts' }"><button data-sn-on-click="refresh('contacts', r)"></button></div>`)).toEqual([`SN301 ${FORMS('refresh')}`]);
+  expect(msgs(`<button data-sn-on-click="refresh()"></button>`)).toEqual([`SN301 ${FORMS('refresh')}`]);
+});
+
+const FORMS = (fn: string) => `\`${fn}()\` takes ${fn === 'refresh' ? 'resource names' : 'a resource name'}: a string literal, \`?:\`, \`||\` or \`??\` between them, or a \`data-sn-let\` name that is one`;
+
+describe('resource names from a closed set of literals', () => {
+  const P = `<sn-resource name="messages" src="/api/m" key="uid" paginate="keyset" page-size="5" cursor="{uid}"></sn-resource>
+  <sn-resource name="results" src="/api/r" key="uid" paginate="offset" page-size="5"></sn-resource>
+  <sn-resource name="jumps" src="/api/j" key="uid" paginate="keyset" page-size="5" cursor="{uid}" offset-param="offset"></sn-resource>
+  <sn-resource name="feed" src="/api/f" key="uid" paginate="append" page-size="5" cursor="{uid}"></sn-resource>
+  <sn-resource name="other" src="/api/o" key="id"></sn-resource>`;
+  const msgs = (h: string, o: Opts = {}) => diags(`${P}<main data-sn-state="{ s: false, tab: 'messages' }">${h}</main>`, o).map((d) => `${d.code} ${d.message}`);
+  const on = (h: string, lets = `{ shown: s ? 'results' : 'messages' }`) => msgs(`<div data-sn-let="${lets}"><button data-sn-on-click="${h}"></button></div>`).filter((m) => !m.startsWith('SN501'));
+
+  test('?:, ||, ?? and lets: every name is checked like a literal, and counts as used', () => {
+    expect(msgs(`<div data-sn-let="{ shown: s ? 'results' : 'messages', list: s ? results : messages }"><p data-sn-text="list.length"></p>
+      <button data-sn-on-click="page(shown, 'next'); refresh(shown, s ? 'jumps' : 'feed'); upsert(shown, $event.detail)"></button>
+      <button data-sn-on-click="remove((s ? 'other' : 'messages') || 'other', 1); patch((s ? 'messages' : 'jumps') ?? 'feed', 1, {})"></button></div>`)).toEqual([]);
+    expect(on(`page(s ? 'reslts' : 'messages', 'next')`)).toEqual(expect.arrayContaining(['SN301 resource `reslts` is not declared on this page. Did you mean `results`?']));
+    // a let's names: an unknown one is reported where the let is read
+    expect(on(`refresh(shown)`, `{ shown: s ? 'mesages' : 'results' }`).filter((m) => m.startsWith('SN301'))).toEqual(['SN301 resource `mesages` is not declared on this page. Did you mean `messages`?']);
+    // lets built from lets
+    expect(on(`page(both, 'next')`, `{ a: 'results', both: s ? a : 'messages' }`)).toEqual([]);
+  });
+
+  test('names that cannot be listed stay SN301, with the forms allowed', () => {
+    expect(on(`page(tab, 'next')`)).toEqual([`SN301 ${FORMS('page')}`]);
+    expect(on(`refresh(s && 'messages')`)).toEqual([`SN301 ${FORMS('refresh')}`]);
+    expect(on(`upsert($event.detail, 1)`)).toEqual([`SN301 ${FORMS('upsert')}`]);
+    expect(on(`patch(s ? tab : 'messages', 1, {})`)).toEqual([`SN301 ${FORMS('patch')}`]);
+    expect(on(`remove(String('messages'), 1)`)).toEqual([`SN301 ${FORMS('remove')}`]);
+  });
+
+  test('page(): SN303 and SN304 for each name it can take', () => {
+    expect(on(`page(s ? 'other' : 'messages', 'next')`)).toEqual(['SN303 `other` has no `paginate`; `page()` needs a paginated resource']);
+    // a page number: fine where every name can jump, SN304 where one is keyset without offset-param
+    expect(on(`page(s ? 'results' : 'jumps', 3)`)).toEqual([]);
+    expect(on(`page(shown, 3)`)).toEqual(['SN304 keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`']);
+    expect(on(`page(s ? 'feed' : 'messages', 'prev')`)).toEqual(['SN304 `append` pagination only supports `page(…, \'next\')`']);
+    expect(on(`page(s ? 'feed' : 'messages', 'next')`)).toEqual([]);
+  });
+
+  test('computed $meta keys: checked for each name when they can be listed, otherwise accepted', () => {
+    const text = (x: string, lets?: string) => msgs(`<div data-sn-let="${lets ?? `{ shown: s ? 'results' : 'messages' }`}"><p data-sn-text="${x}"></p></div>`).filter((m) => !m.startsWith('SN501'));
+    expect(text(`$meta[shown].hasNext`)).toEqual([]);
+    expect(text(`$meta[shown].hasNxt`)).toEqual([
+      'SN303 `$meta.results.hasNxt` is not a status field. Did you mean `hasNext`?',
+      'SN303 `$meta.messages.hasNxt` is not a status field. Did you mean `hasNext`?',
+    ]);
+    expect(text(`$meta[s ? 'reslts' : 'messages'].loading`)).toEqual(['SN301 resource `reslts` is not declared on this page. Did you mean `results`?']);
+    expect(text(`$meta[s ? 'other' : 'results'].page`)).toEqual(['SN303 `$meta.other.page` is a pagination field, but `other` has no `paginate`']);
+    expect(text(`$meta[s ? 'jumps' : 'messages'].page`)).toEqual(['SN303 `$meta.messages.page` exists only with `paginate="offset"`, or `paginate="keyset"` with `offset-param`']);
+    // other computed keys: accepted, unchecked
+    expect(text(`$meta[tab].hasNxt`)).toEqual([]);
+  });
+
+  test('dependencies: a listable $meta key reads only those resources\' status', () => {
+    const r = compile(`${P}<main data-sn-state="{ s: false, tab: 'x' }" data-sn-let="{ shown: s ? 'results' : 'messages' }"><p data-sn-text="$meta[shown].hasNext"></p><p data-sn-text="$meta[tab].loading"></p><p data-sn-text="results.length + messages.length + jumps.length + feed.length + other.length"></p></main>`, {
+      file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: '/h.js', names: [], namespaces: {} },
+    });
+    expect(r.diagnostics).toEqual([]);
+    const deps = [...r.module.matchAll(/"(\$meta[^"]*)"/g)].map((m) => m[1]);
+    expect(deps).toEqual(expect.arrayContaining(['$meta.results.hasNext', '$meta.messages.hasNext', '$meta']));
+    expect(deps).not.toContain('$meta.other.hasNext');
+  });
+
+  test('SN501: a resource only named through a store call or a listable $meta key is used', () => {
+    const unused = (h: string) => diags(`<sn-resource name="a" src="/a" key="id"></sn-resource><sn-resource name="b" src="/b" key="id"></sn-resource>
+      <div data-sn-state="{ s: false }">${h}</div>`).filter((d) => d.code === 'SN501').map((d) => d.message);
+    expect(unused(`<button data-sn-on-click="refresh(s ? 'a' : 'b')"></button>`)).toEqual([]);
+    expect(unused(`<p data-sn-text="$meta[s ? 'a' : 'b'].loading"></p>`)).toEqual([]);
+    expect(unused(`<button data-sn-on-click="refresh('a')"></button>`)).toEqual(['resource `b` is declared but never read']);
+  });
+
+  test('SN509: refresh() through a let adds an edge for each name', () => {
+    const html = `<sn-resource name="a" src="/a" key="id" then="run('go')"></sn-resource><sn-resource name="b" src="/b" key="id"></sn-resource>
+      <div data-sn-state="{ s: false }" data-sn-let="{ which: s ? 'b' : 'a' }"><span id="go" data-sn-post="/x" data-sn-then="refresh(which)"></span><p data-sn-text="b.length"></p></div>`;
+    expect(diags(html, { checkCycles: true }).filter((d) => d.code === 'SN509').map((d) => d.message)).toEqual([expect.stringMatching(/cycle/)]);
+  });
 });
 
 describe('<sn-event then>', () => {

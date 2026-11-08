@@ -5,8 +5,29 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- Resource names chosen by an expression: `refresh()`, `upsert()`, `patch()`, `remove()` and
+  `page()` take a name the compiler can list from the source: a string literal, `?:`, `||` or `??`
+  between such expressions, or a `data-sn-let` name whose value is one
+  (`data-sn-let="{ shown: searching ? 'results' : 'messages' }"`, then `page(shown, 'next')`). Every
+  name it can take gets the checks a literal gets (`SN301`, `SN303`, `SN304`, `SN501`, `SN509`).
+  A computed `$meta[…]` key whose names can be listed is checked the same way and depends only on
+  those resources' status; other computed keys stay unchecked. `sinter check`: a page number in
+  `page()` needs every name to accept one; `upsert`/`patch`/`remove` take an item of any of the
+  names' types.
+
+### Changed
+
+- `SN301` for a name argument that cannot be listed (a state variable, a helper's result) now
+  says which forms are allowed: "takes a resource name: a string literal, `?:`, `||` or `??`
+  between them, or a `data-sn-let` name that is one".
+- A resource named only in a store call (`refresh('x')`, `page('x', 'next')`) counts as used: no
+  `SN501`.
+
 ### Fixed
 
+- `SN301` for an unknown resource in `$meta.<name>.<field>` was reported twice.
 - The early file no longer repeats work: a binding the build wrote into the HTML as a constant is
   left out of the early chunk (a persisted model stays in, its stored value is read early), and a
   resource whose literal `src` names an origin (`https://…`, `//…`) is no early request, as it is

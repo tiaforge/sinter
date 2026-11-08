@@ -111,6 +111,24 @@ describe('sinter check', () => {
     expect(errors('word', 'offset-param="offset"')).toEqual([`SN208 Argument of type 'string' is not assignable to parameter of type 'number | Direction'.`]);
   });
 
+  test('resource names from ?: and lets: page() targets suit every name; items fit any of them', () => {
+    const types = TYPES + 'export interface Message { uid: number; subject: string }\n';
+    const html = (lets: string, h: string) => page(`<sn-resource name="messages" src="/api/m" key="uid" type="Message[]" paginate="keyset" page-size="5" cursor="{uid}"></sn-resource>
+<sn-resource name="results" src="/api/r" key="uid" type="Message[]" paginate="offset" page-size="5"></sn-resource>
+<sn-resource name="jumps" src="/api/j" key="uid" type="Message[]" paginate="keyset" page-size="5" cursor="{uid}" offset-param="offset"></sn-resource>
+<div data-sn-state="{ s: false, n: 2, m: /** @type {Message} */ ({ uid: 1, subject: '' }) }" data-sn-let="${lets}"><button data-sn-on-click="${h}" data-sn-text="contacts.length + messages.length + results.length + jumps.length"></button></div>`);
+    const errors = (lets: string, h: string) => checkPage(html(lets, h), { files: { 'src/sinter.types.ts': types } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    // a let of one literal is that name, not \`string\`
+    expect(errors(`{ one: 'messages' }`, `page(one, 'next'); refresh(one)`)).toEqual([]);
+    expect(errors(`{ shown: s ? 'results' : 'messages' }`, `page(shown, s ? 'prev' : 'next'); refresh(shown, 'contacts'); upsert(shown, m)`)).toEqual([]);
+    expect(errors(`{ a: 'results', b: s ? a : 'jumps' }`, `page(b, n)`)).toEqual([]);
+    // a page number where one of the names is keyset without offset-param
+    expect(errors(`{ shown: s ? 'results' : 'messages' }`, `page(shown, n)`)).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add offset-param for page numbers" | Direction'.`]);
+    // an item that fits one of the names
+    expect(errors(`{ shown: s ? 'contacts' : 'messages' }`, `upsert(shown, m); remove(s ? 'contacts' : 'messages', contacts[0])`)).toEqual([]);
+    expect(errors(`{ shown: s ? 'results' : 'messages' }`, `upsert(shown, contacts[0])`)).toHaveLength(1);
+  });
+
   test('a key filter\'s $event is the KeyboardEvent of its keydown or keyup', () => {
     one(page(`<div data-sn-state="{ q: '', n: 0 }" data-sn-on-keydown-shift-j="q = $event.key" data-sn-on-keyup-escape="n = $event.code">
   <p data-sn-text="q + n"></p>

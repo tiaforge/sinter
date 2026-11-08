@@ -149,7 +149,7 @@ export function shadow(o: ShadowOptions): Shadow {
       line(`} */${after}`);
       return;
     }
-    const text = t.kind === 'decl' ? decl(t.name) : t.kind === 'openapi'
+    const text = t.kind === 'decl' ? decl(t.name) : t.kind === 'names' ? t.names.map((n) => JSON.stringify(n)).join(' | ') : t.kind === 'openapi'
       ? schemaToTs(t.schema, (n) => `$O${t.spec}.${typeName(n)}`)
       : t.kind === 'call'
         ? (t.args ? `${decl('CallArgs')}<typeof $A.${t.name}>` : `Awaited<ReturnType<typeof $A.${t.name}>>`)
@@ -294,7 +294,7 @@ export interface Store<R, D extends string = never> {
   upsert<K extends keyof R & string>(name: K, item: Item<R[K]>): void;
   patch<K extends keyof R & string>(name: K, item: Partial<Item<R[K]>>, set: Partial<Item<R[K]>>): void;
   remove<K extends keyof R & string>(name: K, item: Partial<Item<R[K]>>): void;
-  page<K extends keyof R & string>(name: K, to: [K] extends [D] ? Direction | NoPageNumber : Direction | number): void;
+  page<K extends keyof R & string>(name: K, to: [Extract<K, D>] extends [never] ? Direction | number : Direction | NoPageNumber): void;
   showModal(id: string): void;
   close(id?: string): void;
   reset(): void;

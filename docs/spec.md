@@ -616,7 +616,7 @@ An action is an element with one method attribute; it sends a request when its t
 
 | Function | Effect |
 | --- | --- |
-| `refresh('contacts')`, `refresh('messages', 'unread')` | refetch each named resource (string literals; one call, one statement for `SN507`) |
+| `refresh('contacts')`, `refresh('messages', 'unread')` | refetch each named resource (names as in Resource names below; one call, one statement for `SN507`) |
 | `upsert('contacts', $result)` | insert or replace an item |
 | `patch('contacts', item, {…})` | change fields of an item |
 | `remove('contacts', item)` | remove an item |
@@ -630,39 +630,17 @@ An action is an element with one method attribute; it sends a request when its t
 State assignments work too: `data-sn-then="editing = null; close()"`.
 The dialog id of `showModal()` and `close()` is a string literal that must name a `<dialog id>` on the page or its partials (`SN309`), so a typo fails the build. A button that only opens a dialog needs no handler: `commandfor="edit" command="show-modal"` is the platform's. `showModal()` is for opening after a request or call (`data-sn-then`), from a custom event, or after setting state in the same handler. Bindings inside the dialog render when it opens.
 
-### Proposal: resource names chosen by an expression (under review)
-Status: proposal, 2026-11-08, for Caley's mail page; not implemented. Decisions are listed under Open questions.
-
-`refresh()`, `upsert()`, `patch()`, `remove()` and `page()` take the resource name as a string literal (`SN301`), and that literal is what lets the compiler check the call: the name exists, the resource is paginated (`SN303`), the target fits its mode (`SN304`), it counts as used (`SN501`), and it is an edge for `SN509`. Caley's mail list shows either `messages` or `results`, so "page the list shown" needs a handler per resource or a branch:
-```html
-<!-- today: two guarded statements, or one `?:` over two guarded steps, which is SN507 -->
-data-sn-on-list-next="searching && $meta.results.hasNext && page('results', 'next'); !searching && $meta.messages.hasNext && page('messages', 'next')"
-```
-Wanted: `page(shown, 'next')` with `shown` naming the resource, checked like a literal.
-
-**Option A: a closed set of literal names (recommended).** The name argument may be any expression whose possible values the compiler can list from the source: a string literal; `c ? x : y` where `x` and `y` are such expressions; `x || y` and `x ?? y` where both are; parentheses; and a `data-sn-let` name whose value is such an expression (lets are inlined, so the compiler has their expression). The test of a `?:` is any value expression.
+### Resource names
+`refresh()`, `upsert()`, `patch()`, `remove()` and `page()` take the resource name as an expression whose possible values the compiler can list from the source: a string literal; `c ? x : y` where `x` and `y` are such expressions (the test is any value expression); `x || y` and `x ?? y` where both are; parentheses; and a `data-sn-let` name whose value is such an expression (lets are inlined, so the compiler has their expression). "Page the list shown", where the list is one of two resources:
 ```html
 <div data-sn-let="{ shown: searching ? 'results' : 'messages', list: searching ? results : messages }"
      data-sn-on-list-next="page(shown, 'next')"
      data-sn-on-mail-saved="refresh(shown, 'unread')">
 ```
-- **Compile time.** Every candidate gets the checks a literal gets: `SN301` (did-you-mean on that literal, and the LSP quick fix), `SN303` and `SN304` per candidate for `page()` (a literal page number on a `?:` that may name a keyset resource without `offset-param` is `SN304`), `SN501` counts each candidate as used, `SN509` adds an edge per candidate. An expression the compiler cannot list (a state variable, a helper's result, `$event.detail`) stays `SN301`, with a new message: "takes a resource name: a string literal, or a `?:` between them".
-- **`sinter check`.** The shadow already types the name as `K extends keyof R & string`, so `searching ? 'results' : 'messages'` infers `'results' | 'messages'`, and a let is a `const` whose type is that union. Two typing changes: `page()`'s target must suit *every* candidate (today `[K] extends [D]` allows a page number when only some are keyset resources without `offset-param`; it becomes `[Extract<K, D>] extends [never] ? Direction | number : Direction | NoPageNumber`), and `upsert`/`patch`/`remove` accept an item of any candidate's type (`Item<R[K]>` over a union; requiring it to fit all of them needs an intersection type that gives poor messages, and both lists in the cases seen hold the same type).
-- **Runtime.** Unchanged: the store functions already look the name up when they run (`res(name)`). The compiler guarantees every value is a declared resource, so an unknown name cannot happen in a compiled page. If it did (a hand-written IR), it stays what it is today: the store function throws, the rest of the handler is skipped, the error is logged.
-- **`$meta`.** `$meta[shown].hasNext` already compiles, but unchecked: today a computed `$meta[…]` passes even with a typo in the resource or the field (`$meta[s ? 'reslts' : 'messages'].hasNxt` gives no diagnostic) and depends on all of `$meta`. With A, a listable key gets `SN301` and `SN303` per candidate and depends only on `$meta.<candidate>`; any other computed key keeps today's behaviour (accepted, unchecked), so nothing breaks.
-- Pros: one rule for the five store functions and `$meta`; every name still checked by the build, without `sinter check`; no runtime cost; covers the Caley case and any "one of N lists" choice. Cons: the choice is written twice when the page also needs the data (`shown` and `list` above); a name kept in state (`tab: 'inbox'`) must be turned into a `?:` or a let.
-- Size: compiler only; runtime 0 B.
-- Breaking: none. Only `SN301`'s message for non-literal names changes.
-
-**Option B: any expression, checked by `sinter check` only.** The compiler accepts any name expression on the five store functions; `sinter check` types it as `keyof R`, so `page(which, 'next')` with `which: 'messages'` in state fails the check (`string` is not a resource name) until the state is typed (`/** @type {'messages' | 'results'} */ ('messages')`). Unknown names at run time would take a defined path: no store change, the unhandled-error path with the element (there is no `$meta` for a name that is not a resource), a dev warning, and the handler continues.
-- Pros: names may come from state, helpers and events. Cons: without `typecheck` a typo reaches the browser; `SN303`/`SN304`/`SN501`/`SN509` cannot see through the expression; about +40 B gzip for the error path. No case needs it yet.
-
-**Option C: resources as values.** The name argument may be a resource identifier, or a let or `?:` that yields one: `list: searching ? results : messages`, then `page(list, 'next')`. The compiler rewrites each resource identifier in that position to its name.
-- Pros: Caley's existing `list` let works for data and paging; no strings; go-to-definition and rename follow identifiers. Cons: the same identifier means the data everywhere else and the handle here, so `page(list.slice(1))` or a helper returning `list` cannot work, and `$meta[list]` would need the same rewrite in a value expression; two spellings for every store call (`refresh(messages)`, `refresh('messages')`); `sinter check` cannot type it from the shadow's verbatim expression (both lists are `Message[]`, so a type cannot tell which resource), so the shadow would need rewritten expressions and lose its 1:1 position mapping. A runtime mapping from data to resource is not an option: optimistic layers make new arrays, and a single-object resource may be `null`.
-
-**Option D: a store function over an alias declaration** (`<sn-alias name="list" of="searching ? 'results' : 'messages'">`): what A gives with a plain `data-sn-let`, plus a new element. Not proposed.
-
-Recommendation: A. It keeps the property that makes literals valuable (the build checks every name), needs no runtime code, and covers `$meta` with the same rule. B can follow later, if a name from state or a helper turns up; C is a second meaning for resource names.
+- **Compile time.** Every name the expression can take gets the checks a literal gets: `SN301` (did-you-mean on that literal, and the LSP quick fix; for a let's name it is reported where the let is read), `SN303` and `SN304` for each name `page()` can take (a literal page number on a `?:` that may name a keyset resource without `offset-param` is `SN304`), each name counts as used for `SN501`, and `refresh()` adds an `SN509` edge per name. An expression whose names cannot be listed (a state variable, a helper's result, `$event.detail`, `a && 'x'`) is `SN301`: "takes a resource name: a string literal, `?:`, `||` or `??` between them, or a `data-sn-let` name that is one". A name kept in state (`tab: 'inbox'`) becomes a `?:` or a let.
+- **`sinter check`.** The shadow types the name as `K extends keyof R & string`, so `searching ? 'results' : 'messages'` infers `'results' | 'messages'`; a let read as a name is typed as its names (TypeScript would widen a single `'messages'` to `string`). `page()`'s target must suit every name: a page number only where none of them is a keyset resource without `offset-param` (`[Extract<K, D>] extends [never] ? Direction | number : Direction | NoPageNumber`). `upsert`, `patch` and `remove` accept an item of any of the names' types (`Item<R[K]>` over the union).
+- **Runtime.** The store functions look the name up when they run. The compiler guarantees every value is a declared resource; with a hand-written IR, an unknown name makes the store function throw, the rest of the handler is skipped, and the error is logged.
+- **`$meta`.** A computed key whose names can be listed (`$meta[shown].hasNext`) gets `SN301` and `SN303` per name and depends only on `$meta.<name>.<field>` for each; any other computed key is accepted unchecked and depends on all of `$meta`.
 
 ### Unhandled errors
 When an action fails and has no `data-sn-catch`:
@@ -1354,7 +1332,6 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 - Handlers at several levels. Decided (2026-11-08): nearest wins unless the element did not handle the event; a plain key handler handles a key only when it prevents it. See Events, Which handlers run.
 - Custom events at several levels. Under review (2026-11-08): custom events as notifications, see Events, Proposal: custom events as notifications. Open: default or opt-in (recommended: default, a 0.7.0 behaviour change); the signal for "final" (recommended: `$event.preventDefault()`, `emit()` cancelable; not `stopPropagation()`, no `stop()`); which events (recommended: `CustomEvent`s that bubble; native events, plain `Event`s and non-bubbling custom events keep nearest-wins); debounced handlers and actions pass the event on (recommended).
 - Running an action from a handler. Decided (2026-11-08): `run('id')` starts the action of the element with that literal id (`SN311`), keeping its lifecycle; `$event` is null (forms are submitted), disabled and inert targets do nothing, no return value, no `app.run()` for islands, cycle check `SN509` opt-in. See Running an action from a handler.
-- Resource names from an expression. Under review (2026-11-08): see Actions, Proposal: resource names chosen by an expression. Open: which option (recommended: A, a closed set of literal names, through `?:`, `||`, `??` and lets, checked per candidate at build time; not B, any expression checked by `sinter check` only; not C, resources as values); whether computed `$meta[…]` keys get the same per-candidate checks (recommended: yes, other computed keys stay accepted unchecked); whether `upsert`/`patch`/`remove` items must fit every candidate's type (recommended: any candidate's, for now).
 - Paging in a computed direction. Under review (2026-11-08): see Pagination, Proposal: paging in a computed direction. Open: which option (recommended: E, `page()` skips `prev`/`next` where `hasPrev`/`hasNext` is false, in every mode, `first`/`last` always load; fallback G, `$meta.<name>.has[dir]`; not F `can(dir)`, H `canPage()`, or I nothing); whether `first`/`last` should be skipped too where the flag is false (recommended: no, they double as a reload).
 
 ## Sources

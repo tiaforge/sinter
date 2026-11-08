@@ -138,9 +138,9 @@ Error, for example:
 
 > resource `mesages` is not declared on this page
 
-A store call, `$meta` or embedded data (`data-sn-data`) names a resource that no `<sn-resource>` on the page or its partials declares.
+A store call, `$meta` or embedded data (`data-sn-data`) names a resource that no `<sn-resource>` on the page or its partials declares. A name chosen by an expression (`page(searching ? 'results' : 'messages', 'next')`, or a `data-sn-let` name that is one) is checked for each name it can take. Also reported: a store call whose name argument cannot be listed from the source (a state variable, a helper's result, `$event.detail`).
 
-**Fix:** Fix the name or add the `<sn-resource>` element.
+**Fix:** Fix the name or add the `<sn-resource>` element. For a name that cannot be listed, write the choice as literals: `?:`, `||` or `??` between string literals, or a `data-sn-let` name whose value is one; a name kept in state becomes `tab === 'inbox' ? 'inbox' : 'sent'`.
 
 ## SN302 duplicate-resource
 

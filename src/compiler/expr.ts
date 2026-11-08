@@ -30,6 +30,10 @@ export interface LetEntry {
   usesEl: boolean;
   usesIndex: boolean;
   resource: string | null;
+  /** the resource names the value can be (literals through `?:`, `||`, `??` and lets), or null when they cannot be listed */
+  names?: string[] | null;
+  /** the lets those names come from */
+  from?: LetEntry[];
 }
 
 export interface ResourceInfo {
@@ -105,7 +109,37 @@ export interface ExprResult {
   /** handlers: the action elements `run('id')` starts and the resources `refresh('name')` reloads, with offsets (for `SN509`) */
   runs?: Array<{ id: string; offset: number }>;
   refreshes?: Array<{ name: string; offset: number }>;
+  /** lets read as a resource name (store calls, `$meta[…]`), with the lets their names come from: `sinter check` types them as those names */
+  nameLets?: LetEntry[];
 }
+
+/**
+ * The resource names an expression can take, each with where it is written: a string literal, `?:`
+ * between such expressions (any test), `||` and `??` between them, and a `data-sn-let` name whose
+ * value is one (`letOf` finds it; it is written at the name). Null when they cannot be listed.
+ */
+export function literalNames(n: acorn.AnyNode, letOf: (name: string) => LetEntry | null, lets?: LetEntry[]): Array<{ name: string; at: number }> | null {
+  const both = (a: acorn.AnyNode, b: acorn.AnyNode) => {
+    const x = literalNames(a, letOf, lets), y = x && literalNames(b, letOf, lets);
+    return y && [...x!, ...y];
+  };
+  switch (n.type) {
+    case 'Literal': return typeof n.value == 'string' ? [{ name: n.value, at: n.start }] : null;
+    case 'TemplateLiteral': return n.expressions.length ? null : [{ name: n.quasis[0]!.value.cooked ?? '', at: n.start }];
+    case 'ConditionalExpression': return both(n.consequent, n.alternate);
+    case 'LogicalExpression': return n.operator == '&&' ? null : both(n.left, n.right);
+    case 'Identifier': {
+      const l = letOf(n.name);
+      if (!l?.names) return null;
+      lets?.push(l, ...(l.from ?? []));
+      return l.names.map((name) => ({ name, at: n.start }));
+    }
+    default: return null;
+  }
+}
+
+/** what a resource name argument may be, for `SN301` */
+const NAME_FORMS = 'a string literal, `?:`, `||` or `??` between them, or a `data-sn-let` name that is one';
 
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
@@ -192,6 +226,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   const payloadLets = new Set<string>();
   const runs: NonNullable<ExprResult['runs']> = [];
   const refreshes: NonNullable<ExprResult['refreshes']> = [];
+  const nameLets: LetEntry[] = [];
   const mode = opts.mode;
   const magicAllowed = new Set([...EVERYWHERE_MAGIC, ...(opts.magic ?? [])]);
 
@@ -401,15 +436,33 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     deps.add(segs.join('.'));
   }
 
+  /** `$meta[key]` with a key whose resource names can be listed: those names (null otherwise) */
+  function metaNames(n: Node, locals: Locals): Array<{ name: string; at: number }> | null {
+    let cur: Node = n;
+    for (;;) {
+      if (cur.type === 'ChainExpression') cur = cur.expression as Node;
+      else if (cur.type === 'MemberExpression' && !(cur.object.type === 'Identifier' && cur.object.name === '$meta')) cur = cur.object as Node;
+      else break;
+    }
+    if (cur.type !== 'MemberExpression' || !cur.computed || cur.property.type === 'Literal') return null;
+    const lets: LetEntry[] = [];
+    const names = literalNames(cur.property, (nm) => { const res = resolveQuiet(nm, locals); return res?.kind === 'let' ? res.entry : null; }, lets);
+    if (names) nameLets.push(...lets);
+    return names;
+  }
+
   function checkMeta(n: acorn.MemberExpression & Node, locals: Locals) {
     const cp = chainPath(n, locals);
     if (!cp || cp.root !== '$meta' || cp.res.kind !== 'magic' || !cp.segs) return;
-    const [, rname, field] = cp.segs;
-    if (rname && rname !== '*') {
+    const [, key, field] = cp.segs;
+    // a computed key is checked for each name it can take, when they can be listed
+    const names = key === '*' ? metaNames(n, locals) : key ? [{ name: key, at: n.start }] : null;
+    for (const { name: rname, at } of names ?? []) {
       const r = page.resources.get(rname);
       if (!r) {
-        report('SN301', `resource \`${rname}\` is not declared on this page.${didYouMean(rname, page.resources.keys())}`, n.start);
-        return;
+        // reported once, by the member right on `$meta` (`checkMeta` runs for each member of the chain)
+        if (!field) report('SN301', `resource \`${rname}\` is not declared on this page.${didYouMean(rname, page.resources.keys())}`, at);
+        continue;
       }
       r.used = true;
       if (field && field !== '*') {
@@ -485,7 +538,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       const cp = chainPath(n, locals);
       if (cp && cp.segs) {
         const segs = isCallee && n.type === 'MemberExpression' ? cp.segs.slice(0, -1) : cp.segs;
-        if (mode === 'value' || isCallee || true) addDep(segs.length ? segs : null);
+        // `$meta[shown].hasNext` with listable names depends on `$meta.<name>.hasNext` for each
+        const names = segs[0] === '$meta' && segs[1] === '*' && cp.res.kind === 'magic' ? metaNames(n, locals) : null;
+        if (names) for (const c of names) addDep(['$meta', c.name, ...segs.slice(2)]);
+        else addDep(segs.length ? segs : null);
       }
     }
     visitMemberParts(n, locals);
@@ -647,7 +703,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     } else if (callee.type === 'Identifier') {
       const res = resolveQuiet(callee.name, locals);
       ident(callee as acorn.Identifier & Node, locals);
-      if (res?.kind === 'store') storeCall(callee.name, n);
+      if (res?.kind === 'store') storeCall(callee.name, n, locals);
       else if (res?.kind === 'helper') {
         if (BUILTIN_HELPERS.includes(callee.name)) addDep(['$locale']);
         else if (mode === 'handler') {
@@ -666,7 +722,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
   }
 
-  function storeCall(name: string, n: acorn.CallExpression & Node) {
+  function storeCall(name: string, n: acorn.CallExpression & Node, locals: Locals) {
     if (mode === 'value') {
       report('SN203', `value expressions cannot call \`${name}()\`; move it to a handler`, n.start);
       return;
@@ -690,44 +746,53 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     if (name === 'refresh') {
-      // `refresh('a', 'b')`: every name is a literal resource
-      if (!first) report('SN301', '`refresh()` takes resource names as string literals', n.start);
-      for (const a of n.arguments) {
-        if (a.type !== 'Literal' || typeof a.value !== 'string') {
-          report('SN301', '`refresh()` takes resource names as string literals', (a as Node).start);
-        } else if (!page.resources.has(a.value)) {
-          report('SN301', `resource \`${a.value}\` is not declared on this page.${didYouMean(a.value, page.resources.keys())}`, (a as Node).start);
-        } else refreshes.push({ name: a.value, offset: (a as Node).start });
-      }
+      // `refresh('a', 'b')`: every argument names resources
+      if (!first) report('SN301', `\`refresh()\` takes resource names: ${NAME_FORMS}`, n.start);
+      for (const a of n.arguments) for (const c of resourcesOf(a as Node, name, locals) ?? []) refreshes.push({ name: c.name, offset: c.at });
       return;
     }
     if (['upsert', 'patch', 'remove', 'page'].includes(name)) {
-      if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
-        report('SN301', `\`${name}()\` takes the resource name as a string literal`, n.start);
-        return;
-      }
-      const r = page.resources.get(first.value);
-      if (!r) {
-        report('SN301', `resource \`${first.value}\` is not declared on this page.${didYouMean(first.value, page.resources.keys())}`, first.start);
-        return;
-      }
-      if (name === 'page') {
-        if (!r.paginate) report('SN303', `\`${first.value}\` has no \`paginate\`; \`page()\` needs a paginated resource`, n.start);
-        const target = n.arguments[1];
-        const named = target?.type === 'Literal' && typeof target.value === 'string' ? target.value : null;
-        // a computed target may be a direction: `sinter check` types it, the runtime refuses a number
-        const computed = !!target && !named && !(target.type === 'Literal' || (target.type === 'UnaryExpression' && target.argument.type === 'Literal'));
-        if (r.paginate === 'append' && !named) {
-          report('SN304', '`append` pagination only supports `page(…, \'next\')`', target?.start ?? n.start);
-        } else if (r.paginate === 'keyset' && !named && !computed && !r.jumps) {
-          report('SN304', 'keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`', target?.start ?? n.start);
-        } else if (r.paginate === 'append' && named && named !== 'next') {
-          report('SN304', '`append` pagination only supports `page(…, \'next\')`', target!.start);
-        } else if (named && !['first', 'prev', 'next', 'last'].includes(named)) {
-          report('SN401', `\`page()\` targets are 'first', 'prev', 'next', 'last' or a page number`, target!.start);
+      const cands = first ? resourcesOf(first as Node, name, locals) : (report('SN301', `\`${name}()\` takes a resource name: ${NAME_FORMS}`, n.start), null);
+      if (!cands || name !== 'page') return;
+      const target = n.arguments[1];
+      const named = target?.type === 'Literal' && typeof target.value === 'string' ? target.value : null;
+      // a computed target may be a direction: `sinter check` types it, the runtime refuses a number
+      const computed = !!target && !named && !(target.type === 'Literal' || (target.type === 'UnaryExpression' && target.argument.type === 'Literal'));
+      // each name the call may take gets the checks a literal gets; one message once
+      const seen = new Set<string>();
+      const once = (code: Code, message: string, at: number) => { if (!seen.has(code + message)) { seen.add(code + message); report(code, message, at); } };
+      for (const { r } of cands) {
+        if (!r.paginate) once('SN303', `\`${r.name}\` has no \`paginate\`; \`page()\` needs a paginated resource`, n.start);
+        else if (r.paginate === 'append' && named !== 'next') once('SN304', '`append` pagination only supports `page(…, \'next\')`', target?.start ?? n.start);
+        else if (r.paginate === 'keyset' && !named && !computed && !r.jumps) {
+          once('SN304', 'keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`', target?.start ?? n.start);
         }
       }
+      if (named && !['first', 'prev', 'next', 'last'].includes(named) && !cands.some((c) => c.r.paginate === 'append')) {
+        report('SN401', `\`page()\` targets are 'first', 'prev', 'next', 'last' or a page number`, target!.start);
+      }
     }
+  }
+
+  /**
+   * The resources a name argument can name (`SN301` for each one not declared, and for an
+   * expression whose names cannot be listed); each counts as used. Null when none.
+   */
+  function resourcesOf(a: Node, fn: string, locals: Locals): Array<{ name: string; at: number; r: ResourceInfo }> | null {
+    const lets: LetEntry[] = [];
+    const names = literalNames(a, (nm) => { const res = resolveQuiet(nm, locals); return res?.kind === 'let' ? res.entry : null; }, lets);
+    if (!names) {
+      report('SN301', fn === 'refresh' ? `\`refresh()\` takes resource names: ${NAME_FORMS}` : `\`${fn}()\` takes a resource name: ${NAME_FORMS}`, a.start);
+      return null;
+    }
+    nameLets.push(...lets);
+    const out: Array<{ name: string; at: number; r: ResourceInfo }> = [];
+    for (const c of names) {
+      const r = page.resources.get(c.name);
+      if (!r) report('SN301', `resource \`${c.name}\` is not declared on this page.${didYouMean(c.name, page.resources.keys())}`, c.at);
+      else if (!out.some((o) => o.name === c.name)) { r.used = true; out.push({ ...c, r }); }
+    }
+    return out.length ? out : null;
   }
 
   /** `run('id')`: a literal id of one element outside `data-sn-for` rows that carries an action (`SN311`) */
@@ -900,7 +965,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         // arguments are read like values; only the call itself is allowed
         const c = e as acorn.CallExpression & Node;
         ident(c.callee as acorn.Identifier & Node, root);
-        storeCall((c.callee as acorn.Identifier).name, c);
+        storeCall((c.callee as acorn.Identifier).name, c, root);
         for (const a of c.arguments) visit(a as Node, root);
       } else visit(e, root);
     }
@@ -947,7 +1012,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
   }
 
-  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort(), payloadLets: [...payloadLets].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}) };
+  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort(), payloadLets: [...payloadLets].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}) };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

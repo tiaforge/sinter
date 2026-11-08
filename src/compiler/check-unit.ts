@@ -35,6 +35,8 @@ export type TypeRef =
   | { kind: 'item'; resource: string; partial?: boolean }
   /** an action (`archive`, `pgp.decrypt`): its arguments (`args`) or its awaited result */
   | { kind: 'call'; name: string; args?: boolean }
+  /** one of these strings: the resource names a `data-sn-let` can be */
+  | { kind: 'names'; names: string[] }
   /** a type sinter declares itself (\`Attrs\` for \`data-sn-attr\`) */
   | { kind: 'decl'; name: string };
 
