@@ -77,6 +77,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   same way as those of an element defined later: they are set again through the class when
   `customElements.whenDefined()` resolves, by which time the row is in the document. An upgraded element still pays one `customElements.get()` and an `instanceof`
   per write. 9 B gzip on the core.
+- `render()` from `@tiaforge-ui/sinter/testing` took the `<html>` attributes from the first
+  `<html` in the page's text, even inside a comment: Caley's calendar page explains its state
+  in a comment that mentions `<html>` before the real tag, and the state was lost under jsdom
+  (the comment's tail also became text in the body). `render()` now parses the page and takes
+  the attributes and the content from its `<html>` element. The runtime is unchanged.
 
 ## 0.4.0 (2026-11-08)
 

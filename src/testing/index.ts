@@ -262,16 +262,14 @@ export async function render(html: string, options: RenderOptions = {}): Promise
 
   // the page
   const doc = document;
-  const page = /<html([^>]*)>([\s\S]*)<\/html>/i.exec(parts.html);
+  // parsed, not matched: an `<html>` in a comment or text before the real tag is not the element
+  const page = new DOMParser().parseFromString(parts.html, 'text/html').documentElement;
+  page.querySelector('script[type="module"][src="about:blank"]')?.remove();
   const top = doc.documentElement;
   // the <html> element's own attributes (state, persist, bindings) as the browser has them
   for (const a of [...top.attributes]) top.removeAttribute(a.name);
-  if (page?.[1]) {
-    const t = doc.createElement('template');
-    t.innerHTML = `<div${page[1]}></div>`;
-    for (const a of [...(t.content.firstElementChild?.attributes ?? [])]) top.setAttribute(a.name, a.value);
-  }
-  top.innerHTML = (page?.[2] ?? parts.html).replace(/<script type="module" src="about:blank"><\/script>/, '');
+  for (const a of [...page.attributes]) top.setAttribute(a.name, a.value);
+  top.innerHTML = page.innerHTML;
 
   // environment: fake clock, recorded navigation, in-memory storage
   let now = options.now instanceof Date ? options.now.getTime() : options.now ?? Date.parse('2026-01-01T09:00:00Z');
