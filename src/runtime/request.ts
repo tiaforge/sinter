@@ -2,7 +2,7 @@
 // islands) goes through one middleware chain, then fetch with a timeout and
 // one retry for idempotent requests on network errors.
 import { clearCached, config, SinterError, type Middleware } from './config.js';
-import type { Env } from './env.js';
+import { prefetched, type Env } from './env.js';
 
 export const TIMEOUT = 30_000;
 
@@ -37,7 +37,8 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
       signal.aborted ? abort() : signal.addEventListener('abort', abort);
       const timer = env.setTimeout(() => c.abort(), TIMEOUT, 'timeout');
       try {
-        const res = await env.fetch(new Request(idempotent ? req.clone() : req, { signal: c.signal }));
+        // the response the early file already requested for exactly this request, else a fetch
+        const res = await ((!retried && prefetched()?.take(req, c.signal)) || env.fetch(new Request(idempotent ? req.clone() : req, { signal: c.signal })));
         // the session is gone: cached data must not outlive it, whatever the app does next
         if (res.status == 401) clearCached(env);
         return res;

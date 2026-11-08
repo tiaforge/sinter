@@ -47,6 +47,22 @@ export const parsed = (doc: Document = document): Promise<void> => new Promise((
   doc.addEventListener('readystatechange', on);
 });
 
+/**
+ * Responses the early file requested before the page module ran, handed to the request layer
+ * once each. The early file and the page bundle are bundled apart: they meet through a global.
+ */
+export interface Prefetched {
+  /** starts the request for a URL (once) */
+  add(url: string): void;
+  /** the response started for this request, if it is the request the early file sent (method, URL, credentials, headers); else null */
+  take(request: Request, signal: AbortSignal): Promise<Response> | null;
+  /** aborts and forgets what no resource took */
+  sweep(): void;
+}
+const PREFETCHED = Symbol.for('sinter.prefetched');
+export const prefetched = (): Prefetched | undefined => (globalThis as any)[PREFETCHED];
+export const setPrefetched = (p: Prefetched) => { (globalThis as any)[PREFETCHED] = p; };
+
 /** Where the early file and the page module meet: whether the early file started, and when it has rendered. */
 export interface Meeting { started: boolean; done: Promise<void>; finish(): void }
 export const meeting = (): Meeting => ((globalThis as any)[Symbol.for('sinter.early.page')] ??= (() => {

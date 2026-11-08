@@ -167,6 +167,8 @@ class Compiler {
   /** first paint: page-level nodes with bindings, and every state scope's fields */
   readonly paints: Array<{ el: P5Element; node: NodeDef }> = [];
   readonly stateInits: Array<{ sid: number; fields: Array<{ key: string; code: string; deps: string[] }>; persist: string | null }> = [];
+  /** `data-sn-path` patterns (for `$url` in the early file's requests) */
+  pathList: string[] = [];
   /** `$s<sid>.<name>` paths a persisted model writes at mount */
   readonly persisted = new Set<string>();
 
@@ -187,6 +189,7 @@ class Compiler {
     this.expandIncludes(doc, [this.opts.file]);
     this.declare(doc);
     const paths = this.pathPatterns(doc);
+    this.pathList = paths;
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
 
     for (const [name, id] of this.embedded) {
@@ -1544,6 +1547,24 @@ class Compiler {
       }
       fields.set(st.sid, f);
     }
+    // for requests also the clock and the URL: a URL computed from them early is the one the page
+    // module computes (or the page module sends its own request), and no binding shows these fields
+    const reqFields = new Map<number, Map<string, string>>();
+    const knownReq = (deps: string[]) => deps.every((d) => {
+      if (d === '$locale' || d === '$now' || d === '$url' || d.startsWith('$url.')) return true;
+      const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
+      const f = m ? reqFields.get(Number(m[1])) : undefined;
+      if (!m || !f) return false;
+      const st = this.stateInits.find((x) => x.sid === Number(m[1]))!;
+      return m[2] !== undefined ? f.has(m[2]) : f.size === st.fields.length;
+    });
+    for (const st of [...this.stateInits].sort((a, b) => a.sid - b.sid)) {
+      const f = new Map<string, string>();
+      for (const x of st.fields) {
+        if (knownReq(x.deps) && !builtin(x.code) && x.code.startsWith('($) => (')) f.set(x.key, x.code.slice('($) => ('.length, -1));
+      }
+      reqFields.set(st.sid, f);
+    }
     const fns: string[] = [], index = new Map<string, number>();
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const templates: EarlyIR['templates'] = this.templates.map(() => null);
@@ -1554,6 +1575,7 @@ class Compiler {
       const elses = new Set(bs.flatMap((b) => b.filter((x) => x.k === 'if' && x.y !== undefined).map((x) => x.y!)));
       const keep = new Map<number, number>();
       defs.forEach((nd, i) => { if (nd.state !== undefined || bs[i]!.length || elses.has(i)) keep.set(i, keep.size); });
+      if (defs === this.roots) rootKeep = keep;
       const out: NodeDef[] = [];
       for (const [i, j] of keep) {
         const nd = defs[i]!, o: NodeDef = { tag: nd.tag, p: nd.p >= 0 ? keep.get(nd.p) ?? -1 : -1, b: [] };
@@ -1582,9 +1604,25 @@ class Compiler {
       return x;
     };
     const states: NodeDef[] = [], reads: string[] = [];
+    let rootKeep = new Map<number, number>();
     const roots = list(this.roots);
     while (templates.length && templates[templates.length - 1] === null) templates.pop();
-    if (!roots.some((n) => n.b.length)) return null;
+    // the resources the early file requests: `src` and `when` read only what is known early
+    // (state, persisted values, `$url`, `$now`, helpers); not `call`, `each`, embedded data or pages
+    const res: NonNullable<EarlyIR['res']> = [];
+    let url = false;
+    for (const def of this.resources) {
+      if (def.call || def.each || def.data != null || def.paginate || !def.src.length || !knownReq(def.deps)) continue;
+      // a URL fixed at build time is preloaded from the HTML (see injectScript), earlier than this file runs
+      if (fixedRequest(def)) continue;
+      const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
+      const scope = def.scope < 0 ? -1 : rootKeep.get(def.scope);
+      if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
+      reads.push(...def.deps);
+      url ||= codes.some((c) => c.includes('$url'));
+      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope });
+    }
+    if (!roots.some((n) => n.b.length) && !res.length) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
     // initializer calls a heavy helper stays out of the early chunk unless something shown needs it
     const need = new Map<number, Set<string> | 'all'>();
@@ -1605,7 +1643,7 @@ class Compiler {
     };
     reads.forEach(add);
     for (const o of states) {
-      const f = fields.get(o.sid!)!, n = need.get(o.sid!);
+      const f = reqFields.get(o.sid!)!, n = need.get(o.sid!);
       const keep = [...f].filter(([k]) => n === 'all' || n?.has(k));
       o.state = fn(`($) => ({ ${keep.map(([k, code]) => `${JSON.stringify(k)}: (${code})`).join(', ')} })`);
     }
@@ -1618,7 +1656,10 @@ class Compiler {
       const used = members.filter((m) => calls(`${ns}$${m}`));
       if (used.length) namespaces[ns] = used;
     }
-    return { ir: { roots, templates }, fns, helpers, namespaces };
+    const ir: EarlyIR = { roots, templates };
+    if (res.length) ir.res = res;
+    if (url && this.pathList.length) ir.path = this.pathList;
+    return { ir, fns, helpers, namespaces };
   }
 
   injectScript(doc: DefaultTreeAdapterMap['document'], early: string | null) {
@@ -1626,6 +1667,16 @@ class Compiler {
     const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
     if (!head) return;
     const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+    // first paint: the requests fixed at build time start while the head is parsed, before any script;
+    // the runtime's fetch() takes the preloaded response (same URL and credentials mode)
+    if (this.opts.early) {
+      const links = preloads(this.resources).map((u) => parse5.parseFragment(`<link rel="preload" as="fetch" crossorigin href="${esc(u)}">`).childNodes[0] as P5Element);
+      for (const l of links) l.parentNode = head;
+      // after the leading <meta>s (charset first), before stylesheets and scripts
+      let at = 0;
+      for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta') break; if (isElement(n)) at = i + 1; }
+      head.childNodes.splice(at, 0, ...(links as never[]));
+    }
     if (early) {
       const tag = parse5.parseFragment(`<script type="module" src="${esc(early)}" blocking="render"></script>`).childNodes[0] as P5Element;
       tag.parentNode = head;
@@ -1762,6 +1813,15 @@ export function findCode(nodes: NodeDef[]): string {
 }
 
 // ---- first paint
+
+/** A resource whose request is fixed at build time: a literal `src`, no `when`, not paginated, `each`, `call` or embedded. */
+const fixedRequest = (r: ResourceDef) => !r.call && !r.each && r.data == null && !r.paginate && r.when == null && r.src.length > 0 && r.src.every((p) => typeof p === 'string');
+
+/** Same-origin URLs of the resources whose request is fixed at build time: the page preloads them from its HTML. */
+export function preloads(resources: ResourceDef[]): string[] {
+  const urls = resources.filter(fixedRequest).map((r) => (r.src as string[]).join('').replace(/[?&](?=#|$)/, '')).filter((u) => /^\/(?!\/)/.test(u));
+  return [...new Set(urls)];
+}
 
 /** JSON-like data: what a literal state object holds. */
 function plainData(v: unknown, depth = 0): boolean {

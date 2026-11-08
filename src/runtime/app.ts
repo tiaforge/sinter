@@ -3,9 +3,10 @@
 // closure so private state minifies to short local names.
 import type { ActionDef, Binding, Fn, IR, NodeDef, ResourceDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { config, SinterError, type Middleware } from './config.js';
-import type { Env } from './env.js';
+import { prefetched, type Env } from './env.js';
 import { createRequestLayer, isAbort, toError, type RequestLayer, type SendInit } from './request.js';
-import { BAD_KEY, encodeSegment, schemesOf, STYLE_BAD, urlAllowed } from './security.js';
+import { BAD_KEY, schemesOf, STYLE_BAD, urlAllowed } from './security.js';
+import { expand, readUrl as readFrom } from './url.js';
 import { clean, createResource, type Resource } from './store.js';
 
 export interface Feature {
@@ -392,35 +393,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       instances.delete(root);
     },
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
-    url(tpl, s) {
-      let out = '', query = false, dropped = false;
-      tpl.forEach((p, i) => {
-        if (typeof p == 'string') {
-          // after a dropped parameter, its `&` separator goes too
-          out += dropped && p[0] == '&' && /[?&]$/.test(out) ? p.slice(1) : p;
-          dropped = false;
-          query ||= /[?#]/.test(p);
-          return;
-        }
-        let v = fns[p]!(s);
-        const next = tpl[i + 1], key = query && (next == null || /^[&#]/.test(next as string)) && /[?&]([^?&=#]*)=$/.exec(out);
-        // a whole query value: an array is a repeated key (its null items left out), and null,
-        // undefined or an empty array leaves the parameter out
-        if (key && Array.isArray(v)) v = (v = v.filter((x) => x != null)).length ? v.map(encodeSegment).join(`&${key[1]}=`) : null;
-        else if (v != null) {
-          // URL parsers turn %2E%2E back into `..`, so a path value cannot be a dot segment at all
-          if (!query && (v == '.' || v == '..' || Array.isArray(v))) throw new SinterError(0, null, `refused ${Array.isArray(v) ? 'an array' : `\`${v}\``} as a URL path value`);
-          v = encodeSegment(v);
-        }
-        if (key && v == null) {
-          out = out.replace(/[^?&=#]*=$/, '');
-          dropped = true;
-          return;
-        }
-        out += v ?? '';
-      });
-      return out.replace(/[?&](?=#|$)/, '');
-    },
+    url: (tpl, s) => expand(tpl, s, fns),
     mark(path, s) {
       dirty.push(fill(path, s));
       if (!scheduled && !flushing) { scheduled = true; env.queueMicrotask(app.flush); }
@@ -532,6 +505,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     cleanups.push(() => env.clearTimeout(t));
   }
   for (const l of loaders) l.start();
+  // what the early file requested and no resource took (its URL changed, or a middleware changed the
+  // request): the loads above reached the end of the chain already, unless a middleware waits first
+  if (prefetched()) env.setTimeout(() => prefetched()?.sweep(), 0);
   flushing = true;
   try { walk(rootRbs, 2); syncSelects(); for (const h of app.afterFlush) h([]); } finally { flushing = false; }
   if (dirty.length) { scheduled = true; env.queueMicrotask(app.flush); }
@@ -541,19 +517,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Query parameters, then the `:name` segments of the first `data-sn-path` pattern that matches. */
   function readUrl() {
-    const out = Object.create(null), u = new URL(env.href());
-    for (const [k, v] of u.searchParams) if (!BAD_KEY.test(k)) out[k] = v;
-    const segs = u.pathname.split('/').filter(Boolean);
-    for (const p of ir.path ?? []) {
-      const want = p.split('/').filter(Boolean);
-      if (want.length != segs.length || want.some((w, i) => w[0] != ':' && w != segs[i])) continue;
-      want.forEach((w, i) => {
-        if (w[0] != ':') return;
-        try { out[w.slice(1)] = decodeURIComponent(segs[i]!); } catch { out[w.slice(1)] = segs[i]; }
-      });
-      break;
-    }
-    return out;
+    return readFrom(env.href(), ir.path);
   }
 
   function writeUrl() {

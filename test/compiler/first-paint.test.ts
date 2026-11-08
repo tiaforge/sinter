@@ -49,7 +49,7 @@ test('the early module: the app\'s early module first, then the bindings that ne
     </nav>`), { m: ['nav', 'mail', 'hello', 'unused'] }, ['fmt', 'other'], { module: '/src/sinter.early.ts', src: '/@sinter/early/index.html.js' });
   expect(early).toMatch(/^import "\/src\/sinter\.early\.ts";\nimport \{ start, \$k \} from '@tiaforge-ui\/sinter\/early';\nimport \{ fmt \} from "\/h\.js";\nimport \{ nav as m\$nav, mail as m\$mail \} from "\/m\.js";\n/);
   expect(early).not.toContain('hello');
-  expect(early).not.toContain('user');
+  expect(early).not.toContain('user.name');
   expect(early).not.toContain('date(');
   // started by the early runtime: it renders once the document is parsed, and tells the page module
   expect(early).toContain('const page = () => {');
@@ -78,7 +78,7 @@ test('early state: fields that need no data, persisted values, and the branch of
 });
 
 test('no early module when nothing runs early and the app has no early module', () => {
-  expect(build(page('<sn-resource name="u" src="/api/u"></sn-resource><p data-sn-text="u.x"></p>')).early).toBeNull();
+  expect(build(page('<sn-resource name="u" src="/api/u?d={date(at)}"></sn-resource><p data-sn-text="u.x"></p>')).early).toBeNull();
   expect(build(page('<p data-sn-text="here"></p>'), {}, [], { module: '/src/sinter.early.ts' }).early).toBe('import "/src/sinter.early.ts";\nimport { start, $k } from \'@tiaforge-ui/sinter/early\';\n\nconst page = () => {\n  const ir = {"roots":[{"tag":"body","p":-1,"b":[],"id":0,"sid":0,"state":1},{"tag":"p","p":0,"b":[{"k":"text","f":0}],"id":1}],"templates":[]};\n  const fns = [\n    ($) => ($.$s0.here),\n    ($) => ({ "here": (\'/a/\') }),\n  ];\n  return { ir, fns };\n};\nstart(page, null);\n');
 });
 
@@ -86,4 +86,28 @@ test('without the options the compiler writes nothing ahead and makes no early m
   const out = compile(page('<p data-sn-text="here"></p>'), { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} } });
   expect(out.html).toContain('<p data-sn="1"></p>');
   expect(out.early).toBeUndefined();
+});
+
+test('early requests: resources whose URL reads only what is known early (state, persisted values, $now, $url, helpers); a URL fixed at build time is preloaded from the HTML', () => {
+  const { early, html } = build(`<!doctype html><html data-sn-state="{ view: 'week' }" data-sn-persist="view"><head></head>
+    <body data-sn-state="{ week: monday($now), q: $url.q, sel: null }">
+      <sn-resource name="user" src="/api/user"></sn-resource>
+      <sn-resource name="days" src="/api/days?start={week}&q={q}" when="view === 'week'"></sn-resource>
+      <sn-resource name="detail" src="/api/x/{sel.id}" when="sel"></sn-resource>
+      <sn-resource name="dep" src="/api/y?u={user.id}"></sn-resource>
+      <sn-resource name="pg" src="/api/p" paginate="offset" page-size="10" key="id"></sn-resource>
+      <sn-resource name="fmt" src="/api/z?d={date($now)}"></sn-resource>
+      <p data-sn-text="dep.x"></p>
+    </body></html>`, {}, ['monday']);
+  const ir = JSON.parse(/const ir = (.*);/.exec(early!)![1]!);
+  // not: one that reads another resource, a paginated one, one that calls a built-in formatter
+  expect(ir.res.map((r: { name: string }) => r.name)).toEqual(['days', 'detail']);
+  // `user` is fixed at build time: a preload link in the head, first, and not requested again by the early file
+  expect(html).toMatch(/<head><link rel="preload" as="fetch" crossorigin="" href="\/api\/user"><script/);
+  expect(html.match(/rel="preload"/g)).toHaveLength(1);
+  expect(ir.res[0]).toMatchObject({ src: ['/api/days?start=', expect.any(Number), '&q=', expect.any(Number)], when: expect.any(Number), scope: 1 });
+  // the fields a request reads, the clock and the URL included (no binding shows them early)
+  expect(early).toContain('"week": (monday($.$now))');
+  expect(early).toContain('"q": ($.$url.q)');
+  expect(early).toContain('import { monday } from "/h.js";');
 });

@@ -1,13 +1,15 @@
-// @tiaforge-ui/sinter/early: what a page's early file runs before the first paint. It renders,
-// once, the bindings the compiler found renderable before any data: page-level values from state
+// @tiaforge-ui/sinter/early: what a page's early file runs before the first paint. It starts the
+// requests of the resources whose URL is known before any data (the page module's request layer
+// takes the responses), and renders, once, the bindings the compiler found renderable before any data: page-level values from state
 // (persisted values read from storage) and helpers, and the branch of each such `data-sn-if`.
 // No reactivity: the page module mounts later and takes the rendered DOM over (an early branch is
 // adopted, not rendered again). The early file and the page bundle are bundled apart (each holds
 // its own copy of what it imports), so what they share goes through a global: `start` (early
 // file) and `rendered` (page module, from the core) meet there.
 import { config } from './runtime/config.js';
-import { meeting } from './runtime/env.js';
+import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/env.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
+import { expand, readUrl } from './runtime/url.js';
 import type { Binding, EarlyIR, NodeDef } from './ir.js';
 
 export { $k } from './runtime/security.js';
@@ -32,7 +34,8 @@ export function start(page: EarlyPage | null, messages: { use(): void; ready(): 
   messages?.use();
   const fail = (e: unknown) => { setTimeout(() => { throw e; }); };
   let p: ReturnType<typeof prepare> | null = null;
-  try { if (page) p = prepare(page()); } catch (e) { fail(e); }
+  // the requests need no DOM: they start before anything waits
+  try { if (page) (p = prepare(page())).fetch(); } catch (e) { fail(e); }
   void (async () => {
     await messages?.ready();
     // a failure is reported, and the page module mounts all the same
@@ -41,6 +44,38 @@ export function start(page: EarlyPage | null, messages: { use(): void; ready(): 
   })();
 }
 
+/**
+ * The resource requests the early file started, by URL: each sent as the request layer sends a GET
+ * with no middleware (Accept JSON, same-origin credentials), taken once by a request that is the
+ * same at the end of the middleware chain.
+ */
+function pending(): Prefetched {
+  const started = new Map<string, { res: Promise<Response>; c: AbortController }>();
+  return {
+    add(url: string) {
+      if (started.has(url)) return;
+      const c = new AbortController(), res = config.env.fetch(new Request(url, { headers: { Accept: 'application/json' }, credentials: 'same-origin', signal: c.signal }));
+      res.catch(() => {});
+      started.set(url, { res, c });
+    },
+    take(req: Request, signal: AbortSignal) {
+      const e = started.get(req.url), h = [...req.headers];
+      // a middleware that changed the request (a header, credentials) gets a request of its own
+      if (!e || req.method != 'GET' || req.credentials != 'same-origin' || h.length != 1 || h[0]![0].toLowerCase() != 'accept' || h[0]![1] != 'application/json') return null;
+      started.delete(req.url);
+      const abort = () => e.c.abort(signal.reason);
+      signal.aborted ? abort() : signal.addEventListener('abort', abort, { once: true });
+      return e.res;
+    },
+    sweep() {
+      for (const e of started.values()) e.c.abort();
+      started.clear();
+    },
+  };
+}
+
+const own = (s: Prefetched) => (setPrefetched(s), s);
+
 /** Renders a page's early part (tests; the early file goes through `start`). */
 export function early(doc: Document, o: { ir: EarlyIR; fns: Fn[] }): void {
   prepare(o).render(doc);
@@ -48,10 +83,14 @@ export function early(doc: Document, o: { ir: EarlyIR; fns: Fn[] }): void {
 
 function prepare(o: { ir: EarlyIR; fns: Fn[] }) {
   const { ir, fns } = o, env = config.env, schemes = schemesOf(config.urlSchemes);
-  // what is not available before data throws, and the binding is left to the page module
+  // what is not available before data throws, and the binding (or request) is left to the page module
+  let url: Record<string, string> | null = null, now: Date | null = null;
   const base = new Proxy(Object.create(null), {
     get(_, k) {
       if (k == '$locale' && config.locale) return config.locale.get();
+      // for requests only: no early binding reads the clock or the URL
+      if (k == '$now') return (now ??= new Date(env.now()));
+      if (k == '$url') return (url ??= readUrl(env.href(), ir.path));
       throw Error('sinter: not available early');
     },
   });
@@ -83,6 +122,18 @@ function prepare(o: { ir: EarlyIR; fns: Fn[] }) {
   };
   const roots = scopesOf(ir.roots, base);
   return {
+    /** the resources whose URL is known now: `when` holds and every value is there */
+    fetch() {
+      const here = env.href();
+      for (const r of ir.res ?? []) {
+        try {
+          const s = r.scope < 0 ? base : roots[r.scope];
+          if (r.when != null && !fns[r.when]!(s)) continue;
+          const u = new URL(expand(r.src, s, fns), here);
+          if (u.origin == new URL(here).origin) (prefetched() ?? own(pending())).add(u.href);
+        } catch { /* not known early: the page module requests it */ }
+      }
+    },
     render(doc: Document) {
       const byId = new Map<number, Element>();
       for (const el of doc.querySelectorAll('[data-sn]')) byId.set(+el.getAttribute('data-sn')!, el);

@@ -27,6 +27,15 @@ Attribute names, function names and diagnostic codes are public API. Before
 - `sinter({ firstPaint: false })` turns it off; `sinter({ early: 'path' })` names another early
   module. Compiler options `prerender` and `early`; `CompileResult.early` is the page's early
   module. New entry `@tiaforge-ui/sinter/early`.
+- Data requests before the page module (with first paint): a resource with a literal same-origin
+  `src` and no `when` gets `<link rel="preload" as="fetch" crossorigin>` in the head; one whose URL
+  reads only state that needs no data, persisted values, `$now`, `$url` and helpers is requested by
+  the early file (not paginated, `each`, `call` or embedded ones). The request layer takes each
+  early response once, at the end of the middleware chain, when the request is the one the early
+  file sent (GET, same URL, same-origin credentials, only `Accept: application/json`): response
+  middleware runs on it, a request middleware that changes the request gets a request of its own;
+  what no resource took is aborted after mount. Size: the early file grows by about 1.1 kB gzip
+  (URL templates, `$url`, the handoff); realworld pages are over the 20 kB budget with it.
 - Testing: `firstPaint(html, { helpers, storage, early })` shows the page as it is before the
   page module runs; `render(html, { firstPaint: { early, afterEarly } })` mounts over it.
 - Recipe "First paint: page chrome that renders before the script".
@@ -56,7 +65,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 - The page bundle's script is `async` in builds (a deferred module waits for every pending
   stylesheet; on a warm load this starts the page's requests a round trip earlier). The page module
   waits before it mounts: `await parsed()`, or on a page with an early
-  file `await rendered()` (both from the core, which every page bundle loads anyway) (the parse, then the early file's render;
+  file `await rendered()`, both from the core (the parse, then the early file's render;
   an early file that failed to load does not hold it past DOMContentLoaded). Also for apps without
   first paint or messages: their page entry gets `async` and the page module awaits `parsed()`.
   App code in the page bundle may now run while the body is parsed: it must not read the body at
