@@ -31,8 +31,6 @@ Attribute names, function names and diagnostic codes are public API. Before
   file itself; the output is the same. An early build that still comes out as several chunks now
   fails the build instead of emitting an early file whose imports cannot load.
 
-## Unreleased
-
 ### Added
 
 - Write-through: a mutation's 2xx response is applied to the resources it is about, after the
