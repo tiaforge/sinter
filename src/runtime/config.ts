@@ -1,6 +1,6 @@
 // App-wide configuration and the request middleware helpers. Configuration
 // comes only from configure() in JavaScript, never from the DOM.
-import { defaultEnv, type Env } from './env.js';
+import { envOf, type Env } from './env.js';
 import type { Transport } from './app.js';
 
 export type Middleware = (request: Request, next: (request: Request) => Promise<Response>) => Promise<Response>;
@@ -16,12 +16,13 @@ export interface Config {
   transport: ((url: string) => Transport | undefined) | null;
   /** `data-sn-confirm`: asks the question; the action runs on true (window.confirm by default) */
   confirm: (question: string) => boolean | Promise<boolean>;
-  env: Env;
+  /** what `configure({ env })` overrides of the default environment (see `envOf`); the testing module sets a whole one */
+  env: Partial<Env> | null;
 }
 
 export const config: Config = {
   request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], transport: null,
-  confirm: (question) => globalThis.confirm(question), env: defaultEnv,
+  confirm: (question) => globalThis.confirm(question), env: null,
 };
 
 export function configure(options: Partial<Omit<Config, 'env'>> & { env?: Partial<Env> }): void {
@@ -60,13 +61,13 @@ function removeKeys(s: Storage | null, prefix: string) {
 }
 
 /** Removes the page-load cache; sinter calls it on every 401. */
-export function clearCached(env = config.env): void {
+export function clearCached(env: Env = envOf(config)): void {
   removeKeys(env.session(), CACHE_PREFIX);
 }
 
 /** Removes every persisted value (`sn:` keys) and the page-load cache, e.g. on logout. */
 export function clearPersisted(): void {
-  removeKeys(config.env.storage(), PERSIST_PREFIX);
+  removeKeys(envOf(config).storage(), PERSIST_PREFIX);
   clearCached();
 }
 
@@ -80,7 +81,7 @@ export function credentials(mode: RequestCredentials): Middleware {
 export function header(name: string, value: string, options: { origin?: string } = {}): Middleware {
   return (req, next) => {
     const target = new URL(req.url).origin;
-    const allowed = options.origin ? target === new URL(options.origin).origin : target === new URL(config.env.href()).origin;
+    const allowed = options.origin ? target === new URL(options.origin).origin : target === new URL(envOf(config).href()).origin;
     if (!allowed) return next(req);
     const headers = new Headers(req.headers);
     headers.set(name, value);
@@ -106,7 +107,7 @@ export interface LoginRedirectOptions {
  */
 export function loginRedirect(options: LoginRedirectOptions) {
   return (): Promise<Response> => {
-    const env = config.env;
+    const env = envOf(config);
     const here = new URL(env.href());
     const path = here.pathname + here.search + here.hash;
     let target = options.to;
@@ -126,7 +127,7 @@ export function loginRedirect(options: LoginRedirectOptions) {
 
 /** The return URL stored by loginRedirect, if it is same-origin and allowlisted; removes it. */
 export function takeReturnUrl(allow: string[]): string | null {
-  const env = config.env;
+  const env = envOf(config);
   let v: string | null = null;
   try {
     const s = env.session();

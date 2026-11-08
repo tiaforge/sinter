@@ -3,7 +3,8 @@
 // closure so private state minifies to short local names.
 import type { ActionDef, Binding, Fn, IR, NodeDef, ResourceDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { config, SinterError, type Middleware } from './config.js';
-import { prefetched, type Env } from './env.js';
+import { envOf, type Env } from './env.js';
+import { prefetched } from './handoff.js';
 import { createRequestLayer, isAbort, toError, type RequestLayer, type SendInit } from './request.js';
 import { BAD_KEY, schemesOf, STYLE_BAD, urlAllowed } from './security.js';
 import { expand, readUrl as readFrom } from './url.js';
@@ -256,7 +257,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   if (instances.has(root)) throw Error('sinter: already mounted');
   const { ir, fns } = o;
   if (ir?.v != 1) throw Error('sinter: unsupported IR');
-  const env = o.env ?? config.env;
+  const env = o.env ?? envOf(config);
   const req = createRequestLayer(env, o.request ?? config.request);
   const schemes = schemesOf(config.urlSchemes);
   const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(): void; start(): void }> = [];

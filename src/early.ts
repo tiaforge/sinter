@@ -7,10 +7,18 @@
 // its own copy of what it imports), so what they share goes through a global: `start` (early
 // file) and `rendered` (page module, from the core) meet there.
 import { config } from './runtime/config.js';
-import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/env.js';
+import type { Env } from './runtime/env.js';
+import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
 import { expand, readUrl } from './runtime/url.js';
 import type { Binding, EarlyIR, NodeDef } from './ir.js';
+
+/** What the early file needs from the outside world: `configure({ env })` from the app's early module, else the browser. */
+type EarlyEnv = Pick<Env, 'now' | 'href' | 'storage' | 'fetch'>;
+const envOf = (): EarlyEnv => {
+  const e = config.env, g = globalThis as typeof globalThis & Window;
+  return { now: e?.now ?? Date.now, href: e?.href ?? (() => g.location.href), storage: e?.storage ?? (() => { try { return g.localStorage; } catch { return null; } }), fetch: e?.fetch ?? ((r) => fetch(r)) };
+};
 
 export { $k } from './runtime/security.js';
 
@@ -28,14 +36,14 @@ export type EarlyPage = () => { ir: EarlyIR; fns: Fn[] };
  * The early file is a deferred module: it runs after the parse, before the first paint (it blocks
  * rendering until it has run; a language file the picker added holds the paint until it is there).
  */
-export function start(page: EarlyPage | null, messages: { use(): void; ready(): Promise<void> } | null, doc: Document = document): void {
+export function start(page: EarlyPage | null, messages: { use(): void; ready(): Promise<void> } | null, req: EarlyRequests | null = null, doc: Document = document): void {
   const m = meeting();
   m.started = true;
   messages?.use();
   const fail = (e: unknown) => { setTimeout(() => { throw e; }); };
   let p: ReturnType<typeof prepare> | null = null;
   // the requests need no DOM: they start before anything waits
-  try { if (page) (p = prepare(page())).fetch(); } catch (e) { fail(e); }
+  try { if (page) (p = prepare(page(), req)).fetch(); } catch (e) { fail(e); }
   void (async () => {
     await messages?.ready();
     // a failure is reported, and the page module mounts all the same
@@ -45,16 +53,49 @@ export function start(page: EarlyPage | null, messages: { use(): void; ready(): 
 }
 
 /**
+ * The early requests: the compiler has the early file import this only when the page has resources
+ * to request early, so a page without them carries none of it (nor the URL templates). `read`: what
+ * only requests may read (`$now`, `$url`); `send`: starts the requests whose URL is known.
+ */
+export interface EarlyRequests {
+  read(key: PropertyKey, env: EarlyEnv, path: string[] | undefined): unknown;
+  send(ir: EarlyIR, scopes: any[], base: any, fns: Fn[], env: EarlyEnv): void;
+}
+
+export function requests(): EarlyRequests {
+  let url: Record<string, string> | null = null, now: Date | null = null;
+  return {
+    read(k, env, path) {
+      if (k == '$now') return (now ??= new Date(env.now()));
+      if (k == '$url') return (url ??= readUrl(env.href(), path));
+      throw Error('sinter: not available early');
+    },
+    /** the resources whose URL is known now: `when` holds and every value is there */
+    send(ir, scopes, base, fns, env) {
+      const here = env.href();
+      for (const r of ir.res ?? []) {
+        try {
+          const s = r.scope < 0 ? base : scopes[r.scope];
+          if (r.when != null && !fns[r.when]!(s)) continue;
+          const u = new URL(expand(r.src, s, fns), here);
+          if (u.origin == new URL(here).origin) (prefetched() ?? own(pending(env))).add(u.href);
+        } catch { /* not known early: the page module requests it */ }
+      }
+    },
+  };
+}
+
+/**
  * The resource requests the early file started, by URL: each sent as the request layer sends a GET
  * with no middleware (Accept JSON, same-origin credentials), taken once by a request that is the
  * same at the end of the middleware chain.
  */
-function pending(): Prefetched {
+function pending(env: EarlyEnv): Prefetched {
   const started = new Map<string, { res: Promise<Response>; c: AbortController }>();
   return {
     add(url: string) {
       if (started.has(url)) return;
-      const c = new AbortController(), res = config.env.fetch(new Request(url, { headers: { Accept: 'application/json' }, credentials: 'same-origin', signal: c.signal }));
+      const c = new AbortController(), res = env.fetch(new Request(url, { headers: { Accept: 'application/json' }, credentials: 'same-origin', signal: c.signal }));
       res.catch(() => {});
       started.set(url, { res, c });
     },
@@ -78,19 +119,17 @@ const own = (s: Prefetched) => (setPrefetched(s), s);
 
 /** Renders a page's early part (tests; the early file goes through `start`). */
 export function early(doc: Document, o: { ir: EarlyIR; fns: Fn[] }): void {
-  prepare(o).render(doc);
+  prepare(o, requests()).render(doc);
 }
 
-function prepare(o: { ir: EarlyIR; fns: Fn[] }) {
-  const { ir, fns } = o, env = config.env, schemes = schemesOf(config.urlSchemes);
+function prepare(o: { ir: EarlyIR; fns: Fn[] }, req: EarlyRequests | null) {
+  const { ir, fns } = o, env = envOf(), schemes = schemesOf(config.urlSchemes);
   // what is not available before data throws, and the binding (or request) is left to the page module
-  let url: Record<string, string> | null = null, now: Date | null = null;
   const base = new Proxy(Object.create(null), {
     get(_, k) {
       if (k == '$locale' && config.locale) return config.locale.get();
       // for requests only: no early binding reads the clock or the URL
-      if (k == '$now') return (now ??= new Date(env.now()));
-      if (k == '$url') return (url ??= readUrl(env.href(), ir.path));
+      if (req) return req.read(k, env, ir.path);
       throw Error('sinter: not available early');
     },
   });
@@ -122,18 +161,7 @@ function prepare(o: { ir: EarlyIR; fns: Fn[] }) {
   };
   const roots = scopesOf(ir.roots, base);
   return {
-    /** the resources whose URL is known now: `when` holds and every value is there */
-    fetch() {
-      const here = env.href();
-      for (const r of ir.res ?? []) {
-        try {
-          const s = r.scope < 0 ? base : roots[r.scope];
-          if (r.when != null && !fns[r.when]!(s)) continue;
-          const u = new URL(expand(r.src, s, fns), here);
-          if (u.origin == new URL(here).origin) (prefetched() ?? own(pending())).add(u.href);
-        } catch { /* not known early: the page module requests it */ }
-      }
-    },
+    fetch() { req?.send(ir, roots, base, fns, env); },
     render(doc: Document) {
       const byId = new Map<number, Element>();
       for (const el of doc.querySelectorAll('[data-sn]')) byId.set(+el.getAttribute('data-sn')!, el);

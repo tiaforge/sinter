@@ -110,4 +110,7 @@ test('early requests: resources whose URL reads only what is known early (state,
   expect(early).toContain('"week": (monday($.$now))');
   expect(early).toContain('"q": ($.$url.q)');
   expect(early).toContain('import { monday } from "/h.js";');
+  // the request machinery only on a page with early requests
+  expect(early).toContain("import { start, $k, requests } from '@tiaforge-ui/sinter/early';");
+  expect(early!.endsWith('start(page, null, requests());\n')).toBe(true);
 });

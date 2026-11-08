@@ -36,7 +36,8 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
   if (!early && !app) return null;
   const lines: string[] = [];
   if (app) lines.push(`import ${JSON.stringify(app)};`);
-  lines.push(`import { start${early ? ', $k' : ''} } from '${PACKAGE}/early';`);
+  const req = !!early?.ir.res?.length;
+  lines.push(`import { start${early ? ', $k' : ''}${req ? ', requests' : ''} } from '${PACKAGE}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
   if (early) {
@@ -67,7 +68,7 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
     for (const f of early.fns) lines.push(`    ${f},`);
     lines.push('  ];', '  return { ir, fns };', '};');
   }
-  lines.push(`start(${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'});`);
+  lines.push(`start(${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? ', requests()' : ''});`);
   return lines.join('\n') + '\n';
 }
 

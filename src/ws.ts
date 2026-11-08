@@ -3,6 +3,7 @@
 // The stream URL stays an http(s) URL in the HTML (the compiler's URL rules apply); the
 // transport opens it as ws(s). Server to client only: actions still go over HTTP.
 import { config } from './runtime/config.js';
+import { envOf } from './runtime/env.js';
 import type { Transport } from './runtime/app.js';
 
 export interface WebSocketTransportOptions {
@@ -34,7 +35,7 @@ export function webSocketTransport(options: WebSocketTransportOptions = {}): Tra
   const names = new Set<string>();
   return {
     connect(url, onEvent, onState, initial) {
-      const u = new URL(url, config.env.href());
+      const u = new URL(url, envOf(config).href());
       u.protocol = u.protocol === 'http:' ? 'ws:' : u.protocol === 'https:' ? 'wss:' : u.protocol;
       names.clear();
       for (const n of initial) names.add(n);

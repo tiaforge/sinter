@@ -2,7 +2,8 @@
 // islands) goes through one middleware chain, then fetch with a timeout and
 // one retry for idempotent requests on network errors.
 import { clearCached, config, SinterError, type Middleware } from './config.js';
-import { prefetched, type Env } from './env.js';
+import type { Env } from './env.js';
+import { prefetched } from './handoff.js';
 
 export const TIMEOUT = 30_000;
 

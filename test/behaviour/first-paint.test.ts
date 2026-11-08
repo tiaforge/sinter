@@ -130,7 +130,7 @@ test('the async page module mounts after the parse and after the early file has 
   await tick();
   expect(order).toEqual([]);
   // then the deferred early file
-  start(page, null, doc);
+  start(page, null, null, doc);
   await tick();
   contentLoaded();
   await tick();

@@ -1,5 +1,6 @@
 // Everything sinter needs from the outside world, in one injectable object, so
 // the testing module can drive time, scheduling, navigation and fetch exactly.
+import { meeting } from './handoff.js';
 
 export interface Env {
   now(): number;
@@ -21,6 +22,9 @@ export interface Env {
 
 const g = globalThis as typeof globalThis & Window;
 const tryGet = (f: () => Storage) => { try { return f(); } catch { return null; } };
+
+/** The environment the runtime uses: the default, with what `configure({ env })` overrides. */
+export const envOf = (c: { env: Partial<Env> | null }): Env => (c.env ? { ...defaultEnv, ...c.env } : defaultEnv);
 
 export const defaultEnv: Env = {
   now: Date.now,
@@ -46,30 +50,6 @@ export const parsed = (doc: Document = document): Promise<void> => new Promise((
   const on = () => { if (doc.readyState != 'loading') { doc.removeEventListener('readystatechange', on); done(); } };
   doc.addEventListener('readystatechange', on);
 });
-
-/**
- * Responses the early file requested before the page module ran, handed to the request layer
- * once each. The early file and the page bundle are bundled apart: they meet through a global.
- */
-export interface Prefetched {
-  /** starts the request for a URL (once) */
-  add(url: string): void;
-  /** the response started for this request, if it is the request the early file sent (method, URL, credentials, headers); else null */
-  take(request: Request, signal: AbortSignal): Promise<Response> | null;
-  /** aborts and forgets what no resource took */
-  sweep(): void;
-}
-const PREFETCHED = Symbol.for('sinter.prefetched');
-export const prefetched = (): Prefetched | undefined => (globalThis as any)[PREFETCHED];
-export const setPrefetched = (p: Prefetched) => { (globalThis as any)[PREFETCHED] = p; };
-
-/** Where the early file and the page module meet: whether the early file started, and when it has rendered. */
-export interface Meeting { started: boolean; done: Promise<void>; finish(): void }
-export const meeting = (): Meeting => ((globalThis as any)[Symbol.for('sinter.early.page')] ??= (() => {
-  let finish!: () => void;
-  const done = new Promise<void>((r) => { finish = r; });
-  return { started: false, done, finish };
-})());
 
 /** Whether DOMContentLoaded has fired: every deferred script (the early file among them) has run or failed. */
 const contentLoaded = (doc: Document) => doc.readyState == 'complete' || ((performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined)?.domContentLoadedEventStart ?? 0) > 0;

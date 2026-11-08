@@ -56,6 +56,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   no preload: the early file sends same-origin requests only. A page with nothing else to run
   early has no early file. RealWorld: article 21.1 → 17.9 kB gzip, profile 21.1 → 17.9 kB, under the
   20 kB budget again.
+- The early file carries the request machinery (URL templates, `$url`, `$now`, the handoff) only when
+  the page has early requests, and no longer the runtime's default environment: about 1 kB gzip less
+  per page with an early file (RealWorld index 20.9 → 20.0 kB, login 19.4 → 18.4 kB).
+  `start(page, messages, requests?, doc?)` in `@tiaforge-ui/sinter/early`; `config.env` holds only
+  what `configure({ env })` overrides (`envOf(config)` is the environment in use).
 - The `listbox` module kept its document listeners after `destroy()`: in tests, each earlier
   `render()` with a `data-sn-listbox` fired `dismiss` (and handled arrows, Enter and Tab) once more.
 
