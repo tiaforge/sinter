@@ -1,7 +1,7 @@
-<!-- First paint: what renders before the page module has run. Chrome stays outside templates (or in a
-     data-sn-if over state), so the early chunk renders it before the first paint: labels from helpers in
-     the language src/sinter.early.ts picked, the current page from literal state, the persisted collapse.
-     Only what needs data waits in a template for the page module. -->
+<!-- First paint: what renders before the page module has run. Chrome stays outside data templates (or in a
+     data-sn-if over state), so the early chunk renders it before the first paint: messages in the language
+     picked before the paint, the current page from literal state, the persisted collapse. Only what needs
+     data waits in a template for the page module. -->
 <body data-sn-state="{ here: '/mail/' }">
   <sn-resource name="user" src="/api/user"></sn-resource>
   <nav data-sn-attr="{'aria-label': m.nav()}" data-sn-state="{ collapsed: false }">

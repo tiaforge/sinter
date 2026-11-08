@@ -1,14 +1,15 @@
 // `sinter check`: type-checks every expression of the compiled pages with the
 // project's own TypeScript (`tsc` on generated, checked JavaScript files).
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
-import { compile } from '../compiler/index.js';
+import { compile, MESSAGES } from '../compiler/index.js';
 import { project, type ProjectOptions } from '../project.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import { specDeclarations } from './openapi-types.js';
@@ -29,6 +30,8 @@ export interface CheckOptions {
   outDir?: string;
   /** path of TypeScript's `tsc` script (default: resolved from the project) */
   tsc?: string;
+  /** the generated message types (`src/sinter.messages.d.ts`), with built-in messages */
+  messagesTypes?: string | null;
 }
 
 export interface CheckResult {
@@ -106,10 +109,13 @@ export function check(o: CheckOptions): CheckResult {
     shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom });
   }
   const tsconfig = join(outDir, 'tsconfig.json');
+  // the built-in messages resolve to this package's module, wherever the project's copy is
+  const own = o.messagesTypes ? fileURLToPath(new URL('../messages', import.meta.url)) : '';
+  const messagesModule = existsSync(own + '.d.ts') ? own + '.d.ts' : own + '.ts';
   writeFileSync(tsconfig, JSON.stringify({
-    compilerOptions: COMPILER_OPTIONS,
+    compilerOptions: { ...COMPILER_OPTIONS, ...(own ? { paths: { [MESSAGES]: [messagesModule] } } : {}) },
     // the types module always, so augmentations in it (declare global, a library's import type {}) apply
-    files: ['sinter.d.ts', ...(support.types ? [relative(outDir, support.types.file).split('\\').join('/')] : []), ...support.openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map((f) => relative(outDir, f).split('\\').join('/'))],
+    files: ['sinter.d.ts', ...(o.messagesTypes ? [relative(outDir, o.messagesTypes).split('\\').join('/')] : []), ...(support.types ? [relative(outDir, support.types.file).split('\\').join('/')] : []), ...support.openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map((f) => relative(outDir, f).split('\\').join('/'))],
   }, null, 2) + '\n');
 
   const tsc = o.tsc ?? findTsc(o.root);
@@ -139,7 +145,7 @@ export function checkPage(html: string, o: ProjectOptions & { files?: Record<str
     writeFileSync(file, html);
     const p = project(root, o);
     const out = compile(html, { file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: p.readFile, check: true, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles });
-    const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()) });
+    const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()), messagesTypes: p.messagesTypes });
     return [...p.diagnostics, ...out.diagnostics, ...r.diagnostics].map((d) => ({ ...d, file: relative(root, d.file) }));
   } finally {
     rmSync(root, { recursive: true, force: true });

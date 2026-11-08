@@ -6,6 +6,7 @@ import { dirname, relative } from 'node:path';
 import type { CheckLoc, CheckUnit, TypeRef } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
 import { STORE_FNS, BUILTIN_HELPERS } from '../compiler/expr.js';
+import { MESSAGES } from '../compiler/index.js';
 import { schemaToTs, typeName } from './openapi-types.js';
 
 export interface ShadowOptions {
@@ -81,7 +82,8 @@ export function shadow(o: ShadowOptions): Shadow {
   const userHelpers = o.helpers.names.filter((h) => !taken.has(h));
   if (o.helpers.module && userHelpers.length) line(`import { ${userHelpers.join(', ')} } from '${moduleSpec(o.helpers.module)}';`);
   for (const [ns, { module }] of Object.entries(o.helpers.namespaces)) {
-    if (!taken.has(ns)) line(`import * as ${ns} from '${moduleSpec(module)}';`);
+    // the built-in messages: `m`, typed by the generated `src/sinter.messages.d.ts`
+    if (!taken.has(ns)) line(module === MESSAGES ? `import { m as ${ns} } from '${MESSAGES}';` : `import * as ${ns} from '${moduleSpec(module)}';`);
   }
   if (o.actions?.module && (unit.resources.some((r) => r.call) || unit.exprs.some((e) => e.returns?.kind === 'call' || e.resultType?.kind === 'call'))) {
     line(`import * as $A from '${moduleSpec(o.actions.module)}';`);

@@ -27,6 +27,7 @@ const RECIPES: Array<[string, string, string[]?]> = [
   ['row-select', 'Row selection with Ctrl and Shift: logic in a helper, applied by the handler', ['row-select.helpers.js']],
   ['run-action', 'Run an action from a handler: mark a mail read once its body has loaded, and a shortcut'],
   ['first-paint', 'First paint: page chrome that renders before the script'],
+  ['messages', 'Messages: m.key() from the inlang files, switching without a reload'],
 ];
 
 function llms(): string {
@@ -107,11 +108,18 @@ Each recipe comes with its test; copy both.
 The built page shows its chrome before the page module has run; the page bundle is not render-blocking.
 
 - Build-time constants are written into the HTML: bindings outside templates that read only literal \`data-sn-state\` fields and constants (\`aria-current\` from \`here === '/mail/'\`). No helpers.
-- Each page gets an early chunk, bundled into one file with nothing to import and loaded \`type="module" blocking="render"\` before the page module (one request before the first paint): first \`src/sinter.early.ts\` (optional, app code: pick the language, \`setLocale(lang, { reload: false })\`, set \`<html lang>\`), then, once, the bindings outside \`data-sn-for\` templates that need no data: they read state fields whose initial value needs no data, persisted values (read from \`sn:<key>\` in localStorage), \`$locale\` and helpers. A \`data-sn-if\` of that kind renders its branch; the page module adopts it. Only the helpers and message members those bindings call are included. Modules it shares with the page bundle are copies: state the early module sets (an i18n library's locale) must be set again by the page bundle, e.g. by calling the same function from \`src/sinter.config.ts\`.
+- Each page gets an early chunk, bundled into one file with nothing to import and loaded \`type="module" blocking="render"\` before the page module (one request before the first paint): first \`src/sinter.early.ts\` (optional app code), then, once, the bindings outside \`data-sn-for\` templates that need no data: they read state fields whose initial value needs no data, persisted values (read from \`sn:<key>\` in localStorage), \`$locale\` and helpers. A \`data-sn-if\` of that kind renders its branch; the page module adopts it. Only the helpers and message members those bindings call are included. Modules it shares with the page bundle are copies: state the early module sets must be set again by the page bundle (sinter's messages share theirs through a global).
 - Resources, \`$url\`, \`$now\`, \`$meta\`, \`$el\`, loops and the built-in formatters (\`date()\`, …) wait for the page module. The runtime then owns every binding; its first write changes nothing.
 - The build prints each page's early file size (gzip) and warns over \`sinter({ earlyBudget })\` (default 10000 bytes), naming the largest modules: keep heavy imports out of early code.
 - Keep page chrome outside data templates: \`<template data-sn-if="user">\` around the navigation hides it until the user has loaded.
 - \`sinter({ firstPaint: false })\` turns it off. Test with \`firstPaint(html, { helpers, storage, early })\` from the testing module (\`early\` stands for \`src/sinter.early.ts\`), and \`render(html, { firstPaint: { early, afterEarly } })\` for the takeover.
+`);
+  out.push(`## Messages
+
+- With an inlang project (\`project.inlang/settings.json\`, message files \`messages/{locale}.json\` of plain \`"key": "text with {param}"\`), \`m.key()\` / \`m.key({ param })\` in markup are sinter's built-in messages. App code: \`import { m } from '@tiaforge-ui/sinter/messages'\`, typed by the generated \`src/sinter.messages.d.ts\`. Unknown keys are SN206, wrong or missing params SN208 (\`sinter check\`). Only \`m.key\`: \`m[key]\` or passing \`m\` on fails the build; a dynamic choice is a switch.
+- The build emits one file per page and language with only the keys the page calls (markup and its modules); a missing translation is the base language, reported at build. No plurals or variants.
+- Before the first paint a tiny classic script picks the language (localStorage \`locale\`, else \`navigator.languages\`, else the base), sets \`<html lang>\` and loads the page's language file render-blocking. \`$locale = 'de'\` switches without a reload (stores the choice, loads that file, re-renders). Don't \`configure({ locale })\`: sinter is the locale source.
+- Tests: \`render(html, { messages: { en: {…}, de: {…} }, locale })\`. An app without an inlang project ships none of this.
 `);
   out.push(`## Deploying streams
 

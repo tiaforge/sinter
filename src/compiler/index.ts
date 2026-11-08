@@ -11,6 +11,8 @@ export { compileParts };
 export { COMPLEXITY_DEFAULTS, type ComplexityLimits, type ComplexityOptions } from './complexity.js';
 
 export const PACKAGE = '@tiaforge-ui/sinter';
+/** the built-in messages: a helper namespace with this module is sinter's `m` */
+export const MESSAGES = `${PACKAGE}/messages`;
 
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
@@ -18,6 +20,8 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   const out: CompileResult = { html: parts.html, module: pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files };
   if (parts.check) out.check = parts.check;
   if (parts.early !== undefined) out.early = earlyModule(parts.early, options);
+  const ns = Object.entries(options.helpers.namespaces).find(([, v]) => v.module === MESSAGES)?.[0];
+  if (ns) out.messages = parts.namespaces[ns] ?? [];
   return out;
 }
 
@@ -31,6 +35,7 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
   if (!early && !app) return null;
   const lines: string[] = [];
   if (app) lines.push(`import ${JSON.stringify(app)};`);
+  let messages: string | null = null;
   if (early) {
     lines.push(`import { early, $k } from '${PACKAGE}/early';`);
     // each from the module that declares it: past the helpers module and barrels, whose other
@@ -44,15 +49,18 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
     }
     for (const [ns, members] of Object.entries(early.namespaces)) {
       const info = options.helpers.namespaces[ns]!;
+      if (info.module === MESSAGES) { messages = messagesImport(ns, members); continue; }
       for (const m of members) {
         const o = info.from?.[m];
         add(o?.module ?? info.module, `${o?.name ?? m} as ${ns}$${m}`);
       }
     }
     for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
+    if (messages) lines.push(messages);
     lines.push('', `const ir = ${JSON.stringify(early.ir)};`, 'const fns = [');
     for (const f of early.fns) lines.push(`  ${f},`);
-    lines.push('];', '', 'early(document, { ir, fns });');
+    // the messages: the picker script has added this page's language file; the first paint waits for it
+    lines.push('];', '', ...(messages ? ['$use();', 'await $ready();'] : []), 'early(document, { ir, fns });');
   }
   return lines.join('\n') + '\n';
 }
@@ -65,8 +73,10 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
   if (parts.helpers.user.length && options.helpers.module) {
     lines.push(`import { ${parts.helpers.user.join(', ')} } from ${JSON.stringify(options.helpers.module)};`);
   }
+  let messages = false;
   for (const [ns, members] of Object.entries(parts.namespaces)) {
     const mod = options.helpers.namespaces[ns]!.module;
+    if (mod === MESSAGES) { lines.push(messagesImport(ns, members)); messages = true; continue; }
     lines.push(`import { ${members.map((m) => `${m} as ${ns}$${m}`).join(', ')} } from ${JSON.stringify(mod)};`);
   }
   // actions (`data-sn-call`): imported as `$a$name` / `$a$ns$member`, only those the page calls
@@ -90,8 +100,16 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
   for (const f of parts.fns) lines.push(`  ${f},`);
   lines.push('];');
   lines.push('');
-  lines.push(`mount(document, { ir, fns, features: [${parts.features.join(', ')}] });`);
+  if (messages) {
+    // sinter's messages are the locale source; the dictionary the early step loaded, once it is there
+    lines.push('$use();', 'await $ready();', `$use(mount(document, { ir, fns, features: [${parts.features.join(', ')}] }));`);
+  } else lines.push(`mount(document, { ir, fns, features: [${parts.features.join(', ')}] });`);
   return lines.join('\n') + '\n';
+}
+
+/** The built-in messages a module calls: `m.key` bound to the names compiled code uses (`m$key`). */
+function messagesImport(ns: string, members: string[]): string {
+  return `import { m as $m, use as $use, ready as $ready } from '${MESSAGES}';\nconst ${members.map((m) => `${ns}$${m} = $m.${m}`).join(', ')};`;
 }
 
 /**

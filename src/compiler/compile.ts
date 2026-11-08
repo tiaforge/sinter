@@ -69,6 +69,8 @@ export interface CompileResult {
   check?: CheckUnit;
   /** with `early`: the page's early module, or null when the page has nothing to run early */
   early?: string | null;
+  /** the built-in message keys the page calls (markup only; modules are collected by the adapter); absent without built-in messages */
+  messages?: string[];
 }
 
 /** What the early chunk runs: the bindings that can render before data, and what they import. */

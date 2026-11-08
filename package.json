@@ -42,6 +42,7 @@
     "./keys": "./dist/keys.js",
     "./cache": "./dist/cache.js",
     "./early": "./dist/early.js",
+    "./messages": "./dist/messages.js",
     "./compiler": "./dist/compiler/index.js",
     "./vite": "./dist/vite.js",
     "./check": "./dist/check/index.js",

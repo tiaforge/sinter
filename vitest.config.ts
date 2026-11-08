@@ -8,6 +8,8 @@ export default defineConfig({
     alias: [
       { find: '@tiaforge-ui/sinter/testing', replacement: `${src}/testing/index.ts` },
       { find: '@tiaforge-ui/sinter/check', replacement: `${src}/check/index.ts` },
+      { find: '@tiaforge-ui/sinter/messages', replacement: `${src}/messages.ts` },
+      { find: '@tiaforge-ui/sinter/early', replacement: `${src}/early.ts` },
       { find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` },
     ],
   },

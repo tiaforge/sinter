@@ -9,6 +9,7 @@ import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult } from './compiler/index.js';
 import { project, type ProjectOptions } from './project.js';
+import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -37,10 +38,28 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const watched = new Set<string>();
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
+  let pickerFile = '';
   /** build: the pages with an early module, and each one's bundled early file */
   const earlyPages = new Map<string, string>();
   const earlyFiles = new Map<string, { fileName: string; code: string; modules: Record<string, { renderedLength: number }> }>();
   const budget = options.earlyBudget ?? 10_000;
+  /** built-in messages: keys each module calls (`m.key`), keys each page's markup calls, and each page's language files */
+  const moduleMessages = new Map<string, string[]>();
+  const markupMessages = new Map<string, string[]>();
+  const languageFiles = new Map<string, Record<string, { fileName: string; code: string }>>();
+  let messages: MessagesProject | null = null;
+  const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+  /** the picker script's tag: it picks the locale and adds the page's language file before the first paint */
+  const pickerTag = (src: string, files: Record<string, string>) => `<script src="${attr(src)}" data-sn-i18n="${attr(JSON.stringify({ base: messages!.base, locales: messages!.locales, storage: 'locale', files }))}"></script>`;
+  /** `m.key` in a module: collected for the page's language file; any other use of `m` is refused */
+  const collect = (ctx: { error(m: string): never }, code: string, id: string) => {
+    if (!messages || id.includes('/node_modules/') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return;
+    const r = moduleKeys(code, id);
+    if (r.errors.length) ctx.error(`sinter: ${r.errors.join('\n')}`);
+    const unknown = r.keys.filter((k) => !(k in messages!.keys));
+    if (unknown.length) ctx.error(`sinter: ${id}: no message ${unknown.map((k) => `\`${k}\``).join(', ')} in ${relOf(messages.files[messages.base]!)}`);
+    if (r.keys.length) moduleMessages.set(id.replace(/\?.*$/, ''), r.keys); else moduleMessages.delete(id.replace(/\?.*$/, ''));
+  };
 
   const watch = (file: string) => {
     if (watched.has(file)) return;
@@ -60,6 +79,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
     });
     if (out.early) modules.set(`${EARLY}${rel}.js`, out.early);
+    messages = p.messages;
+    if (out.messages) markupMessages.set(rel, out.messages);
     return { out, p };
   };
   const invalidate = (id: string) => {
@@ -90,14 +111,26 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     buildStart(input) {
       earlyPages.clear();
       earlyFiles.clear();
-      if (dev || !firstPaint) return;
+      languageFiles.clear();
+      if (dev) return;
+      const p = project(root, options);
+      messages = p.messages;
+      // a missing translation falls back to the base language: reported once per locale
+      if (messages) {
+        for (const l of messages.locales) {
+          if (l === messages.base) continue;
+          const missing = Object.keys(messages.keys).filter((k) => !(k in (messages!.dicts[l] ?? {})));
+          if (missing.length) this.warn(`sinter: ${missing.length} message(s) not translated to \`${l}\` (the ${messages.base} text is used): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}`);
+        }
+      }
+      if (!firstPaint && !messages) return;
       const list = typeof input.input === 'string' ? [input.input] : Array.isArray(input.input) ? input.input : Object.values(input.input ?? {});
       for (const entry of list) {
         if (!entry.endsWith('.html')) continue;
         const file = resolve(root, entry);
         try {
           const { out } = build(readFileSync(file, 'utf8'), file, null);
-          if (out.early) earlyPages.set(relOf(file), out.early);
+          if (out.early && firstPaint) earlyPages.set(relOf(file), out.early);
         } catch { /* reported when the page itself is compiled */ }
       }
     },
@@ -107,15 +140,20 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      * the first paint waits for one request. Modules it shares with the page bundle are copies:
      * state the app sets early (an i18n library's locale, configure()) is set again by the page.
      */
-    async generateBundle() {
-      if (!earlyPages.size) return;
-      const vite = await import('vite');
+    async generateBundle(_, bundle) {
       const r = resolved!, ENTRY = `${PREFIX}early-entry.js`;
+      const earlyKeys = new Map<string, Set<string>>();
+      const vite = earlyPages.size ? await import('vite') : null;
       for (const [rel, code] of earlyPages) {
-        const out = await vite.build({
+        const keys = new Set<string>();
+        earlyKeys.set(rel, keys);
+        const out = await vite!.build({
           configFile: false, root, base: r.base, mode: r.mode, logLevel: 'silent', publicDir: false, define: r.define,
           resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions },
-          plugins: [{ name: 'sinter:early-entry', resolveId: (id) => (id === ENTRY ? '\0' + ENTRY : null), load: (id) => (id === '\0' + ENTRY ? code : null) }],
+          plugins: [{
+            name: 'sinter:early-entry', resolveId: (id) => (id === ENTRY ? '\0' + ENTRY : null), load: (id) => (id === '\0' + ENTRY ? code : null),
+            transform(src, id) { if (messages && !id.includes('/node_modules/') && /\.[cm]?[jt]sx?$/.test(id)) for (const k of moduleKeys(src, id).keys) keys.add(k); },
+          }],
           build: {
             write: false, minify: r.build.minify, target: r.build.target, modulePreload: false, copyPublicDir: false, reportCompressedSize: false,
             rollupOptions: { input: ENTRY, output: { format: 'es', inlineDynamicImports: true } },
@@ -128,6 +166,40 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         this.emitFile({ type: 'asset', fileName, source: chunk.code! });
         earlyFiles.set(rel, { fileName, code: chunk.code!, modules: chunk.modules ?? {} });
       }
+      if (!messages) return;
+      // per page and language, the keys the page calls: its markup, the modules of its bundle, its early file
+      for (const [rel, own] of markupMessages) {
+        const entry = Object.values(bundle).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
+        const keys = new Set([...own, ...(earlyKeys.get(rel) ?? [])]);
+        const seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
+        while (todo.length) {
+          const c = bundle[todo.pop()!];
+          if (!c || c.type !== 'chunk' || seen.has(c.fileName)) continue;
+          seen.add(c.fileName);
+          for (const id of c.moduleIds) for (const k of moduleMessages.get(id) ?? []) keys.add(k);
+          todo.push(...c.imports, ...c.dynamicImports);
+        }
+        if (!keys.size) continue;
+        const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
+        const files: Record<string, { fileName: string; code: string }> = {};
+        for (const l of messages.locales) {
+          const dict: Record<string, string> = {};
+          for (const k of [...keys].sort()) dict[k] = messages.dicts[l]?.[k] ?? messages.dicts[messages.base]![k]!;
+          const code = languageFile(l, dict);
+          const fileName = `${r.build.assetsDir}/${name}-${l}-${createHash('sha256').update(code).digest('base64url').slice(0, 8)}.js`;
+          this.emitFile({ type: 'asset', fileName, source: code });
+          files[l] = { fileName, code };
+        }
+        languageFiles.set(rel, files);
+      }
+      const picker = `${r.build.assetsDir}/sinter-i18n-${createHash('sha256').update(I18N_PICKER).digest('base64url').slice(0, 8)}.js`;
+      if (languageFiles.size) this.emitFile({ type: 'asset', fileName: picker, source: I18N_PICKER });
+      pickerFile = picker;
+    },
+
+    transform(code, id) {
+      collect(this, code, id);
+      return null;
     },
 
     resolveId(id) {
@@ -136,6 +208,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     load(id) {
+      // dev: the picker, and each language's whole dictionary
+      if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
+      const lang = id.startsWith(`\0${PREFIX}messages/`) && messages ? id.slice(`\0${PREFIX}messages/`.length, -3) : null;
+      if (lang && messages?.dicts[lang]) return languageFile(lang, { ...messages.dicts[messages.base], ...messages.dicts[lang] });
       if (!id.startsWith('\0' + PREFIX)) return null;
       const code = modules.get(id.slice(1));
       if (code === undefined) throw new Error(`sinter: page module ${id.slice(1)} requested before its HTML was compiled`);
@@ -146,7 +222,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (error || !options.typecheck || dev || !units.size) return;
       const { check } = await import('./check/index.js');
       const p = project(root, options);
-      const r = check({ root, units: [...units.values()], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi });
+      const r = check({ root, units: [...units.values()], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes });
       units.clear();
       if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
     },
@@ -173,6 +249,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         modules.set(moduleSrc, out.module);
         invalidate(moduleSrc);
         invalidate(`${EARLY}${rel}.js`);
+        // dev: the picker first in the head, with every language's whole dictionary; a build adds it after bundling
+        if (dev && out.messages?.length && messages) {
+          const base = resolved?.base ?? '/';
+          for (const f of Object.values(messages.files)) watch(f);
+          const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])));
+          return out.html.replace(/<head[^>]*>/, (h) => h + tag);
+        }
         return out.html;
       },
     },
@@ -187,24 +270,29 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     transformIndexHtml: {
       order: 'post',
       handler(html, ctx) {
-        const rel = relOf(ctx.filename), early = earlyFiles.get(rel);
-        if (!early) return;
-        const src = `${resolved?.base ?? '/'}${early.fileName}`.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
-        const tag = `<script type="module" crossorigin src="${src}" blocking="render"></script>`;
-        report(rel, early);
+        const rel = relOf(ctx.filename), early = earlyFiles.get(rel), langs = languageFiles.get(rel);
+        if (!early && !langs) return;
+        const base = resolved?.base ?? '/';
+        const tags: string[] = [];
+        // the picker before the early file: it runs while the head is parsed, so the language file it adds blocks the first paint too
+        if (langs) tags.push(pickerTag(base + pickerFile, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName]))));
+        if (early) tags.push(`<script type="module" crossorigin src="${attr(base + early.fileName)}" blocking="render"></script>`);
+        report(rel, early ?? null, langs ?? null);
         const at = html.search(/<script type="module"|<link rel="modulepreload"/);
-        return at >= 0 ? html.slice(0, at) + tag + '\n    ' + html.slice(at) : html.replace('</head>', `    ${tag}\n  </head>`);
+        const block = tags.join('\n    ');
+        return at >= 0 ? html.slice(0, at) + block + '\n    ' + html.slice(at) : html.replace('</head>', `    ${block}\n  </head>`);
       },
     },
   };
 
-  /** One line per page: the early file's size (gzip); over the budget a warning naming the largest modules. */
-  function report(rel: string, early: { fileName: string; code: string; modules: Record<string, { renderedLength: number }> }) {
-    const gz = gzipSync(early.code).length;
+  /** One line per page: the early file's size (gzip) and its language files'; over the budget a warning naming the largest modules. */
+  function report(rel: string, early: { fileName: string; code: string; modules: Record<string, { renderedLength: number }> } | null, langs: Record<string, { code: string }> | null) {
     const kb = (n: number) => `${(n / 1000).toFixed(1)} kB`;
-    const line = `sinter: early file of ${rel}: ${early.fileName} ${kb(gz)} gzip`;
+    const gz = early ? gzipSync(early.code).length : 0;
+    const files = langs ? `, messages ${Object.entries(langs).map(([l, f]) => `${l} ${kb(gzipSync(f.code).length)}`).join(', ')} gzip` : '';
+    const line = `sinter: early file of ${rel}: ${early ? `${early.fileName} ${kb(gz)} gzip` : 'none'}${files}`;
     const logger = resolved?.logger;
-    if (gz <= budget) { logger?.info(line); return; }
+    if (!early || gz <= budget) { logger?.info(line); return; }
     const top = Object.entries(early.modules).sort((a, b) => b[1].renderedLength - a[1].renderedLength).slice(0, 5)
       .map(([id, m]) => `${id.includes(PREFIX) ? `the early bindings of ${rel}` : relative(root, id.replace(/^\0/, '')).split(sep).join('/')} ${kb(m.renderedLength)}`);
     const msg = `${line}, over the early budget of ${kb(budget)}. It renders before the first paint: keep heavy imports out of src/sinter.early.ts and of the helpers early bindings call. Largest (before gzip): ${top.join(', ')}`;

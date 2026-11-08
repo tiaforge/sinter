@@ -104,3 +104,54 @@ test('first paint in the dev server: the early chunk as a module of its own, bef
     await server.close();
   }
 });
+
+const i18nRoot = resolve(__dirname, '../fixtures/vite-i18n');
+const i18nAlias = [...alias.slice(0, -1), { find: '@tiaforge-ui/sinter/messages', replacement: `${src}/messages.ts` }, alias.at(-1)!];
+
+test('messages: one file per page and language with only the keys it calls (markup and modules), loaded before the first paint', async () => {
+  const dir = join(out, 'i18n');
+  await build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ typecheck: true })] });
+  const html = readFileSync(join(dir, 'index.html'), 'utf8');
+  const picker = /<script src="\/assets\/(sinter-i18n-[\w-]+\.js)" data-sn-i18n="([^"]+)"><\/script>\s*<script type="module" crossorigin src="\/assets\/index-early-[\w-]+\.js" blocking="render">/.exec(html);
+  expect(picker).not.toBeNull();
+  const data = JSON.parse(picker![2]!.replace(/&#34;/g, '"'));
+  expect(data).toMatchObject({ base: 'en', locales: ['en', 'de'], storage: 'locale' });
+  const lang = (l: string) => readFileSync(join(dir, data.files[l].slice(1)), 'utf8');
+  // markup's title, hello, only_en; the config module's bye; not `unused`; German falls back for only_en
+  expect(lang('de')).toContain('{"bye":"Tschüss","hello":"Hallo {name}","only_en":"Only in English","title":"Leute"}');
+  expect(lang('en')).not.toContain('Never shown');
+  // the bundles hold no message text: they read the dictionary the language file left
+  const js = readdirSync(join(dir, 'assets')).filter((f) => /^index-(?!en-|de-)/.test(f)).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n');
+  expect(js).not.toMatch(/People|Leute|Tschüss/);
+  expect(js).toContain('await ready()');
+  // the app's modules are typed: generated declarations for `m`
+  expect(readFileSync(join(i18nRoot, 'src/sinter.messages.d.ts'), 'utf8')).toContain('hello(params: { name: string | number }): string;');
+});
+
+test('messages: unknown keys, wrong parameters and `m[key]` in a module fail the build', async () => {
+  const page = join(i18nRoot, 'index.html'), mod = join(i18nRoot, 'src/bye.js');
+  const [p0, m0] = [readFileSync(page, 'utf8'), readFileSync(mod, 'utf8')];
+  const run = () => build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: join(out, 'i18n-bad'), emptyOutDir: true }, plugins: [sinter({ typecheck: true })] });
+  try {
+    writeFileSync(page, p0.replace('m.title()', 'm.titel()'));
+    await expect(run()).rejects.toThrow(/SN206.*`m\.titel` is not exported/s);
+    writeFileSync(page, p0.replace('m.hello({ name: who })', 'm.hello({ nom: who })'));
+    await expect(run()).rejects.toThrow(/SN208.*'nom' does not exist/s);
+    writeFileSync(page, p0);
+    writeFileSync(mod, m0.replace('m.bye()', "m['bye']()"));
+    await expect(run()).rejects.toThrow(/bye\.js:3:\d+: `m\[…\]`/);
+  } finally {
+    writeFileSync(page, p0);
+    writeFileSync(mod, m0);
+    rmSync(join(i18nRoot, '.sinter'), { recursive: true, force: true });
+  }
+});
+
+test('an app without messages pays nothing: no i18n module, picker or language file in its build', async () => {
+  const dir = join(out, 'no-i18n');
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true }, plugins: [sinter()] });
+  const files = readdirSync(join(dir, 'assets'));
+  expect(files.filter((f) => /i18n|-(en|de)-/.test(f))).toEqual([]);
+  const all = [readFileSync(join(dir, 'index.html'), 'utf8'), ...files.map((f) => readFileSync(join(dir, 'assets', f), 'utf8'))].join('\n');
+  expect(all).not.toMatch(/sinter\.i18n|data-sn-i18n|await ready\(\)/);
+});

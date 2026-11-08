@@ -30,9 +30,26 @@ Attribute names, function names and diagnostic codes are public API. Before
 - Testing: `firstPaint(html, { helpers, storage, early })` shows the page as it is before the
   page module runs; `render(html, { firstPaint: { early, afterEarly } })` mounts over it.
 - Recipe "First paint: page chrome that renders before the script".
+- Built-in messages, from an inlang project (`project.inlang/settings.json`, `messages/{locale}.json`
+  of plain strings with `{param}`s; `sinter({ messages })` points elsewhere or turns it off):
+  `m.key({ param })` in markup, `m` from the new `@tiaforge-ui/sinter/messages` in app code, typed
+  by a generated `src/sinter.messages.d.ts`. Unknown keys are `SN206`, wrong parameters `SN208`;
+  `m[key]` in a module fails the build. Per page and language the build emits a file with only
+  the keys the page calls (markup and its modules); missing translations fall back to the base
+  language and are reported. A small classic picker script chooses the language before the first
+  paint (stored choice, `navigator.languages`, base) and loads that file render-blocking; the early
+  file and page module wait for it and hold no message text. `$locale = 'de'` stores the choice,
+  loads that file and re-renders without a reload. No plurals or variants yet. Apps without an
+  inlang project pay nothing (same build output byte for byte). Testing: `render(html, { messages })`.
+  Recipe "Messages".
 
 ### Changed
 
+- Breaking, for apps with an inlang project: `m` in markup is sinter's built-in messages. A helpers
+  module that exports a namespace `m` (`export * as m from './paraglide/messages.js'`) is a build
+  error then; remove it, drop the i18n library's Vite plugin and `configure({ locale })` (sinter is
+  the locale source), and import `m` from `@tiaforge-ui/sinter/messages` in app code.
+  `sinter({ messages: false })` keeps the old behaviour.
 - `sinter()` from `@tiaforge-ui/sinter/vite` returns two plugins (`sinter` and `sinter:early`);
   `plugins: [sinter()]` works as before.
 

@@ -1,11 +1,12 @@
 // The app's conventional files (helpers, config, early and types modules), found the same
 // way by the Vite plugin and by `sinter check`.
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
+import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
 
 export interface ProjectOptions {
   /** helpers module, relative to the root (default `src/sinter.helpers.js`, or `.ts`) */
@@ -14,8 +15,13 @@ export interface ProjectOptions {
   actions?: string;
   /** app configuration module imported before mount (default `src/sinter.config.js`, or `.ts`) */
   config?: string;
-  /** app module the early chunk runs before the first paint (default `src/sinter.early.js`, or `.ts`), e.g. to pick the language */
+  /** app module the early chunk runs before the first paint (default `src/sinter.early.js`, or `.ts`) */
   early?: string;
+  /**
+   * built-in messages: the inlang project (default `project.inlang`, if it exists) whose message
+   * files give `m.key()` in markup and `m` from `@tiaforge-ui/sinter/messages`; `false`: none
+   */
+  messages?: string | false;
   /** module whose exported types `type="…"` on `<sn-resource>` may name (default `src/sinter.types.ts`, `.d.ts` or `.js`) */
   types?: string;
   /** OpenAPI specs (JSON or YAML, inside the root) that resources without `type` are matched against */
@@ -39,6 +45,10 @@ export interface Project {
   config: string | null;
   /** root-relative URL of the early module (`/src/sinter.early.ts`), or null */
   early: string | null;
+  /** the built-in messages, or null without an inlang project */
+  messages: MessagesProject | null;
+  /** the generated `src/sinter.messages.d.ts` (written when there are messages), or null */
+  messagesTypes: string | null;
   /** absolute path of the types module, or null */
   types: string | null;
   /** reads a file only if it resolves inside the root, symlinks included */
@@ -105,8 +115,24 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     }
     openapi.push({ file, doc });
   }
+  // built-in messages: `m` is theirs, typed by a generated declaration file
+  const messages = options.messages === false ? null : readMessages(root, options.messages ?? 'project.inlang');
+  let messagesTypes: string | null = null;
+  if (messages) {
+    diagnostics.push(...messages.diagnostics);
+    if (helpers.namespaces.m && helpers.namespaces.m.module !== MESSAGES_MODULE) {
+      diagnostics.push({ severity: 'error', code: 'SN307', message: 'the helpers module exports a namespace `m`, and the inlang project gives sinter\'s built-in `m`: remove the re-export (`export * as m from …`)', file: helpersFile ?? root, line: 1, col: 1 });
+    }
+    helpers.namespaces.m = { module: MESSAGES_MODULE, members: Object.keys(messages.keys).sort() };
+    messagesTypes = resolve(root, 'src/sinter.messages.d.ts');
+    const text = messagesDts(messages);
+    let current = '';
+    try { current = readFileSync(messagesTypes, 'utf8'); } catch { /* missing */ }
+    if (current !== text) { mkdirSync(dirname(messagesTypes), { recursive: true }); writeFileSync(messagesTypes, text); }
+  }
   return {
     root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
+    messages, messagesTypes,
     config: configRel ? url(configRel) : null,
     early: earlyRel ? url(earlyRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,

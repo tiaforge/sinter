@@ -41,7 +41,7 @@ async function main(argv: string[]): Promise<number> {
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
-  const r = check({ root, units, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi });
+  const r = check({ root, units, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes });
   diagnostics.push(...r.diagnostics);
 
   for (const d of diagnostics) console.log(formatDiagnostic({ ...d, file: relative(process.cwd(), d.file) || d.file }) + '\n');

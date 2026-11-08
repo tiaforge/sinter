@@ -113,7 +113,8 @@ export default { plugins: [sinter()] };
 Then write `data-sn-*` attributes in your HTML pages. Optional:
 
 - `src/sinter.config.js`: `configure({ request, sessionProbe, onError, locale, origins, urlSchemes, transport })`. Auth headers, error handling, WebSocket (`@tiaforge-ui/sinter/ws`) or SignalR transports.
-- `src/sinter.helpers.js`: functions and namespaces your expressions can call (`export * as m from './paraglide/messages.js'`).
+- `src/sinter.helpers.js`: functions and namespaces your expressions can call.
+- Messages: with an inlang project (`project.inlang`, `messages/{locale}.json`), `m.key({ param })` in markup and `m` from `@tiaforge-ui/sinter/messages` in code; one small file per page and language, loaded before the first paint; `$locale = 'de'` switches without a reload.
 - `src/sinter.types.ts`: types named by `<sn-resource type="Contact[]">`. Or use `sinter({ openapi: 'openapi.yml' })` to type resources from your API spec.
 - `npx sinter check` type-checks every expression. `sinter({ typecheck: true })` runs it in `vite build`.
 - First paint: page chrome outside data templates shows before the page bundle. Build-time constants go into the HTML; a small render-blocking early chunk per page runs `src/sinter.early.ts` (e.g. pick the language) and the bindings that need no data, persisted values included. The build reports its size.

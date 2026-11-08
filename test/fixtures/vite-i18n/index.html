@@ -1,0 +1,10 @@
+<!doctype html>
+<html>
+<head><title>i18n</title></head>
+<body data-sn-state="{ who: 'Ada', lang: $locale }">
+  <h1 data-sn-text="m.title()"></h1>
+  <p data-sn-text="m.hello({ name: who })"></p>
+  <p data-sn-text="m.only_en()"></p>
+  <select data-sn-model="lang" data-sn-on-change="$locale = lang"><option>en</option><option>de</option></select>
+</body>
+</html>

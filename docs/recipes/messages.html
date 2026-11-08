@@ -1,0 +1,12 @@
+<!-- Messages: m.key() from the inlang files (project.inlang, messages/{locale}.json), with {param}s.
+     The build gives this page one small file per language with only the keys it calls; the language is
+     picked before the first paint. $locale = … switches without a reload. -->
+<body data-sn-state="{ lang: $locale }">
+  <sn-resource name="inbox" src="/api/inbox" type="any"></sn-resource>
+  <h1 data-sn-text="m.inbox_title()"></h1>
+  <p data-sn-text="m.inbox_count({ count: inbox ? inbox.unread : 0 })"></p>
+  <select data-sn-model="lang" data-sn-on-change="$locale = lang" data-sn-attr="{'aria-label': m.language()}">
+    <option value="en">English</option>
+    <option value="de">Deutsch</option>
+  </select>
+</body>
