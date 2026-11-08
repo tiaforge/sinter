@@ -624,7 +624,7 @@ An action is an element with one method attribute; it sends a request when its t
 | `showModal('edit')` | open `<dialog id="edit">` as a modal; nothing if it is open |
 | `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
 | `reset()` | reset the nearest `<form>` |
-| `emit('name', detail)` | dispatch a `CustomEvent` from the element |
+| `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element; every container with a handler for it runs, inner first, until one calls `$event.preventDefault()` |
 | `run('id')` | start the action of the element with that id, as its trigger would (a form: submit it); see Running an action from a handler |
 
 State assignments work too: `data-sn-then="editing = null; close()"`.
@@ -644,7 +644,7 @@ The dialog id of `showModal()` and `close()` is a string literal that must name 
 
 ### Unhandled errors
 When an action fails and has no `data-sn-catch`:
-- An `sn-error` `CustomEvent` bubbles from the element, `detail = {error, element}`. A listener on a container (`data-sn-on-sn-error`) handles it by calling `$event.preventDefault()`.
+- An `sn-error` `CustomEvent` bubbles from the element, `detail = {error, element}`, to every container with `data-sn-on-sn-error` (inner first). A handler that calls `$event.preventDefault()` handles it: the walk ends there, and `onError` does not run.
 - If no listener prevented it, `configure({ onError(error, element) })` runs, e.g. to show a toast.
 - Dev builds log every unhandled error to the console.
 Resource load failures set `$meta.<name>.error` and then take the same path, with `detail.resource` set and the mount root as element. A 401 never reaches this path; the login redirect handles it.
@@ -915,7 +915,8 @@ sinter updates the DOM fine-grained, without a virtual DOM: every binding knows 
 
 #### Which handlers run
 Delegation walks from the target up, and the first element that **handles** the event ends the walk. On that element every applying handler runs, in attribute order, with its action's trigger. An element handles the event when:
-- **Any event but keys** (`click`, `submit`, `input`, custom events from `emit()`, islands and `sn-error`): any of its handlers or an action for that type ran. A button or an action inside a clickable row keeps the row's `data-sn-on-click` from running; the nearest container with `data-sn-on-<name>` takes an emitted event.
+- **Any event but keys and bubbling custom events** (`click`, `submit`, `input`, an island's plain `Event`, a `CustomEvent` that does not bubble): any of its handlers or an action for that type ran. A button or an action inside a clickable row keeps the row's `data-sn-on-click` from running.
+- **Bubbling custom events** (`emit()`, islands' `CustomEvent`s, `sn-error`, `dismiss`): no element ends the walk by handling them; it ends where a handler called `$event.preventDefault()`. See Custom events are notifications.
 - **Keys** (`keydown`, `keyup`): a key filter matched (it calls `preventDefault()` first), an action ran, a debounced handler was scheduled, or a plain `data-sn-on-keydown`/`-keyup` ran **and `$event.defaultPrevented` is set afterwards**. A plain key handler that does not prevent a key passes it on, so `<body data-sn-on-keydown-shift-n>` still gets N while focus is in a grid whose plain handler takes only the arrow keys it calls `preventDefault()` for. To keep a key from ancestors, prevent it.
 - A debounced plain key handler has not run when the walk decides, so it always counts as handled; a key that should go on past such an element needs a key filter for the keys the element uses instead.
 - The editable-field rule applies wherever the walk goes: an ancestor's filter never takes a key typed into a field, so a key a field's plain handler passes on only reaches ancestors' plain handlers.
@@ -926,38 +927,24 @@ Delegation walks from the target up, and the first element that **handles** the 
 
 Why this rule (decided 2026-11-08, from Caley's calendar, whose week-grid arrow handler hid the page's N and P): nearest-wins is what clickable rows with buttons, actions and forms rely on, so it stays; only plain key handlers changed, and their signal is the DOM's own for a consumed key, which handlers already give for keys they take from their default. Full DOM-like bubbling would have needed a stop at every inner handler, and opt-in attributes would have needed markup in each place.
 
-#### Proposal: custom events as notifications (under review)
-Status: proposal, 2026-11-08, the follow-up the dispatch decision above left open; not implemented. Decisions are listed under Open questions.
-
-A custom event (`emit()`, an island's event, `sn-error`) ends the walk at the nearest element with a handler for it, so one event cannot be handled at two levels: a row that clears its own `saving` flag and a page that shows a toast for the same `saved` need one merged handler on the page, which then reaches into the row's state. Caley merged such handlers (the reader's `mail-patched` and `mail-removed` are handled once, on the page). Clicks need nearest-wins (a button in a row is not a click on the row); a custom event says that something happened, and every level that cares should hear it.
-
-**The model.** A custom event goes to every element from the target up to the mount root that has a handler for it, until a handler calls `$event.preventDefault()`:
+#### Custom events are notifications
+A bubbling custom event (`emit()`, an island's `CustomEvent`, `sn-error`, the `listbox` module's `dismiss`) does not end the walk at the first element that handles it: it goes to every element from the target up to the mount root that has a handler for it, until a handler calls `$event.preventDefault()`. Clicks need nearest-wins (a button in a row is not a click on the row); a custom event says that something happened, and every level that cares hears it. A row that clears its own `saving` flag and a page that shows a toast handle the same `saved`:
 ```html
 <main data-sn-state="{ toast: '' }" data-sn-on-saved="toast = m.saved()">
   <template data-sn-for="r in rows">
     <li data-sn-state="{ saving: false }" data-sn-on-saved="saving = false">       <!-- runs first, passes it on -->
       <button data-sn-post="/api/r/{r.id}" data-sn-on-click="saving = true" data-sn-then="emit('saved', $result)">
 ```
-- **Which events.** Events that are `CustomEvent`s: `emit()`, `sn-error`, the `listbox` module's `dismiss`, and islands' events (the spec already asks islands for `CustomEvent`s). Native events, and an island's plain `Event`, keep the rule above (nearest element that handled it; keys pass on when not prevented). A custom event that does not bubble (`bubbles: false`) keeps its nearest-ancestor reach: the island said it should not travel.
-- **Order.** Inner to outer, as the event bubbles; on each element its handlers in attribute order, with its action's trigger, as today. Everything runs synchronously inside the dispatch, so an outer handler sees the state the inner one wrote, every handler sees the same `$event.detail`, and statements after `emit()` in the emitting handler run after all of them. Each level has its own scope: `$el` is that element, its own state and lets. One flush renders all their writes.
-- **Saying "final".** `$event.preventDefault()`: the walk stops after the element whose handler prevented it (the other handlers on that element still run, as for keys). `emit()` dispatches a cancelable event (today it does not, so `preventDefault()` there does nothing); `sn-error` already is cancelable, and preventing it already means "handled, no `onError`", so the sentence in Unhandled errors ("a container handles it with `preventDefault()`") becomes literally true: an inner `data-sn-on-sn-error` that only logs lets the page's handler and then `onError` see the error. A handler on a non-cancelable custom event cannot stop it (the DOM ignores `preventDefault()` there): every level runs. Islands whose events may be final at some level dispatch them with `cancelable: true`.
+- **Which events.** Events that are `CustomEvent`s and bubble. Native events, and an island's plain `Event`, keep the rule above (the nearest element that handled it; keys go on when not prevented). A custom event that does not bubble (`bubbles: false`) keeps its nearest-ancestor reach: the island said it should not travel.
+- **Order.** Inner to outer, as the event bubbles; on each element its handlers in attribute order, with its action's trigger. Everything runs synchronously inside the dispatch, so an outer handler sees the state the inner one wrote, every handler sees the same `$event.detail`, and statements after `emit()` in the emitting handler run after all of them. Each level has its own scope: `$el` is that element, its own state and lets. One flush renders all their writes.
+- **Saying "final".** `$event.preventDefault()`: the walk stops after the element whose handler prevented it (the other handlers on that element, and its action, still run, as for keys). `emit()` dispatches a cancelable event. `sn-error` is cancelable, and preventing it means "handled, no `onError`": an inner `data-sn-on-sn-error` that only logs lets the page's handler and then `onError` see the error. A handler on a non-cancelable custom event (the `listbox` module's `dismiss`, an island's event without `cancelable`) cannot stop it (the DOM ignores `preventDefault()` there): every level runs. Islands whose events may be final at some level dispatch them with `cancelable: true`.
 - **Debounced handlers** (`data-sn-debounce-<event>`) have not run when the walk decides, so they pass the event on; a level that must be final does not debounce, or prevents in a plain handler next to the debounced one.
-- **Actions** triggered by a custom event (`data-sn-trigger="saved"`) pass it on too: an action does not prevent a custom event.
-- **Islands and other listeners.** sinter's walk runs in its capture listener at the root, before the event reaches its target and bubbles to `document`, so app code listening outside sinter (RealWorld's `document.addEventListener('navigate', …)`) still gets every event, and can read `defaultPrevented` to see whether a page handler took it. The cost of using `preventDefault()` as the signal: an island that dispatches a cancelable event and checks `dispatchEvent()`'s result to skip its own default (a `reader-close` the page may veto) sees a page handler that ends the walk as a veto too. The two meanings coincide for every case seen; an island that needs them apart dispatches two events.
-- **`$event.stopPropagation()`** keeps its native meaning, as above: it does not end sinter's walk (which already runs at the root), and it keeps the event from its target and from listeners outside sinter.
+- **Actions** triggered by a custom event (`data-sn-trigger="saved"`) pass it on too: an action does not prevent a custom event (an `<a>` action prevents only native events).
+- **Islands and other listeners.** sinter's walk runs in its capture listener at the root, before the event reaches its target and bubbles to `document`, so app code listening outside sinter (RealWorld's `document.addEventListener('navigate', …)`) still gets every event, and can read `defaultPrevented` to see whether a page handler took it. An island that dispatches a cancelable event and checks `dispatchEvent()`'s result to skip its own default (a `reader-close` the page may veto) sees a page handler that ends the walk as a veto too; an island that needs the two apart dispatches two events.
+- **`$event.stopPropagation()`** keeps its native meaning, as above: it does not end sinter's walk (which already runs at the root), and it keeps the event from its target and from listeners outside sinter. There is no sinter-level stop: `preventDefault()` already says "final" for keys and `sn-error`.
 - `run('id')` dispatches no event and is unaffected.
 
-**Opt-in or default.**
-- *Default (recommended).* All custom events behave as above. Breaking only for an element tree with handlers for the same custom event at two levels where the inner one does not prevent it; the fix is `$event.preventDefault()` in the inner handler. Survey (dispatch instrumented to log, for every handled custom event, the ancestors that also handle it; the suite run, recipes included; the file restored): 5 handled custom events (2 `sn-error`, both prevented; `dismiss`; `picked`; `note`), and 1 with a handler further up: `note` in "the nearest element that handles a click or custom event wins…" (`rendering.test.ts`), the test written to pin today's rule, which would expect `row note page note`. RealWorld has no `data-sn-on-*` for its emitted events (its `document` listeners are unaffected). Caley: no custom event is handled at two nested levels on any page (its 22 custom event names, checked per page and partial: the names handled more than once are on sibling elements or on different pages), because it merged them.
-- *Opt-in on the emitter* (`emit('saved', d, { notify: true })`, or a detail flag for islands): the receiver cannot tell how far an event goes without reading the emitter; islands would need a sinter-specific flag. *Opt-in on the receiver* (an attribute such as `data-sn-also-<name>`): custom event names are kebab-case, so a suffix modifier (`-all`) cannot be told from the name; a new attribute family would be needed at every outer level. Both keep nearest-wins as the default for no case that needs it.
-
-**Alternatives for "final".**
-- `$event.stopPropagation()` as the signal: works for non-cancelable events, and it is the DOM's own word for "stop bubbling". But it also hides the event from its target and from `document` listeners (RealWorld's navigation), and for `sn-error` "stop the walk" and "handled" would be two calls.
-- A store function (`stop()`, `handled()`): works for every event without side effects outside sinter, but the dispatch decision chose no sinter-level stop, and it is one more name for what `preventDefault()` already says for keys and `sn-error`.
-
-**Size.** Core about +25 B gzip: the walk goes on after a handled `CustomEvent` unless it is prevented, and `emit()` sets `cancelable`. No compiler change; `sinter check` already types `$event` in these handlers as `CustomEvent`.
-
-Recommendation: default, with `$event.preventDefault()` as "final" and `emit()` cancelable; native events and non-bubbling custom events unchanged. A behaviour change for a minor version (0.7.0), listed in the CHANGELOG with the one-line fix.
+Why (decided 2026-11-08, the follow-up the dispatch decision above left open): with nearest-wins, one custom event could not be handled at two levels, so pages merged such handlers on the page, which then reached into the row's state (Caley's reader `mail-patched` and `mail-removed`). Notifications are the default rather than opt-in, because an emitter-side flag would make the receiver read the emitter to know how far an event goes, and a receiver-side attribute would be needed at every outer level. A behaviour change, listed in the CHANGELOG: an element tree with handlers for the same custom event at two levels now runs both unless the inner one calls `$event.preventDefault()`.
 
 ## Security
 sinter never creates HTML from data, and every remaining DOM sink is closed at build time or checked at runtime. The core uses no Trusted Types sinks, so pages can run under `require-trusted-types-for 'script'`.
@@ -1040,7 +1027,7 @@ Islands are custom elements that own imperative work (encryption, rich editors, 
 ```
 - `data-sn-prop` assigns JS properties, so islands receive objects, not strings.
 - An island's module may define its element after the page has mounted (a lazy `import()`). Until then, a property sinter sets is a plain own property of the element, readable but hiding the class's accessor once it is defined. So for an element that is not defined yet, sinter remembers the latest value of each property and, when `customElements.whenDefined()` resolves (a microtask after the upgrade, so after the constructor and `connectedCallback`), deletes the own property and sets the value again, through the class's setter. A class field the upgrade redefined gets the latest value too. Elements already defined pay one `customElements.get()` per write. (Fixed 2026-11-08; Caley had an `upgradeProps()` workaround.)
-- An island dispatches `CustomEvent`s with lowercase kebab-case names (`reader-flag`); `data-sn-on-<name>` handles them.
+- An island dispatches `CustomEvent`s with lowercase kebab-case names (`reader-flag`), bubbling; `data-sn-on-<name>` handles them at every level until one calls `$event.preventDefault()`, so an event that may be final somewhere is dispatched with `cancelable: true` (see Events, Custom events are notifications).
 
 ### Instance API
 ```ts
@@ -1312,7 +1299,6 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 - Optional query parameters. Decided (2026-11-04): a query parameter whose interpolated value is `null`/`undefined` is omitted from the URL, so one resource covers lists whose filters come and go.
 - Templates shared across pages. Decided: static `<sn-include>` resolved at build time, lexical scope, no parameters. See Compiler contract.
 - Handlers at several levels. Decided (2026-11-08): nearest wins unless the element did not handle the event; a plain key handler handles a key only when it prevents it. See Events, Which handlers run.
-- Custom events at several levels. Under review (2026-11-08): custom events as notifications, see Events, Proposal: custom events as notifications. Open: default or opt-in (recommended: default, a 0.7.0 behaviour change); the signal for "final" (recommended: `$event.preventDefault()`, `emit()` cancelable; not `stopPropagation()`, no `stop()`); which events (recommended: `CustomEvent`s that bubble; native events, plain `Event`s and non-bubbling custom events keep nearest-wins); debounced handlers and actions pass the event on (recommended).
 - Running an action from a handler. Decided (2026-11-08): `run('id')` starts the action of the element with that literal id (`SN311`), keeping its lifecycle; `$event` is null (forms are submitted), disabled and inert targets do nothing, no return value, no `app.run()` for islands, cycle check `SN509` opt-in. See Running an action from a handler.
 
 ## Sources

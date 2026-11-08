@@ -742,7 +742,7 @@ test('a locale change re-sorts an ordered resource', async () => {
   expect([...root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['a', 'z', 'ä']);
 });
 
-test('the nearest element that handles a click or custom event wins: a row\'s handler does not run for its button or action', async () => {
+test('the nearest element that handles a click wins: a row\'s handler does not run for its button or action; an emitted event goes on up', async () => {
   const requests = mockRequests({ 'POST /api/archive': {} });
   const { root, settle } = await render(`
     <main data-sn-state="{ log: [] }" data-sn-on-note="log.push('page note')"><p data-sn-text="log.join(' ')"></p>
@@ -754,5 +754,97 @@ test('the nearest element that handles a click or custom event wins: a row\'s ha
       </li></ul>
     </main>`, { requests });
   for (const id of ['b', 'a', 'e', 's']) { root.querySelector<HTMLElement>('#' + id)!.click(); await settle(); }
-  expect(root.querySelector('p')!.textContent).toBe('button archived row note row');
+  expect(root.querySelector('p')!.textContent).toBe('button archived row note page note row');
+});
+
+test('custom events are notifications: inner to outer until a handler prevents them', async () => {
+  const { root, flush } = await render(`
+    <main data-sn-state="{ log: [], toast: '' }" data-sn-on-saved="log.push('page ' + $event.detail); toast = 'saved'">
+      <p data-sn-text="log.join(', ') + ' / ' + toast"></p>
+      <section data-sn-state="{ saving: true }" data-sn-on-saved="saving = false; log.push('row ' + saving)">
+        <button id="emit" data-sn-on-click="emit('saved', 7); log.push('after emit')"></button>
+        <div data-sn-on-saved="log.push('final'); $event.preventDefault()">
+          <button id="final" data-sn-on-click="emit('saved', 8)"></button>
+        </div>
+      </section>
+    </main>`);
+  const p = root.querySelector('p')!;
+  // every level runs, inner first, each in its own scope; statements after emit() run after all of them
+  root.querySelector<HTMLElement>('#emit')!.click();
+  await flush();
+  expect(p.textContent).toBe('row false, page 7, after emit / saved');
+  // the inner handler prevented it: the row and the page do not run
+  root.querySelector<HTMLElement>('#final')!.click();
+  await flush();
+  expect(p.textContent).toBe('row false, page 7, after emit, final / saved');
+});
+
+test('notifications: the other handlers on the preventing element still run; emit() is cancelable and listeners outside sinter see it', async () => {
+  const outside: Array<[string, boolean]> = [];
+  const requests = mockRequests({ 'POST /api/n': {} });
+  const { root, settle } = await render(`
+    <main data-sn-state="{ log: [] }" data-sn-on-note="log.push('page')"><p data-sn-text="log.join(' ')"></p>
+      <div data-sn-on-note="$event.preventDefault(); log.push('final')" data-sn-post="/api/n" data-sn-trigger="note" data-sn-then="log.push('sent')">
+        <button id="x" data-sn-on-note="log.push('inner')" data-sn-on-click="emit('note')"></button>
+      </div>
+    </main>`, { requests });
+  root.ownerDocument.addEventListener('note', (e) => outside.push([e.type, e.defaultPrevented]));
+  root.querySelector<HTMLElement>('#x')!.click();
+  await settle();
+  expect(root.querySelector('p')!.textContent).toBe('inner final sent');
+  expect(outside).toEqual([['note', true]]);
+});
+
+test('notifications: island events, non-cancelable and non-bubbling custom events, plain Events', async () => {
+  const { root, flush } = await render(`
+    <main data-sn-state="{ log: [] }" data-sn-on-pick="log.push('page')" data-sn-on-ping="log.push('page ping')">
+      <p data-sn-text="log.join(', ')"></p>
+      <div data-sn-on-pick="log.push('row'); $event.preventDefault()" data-sn-on-ping="log.push('row ping')"><i id="island"></i></div>
+    </main>`);
+  const island = root.querySelector('#island')!;
+  const p = root.querySelector('p')!;
+  const fire = async (e: Event) => { island.dispatchEvent(e); await flush(); return p.textContent; };
+  // an island's cancelable CustomEvent: the row ends it
+  expect(await fire(new CustomEvent('pick', { bubbles: true, cancelable: true }))).toBe('row');
+  // not cancelable: preventDefault() cannot stop it, every level runs
+  expect(await fire(new CustomEvent('pick', { bubbles: true }))).toBe('row, row, page');
+  // a CustomEvent that does not bubble, and a plain Event: the nearest element with a handler wins
+  expect(await fire(new CustomEvent('ping'))).toBe('row, row, page, row ping');
+  expect(await fire(new Event('ping', { bubbles: true, cancelable: true }))).toBe('row, row, page, row ping, row ping');
+});
+
+test('notifications: debounced handlers and actions pass a custom event on', async () => {
+  const requests = mockRequests({ 'POST /api/n': {} });
+  const { root, settle, advance } = await render(`
+    <main data-sn-state="{ log: [] }" data-sn-on-note="log.push('page')"><p data-sn-text="log.join(' ')"></p>
+      <section data-sn-on-note="log.push('debounced')" data-sn-debounce-note="100">
+        <a id="a" data-sn-post="/api/n" data-sn-trigger="note" data-sn-then="log.push('sent')"><button id="e" data-sn-on-click="emit('note')"></button></a>
+      </section>
+    </main>`, { requests });
+  root.querySelector<HTMLElement>('#e')!.click();
+  await advance(150);
+  await settle();
+  expect(root.querySelector('p')!.textContent!.split(' ').sort()).toEqual(['debounced', 'page', 'sent']);
+  expect(requests.calls).toHaveLength(1);
+});
+
+test('notifications: sn-error goes on past a handler that does not prevent it, to the page and then onError', async () => {
+  const seen: string[] = [];
+  configure({ onError: (e) => seen.push(`onError:${e.message}`) });
+  const requests = mockRequests({ 'POST /api/a': { status: 500 } });
+  const { root, settle } = await render(`
+    <main data-sn-state="{ log: [], final: false }" data-sn-on-sn-error="log.push('page'); final && $event.preventDefault()">
+      <section data-sn-on-sn-error="log.push('logged')"><button id="a" data-sn-post="/api/a">a</button></section>
+      <button id="f" data-sn-on-click="final = true"></button>
+      <p data-sn-text="log.join(' ')"></p>
+    </main>`, { requests });
+  root.querySelector<HTMLElement>('#a')!.click();
+  await settle();
+  expect(root.querySelector('p')!.textContent).toBe('logged page');
+  expect(seen).toEqual(['onError:500']);
+  root.querySelector<HTMLElement>('#f')!.click();
+  root.querySelector<HTMLElement>('#a')!.click();
+  await settle();
+  expect(root.querySelector('p')!.textContent).toBe('logged page logged page');
+  expect(seen).toEqual(['onError:500']);
 });

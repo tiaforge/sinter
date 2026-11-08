@@ -33,6 +33,20 @@ Attribute names, function names and diagnostic codes are public API. Before
   (the guard still works); a live keyset list that relied on `next` past a short page to find new
   items uses `refresh('x')` or a server event's `refetch` instead.
 
+- Breaking (behaviour): bubbling custom events are notifications. `emit()`, islands'
+  `CustomEvent`s, `sn-error` and the `listbox` module's `dismiss` no longer stop at the nearest
+  element with a handler: every element from the target up with a `data-sn-on-<name>` for the
+  event runs, inner first, until a handler calls `$event.preventDefault()` (the other handlers on
+  that element and its action still run). `emit()` dispatches a cancelable event. Debounced
+  handlers and actions triggered by a custom event pass it on (an `<a>` action no longer prevents
+  a custom event). `sn-error`: an inner handler that does not prevent it lets outer handlers and
+  then `onError` see the error. Native events, plain `Event`s and custom events with
+  `bubbles: false` keep nearest-wins. There is no `stop()`, and `stopPropagation()` does not end
+  the walk. Migration: where an element and one of its ancestors both handle the same custom
+  event and only the inner one should run, add `$event.preventDefault()` to the inner handler
+  (`data-sn-on-saved="saving = false; $event.preventDefault()"`); an island whose events must be
+  stoppable dispatches them with `cancelable: true`.
+
 ### Fixed
 
 - `SN301` for an unknown resource in `$meta.<name>.<field>` was reported twice.

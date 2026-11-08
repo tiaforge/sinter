@@ -443,7 +443,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         form.reset();
         for (const c of form.elements) { const rb = (c as Tagged)[MODEL]; if (rb) setModel(rb, readModel(rb)); }
       },
-      emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true })),
+      emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
       run: (id: string) => {
         const t = byId(id), h = t && (t as Tagged)[HANDLERS], rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
@@ -926,9 +926,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
       const h = (el as Tagged)[HANDLERS], hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
       if (hs?.length) {
         for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? later(h, e) : handle(h, h.b.f!, e, h.b.w);
-        // handled: any handler or action ran; for keys, a filter matched (it prevents the default), an action or a
+        // a bubbling custom event is a notification: it goes on up until a handler prevents it. Otherwise handled:
+        // any handler or action ran; for keys, a filter matched (it prevents the default), an action or a
         // debounced handler ran, or a plain handler prevented the default. A key it did not prevent goes on up.
-        if (!/^key/.test(e.type) || e.defaultPrevented || hs.some((h) => h.b.x != null || h.b.ms)) return;
+        if (e instanceof CustomEvent && e.bubbles ? e.defaultPrevented : !/^key/.test(e.type) || e.defaultPrevented || hs.some((h) => h.b.x != null || h.b.ms)) return;
       }
       if (el == root) return;
     }
@@ -953,7 +954,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** `e` is null for `run()`: no event, no default to prevent */
   function trigger(rb: RB, e: Event | null) {
     const a = ir.actions[rb.b.x!]!, el = rb.el;
-    if (e && (e.type == 'submit' || el.localName == 'a' || (e.type == 'click' && /^(button|input)$/.test(el.localName) && el.closest('form')))) e.preventDefault();
+    // an action does not end a custom event's walk: it prevents only native defaults
+    if (e && !(e instanceof CustomEvent) && (e.type == 'submit' || el.localName == 'a' || (e.type == 'click' && /^(button|input)$/.test(el.localName) && el.closest('form')))) e.preventDefault();
     if (!a.debounce) return fire(rb, a, e);
     const st = act(el);
     if (st.t) { env.clearTimeout(st.t); app.busy--; }
