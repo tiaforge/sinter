@@ -990,7 +990,7 @@ test('delete is optimistic and rolls back on failure', async () => {
 
 | API | Purpose |
 | --- | --- |
-| `render(html, options)` | compiles in memory with the real compiler, mounts into the test DOM, returns `{ root, app, flush, settle, advance, navigations }` |
+| `render(html, options)` | compiles in memory with the real compiler, mounts into the test DOM, returns `{ root, app, flush, settle, advance, navigations }`. A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn-persist`, bindings), as in the browser; each render replaces the previous page's |
 | `flush()` | runs the scheduler until no binding is dirty; deterministic, no timeouts |
 | `settle()` | `flush()` until every request, queue and debounce has finished |
 | `advance(ms)` | moves sinter's clock: debounce, backoff, `$now` |

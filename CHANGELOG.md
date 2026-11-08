@@ -54,6 +54,10 @@ Attribute names, function names and diagnostic codes are public API. Before
   change rolls back unchecks). `null`/`false` set the property to `false` (`value`: `''`).
   Binding the `checked` (checkbox, radio) or `value` (other controls) that a `data-sn-model` on
   the same element writes is now `SN102`. 50 B gzip on the core.
+- `render()` from `@tiaforge-ui/sinter/testing` keeps the `<html>` element's attributes. It
+  kept only what was inside `<html>`, so `data-sn-state`, `data-sn-persist` or bindings on
+  `<html>` were lost in tests although they work in the browser. Each render also clears the
+  previous page's `<html>` attributes.
 
 ## 0.3.3 (2026-11-08)
 

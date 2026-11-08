@@ -379,6 +379,22 @@ test('persisted models restore from storage', async () => {
   expect(stored).toBe('"hello"');
 });
 
+test('render() keeps <html> attributes: persisted state on <html> is read from <body>', async () => {
+  const page = `<html lang="de" data-sn-state="{ theme: 'light' }" data-sn-persist="prefs" data-sn-attr="{'data-theme': theme}"><body>
+    <p data-sn-text="theme"></p><button data-sn-on-click="theme = 'dark'">dark</button></body></html>`;
+  const first = await render(page);
+  expect(document.documentElement.getAttribute('lang')).toBe('de');
+  expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  first.root.querySelector('button')!.click();
+  await first.flush();
+  expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  const next = await render(page, { storage: first.app.env.storage()! });
+  expect(next.root.querySelector('p')!.textContent).toBe('dark');
+  // a page without them leaves none behind
+  await render('<p></p>');
+  expect([...document.documentElement.attributes].map((a) => a.name)).toEqual([]);
+});
+
 test('partials are inlined with lexical scope', async () => {
   const { root } = await render(`
     <div data-sn-state="{ c: { name: 'Ada' } }"><sn-include src="./card.html"></sn-include></div>`,
