@@ -29,6 +29,8 @@ export type TypeRef =
   | { kind: 'ts'; text: string; loc: CheckLoc }
   /** a schema of OpenAPI spec number `spec` */
   | { kind: 'openapi'; spec: number; schema: unknown }
+  /** what a resource on the page holds (`$result` in its `then`) */
+  | { kind: 'resource'; resource: string }
   /** an item of a resource on the page, or a partial one */
   | { kind: 'item'; resource: string; partial?: boolean }
   /** an action (`archive`, `pgp.decrypt`): its arguments (`args`) or its awaited result */
@@ -50,7 +52,7 @@ export interface CheckExpr {
   /** `$result` (then) or `$error` (catch) is in scope */
   result: boolean;
   error: boolean;
-  /** type of `$result`, when the action matched an OpenAPI operation */
+  /** type of `$result`: the action's OpenAPI response or result, the resource's own type (`<sn-resource then>`) */
   resultType?: TypeRef;
   /** the value must be assignable to this (`data-sn-body`, `<sn-event>` `item` and `set`) */
   returns?: TypeRef;

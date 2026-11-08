@@ -124,6 +124,23 @@ describe('sinter check', () => {
     expect(errors('last = id', '')).toEqual(['SN506 event `r` has no type: expressions reading its payload are not checked']);
   });
 
+  test('<sn-resource then>: `$result` has the resource\'s type (`type`, or the action\'s result); state is checked', () => {
+    const files = {
+      'src/sinter.types.ts': TYPES,
+      'src/sinter.actions.ts': `export async function pending(): Promise<{ subject: string; files: string[] } | null> { return null; }\n`,
+    };
+    const html = (then: string, call = '') => `<!doctype html><html><head></head><body>
+<main data-sn-state="{ sel: /** @type {Contact|null} */ (null), subject: '' }">
+<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]" then="${then}"></sn-resource>
+<sn-resource name="p" call="pending()" then="${call}"></sn-resource>
+<dialog id="compose"></dialog><p data-sn-text="contacts.length + (sel?.name ?? subject) + p?.subject"></p></main></body></html>`;
+    const errors = (then: string, call = '') => checkPage(html(then, call), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    expect(errors('sel = $result[0]', "$result && (subject = $result.subject, showModal('compose'))")).toEqual([]);
+    expect(errors('subject = $result[0].id')).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
+    expect(errors('sel = $result')).toEqual([expect.stringMatching(/^SN208 Type 'Contact\[\]' is missing the following properties from type 'Contact'/)]);
+    expect(errors('', 'subject = $result.files')).toEqual(["SN208 Type 'string[]' is not assignable to type 'string'."]);
+  });
+
   test('<sn-resource call>: the result at `items` must fit `type`; without `type` it is the type', () => {
     const root = project({
       'src/sinter.types.ts': `${TYPES}export interface Body { text: string }\n`,

@@ -130,7 +130,7 @@ Every attribute value that is not a URL or a name is a JavaScript expression, pa
 | Kind | Used in | Allowed | Refused |
 | --- | --- | --- | --- |
 | Value | `text`, `attr`, `class`, `show`, `prop`, `for` (after `in`), `if`, `key`, `body`, `state`, resource `when` and `cursor`, `<sn-event>` `item`, `set` and `when`, URL interpolations | any JS expression, `new` on allowed globals, arrow functions as arguments, template strings, `?.`, `??` | assignment, `++`/`--`, `delete`, `await`, `import()` |
-| Handler | `on-*`, `then`, `catch`, `optimistic`, `<sn-event>` `then` | statements separated by `;`, assignment to state variables, calls to store and action functions | declarations (`let`, `const`, `function`), loops, `await` |
+| Handler | `on-*`, `then`, `catch`, `optimistic`, `<sn-event>` and `<sn-resource>` `then` | statements separated by `;`, assignment to state variables, calls to store and action functions | declarations (`let`, `const`, `function`), loops, `await` |
 
 Value expressions must be side-effect free, so the runtime may evaluate them any number of times.
 
@@ -273,7 +273,7 @@ Text-like controls update on `input`, all others on `change`.
 
 | Element | Attributes | Notes |
 | --- | --- | --- |
-| `<sn-resource>` | `name`, `src`, `key`, `items`, `total`, `order`, `when`, pagination attributes | see Resources and Pagination |
+| `<sn-resource>` | `name`, `src`, `call`, `each`, `key`, `items`, `total`, `order`, `when`, `cache`, `then`, `type`, pagination attributes | see Resources and Pagination |
 | `<sn-sync>` | `src` | one server event stream |
 | `<sn-event>` (child of `<sn-sync>`) | `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type` | maps one server event to a change message, and runs `then` after it |
 | `<sn-include>` | `src` | inlines a partial at build time; see Partials |
@@ -298,7 +298,7 @@ A resource whose `src` interpolates state or `$url` refetches when those values 
 | `$url` | everywhere | reactive view of `location.search` params plus the path parameters of `data-sn-path`; assigning to `$url.x` calls `history.replaceState` (path parameters are read-only, `SN203`) |
 | `$now` | everywhere | current time as a `Date`, refreshed every 60 s; the timer runs only on pages that use it |
 | `$locale` | everywhere | current locale from `configure({ locale })`; assignable in handlers |
-| `$result` | `then` | parsed response body |
+| `$result` | `then` | parsed response body (action); what the load stored (`<sn-resource then>`) |
 | `$error` | `catch` | `{status, body, message, detail}`; `detail` is the server's message or a thrown error's, else `null` |
 | `$meta` | everywhere | per resource status fields (see Resources and store) |
 
@@ -325,6 +325,8 @@ A resource is a named, page-wide cache of one piece of server data: either a key
 | `when` | no | value expression; while falsy, the resource is empty (null or []) and a running request is aborted |
 | `cache` | no | page-load cache: show the data from the last page load at once, then revalidate (see Data sources). No value: any age; `30s`, `10m`, `2h`, `1d`: ignore older data |
 | `each` | no | `item in list`: one request per list item, `src` evaluated with the item in scope; the responses form one collection (see Fan-out resources) |
+| `then` | no | handler expression run after each successful load, with `$result` (see After a load) |
+| `type` | no | the type of what `items` selects, for `sinter check` (see Type checking) |
 
 
 ### Behaviour
@@ -334,6 +336,20 @@ A resource is a named, page-wide cache of one piece of server data: either a key
 - Identity. Keys are compared as joined strings. A duplicate key in a response is a dev-mode warning; the last one wins.
 - Immutability. Items and the lists that hold them are frozen in dev builds (production relies on `SN205`; frozen arrays are slow to copy and filter). Changes always replace the item object.
 Single-object resources (no `key`): `upsert` replaces the object, `patch` merges fields into it, `remove` sets it to `null`. Their change messages need no key.
+
+### After a load (`then`)
+`then` on `<sn-resource>` is a handler expression, like `data-sn-then` on an action, run after each successful load of the resource (added 2026-11-08, for Caley's share-to-mail and mark-read):
+```html
+<main data-sn-state="{ compose: null }">
+  <sn-resource name="pending" call="mail.pendingCompose()"
+    then="$result && (compose = composeDraft('new', null, identities, '', null, $result.files, $result.subject), showModal('mail-compose'))"></sn-resource>
+```
+- `$result` is what the load stored: what `items` selects (the response itself without `items`, the function's result for `call`), the same value the store received, before `order`. For a paginated resource it is the page just loaded (in `append` mode: the new items only); for an `each` resource, the items of the one source that answered.
+- When: after every response the store takes: the first load, `refresh()`, a `refetch` from a server event (or a reconnect), a change of `src`, `call` arguments or `when` that loads again, every `page()`, and embedded JSON (the page's first load). For `each`, once per source response, not once per round. Not for the cached data `cache` shows at once (only once the revalidation succeeds), not for a failed, aborted or superseded load, not when `when` empties the resource, and not for changes that are not loads: optimistic layers, `upsert`/`patch`/`remove` from handlers or server events, action results.
+- So it runs again on every refetch: a handler meant to run once guards itself with state or with the data (`!opened && (opened = true, …)`, `$result && …` for a resource that is empty when nothing is pending). A handler that refreshes its own resource loops.
+- Order: after the store has the response (writes made during the load replayed on top) and `$meta.<name>` is current (`loading` false, `loadedAt` set, `error` null), so the handler reads the resource and other resources as they now are. Its state writes re-render like any handler's, in the same flush.
+- Scope: the scope the resource's `src` and `when` see, so the state around the `<sn-resource>` element, which it may assign, and every resource. Store functions work; there is no element, so `close()` names its dialog and `reset()` and `emit()` are errors (`SN203`), as in `<sn-event then>`. `$event` and `$error` are not defined here; `$result` is not defined in the resource's other expressions. The `each` item name is not in scope.
+- An exception in the handler is logged; the load still counts as successful.
 
 ### Fan-out resources (`each`)
 Some APIs list a collection per parent: mailboxes per account, events per calendar. `each` loads one request per item of another list and keeps the results as one collection (added 2026-11-05):
@@ -907,6 +923,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 - `sinter check` reads the pages and options from the Vite config, or takes pages as arguments. `sinter({ typecheck: true })` runs it at the end of `vite build` and fails the build on errors.
 - OpenAPI: `sinter({ openapi: 'openapi.yml' })` (or a list, one per API; local JSON or YAML files, so builds stay deterministic). A resource without `type` is matched to a GET operation: the `servers` URL prefix is stripped from `src`, the query string dropped, literal segments match literally, a segment that is one interpolation matches a `{param}`, and a literal path beats a templated one. Its type is the first 2xx JSON response's schema at `items`, converted to TypeScript by sinter (named schemas become named types). The match runs in every build, not only in the check: an `items` or `total` the schema lacks is `SN308`, a literal query parameter the operation does not declare is warning `SN505`. No match leaves the resource untyped (`SN504`, naming the closest path).
 - Actions are matched like resources, with their own method: `data-sn-body` must fit the JSON request schema, and `$result` in `then` has the response's type (`any` without a match).
+- `$result` in `<sn-resource then>` has the resource's type: its `type`, the matched OpenAPI response at `items`, or for `call` the action's awaited result at `items` (`any` for an untyped resource).
 - Server events: `type` on `<sn-event>` types the payload, using the types module's names. `item` must be assignable to the resource's item and `set` to a part of it, so a payload that does not fit the resource is an error. `then` is checked with the payload and the state around the `<sn-sync>` in scope. `cursor` reads the resource's own item. An event with payload expressions and no `type` is warning `SN506`; `type="any"` opts out.
 - `checkPage(html, { files, types, openapi })` from `@tiaforge-ui/sinter/check` runs the same check on one page in a temporary project, for tests.
 

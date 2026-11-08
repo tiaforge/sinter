@@ -749,13 +749,13 @@ class Compiler {
     }
     let event: string | null = null;
     if (attrName.startsWith('data-sn-on-')) event = attrName.slice('data-sn-on-'.length);
-    // an <sn-event> handler runs for a server event, not a DOM event
-    else if ((o.mode !== 'value' || o.magic?.includes('$event')) && el.tagName !== 'sn-event') {
+    // an element-less handler (<sn-event>, <sn-resource then>) runs for no DOM event
+    else if ((o.mode !== 'value' || o.magic?.includes('$event')) && !o.noElement) {
       event = attr(el, 'data-sn-trigger') ?? (el.tagName === 'form' ? 'submit' : FORM_CONTROLS.has(el.tagName) ? 'change' : 'click');
     }
     const e: CheckExpr = {
       src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: el.tagName, event,
-      result: attrName === 'data-sn-then', error: attrName === 'data-sn-catch',
+      result: attrName === 'data-sn-then' || !!o.magic?.includes('$result'), error: attrName === 'data-sn-catch',
     };
     if (o.payload) e.payload = { names: r.payloadNames ?? [], type: null, ...(r.payloadStates?.length ? { states: r.payloadStates } : {}) };
     this.check!.exprs.push(e);
@@ -1071,6 +1071,13 @@ class Compiler {
         this.features.add('cache');
       }
     }
+    // `then`: a handler run after each successful load, with what it loaded as `$result`
+    let then: { f: number; w: string[] } | null = null;
+    if (attr(el, 'then') != null) {
+      const r = this.expr(el, 'then', ctx.scope, { mode: 'handler', magic: ['$result'], noElement: 'sn-resource' });
+      this.typeLast({ resultType: { kind: 'resource', resource: name } });
+      if (r.ok) then = { f: this.fn(r.code), w: r.writes };
+    }
     const order = attr(el, 'order');
     const type = attr(el, 'type')?.trim() || null;
     const openapi = type || hasCall ? null : this.openapi(el, src, attr(el, 'items') ?? null, attr(el, 'total') ?? null);
@@ -1093,6 +1100,7 @@ class Compiler {
       ...(cache !== undefined ? { cache } : {}),
       ...(each ? { each } : {}),
       ...(call ? { call: { args: call.args, run: call.run } } : {}),
+      ...(then ? { then: then.f, ...(then.w.length ? { w: then.w } : {}) } : {}),
     });
   }
 
@@ -1172,7 +1180,7 @@ class Compiler {
     let writes: string[] = [];
     const fnOf = (n: string, object = false) => {
       if (attr(el, n) == null) return null;
-      const r = this.expr(el, n, scope, { mode: n === 'then' ? 'handler' : 'value', payload: true, payloadState: true });
+      const r = this.expr(el, n, scope, n === 'then' ? { mode: 'handler', payload: true, payloadState: true, noElement: 'sn-event' } : { mode: 'value', payload: true, payloadState: true });
       writes = r.writes;
       this.typeLast({
         payload: payloadType,

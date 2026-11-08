@@ -3,6 +3,22 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Added
+
+- `then` on `<sn-resource>`: a handler expression run after each successful load, with `$result`
+  being what the load stored (what `items` selects, the page just loaded, or one `each`
+  source's items). It runs for the first load, `refresh()`, refetch events, `src`/`call`
+  changes, every `page()` and embedded data; not for data `cache` shows before the
+  revalidation, failed or superseded loads, optimistic layers or `upsert`/`patch`/`remove`.
+  It runs after the store and `$meta` have the response, in the scope around the resource
+  (state assignable), with store functions; as in `<sn-event then>`, `close()` must name its
+  dialog and `reset()`/`emit()` are `SN203`. `sinter check` gives `$result` the resource's type
+  (`type`, OpenAPI or the action's result). Handlers that should run once guard themselves:
+  `then="$result && (compose = $result, showModal('mail-compose'))"`. The core grows by
+  45 B gzip, the each module by 9 B.
+
 ## 0.3.3 (2026-11-08)
 
 ### Added

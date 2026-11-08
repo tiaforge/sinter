@@ -69,6 +69,8 @@ export interface ExprOptions {
   payload?: boolean;
   /** with `payload`: state names in scope resolve to the state first (`<sn-event>`) */
   payloadState?: boolean;
+  /** a handler with no element (`<sn-event>`, `<sn-resource>` `then`): `close()` names its dialog, no `reset()` or `emit()` */
+  noElement?: string;
   /** parse as `{...}` object literal; returns its entries */
   object?: 'literal-keys' | 'any-keys' | 'state';
   report: (code: Code, message: string, offset: number, hint?: string) => void;
@@ -644,9 +646,9 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     const first = n.arguments[0];
-    // an <sn-event> handler has no element: no nearest dialog or form, nothing to dispatch from
-    if (opts.payload && (name === 'reset' || name === 'emit' || (name === 'close' && !first))) {
-      report('SN203', `\`${name}()\` needs an element; an \`<sn-event>\` handler has none${name === 'close' ? `: name the dialog, \`close('id')\`` : ''}`, n.start);
+    // an element-less handler has no nearest dialog or form, nothing to dispatch from
+    if (opts.noElement && (name === 'reset' || name === 'emit' || (name === 'close' && !first))) {
+      report('SN203', `\`${name}()\` needs an element; an \`<${opts.noElement}>\` handler has none${name === 'close' ? `: name the dialog, \`close('id')\`` : ''}`, n.start);
       return;
     }
     if (name === 'showModal' || (name === 'close' && first)) {

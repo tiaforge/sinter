@@ -3,7 +3,7 @@
   "tags": [
     {
       "name": "sn-resource",
-      "description": "a named, page-wide cache of server data; `cache` (or `cache=\"10m\"`) shows the data from the last page load at once, then revalidates",
+      "description": "a named, page-wide cache of server data; `cache` (or `cache=\"10m\"`) shows the data from the last page load at once, then revalidates. `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope)",
       "attributes": [
         {
           "name": "name"
@@ -61,6 +61,9 @@
         },
         {
           "name": "cache"
+        },
+        {
+          "name": "then"
         }
       ]
     },

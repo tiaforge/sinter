@@ -88,6 +88,8 @@ export interface ResourceLoader {
   /** for feature modules: a failed load: `$meta.error`, then the unhandled-error path */
   failed(e: unknown): void;
   loading(on: boolean): void;
+  /** for feature modules: a load stored `result` (what `items` selects): runs `then` */
+  done(result: unknown): void;
 }
 
 export interface App {
@@ -1049,6 +1051,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t;
       fill(items, total, m);
       if (def.cache != null) app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
+      return items;
     };
     /** the request URL for the current page of `u` */
     const request = (u: string, m = l.pager?.current()) => withParams(u, m ? l.pager!.params(m) : null);
@@ -1062,6 +1065,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const l: ResourceLoader = {
       def, res: r, app, pager: null as Pager | null,
       scope, get: loadShared, failed: fail, loading,
+      done: (v) => def.then != null && app.run(def.then, child(scope(), { $result: v }), def.w),
       items(body) {
         let items = pick(def.items, body);
         if (!Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
@@ -1088,8 +1092,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
           return l.changed();
         }
         l.pager?.reset();
-        store(data!.v, request(url));
+        const v = store(data!.v, request(url));
         r.meta.loadedAt = env.now();
+        l.done(v);
       },
       /** `src` or `when` may have changed: reload from the first page if the URL differs. */
       changed() {
@@ -1110,7 +1115,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         c?.abort();
         const ctl = (c = new AbortController()), n = ++seq, m = l.pager && (move ?? l.pager.current());
         const mark = r.startLoad();
-        let loaded = false;
+        let loaded = false, v;
         loading(true);
         try {
           const req = withParams(url, m ? l.pager!.params(m) : null);
@@ -1118,7 +1123,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
             ? await invoke(def.call.run, args, { signal: ctl.signal, request: (u: string, i?: SendInit) => app.req.send(u, i), el: null })
             : await loadShared(req, ctl.signal);
           if (n != seq) return;
-          store(body, req, m);
+          v = store(body, req, m);
           loaded = true;
           r.meta.error = null;
           r.meta.loadedAt = env.now();
@@ -1130,6 +1135,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
           r.endLoad(mark, loaded);
           if (n == seq) { c = null; loading(false); }
         }
+        // after the store and `$meta` have the response, so `then` sees them
+        if (loaded) l.done(v);
       },
     };
     if (def.each) app.ext.each!.fanOut(l);

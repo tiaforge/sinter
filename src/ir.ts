@@ -43,6 +43,9 @@ export interface ResourceDef {
   call?: CallDef;
   /** `each="a in accounts"`: one request per list item (src evaluated with `item` in scope), merged into one collection */
   each?: { item: string; list: number; of?: string };
+  /** `then`: handler run after each successful load, with `$result`; `w`: the state paths it writes */
+  then?: number;
+  w?: string[];
 }
 
 export interface EventDef {
@@ -195,7 +198,8 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     names.add(r.name);
     if (r.call) { fn(r.call.args, `${at}.call.args`, false); fn(r.call.run, `${at}.call.run`, false); if (r.src.length) errs.push(`${at}: a call resource has no src`); }
     else url(r.src, `${at}.src`);
-    fn(r.when, `${at}.when`);
+    fn(r.when, `${at}.when`); fn(r.then, `${at}.then`);
+    for (const d of r.w ?? []) if (typeof d !== 'string' || !d) errs.push(`${at}: bad path`);
     if (r.paginate) {
       if (!['keyset', 'offset', 'append'].includes(r.paginate.mode)) errs.push(`${at}: bad paginate mode`);
       fn(r.paginate.cursor, `${at}.paginate.cursor`);

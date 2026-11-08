@@ -150,6 +150,7 @@ export function shadow(o: ShadowOptions): Shadow {
       ? schemaToTs(t.schema, (n) => `$O${t.spec}.${typeName(n)}`)
       : t.kind === 'call'
         ? (t.args ? `${decl('CallArgs')}<typeof $A.${t.name}>` : `Awaited<ReturnType<typeof $A.${t.name}>>`)
+        : t.kind === 'resource' ? `typeof ${t.resource}`
         : `${t.partial ? 'Partial<' : ''}${decl('Item')}<typeof ${t.resource}>${t.partial ? '>' : ''}`;
     line(`/** @${tag} {${text}} */${after}`);
   };

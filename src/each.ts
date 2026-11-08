@@ -38,13 +38,13 @@ function fanOut(l: ResourceLoader, app: App) {
     if (!s) return;
     s.c?.abort();
     const ctl = (s.c = new AbortController()), n = ++s.seq, mark = r.startLoad();
-    let loaded = false;
+    let loaded = false, items: any[] = [];
     pending++;
     l.loading(true);
     try {
       const body = await l.get(u, ctl.signal);
       if (n != s.seq || sources.get(u) != s) return;
-      const items = l.items(body);
+      items = l.items(body);
       swap(u, s, items);
       s.keys = new Set(items.map((x) => r.keyOf(x)));
       s.answered = loaded = true;
@@ -60,6 +60,8 @@ function fanOut(l: ResourceLoader, app: App) {
       if (n == s.seq) s.c = null;
       l.loading(--pending > 0);
     }
+    // once per source that answered: `$result` is its items
+    if (loaded) l.done(items);
   }
 
   l.changed = () => {
