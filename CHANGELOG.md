@@ -5,6 +5,41 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- Write-through: a mutation's 2xx response is applied to the resources it is about, after the
+  optimistic commit and before `then`. Four rules, nothing declared: (1) an object of a named
+  OpenAPI schema in the response patches the same-key item in every list of that schema, and the
+  row, single resource or nested entity the action's URL or body read (`{article.author.username}`
+  names `article.author`); (2) a POST to exactly a keyed list's current URL inserts the created
+  item: the response's, else the body merged with the response's key (`{id: 42}`), else the list is
+  refetched; (3) a PUT/PATCH body patches the entity the URL named; (4) a DELETE of a row's URL
+  removes the row. Rules 1 to 3 need `sinter({ openapi })`; untyped pages get rule 4 and the
+  body-only update. Patches merge and skip unchanged fields. New feature module
+  `@tiaforge-ui/sinter/apply` (loaded by pages with something to apply), `data-sn-apply="off"` per
+  element, warning `SN510 redundant-write` for a `then` that writes what a rule writes, dev log per
+  application. Resources are matched to schemas by `$ref`, by an identical inline copy, or by an
+  inline projection with fewer fields (RealWorld's list response). RealWorld: 12 of 19 `then`
+  handlers removed. Testing: `render(html, { openapi })`.
+- Loading optimizations that need no attributes:
+  - Preconnect: every origin a literal resource or stream `src` names (`https://api.example.com/…`)
+    gets `<link rel="preconnect" crossorigin>` in the head, so the connection is made while the page
+    bundle downloads (with first paint on). RealWorld's pages name their API origin on every resource
+    and had neither a preload nor an early request for it.
+  - Request priority: a resource that only elements inside `<dialog>`s read (bindings, state,
+    actions and handlers there, templates of the dialog included) is requested with
+    `priority: 'low'`, and its preload link with `fetchpriority="low"`: the visible content's
+    requests get the bandwidth first. Any read outside, by another resource or by a stream keeps
+    the default.
+  - Typing: a resource whose `src` or `when` changes only through keystrokes in a text field
+    (`data-sn-model` on an `<input>` or `<textarea>`, `input` events) waits 250 ms for the next
+    keystroke before it requests, instead of one aborted request per keystroke. Any other change
+    (a select, a handler, `$url`) is requested at once. `settle()` in tests runs the pause.
+  - Coming back: a `pageshow` after a back/forward-cache restore and `online` refetch every
+    resource. Resources a stream feeds are left to the stream's reconnect, which already refetches
+    them. Testing: `window('online')`.
+  - Core +230 B gzip (RealWorld article 18.0 → 18.2 kB).
+
 ### Changed
 
 - Compiled row creation. For a simple row template whose bindings do not read `$el`, the compiler
@@ -39,48 +74,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   has rendered and the stylesheets have applied (2 s at most for the hiding). A persisted
   collapsed rail no longer shows open for a frame, and nothing transitions from the unrendered
   state. Chromium is unchanged.
-
 - `vite build` with Vite 8 no longer warns "`inlineDynamicImports` option is deprecated" once per
   page: the early file's build passes Rolldown's `codeSplitting: false` (Vite 6 and 7, on Rollup,
   keep `inlineDynamicImports: true`). Both put an early module's dynamic imports into the early
   file itself; the output is the same. An early build that still comes out as several chunks now
   fails the build instead of emitting an early file whose imports cannot load.
-
-### Added
-
-- Write-through: a mutation's 2xx response is applied to the resources it is about, after the
-  optimistic commit and before `then`. Four rules, nothing declared: (1) an object of a named
-  OpenAPI schema in the response patches the same-key item in every list of that schema, and the
-  row, single resource or nested entity the action's URL or body read (`{article.author.username}`
-  names `article.author`); (2) a POST to exactly a keyed list's current URL inserts the created
-  item: the response's, else the body merged with the response's key (`{id: 42}`), else the list is
-  refetched; (3) a PUT/PATCH body patches the entity the URL named; (4) a DELETE of a row's URL
-  removes the row. Rules 1 to 3 need `sinter({ openapi })`; untyped pages get rule 4 and the
-  body-only update. Patches merge and skip unchanged fields. New feature module
-  `@tiaforge-ui/sinter/apply` (loaded by pages with something to apply), `data-sn-apply="off"` per
-  element, warning `SN510 redundant-write` for a `then` that writes what a rule writes, dev log per
-  application. Resources are matched to schemas by `$ref`, by an identical inline copy, or by an
-  inline projection with fewer fields (RealWorld's list response). RealWorld: 12 of 19 `then`
-  handlers removed. Testing: `render(html, { openapi })`.
-
-- Loading optimizations that need no attributes:
-  - Preconnect: every origin a literal resource or stream `src` names (`https://api.example.com/…`)
-    gets `<link rel="preconnect" crossorigin>` in the head, so the connection is made while the page
-    bundle downloads (with first paint on). RealWorld's pages name their API origin on every resource
-    and had neither a preload nor an early request for it.
-  - Request priority: a resource that only elements inside `<dialog>`s read (bindings, state,
-    actions and handlers there, templates of the dialog included) is requested with
-    `priority: 'low'`, and its preload link with `fetchpriority="low"`: the visible content's
-    requests get the bandwidth first. Any read outside, by another resource or by a stream keeps
-    the default.
-  - Typing: a resource whose `src` or `when` changes only through keystrokes in a text field
-    (`data-sn-model` on an `<input>` or `<textarea>`, `input` events) waits 250 ms for the next
-    keystroke before it requests, instead of one aborted request per keystroke. Any other change
-    (a select, a handler, `$url`) is requested at once. `settle()` in tests runs the pause.
-  - Coming back: a `pageshow` after a back/forward-cache restore and `online` refetch every
-    resource. Resources a stream feeds are left to the stream's reconnect, which already refetches
-    them. Testing: `window('online')`.
-  - Core +230 B gzip (RealWorld article 18.0 → 18.2 kB).
 
 ## 0.8.0 (2026-11-08)
 
