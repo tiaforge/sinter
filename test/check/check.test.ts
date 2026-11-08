@@ -97,6 +97,20 @@ describe('sinter check', () => {
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
   });
 
+  test('page() with a computed target: a direction on keyset; a page number needs offset-param', () => {
+    const helpers = `/** @param {boolean} back @returns {'next' | 'prev'} */\nexport function step(back) { return back ? 'prev' : 'next'; }\n`;
+    const html = (to: string, attrs = '') => page(`<sn-resource name="list" src="/api/l" key="id" type="Contact[]" paginate="keyset" page-size="5" cursor="{id}" ${attrs}></sn-resource>
+<div data-sn-state="{ n: 2, word: 'next' }"><button data-sn-on-click="page('list', ${to})" data-sn-text="contacts.length + list.length + n + word"></button></div>`);
+    const errors = (to: string, attrs = '') => checkPage(html(to, attrs), { files: { 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': helpers } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    expect(errors(`$event.shiftKey ? 'prev' : 'next'`)).toEqual([]);
+    expect(errors('step($event.shiftKey)')).toEqual([]);
+    expect(errors('n')).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add offset-param for page numbers" | Direction'.`]);
+    expect(errors('word')).toEqual([`SN208 Argument of type 'string' is not assignable to parameter of type '"a keyset resource takes a direction; add offset-param for page numbers" | Direction'.`]);
+    // with offset-param, a page number is a target too
+    expect(errors('n', 'offset-param="offset"')).toEqual([]);
+    expect(errors('word', 'offset-param="offset"')).toEqual([`SN208 Argument of type 'string' is not assignable to parameter of type 'number | Direction'.`]);
+  });
+
   test('a key filter\'s $event is the KeyboardEvent of its keydown or keyup', () => {
     one(page(`<div data-sn-state="{ q: '', n: 0 }" data-sn-on-keydown-shift-j="q = $event.key" data-sn-on-keyup-escape="n = $event.code">
   <p data-sn-text="q + n"></p>

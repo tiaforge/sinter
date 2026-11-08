@@ -575,7 +575,7 @@ An action is an element with one method attribute; it sends a request when its t
 | `upsert('contacts', $result)` | insert or replace an item |
 | `patch('contacts', item, {…})` | change fields of an item |
 | `remove('contacts', item)` | remove an item |
-| `page('messages', 'next')` | change page (see Pagination) |
+| `page('messages', 'next')` | change page: a direction, or a page number where the resource can jump; may be computed (see Pagination) |
 | `showModal('edit')` | open `<dialog id="edit">` as a modal; nothing if it is open |
 | `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
 | `reset()` | reset the nearest `<form>` |
@@ -764,6 +764,8 @@ Pagination is declared on the resource and driven by `page()` calls; v0.1 suppor
 | `append` | like `keyset`, `next` only | `next` | "load more", infinite scroll |
 
 Keyset mode jumps only when the server can skip by offset as well. With `offset-param="offset"`, `page('messages', 7)` requests the `first` direction with `offset=300` (page size 50) and no cursor; `prev` and `next` then continue by cursor from that page's boundary items. Without it, a page number on a keyset resource is error `SN304`, with a hint to add `offset-param` or use offset mode. sinter never simulates jumps by stepping through pages. (Added 2026-11-05, for APIs such as Caley's mail list.)
+- The target may be computed: `page('results', $event.shiftKey ? 'prev' : 'next')`, or a helper's result, so one handler serves both directions. The compiler cannot tell a computed direction from a page number, so it accepts it, and `sinter check` types it: on a keyset resource without `offset-param` it must be a subset of `'first' | 'prev' | 'next' | 'last'` (a `number`, or a plain `string`, is `SN208`, whose message says to add `offset-param` for page numbers); elsewhere a direction or a number. A literal page number stays `SN304`; `append` takes only the literal `'next'`. (Added 2026-11-08, for Caley's keyset list.)
+- At run time a target the resource cannot go to (a page number on keyset without `offset-param`, a string that is not a direction, `NaN`) sends no request: it takes the error path of a failed load, `$meta.<name>.error` with the reason and the unhandled-error path (see Unhandled errors), plus a dev warning. The next load clears the error.
 - A jump target is clamped to `$meta.<name>.pages` when the total is known.
 - `$meta.<name>.page` is the page holding the last item shown, `ceil(to / page-size)`, so it is exact after a jump, `first` and `last`, and approximate after cursor steps across items inserted meanwhile, as offsets always are on a live list.
 

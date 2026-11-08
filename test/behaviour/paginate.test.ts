@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 import { render, mockRequests, mockStream, type RecordedCall } from '../../src/testing/index.js';
 
@@ -207,6 +207,37 @@ test('offset-param: keyset pages jump with an offset, then continue by cursor', 
   expect(state()).toEqual(['5,6,7', '5–7 of 7 3', 'true,false', '3']);
 });
 
+test('page() with a computed direction; a page number or other value where it cannot go is refused, with no request', async () => {
+  // Caley's keyset list: one handler for both directions
+  const requests = mockRequests({ 'GET /api/m': keyset });
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const { root, settle } = await render(`<main data-sn-state="{ to: 2 }" data-sn-on-sn-error="$event.preventDefault()">${PAGE}
+    <button id="move" data-sn-on-click="page('messages', $event.shiftKey ? 'prev' : 'next')"></button>
+    <button id="number" data-sn-on-click="page('messages', to)"></button>
+    <button id="word" data-sn-on-click="page('messages', 'nex' + 't!')"></button>
+    <p data-sn-text="$meta.messages.error ? $meta.messages.error.message : 'ok'"></p></main>`, { requests });
+  await settle();
+  const list = () => [...root.querySelectorAll('li')].map((l) => l.textContent).join(',');
+  const click = async (id: string, shiftKey = false) => { root.querySelector(`#${id}`)!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey })); await settle(); };
+  await click('move');
+  expect(list()).toBe('4,5,6');
+  await click('move', true);
+  expect(list()).toBe('1,2,3');
+  const loads = requests.calls.length;
+  await click('number');
+  expect(requests.calls.length).toBe(loads);
+  expect(list()).toBe('1,2,3');
+  expect(root.querySelector('p')!.textContent).toBe(`page('messages', 2): keyset pagination cannot jump to a page number; add offset-param`);
+  expect(warn).toHaveBeenCalledWith(`sinter: page('messages', 2): keyset pagination cannot jump to a page number; add offset-param`);
+  await click('word');
+  expect(requests.calls.length).toBe(loads);
+  expect(root.querySelector('p')!.textContent).toBe(`page('messages', "next!"): not a direction`);
+  // the next load clears the error
+  await click('move');
+  expect(root.querySelector('p')!.textContent).toBe('ok');
+  warn.mockRestore();
+});
+
 describe('offset-param diagnostics', () => {
   const diags = (attrs: string, body = '<p data-sn-text="m.length"></p>') => compile(`<sn-resource name="m" src="/api/m" key="uid" ${attrs}></sn-resource>${body}`, {
     file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
@@ -222,6 +253,14 @@ describe('offset-param diagnostics', () => {
       'SN303 `$meta.m.page` exists only with `paginate="offset"`, or `paginate="keyset"` with `offset-param`',
       'SN304 keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`',
     ]);
+  });
+  test('a computed target compiles (sinter check types it); a literal page number does not', () => {
+    const body = (to: string) => `<div data-sn-state="{ n: 2, dir: 'next' }"><p data-sn-text="m.length + n + dir"></p><button data-sn-on-click="page('m', ${to})"></button></div>`;
+    for (const to of [`$event.shiftKey ? 'prev' : 'next'`, 'dir', 'n', 'n + 1']) expect(diags(keyset, body(to)), to).toEqual([]);
+    for (const to of ['7', '-1', '']) expect(diags(keyset, body(to)), to).toEqual([expect.stringMatching(/^SN304 keyset pagination cannot jump to a page number/)]);
+    expect(diags(keyset, body(`'nxt'`))).toEqual([expect.stringMatching(/^SN401 `page\(\)` targets are/)]);
+    // append only loads more: nothing to compute
+    expect(diags('paginate="append" page-size="5" cursor="{uid}"', body('dir'))).toEqual(["SN304 `append` pagination only supports `page(…, 'next')`"]);
   });
   test('only keyset resources take offset-param', () => {
     expect(diags('paginate="append" page-size="5" cursor="{uid}" offset-param="offset"')).toEqual(['SN401 `offset-param` applies to `paginate="keyset"`; append mode only loads more']);

@@ -71,7 +71,7 @@ ${ALL_MAGIC.map((m) => `\`${m}\``).join(', ')}. \`$event\` in handlers, \`$resul
 
 ## Store functions
 
-${STORE_FNS.map((f) => `\`${f}()\``).join(', ')}: \`refresh('name')\` (or several: \`refresh('a', 'b')\`), \`upsert('name', item)\`, \`patch('name', item, {…})\`, \`remove('name', item)\`, \`page('name', 'next' | 'prev' | 'first' | 'last' | n)\`, \`showModal('id')\` opens a dialog by its literal id, \`close()\` the nearest dialog or \`close('id')\` that one, \`reset()\` the nearest form, \`emit('event', detail)\`, \`run('id')\` starts the action of the element with that literal id (SN311), as its trigger would but with \`$event\` null; a form is submitted (\`requestSubmit()\`, validation runs); a disabled or inert element does nothing; it returns nothing, results go to the element's \`then\`/\`catch\`.
+${STORE_FNS.map((f) => `\`${f}()\``).join(', ')}: \`refresh('name')\` (or several: \`refresh('a', 'b')\`), \`upsert('name', item)\`, \`patch('name', item, {…})\`, \`remove('name', item)\`, \`page('name', 'next' | 'prev' | 'first' | 'last' | n)\` (a page number needs offset mode or keyset with \`offset-param\`, else SN304; a computed direction such as \`$event.shiftKey ? 'prev' : 'next'\` works everywhere, typed by \`sinter check\`), \`showModal('id')\` opens a dialog by its literal id, \`close()\` the nearest dialog or \`close('id')\` that one, \`reset()\` the nearest form, \`emit('event', detail)\`, \`run('id')\` starts the action of the element with that literal id (SN311), as its trigger would but with \`$event\` null; a form is submitted (\`requestSubmit()\`, validation runs); a disabled or inert element does nothing; it returns nothing, results go to the element's \`then\`/\`catch\`.
 
 ## Diagnostics
 

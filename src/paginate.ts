@@ -1,6 +1,7 @@
 // Pagination: keyset, offset and append modes, driven by page() calls.
 import type { Paginate } from './ir.js';
 import type { App, Feature, Pager, ResourceLoader } from './runtime/app.js';
+import { SinterError } from './runtime/config.js';
 
 type Dir = 'first' | 'prev' | 'next' | 'last';
 
@@ -58,6 +59,15 @@ class PagerImpl implements Pager {
   }
 
   go(target: string | number): void {
+    // a computed target: a direction, or a page number where the resource can jump; else the error path, no request
+    const why = typeof target == 'number'
+      ? this.cfg.mode != 'offset' && !this.cfg.offsetParam && 'keyset pagination cannot jump to a page number; add offset-param'
+      : !['first', 'prev', 'next', 'last'].includes(target) && 'not a direction';
+    if (why) {
+      const l = this.loader, e = new SinterError(null, target, `page('${l.def.name}', ${JSON.stringify(target)}): ${why}`);
+      l.app.warn(e.message);
+      return l.failed(e);
+    }
     const meta = this.loader.res.meta;
     const items = this.loader.res.all();
     const cursor = (item: unknown) => {
@@ -79,22 +89,18 @@ class PagerImpl implements Pager {
       else if (target === 'first') n = 1;
       else if (target === 'prev') { if (page <= 1) return; n = page - 1; }
       else if (target === 'next') { if (meta.pages != null && page >= meta.pages) return; n = page + 1; }
-      else if (target === 'last') {
+      else {
         if (meta.pages == null) { this.loader.app.warn(`page('${this.loader.def.name}', 'last') needs a known total`); return; }
         n = meta.pages;
-      } else return;
+      }
       n = Math.max(1, Math.floor(n));
       move = { dir: 'page', page: n, params: { [this.cfg.pageParam]: String(n), ...this.base(null) }, from, to };
     } else {
       if (typeof target === 'number') {
-        if (!this.cfg.offsetParam) {
-          this.loader.app.warn('keyset pagination cannot jump to a page number; add offset-param or use paginate="offset"');
-          return;
-        }
         // the server skips (n - 1) pages; prev/next continue by cursor from there
         let n = Math.max(1, Math.floor(target));
         if (meta.pages != null) n = Math.min(n, meta.pages);
-        move = { dir: 'page', page: n, params: { [this.cfg.offsetParam]: String((n - 1) * this.cfg.size), ...this.base('first') }, from, to };
+        move = { dir: 'page', page: n, params: { [this.cfg.offsetParam!]: String((n - 1) * this.cfg.size), ...this.base('first') }, from, to };
         void this.loader.load(move);
         return;
       }

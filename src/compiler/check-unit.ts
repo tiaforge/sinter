@@ -76,6 +76,8 @@ export interface CheckResource {
   openapi?: { spec: number; label: string; schema: unknown };
   /** `call`: the action and the `items` path into its result; with `type`, the result must fit it */
   call?: { name: string; items: string | null };
+  /** keyset without `offset-param`: `page()` takes a direction, not a page number */
+  directions?: boolean;
 }
 
 export interface CheckUnit {

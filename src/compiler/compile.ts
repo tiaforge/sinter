@@ -1280,6 +1280,7 @@ class Compiler {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
       if (call) r.call = { name: call.name, items: attr(el, 'items') ?? null };
+      if (paginate?.mode === 'keyset' && !paginate.offsetParam) r.directions = true;
       this.check.resources.push(r);
       // a resource fed by an action is typed by the action's result
       if (!type && !r.openapi && !r.call) {

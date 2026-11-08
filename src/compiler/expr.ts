@@ -715,10 +715,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         if (!r.paginate) report('SN303', `\`${first.value}\` has no \`paginate\`; \`page()\` needs a paginated resource`, n.start);
         const target = n.arguments[1];
         const named = target?.type === 'Literal' && typeof target.value === 'string' ? target.value : null;
-        if (r.paginate && r.paginate !== 'offset' && !named && !(r.paginate === 'keyset' && r.jumps)) {
-          report('SN304', r.paginate === 'keyset'
-            ? 'keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`'
-            : 'keyset pagination cannot jump to a page number. Use `paginate="offset"`', target?.start ?? n.start);
+        // a computed target may be a direction: `sinter check` types it, the runtime refuses a number
+        const computed = !!target && !named && !(target.type === 'Literal' || (target.type === 'UnaryExpression' && target.argument.type === 'Literal'));
+        if (r.paginate === 'append' && !named) {
+          report('SN304', '`append` pagination only supports `page(…, \'next\')`', target?.start ?? n.start);
+        } else if (r.paginate === 'keyset' && !named && !computed && !r.jumps) {
+          report('SN304', 'keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`', target?.start ?? n.start);
         } else if (r.paginate === 'append' && named && named !== 'next') {
           report('SN304', '`append` pagination only supports `page(…, \'next\')`', target!.start);
         } else if (named && !['first', 'prev', 'next', 'last'].includes(named)) {

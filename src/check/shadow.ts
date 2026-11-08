@@ -132,7 +132,8 @@ export function shadow(o: ShadowOptions): Shadow {
   line('const $now = $any;');
   line('/** @type {string} */');
   line('let $locale = $any;');
-  line(`/** @type {${decl('Store')}<{ ${types.join('; ')} }>} */`);
+  const directions = unit.resources.filter((r) => r.directions).map((r) => JSON.stringify(r.name)).join(' | ') || 'never';
+  line(`/** @type {${decl('Store')}<{ ${types.join('; ')} }, ${directions}>} */`);
   line(`const { ${STORE_FNS.filter((f) => !unit.resources.some((r) => r.name === f)).join(', ')} } = $any;`);
   line(`/** @template T @param {T} list @returns {${decl('Item')}<T>} */`);
   line('function $item(list) { return $any; }');
@@ -282,12 +283,16 @@ export type Ev<K extends string> = K extends keyof HTMLElementEventMap ? HTMLEle
  * \`E | null\` is just E, so the missing event is \`void\`: \`$event.shiftKey\` is an error, \`$event && $event.shiftKey\` is not.
  */
 export type RunEvent<E> = E | void;
-export interface Store<R> {
+export type Direction = 'first' | 'prev' | 'next' | 'last';
+/** what TypeScript names when a keyset resource without offset-param is given a page number */
+export type NoPageNumber = 'a keyset resource takes a direction; add offset-param for page numbers';
+/** R: the resources' types; D: the keyset resources without offset-param, which page() moves by direction only */
+export interface Store<R, D extends string = never> {
   refresh(...names: [keyof R & string, ...(keyof R & string)[]]): void;
   upsert<K extends keyof R & string>(name: K, item: Item<R[K]>): void;
   patch<K extends keyof R & string>(name: K, item: Partial<Item<R[K]>>, set: Partial<Item<R[K]>>): void;
   remove<K extends keyof R & string>(name: K, item: Partial<Item<R[K]>>): void;
-  page(name: keyof R & string, to: 'next' | 'prev' | 'first' | 'last' | number): void;
+  page<K extends keyof R & string>(name: K, to: [K] extends [D] ? Direction | NoPageNumber : Direction | number): void;
   showModal(id: string): void;
   close(id?: string): void;
   reset(): void;

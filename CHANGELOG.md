@@ -12,6 +12,17 @@ Attribute names, function names and diagnostic codes are public API. Before
   literal naming a resource of the page (`SN301` otherwise, with a did-you-mean); the call is one
   statement for `SN507`, however many names it lists, and each name is an edge for `SN509`.
   `sinter check` types it as `refresh(...names)`. Core +8 B gzip.
+- `page()` with a computed target on a keyset resource: `page('results', $event.shiftKey ? 'prev'
+  : 'next')`, so one handler serves both directions (Caley needed `list-next` and `list-prev`).
+  It was `SN304`, because the compiler cannot tell a computed direction from a page number.
+  Now it compiles, and `sinter check` types it: on keyset without `offset-param` it must be a
+  subset of `'first' | 'prev' | 'next' | 'last'`, else `SN208`, whose message says to add
+  `offset-param` for page numbers. A literal page number stays `SN304`; `append` takes only the
+  literal `'next'` (its `SN304` message now says so). At run time a target the resource cannot
+  go to (a page number on keyset without `offset-param`, a string that is not a direction)
+  sends no request: `$meta.<name>.error` with the reason, the unhandled-error path and a dev
+  warning. It used to be a dev warning only, or, for an unknown string on keyset, a request.
+  The paginate module grows by about 120 B gzip.
 
 ### Fixed
 
