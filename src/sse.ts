@@ -1,4 +1,4 @@
-// <sn-sync>: translates server events into change messages, gates every
+// <sn-sync>: one connection per stream URL; translates server events into change messages, gates every
 // reconnect with the session probe, refetches after reconnects and steps aside
 // for the back/forward cache. The transport is EventSource unless
 // configure({ transport }) picks another for the stream URL.
@@ -37,6 +37,7 @@ export function eventSourceTransport(): Transport {
   };
 }
 
+/** One stream URL's connection, shared by every `<sn-sync>` on the page that resolves to it. */
 class Connection {
   private t: Transport | null = null;
   private backoff = MIN_BACKOFF;
@@ -44,16 +45,10 @@ class Connection {
   private closed = false;
   private hidden = false;
   private everOpen = false;
-  private readonly url: string;
-  private readonly fed: string[];
-  /** where `src` and the events' expressions are evaluated: the enclosing state's scope, or the page */
-  private readonly base: any;
+  /** each mapped event with the scope its expressions are evaluated in: its `<sn-sync>`'s state, or the page */
+  readonly subs: Array<[EventDef, any]> = [];
 
-  constructor(private readonly app: App, private readonly def: SyncDef) {
-    this.base = app.scopeOf(def.scope ?? -1);
-    this.url = app.url(def.src, this.base);
-    this.fed = [...new Set(def.events.map((e) => e.resource))];
-  }
+  constructor(private readonly app: App, private readonly url: string) {}
 
   start(): void {
     const env = this.app.env;
@@ -69,9 +64,6 @@ class Connection {
     this.open();
   }
 
-  private names(): string[] {
-    return [...new Set(this.def.events.map((e) => e.name))];
-  }
 
   private open(): void {
     if (this.closed && !this.hidden) return;
@@ -79,6 +71,7 @@ class Connection {
     const t = custom ?? eventSourceTransport();
     this.t = t;
     const reconnect = this.everOpen;
+    const subs = this.subs.map(([e]) => e);
     t.connect(this.url, (name, data) => this.event(name, data), (state) => {
       if (this.t !== t) return;
       if (state === 'open') {
@@ -86,13 +79,13 @@ class Connection {
         this.everOpen = true;
         if (!custom) this.app.streamOpened?.(this.url);
         // events sent while disconnected are lost: refetch everything this stream feeds
-        if (reconnect) for (const name of this.fed) void this.app.resource(name).refetch();
+        if (reconnect) for (const name of new Set(subs.map((e) => e.resource))) void this.app.resource(name).refetch();
       } else {
         t.close();
         this.t = null;
         void this.probe();
       }
-    }, this.names());
+    }, [...new Set(subs.map((e) => e.name))]);
   }
 
   private stop(): void {
@@ -124,13 +117,13 @@ class Connection {
   }
 
   private event(name: string, payload: unknown): void {
-    for (const def of this.def.events) if (def.name === name) this.apply(def, payload);
+    for (const [def, base] of this.subs) if (def.name === name) this.apply(def, base, payload);
     this.app.serverEvent(name, payload);
   }
 
-  private apply(def: EventDef, payload: unknown): void {
+  private apply(def: EventDef, base: any, payload: unknown): void {
     const app = this.app;
-    const scope = Object.create(this.base);
+    const scope = Object.create(base);
     scope.$p = payload && typeof payload === 'object' ? payload : {};
     const r = app.resource(def.resource);
     try {
@@ -183,7 +176,17 @@ const sse: Feature = {
     let alive = true;
     app.addCleanup(() => { alive = false; });
     app.env.queueMicrotask(() => {
-      if (alive) for (const def of app.ir.syncs) new Connection(app, def).start();
+      if (!alive) return;
+      // one connection per resolved stream URL, however many <sn-sync> elements use it
+      const conns = new Map<string, Connection>();
+      for (const def of app.ir.syncs) {
+        const base = app.scopeOf(def.scope ?? -1);
+        const url = app.url(def.src, base);
+        let c = conns.get(url);
+        if (!c) conns.set(url, c = new Connection(app, url));
+        for (const e of def.events) c.subs.push([e, base]);
+      }
+      for (const c of conns.values()) c.start();
     });
   },
 };

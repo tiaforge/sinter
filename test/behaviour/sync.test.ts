@@ -210,3 +210,79 @@ test('an app destroyed before its streams connect opens none', async () => {
   app.addCleanup(() => { ran = true; });   // after destroy(): runs at once
   expect(ran).toBe(true);
 });
+
+test('<sn-sync>s that share a stream URL share one connection, and all their events apply', async () => {
+  // Caley: the nav partial's sync and the page's sync both use /api/events/stream
+  let connects = 0;
+  let open = 0;
+  const stream = mockStream();
+  const counted = (): ReturnType<typeof stream.transport> => {
+    const t = stream.transport();
+    return {
+      connect(...a) { connects++; open++; t.connect(...a); },
+      listen: (n) => t.listen?.(n),
+      close() { open--; t.close(); },
+    };
+  };
+  configure({ transport: (url) => (url === '/api/events/stream' ? counted() : undefined) });
+  const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] }, 'GET /api/n': { unread: 0 }, 'GET /api/user': { id: 'me' } });
+  try {
+    const { root, app, flush, settle } = await render(`
+      <sn-include src="nav.html"></sn-include>
+      ${PAGE}
+      <p data-sn-text="n.unread"></p>`, {
+      requests,
+      files: { 'nav.html': `<sn-resource name="n" src="/api/n"></sn-resource>
+        <sn-sync src="/api/events/stream">
+          <sn-event name="unread" resource="n" op="upsert"></sn-event>
+          <sn-event name="contacts_refetch" resource="n" op="refetch"></sn-event>
+        </sn-sync>` },
+    });
+    await settle();
+    expect(connects).toBe(1);
+    stream.emit('contact_updated', { contact: { id: 2, name: 'Bob' } });
+    stream.emit('unread', { unread: 4 });
+    await flush();
+    expect(names(root)).toEqual(['Ada', 'Bob']);
+    expect(root.querySelector('p')!.textContent).toBe('4');
+    // an event both syncs map applies in both, and islands still see it once
+    const got: unknown[] = [];
+    app.on('contacts_refetch', (p) => got.push(p));
+    stream.emit('contacts_refetch', {});
+    await settle();
+    expect(got).toHaveLength(1);
+    expect(requests.calls.filter((c) => c.path === '/api/n')).toHaveLength(2);
+    expect(requests.calls.filter((c) => c.path === '/api/contacts')).toHaveLength(2);
+
+    // a reconnect is one probe and one reconnect, refetching what either sync feeds
+    configure({ sessionProbe: '/api/user' });
+    stream.drop();
+    await settle();
+    expect(connects).toBe(2);
+    expect(requests.calls.filter((c) => c.path === '/api/user')).toHaveLength(1);
+    expect(requests.calls.filter((c) => c.path === '/api/n')).toHaveLength(3);
+    expect(requests.calls.filter((c) => c.path === '/api/contacts')).toHaveLength(3);
+
+    app.destroy();
+    expect(open).toBe(0);
+  } finally {
+    configure({ transport: null });
+  }
+});
+
+test('<sn-sync>s with different stream URLs keep their own connections', async () => {
+  const a = mockStream();
+  const b = mockStream();
+  const requests = mockRequests({ 'GET /api/contacts': { contacts: [] } });
+  const { root, flush, settle } = await render(`
+    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
+    <sn-sync src="/s/a"><sn-event name="up" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>
+    <sn-sync src="/s/b"><sn-event name="up" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>
+    <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>`, { requests, streams: { '/s/a': a, '/s/b': b } });
+  await settle();
+  expect(a.connected && b.connected).toBe(true);
+  a.emit('up', { contact: { id: 1, name: 'Ada' } });
+  b.emit('up', { contact: { id: 2, name: 'Bob' } });
+  await flush();
+  expect(names(root)).toEqual(['Ada', 'Bob']);
+});

@@ -3,6 +3,16 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Fixed
+
+- `<sn-sync>` elements whose `src` resolves to the same URL share one connection, as the spec
+  says: one transport, one session probe and backoff per reconnect, and every element's
+  `<sn-event>` mappings apply (each in its own `<sn-sync>`'s scope). Before, each element opened
+  its own, so a `<sn-sync>` in an `<sn-include>`d partial and one in the page held two
+  EventSources. The sse module grows by 35 B gzip.
+
 ## 0.3.1 (2026-11-08)
 
 ### Changed

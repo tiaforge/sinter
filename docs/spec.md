@@ -432,7 +432,7 @@ Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `i
 For `patch` and `remove`, the key is read from the payload using the resource's `key` fields. On an `each` resource, `refetch` reloads only the source the payload resolves to (see Fan-out resources). Events with no `<sn-event>` are still dispatched to islands (see JS API).
 
 ### Connection rules
-- One connection per stream URL per page, however many elements use it.
+- One connection per stream URL per page, however many elements use it: `<sn-sync>` elements whose `src` resolves to the same URL (at connect time, after the page mounts) share one transport, and all their `<sn-event>` mappings apply, each evaluated in its own `<sn-sync>`'s scope. An event mapped by several of them applies once per mapping; islands receive it once.
 - The session probe gates every reconnect. `EventSource` cannot see HTTP status, so after an error the adapter does not reconnect directly. It calls the configured `sessionProbe` through the request layer:
   - 2xx: reconnect the stream.
   - 401: the normal login redirect.
