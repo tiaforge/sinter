@@ -192,10 +192,22 @@ interface RB extends BoundBinding {
 /** A selection binding's index over one list's rows: rows by row-side value, and the rows the comparison holds for. */
 interface Sel { m: Map<unknown, Inst[]>; on: Set<Inst> }
 
+/**
+ * A simple row template (value bindings and handlers only, with a lookup function): its rows keep no
+ * binding objects. `vals`: the value bindings with their node index, in order (a row's `v` is parallel
+ * to it); `hs`: the handlers, bound to an element on its first event.
+ */
+interface Simple { vals: Array<[number, Binding]>; hs: Array<[number, Binding]> }
+
 interface Inst {
   first: Node | null;
-  nodes: Node[];
-  rbs: RB[];
+  /** the row's nodes; null for a one-element row (`first` is the element) */
+  nodes: Node[] | null;
+  /** the row's bound bindings, or null for a row of a simple template: its values are in `v`, by `Simple.vals` */
+  rbs: RB[] | null;
+  v: unknown[] | null;
+  /** simple rows: their template, for handlers bound on their first event */
+  t?: TemplateDef;
   s: any;
   key: unknown;
   item: unknown;
@@ -257,7 +269,10 @@ const others = new WeakMap<TemplateDef, Dep[]>(), selOf = new WeakMap<TemplateDe
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
 /** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
 const EARLY = Symbol.for('sinter.early');
-const simple = new WeakMap<TemplateDef, boolean>(), SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
+const simple = new WeakMap<TemplateDef, Simple | null>(), SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
+/** rows of simple templates with handlers, by each of their nodes */
+const rowOf = new WeakMap<Node, Inst>();
+const rowNodes = (x: Inst) => x.nodes ?? [x.first!];
 
 /** The instance mount() created on `root`; throws if none. */
 export function instance(root: Document | Element): App {
@@ -295,9 +310,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
   };
   const forward = (m: 'upsert' | 'patch' | 'remove') => (n: string, ...a: [any, any?]) => res(n)[m](...a);
   const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
-  const evaluate = (rb: RB): any => {
-    try { return fns[rb.b.f!]!(rb.b.e ? (rb.e ??= child(rb.s, { $el: rb.el })) : rb.s); } catch (e) { warn(6, rb.b.k, rb.el.localName, (e as Error)?.message); }
+  /** `rb`: keeps the `$el` scope of a bound binding; a simple row's binding makes one per evaluation */
+  const evalB = (b: Binding, s: any, el: Element, rb: RB | null): any => {
+    try { return fns[b.f!]!(b.e ? (rb ? (rb.e ??= child(s, { $el: el })) : child(s, { $el: el })) : s); } catch (e) { warn(6, b.k, el.localName, (e as Error)?.message); }
   };
+  const evaluate = (rb: RB): any => evalB(rb.b, rb.s, rb.el, rb);
   /** Elements written through callbacks (`$.$m(row, …)`) since the last flush. */
   const marked = new Set<unknown>();
   /** debounced handlers' pending timers */
@@ -481,7 +498,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
       run: (id: string) => {
-        const t = byId(id), h = t && (t as Tagged)[HANDLERS], rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
+        const t = byId(id), h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
         if (!rb) return warn(20, id);
         if (t.matches(':disabled') || t.closest('[inert]')) return;
         t.localName == 'form' ? (t as HTMLFormElement).requestSubmit() : trigger(rb, null);
@@ -649,13 +666,34 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (keys && keys.size == rb.rows.length) {
           for (const item of marked) {
             const x = Object(item) === item ? keys.get(keyOf(t!, item, null)) : null;
-            if (x && x.item === item) walk(x.rbs, 0);
+            if (x && x.item === item) walkRow(x, t!, 0);
           }
           continue;
         }
       }
       // otherwise skip rows no dirty path can reach (unless they moved or changed), and rows created in this round
-      for (const x of rb.rows) if (x.r != round && (r || x.f)) { walk(x.rbs, Math.max(force, x.f)); x.f = 0; }
+      for (const x of rb.rows) if (x.r != round && (r || x.f)) { walkRow(x, t!, Math.max(force, x.f)); x.f = 0; }
+    }
+  }
+
+  function walkRow(x: Inst, t: TemplateDef, force: number) {
+    if (x.rbs) walk(x.rbs, force);
+    else walkSimple(x, t, isSimple(t)!, force);
+  }
+
+  /**
+   * A simple row's bindings (`only`: just that one of `meta.vals`): the elements are found again from
+   * `first`, each binding that is forced or reached is evaluated and written when its value changed.
+   */
+  function walkSimple(x: Inst, t: TemplateDef, meta: Simple, force: number, only = -1) {
+    const els: Array<Element | null> = fns[t.find!]!(x.first), vals = meta.vals, v = x.v!;
+    for (let j = only < 0 ? 0 : only; j < vals.length; j++) {
+      const [k, b] = vals[j]!, el = els[k], prev = v[j];
+      if (el && (force == 2 || (force == 1 && b.i) || (b.d && hit(depsOf(b, b.d), x.s)))) {
+        const val = evalB(b, x.s, el, null);
+        if (!Object.is(val, prev)) { write(b, el, val, prev == UNSET ? undefined : prev, prev == UNSET); v[j] = val; }
+      }
+      if (only >= 0) break;
     }
   }
 
@@ -669,7 +707,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (k == 'for') reconcile(rb, v);
     else if (k == 'if') toggle(rb, v ? 1 : rb.else ? 2 : 0);
     else if (k == 'model') writeModel(rb, v);
-    else if (!Object.is(v, rb.v)) { write(rb, v, rb.v == UNSET ? undefined : rb.v); rb.v = v; }
+    else if (!Object.is(v, rb.v)) { write(rb.b, rb.el, v, rb.v == UNSET ? undefined : rb.v, rb.v == UNSET); rb.v = v; }
     return true;
   }
 
@@ -679,26 +717,25 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * value. The index is built from the rows on first use and kept while no row is rendered.
    */
   function select(rb: RB, b: Binding) {
-    const s = b.s!, f = s.x ? 0 : 1;
+    const s = b.s!, f = s.x ? 0 : 1, t = rb.t!, meta = isSimple(t), j = meta ? meta.vals.findIndex((y) => y[1] == b) : -1;
     if (!hit(depsOf(s, s.d), rb.s)) return;
-    const own = (x: Inst) => x.rbs.find((y) => y.b == b);
+    // the binding's current value in a row (undefined when its element is missing), and its re-evaluation
+    const cur = (x: Inst) => (meta ? x.v![j] : x.rbs!.find((y) => y.b == b)?.v);
+    const run = (x: Inst) => { if (meta) walkSimple(x, t, meta, 2, j); else { const y = x.rbs!.find((y) => y.b == b); if (y) process(y, 2); } };
     const safe = (i: number, sc: any) => { try { return fns[i]!(sc); } catch { return undefined; } };
     let e = rb.sx?.get(b);
     if (!e) {
       const m = new Map<unknown, Inst[]>(), on = new Set<Inst>();
       for (const x of rb.rows!) {
-        const y = own(x);
-        if (!y) continue;
         const k = safe(s.r, x.s), a = m.get(k);
         a ? a.push(x) : m.set(k, [x]);
-        if (+!!y.v == f) on.add(x);
+        if (+!!cur(x) == f) on.add(x);
       }
       (rb.sx ??= new Map()).set(b, (e = { m, on }));
     }
     for (const x of [...e.on, ...(e.m.get(safe(s.o, rb.s)) ?? [])]) {
-      const y = own(x)!;
-      process(y, 2);
-      if (+!!y.v == f) e.on.add(x); else e.on.delete(x);
+      run(x);
+      if (+!!cur(x) == f) e.on.add(x); else e.on.delete(x);
     }
   }
 
@@ -718,9 +755,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     m.set(n, v);
   }
 
-  function write(rb: RB, v: any, prev: any) {
-    const el = rb.el as HTMLElement, n = rb.b.n!;
-    switch (rb.b.k) {
+  /** Writes a binding's value to its element; `fresh`: the first write (an element from a template may lack the attribute). */
+  function write(b: Binding, e: Element, v: any, prev: any, fresh: boolean) {
+    const el = e as HTMLElement, n = b.n!;
+    switch (b.k) {
       case 'text': {
         const t = el.firstChild as Text | null;
         v = '' + (v ?? '');
@@ -736,7 +774,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         break;
       case 'class':
         // a new element without a class attribute cannot have the class: skip removing it
-        if (n) { if (v || rb.v !== UNSET || el.hasAttribute('class')) el.classList.toggle(n, !!v); }
+        if (n) { if (v || !fresh || el.hasAttribute('class')) el.classList.toggle(n, !!v); }
         else {
           if (prev?.[0] && prev[0] != v?.[0]) el.classList.remove(prev[0]);
           if (v?.[0]) el.classList.toggle(v[0], !!v[1]);
@@ -858,19 +896,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (parent.firstChild == tpl && parent.lastChild == end) parent.replaceChildren(tpl, end);
       else while (tpl.nextSibling != end) tpl.nextSibling!.remove();
     } else for (const node of gone.flatMap(nodesOf)) (node as ChildNode).remove();
-    if (deferred.size || selects.size) for (const o of gone) forget(old[o]!.rbs);
+    if (deferred.size || selects.size) for (const o of gone) if (old[o]!.rbs) forget(old[o]!.rbs!);
     const ref = ne < n ? rows[ne]!.first ?? end : end;
     if (!seq.some((o) => o >= 0)) {
       // only new rows in the middle: insert each straight before the reference (going through a
       // fragment first moves every node twice)
       const parent = ref.parentNode!;
-      for (let i = a; i < ne; i++) for (const node of rows[i]!.nodes) parent.insertBefore(node, ref);
+      for (let i = a; i < ne; i++) for (const node of rowNodes(rows[i]!)) parent.insertBefore(node, ref);
     } else {
       // move the fewest rows: those outside a longest increasing subsequence of old positions
       let at: Node = ref;
       for (let k = seq.length; k--;) {
         const x = rows[a + k]!;
-        if (!keep.has(k)) (at as ChildNode).before(...(moving.get(x) ?? x.nodes));
+        if (!keep.has(k)) (at as ChildNode).before(...(moving.get(x) ?? rowNodes(x)));
         at = x.first ?? at;
       }
     }
@@ -899,14 +937,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const end = (rb.end ??= after(rb.el)), [old] = rb.rows ?? [];
     if (old) {
       for (const n of range(old.first, end)) (n as ChildNode).remove();
-      forget(old.rbs);
+      if (old.rbs) forget(old.rbs);
     }
     rb.br = br;
     rb.rows = [];
     if (!br) return;
     const [anchor, tid] = br == 1 ? [rb.el, rb.b.x!] : rb.else!;
     const x = instantiate(anchor as HTMLTemplateElement, ir.templates[tid]!, Object.create(rb.s), '', null, 0);
-    end.before(...x.nodes);
+    end.before(...rowNodes(x));
     rb.rows = [x];
   }
 
@@ -932,32 +970,26 @@ export function mount(root: Document | Element, o: MountOptions): App {
         els[k] = node && (node as Element).localName == defs[k]!.tag ? (node as Element) : null;
       }
     }
-    if (isSimple(t)) {
-      // only value bindings and handlers: bind and write each once, as walk(rbs, 2) would
-      for (let k = 0; k < defs.length; k++) {
-        const el = els[k] as Tagged | null;
-        if (el) for (const b of defs[k]!.b) {
-          const rb: RB = { b, el, s, v: UNSET, c: false };
-          if (b.k == 'on') {
-            const h: RB | RB[] | undefined = el[HANDLERS];
-            el[HANDLERS] = h == null ? rb : Array.isArray(h) ? (h.push(rb), h) : [h, rb];
-            continue;
-          }
-          rbs.push(rb);
-          const v = evaluate(rb);
-          write(rb, v, undefined);
-          rb.v = v;
-        }
+    // a fragment's nodes, after the bindings ran: a nested list adds its rows and end marker to it
+    const collect = () => { const nodes: Node[] = []; if (pre) nodes.push(...pre); else if (!one) for (let c = top.firstChild; c; c = c.nextSibling) nodes.push(c); return nodes; };
+    const meta = isSimple(t);
+    if (meta) {
+      // only value bindings and handlers: no binding objects. The values are written once and kept in
+      // one array; the elements are found again when the row renders; handlers bind on their first event
+      const v: unknown[] = new Array(meta.vals.length);
+      for (let j = 0; j < meta.vals.length; j++) {
+        const [k, b] = meta.vals[j]!, el = els[k];
+        if (!el) { v[j] = UNSET; continue; }
+        write(b, el, (v[j] = evalB(b, s, el, null)), undefined, true);
       }
-    } else {
-      bindNodes(defs, els, s, rbs);
-      walk(rbs, 2);
+      const nodes = one ? null : collect(), x: Inst = { first, nodes, rbs: null, v, t, s, key, item, i, f: 0, r: round };
+      if (meta.hs.length) for (const n of nodes ?? [top]) if (n.nodeType == 1) rowOf.set(n, x);
+      return x;
     }
-    const nodes: Node[] = [];
-    if (pre) nodes.push(...pre);
-    else if (one) nodes.push(top);
-    else for (let c = top.firstChild; c; c = c.nextSibling) nodes.push(c);
-    return { first: nodes[0] ?? null, nodes, rbs, s, key, item, i, f: 0, r: round };
+    bindNodes(defs, els, s, rbs);
+    walk(rbs, 2);
+    const nodes = one ? null : collect();
+    return { first: nodes ? nodes[0] ?? null : first, nodes, rbs, v: null, s, key, item, i, f: 0, r: round };
   }
 
   /**
@@ -971,11 +1003,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return one;
   }
 
-  /** A row template whose elements only have value bindings and handlers (no state, model, nested template or dialog). */
-  function isSimple(t: TemplateDef): boolean {
+  /** A row template with a lookup function whose elements only have value bindings and handlers (no state, model, nested template or dialog). */
+  function isSimple(t: TemplateDef): Simple | null {
     let v = simple.get(t);
-    if (v == null) {
-      v = t.nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE.has(b.k)));
+    if (v === undefined) {
+      const pick = (on: boolean) => t.nodes.flatMap((nd, k) => nd.b.filter((b) => (b.k == 'on') == on).map((b): [number, Binding] => [k, b]));
+      v = t.find != null && t.nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE.has(b.k))) ? { vals: pick(false), hs: pick(true) } : null;
       simple.set(t, v);
     }
     return v;
@@ -986,8 +1019,23 @@ export function mount(root: Document | Element, o: MountOptions): App {
     for (const rb of rbs) {
       deferred.delete(rb);
       selects.delete(rb);
-      for (const r of rb.rows ?? []) forget(r.rbs);
+      for (const r of rb.rows ?? []) if (r.rbs) forget(r.rbs);
     }
+  }
+
+  /**
+   * The element's handler bindings: bound at mount, or, for an element in a row of a simple template,
+   * on its first event (the row is found above it, the element among the row's bound elements).
+   */
+  function handlersOf(el: Tagged): RB | RB[] | undefined {
+    const h = el[HANDLERS];
+    if (h != null) return h;
+    let a: Element | null = el, x: Inst | undefined;
+    while (a && a != root && !(x = rowOf.get(a))) a = a.parentElement;
+    if (!x) return undefined;
+    const t = x.t!, els: Array<Element | null> = fns[t.find!]!(x.first), k = els.indexOf(el);
+    const rbs = k < 0 ? [] : isSimple(t)!.hs.filter((y) => y[0] == k).map(([, b]): RB => ({ b, el, s: x!.s, v: UNSET, c: false }));
+    return rbs.length ? (el[HANDLERS] = rbs.length == 1 ? rbs[0]! : rbs) : undefined;
   }
 
   // ---- events
@@ -1005,7 +1053,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const m = (el as Tagged)[MODEL];
     if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
     for (; el; el = el.parentElement) {
-      const h = (el as Tagged)[HANDLERS], hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
+      const h = handlersOf(el as Tagged), hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
       if (hs?.length) {
         for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? later(h, e) : handle(h, h.b.f!, e, h.b.w);
         // a bubbling custom event is a notification: it goes on up until a handler prevents it. Otherwise handled:

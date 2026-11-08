@@ -903,9 +903,10 @@ sinter updates the DOM fine-grained, without a virtual DOM: every binding knows 
 - One listener per used event type is added at the mount root.
 
 ### Template instances
-- An instance is `template.content.cloneNode(true)` plus the nodes found by the IR's node paths, resolved once per clone.
+- An instance is `template.content.cloneNode(true)` plus the nodes found by the IR's node paths, resolved once per clone (a one-element row clones just that element and keeps no node list).
 - Each instance keeps its scope (loop item, index) and the last value written by each binding.
 - A binding writes only when the new value differs from its last value.
+- Simple rows (changed 2026-11-08). A row template whose elements carry only value bindings and handlers (no state, model, nested template or dialog) is the common case, and its rows keep no binding objects: the last values live in one array per row, parallel to the template's value bindings, and the elements are found again from the row's first node (the template's lookup function) when the row renders, so a row holds no references to its inner elements. Handlers in such rows bind on their first event: the dispatch walk finds the row above the target (a `WeakMap` from row nodes to instances), locates the element among the row's bound elements, and keeps the handler bindings on the element from then on (a debounced handler keeps its timer across events). The observable behaviour is that of bound bindings; what changes is memory per row (the 1,000-row benchmark table: see `docs/benchmark.md`) and that the row's inner element wrappers can be collected between renders.
 
 ### Writes
 

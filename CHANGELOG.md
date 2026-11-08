@@ -7,6 +7,12 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- Simple rows keep no binding objects. A row template whose elements carry only value bindings and
+  handlers (no state, model, nested template or dialog) now stores its last values in one array per
+  row and finds its elements again from the row's first node when it renders; handlers in such rows
+  bind to their element on its first event. One-element rows keep no node list. Behaviour is
+  unchanged (a debounced handler keeps its timer across events, `run('id')` finds a row's action);
+  memory per row drops (js-framework-benchmark figures in `docs/benchmark.md`). Core +0.45 KB gzip.
 - Selection bindings: a value binding in a row whose value is `row side === outer side` (or `!==`),
   such as `data-sn-class="{active: row.id === selectedId}"`, is re-evaluated only on the rows the
   comparison held for and on those matching the new value when the outer side changes, through an
