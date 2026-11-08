@@ -33,6 +33,13 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- Firefox (no `blocking` attribute) no longer paints a page before its early file has rendered:
+  the page's first classic script (the language picker, or `sinter-paint-<hash>.js` on pages with
+  an early file and no messages) hides `<html>` and turns CSS transitions off until the early file
+  has rendered and the stylesheets have applied (2 s at most for the hiding). A persisted
+  collapsed rail no longer shows open for a frame, and nothing transitions from the unrendered
+  state. Chromium is unchanged.
+
 - `vite build` with Vite 8 no longer warns "`inlineDynamicImports` option is deprecated" once per
   page: the early file's build passes Rolldown's `codeSplitting: false` (Vite 6 and 7, on Rollup,
   keep `inlineDynamicImports: true`). Both put an early module's dynamic imports into the early
