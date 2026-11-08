@@ -48,17 +48,20 @@ With `cache` on every resource (2026-11-05, `spa`): the same five failures; in a
 two tests more can time out in `page.goto` (10 s) under load on a slow machine, and pass when run
 alone. `ssr` mode was not rerun.
 
-All remaining failures are assumptions in the suite, not app behaviour:
+The remaining failures are assumptions in the suite, not app behaviour:
 
 - **Settings (4, spa mode only)**: the spa branch keeps using the settings page after the PUT:
   three tests read the response body over CDP, one calls `page.evaluate` right away. This app
   redirects to the profile with a page load as soon as the PUT succeeds, which drops the body
   (`Network.getResponseBody: No resource`) and the JS context (`Execution context was
   destroyed`). The ssr branch of the same tests (wait for the profile, check the bio) passes.
-- **Comments, "should require login to post comment" (both modes)**: asserts on the strict
-  locator `a[href="/login"]`, which matches the nav link and the reference markup's "Sign in or
-  sign up to add comments" link once the article has loaded. Against the slower public API the
-  assertion runs before that, so it passes there.
+- **Comments, "should require login to post comment" (both modes, fixed 2026-11-08, not yet
+  rerun)**: asserts on the strict locator `a[href="/login"]`, which matched the nav link and the
+  reference markup's "Sign in or sign up to add comments" link once the article had loaded
+  (against the slower public API the assertion ran before that, so it passed there). The
+  article's link now carries the way back, `/login?next=/article/<slug>`, and the login page
+  returns there after signing in (`$url.next`, accepted only as an absolute path on this origin).
+  The nav link is the only `a[href="/login"]` left, so the test should pass in both modes.
 
 Follow/unfollow and comment deletion wait for the server; favorites are optimistic.
 

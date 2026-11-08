@@ -58,7 +58,7 @@
             </form>
           </template>
           <template data-sn-else>
-            <p><a href="/login">Sign in</a> or <a href="/register">sign up</a> to add comments on this article.</p>
+            <p><a data-sn-attr="{href: '/login?next=' + encodeURIComponent('/article/' + $url.slug)}">Sign in</a> or <a href="/register">sign up</a> to add comments on this article.</p>
           </template>
           <template data-sn-for="c in comments">
             <div class="card">
