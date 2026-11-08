@@ -134,7 +134,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN501: {
     example: 'resource `addressbooks` is declared but never read',
-    means: 'The page fetches a resource that nothing on it uses, which costs a request on every load.',
+    means: 'The page fetches a resource that nothing on it uses, which costs a request on every load. A resource with a `then` handler counts as used.',
     fix: 'Remove the `<sn-resource>`, or use it.',
   },
   SN502: {

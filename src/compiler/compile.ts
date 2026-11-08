@@ -1159,6 +1159,8 @@ class Compiler {
     // `then`: a handler run after each successful load, with what it loaded as `$result`
     let then: { f: number; w: string[] } | null = null;
     if (attr(el, 'then') != null) {
+      // a resource loaded for its `then` is used, whether or not the handler reads `$result`
+      this.page.resources.get(name)!.used = true;
       const r = this.expr(el, 'then', ctx.scope, { mode: 'handler', magic: ['$result'], noElement: 'sn-resource' });
       this.typeLast({ resultType: { kind: 'resource', resource: name } });
       if (r.ok) then = { f: this.fn(r.code), w: r.writes };

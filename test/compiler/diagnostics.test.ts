@@ -153,6 +153,14 @@ describe('<sn-resource then>', () => {
     expect(diags('<sn-resource name="c" src="/api/c" key="id" thn="x"></sn-resource><p data-sn-text="c.length"></p>').map((d) => `${d.code} ${d.message}`))
       .toEqual(['SN101 `thn` is not an attribute of `<sn-resource>`. Did you mean `then`?']);
   });
+  test('a resource with `then` is used (SN501), whether or not the handler reads `$result`', () => {
+    // the spec's pattern: a resource loaded only for its `then`
+    const sn501 = (then: string) => diags(`<dialog id="mail-compose"></dialog><main data-sn-state="{ compose: null, seen: false }">
+      <sn-resource name="pending" src="/api/pending" then="${then}"></sn-resource><p data-sn-text="compose"></p></main>`).filter((d) => d.code === 'SN501');
+    expect(sn501("compose = $result ?? compose; $result && showModal('mail-compose')")).toEqual([]);
+    expect(sn501('seen = true')).toEqual([]);
+    expect(diags('<sn-resource name="pending" src="/api/pending"></sn-resource><p data-sn-text="1"></p>').map((d) => d.code)).toEqual(['SN501']);
+  });
   test('$result is only for `then`: other resource expressions refuse it', () => {
     expect(codes('', 'when="$result"').filter((c) => !c.startsWith('SN401'))).toEqual([expect.stringMatching(/^SN201 `\$result` is not available here/)]);
   });

@@ -248,7 +248,7 @@ Warning, for example:
 
 > resource `addressbooks` is declared but never read
 
-The page fetches a resource that nothing on it uses, which costs a request on every load.
+The page fetches a resource that nothing on it uses, which costs a request on every load. A resource with a `then` handler counts as used.
 
 **Fix:** Remove the `<sn-resource>`, or use it.
 

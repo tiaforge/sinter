@@ -388,6 +388,7 @@ Single-object resources (no `key`): `upsert` replaces the object, `patch` merges
 - Order: after the store has the response (writes made during the load replayed on top) and `$meta.<name>` is current (`loading` false, `loadedAt` set, `error` null), so the handler reads the resource and other resources as they now are. Its state writes re-render like any handler's, in the same flush.
 - Scope: the scope the resource's `src` and `when` see, so the state around the `<sn-resource>` element, which it may assign, and every resource. Store functions work; there is no element, so `close()` names its dialog and `reset()` and `emit()` are errors (`SN203`), as in `<sn-event then>`. `$event` and `$error` are not defined here; `$result` is not defined in the resource's other expressions. The `each` item name is not in scope.
 - An exception in the handler is logged; the load still counts as successful.
+- A resource with `then` counts as used: one that only its own `then` reads, with or without `$result`, is not `SN501`.
 
 ### Fan-out resources (`each`)
 Some APIs list a collection per parent: mailboxes per account, events per calendar. `each` loads one request per item of another list and keeps the results as one collection (added 2026-11-05):

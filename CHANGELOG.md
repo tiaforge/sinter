@@ -82,6 +82,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   in a comment that mentions `<html>` before the real tag, and the state was lost under jsdom
   (the comment's tail also became text in the body). `render()` now parses the page and takes
   the attributes and the content from its `<html>` element. The runtime is unchanged.
+- `SN501` warned that a resource used only through its own `then` was never read, as in the
+  spec's pattern `<sn-resource name="pending" call="mail.pendingCompose()" then="… $result && showModal('mail-compose')">`
+  (Caley's share-to-mail). A resource with `then` now counts as used, whether or not the
+  handler reads `$result`: a `then` that only notes the arrival (`then="loaded = true"`) is a
+  reason to load it too.
 
 ## 0.4.0 (2026-11-08)
 
