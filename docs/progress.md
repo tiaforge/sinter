@@ -198,6 +198,15 @@ built, what deviates, and what is left.
   compiler keys by code). RealWorld article: 112 → 60 functions, 16,507 → 16,293 B gzip; index,
   profile and editor 28–55 B smaller. A first call costs about 5 µs per function in Chrome, so mount
   gains at most about 0.26 ms on the article page, not measurable in a page load's script time.
+- 2026-11-08: `run('id')` (proposal reviewed the same day): a store function that starts the action
+  of the element with that id through the trigger path (`trigger(rb, null)`), or `requestSubmit()`
+  for a form; disabled (`:disabled`) and inert (`[inert]` on it or an ancestor) targets do nothing,
+  a missing one warns (dev code 20). Compiler: element ids collected in `declare` (`PageInfo.ids`:
+  action, in a row, count) for `SN311`; handlers' `run()`/`refresh()` calls (`flows`) give the
+  `$event` typing of targets (`CheckExpr.run`, `RunEvent<E> = E | void`, because `E | null` is `E`
+  without `strictNullChecks`) and the opt-in `SN509` cycle search. happy-dom does not match
+  `:disabled` inside a disabled `<fieldset>` and passes the form as `requestSubmit()`'s submitter;
+  the tests allow for both. Core +86 B gzip.
 
 ## Decisions and deviations
 

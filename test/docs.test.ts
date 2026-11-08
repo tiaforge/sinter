@@ -47,6 +47,7 @@ Key filters (\`data-sn-on-keydown-<modifiers->key\`, \`data-sn-on-keyup-…\`): 
 
 - Attribute values are JavaScript expressions, checked at build time. Value expressions (text, attr, class, show, for, if, key, body, state, URL interpolations) cannot assign, use \`++\`, \`delete\`, \`await\` or \`import()\`.
 - Handlers (\`data-sn-on-*\`, \`then\`, \`catch\`) are statements separated by \`;\`: assignments to state, \`$url.<param>\` and \`$locale\`, and calls. No declarations or loops.
+- A handler cannot call an action function (SN203). To start an action from a handler (a key filter, \`data-sn-then\`, \`<sn-resource then>\`), give the action element an \`id\` and call \`run('id')\`; the element's busy state, concurrency, optimistic layer and \`then\`/\`catch\` apply. A hidden carrier works: \`<span hidden id="mark-read" data-sn-call="mail.markRead(open)"></span>\`. See the recipe "Run an action from a handler".
 - \`then\` on \`<sn-event>\` is a handler run after the event's change is applied: payload fields are bare names, the state around the \`<sn-sync>\` is in scope and assignable, store functions work (\`close('id')\` names its dialog: there is no element). With \`then\`, \`resource\` and \`op\` may be left out.
 - \`then\` on \`<sn-resource>\` is a handler run after each successful load (first load, \`refresh()\`, refetch events, \`src\` changes, every \`page()\`; per source for \`each\`), not for cached data shown at once, failed loads or optimistic/event changes. \`$result\` is what the load stored (what \`items\` selects; the page just loaded). The state around the resource is in scope and assignable; \`close('id')\` names its dialog. It runs on every refetch, so a once-only handler guards itself, one step per guard: \`then="draft = $result ?? draft; $result && showModal('compose')"\`.
 - \`data-sn-optimistic\` may only call \`patch\`, \`upsert\`, \`remove\`. The change shows at once, stays when the request succeeds (committed under what \`then\` writes) and is rolled back when it fails.
@@ -69,7 +70,7 @@ ${ALL_MAGIC.map((m) => `\`${m}\``).join(', ')}. \`$event\` in handlers, \`$resul
 
 ## Store functions
 
-${STORE_FNS.map((f) => `\`${f}()\``).join(', ')}: \`refresh('name')\`, \`upsert('name', item)\`, \`patch('name', item, {…})\`, \`remove('name', item)\`, \`page('name', 'next' | 'prev' | 'first' | 'last' | n)\`, \`showModal('id')\` opens a dialog by its literal id, \`close()\` the nearest dialog or \`close('id')\` that one, \`reset()\` the nearest form, \`emit('event', detail)\`.
+${STORE_FNS.map((f) => `\`${f}()\``).join(', ')}: \`refresh('name')\`, \`upsert('name', item)\`, \`patch('name', item, {…})\`, \`remove('name', item)\`, \`page('name', 'next' | 'prev' | 'first' | 'last' | n)\`, \`showModal('id')\` opens a dialog by its literal id, \`close()\` the nearest dialog or \`close('id')\` that one, \`reset()\` the nearest form, \`emit('event', detail)\`, \`run('id')\` starts the action of the element with that literal id (SN311), as its trigger would but with \`$event\` null; a form is submitted (\`requestSubmit()\`, validation runs); a disabled or inert element does nothing; it returns nothing, results go to the element's \`then\`/\`catch\`.
 
 ## Diagnostics
 
@@ -95,6 +96,8 @@ Each recipe comes with its test; copy both.
 - Actions matched in the spec: \`data-sn-body\` is checked against the request schema, \`$result\` in \`then\` has the response type.
 - \`$result\` in \`<sn-resource then>\` has the resource's type (\`type\`, OpenAPI, or a \`call\`'s result).
 - \`<sn-event … type="ContactEvent">\` types the payload; \`item\` must fit the resource's item, \`set\` part of it, and \`then\` is checked against it; \`cursor\` reads the item. No \`type\` on an event with payload expressions is warning SN506.
+- In the URL, body, call arguments and confirm of an element \`run('id')\` starts (not a form), \`$event\` is \`RunEvent<…>\` (no event when run): guard reads with \`$event && $event.shiftKey\`.
+- SN509 (\`run-cycle\`) is opt-in: \`sinter check --check-cycles\`, or \`sinter({ checkCycles: true })\` for the build, \`sinter check\` and \`sinter lsp\`. It reports \`then\`/\`catch\` handlers that start each other again through \`run()\` (and \`refresh()\`), with every step.
 - Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: \`checkPage(html, { files, openapi })\` from \`@tiaforge-ui/sinter/check\`.
 `);
   out.push(`## Deploying streams

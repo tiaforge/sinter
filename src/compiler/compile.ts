@@ -42,6 +42,8 @@ export interface CompileOptions {
   actions?: HelperManifest;
   /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
   complexity?: ComplexityOptions;
+  /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
+  checkCycles?: boolean;
 }
 
 export interface CompileResult {
@@ -71,6 +73,8 @@ export interface CompiledParts {
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
+/** an action's expressions evaluated when it triggers, so they see `$event` */
+const TRIGGER_TIME = new Set(['data-sn-get', 'data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
 const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
@@ -125,6 +129,12 @@ class Compiler {
   readonly frameOf = new Map<object, number>();
   /** index in `check.exprs` of the expression `expr()` recorded last, or null */
   lastExpr: number | null = null;
+  /** action elements by literal `id` (`run()` targets) */
+  readonly idEls = new Map<string, P5Element>();
+  /** check unit: the expressions recorded per element, so `run()` targets can type their `$event` */
+  readonly exprsOf = new Map<P5Element, Array<{ attr: string; i: number }>>();
+  /** handlers that call `run()` or `refresh()`, for SN509 */
+  readonly flows: Array<{ el: P5Element; attr: string; shift: number; runs: NonNullable<ExprResult['runs']>; refreshes: NonNullable<ExprResult['refreshes']> }> = [];
 
   constructor(readonly opts: CompileOptions) {
     this.check = opts.check ? { file: opts.file, resources: [], frames: [], exprs: [] } : null;
@@ -133,7 +143,7 @@ class Compiler {
     this.page = {
       resources: new Map(), helpers: new Set(opts.helpers.names), namespaces: ns,
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
-      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(),
+      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), ids: new Map(),
     };
   }
 
@@ -155,6 +165,8 @@ class Compiler {
         this.report(el, 'name', 'SN501', `resource \`${info.name}\` is declared but never read`, 0);
       }
     }
+    this.runTargets();
+    if (this.opts.checkCycles) this.runCycles();
     for (const el of this.remove) detach(el);
     this.injectScript(doc);
     // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
@@ -376,7 +388,7 @@ class Compiler {
 
   // ---- declarations (first pass: names only, so expressions can see every resource and dialog)
 
-  declare(parent: P5Parent, inTemplate = false) {
+  declare(parent: P5Parent, inTemplate = false, inRow = false) {
     for (const child of parent.childNodes) {
       if (!isElement(child)) continue;
       if (child.tagName === 'sn-resource') {
@@ -402,12 +414,104 @@ class Compiler {
         this.resourceEls.set(name, child);
         continue;
       }
-      if (child.tagName === 'dialog') {
-        const id = attr(child, 'id');
-        if (id) this.page.dialogs.add(id);
+      const id = attr(child, 'id');
+      if (id && child.tagName === 'dialog') this.page.dialogs.add(id);
+      if (id) {
+        const t = this.page.ids!.get(id) ?? { action: false, row: false, n: 0 };
+        const action = attr(child, 'data-sn-call') != null || METHODS.some((m) => attr(child, `data-sn-${m}`) != null);
+        t.n++;
+        if (action) { t.action = true; t.row ||= inRow; }
+        this.page.ids!.set(id, t);
+        if (action) this.idEls.set(id, child);
       }
-      this.declare(child, inTemplate);
-      if (child.tagName === 'template') this.declare((child as P5Template).content, true);
+      this.declare(child, inTemplate, inRow);
+      if (child.tagName === 'template') this.declare((child as P5Template).content, true, inRow || attr(child, 'data-sn-for') != null);
+    }
+  }
+
+  // ---- run(): targets and cycles
+
+  /**
+   * A non-form action `run()` starts gets no event: its trigger-time expressions (URL, body, call
+   * arguments, confirm) type `$event` as `RunEvent<…>`, so `sinter check` reports unguarded reads.
+   * A form is submitted (`requestSubmit()`), so its `$event` is a real `SubmitEvent`.
+   */
+  runTargets() {
+    if (!this.check) return;
+    const ids = new Set(this.flows.flatMap((f) => f.runs.map((r) => r.id)));
+    for (const id of ids) {
+      const el = this.idEls.get(id);
+      if (!el || el.tagName === 'form') continue;
+      for (const { attr: a, i } of this.exprsOf.get(el) ?? []) {
+        if (TRIGGER_TIME.has(a) && this.check.exprs[i]!.event !== null) this.check.exprs[i]!.run = true;
+      }
+    }
+  }
+
+  /**
+   * SN509 (opt-in, `checkCycles`): `then`/`catch` handlers that start each other again. Nodes are
+   * action elements (by id) and resources; an edge is a `run('id')` in an action's `then`/`catch`
+   * or a resource's `then`, or a `refresh('name')` there (a load runs the resource's `then`).
+   * Each elementary cycle with at least one `run()` is reported once, at its first step.
+   */
+  runCycles() {
+    type Edge = { to: string; run: boolean; flow: Compiler['flows'][number]; offset: number };
+    const nodeOf = (el: P5Element, a: string): string | null => {
+      if (el.tagName === 'sn-resource') return a === 'then' ? `r:${attr(el, 'name')}` : null;
+      const id = attr(el, 'id');
+      return id && (a === 'data-sn-then' || a === 'data-sn-catch') && this.idEls.get(id) === el ? `#${id}` : null;
+    };
+    const edges = new Map<string, Edge[]>();
+    for (const f of this.flows) {
+      const from = nodeOf(f.el, f.attr);
+      if (!from) continue;
+      const list = edges.get(from) ?? [];
+      for (const r of f.runs) list.push({ to: `#${r.id}`, run: true, flow: f, offset: r.offset });
+      for (const r of f.refreshes) list.push({ to: `r:${r.name}`, run: false, flow: f, offset: r.offset });
+      edges.set(from, list);
+    }
+    const order = [...edges.keys()];
+    const rank = new Map(order.map((k, i) => [k, i]));
+    const where = (e: Edge) => {
+      const o = this.origins.get(e.flow.el) ?? { file: this.opts.file, src: '', chain: [] };
+      const { line } = e.flow.el.sourceCodeLocation ? this.lineCol(o.src, this.valueOffset(e.flow.el, e.flow.attr) + e.flow.shift + e.offset) : { line: 1 };
+      const rel = o.file.startsWith(this.opts.root) ? o.file.slice(this.opts.root.length).replace(/^\//, '') : o.file;
+      return `${rel}:${line}`;
+    };
+    const label = (n: string) => (n.startsWith('#') ? `\`${n}\`` : `\`<sn-resource name="${n.slice(2)}">\``);
+    let reported = 0;
+    for (const start of order) {
+      const s = rank.get(start)!;
+      const path: Edge[] = [];
+      const onPath = new Set<string>([start]);
+      const dfs = (n: string) => {
+        for (const e of edges.get(n) ?? []) {
+          if (reported >= 20) return;
+          const r = rank.get(e.to);
+          if (r === undefined || r < s) continue;
+          path.push(e);
+          if (e.to === start) {
+            if (path.some((p) => p.run)) {
+              let from = start;
+              const steps = path.map((p) => {
+                const step = `${label(from)} \`${p.flow.attr}\` (${where(p)}) ${p.run ? 'runs' : 'refreshes'} ${p.run ? label(p.to) : `\`${p.to.slice(2)}\``}`;
+                from = p.to;
+                return step;
+              });
+              const first = path[0]!;
+              this.report(first.flow.el, first.flow.attr, 'SN509', `\`run()\` cycle: ${steps.join(', then ')}, which starts the first step again`, first.flow.shift + first.offset,
+                'each step starts the next, so the requests never stop; a step that should end needs a condition that becomes false, or one step goes. Reported because the cycle check is on (`sinter check --check-cycles` or `sinter({ checkCycles: true })`)', true);
+              reported++;
+            }
+          } else if (!onPath.has(e.to)) {
+            onPath.add(e.to);
+            dfs(e.to);
+            onPath.delete(e.to);
+          }
+          path.pop();
+        }
+      };
+      dfs(start);
     }
   }
 
@@ -738,6 +842,7 @@ class Compiler {
     const src = value ?? attr(el, attrName) ?? '';
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
     if (r.ok && r.ast) this.complexity(el, attrName, o, r.ast);
+    if (r.runs || r.refreshes) this.flows.push({ el, attr: attrName, shift, runs: r.runs ?? [], refreshes: r.refreshes ?? [] });
     this.lastExpr = null;
     if (this.check) {
       const i = this.recordExpr(el, attrName, scope, o, src, shift, r);
@@ -837,6 +942,9 @@ class Compiler {
     };
     if (o.payload) e.payload = { names: r.payloadNames ?? [], type: null, ...(r.payloadStates?.length ? { states: r.payloadStates } : {}) };
     this.check!.exprs.push(e);
+    const list = this.exprsOf.get(el) ?? [];
+    list.push({ attr: attrName, i: this.check!.exprs.length - 1 });
+    this.exprsOf.set(el, list);
     return this.check!.exprs.length - 1;
   }
 

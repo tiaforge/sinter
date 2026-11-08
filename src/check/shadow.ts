@@ -207,7 +207,8 @@ export function shadow(o: ShadowOptions): Shadow {
     }
     if (e.mode === 'value') {
       // action arguments and bodies are taken when the trigger fires
-      if (e.event !== null) line(`/** @type {${decl(`Ev<${JSON.stringify(e.event)}>`)}} */ const $event = $any;`);
+      // run('id') starts the action without an event: unguarded reads are reported
+      if (e.event !== null) line(`/** @type {${decl(e.run ? `RunEvent<${decl(`Ev<${JSON.stringify(e.event)}>`)}>` : `Ev<${JSON.stringify(e.event)}>`)}} */ const $event = $any;`);
       // a value of the wrong type as a whole is reported on `return`
       regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
       line('return (');
@@ -273,6 +274,11 @@ export type CallArgs<F> = F extends (...a: infer P) => any ? (P extends [...infe
 export type Item<T> = NonNullable<T> extends readonly (infer U)[] ? U : NonNullable<T> extends Iterable<infer U> ? U : any;
 export type El<K extends string> = K extends keyof HTMLElementTagNameMap ? HTMLElementTagNameMap[K] : HTMLElement;
 export type Ev<K extends string> = K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K] : CustomEvent;
+/**
+ * $event where run('id') can start the action: null then. Checking runs without strictNullChecks, where
+ * \`E | null\` is just E, so the missing event is \`void\`: \`$event.shiftKey\` is an error, \`$event && $event.shiftKey\` is not.
+ */
+export type RunEvent<E> = E | void;
 export interface Store<R> {
   refresh(name: keyof R & string): void;
   upsert<K extends keyof R & string>(name: K, item: Item<R[K]>): void;
@@ -283,6 +289,7 @@ export interface Store<R> {
   close(id?: string): void;
   reset(): void;
   emit(event: string, detail?: unknown): void;
+  run(id: string): void;
 }
 type Style = 'short' | 'medium' | 'long' | 'full';
 export function date(v: unknown, style?: Style): string;

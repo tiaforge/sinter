@@ -260,7 +260,8 @@ describe('call diagnostics', () => {
     expect(diags('<button data-sn-call="archive(1)" data-sn-body="{a: 1}"></button>')).toContain('SN102 `data-sn-body` belongs to a method attribute; a call takes its arguments in `data-sn-call`');
   });
   test('actions do not run inside expressions', () => {
-    expect(diags('<button data-sn-on-click="archive(1)"></button>')[0]).toMatch(/^SN203 `archive` is an action: actions run through `data-sn-call`/);
+    expect(diags('<p data-sn-text="archive(1)"></p>')[0]).toMatch(/^SN203 `archive` is an action: actions run through `data-sn-call`/);
+    expect(diags('<button data-sn-on-click="archive(1)"></button>')[0]).toMatch(/^SN203 `archive` is an action, and a handler cannot call it: put the call on an element with an `id` and start it with `run\('id'\)`/);
   });
   test('resources: src or call; call does not combine with paginate, each, cache', () => {
     expect(diags('<sn-resource name="b" src="/x" call="archive(1)"></sn-resource><p data-sn-text="b"></p>')).toContain('SN102 a resource loads from `src` or from `call`, not both');

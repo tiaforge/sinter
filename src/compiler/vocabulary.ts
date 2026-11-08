@@ -24,7 +24,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'put', value: 'URL template', doc: 'PUT action' },
   { name: 'patch', value: 'URL template', doc: 'PATCH action' },
   { name: 'delete', value: 'URL template', doc: 'DELETE action' },
-  { name: 'call', value: 'action call', doc: 'local action: calls a function from the actions module, e.g. pgp.decrypt(msg)' },
+  { name: 'call', value: 'action call', doc: 'local action: calls a function from the actions module, e.g. pgp.decrypt(msg); a handler starts it with run(\'id\')' },
   { name: 'body', value: 'value expression', doc: 'JSON request body; overrides form serialization' },
   { name: 'trigger', value: 'DOM event name', doc: 'overrides the default trigger' },
   { name: 'debounce', value: 'milliseconds', doc: 'delays the trigger, resets on each event; without a method, delays the element\'s data-sn-on-* handlers' },

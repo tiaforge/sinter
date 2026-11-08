@@ -49,6 +49,8 @@ export interface CheckExpr {
   tag: string;
   /** DOM event that runs a handler, for `$event` */
   event: string | null;
+  /** a trigger-time expression of an action `run('id')` starts (not a form): `$event` is null then */
+  run?: boolean;
   /** `$result` (then) or `$error` (catch) is in scope */
   result: boolean;
   error: boolean;

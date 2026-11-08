@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `sinter check [--root <dir>] [page.html …]`: compiles the pages and type-checks
+// `sinter check [--root <dir>] [--check-cycles] [page.html …]`: compiles the pages and type-checks
 // their expressions. Without pages, it reads them and the plugin options from the
 // Vite config. `sinter lsp`: the language server for editors.
 import { readFileSync } from 'node:fs';
@@ -8,7 +8,7 @@ import { check } from './check/index.js';
 import { compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
 import { project, viteProject, type ProjectOptions } from './project.js';
 
-const USAGE = 'usage: sinter check [--root <dir>] [page.html …]\n       sinter lsp [--stdio]';
+const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [page.html …]\n       sinter lsp [--stdio]';
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -19,8 +19,10 @@ async function main(argv: string[]): Promise<number> {
   }
   let root = process.cwd();
   const pages: string[] = [];
+  let cycles = false;
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === '--root') root = resolve(rest[++i] ?? '.');
+    else if (rest[i] === '--check-cycles') cycles = true;
     else pages.push(rest[i]!);
   }
   let options: ProjectOptions = {};
@@ -35,7 +37,7 @@ async function main(argv: string[]): Promise<number> {
   const diagnostics: Diagnostic[] = [...p.diagnostics];
   const units: CheckUnit[] = [];
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, complexity: p.complexity });
+    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles || cycles });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }

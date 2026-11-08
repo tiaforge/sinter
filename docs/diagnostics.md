@@ -68,9 +68,9 @@ Error, for example:
 
 > value expressions cannot assign; move this to `data-sn-on-*`
 
-A binding that produces a value (`text`, `attr`, `show`, `for`, …) tried to change state, which would run on every render. Path parameters of `$url` are read-only everywhere.
+A binding that produces a value (`text`, `attr`, `show`, `for`, …) tried to change state, which would run on every render. Path parameters of `$url` are read-only everywhere. Also: an expression called a function of the actions module. Actions run on elements (`data-sn-call`) or feed resources (`<sn-resource call>`), because their busy state, concurrency, optimistic layer and `then`/`catch` belong to an element.
 
-**Fix:** Do the assignment in an event handler (`data-sn-on-click`) or in an action's `then`.
+**Fix:** Do the assignment in an event handler (`data-sn-on-click`) or in an action's `then`. To start an action from a handler (a key filter, `data-sn-then`, `<sn-resource then>`), put it on an element with an `id` and call `run('id')`: `<span hidden id="mark-read" data-sn-call="mail.markRead(open)"></span>` and `then="$result && run('mark-read')"`.
 
 ## SN204 optimistic-scope
 
@@ -128,7 +128,7 @@ Error, for example:
 
 > `s` is already defined here by `data-sn-let`; use another name
 
-A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it. A resource cannot take the name of a store function (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close`, `reset`, `emit`).
+A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it. A resource cannot take the name of a store function (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close`, `reset`, `emit`, `run`).
 
 **Fix:** Rename the let, the state or loop variable, or the resource.
 
@@ -232,6 +232,16 @@ Error, for example:
 
 **Fix:** Use the suggested name, or export the function from the actions module.
 
+## SN311 unknown-run-target
+
+Error, for example:
+
+> no element `id="mark-raed"` on this page. Did you mean `mark-read`?
+
+`run(id)` starts the action of the element with that literal `id`: an element on the page or one of its partials with `data-sn-get`, `-post`, `-put`, `-patch`, `-delete` or `data-sn-call`. Also reported: an id that is not a string literal, an element without an action, an element inside a `data-sn-for` row (every row would have the id), and an id that more than one element has.
+
+**Fix:** Fix the id, or give the action element an `id`. For a row's action, put one action element outside the list and pass the row through state: `open = m; run('mark-read')`.
+
 ## SN401 parse-error
 
 Error, for example:
@@ -311,3 +321,13 @@ Warning, for example:
 An expression has more structure than markup should hold. The measure is structure, not length: statements in a handler (`statements`, 4), comma sequences (`sequences`, 0), steps one `&&`/`||`/`?:` used as a statement runs (`guarded`, 1: `a && close()` is fine, `a && (b = 1, close())` is not), `?:` nesting (`ternaries`, 2), operations in an arrow function (`arrow`, 8; a block body `{ … }` always counts), and operations in one expression or statement (`operations`, 15) as a backstop. Operations are calls, operators, assignments and computed access; names, member paths (`a.b.c`) and literals are free. Object attributes (`data-sn-state`, `-let`, `-attr`, `-class`, `-style`, `-prop`) are measured per property value. A warning by default.
 
 **Fix:** Move the logic into a helper (pure) and apply its result in the handler, `sel = rowClick($event, sel, key)`, or into an action for side effects (`data-sn-call`). Split independent steps into separate `;` statements. Limits and the level are options of the Vite plugin: `sinter({ complexity: { statements: 4, level: 'error' } })`; `level: 'off'` turns the check off.
+
+## SN509 run-cycle
+
+Warning, for example:
+
+> `run()` cycle: `#save` `data-sn-catch` (index.html:12) runs `#save`, which starts the first step again
+
+`then`/`catch` handlers start each other again through `run()` (and `refresh()`, whose load runs the resource's `then`), so the requests may never stop. The message lists every step with its handler and line. The check is off by default: a guarded retry is a deliberate cycle. `sinter check --check-cycles` turns it on for one run, and `sinter({ checkCycles: true })` for the build, `sinter check` and `sinter lsp`.
+
+**Fix:** Make sure a step stops: a condition that becomes false (`$error.status === 503 && tries < 3 && run('save')`), or drop one step.

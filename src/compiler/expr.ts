@@ -59,6 +59,8 @@ export interface PageInfo {
   pathParams: Set<string>;
   /** literal `id`s of the page's `<dialog>` elements, for `showModal()` and `close()` */
   dialogs: Set<string>;
+  /** literal `id`s of the page's elements, for `run()`: whether one carries an action, sits in a `data-sn-for` row, how many share it */
+  ids?: Map<string, { action: boolean; row: boolean; n: number }>;
 }
 
 export interface ExprOptions {
@@ -98,11 +100,14 @@ export interface ExprResult {
   payloadNames?: string[];
   /** state names read where the payload is the scope (they shadow payload fields of the same name) */
   payloadStates?: string[];
+  /** handlers: the action elements `run('id')` starts and the resources `refresh('name')` reloads, with offsets (for `SN509`) */
+  runs?: Array<{ id: string; offset: number }>;
+  refreshes?: Array<{ name: string; offset: number }>;
 }
 
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
-export const STORE_FNS = ['refresh', 'upsert', 'patch', 'remove', 'page', 'showModal', 'close', 'reset', 'emit'];
+export const STORE_FNS = ['refresh', 'upsert', 'patch', 'remove', 'page', 'showModal', 'close', 'reset', 'emit', 'run'];
 export const BUILTIN_HELPERS = ['date', 'time', 'datetime', 'relative', 'number', 'bytes'];
 export const META_FIELDS = ['loading', 'error', 'loadedAt', 'pending', 'total', 'page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
 const PAGE_FIELDS = ['page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
@@ -182,6 +187,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   let ok = true;
   const payloadNames = new Set<string>();
   const payloadStates = new Set<string>();
+  const runs: NonNullable<ExprResult['runs']> = [];
+  const refreshes: NonNullable<ExprResult['refreshes']> = [];
   const mode = opts.mode;
   const magicAllowed = new Set([...EVERYWHERE_MAGIC, ...(opts.magic ?? [])]);
 
@@ -277,7 +284,14 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     if (opts.payload) { payloadNames.add(name); return { kind: 'payload' }; }
     if (page.actions?.has(name)) {
-      report('SN203', `\`${name}\` is an action: actions run through \`data-sn-call\` or \`<sn-resource call>\`, not inside expressions`, offset);
+      if (mode === 'value') report('SN203', `\`${name}\` is an action: actions run through \`data-sn-call\` or \`<sn-resource call>\`, not inside expressions`, offset);
+      else {
+        // `mail.markRead(…)`: the member, read from the source, names the example
+        member ??= /^\s*\.\s*([A-Za-z_$][\w$]*)/.exec(src.slice(offset + name.length))?.[1];
+        const id = (member ?? name).replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+        report('SN203', `\`${name}\` is an action, and a handler cannot call it: put the call on an element with an \`id\` and start it with \`run('id')\``, offset,
+          `<span hidden id="${id}" data-sn-call="${name}${member ? '.' + member : ''}(…)"></span>, then run('${id}') in the handler; the element's busy state, concurrency, optimistic layer and then/catch apply`);
+      }
       return null;
     }
     if (BROWSER.has(name)) {
@@ -651,6 +665,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       report('SN203', `\`${name}()\` needs an element; an \`<${opts.noElement}>\` handler has none${name === 'close' ? `: name the dialog, \`close('id')\`` : ''}`, n.start);
       return;
     }
+    if (name === 'run') {
+      runCall(first, n);
+      return;
+    }
     if (name === 'showModal' || (name === 'close' && first)) {
       if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
         report('SN309', `\`${name}()\` takes the dialog's \`id\` as a string literal`, n.start);
@@ -659,6 +677,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
       return;
     }
+    if (name === 'refresh' && first?.type === 'Literal' && typeof first.value === 'string') refreshes.push({ name: first.value, offset: (first as Node).start });
     if (['refresh', 'upsert', 'patch', 'remove', 'page'].includes(name)) {
       if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
         report('SN301', `\`${name}()\` takes the resource name as a string literal`, n.start);
@@ -684,6 +703,21 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         }
       }
     }
+  }
+
+  /** `run('id')`: a literal id of one element outside `data-sn-for` rows that carries an action (`SN311`) */
+  function runCall(first: acorn.CallExpression['arguments'][number] | undefined, n: acorn.CallExpression & Node) {
+    if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
+      report('SN311', "`run()` takes the action element's `id` as a string literal", n.start);
+      return;
+    }
+    const id = first.value, at = (first as Node).start, t = page.ids?.get(id);
+    const actionIds = [...(page.ids ?? [])].filter(([, v]) => v.action).map(([k]) => k);
+    if (!t) report('SN311', `no element \`id="${id}"\` on this page.${didYouMean(id, actionIds)}`, at);
+    else if (!t.action) report('SN311', `\`#${id}\` has no action (\`data-sn-get\`, \`-post\`, \`-put\`, \`-patch\`, \`-delete\` or \`data-sn-call\`); \`run()\` starts actions, not handlers`, at);
+    else if (t.row) report('SN311', `\`#${id}\` is inside a \`data-sn-for\` row, so every row has it; put the action outside the list and pass the row through state`, at);
+    else if (t.n > 1) report('SN311', `${t.n} elements have \`id="${id}"\`; \`run()\` needs one`, at);
+    else runs.push({ id, offset: at });
   }
 
   function visit(n: Node, locals: Locals): void {
@@ -888,7 +922,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
   }
 
-  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort() } : {}) };
+  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}) };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

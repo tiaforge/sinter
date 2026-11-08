@@ -7,6 +7,29 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- `run('id')`, a store function that starts the action of the element with that literal id
+  from any handler: `data-sn-on-*` (key filters included), `data-sn-then`/`data-sn-catch`,
+  `<sn-event then>` and `<sn-resource then>`. The element's whole lifecycle applies, as if its
+  trigger fired: debounce, confirm, its concurrency policy, the optimistic layer, `aria-busy`,
+  `then`/`catch` and the unhandled-error path. A form is submitted with `requestSubmit()`
+  (validation runs, `data-sn-on-submit` too); for any other element no DOM event is dispatched
+  and `$event` is `null`. The target's own scope applies, `run()` takes no arguments and returns
+  nothing. A disabled or inert target does nothing; a hidden one, or one in a closed dialog,
+  runs; one that is not on the page (an `if` branch not rendered) does nothing, with a dev
+  warning. Caley's case, marking a mail read once its body has loaded:
+  `then="$result && !open.is_read && run('mark-read')"` with the action on a hidden
+  `<span id="mark-read" data-sn-call="…" data-sn-optimistic="…">`. Islands still have no
+  `app.run()`: they emit an event and the page runs the action. Core +86 B gzip.
+- `SN311 unknown-run-target`: `run()` takes a string literal naming one element on the page that
+  carries an action, outside `data-sn-for` rows, with a did-you-mean suggestion.
+- `sinter check` types `$event` in the URL, body, call arguments and confirm of a non-form
+  `run()` target as `RunEvent<…>` (the event or `void`), so `$event.shiftKey` there is `SN208`
+  and `$event && $event.shiftKey` is not.
+- `SN509 run-cycle`, an opt-in warning for `then`/`catch` handlers that start each other again
+  through `run()` (and `refresh()`), listing each step's element, handler and line. Off by
+  default; `sinter check --check-cycles` for one run, `sinter({ checkCycles: true })` for the
+  build, `sinter check` and `sinter lsp`.
+
 - Key filters on keyboard handlers: `data-sn-on-keydown-<modifiers->key` and
   `data-sn-on-keyup-…` run only for that key, so each shortcut is its own attribute
   (`data-sn-on-keydown-j`, `-shift-n`, `-ctrl-space`, `-mod-enter`, `-escape`, `-question`).
@@ -56,6 +79,9 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Docs
 
+- The expression table no longer says handlers may call action functions: they call store
+  functions, and start actions with `run('id')`. `SN203` for an action called in a handler now
+  says so, with the hidden-element pattern as its hint.
 - "What belongs in markup" in the spec and `llms.txt`: markup holds filters, conditions,
   single assignments and short calls; logic goes into helpers (pure) or actions (side
   effects), and handlers apply results as `state = fn(…)`, one step per condition. New recipe:
@@ -64,6 +90,9 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- `run` is a store function: a resource can no longer be named `run` (`SN209`), and a state or
+  loop variable named `run` hides it in its scope. The internal `App.run()` (runs a handler
+  expression) is now `App.exec()`.
 - `data-sn-on-keydown-…` and `data-sn-on-keyup-…` are key filters now; a custom event whose
   name starts with `keydown-` or `keyup-` can no longer be handled with `data-sn-on-*`.
 

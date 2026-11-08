@@ -182,7 +182,7 @@ export class Workspace {
       }
       try {
         const out = compile(html, {
-          file: page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, complexity: p.complexity,
+          file: page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles,
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));
         state.diagnostics.set(page, out.diagnostics);

@@ -129,7 +129,7 @@ class Connection {
       if (def.when != null && !app.fns[def.when]!(scope)) return;
       // `then` runs once the change is applied (a refetch: requested), unless the payload could not be applied
       if (def.resource && !this.change(def, def.resource, scope, payload)) return;
-      if (def.then != null) app.run(def.then, scope, def.w);
+      if (def.then != null) app.exec(def.then, scope, def.w);
     } catch (e) {
       app.warn(`event \`${def.name}\` could not be applied: ${(e as Error).message}`, payload);
     }

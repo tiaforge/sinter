@@ -154,7 +154,7 @@ export interface App {
   storeFns(el: Element | null): Record<string, (...a: any[]) => unknown>;
   serverEvent(name: string, payload: unknown): void;
   /** runs handler `f` in `scope` and invalidates the paths it writes */
-  run(f: number, scope: any, writes?: string[]): void;
+  exec(f: number, scope: any, writes?: string[]): void;
   addCleanup(fn: () => void): void;
 }
 
@@ -263,8 +263,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const types = new Set<string>(), selects = new Set<RB>(), deferred = new Set<RB>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<unknown> }>();
-  /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id */
-  const dialog = (id: string) => [...root.querySelectorAll('dialog')].find((d) => d.id === id);
+  /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id; `run(id)`: any element */
+  const byId = (id: string, s = '[id]') => [...root.querySelectorAll(s)].find((d) => d.id === id);
+  const dialog = (id: string) => byId(id, 'dialog') as HTMLDialogElement | undefined;
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element>();
   let dirty: string[][] = [], cur: string[][] = [], scheduled = false, flushing = false, round = 0, destroyed = false;
 
@@ -468,11 +469,18 @@ export function mount(root: Document | Element, o: MountOptions): App {
         for (const c of form.elements) { const rb = (c as Tagged)[MODEL]; if (rb) setModel(rb, readModel(rb)); }
       },
       emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true })),
+      // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
+      run: (id: string) => {
+        const t = byId(id), h = t && (t as Tagged)[HANDLERS], rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
+        if (!rb) return warn(20, id);
+        if (t.matches(':disabled') || t.closest('[inert]')) return;
+        t.localName == 'form' ? (t as HTMLFormElement).requestSubmit() : trigger(rb, null);
+      },
     }),
     serverEvent(name, payload) {
       for (const fn of listeners.get(name) ?? []) try { fn(payload); } catch (e) { console.error(e); }
     },
-    run(f, s, writes) {
+    exec(f, s, writes) {
       try { fns[f]!(s); } catch (err) { console.error(err); }
       for (const w of writes ?? []) app.mark(w, s);
       if (writes?.some((w) => w.startsWith('$url'))) writeUrl();
@@ -943,7 +951,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Runs a handler expression and invalidates what it may have changed. */
   function handle(rb: RB, f: number, e: Event | null, writes: string[] | undefined, extra?: object) {
-    app.run(f, child(rb.s, { $el: rb.el, $event: e, $f: app.storeFns(rb.el), ...extra }), writes);
+    app.exec(f, child(rb.s, { $el: rb.el, $event: e, $f: app.storeFns(rb.el), ...extra }), writes);
   }
 
   /** A debounced handler: runs once `ms` after the last event, with that event. */
@@ -957,9 +965,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   // ---- actions
 
-  function trigger(rb: RB, e: Event) {
+  /** `e` is null for `run()`: no event, no default to prevent */
+  function trigger(rb: RB, e: Event | null) {
     const a = ir.actions[rb.b.x!]!, el = rb.el;
-    if (e.type == 'submit' || el.localName == 'a' || (e.type == 'click' && /^(button|input)$/.test(el.localName) && el.closest('form'))) e.preventDefault();
+    if (e && (e.type == 'submit' || el.localName == 'a' || (e.type == 'click' && /^(button|input)$/.test(el.localName) && el.closest('form')))) e.preventDefault();
     if (!a.debounce) return fire(rb, a, e);
     const st = act(el);
     if (st.t) { env.clearTimeout(st.t); app.busy--; }
@@ -972,7 +981,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return acts.get(el)!;
   }
 
-  function fire(rb: RB, a: ActionDef, e: Event) {
+  function fire(rb: RB, a: ActionDef, e: Event | null) {
     const st = act(rb.el), get = a.method == 'GET';
     if (!get && a.concurrency == 'block' && st.n) return;
     const s = child(rb.s, { $el: rb.el, $event: e });
@@ -1106,7 +1115,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const l: ResourceLoader = {
       def, res: r, app, pager: null as Pager | null,
       scope, get: loadShared, failed: fail, loading,
-      done: (v) => def.then != null && app.run(def.then, child(scope(), { $result: v }), def.w),
+      done: (v) => def.then != null && app.exec(def.then, child(scope(), { $result: v }), def.w),
       items(body) {
         let items = pick(def.items, body);
         if (!Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }

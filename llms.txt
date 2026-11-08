@@ -26,7 +26,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-put` (URL template): PUT action
 - `data-sn-patch` (URL template): PATCH action
 - `data-sn-delete` (URL template): DELETE action
-- `data-sn-call` (action call): local action: calls a function from the actions module, e.g. pgp.decrypt(msg)
+- `data-sn-call` (action call): local action: calls a function from the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id')
 - `data-sn-body` (value expression): JSON request body; overrides form serialization
 - `data-sn-trigger` (DOM event name): overrides the default trigger
 - `data-sn-debounce` (milliseconds): delays the trigger, resets on each event; without a method, delays the element's data-sn-on-* handlers
@@ -55,6 +55,7 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 
 - Attribute values are JavaScript expressions, checked at build time. Value expressions (text, attr, class, show, for, if, key, body, state, URL interpolations) cannot assign, use `++`, `delete`, `await` or `import()`.
 - Handlers (`data-sn-on-*`, `then`, `catch`) are statements separated by `;`: assignments to state, `$url.<param>` and `$locale`, and calls. No declarations or loops.
+- A handler cannot call an action function (SN203). To start an action from a handler (a key filter, `data-sn-then`, `<sn-resource then>`), give the action element an `id` and call `run('id')`; the element's busy state, concurrency, optimistic layer and `then`/`catch` apply. A hidden carrier works: `<span hidden id="mark-read" data-sn-call="mail.markRead(open)"></span>`. See the recipe "Run an action from a handler".
 - `then` on `<sn-event>` is a handler run after the event's change is applied: payload fields are bare names, the state around the `<sn-sync>` is in scope and assignable, store functions work (`close('id')` names its dialog: there is no element). With `then`, `resource` and `op` may be left out.
 - `then` on `<sn-resource>` is a handler run after each successful load (first load, `refresh()`, refetch events, `src` changes, every `page()`; per source for `each`), not for cached data shown at once, failed loads or optimistic/event changes. `$result` is what the load stored (what `items` selects; the page just loaded). The state around the resource is in scope and assignable; `close('id')` names its dialog. It runs on every refetch, so a once-only handler guards itself, one step per guard: `then="draft = $result ?? draft; $result && showModal('compose')"`.
 - `data-sn-optimistic` may only call `patch`, `upsert`, `remove`. The change shows at once, stays when the request succeeds (committed under what `then` writes) and is rolled back when it fails.
@@ -77,11 +78,11 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 
 ## Store functions
 
-`refresh()`, `upsert()`, `patch()`, `remove()`, `page()`, `showModal()`, `close()`, `reset()`, `emit()`: `refresh('name')`, `upsert('name', item)`, `patch('name', item, {…})`, `remove('name', item)`, `page('name', 'next' | 'prev' | 'first' | 'last' | n)`, `showModal('id')` opens a dialog by its literal id, `close()` the nearest dialog or `close('id')` that one, `reset()` the nearest form, `emit('event', detail)`.
+`refresh()`, `upsert()`, `patch()`, `remove()`, `page()`, `showModal()`, `close()`, `reset()`, `emit()`, `run()`: `refresh('name')`, `upsert('name', item)`, `patch('name', item, {…})`, `remove('name', item)`, `page('name', 'next' | 'prev' | 'first' | 'last' | n)`, `showModal('id')` opens a dialog by its literal id, `close()` the nearest dialog or `close('id')` that one, `reset()` the nearest form, `emit('event', detail)`, `run('id')` starts the action of the element with that literal id (SN311), as its trigger would but with `$event` null; a form is submitted (`requestSubmit()`, validation runs); a disabled or inert element does nothing; it returns nothing, results go to the element's `then`/`catch`.
 
 ## Diagnostics
 
-`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN209 name-conflict`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN305 include-not-found`, `SN306 include-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`, `SN507 complex-expression`.
+`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN209 name-conflict`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN305 include-not-found`, `SN306 include-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN311 unknown-run-target`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`, `SN507 complex-expression`, `SN509 run-cycle`.
 
 ## Recipes
 
@@ -828,6 +829,8 @@ test('click, Ctrl+click and Shift+click select rows', async () => {
 - Actions matched in the spec: `data-sn-body` is checked against the request schema, `$result` in `then` has the response type.
 - `$result` in `<sn-resource then>` has the resource's type (`type`, OpenAPI, or a `call`'s result).
 - `<sn-event … type="ContactEvent">` types the payload; `item` must fit the resource's item, `set` part of it, and `then` is checked against it; `cursor` reads the item. No `type` on an event with payload expressions is warning SN506.
+- In the URL, body, call arguments and confirm of an element `run('id')` starts (not a form), `$event` is `RunEvent<…>` (no event when run): guard reads with `$event && $event.shiftKey`.
+- SN509 (`run-cycle`) is opt-in: `sinter check --check-cycles`, or `sinter({ checkCycles: true })` for the build, `sinter check` and `sinter lsp`. It reports `then`/`catch` handlers that start each other again through `run()` (and `refresh()`), with every step.
 - Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: `checkPage(html, { files, openapi })` from `@tiaforge-ui/sinter/check`.
 
 ## Deploying streams

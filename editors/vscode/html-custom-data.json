@@ -202,7 +202,7 @@
     },
     {
       "name": "data-sn-call",
-      "description": "local action: calls a function from the actions module, e.g. pgp.decrypt(msg) (action call)"
+      "description": "local action: calls a function from the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id') (action call)"
     },
     {
       "name": "data-sn-body",

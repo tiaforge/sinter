@@ -36,6 +36,7 @@ export const CODES = {
   SN308: 'unknown-schema-field',
   SN309: 'unknown-dialog',
   SN310: 'unknown-action',
+  SN311: 'unknown-run-target',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',
@@ -44,6 +45,7 @@ export const CODES = {
   SN505: 'unknown-query-param',
   SN506: 'untyped-event',
   SN507: 'complex-expression',
+  SN509: 'run-cycle',
 } as const;
 
 export type Code = keyof typeof CODES;

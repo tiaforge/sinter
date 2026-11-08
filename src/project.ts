@@ -20,6 +20,8 @@ export interface ProjectOptions {
   openapi?: string | string[];
   /** SN507: limits for expressions too complex for markup (`statements`, `sequences`, `guarded`, `ternaries`, `arrow`, `operations`) and `level`: `warn` (default), `error` or `off` */
   complexity?: ComplexityOptions;
+  /** SN509: report `then`/`catch` handlers that start each other again through `run()`, in the build, `sinter check` and `sinter lsp` (default off; `sinter check --check-cycles` for one run) */
+  checkCycles?: boolean;
 }
 
 export interface Project {
@@ -42,6 +44,7 @@ export interface Project {
   diagnostics: Diagnostic[];
   /** the `complexity` option, checked */
   complexity: ComplexityOptions;
+  checkCycles: boolean;
 }
 
 export function project(root: string, options: ProjectOptions = {}): Project {
@@ -98,7 +101,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     openapi.push({ file, doc });
   }
   return {
-    root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics, complexity: complexityOf(options.complexity),
+    root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
     config: configRel ? url(configRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,
   };

@@ -24,6 +24,7 @@ const MESSAGES: Record<number, string> = {
   17: 'resource `%`: src could not be resolved: %',
   18: 'stream `%` is served over HTTP/1.1, where browsers allow 6 connections per origin: with more than 5 tabs of this app open, pages stop loading. Serve it over HTTP/2 (any TLS reverse proxy such as nginx or Caddy), or use the WebSocket transport',
   19: 'resource `%`: % KB of data is over the page-load cache limit of 256 KB per entry; not cached',
+  20: "`run('%')`: no element with that id and an action is on the page (a `data-sn-if` branch that is not rendered?); nothing ran",
 };
 
 /**
