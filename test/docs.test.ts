@@ -6,7 +6,7 @@ import { expect, test } from 'vitest';
 import { CODES, severityOf, type Code } from '../src/compiler/diagnostics.js';
 import { DIAGNOSTIC_DOCS } from '../src/compiler/diagnostic-docs.js';
 import { ALL_MAGIC, BUILTIN_HELPERS, STORE_FNS } from '../src/compiler/expr.js';
-import { ATTRIBUTES, DEBOUNCE_ON_DOC, ELEMENTS, ON_DOC } from '../src/compiler/vocabulary.js';
+import { ATTRIBUTES, CHAR_KEYS, DEBOUNCE_ON_DOC, ELEMENTS, KEY_ON_DOC, MODIFIERS, NAMED_KEYS, ON_DOC } from '../src/compiler/vocabulary.js';
 
 const root = resolve(__dirname, '..');
 const recipes = resolve(root, 'docs/recipes');
@@ -23,6 +23,7 @@ const RECIPES: Array<[string, string, string[]?]> = [
   ['typed', 'Typed resources, state and events', ['typed.types.ts']],
   ['cached-list', 'Cached list across page loads'],
   ['local-actions', 'Local actions: hash a file, then upload it', ['local-actions.actions.js']],
+  ['keyboard-shortcuts', 'Keyboard shortcuts'],
 ];
 
 function llms(): string {
@@ -35,7 +36,9 @@ Package: @tiaforge-ui/sinter. Every directive is a \`data-sn-*\` attribute or an
 
 ## Attributes
 `);
-  for (const a of [...ATTRIBUTES, ON_DOC, DEBOUNCE_ON_DOC]) out.push(`- \`data-sn-${a.name}\`${a.value ? ` (${a.value})` : ''}: ${a.doc}`);
+  for (const a of [...ATTRIBUTES, ON_DOC, KEY_ON_DOC, DEBOUNCE_ON_DOC]) out.push(`- \`data-sn-${a.name}\`${a.value ? ` (${a.value})` : ''}: ${a.doc}`);
+  out.push(`
+Key filters (\`data-sn-on-keydown-<modifiers->key\`, \`data-sn-on-keyup-…\`): modifiers ${Object.keys(MODIFIERS).map((m) => `\`${m}\``).join(', ')}, then one key: \`a\`–\`z\`, \`0\`–\`9\`, ${Object.keys(NAMED_KEYS).filter((k) => !/^f\d/.test(k)).map((k) => `\`${k}\``).join(', ')}, \`f1\`–\`f12\`, and characters by name: ${Object.entries(CHAR_KEYS).map(([n, c]) => `\`${n}\` (${c === '`' ? '``` ` ```' : `\`${c}\``})`).join(', ')}. Attribute names are lowercase, so N is \`shift-n\`; Shift is not checked for characters (\`question\` is ? however it is typed). Filters on an ancestor skip keys typed into fields (input, textarea, select, contenteditable) and Enter/Space on buttons and links; a filter on the field itself runs. A match calls \`preventDefault()\`; on one element, filters and a plain \`data-sn-on-keydown\` run in attribute order. Page-wide shortcuts go on \`<body>\`.`);
   out.push('\n## Elements\n');
   for (const e of ELEMENTS) out.push(`- \`<${e.name}>\` ${e.attrs.map((x) => `\`${x}\``).join(', ')}: ${e.doc}`);
   out.push(`
@@ -129,6 +132,7 @@ function customData(): string {
     globalAttributes: [
       ...ATTRIBUTES.map((a) => ({ name: `data-sn-${a.name}`, description: `${a.doc}${a.value ? ` (${a.value})` : ''}` })),
       ...['click', 'input', 'change', 'submit', 'keydown'].map((e) => ({ name: `data-sn-on-${e}`, description: ON_DOC.doc })),
+      ...['escape', 'enter', 'arrowdown', 'arrowup', 'mod-enter'].map((k) => ({ name: `data-sn-on-keydown-${k}`, description: KEY_ON_DOC.doc })),
       ...['input', 'keyup', 'scroll'].map((e) => ({ name: `data-sn-debounce-${e}`, description: DEBOUNCE_ON_DOC.doc })),
     ],
   };

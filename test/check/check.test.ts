@@ -84,6 +84,12 @@ describe('sinter check', () => {
     one(page(`<div data-sn-state="{ q: '' }"><input data-sn-on-input="q = $el.valu"></div>`), /Did you mean 'value'\?/, 'valu');
   });
 
+  test('a key filter\'s $event is the KeyboardEvent of its keydown or keyup', () => {
+    one(page(`<div data-sn-state="{ q: '', n: 0 }" data-sn-on-keydown-shift-j="q = $event.key" data-sn-on-keyup-escape="n = $event.code">
+  <p data-sn-text="q + n"></p>
+</div>`), /Type 'string' is not assignable to type 'number'/, 'n = $event');
+  });
+
   test('data-sn-attr values are checked against SinterAttributes, which a library or the types module extends', () => {
     const typed = `${TYPES}declare global { interface SinterAttributes { 'data-tone'?: 'danger' | 'success' | null | false } }\n`;
     const html = page(`<p data-sn-attr="{'data-tone': contacts.length ? 'danger' : 'sucess', title: 'x'}"></p>`);

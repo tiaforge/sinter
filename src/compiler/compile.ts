@@ -5,7 +5,7 @@ import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, STORE_FNS, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
-import { ATTRIBUTES, ELEMENTS } from './vocabulary.js';
+import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { matchOperation, matchResource, queryNames, walk, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, Binding, EventDef, IR, NodeDef, Paginate, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
@@ -167,7 +167,7 @@ class Compiler {
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'each', 'listbox'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'each', 'listbox', 'keys'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -576,13 +576,18 @@ class Compiler {
     for (const a of sn) {
       if (!a.name.startsWith('data-sn-on-')) continue;
       const event = a.name.slice('data-sn-on-'.length);
-      if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(event)) {
+      // `keydown-<modifiers->key`: a key filter on keydown or keyup
+      const kf = /^(key(?:down|up))-(.*)$/s.exec(event);
+      const filter = kf ? this.keyFilter(el, a.name, kf[2]!) : undefined;
+      if (filter === null) continue;
+      if (filter) this.features.add('keys');
+      if (!kf && !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(event)) {
         this.report(el, a.name, 'SN101', `event names are lowercase kebab-case: \`${a.name}\``, 0);
         continue;
       }
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'] });
       const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
-      if (r.ok) node.b.push(binding({ k: 'on', n: event, f: this.fn(r.code), w: r.writes, ...(ms > 0 ? { ms } : {}) }));
+      if (r.ok) node.b.push(binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
     }
 
     if (methods.length > 1) this.report(el, `data-sn-${methods[1]}`, 'SN102', 'an element can have only one method attribute', 0);
@@ -636,6 +641,46 @@ class Compiler {
       });
     }
     return result;
+  }
+
+  /**
+   * `data-sn-on-keydown-ctrl-shift-k`: the part after the event, modifiers first and the key last.
+   * Returns the binding's `q` (the `KeyboardEvent.key` to match) and `m` (modifier bits), or null
+   * after reporting what is wrong.
+   */
+  keyFilter(el: P5Element, attrName: string, spec: string): { q: string; m?: number } | null {
+    const fail = (message: string) => { this.report(el, attrName, 'SN101', message, 0); return null; };
+    const tokens = spec.split('-'), key = tokens.pop()!;
+    const keyNames = [...Object.keys(NAMED_KEYS), ...Object.keys(CHAR_KEYS)];
+    const hint = (t: string, names: string[]) => (KEY_ALIASES[t] ? ` Did you mean \`${KEY_ALIASES[t]}\`?` : didYouMean(t, names));
+    const isKey = (t: string) => /^[a-z0-9]$/.test(t) || t in NAMED_KEYS || t in CHAR_KEYS;
+    if (!key || tokens.includes('')) return fail(`\`${attrName}\` is a key filter: modifiers and one key, separated by single \`-\`, e.g. \`data-sn-on-keydown-shift-n\``);
+    if (key in MODIFIERS) return fail(`\`${key}\` is a modifier: a key filter ends with the key, e.g. \`data-sn-on-keydown-${key}-k\``);
+    // HTML lowercases attribute names: `-N` arrives as `-n`, so the source spelling is checked
+    const loc = el.sourceCodeLocation?.attrs?.[attrName], src = this.origins.get(el)?.src;
+    const raw = loc && src ? src.slice(loc.startOffset, loc.startOffset + attrName.length) : attrName;
+    if (raw.toLowerCase() === attrName && raw !== attrName) {
+      const rawKey = raw.slice(raw.lastIndexOf('-') + 1);
+      return fail(/^[A-Z]$/.test(rawKey) && !tokens.includes('shift')
+        ? `HTML lowercases attribute names, so \`${raw}\` would be \`${attrName}\`: write ${rawKey} as \`${[...tokens, 'shift', key].join('-')}\``
+        : `HTML lowercases attribute names: write \`${raw}\` as \`${attrName}\``);
+    }
+    if (!isKey(key)) return fail(`\`${key}\` in \`${attrName}\` is not a key name.${hint(key, keyNames)}`);
+    let m = 0;
+    for (const t of tokens) {
+      const bit = MODIFIERS[t];
+      if (bit === undefined) {
+        if (isKey(t)) return fail(`a key filter names one key, last: \`${t}\` in \`${attrName}\` is a key, not a modifier (modifiers are \`ctrl\`, \`alt\`, \`shift\`, \`meta\`, \`mod\`)`);
+        return fail(`\`${t}\` in \`${attrName}\` is not a modifier.${hint(t, Object.keys(MODIFIERS))}`);
+      }
+      if (m & bit) return fail(`\`${t}\` appears twice in \`${attrName}\``);
+      m |= bit;
+    }
+    if (m & MODIFIERS.mod! && m & (MODIFIERS.ctrl! | MODIFIERS.meta!)) return fail(`\`mod\` is Ctrl, or Cmd on Apple platforms: \`${attrName}\` cannot also name \`ctrl\` or \`meta\``);
+    // letters: Shift is part of the filter (`n` vs `shift-n`); other characters: the character says it (`?`, `1`)
+    const q = NAMED_KEYS[key] ?? CHAR_KEYS[key] ?? key;
+    if (!(key in NAMED_KEYS) && !/^[a-z]$/.test(key)) m |= LOOSE_SHIFT;
+    return m ? { q, m } : { q };
   }
 
   position(el: P5Element): string {
@@ -748,7 +793,8 @@ class Compiler {
       if (i !== undefined && !frames.includes(i)) frames.push(i);
     }
     let event: string | null = null;
-    if (attrName.startsWith('data-sn-on-')) event = attrName.slice('data-sn-on-'.length);
+    // a key filter's handler runs for its keydown or keyup
+    if (attrName.startsWith('data-sn-on-')) event = attrName.slice('data-sn-on-'.length).replace(/^(key(?:down|up))-.*/s, '$1');
     // an element-less handler (<sn-event>, <sn-resource then>) runs for no DOM event
     else if ((o.mode !== 'value' || o.magic?.includes('$event')) && !o.noElement) {
       event = attr(el, 'data-sn-trigger') ?? (el.tagName === 'form' ? 'submit' : FORM_CONTROLS.has(el.tagName) ? 'change' : 'click');
@@ -1230,7 +1276,7 @@ const usesEl = (r: ExprResult): Pick<Binding, 'e' | 'i'> => ({ ...(r.usesEl ? { 
 
 function binding(b: Binding): Binding {
   const out: Binding = { k: b.k };
-  for (const key of ['f', 'd', 'n', 'x', 'a', 'y', 'w', 'p', 'e', 'i', 'ms'] as const) {
+  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'w', 'p', 'e', 'i', 'ms'] as const) {
     const v = b[key];
     if (v === undefined || (Array.isArray(v) && v.length === 0 && key !== 'd')) continue;
     (out as unknown as Record<string, unknown>)[key] = v;

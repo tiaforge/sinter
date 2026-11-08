@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<body data-sn-state="{ cursor: 0, open: null, marked: [] }"
+      data-sn-on-keydown-j="cursor = Math.min(cursor + 1, messages.length - 1)"
+      data-sn-on-keydown-k="cursor = Math.max(cursor - 1, 0)"
+      data-sn-on-keydown-enter="open = messages[cursor]"
+      data-sn-on-keydown-escape="open = null"
+      data-sn-on-keydown-ctrl-space="marked = marked.includes(cursor) ? marked.filter(i => i !== cursor) : [...marked, cursor]"
+      data-sn-on-keydown-slash="$el.querySelector('input').focus()">
+  <sn-resource name="messages" src="/api/messages" items="messages" key="id"></sn-resource>
+  <!-- in the field, j, k and / are typed; its own Escape filter leaves it -->
+  <input type="search" placeholder="Search (/)" data-sn-on-keydown-escape="$el.blur()">
+  <ul>
+    <template data-sn-for="(m, i) in messages">
+      <li data-sn-class="{cursor: i === cursor, marked: marked.includes(i)}" data-sn-text="m.subject"></li>
+    </template>
+  </ul>
+  <article data-sn-show="open" data-sn-text="open && open.subject"></article>
+</body>
+</html>

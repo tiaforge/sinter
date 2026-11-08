@@ -269,6 +269,26 @@
       "description": "plain event handler, no request; e.g. data-sn-on-click"
     },
     {
+      "name": "data-sn-on-keydown-escape",
+      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()"
+    },
+    {
+      "name": "data-sn-on-keydown-enter",
+      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()"
+    },
+    {
+      "name": "data-sn-on-keydown-arrowdown",
+      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()"
+    },
+    {
+      "name": "data-sn-on-keydown-arrowup",
+      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()"
+    },
+    {
+      "name": "data-sn-on-keydown-mod-enter",
+      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()"
+    },
+    {
       "name": "data-sn-debounce-input",
       "description": "delays only that event's data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input"
     },

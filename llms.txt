@@ -39,7 +39,10 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-path` (URL patterns /a/:b …): on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url
 - `data-sn-data` (resource name): on <script type="application/json"> in <head>: initial data for a resource
 - `data-sn-on-<event>` (handler expression): plain event handler, no request; e.g. data-sn-on-click
+- `data-sn-on-keydown-<key>` (handler expression): runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()
 - `data-sn-debounce-<event>` (milliseconds): delays only that event's data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input
+
+Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modifiers `ctrl`, `alt`, `shift`, `meta`, `mod`, then one key: `a`–`z`, `0`–`9`, `escape`, `enter`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `arrowup`, `arrowdown`, `arrowleft`, `arrowright`, `contextmenu`, `f1`–`f12`, and characters by name: `slash` (`/`), `backslash` (`\`), `question` (`?`), `period` (`.`), `comma` (`,`), `semicolon` (`;`), `colon` (`:`), `quote` (`'`), `backquote` (``` ` ```), `minus` (`-`), `plus` (`+`), `equal` (`=`), `asterisk` (`*`), `bracketleft` (`[`), `bracketright` (`]`). Attribute names are lowercase, so N is `shift-n`; Shift is not checked for characters (`question` is ? however it is typed). Filters on an ancestor skip keys typed into fields (input, textarea, select, contenteditable) and Enter/Space on buttons and links; a filter on the field itself runs. A match calls `preventDefault()`; on one element, filters and a plain `data-sn-on-keydown` run in attribute order. Page-wide shortcuts go on `<body>`.
 
 ## Elements
 
@@ -646,6 +649,62 @@ test('sinter check: arguments are checked against the actions', () => {
   expect(checkPage(page, { files })).toEqual([]);
   const [d] = checkPage(page.replace('upload(file, digest)', 'upload(file)'), { files });
   expect([d!.code, d!.message]).toEqual(['SN208', expect.stringContaining("is not assignable to type '[file: File, digest: string]'")]);
+});
+```
+
+### Keyboard shortcuts
+
+```html
+<!doctype html>
+<html>
+<body data-sn-state="{ cursor: 0, open: null, marked: [] }"
+      data-sn-on-keydown-j="cursor = Math.min(cursor + 1, messages.length - 1)"
+      data-sn-on-keydown-k="cursor = Math.max(cursor - 1, 0)"
+      data-sn-on-keydown-enter="open = messages[cursor]"
+      data-sn-on-keydown-escape="open = null"
+      data-sn-on-keydown-ctrl-space="marked = marked.includes(cursor) ? marked.filter(i => i !== cursor) : [...marked, cursor]"
+      data-sn-on-keydown-slash="$el.querySelector('input').focus()">
+  <sn-resource name="messages" src="/api/messages" items="messages" key="id"></sn-resource>
+  <!-- in the field, j, k and / are typed; its own Escape filter leaves it -->
+  <input type="search" placeholder="Search (/)" data-sn-on-keydown-escape="$el.blur()">
+  <ul>
+    <template data-sn-for="(m, i) in messages">
+      <li data-sn-class="{cursor: i === cursor, marked: marked.includes(i)}" data-sn-text="m.subject"></li>
+    </template>
+  </ul>
+  <article data-sn-show="open" data-sn-text="open && open.subject"></article>
+</body>
+</html>
+```
+
+```ts
+import { expect, test } from 'vitest';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
+import page from './keyboard-shortcuts.html?raw';
+
+const key = (el: Element, k: string, init: KeyboardEventInit = {}) =>
+  el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init }));
+
+test('j/k move the cursor, Ctrl+Space marks, Enter opens, Escape closes; keys typed in the search field stay there', async () => {
+  const requests = mockRequests({ 'GET /api/messages': { messages: [{ id: 1, subject: 'Hello' }, { id: 2, subject: 'Lunch?' }] } });
+  const { root, flush, settle } = await render(page, { requests });
+  await settle();
+  const body = root /* the <body> */, rows = () => [...root.querySelectorAll('li')];
+  key(body, 'j');
+  key(body, ' ', { ctrlKey: true });
+  key(body, 'Enter');
+  await flush();
+  expect(rows().map((li) => li.className)).toEqual(['', 'cursor marked']);
+  expect(root.querySelector('article')!.textContent).toBe('Lunch?');
+
+  key(root.querySelector('input')!, 'k');  // typing a k
+  key(body, 'Escape');
+  await flush();
+  expect(rows()[1]!.className).toBe('cursor marked');
+  expect(root.querySelector('article')!.hidden).toBe(true);
+
+  key(body, '/');
+  expect(root.ownerDocument.activeElement).toBe(root.querySelector('input'));
 });
 ```
 

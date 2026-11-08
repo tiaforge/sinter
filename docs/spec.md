@@ -114,7 +114,7 @@ The IR is the only contract between compiler and runtime. It is plain JSON plus 
 | `roots` | per `data-sn` id: its bindings and the scope it opens |
 | `templates` | per template: node paths, bindings, key expression |
 | `actions` | method, URL template, body source, trigger, debounce, concurrency, optimistic, then, catch |
-| `bindings` | kind (`text`, `attr`, `class`, `style`, `show`, `model`, `prop`, `for`, `if`, `else`, `on`), target, function index, static dependency paths |
+| `bindings` | kind (`text`, `attr`, `class`, `style`, `show`, `model`, `prop`, `for`, `if`, `else`, `on`), target, function index, static dependency paths; for a key filter, the `key` to match and modifier bits |
 
 Dependencies are extracted at compile time: every binding lists the state and resource paths it reads (`q`, `contacts`, `c`). The runtime matches them against dirty paths (see Reactivity), so it needs no proxies and no read tracking.
 
@@ -272,7 +272,27 @@ Text-like controls update on `input`, all others on `change`.
 | `data-sn-encoding` | `json` or `form` | `form`: the body is sent as `application/x-www-form-urlencoded` (see Request body) |
 | `data-sn-listbox` | the `id` of a suggestion list | on a text input: the combobox keys (see Suggestion lists) |
 | `data-sn-on-<event>` | handler expression | plain event handler, no request; e.g. `data-sn-on-click` |
+| `data-sn-on-keydown-<key>`, `data-sn-on-keyup-<key>` | handler expression | runs only for that key, with modifiers before it: `-j`, `-shift-n`, `-mod-enter`, `-escape`; see Key filters |
 
+### Key filters
+A keyboard handler can name its key in the attribute: `data-sn-on-keydown-<modifiers->key` (and `data-sn-on-keyup-…`), so a page binds each shortcut on its own instead of one `data-sn-on-keydown` that switches on `$event.key`. (Added 2026-11-08.)
+```html
+<body data-sn-on-keydown-j="cursor = nextRow(list, cursor)"
+      data-sn-on-keydown-shift-n="weekStart = addDays(weekStart, 28)"
+      data-sn-on-keydown-ctrl-space="marked = toggled(marked, cursor)"
+      data-sn-on-keydown-escape="detailOpen = false">
+```
+- **Spelling.** After the event come modifiers, then exactly one key, separated by `-`, all lowercase. Modifiers: `ctrl`, `alt`, `shift`, `meta`, and `mod`, which is Cmd (Meta) on Apple platforms and Ctrl elsewhere (`mod` with `ctrl` or `meta` is an error). Modifiers may come in any order, each once. Keys: the letters `a`–`z`, the digits `0`–`9`, the named keys `escape`, `enter`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `arrowup`, `arrowdown`, `arrowleft`, `arrowright`, `contextmenu`, `f1`–`f12`, and characters an attribute name cannot hold (or `-`, the separator) by name: `slash` /, `backslash` \\, `question` ?, `period` ., `comma` ,, `semicolon` ;, `colon` :, `quote` ', `backquote` \`, `minus` -, `plus` +, `equal` =, `asterisk` \*, `bracketleft` [, `bracketright` ]. Anything else is `SN101` with a suggestion (`esc` → `escape`, `cmd` → `meta`, `?` → `question`).
+- **Case.** HTML lowercases attribute names, so `data-sn-on-keydown-N` would silently be `…-n`; the compiler reads the source spelling and reports uppercase in a key filter as `SN101` ("write N as `shift-n`"). Uppercase N is `shift-n`.
+- **What is matched: `KeyboardEvent.key`,** the character or key the user's layout produced, not `code` (the physical key). A shortcut is the letter printed on the key: `z` is Z on a German keyboard too, and `question` is ? whether it is Shift+/ (US) or Shift+ß (German). Letters compare without case, with Shift decided by the filter (`n` is n, `shift-n` is N; Caps Lock does not matter). When `key` is not a Latin letter at all (a Cyrillic or Greek layout, or a dead key from Option on a Mac), a letter filter matches the physical key instead (`code` `KeyN`), so `ctrl-n` still works there.
+- **Modifiers are exact.** The Ctrl, Alt, Meta and Shift held must be the ones the filter names: `j` does not run for Ctrl+J, and `escape` not for Shift+Escape. The exception is Shift for digits and named characters (`1`, `question`, `slash`…): the character already says whether Shift was needed, so it is not checked unless the filter names `shift`; with AltGr held, Ctrl and Alt are not checked for them either (AltGr reports both on Windows).
+- **Keys in fields belong to the field.** A filter on an ancestor does not run while focus is in a text `<input>`, a `<textarea>`, a `<select>` or contenteditable content, and does not take Enter or Space from a focused button, link, `<summary>`, checkbox, radio or other button-like input (other keys still run there). A filter on the focused element itself does: `<textarea data-sn-on-keydown-mod-enter="send()">`. There is no exemption for Escape: in a search field it clears the field, in a field of a dialog it closes the dialog. A handler that must see keys from fields uses a plain `data-sn-on-keydown` and tests `$event.key` itself, or sits on the field.
+- **Default and repeats.** A filter that matches calls `$event.preventDefault()` before its handler runs (Space does not scroll, `slash` does not type into a field it focuses); a plain `data-sn-on-keydown` never does, so it is the escape hatch for a key whose default should happen. Held keys repeat, and every repeat runs the handler (holding `j` moves on); a handler that should not repeat checks `$event.repeat` (`$event.repeat || (marked = toggled(marked, cursor))`). During IME composition no filter matches.
+- **Which handlers run.** As for every event, the nearest element (from the target up) with a handler for the event wins, and only its handlers run; for keys, an element counts only if one of its handlers applies: a plain `data-sn-on-keydown`, or a filter that matches. So a `<dialog data-sn-on-keydown-escape>` does not swallow the `j` meant for `<body>`. On that element, the matching filters and the plain handler all run, in attribute order; the plain one runs for every key, as it always did. Several filters can match one event (`ctrl-shift-k` and `shift-ctrl-k`).
+- **Where.** Keys go to the focused element, or to `<body>` when nothing is focused, so page-wide shortcuts belong on `<body>` (or `<html>`); a filter on an element runs while focus is inside it.
+- **Debounce.** `data-sn-debounce-keydown-j` delays only that filter's handler; `data-sn-debounce-keydown` only the plain one, `data-sn-debounce` all of the element's handlers. `preventDefault()` is called at once.
+- **Types.** `sinter check` types `$event` in a key filter as the `KeyboardEvent` of its `keydown` or `keyup`.
+- The runtime part is a feature module (`@tiaforge-ui/sinter/keys`), imported only by pages with a key filter. A custom event named `keydown-…` or `keyup-…` cannot be handled with `data-sn-on-*`.
 
 ### Declaration elements
 
@@ -768,7 +788,7 @@ sinter updates the DOM fine-grained, without a virtual DOM: every binding knows 
 - Bindings inside a closed `<dialog>` are kept dirty and evaluated on its `toggle` to open.
 
 ### Events
-- A delegated listener finds the nearest element with a handler or action for that event type.
+- A delegated listener finds the nearest element with a handler or action for that event type (for key events: one whose plain handler or matching key filter applies, see Key filters).
 - A row element maps to its instance through a `WeakMap`, which supplies the loop scope.
 - `input` and `change` from `data-sn-model` elements update state before other handlers on the same event run.
 
@@ -941,7 +961,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 The dev build adds checks that need real data: duplicate keys in a response, an item missing a key field, an `items` path that is not an array, a server event payload missing key fields. Warnings name the resource, the page and the offending value.
 
 ### LLM support
-- `llms.txt` in the package: the full attribute reference, the scope rules and eight copy-paste recipes (list with filter, form dialog, SSE sync, optimistic toggle, pagination, SignalR transport, typed resources, cached list).
+- `llms.txt` in the package: the full attribute reference, the scope rules and copy-paste recipes with their tests (list with filter, form dialog, SSE sync, optimistic toggle, pagination, SignalR transport, typed resources, cached list, local actions, keyboard shortcuts).
 - A generated VS Code custom-data file (`html-custom-data.json`) so editors and agents get attribute completion; the VS Code extension ships it.
 - Every diagnostic links to its section in `docs/diagnostics.md`, which is generated from the compiler's table of codes (example, meaning, fix).
 

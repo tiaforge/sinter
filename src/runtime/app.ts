@@ -119,6 +119,8 @@ export interface App {
       /** the resource was emptied (`when` is false): nothing to write until the next load */
       cleared(def: ResourceDef): void;
     };
+    /** a key filter's handler (`b.q`): whether this key event is for it (a match prevents its default) */
+    keys?: (rb: BoundBinding, e: KeyboardEvent) => boolean;
   };
   readonly beforeFlush: Array<(dirty: string[][]) => void>;
   readonly afterFlush: Array<(dirty: string[][]) => void>;
@@ -923,7 +925,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const m = (el as Tagged)[MODEL];
     if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m));
     for (; el; el = el.parentElement) {
-      const h = (el as Tagged)[HANDLERS], hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type);
+      const h = (el as Tagged)[HANDLERS], hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
       if (hs?.length) {
         for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? later(h, e) : handle(h, h.b.f!, e, h.b.w);
         return;

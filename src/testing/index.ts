@@ -16,9 +16,10 @@ import paginate from '../paginate.js';
 import each from '../each.js';
 import persist from '../persist.js';
 import listbox from '../listbox.js';
+import keys from '../keys.js';
 import sse from '../sse.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each, listbox };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each, listbox, keys };
 
 // ---- requests
 

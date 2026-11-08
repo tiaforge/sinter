@@ -39,6 +39,7 @@
     "./each": "./dist/each.js",
     "./persist": "./dist/persist.js",
     "./listbox": "./dist/listbox.js",
+    "./keys": "./dist/keys.js",
     "./cache": "./dist/cache.js",
     "./compiler": "./dist/compiler/index.js",
     "./vite": "./dist/vite.js",

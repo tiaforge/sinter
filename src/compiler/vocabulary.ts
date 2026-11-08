@@ -47,3 +47,38 @@ export const ELEMENTS: Array<{ name: string; attrs: string[]; doc: string }> = [
   { name: 'sn-event', attrs: ['name', 'resource', 'op', 'item', 'set', 'when', 'fallback', 'then', 'type'], doc: 'maps one server event to a change message; child of <sn-sync>. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close(\'detail\'); with `then`, `resource` and `op` may be left out' },
   { name: 'sn-include', attrs: ['src'], doc: 'inlines a partial at build time' },
 ];
+
+// ---- key filters: `data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`
+
+export const KEY_ON_DOC: AttrDoc = {
+  name: 'on-keydown-<key>', value: 'handler expression',
+  doc: 'runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor\'s filter skips keys typed into fields; a match calls preventDefault()',
+};
+
+/** modifier names, as written, to their IR bit; `mod` is Ctrl, or Meta (Cmd) on Apple platforms */
+export const MODIFIERS: Record<string, number> = { ctrl: 1, alt: 2, shift: 4, meta: 8, mod: 16 };
+/** IR bit: Shift does not matter (a character that already says it, `?`, `1`), unless the filter names `shift` */
+export const LOOSE_SHIFT = 32;
+
+/** named keys: the name to `KeyboardEvent.key`; Shift must match exactly */
+export const NAMED_KEYS: Record<string, string> = {
+  escape: 'Escape', enter: 'Enter', tab: 'Tab', space: ' ', backspace: 'Backspace', delete: 'Delete', insert: 'Insert',
+  home: 'Home', end: 'End', pageup: 'PageUp', pagedown: 'PageDown',
+  arrowup: 'ArrowUp', arrowdown: 'ArrowDown', arrowleft: 'ArrowLeft', arrowright: 'ArrowRight', contextmenu: 'ContextMenu',
+  ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`f${i + 1}`, `F${i + 1}`])),
+};
+
+/** characters an attribute name cannot spell (or `-`, the separator), by name; Shift does not matter for them, like digits */
+export const CHAR_KEYS: Record<string, string> = {
+  slash: '/', backslash: '\\', question: '?', period: '.', comma: ',', semicolon: ';', colon: ':', quote: "'", backquote: '`',
+  minus: '-', plus: '+', equal: '=', asterisk: '*', bracketleft: '[', bracketright: ']',
+};
+
+/** common other spellings, for "did you mean" */
+export const KEY_ALIASES: Record<string, string> = {
+  esc: 'escape', return: 'enter', up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright', del: 'delete',
+  ins: 'insert', pgup: 'pageup', pgdn: 'pagedown', spacebar: 'space', control: 'ctrl', cmd: 'meta', command: 'meta',
+  option: 'alt', opt: 'alt', super: 'meta', win: 'meta', dot: 'period', hyphen: 'minus', dash: 'minus', equals: 'equal',
+  questionmark: 'question', grave: 'backquote', apostrophe: 'quote',
+  ...Object.fromEntries(Object.entries(CHAR_KEYS).map(([n, c]) => [c, n])),
+};

@@ -3,6 +3,35 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Added
+
+- Key filters on keyboard handlers: `data-sn-on-keydown-<modifiers->key` and
+  `data-sn-on-keyup-…` run only for that key, so each shortcut is its own attribute
+  (`data-sn-on-keydown-j`, `-shift-n`, `-ctrl-space`, `-mod-enter`, `-escape`, `-question`).
+  Modifiers are `ctrl`, `alt`, `shift`, `meta` and `mod` (Cmd on Apple platforms, Ctrl
+  elsewhere), the key comes last: `a`–`z`, `0`–`9`, named keys (`enter`, `space`, `arrowdown`,
+  `home`, `f1`…) and characters by name (`slash`, `question`, `minus`…). They match
+  `KeyboardEvent.key`, so letters follow the layout; a letter filter falls back to the physical
+  key when the layout gives no Latin letter. Modifiers are exact (`j` does not run for Ctrl+J);
+  Shift is the filter's for letters and named keys (`n` vs `shift-n`) and not checked for
+  characters that already say it (`question`, digits). Filters on an ancestor skip keys typed
+  into fields and Enter/Space on buttons and links; a filter on the field itself runs. A match
+  calls `preventDefault()`; repeats run; IME composition never matches. On one element, the
+  matching filters and a plain `data-sn-on-keydown` run in attribute order, and an element
+  whose filters do not match passes the key on to its ancestors. `data-sn-debounce-keydown-j`
+  delays one filter. Unknown key or modifier names, uppercase (HTML would lowercase
+  `-N` to `-n`) and malformed filters are `SN101` with a suggestion; `sinter check` types
+  `$event` as `KeyboardEvent`. The matching is a feature module, `@tiaforge-ui/sinter/keys`
+  (578 B gzip), loaded only by pages with a key filter; the core grows by about 17 B gzip.
+  New recipe: keyboard shortcuts.
+
+### Changed
+
+- `data-sn-on-keydown-…` and `data-sn-on-keyup-…` are key filters now; a custom event whose
+  name starts with `keydown-` or `keyup-` can no longer be handled with `data-sn-on-*`.
+
 ## 0.4.0 (2026-11-08)
 
 ### Added

@@ -97,6 +97,10 @@ export interface Binding {
   i?: 1;
   /** handler on an element without a method: `data-sn-debounce` milliseconds */
   ms?: number;
+  /** key filter (`on` for keydown/keyup): the `KeyboardEvent.key` to match, letters in lowercase */
+  q?: string;
+  /** key filter modifiers: 1 ctrl, 2 alt, 4 shift, 8 meta, 16 mod (Ctrl, or Meta on Apple), 32 Shift does not matter unless named */
+  m?: number;
 }
 
 export interface NodeDef {
@@ -231,6 +235,8 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
       if (b.k === 'on') {
         if (!b.n) errs.push(`${ba}: on needs an event name`);
         if (b.x !== undefined) { if (!o.actions[b.x]) errs.push(`${ba}: bad action ${b.x}`); } else fn(b.f, `${ba}.f`, false);
+        if (b.q !== undefined && (typeof b.q !== 'string' || !b.q || !/^key(down|up)$/.test(b.n!))) errs.push(`${ba}: bad key filter`);
+        if (b.m !== undefined && (!Number.isInteger(b.m) || b.q === undefined)) errs.push(`${ba}: bad key modifiers`);
       } else if (b.k === 'for' || b.k === 'if' || b.k === 'else') {
         if (!o.templates[b.x!]) errs.push(`${ba}: bad template ${b.x}`);
         if (b.k !== 'else') fn(b.f, `${ba}.f`, false);

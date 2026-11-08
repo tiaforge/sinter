@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { compile, CODES } from '../../src/compiler/index.js';
+import { compile, compileParts, CODES } from '../../src/compiler/index.js';
 
 const files: Record<string, string> = {
   '/p/partials/a.html': '<sn-include src="./b.html"></sn-include>',
@@ -261,4 +261,43 @@ test('data-sn-debounce-<event> needs that handler and milliseconds', () => {
     .toEqual(['SN102 `data-sn-debounce-input` needs a `data-sn-on-input` handler on the same element']);
   expect(ds('<div data-sn-state="{ a: 0 }"><input data-sn-debounce-input="soon" data-sn-on-input="a++"></div>'))
     .toEqual(['SN401 `data-sn-debounce-input` takes milliseconds']);
+});
+
+describe('key filters', () => {
+  const codes = (attrs: string) => diags(`<main data-sn-state="{ n: 0 }" ${attrs}><p data-sn-text="n"></p></main>`).map((d) => `${d.code} ${d.message}`);
+  test('valid filters compile without diagnostics', () => {
+    expect(codes(`data-sn-on-keydown-j="n++" data-sn-on-keydown-shift-n="n++" data-sn-on-keydown-ctrl-space="n++" data-sn-on-keydown-escape="n++"
+      data-sn-on-keydown-mod-shift-enter="n++" data-sn-on-keyup-question="n++" data-sn-on-keydown-f5="n++" data-sn-on-keydown-1="n++"
+      data-sn-on-keydown-alt-arrowdown="n++" data-sn-on-keydown-slash="n++" data-sn-debounce-keydown-j="100"`)).toEqual([]);
+  });
+  test('unknown key names and modifiers, with did-you-mean', () => {
+    expect(codes('data-sn-on-keydown-esc="n++"')).toEqual(['SN101 `esc` in `data-sn-on-keydown-esc` is not a key name. Did you mean `escape`?']);
+    expect(codes('data-sn-on-keydown-arowdown="n++"')).toEqual(['SN101 `arowdown` in `data-sn-on-keydown-arowdown` is not a key name. Did you mean `arrowdown`?']);
+    expect(codes('data-sn-on-keydown-ctl-k="n++"')).toEqual(['SN101 `ctl` in `data-sn-on-keydown-ctl-k` is not a modifier. Did you mean `ctrl`?']);
+    expect(codes('data-sn-on-keydown-cmd-k="n++"')).toEqual(['SN101 `cmd` in `data-sn-on-keydown-cmd-k` is not a modifier. Did you mean `meta`?']);
+    expect(codes('data-sn-on-keydown-?="n++"')).toEqual(['SN101 `?` in `data-sn-on-keydown-?` is not a key name. Did you mean `question`?']);
+  });
+  test('the shape: one key, last; modifiers once; mod alone', () => {
+    expect(codes('data-sn-on-keydown-shift="n++"')).toEqual(['SN101 `shift` is a modifier: a key filter ends with the key, e.g. `data-sn-on-keydown-shift-k`']);
+    expect(codes('data-sn-on-keydown-j-k="n++"')).toEqual([expect.stringMatching(/^SN101 a key filter names one key, last: `j` in `data-sn-on-keydown-j-k` is a key/)]);
+    expect(codes('data-sn-on-keydown-shift-shift-k="n++"')).toEqual(['SN101 `shift` appears twice in `data-sn-on-keydown-shift-shift-k`']);
+    expect(codes('data-sn-on-keydown-mod-ctrl-k="n++"')).toEqual([expect.stringMatching(/^SN101 `mod` is Ctrl, or Cmd on Apple platforms/)]);
+    expect(codes('data-sn-on-keydown-="n++"')).toEqual([expect.stringMatching(/^SN101 `data-sn-on-keydown-` is a key filter/)]);
+  });
+  test('uppercase in the source: HTML would lowercase it', () => {
+    expect(codes('data-sn-on-keydown-N="n++"')).toEqual(['SN101 HTML lowercases attribute names, so `data-sn-on-keydown-N` would be `data-sn-on-keydown-n`: write N as `shift-n`']);
+    expect(codes('data-sn-on-keydown-ctrl-K="n++"')).toEqual(['SN101 HTML lowercases attribute names, so `data-sn-on-keydown-ctrl-K` would be `data-sn-on-keydown-ctrl-k`: write K as `ctrl-shift-k`']);
+    expect(codes('data-sn-on-keydown-Escape="n++"')).toEqual(['SN101 HTML lowercases attribute names: write `data-sn-on-keydown-Escape` as `data-sn-on-keydown-escape`']);
+  });
+  test('a key filter debounce needs its handler', () => {
+    expect(codes('data-sn-on-keydown-j="n++" data-sn-debounce-keydown-k="10"')).toEqual(['SN102 `data-sn-debounce-keydown-k` needs a `data-sn-on-keydown-k` handler on the same element']);
+  });
+  test('the IR: event, key and modifier bits; the keys feature is loaded', () => {
+    const r = compileParts('<main data-sn-state="{ n: 0 }" data-sn-on-keydown-mod-shift-enter="n++" data-sn-on-keyup-question="n++" data-sn-on-keydown-j="n++"><p data-sn-text="n"></p></main>', {
+      file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+    });
+    const on = r.ir.roots.flatMap((n) => n.b).filter((b) => b.k === 'on').map(({ n, q, m }) => ({ n, q, m }));
+    expect(on).toEqual([{ n: 'keydown', q: 'Enter', m: 20 }, { n: 'keyup', q: '?', m: 32 }, { n: 'keydown', q: 'j', m: undefined }]);
+    expect(r.features).toContain('keys');
+  });
 });
