@@ -741,3 +741,18 @@ test('a locale change re-sorts an ordered resource', async () => {
   await flush();
   expect([...root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['a', 'z', 'ä']);
 });
+
+test('the nearest element that handles a click or custom event wins: a row\'s handler does not run for its button or action', async () => {
+  const requests = mockRequests({ 'POST /api/archive': {} });
+  const { root, settle } = await render(`
+    <main data-sn-state="{ log: [] }" data-sn-on-note="log.push('page note')"><p data-sn-text="log.join(' ')"></p>
+      <ul><li data-sn-on-click="log.push('row')" data-sn-on-note="log.push('row note')">
+        <button id="b" data-sn-on-click="log.push('button')"></button>
+        <button id="a" data-sn-post="/api/archive" data-sn-then="log.push('archived')"></button>
+        <button id="e" data-sn-on-click="emit('note')"></button>
+        <span id="s">text</span>
+      </li></ul>
+    </main>`, { requests });
+  for (const id of ['b', 'a', 'e', 's']) { root.querySelector<HTMLElement>('#' + id)!.click(); await settle(); }
+  expect(root.querySelector('p')!.textContent).toBe('button archived row note row');
+});

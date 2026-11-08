@@ -126,6 +126,42 @@ test('the nearest element with a matching filter handles the key; one with no ma
   expect(root.querySelector('p')!.textContent).toBe('outer j inner esc');
 });
 
+test('a plain key handler that does not prevent the key passes it on: Caley\'s week grid inside a page with N and P', async () => {
+  // the grid takes the arrow keys it uses from their default, and only those
+  const { root, flush } = await render(page(`data-sn-on-keydown-shift-n="log.push('N')" data-sn-on-keydown-shift-p="log.push('P')"`, `
+    <div class="week" tabindex="0" data-sn-on-keydown="($event.key === 'ArrowLeft' || $event.key === 'ArrowRight') && $event.preventDefault(); log.push('grid:' + $event.key)">
+      <button>chip</button>
+    </div>`));
+  const chip = root.querySelector('button')!;
+  expect(press(chip, 'N', { shiftKey: true })).toBe(true);   // not prevented by the grid: <main>'s filter runs
+  expect(press(chip, 'ArrowLeft')).toBe(true);               // prevented by the grid: it stops there
+  expect(press(chip, 'P', { shiftKey: true })).toBe(true);
+  expect(press(chip, 'x')).toBe(false);                      // no filter matches further up
+  await flush();
+  expect(root.querySelector('p')!.textContent).toBe('grid:N N grid:ArrowLeft grid:P P grid:x');
+});
+
+test('plain key handlers at two levels: the outer one sees the keys the inner one does not prevent', async () => {
+  const { root, flush } = await render(page(`data-sn-on-keydown="log.push('outer:' + $event.key)"`, `
+    <section tabindex="0" data-sn-on-keydown="$event.key === 'Enter' && $event.preventDefault(); log.push('inner:' + $event.key)"></section>`));
+  const section = root.querySelector('section')!;
+  press(section, 'Enter');
+  press(section, 'a');
+  await flush();
+  expect(root.querySelector('p')!.textContent).toBe('inner:Enter inner:a outer:a');
+});
+
+test('a debounced plain key handler, and a field\'s plain handler, keep their keys from ancestors\' filters', async () => {
+  const { root, flush, advance } = await render(page(`data-sn-on-keydown-j="log.push('page j')"`, `
+    <section tabindex="0" data-sn-debounce-keydown="50" data-sn-on-keydown="log.push('later:' + $event.key)"></section>
+    <input data-sn-on-keydown="log.push('typed:' + $event.key)">`));
+  press(root.querySelector('section')!, 'j');   // debounced: counts as handled, it will run
+  press(root.querySelector('input')!, 'j');     // passed on, but the page's filter skips keys typed into a field
+  await advance(50);
+  await flush();
+  expect(root.querySelector('p')!.textContent).toBe('typed:j later:j');
+});
+
 test('filters and a plain handler on one element run in attribute order; the plain one for every key, without preventDefault', async () => {
   const { root, flush } = await render(page(`data-sn-on-keydown="log.push('any:' + $event.key)" data-sn-on-keydown-j="log.push('j')" data-sn-on-keydown-shift-j="log.push('J')"`));
   const main = root.querySelector('main')!;

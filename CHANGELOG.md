@@ -24,6 +24,20 @@ Attribute names, function names and diagnostic codes are public API. Before
   warning. It used to be a dev warning only, or, for an unknown string on keyset, a request.
   The paginate module grows by about 120 B gzip.
 
+### Changed
+
+- Event dispatch: the nearest element wins only if it handled the event. For keys, an element
+  whose plain `data-sn-on-keydown`/`-keyup` ran without calling `$event.preventDefault()` now
+  passes the key on to its ancestors. Caley's calendar binds N and P on `<body>`
+  (`data-sn-on-keydown-shift-n`), and its week grid's plain arrow-key handler, which prevents
+  only the arrows it uses, used to hide them for every key. A matching key filter, an action and
+  a debounced handler still handle the key; clicks, other DOM events and custom events
+  (`emit()`, islands, `sn-error`) are unchanged: any handler or action that ran handles them, so a
+  button inside a clickable row still keeps the row's handler from running. Behaviour change:
+  plain key handlers at two levels now both see the keys the inner one does not prevent; a plain
+  handler that should keep keys from its ancestors prevents them. No sinter-level stop; non-bubbling
+  events keep their nearest-ancestor reach, now written down. Core +22 B gzip.
+
 ### Fixed
 
 - Spec, Pagination: `cursor` is evaluated on the boundary item *of the current page* (its last
