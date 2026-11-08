@@ -3,6 +3,17 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Fixed
+
+- The early file no longer repeats work: a binding the build wrote into the HTML as a constant is
+  left out of the early chunk (a persisted model stays in, its stored value is read early), and a
+  resource whose literal `src` names an origin (`https://…`, `//…`) is no early request, as it is
+  no preload: the early file sends same-origin requests only. A page with nothing else to run
+  early has no early file. RealWorld: article 21.1 → 17.9 kB gzip, profile 21.1 → 17.9 kB, under the
+  20 kB budget again.
+
 ## 0.7.0 (2026-11-08)
 
 ### Added
@@ -35,7 +46,7 @@ Attribute names, function names and diagnostic codes are public API. Before
   file sent (GET, same URL, same-origin credentials, only `Accept: application/json`): response
   middleware runs on it, a request middleware that changes the request gets a request of its own;
   what no resource took is aborted after mount. Size: the early file grows by about 1.1 kB gzip
-  (URL templates, `$url`, the handoff); realworld pages are over the 20 kB budget with it.
+  (URL templates, `$url`, the handoff).
 - Testing: `firstPaint(html, { helpers, storage, early })` shows the page as it is before the
   page module runs; `render(html, { firstPaint: { early, afterEarly } })` mounts over it.
 - Recipe "First paint: page chrome that renders before the script".

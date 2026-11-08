@@ -171,6 +171,8 @@ class Compiler {
   pathList: string[] = [];
   /** `$s<sid>.<name>` paths a persisted model writes at mount */
   readonly persisted = new Set<string>();
+  /** bindings `prerender()` wrote into the HTML as constants: the early chunk leaves them out */
+  readonly painted = new Set<Binding>();
 
   constructor(readonly opts: CompileOptions) {
     this.check = opts.check ? { file: opts.file, resources: [], frames: [], exprs: [] } : null;
@@ -1513,9 +1515,11 @@ class Compiler {
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? c.b.w![0]!.split('.').slice(0, 2).join('.') : null;
       const v = known(c.b.d ?? []) ? run(this.fns[c.f]!) : FAIL;
-      own = null;
       const w = v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes);
-      if (w !== FAIL) writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
+      if (w === FAIL) continue;
+      writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
+      // a persisted model's written value is the fallback: the early chunk still applies the stored one
+      if (own === null) this.painted.add(c.b);
     }
   }
 
@@ -1568,7 +1572,7 @@ class Compiler {
     const fns: string[] = [], index = new Map<string, number>();
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const templates: EarlyIR['templates'] = this.templates.map(() => null);
-    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if'].includes(b.k) && !b.e && b.f !== undefined && known(b.d ?? []) && !builtin(this.fns[b.f]!);
+    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if'].includes(b.k) && !b.e && b.f !== undefined && known(b.d ?? []) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
       const bs = defs.map((nd) => (nd.dl ? [] : nd.b.filter(eligible)));
@@ -1615,6 +1619,8 @@ class Compiler {
       if (def.call || def.each || def.data != null || def.paginate || !def.src.length || !knownReq(def.deps)) continue;
       // a URL fixed at build time is preloaded from the HTML (see injectScript), earlier than this file runs
       if (fixedRequest(def)) continue;
+      // a src that names an origin (`https://…`, `//…`) is not same-origin: the early file would not send it
+      if (typeof def.src[0] === 'string' && /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(def.src[0])) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
       const scope = def.scope < 0 ? -1 : rootKeep.get(def.scope);
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
