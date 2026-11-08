@@ -24,6 +24,7 @@ const RECIPES: Array<[string, string, string[]?]> = [
   ['cached-list', 'Cached list across page loads'],
   ['local-actions', 'Local actions: hash a file, then upload it', ['local-actions.actions.js']],
   ['keyboard-shortcuts', 'Keyboard shortcuts'],
+  ['row-select', 'Row selection with Ctrl and Shift: logic in a helper, applied by the handler', ['row-select.helpers.js']],
 ];
 
 function llms(): string {
@@ -54,6 +55,13 @@ Key filters (\`data-sn-on-keydown-<modifiers->key\`, \`data-sn-on-keyup-…\`): 
 - Helpers are plain function calls, never pipes: ${BUILTIN_HELPERS.map((h) => `\`${h}()\``).join(', ')}. Helper namespaces: \`m.inbox_title()\`.
 - URL templates: \`/api/x?id={c.id}\`; interpolations are URL-encoded; the template must start with a literal \`/path\` or \`https://origin\`. A whole query value that is \`null\`/\`undefined\` or an empty array leaves the parameter out; an array is a repeated key (\`?cal={cals}\` → \`cal=a&cal=b\`); an array in the path is refused.
 - Use \`$now\` instead of \`Date.now()\` so bindings update.
+
+## What belongs in markup
+
+- Markup holds filters, conditions, single assignments and short calls. Logic goes into a helper when it computes a value (pure: unit-test it without a page), or into an action when it has side effects (\`data-sn-call\`).
+- Handlers apply a helper's result to state: \`data-sn-on-click="sel = rowClick($event, sel, f.id, ids)"\`, not branches on \`$event.shiftKey\` in the attribute. See the row selection recipe.
+- One step per condition: \`open && close('detail')\` is fine; \`a && (b = null, close())\` is not: split it into statements, let the dialog's \`data-sn-on-close\` reset state, or compute the new state in a helper.
+- Warning SN507 (\`complex-expression\`) flags expressions that outgrew markup and names the limit: statements per handler (4), comma sequences (0), steps behind one \`&&\`/\`||\`/\`?:\` statement (1), \`?:\` nesting (2), operations in an arrow function (8), operations per expression (15). \`sinter({ complexity: { …, level: 'warn' | 'error' | 'off' } })\` changes them.
 
 ## Magic names
 

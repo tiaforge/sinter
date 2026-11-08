@@ -42,6 +42,14 @@ Attribute names, function names and diagnostic codes are public API. Before
   with a `withTag` helper (its editor page now loads the keys module, +550 B gzip). The docs' once-only `then` example is
   `draft = $result ?? draft; $result && showModal('compose')`.
 
+### Docs
+
+- "What belongs in markup" in the spec and `llms.txt`: markup holds filters, conditions,
+  single assignments and short calls; logic goes into helpers (pure) or actions (side
+  effects), and handlers apply results as `state = fn(…)`, one step per condition. New recipe:
+  row selection with Ctrl/Shift, `sel = rowClick($event, sel, f.id, ids)` with the helper and
+  its unit tests.
+
 ### Changed
 
 - `data-sn-on-keydown-…` and `data-sn-on-keyup-…` are key filters now; a custom event whose

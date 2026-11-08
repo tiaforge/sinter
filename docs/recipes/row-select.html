@@ -1,0 +1,13 @@
+<sn-resource name="files" src="/api/files" items="files" key="id"></sn-resource>
+
+<!-- the logic is in rowClick() (row-select.helpers.js); the handler only applies its result -->
+<section data-sn-state="{ sel: noSelection() }" data-sn-let="{ ids: files.map(f => f.id) }">
+  <p data-sn-text="sel.keys.length + ' selected'"></p>
+  <ul role="listbox" aria-multiselectable="true">
+    <template data-sn-for="f in files">
+      <li role="option" data-sn-attr="{'aria-selected': sel.keys.includes(f.id) ? 'true' : 'false'}"
+          data-sn-on-click="sel = rowClick($event, sel, f.id, ids)" data-sn-text="f.name"></li>
+    </template>
+  </ul>
+  <button data-sn-show="sel.keys.length" data-sn-on-click="sel = noSelection()">Clear</button>
+</section>

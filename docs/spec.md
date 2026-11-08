@@ -134,6 +134,17 @@ Every attribute value that is not a URL or a name is a JavaScript expression, pa
 
 Value expressions must be side-effect free, so the runtime may evaluate them any number of times.
 
+### What belongs in markup
+Markup holds filters, conditions, single assignments and short calls. Logic goes into a helper when it computes a value (pure: same arguments, same result, nothing else read or changed), or into an action when it has side effects (`data-sn-call`, see Local actions). A handler then applies the result to state, `state = fn(…)`, and does the rest in a few short statements:
+```html
+<li data-sn-on-click="sel = rowClick($event, sel, f.id, ids)">        <!-- not: four lines of if/else on $event.shiftKey -->
+<input data-sn-on-keydown-enter="d.tagList = withTag(d.tagList, tag); tag = ''">
+<button data-sn-on-click="open && close('detail')">                  <!-- a guard over one step -->
+```
+- A helper is a plain function in the helpers module, so it is unit-tested without a page; the page's test checks that the handler applies it (recipe: row selection).
+- One condition per step: `a && (b = null, close())` is two steps behind one guard; write the steps as statements (`a && close()` plus `data-sn-on-close="b = null"` on the dialog), or compute the new state in a helper.
+- Warning `SN507` flags what has outgrown markup: long handlers, comma sequences, guards over several steps, deep `?:` chains, long or block-bodied arrow functions (see Complexity).
+
 ### Identifier resolution
 A free identifier resolves to the first match, innermost first:
 - Loop variables of enclosing `data-sn-for` (and their index, e.g. `(c, i) in contacts`).
@@ -959,7 +970,7 @@ Expressions that are too complex for markup are warning `SN507`, with the limit 
 
 Operations are calls, `new`, operators, assignments, updates, computed member access and functions; names, member paths (`a.b.c`), literals, and object and array literal structure are free, so a draft literal of plain fields costs nothing. Object attributes (`data-sn-state`, `-let`, `-attr`, `-class`, `-style`, `-prop`) are measured per property value, and the warning names the property. The defaults leave filters (`people.filter(p => p.name.includes(q))`), single assignments of a helper's result, a guard over one call (`open && close()`), short object literals and one nested ternary alone; they were checked against the recipes, the RealWorld example and the e2e pages, which pass.
 - Options of the Vite plugin, read by `sinter check` and `sinter lsp` too: `sinter({ complexity: { statements: 6, ternaries: 1, level: 'warn' } })`. `level` is `warn` (default), `error` (fails the build like any error) or `off`. Each limit can be set alone; an unknown name or level is refused when the config loads.
-- What to do instead: move the logic into a helper (pure) and assign its result, or into an action (side effects).
+- What to do instead: see What belongs in markup.
 
 ### Type checking
 `sinter check` type-checks every expression of the pages with the project's own TypeScript; it is opt-in and never runs in the dev server.
@@ -979,7 +990,7 @@ Operations are calls, `new`, operators, assignments, updates, computed member ac
 The dev build adds checks that need real data: duplicate keys in a response, an item missing a key field, an `items` path that is not an array, a server event payload missing key fields. Warnings name the resource, the page and the offending value.
 
 ### LLM support
-- `llms.txt` in the package: the full attribute reference, the scope rules and copy-paste recipes with their tests (list with filter, form dialog, SSE sync, optimistic toggle, pagination, SignalR transport, typed resources, cached list, local actions, keyboard shortcuts).
+- `llms.txt` in the package: the full attribute reference, the scope rules and copy-paste recipes with their tests (list with filter, form dialog, SSE sync, optimistic toggle, pagination, SignalR transport, typed resources, cached list, local actions, keyboard shortcuts, row selection with a helper).
 - A generated VS Code custom-data file (`html-custom-data.json`) so editors and agents get attribute completion; the VS Code extension ships it.
 - Every diagnostic links to its section in `docs/diagnostics.md`, which is generated from the compiler's table of codes (example, meaning, fix).
 
