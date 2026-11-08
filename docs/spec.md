@@ -287,6 +287,8 @@ URLs are literal strings with `{expression}` interpolations. Each interpolated v
 ```
 A query parameter whose whole value is one interpolation that evaluates to `null` or `undefined` is left out, with its separator: `/api/articles?tag={$url.tag}&limit=10` requests `/api/articles?limit=10` when there is no tag. An empty string is still sent (`tag=`). (Added 2026-11-04.)
 
+A query parameter whose whole value is one interpolation that evaluates to an array is sent once per item, as a repeated key, each item URL-encoded: `/api/search?q={q}&cal={cals}` with `cals = ['a', 'b']` requests `/api/search?q=…&cal=a&cal=b`, as `data-sn-encoding="form"` sends an array in a body. `null` and `undefined` items are left out, and an empty array leaves the parameter out like `null`. In the path an array is refused: the request is not made and the error takes the resource's or action's error path (`refused an array as a URL path value`), and `sinter check` reports it (`SN208`, the value must fit `PathValue`: anything but an array). An array that is only part of a query value (`?tags=t:{list}`) is converted with `String()` (comma-joined) and encoded, as before. `SN505` checks parameter names, so a repeated key counts as the one name the template writes. (Added 2026-11-08.)
+
 A resource whose `src` interpolates state or `$url` refetches when those values change.
 
 ### Magic names

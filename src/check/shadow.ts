@@ -265,6 +265,8 @@ declare global {
 }
 /** what data-sn-attr accepts: the keys SinterAttributes types, anything else as before */
 export type Attrs = { [K in keyof SinterAttributes]?: SinterAttributes[K] } & Record<string, unknown>;
+/** what a URL path interpolation accepts: anything but an array (a whole query value may be one, sent as a repeated key) */
+export type PathValue = string | number | boolean | bigint | null | undefined | { readonly length?: never };
 export interface CallContext { signal: AbortSignal; request(url: string, init?: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal }): Promise<any>; el: Element | null }
 /** an action's parameters without its trailing context */
 export type CallArgs<F> = F extends (...a: infer P) => any ? (P extends [...infer A, infer L] ? ([L] extends [CallContext] ? A : P) : P) : never;

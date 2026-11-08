@@ -32,6 +32,14 @@ Attribute names, function names and diagnostic codes are public API. Before
   superseded `GET` action now rolls its layer back instead of leaving it. The core grows by
   146 B gzip.
 
+- An array as the whole value of a query parameter in a URL template is a repeated key, each
+  item URL-encoded: `/api/search?q={q}&cal={cals}` with `['a', 'b']` sends `cal=a&cal=b`, as
+  `data-sn-encoding="form"` does for bodies; `null`/`undefined` items are left out and an empty
+  array leaves the parameter out. Before, the array was comma-joined (`cal=a%2Cb`). An array
+  in the path is now refused (the request is not made, like a `..` segment), and `sinter
+  check` reports it (`PathValue`). An array that is only part of a query value is comma-joined
+  as before. 77 B gzip on the core.
+
 ### Fixed
 
 - `data-sn-prop` on a custom element that is defined after sinter has set its properties (an

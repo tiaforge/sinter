@@ -141,6 +141,14 @@ describe('sinter check', () => {
     expect(errors('', 'subject = $result.files')).toEqual(["SN208 Type 'string[]' is not assignable to type 'string'."]);
   });
 
+  test('URL templates: an array is refused in the path, allowed as a whole query value', () => {
+    const html = (src: string) => page(`<main data-sn-state="{ ids: ['a'], id: 'a', n: 1, o: { x: 1 } }">
+<sn-resource name="r" src="${src}" key="id" type="any"></sn-resource><p data-sn-text="contacts.length + r.length + ids + id + n + o"></p></main>`);
+    expect(checkPage(html('/api/r/{id}/{n}/{o.x}?cal={ids}&q={id}'), { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
+    expect(checkPage(html('/api/r/{ids}'), { files: { 'src/sinter.types.ts': TYPES } }).map((d) => d.code + ' ' + d.message))
+      .toEqual([expect.stringMatching(/^SN208 Type 'string\[\]' is not assignable to type 'PathValue'/)]);
+  });
+
   test('<sn-resource call>: the result at `items` must fit `type`; without `type` it is the type', () => {
     const root = project({
       'src/sinter.types.ts': `${TYPES}export interface Body { text: string }\n`,

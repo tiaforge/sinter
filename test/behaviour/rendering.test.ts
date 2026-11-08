@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { configure } from '../../src/index.js';
 import { render, mockRequests } from '../../src/testing/index.js';
 
@@ -619,6 +619,39 @@ test('query parameters whose value is null or undefined are left out', async () 
     </div>`, { requests });
   await settle();
   expect(requests.calls.map((c) => c.url).sort()).toEqual(['/api/a', '/api/a?e=&limit=2', '/api/a?limit=2']);
+});
+
+test('an array as a whole query value is a repeated key; empty, it leaves the key out', async () => {
+  const requests = mockRequests({ 'GET /api/s': [] });
+  const { root, settle, app } = await render(`
+    <div data-sn-state="{ q: 'x y', cals: ['a', 'b&c', null], none: [], one: [1] }">
+      <sn-resource name="a" src="/api/s?q={q}&cal={cals}&n={one}#top" key="id"></sn-resource>
+      <sn-resource name="b" src="/api/s?cal={none}&q={q}" key="id"></sn-resource>
+      <sn-resource name="c" src="/api/s?q={q}&cal={none}" key="id"></sn-resource>
+      <sn-resource name="d" src="/api/s?tags=t:{cals}" key="id"></sn-resource>
+      <p data-sn-text="a.length + b.length + c.length + d.length"></p>
+    </div>`, { requests });
+  await settle();
+  expect(requests.calls.map((c) => c.url).sort()).toEqual([
+    '/api/s?q=x%20y', '/api/s?q=x%20y&cal=a&cal=b%26c&n=1', '/api/s?tags=t:a%2Cb%26c%2C',
+  ]);
+  // a change of the array refetches with the new values
+  app.state(root.querySelector('p')!).update((s) => { s.cals = ['z']; });
+  await settle();
+  expect(requests.calls.at(-2)!.url).toBe('/api/s?q=x%20y&cal=z&n=1');
+});
+
+test('an array as a URL path value is refused', async () => {
+  const requests = mockRequests({ 'GET /api/s/a': [] });
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const { settle } = await render(`
+    <div data-sn-state="{ ids: ['a', 'b'] }">
+      <sn-resource name="a" src="/api/s/{ids}" key="id"></sn-resource><p data-sn-text="a.length"></p>
+    </div>`, { requests });
+  await settle();
+  expect(requests.calls).toEqual([]);
+  expect(warn.mock.calls.flat().join(' ')).toMatch(/refused an array as a URL path value/);
+  warn.mockRestore();
 });
 
 test('bindings after a partial inside a template keep their node paths', async () => {

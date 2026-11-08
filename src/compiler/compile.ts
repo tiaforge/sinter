@@ -951,6 +951,8 @@ class Compiler {
       if (lit) parts.push(lit);
       lit = '';
       const r = this.expr(el, attrName, scope, { mode: 'value', ...exprOpts }, value.slice(i + 1, j), i + 1);
+      // an array is a repeated key as a whole query value, and refused in the path
+      if (!/[?#]/.test(value.slice(0, i))) this.typeLast({ returns: { kind: 'decl', name: 'PathValue' } });
       parts.push(this.fn(r.code));
       if (deps) for (const d of r.deps) deps.add(d);
       i = j + 1;

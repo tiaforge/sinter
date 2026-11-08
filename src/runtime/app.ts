@@ -397,16 +397,22 @@ export function mount(root: Document | Element, o: MountOptions): App {
           query ||= /[?#]/.test(p);
           return;
         }
-        const v = fns[p]!(s), next = tpl[i + 1];
-        // a query parameter whose whole value is null or undefined is left out
-        if (v == null && query && /[?&][^?&=#]*=$/.test(out) && (next == null || /^[&#]/.test(next as string))) {
+        let v = fns[p]!(s);
+        const next = tpl[i + 1], key = query && (next == null || /^[&#]/.test(next as string)) && /[?&]([^?&=#]*)=$/.exec(out);
+        // a whole query value: an array is a repeated key (its null items left out), and null,
+        // undefined or an empty array leaves the parameter out
+        if (key && Array.isArray(v)) v = (v = v.filter((x) => x != null)).length ? v.map(encodeSegment).join(`&${key[1]}=`) : null;
+        else if (v != null) {
+          // URL parsers turn %2E%2E back into `..`, so a path value cannot be a dot segment at all
+          if (!query && (v == '.' || v == '..' || Array.isArray(v))) throw new SinterError(0, null, `refused ${Array.isArray(v) ? 'an array' : `\`${v}\``} as a URL path value`);
+          v = encodeSegment(v);
+        }
+        if (key && v == null) {
           out = out.replace(/[^?&=#]*=$/, '');
           dropped = true;
           return;
         }
-        // URL parsers turn %2E%2E back into `..`, so a path value cannot be a dot segment at all
-        if (!query && (v == '.' || v == '..')) throw new SinterError(0, null, `refused \`${v}\` as a URL path value`);
-        out += encodeSegment(v);
+        out += v ?? '';
       });
       return out.replace(/[?&](?=#|$)/, '');
     },
