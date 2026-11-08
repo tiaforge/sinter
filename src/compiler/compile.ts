@@ -2013,7 +2013,8 @@ const SIMPLE_KINDS = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 
 const WRITER: Record<string, string> = { text: 't', attr: 'a', class: 'c', style: 's', show: 'h', prop: 'p' };
 
 /**
- * The creation function of a simple row template (see `TemplateDef.make`): the lookup, then every
+ * The creation function of a simple row template (see `TemplateDef.make`): the lookup of the elements
+ * with value bindings (handlers bind on an element's first event), then every
  * value binding evaluated inline (`$` is the row scope) and written with the runtime's writer of its
  * kind (`w.t(el, name, value)`, …; a class binding tells whether the source element has a `class`
  * attribute, so a false first value has nothing to remove otherwise). Null when the template is not
@@ -2021,19 +2022,21 @@ const WRITER: Record<string, string> = { text: 't', attr: 'a', class: 'c', style
  */
 export function makeCode(nodes: NodeDef[], fns: string[]): string | null {
   if (!nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE_KINDS.has(b.k) && !b.e))) return null;
-  const { decls, els } = lookup(nodes);
+  // only elements with value bindings: a handler binds on its element's first event
+  const valued = nodes.filter((nd) => nd.b.some((b) => b.k !== 'on'));
+  const { decls, els } = lookup(valued);
   const vals: string[] = [], writes: string[] = [], names: string[] = [];
-  for (let k = 0; k < nodes.length; k++) {
+  for (let k = 0; k < valued.length; k++) {
     const e = 'e' + k;
     decls.push(`${e} = ${els[k]}`);
-    for (const b of nodes[k]!.b) {
+    for (const b of valued[k]!.b) {
       if (b.k === 'on') continue;
       const code = fns[b.f!]!;
       if (!code.startsWith('($) => (') || !code.endsWith(')')) return null;
       const v = 'v' + names.length;
       names.push(v);
       vals.push(`${v} = ${e} ? (${code.slice('($) => ('.length, -1)}) : w.U`);
-      writes.push(`${e} && w.${WRITER[b.k]}(${e}, ${JSON.stringify(b.n ?? '')}, ${v}${b.k === 'class' ? `, ${nodes[k]!.cl ? 1 : 0}` : ''})`);
+      writes.push(`${e} && w.${WRITER[b.k]}(${e}, ${JSON.stringify(b.n ?? '')}, ${v}${b.k === 'class' ? `, ${valued[k]!.cl ? 1 : 0}` : ''})`);
     }
   }
   if (!names.length) return null;

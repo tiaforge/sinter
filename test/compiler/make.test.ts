@@ -48,3 +48,20 @@ test('rows created by the creation function behave like bound rows; a throwing e
   expect(lis()).toEqual(['row|1|1', 'row active|2|2']);
   warn.mockRestore();
 });
+
+test('the creation function walks only to elements with value bindings; a handler-only element after them still gets its events', async () => {
+  const html = `
+    <div data-sn-state="{ rows: [{id: 1}, {id: 2}], sel: 0 }">
+      <ul><template data-sn-for="r in rows"><li><b data-sn-text="r.id"></b><span><a data-sn-on-click="sel = r.id">x</a></span></li></template></ul>
+      <p data-sn-text="sel"></p>
+    </div>`;
+  const { ir, fns } = compile(html);
+  expect(fns[ir.templates[0]!.make!]).toBe(
+    '(c, $, w) => { const n0 = c, n1 = n0?.firstChild, e0 = n1?.localName == "b" ? n1 : null; const v0 = e0 ? ($.r.id) : w.U; e0 && w.t(e0, "", v0); return [v0]; }',
+  );
+  const { root, flush } = await render(html);
+  expect([...root.querySelectorAll('li b')].map((b) => b.textContent)).toEqual(['1', '2']);
+  (root.querySelectorAll('a')[1] as HTMLElement).click();
+  await flush();
+  expect(root.querySelector('p')!.textContent).toBe('2');
+});

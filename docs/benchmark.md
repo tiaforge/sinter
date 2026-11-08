@@ -1,5 +1,32 @@
 # js-framework-benchmark results
 
+## 2026-11-08, row creation: what the lookup visits
+
+sinter's own click-to-flush time (`profile.mjs`, median of 25 clicks per page load; create 10k: 5),
+headless Chrome 156, page loads interleaved base / change / vanillajs. The clock was not at the pinned
+4.0 GHz of the section below and another session loaded the machine (load 0.8–1.4 of 16 cores), so
+the absolute figures run 20–30 % above that section's; compare within a column group.
+
+| change | create 1k before | after | create 10k before | after | vanillajs 1k / 10k | kept |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| creation function walks only to elements with value bindings | 2.41, 2.32, 2.56 | 2.21, 2.05, 2.25 | 25.7, 22.9, 24.0 | 20.5, 18.8, 23.9 | 2.21 / 19.6 | yes |
+| empty Text node in each text-bound element of the template content | 2.60, 2.60, 2.57, 2.59 | 2.77, 2.77, 2.79, 2.88 | | | 2.16 / 21.8 | no: slower |
+| create-from-empty path in `reconcile()` (no key map, sequence or LIS) | 2.31, 2.38, 2.26, 2.33 | 2.33, 2.37, 2.18, 2.37 | 20.7, 21.5, 21.7, 21.4 | 24.1, 25.5, 26.2, 26.6 | 1.90 / 20.2 | no |
+| row scope and instance as one object (upper bound, unshippable prototype) | 2.45, 2.24, 2.46 | 2.50, 2.32, 2.41 | 25.3, 20.6, 21.4 | 23.3, 28.4, 21.7 | 1.94 / 20.4 | no |
+
+- The lookup: the benchmark row's remove link (`<a data-sn-on-click>` in the third cell) was walked
+  to and tag-checked on every created row although only its handler, bound on the first click, needs
+  it. Not visiting it saves two DOM accessor calls and two node wrappers per row, about 0.2 ms per
+  1,000 rows; in this session sinter's create 1k equals vanillajs's.
+- An empty Text node cloned with each row (so the first text write sets `data`) is slower than
+  `textContent` on an empty element: that creates the Text node inside the browser with no JS wrapper,
+  while `firstChild` makes one per text node.
+- The skipped `reconcile()` bookkeeping for a list created from no rows is a few callbacks per row,
+  too small to show; the 10k case got slower, likely from the second `instantiate` call site.
+- The row scope (`Object.create` plus three stores) and the instance literal cost about 25 ns per row
+  in the line profile, about 1 % of create 1k, and one object per list prototype would make the
+  instance field reads polymorphic on pages with nested lists.
+
 ## 2026-11-08, pinned clock: before and after the three row changes
 
 The machine (amd-pstate, boost to 5.09 GHz) ran the earlier sections in two clock modes 35–60 % apart,

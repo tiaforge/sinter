@@ -50,6 +50,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   18 ms against 15.5). A class binding's first write on a clone knows whether the source element has a
   `class` attribute (`cl` on the node). Core +0.1 KB gzip; a page module grows by one function per
   simple row template.
+- The creation function walks only to elements with value bindings: an element with only handlers
+  (a row's remove link) is not visited, as its handlers bind on its first event. Creating 1,000 rows
+  in Chrome, sinter's click-to-flush time: 2.41 → 2.21 ms (10,000 rows: 24.0 → 20.5 ms), median of
+  three interleaved page loads each, with vanillajs at 2.21 and 19.6 in the same session (see
+  `docs/benchmark.md`). The core is unchanged.
 - Simple rows keep no binding objects. A row template whose elements carry only value bindings and
   handlers (no state, model, nested template or dialog) now stores its last values in one array per
   row and finds its elements again from the row's first node when it renders; handlers in such rows
