@@ -3,6 +3,16 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Fixed
+
+- `vite build` with Vite 8 no longer warns "`inlineDynamicImports` option is deprecated" once per
+  page: the early file's build passes Rolldown's `codeSplitting: false` (Vite 6 and 7, on Rollup,
+  keep `inlineDynamicImports: true`). Both put an early module's dynamic imports into the early
+  file itself; the output is the same. An early build that still comes out as several chunks now
+  fails the build instead of emitting an early file whose imports cannot load.
+
 ## 0.8.0 (2026-11-08)
 
 ### Added

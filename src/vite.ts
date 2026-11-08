@@ -144,6 +144,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const r = resolved!, ENTRY = `${PREFIX}early-entry.js`;
       const earlyKeys = new Map<string, Set<string>>();
       const vite = earlyPages.size ? await import('vite') : null;
+      const rolldown = !!vite && 'rolldownVersion' in vite;
       for (const [rel, code] of earlyPages) {
         const keys = new Set<string>();
         earlyKeys.set(rel, keys);
@@ -156,11 +157,19 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           }],
           build: {
             write: false, minify: r.build.minify, target: r.build.target, modulePreload: false, copyPublicDir: false, reportCompressedSize: false,
-            rollupOptions: { input: ENTRY, output: { format: 'es', inlineDynamicImports: true } },
+            // one file: dynamic imports inlined. Vite 8 bundles with Rolldown (`codeSplitting: false`; it
+            // deprecates `inlineDynamicImports`), Vite 6 and 7 with Rollup, which knows only the latter.
+            [rolldown ? 'rolldownOptions' : 'rollupOptions']: {
+              input: ENTRY,
+              output: rolldown ? { format: 'es', codeSplitting: false } : { format: 'es', inlineDynamicImports: true },
+            },
           },
         });
         const output = (Array.isArray(out) ? out[0] : out) as { output: Array<{ type: string; isEntry?: boolean; code?: string; modules?: Record<string, { renderedLength: number }> }> };
-        const chunk = output.output.find((c) => c.type === 'chunk' && c.isEntry)!;
+        const chunks = output.output.filter((c) => c.type === 'chunk');
+        // only the entry is emitted: another chunk would be an import the early file cannot load
+        if (chunks.length !== 1) this.error(`sinter: the early file of ${rel} came out as ${chunks.length} chunks; it must be one file with nothing imported`);
+        const chunk = chunks[0]!;
         const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
         const fileName = `${r.build.assetsDir}/${name}-early-${createHash('sha256').update(chunk.code!).digest('base64url').slice(0, 8)}.js`;
         this.emitFile({ type: 'asset', fileName, source: chunk.code! });

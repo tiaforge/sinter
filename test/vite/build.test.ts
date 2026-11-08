@@ -96,6 +96,34 @@ test('first paint: one self-contained early file per page, render-blocking befor
   expect(off).not.toContain('blocking');
 });
 
+test('first paint: an early module\'s dynamic import is inlined, without a deprecated-option warning', async () => {
+  const early = join(root, 'src', 'sinter.early.js'), lazy = join(root, 'src', 'early-lazy.js');
+  const original = readFileSync(early, 'utf8');
+  writeFileSync(lazy, "export const lazyMark = 'lazy-early-module';\n");
+  writeFileSync(early, original + "import('./early-lazy.js').then((m) => { document.documentElement.dataset.lazy = m.lazyMark; });\n");
+  const said: string[] = [];
+  const keep = { warn: console.warn, log: console.log, err: process.stderr.write, out: process.stdout.write };
+  console.warn = (...a: unknown[]) => { said.push(a.join(' ')); };
+  console.log = (...a: unknown[]) => { said.push(a.join(' ')); };
+  process.stderr.write = ((c: string | Uint8Array) => { said.push(String(c)); return true; }) as never;
+  process.stdout.write = ((c: string | Uint8Array) => { said.push(String(c)); return true; }) as never;
+  const dir = join(out, 'early-dynamic');
+  try {
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+  } finally {
+    Object.assign(console, { warn: keep.warn, log: keep.log });
+    process.stderr.write = keep.err; process.stdout.write = keep.out;
+    writeFileSync(early, original);
+    rmSync(lazy, { force: true });
+  }
+  const html = readFileSync(join(dir, 'index.html'), 'utf8');
+  const file = /src="\/assets\/(index-early-[\w-]+\.js)" blocking="render"/.exec(html)![1]!;
+  const code = readFileSync(join(dir, 'assets', file), 'utf8');
+  expect(code).toContain('lazy-early-module');            // in the early file itself
+  expect(code).not.toMatch(/^\s*import\s|\bimport\(/m);  // which loads nothing (Vite's preload helper reads import.meta)
+  expect(said.join('\n')).not.toMatch(/inlineDynamicImports|codeSplitting/);
+});
+
 test('first paint in the dev server: the early chunk as a module of its own, before the page module', async () => {
   const server = await createServer({ root, logLevel: 'silent', resolve: { alias }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', plugins: [sinter()] });
   try {
