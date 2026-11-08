@@ -696,7 +696,7 @@ class Compiler {
     const isTemplate = el.tagName === 'template';
     const valueB = (k: 'text' | 'show', name: string) => {
       const r = this.expr(el, name, scope, { mode: 'value' });
-      if (r.ok) node.b.push(binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r) }));
+      if (r.ok) node.b.push(binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
     };
 
     for (const n of ['for', 'if', 'else'] as const) {
@@ -1033,7 +1033,7 @@ class Compiler {
       if ((key === 'id' || key === 'name') && !e.literal) {
         this.report(el, 'data-sn-attr', 'SN503', `\`${key}\` bound from data can shadow globals other scripts read (DOM clobbering)`, e.offset);
       }
-      if (r.ok) node.b.push(binding({ k: 'attr', n: e.key, f: this.fn(e.code), d: e.deps, ...usesEl(r) }));
+      if (r.ok) node.b.push(binding({ k: 'attr', n: e.key, f: this.fn(e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
     }
   }
 
@@ -1048,8 +1048,36 @@ class Compiler {
         continue;
       }
       if (k === 'style' && !key.startsWith('--')) key = key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
-      if (r.ok) node.b.push(binding({ k, n: key, f: this.fn(e.code), d: e.deps, ...usesEl(r) }));
+      if (r.ok) node.b.push(binding({ k, n: key, f: this.fn(e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', entryValue(r, e), r) }));
     }
+  }
+
+  /**
+   * A value binding in a row whose value is `row side === outer side` (or `!==`): one side reads the
+   * row (the innermost loop's item or index), the other does not and depends on something. The row
+   * side is where the row's data is read; such bindings are re-evaluated on the rows concerned when
+   * only the outer side changes (the selection pattern: `{active: row.id === selectedId}`).
+   */
+  selection(scope: Scope, src: string, v: Node | null | undefined, whole: ExprResult): Binding['s'] {
+    const n = scope.loops.length;
+    if (!n || !v || whole.usesEl || v.type !== 'BinaryExpression') return undefined;
+    const bin = v as import('acorn').BinaryExpression & Node;
+    if (bin.operator !== '===' && bin.operator !== '!==') return undefined;
+    // the innermost loop's names: its item and, after it, its index
+    const names = new Set<string>();
+    let k = n;
+    while (k > 0 && scope.loops[k - 1]!.kind === 'index') names.add(scope.loops[--k]!.name);
+    if (k > 0) names.add(scope.loops[k - 1]!.name);
+    const [l, rt] = [bin.left as Node, bin.right as Node];
+    const lm = mentions(l, names), rm = mentions(rt, names);
+    if (lm === rm) return undefined;
+    const [row, outer] = lm ? [l, rt] : [rt, l];
+    const quiet: ExprOptions = { mode: 'value', report: () => {} };
+    const ro = analyze(src.slice(row.start, row.end), scope, this.page, quiet), oo = analyze(src.slice(outer.start, outer.end), scope, this.page, quiet);
+    if (!ro.ok || !oo.ok || oo.usesIndex || oo.usesEl || ro.usesEl) return undefined;
+    const d = oo.deps.filter((x) => !ro.deps.includes(x));
+    if (!d.length) return undefined;
+    return { r: this.fn(ro.code), o: this.fn(oo.code), d, ...(bin.operator === '!==' ? { x: 1 as const } : {}) };
   }
 
   model(el: P5Element, node: NodeDef, scope: Scope, persist: string | undefined) {
@@ -1834,11 +1862,27 @@ class Compiler {
 // ---- helpers
 
 /** Flags for the runtime: `e` when the expression reads `$el`, `i` when it reads a loop index. */
+/** The AST of an object-literal entry's value (by its offset), for the selection pattern. */
+const entryValue = (r: ExprResult, e: { offset: number }): Node | undefined => {
+  const props = (r.ast as import('acorn').ObjectExpression | null)?.properties;
+  const p = props?.find((x) => x.start === e.offset);
+  return p && p.type === 'Property' ? (p.value as Node) : undefined;
+};
+/** Whether an expression names one of `names` (object keys of literals count, conservatively). */
+function mentions(n: unknown, names: Set<string>): boolean {
+  if (!n || typeof n !== 'object') return false;
+  if (Array.isArray(n)) return n.some((x) => mentions(x, names));
+  const node = n as Node & Record<string, unknown>;
+  if (node.type === 'Identifier') return names.has((node as unknown as import('acorn').Identifier).name);
+  if (node.type === 'MemberExpression' && !(node as unknown as import('acorn').MemberExpression).computed) return mentions(node.object, names);
+  for (const key in node) if (key !== 'type' && key !== 'start' && key !== 'end' && key !== 'loc' && typeof node[key] === 'object' && mentions(node[key], names)) return true;
+  return false;
+}
 const usesEl = (r: ExprResult): Pick<Binding, 'e' | 'i'> => ({ ...(r.usesEl ? { e: 1 as const } : {}), ...(r.usesIndex ? { i: 1 as const } : {}) });
 
 function binding(b: Binding): Binding {
   const out: Binding = { k: b.k };
-  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'w', 'p', 'e', 'i', 'ms'] as const) {
+  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'w', 'p', 'e', 'i', 'ms', 's'] as const) {
     const v = b[key];
     if (v === undefined || (Array.isArray(v) && v.length === 0 && key !== 'd')) continue;
     (out as unknown as Record<string, unknown>)[key] = v;

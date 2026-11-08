@@ -5,6 +5,18 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Changed
+
+- Selection bindings: a value binding in a row whose value is `row side === outer side` (or `!==`),
+  such as `data-sn-class="{active: row.id === selectedId}"`, is re-evaluated only on the rows the
+  comparison held for and on those matching the new value when the outer side changes, through an
+  index of the rows the runtime builds on first use and drops whenever the rows render for another
+  reason. Selecting a row in a 1,000-row table evaluates two bindings instead of 1,000
+  (js-framework-benchmark select row, script time 5.2 → 2.2 ms; sinter's own flush takes 0.7 ms for
+  the first selection, when the index is built, and 0.2 ms after); the result is the same. The compiler marks the pattern in the IR (`s` on the binding: both sides as functions and
+  the outer side's dependencies); loose equality and comparisons inside larger expressions are
+  rendered as before. Core +0.26 KB gzip.
+
 ### Fixed
 
 - `vite build` with Vite 8 no longer warns "`inlineDynamicImports` option is deprecated" once per

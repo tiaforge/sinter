@@ -182,10 +182,15 @@ interface RB extends BoundBinding {
   /** for: rows by key, built on demand (null: keys are explicit or not unique), and the round of the last reconcile */
   keys?: Map<unknown, Inst> | null;
   rr?: number;
+  /** for: selection indexes of its rows (by binding), built on demand, dropped when the rows are rendered */
+  sx?: Map<Binding, Sel>;
   /** if: rendered branch (0 none, 1 if, 2 else), and the else anchor with its template */
   br?: number;
   else?: [Element, number] | null;
 }
+
+/** A selection binding's index over one list's rows: rows by row-side value, and the rows the comparison holds for. */
+interface Sel { m: Map<unknown, Inst[]>; on: Set<Inst> }
 
 interface Inst {
   first: Node | null;
@@ -247,6 +252,7 @@ const HANDLERS = Symbol('sinter.on'), MODEL = Symbol('sinter.model'), STATE = Sy
 /** HANDLERS: one handler binding, or an array when the element has several */
 type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
 const indexReaders = new WeakMap<TemplateDef, boolean>();
+const others = new WeakMap<TemplateDef, Dep[]>(), selOf = new WeakMap<TemplateDef, Binding[]>();
 /** row templates: whether each holds one element (see oneElement()) */
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
 /** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
@@ -352,6 +358,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
     ...depsOf(b, b.d),
     ...(b.k == 'for' || b.k == 'if' || b.k == 'else' ? templateDeps(ir.templates[b.x!]!) : []),
   ]))), compiled.get(t)!);
+
+  /**
+   * The template's dependencies without the outer sides of its selection bindings: what reaches a row
+   * for any other reason. The selection bindings of the template's own nodes.
+   */
+  const otherDeps = (t: TemplateDef): Dep[] => others.get(t) ?? (others.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
+    ...(b.s ? toDeps((b.d ?? []).filter((d) => !b.s!.d.includes(d))) : depsOf(b, b.d)),
+    ...(b.k == 'for' || b.k == 'if' || b.k == 'else' ? templateDeps(ir.templates[b.x!]!) : []),
+  ]))), others.get(t)!);
+  const sels = (t: TemplateDef): Binding[] => selOf.get(t) ?? (selOf.set(t, t.nodes.flatMap((nd) => nd.b.filter((b) => b.s))), selOf.get(t)!);
 
   /** Whether any of `deps` overlaps a dirty path of the current flush. */
   const hit = (deps: Dep[], s?: any) => {
@@ -614,9 +630,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (r == null) {
         r = 0;
         // a mark counts as "only marked rows" for dependencies on this list's own element; others (outer rows) reach any row
-        for (const dep of templateDeps(t!)) for (const d of cur) { const x = reach(dep, d); r = Math.max(r, x == 1 && dep.t != t!.id ? 2 : x); }
+        for (const dep of otherDeps(t!)) for (const d of cur) { const x = reach(dep, d); r = Math.max(r, x == 1 && dep.t != t!.id ? 2 : x); }
         rowHits.set(t!, r);
       }
+      // only a selection's outer side changed: the rows it concerns, through the index; rows that were
+      // just reconciled (some re-rendered, the index stale) or wait in a closed dialog render as usual
+      if (!r) {
+        const ss = sels(t!);
+        if (ss.some((b) => hit(depsOf(b.s!, b.s!.d), rb.s))) {
+          if (rb.rr != round && !deferred.size) { for (const b of ss) select(rb, b); continue; }
+          r = 2;
+        }
+      }
+      rb.sx = undefined;
       // only marked elements changed and the list did not move: visit their rows directly
       if (r == 1 && rb.rr != round) {
         const keys = rb.keys === undefined ? (rb.keys = t!.key != null ? null : new Map(rb.rows.map((x) => [x.key, x]))) : rb.keys;
@@ -645,6 +671,35 @@ export function mount(root: Document | Element, o: MountOptions): App {
     else if (k == 'model') writeModel(rb, v);
     else if (!Object.is(v, rb.v)) { write(rb, v, rb.v == UNSET ? undefined : rb.v); rb.v = v; }
     return true;
+  }
+
+  /**
+   * A selection binding (`row.id === selected`) whose outer side may have changed: re-evaluates it on
+   * the rows it held for and the rows whose row side equals the new outer value; the others keep their
+   * value. The index is built from the rows on first use and kept while no row is rendered.
+   */
+  function select(rb: RB, b: Binding) {
+    const s = b.s!, f = s.x ? 0 : 1;
+    if (!hit(depsOf(s, s.d), rb.s)) return;
+    const own = (x: Inst) => x.rbs.find((y) => y.b == b);
+    const safe = (i: number, sc: any) => { try { return fns[i]!(sc); } catch { return undefined; } };
+    let e = rb.sx?.get(b);
+    if (!e) {
+      const m = new Map<unknown, Inst[]>(), on = new Set<Inst>();
+      for (const x of rb.rows!) {
+        const y = own(x);
+        if (!y) continue;
+        const k = safe(s.r, x.s), a = m.get(k);
+        a ? a.push(x) : m.set(k, [x]);
+        if (+!!y.v == f) on.add(x);
+      }
+      (rb.sx ??= new Map()).set(b, (e = { m, on }));
+    }
+    for (const x of [...e.on, ...(e.m.get(safe(s.o, rb.s)) ?? [])]) {
+      const y = own(x)!;
+      process(y, 2);
+      if (+!!y.v == f) e.on.add(x); else e.on.delete(x);
+    }
   }
 
   /**
@@ -822,6 +877,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     rb.rows = rows;
     rb.rr = round;
     rb.keys = undefined;
+    rb.sx = undefined;
   }
 
   function toggle(rb: RB, br: number) {

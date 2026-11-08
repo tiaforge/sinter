@@ -926,6 +926,7 @@ sinter updates the DOM fine-grained, without a virtual DOM: every binding knows 
 - On a change, unchanged keys keep their nodes; new keys get instances; missing keys are removed.
 - Reordering uses a longest-increasing-subsequence pass, so the minimum number of nodes move.
 - A row re-evaluates its bindings only if its item object was replaced, its own state path is dirty, or a dependency outside the row (e.g. `q`) changed.
+- Selection bindings (added 2026-11-08). A value binding in a row whose value is `row side === outer side` (or `!==`), where one side reads the row (its item or index) and the other reads something outside it (`{active: row.id === selectedId}`, `{on: n === g.pick}` under an outer loop, `data-sn-show="r.id !== hidden"`), is marked by the compiler (`s` in the IR: both sides as functions, the outer side's dependencies). When only the outer side changes, the runtime re-evaluates the binding on the rows the comparison held for and on the rows whose row side equals the new outer value, found through an index built from the rows on first use; every other row keeps its value, which cannot have changed. Any other change to the rows (a reconcile, a row-side dependency) renders them as before and drops the index. The pattern is strict equality only: `==` is not an index lookup, a ternary around the comparison is not the pattern. The result equals evaluating every row.
 - Reused nodes keep focus, selection, scroll position and half-typed input.
 
 ### Scheduler

@@ -105,6 +105,12 @@ export interface Binding {
   q?: string;
   /** key filter modifiers: 1 ctrl, 2 alt, 4 shift, 8 meta, 16 mod (Ctrl, or Meta on Apple), 32 Shift does not matter unless named */
   m?: number;
+  /**
+   * selection (a value binding in a row): the value is `row side === outer side` (`x`: `!==`). `r` and `o` are
+   * the sides' functions, `d` the outer side's dependencies the row side does not read. When only those change,
+   * the runtime re-evaluates the binding on the rows the comparison matched and matches, not on every row.
+   */
+  s?: { r: number; o: number; d: string[]; x?: 1 };
 }
 
 export interface NodeDef {
@@ -280,7 +286,11 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
         if (b.y !== undefined && !list[b.y]?.b.some((x) => x.k === 'else')) errs.push(`${ba}: y must point at an else node`);
       } else fn(b.f, `${ba}.f`, false);
       if (b.k === 'model') fn(b.a, `${ba}.a`, false);
-      for (const d of [...(b.d ?? []), ...(b.w ?? [])]) if (typeof d !== 'string' || !d) errs.push(`${ba}: bad path`);
+      if (b.s !== undefined) {
+        if (!['text', 'attr', 'class', 'style', 'show', 'prop'].includes(b.k) || !inTemplate) errs.push(`${ba}: s belongs to a value binding in a template`);
+        else { fn(b.s.r, `${ba}.s.r`, false); fn(b.s.o, `${ba}.s.o`, false); if (!Array.isArray(b.s.d) || !b.s.d.length) errs.push(`${ba}: s needs outer paths`); }
+      }
+      for (const d of [...(b.d ?? []), ...(b.w ?? []), ...(b.s?.d ?? [])]) if (typeof d !== 'string' || !d) errs.push(`${ba}: bad path`);
     });
   });
   nodes(o.roots, 'roots', false);
