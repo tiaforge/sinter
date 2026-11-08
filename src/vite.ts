@@ -250,7 +250,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         invalidate(moduleSrc);
         invalidate(`${EARLY}${rel}.js`);
         // dev: the picker first in the head, with every language's whole dictionary; a build adds it after bundling
-        if (dev && out.messages?.length && messages) {
+        if (dev && out.messages && messages) {
           const base = resolved?.base ?? '/';
           for (const f of Object.values(messages.files)) watch(f);
           const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])));

@@ -1058,7 +1058,7 @@ The built page shows its chrome before the page module has run; the page bundle 
 
 - With an inlang project (`project.inlang/settings.json`, message files `messages/{locale}.json` of plain `"key": "text with {param}"`), `m.key()` / `m.key({ param })` in markup are sinter's built-in messages. App code: `import { m } from '@tiaforge-ui/sinter/messages'`, typed by the generated `src/sinter.messages.d.ts`. Unknown keys are SN206, wrong or missing params SN208 (`sinter check`). Only `m.key`: `m[key]` or passing `m` on fails the build; a dynamic choice is a switch.
 - The build emits one file per page and language with only the keys the page calls (markup and its modules); a missing translation is the base language, reported at build. No plurals or variants.
-- Before the first paint a tiny classic script picks the language (localStorage `locale`, else `navigator.languages`, else the base), sets `<html lang>` and loads the page's language file render-blocking. `$locale = 'de'` switches without a reload (stores the choice, loads that file, re-renders). Don't `configure({ locale })`: sinter is the locale source.
+- Before the first paint a tiny classic script picks the language (localStorage `locale`, else `navigator.languages`, else the base), sets `<html lang>` and loads the page's language file render-blocking: on every page that calls `m`, in its markup or in a helper, action or island it bundles. `$locale = 'de'` switches without a reload (stores the choice, loads that file, re-renders). Don't `configure({ locale })`: sinter is the locale source.
 - Tests: `render(html, { messages: { en: {…}, de: {…} }, locale })`. An app without an inlang project ships none of this.
 
 ## Deploying streams

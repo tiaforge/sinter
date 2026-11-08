@@ -55,6 +55,8 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
         add(o?.module ?? info.module, `${o?.name ?? m} as ${ns}$${m}`);
       }
     }
+    // helpers the early bindings call may use `m` without the markup doing so: wait for the dictionary as well
+    if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) messages = messagesImport('m', []);
     for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
     if (messages) lines.push(messages);
     lines.push('', `const ir = ${JSON.stringify(early.ir)};`, 'const fns = [');
@@ -78,6 +80,12 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
     const mod = options.helpers.namespaces[ns]!.module;
     if (mod === MESSAGES) { lines.push(messagesImport(ns, members)); messages = true; continue; }
     lines.push(`import { ${members.map((m) => `${m} as ${ns}$${m}`).join(', ')} } from ${JSON.stringify(mod)};`);
+  }
+  // an app with built-in messages: the page's modules (helpers, actions, islands) may call `m` although
+  // its markup does not, so every page waits for the dictionary (and sinter is the locale source)
+  if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) {
+    lines.push(messagesImport('m', []));
+    messages = true;
   }
   // actions (`data-sn-call`): imported as `$a$name` / `$a$ns$member`, only those the page calls
   const acts = options.actions;
@@ -109,7 +117,8 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
 
 /** The built-in messages a module calls: `m.key` bound to the names compiled code uses (`m$key`). */
 function messagesImport(ns: string, members: string[]): string {
-  return `import { m as $m, use as $use, ready as $ready } from '${MESSAGES}';\nconst ${members.map((m) => `${ns}$${m} = $m.${m}`).join(', ')};`;
+  const imp = `import { ${members.length ? 'm as $m, ' : ''}use as $use, ready as $ready } from '${MESSAGES}';`;
+  return members.length ? `${imp}\nconst ${members.map((m) => `${ns}$${m} = $m.${m}`).join(', ')};` : imp;
 }
 
 /**

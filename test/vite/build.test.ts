@@ -128,6 +128,22 @@ test('messages: one file per page and language with only the keys it calls (mark
   expect(readFileSync(join(i18nRoot, 'src/sinter.messages.d.ts'), 'utf8')).toContain('hello(params: { name: string | number }): string;');
 });
 
+test('messages: a page whose markup has no `m` but whose modules call it gets the picker, its language file, and waits for it', async () => {
+  const dir = join(out, 'i18n-other');
+  await build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: dir, emptyOutDir: true, minify: false, rollupOptions: { input: join(i18nRoot, 'other.html') } }, plugins: [sinter({ typecheck: true })] });
+  const html = readFileSync(join(dir, 'other.html'), 'utf8');
+  const picker = /<script src="\/assets\/sinter-i18n-[\w-]+\.js" data-sn-i18n="([^"]+)"><\/script>/.exec(html);
+  expect(picker).not.toBeNull();
+  const data = JSON.parse(picker![1]!.replace(/&#34;/g, '"'));
+  const lang = (l: string) => readFileSync(join(dir, data.files[l].slice(1)), 'utf8');
+  // the helper's only_en and the config module's bye; nothing the other page's markup calls
+  expect(lang('de')).toContain('{"bye":"Tschüss","only_en":"Only in English"}');
+  expect(lang('en')).not.toContain('People');
+  // the page bundle renders once the dictionary is there, so farewell() returns text, not the key
+  const js = readdirSync(join(dir, 'assets')).filter((f) => /^other-(?!en-|de-)/.test(f)).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n');
+  expect(js).toMatch(/await ready\(\);\s*use\(mount\(/);
+});
+
 test('messages: unknown keys, wrong parameters and `m[key]` in a module fail the build', async () => {
   const page = join(i18nRoot, 'index.html'), mod = join(i18nRoot, 'src/bye.js');
   const [p0, m0] = [readFileSync(page, 'utf8'), readFileSync(mod, 'utf8')];

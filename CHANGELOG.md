@@ -35,7 +35,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   `m.key({ param })` in markup, `m` from the new `@tiaforge-ui/sinter/messages` in app code, typed
   by a generated `src/sinter.messages.d.ts`. Unknown keys are `SN206`, wrong parameters `SN208`;
   `m[key]` in a module fails the build. Per page and language the build emits a file with only
-  the keys the page calls (markup and its modules); missing translations fall back to the base
+  the keys the page calls (markup and its modules), and every such page gets the picker and waits
+  for the dictionary, also when only a helper, action or island it bundles calls `m`; missing translations fall back to the base
   language and are reported. A small classic picker script chooses the language before the first
   paint (stored choice, `navigator.languages`, base) and loads that file render-blocking; the early
   file and page module wait for it and hold no message text. `$locale = 'de'` stores the choice,
