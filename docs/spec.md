@@ -122,6 +122,25 @@ Dependencies are extracted at compile time: every binding lists the state and re
 - Vite (v0.1): `@tiaforge-ui/sinter/vite` hooks `transformIndexHtml` for every HTML entry and serves the page module as a virtual module. Dev and build use the same path. Partials returned in `files` are watched. Diagnostics go to the terminal and Vite's error overlay. An HTML or partial change triggers a full reload in v0.1.
 - Later: esbuild or a CLI wrap the same `compile()`; nothing in the core changes.
 
+### First paint
+The page renders correctly before its module has run; the module then fills in data. Nothing waits for the page bundle: only a small first-paint script is render-blocking.
+
+**Build-time values.** With the `firstPaint` compile option (the Vite plugin passes it unless `sinter({ firstPaint: false })`), a binding outside any `<template>` is evaluated at build time when its value depends only on what the build knows, and the value is written into the HTML as the runtime would write it:
+- `text` (the element's content; only when it holds no elements), `attr`, `class` (literal keys), `style`, `show` (`hidden`) and `model` on checkboxes, radios and text/number fields (`checked`, `value`). Not `prop`, `select` models, `for`/`if`.
+- What it may read: `data-sn-state` fields whose initializer is itself known (each field on its own: `{ here: '/mail/', at: $now }` leaves `here` known), constants, `$locale` (see locales), and helpers, called in Node with the helpers module the plugin loads. Helpers must be pure; one that throws, or a helpers module that cannot be loaded in Node, leaves the binding to the page module (a warning names the module).
+- Not known: resources, `$url`, `$now`, `$meta`, `$el`, loop variables, store functions, `Date`, `Intl`, `Math.random()` and the built-in formatters (their output depends on the browser's clock or ICU), state written by persistence at mount (a persisted state object, and the field a persisted model writes, except that model's own initial value), and values the runtime would refuse (a URL attribute with a disallowed scheme, a style that loads a URL). Each of those is runtime-only, as before.
+- The runtime still owns every binding. On mount it computes the same value and its write changes nothing, so there is no flash and no reset.
+
+**Locales.** `sinter({ locale: { locales: ['en', 'de'], storage: 'locale', navigator: true, use: 'src/paraglide/runtime.js#setLocale' } })` declares that the browser picks the locale. The build evaluates each known binding once per locale, switching the helpers with `use` (a module path, its default export or `#name`, called with each locale). The HTML is written in the first locale; values that differ in another go into the first-paint data. Without `use`, with several locales, bindings that call helpers or read `$locale` are runtime-only. Resolution, in the first-paint script: the localStorage value under `storage` if it is a supported locale, else the first of `navigator.languages` (unless `navigator: false`) that matches a locale exactly or by its language (`de-AT` → `de`), else the first locale. The script sets `<html lang>` to it; the app starts its i18n library from `document.documentElement.lang`, so build, first paint and runtime agree on one resolution.
+
+**Persisted controls.** A model-bound control whose value is persisted (`data-sn-persist` on the control, or a field of a `data-sn-state` object persisted as a whole) is listed in the first-paint data; the script reads `sn:<key>` and sets `checked`/`value`/`selected` as the persist feature and the model's write do at mount. Bindings that read the persisted value stay runtime-only.
+
+**The first-paint script.** When a page has first-paint data the compiler adds `<script type="application/json" id="sn-first-paint">` (data, so `script-src 'self'` applies to nothing in it; `<` is escaped) and, with `firstPaint.script`, `<script src defer blocking="render">` before the page module. It is a classic script with no imports (about 1.2 kB gzip, `FIRST_PAINT_SCRIPT` from `@tiaforge-ui/sinter/compiler`); deferred, it runs after parsing and before the page module, and `blocking="render"` holds the first paint until it has run (where `blocking` is not supported it is an ordinary deferred script, which browsers in practice run before painting a short page). The Vite plugin emits it as `assets/sinter-first-paint-<hash>.js` (`/@sinter/first-paint.js` in dev). A failure in it leaves the page as built.
+
+**Data.** `{ l?: { locales, storage?, navigator? }, t?: { <locale>: [[id, kind, name, value]] }, p?: [[id, key, controlKind, field?]] }`: kinds are `text`, `attr` (value null removes it), `class`, `style`, `show`, `checked`, `value`.
+
+**What this asks of markup.** Page chrome renders before the script only outside templates: a `data-sn-if="user"` around the navigation hides it until the user has loaded. Keep chrome out of templates and put only what needs data inside them.
+
 ## Expressions and scope
 Every attribute value that is not a URL or a name is a JavaScript expression, parsed by a real JS parser at build time and checked against a closed set of identifiers.
 

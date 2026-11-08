@@ -26,6 +26,7 @@ const RECIPES: Array<[string, string, string[]?]> = [
   ['keyboard-shortcuts', 'Keyboard shortcuts'],
   ['row-select', 'Row selection with Ctrl and Shift: logic in a helper, applied by the handler', ['row-select.helpers.js']],
   ['run-action', 'Run an action from a handler: mark a mail read once its body has loaded, and a shortcut'],
+  ['first-paint', 'First paint: page chrome that renders before the script'],
 ];
 
 function llms(): string {
@@ -101,6 +102,17 @@ Each recipe comes with its test; copy both.
 - SN509 (\`run-cycle\`) is opt-in: \`sinter check --check-cycles\`, or \`sinter({ checkCycles: true })\` for the build, \`sinter check\` and \`sinter lsp\`. It reports \`then\`/\`catch\` handlers that start each other again through \`run()\` (and \`refresh()\`), with every step.
 - Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: \`checkPage(html, { files, openapi })\` from \`@tiaforge-ui/sinter/check\`.
 `);
+  out.push(`## First paint
+
+The built page shows its chrome before any script of the app has run; the page bundle is not render-blocking.
+
+- Outside \`<template>\`s, a binding whose value the build knows is written into the HTML: literal \`data-sn-state\` fields (each field on its own), constants and helper calls (run in Node; helpers must be pure, a throwing one is skipped). \`aria-current\` from \`here === '/mail/'\`, labels from \`m.nav_mail()\`, a checkbox's \`checked\` from its state. Kinds: text, attr, class, style, show, and models on checkboxes, radios and text fields.
+- Resources, \`$url\`, \`$now\`, \`Date\`, \`Intl\`, the built-in formatters and persisted state stay runtime-only. The runtime still owns every binding and its first write changes nothing.
+- \`sinter({ locale: { locales: ['en', 'de'], storage: 'locale', use: 'src/paraglide/runtime.js#setLocale' } })\`: the browser picks the locale (stored choice, then \`navigator.languages\`, then the first). The HTML is in the first locale; a small \`defer blocking="render"\` script (\`/assets/sinter-first-paint-*.js\`, no imports, \`script-src 'self'\` is enough) sets \`<html lang>\` and writes the others' text. Start the app's i18n from \`document.documentElement.lang\`. Without \`use\`, bindings that call helpers wait for the page module.
+- The same script applies persisted model values (\`data-sn-persist\`, localStorage \`sn:<key>\`) to their controls, e.g. a collapse checkbox whose \`:checked\` collapses a sidebar in CSS.
+- Keep page chrome outside templates: \`<template data-sn-if="user">\` around the navigation hides it until the user has loaded. Put only what needs data in templates.
+- \`sinter({ firstPaint: false })\` turns it off. Test it with \`firstPaint(html, { helpers, locale, storage, languages })\` from the testing module, and \`render(html, { firstPaint: { locale } })\` for the takeover.
+`);
   out.push(`## Deploying streams
 
 Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origin: with more than 5 tabs open, pages stop loading. Serve streams over HTTP/2 (any TLS reverse proxy such as nginx or Caddy) or use the WebSocket transport; dev builds warn about HTTP/1.1.
@@ -113,10 +125,11 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 
 Write a test next to the markup. \`@tiaforge-ui/sinter/testing\` compiles the page with the real compiler and mounts it:
 
-- \`render(html, { requests, streams, url, locale, now, helpers, actions, files, storage, session })\` → \`{ root, app, flush, settle, advance, navigations, window }\`. Pass one \`memoryStorage()\` as \`session\` to two renders to test what carries over between page loads (the \`cache\` attribute). A full document keeps its \`<html>\` attributes, so state and \`data-sn-persist\` on \`<html>\` work as in the browser.
+- \`render(html, { requests, streams, url, locale, now, helpers, actions, files, storage, session, firstPaint })\` → \`{ root, app, flush, settle, advance, navigations, window }\`. Pass one \`memoryStorage()\` as \`session\` to two renders to test what carries over between page loads (the \`cache\` attribute). A full document keeps its \`<html>\` attributes, so state and \`data-sn-persist\` on \`<html>\` work as in the browser.
 - \`mockRequests({ 'GET /api/x': json | {status, body} | (call) => … })\`: records \`calls\`; responses are held until \`settle()\`; an unmatched request fails the test and lists the routes.
 - \`mockStream()\`: \`emit(name, payload)\`, \`drop()\`, \`connected\`. A stream URL with no mock uses the transport from \`configure({ transport })\`, so a custom transport can be tested over a fake connection (see the SignalR recipe).
 - \`flush()\` runs the scheduler (optimistic changes are visible), \`settle()\` finishes requests, queues and debounces, \`advance(ms)\` moves sinter's clock.
+- \`firstPaint(html, { helpers, files, locale, storage, languages })\` → \`{ root }\`: the page as the browser shows it before the page module runs (build-time values, then the first-paint script). \`render(…, { firstPaint: { locale, languages } })\` mounts over that first paint, so a test can check the takeover changes nothing.
 `);
   return out.join('\n');
 }

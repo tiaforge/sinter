@@ -3,6 +3,34 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Added
+
+- First paint: pages render correctly before their module has run, and the page bundle is not
+  render-blocking. Outside templates, a binding whose value the build knows (literal
+  `data-sn-state` fields, each on its own; constants; helper calls, run in Node through the
+  helpers module) is written into the HTML: text, attributes (`aria-current`, `aria-label`,
+  `data-tooltip`, …), classes, styles, `hidden`, and `checked`/`value` of model-bound
+  checkboxes, radios and text fields. Resources, `$url`, `$now`, `Date`, `Intl`, the built-in
+  formatters, persisted state, refused URLs and styles, and a helper that throws stay
+  runtime-only. The runtime still owns every binding; its first write changes nothing.
+- `sinter({ locale: { locales, storage, navigator, use } })`: the browser picks the locale
+  (stored choice, then `navigator.languages`, then the first). The build evaluates bindings per
+  locale, switching the helpers with `use` (`'src/paraglide/runtime.js#setLocale'`); the HTML is
+  in the first locale. A classic first-paint script (`assets/sinter-first-paint-<hash>.js`,
+  about 1.2 kB gzip, no imports, loaded `defer blocking="render"` before the page module) sets
+  `<html lang>`, writes the visitor's locale and applies persisted model values
+  (`data-sn-persist`) to their controls, from a `<script type="application/json"
+  id="sn-first-paint">` the compiler adds. Apps start their i18n from
+  `document.documentElement.lang`.
+- `sinter({ firstPaint: false })` turns it off. The compiler takes `firstPaint` (helpers, locale,
+  script) and returns the page's first-paint data; `@tiaforge-ui/sinter/compiler` exports
+  `FIRST_PAINT_SCRIPT`, `firstPaint` and `pickLocale` for other adapters.
+- Testing: `firstPaint(html, { helpers, locale, storage, languages })` shows the page as it is
+  before the page module runs; `render(html, { firstPaint })` mounts over that first paint.
+- Recipe "First paint: page chrome that renders before the script".
+
 ## 0.6.0 (2026-11-08)
 
 ### Added

@@ -1,0 +1,13 @@
+<!-- First paint: what renders before the page module has run. Chrome stays outside templates, so the
+     build writes it into the HTML: labels (helpers, in every locale of `sinter({ locale })`), the current
+     page from literal state, the persisted collapse checkbox. Only what needs data goes in a template. -->
+<body data-sn-state="{ here: '/mail/' }">
+  <sn-resource name="user" src="/api/user"></sn-resource>
+  <nav data-sn-attr="{'aria-label': m.nav()}" data-sn-state="{ collapsed: false }">
+    <input type="checkbox" data-sn-model="collapsed" data-sn-persist="nav-collapsed" data-sn-attr="{'aria-label': m.collapse()}">
+    <a href="/mail/" data-sn-attr="{'aria-current': here === '/mail/' ? 'page' : null}"><span data-sn-text="m.mail()"></span></a>
+    <a href="/calendar/" data-sn-attr="{'aria-current': here === '/calendar/' ? 'page' : null}"><span data-sn-text="m.calendar()"></span></a>
+    <!-- needs the user: renders when the page module has loaded it -->
+    <template data-sn-if="user"><span data-sn-text="user.name"></span></template>
+  </nav>
+</body>

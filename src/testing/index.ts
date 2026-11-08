@@ -3,7 +3,8 @@
 // No test-runner imports: works with Vitest or anything else, on jsdom or happy-dom.
 import { compileParts } from '../compiler/compile.js';
 import { formatDiagnostic } from '../compiler/diagnostics.js';
-import type { HelperManifest } from '../compiler/compile.js';
+import type { CompiledParts, HelperManifest } from '../compiler/compile.js';
+import { firstPaint as runFirstPaint, pickLocale } from '../first-paint.js';
 import { mount, type App, type Feature, type Transport } from '../runtime/app.js';
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
@@ -189,6 +190,18 @@ export interface RenderOptions {
   /** localStorage and sessionStorage (default: empty ones); pass the previous page's to test what carries over */
   storage?: Storage;
   session?: Storage;
+  /**
+   * first paint: compile with the values known at build time and run the first-paint script
+   * (locale text, persisted controls) before mounting, as the built page does in the browser
+   */
+  firstPaint?: true | FirstPaintTestOptions;
+}
+
+export interface FirstPaintTestOptions {
+  /** the app's locales, as the Vite plugin's `locale` option, with `use` as a function that switches the helpers' locale */
+  locale?: { locales: string[]; storage?: string; navigator?: boolean; use?: (locale: string) => void };
+  /** the browser's `navigator.languages` (default `['en-US']`) */
+  languages?: string[];
 }
 
 export interface Rendered {
@@ -215,10 +228,25 @@ const realSetTimeout = globalThis.setTimeout.bind(globalThis);
 const tick = () => new Promise<void>((r) => realSetTimeout(r, 0));
 const PAGE = '/test/page.html';
 
-export async function render(html: string, options: RenderOptions = {}): Promise<Rendered> {
+/**
+ * What the built page shows before its module has run: the page compiled with the values known at
+ * build time, written into the document, and the first-paint script run over it. Nothing is
+ * mounted: bindings that wait for the module are as the HTML has them.
+ */
+export async function firstPaint(html: string, options: Pick<RenderOptions, 'helpers' | 'files' | 'storage'> & FirstPaintTestOptions = {}): Promise<{ root: HTMLElement; html: string }> {
   if (current) { current.destroy(); current = null; }
+  const { helpers, files, locale } = options;
+  const { parts } = compilePage(html, { ...(helpers ? { helpers } : {}), ...(files ? { files } : {}), firstPaint: locale ? { locale } : {} });
+  writePage(parts.html);
+  paint(options.storage ?? memoryStorage(), options.languages);
+  return { root: document.body, html: parts.html };
+}
 
-  // compile with the real compiler
+function paint(storage: Storage, languages: string[] = ['en-US']) {
+  runFirstPaint(document, storage, languages, pickLocale);
+}
+
+function compilePage(html: string, options: RenderOptions): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown> } {
   const helpers = options.helpers ?? {};
   const manifest: HelperManifest = { module: null, names: [], namespaces: {} };
   for (const [k, v] of Object.entries(helpers)) {
@@ -232,6 +260,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     else if (v && typeof v === 'object') actionManifest.namespaces[k] = { module: k, members: Object.keys(v) };
   }
   const files = options.files ?? {};
+  const fp = options.firstPaint === true ? {} : options.firstPaint;
   const parts = compileParts(html, {
     file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank',
     readFile: (p) => {
@@ -240,9 +269,31 @@ export async function render(html: string, options: RenderOptions = {}): Promise
       if (hit === undefined) throw new Error(`no such file: ${p}`);
       return hit;
     },
+    ...(fp ? { firstPaint: { helpers, locale: fp.locale ?? null } } : {}),
   });
   const errors = parts.diagnostics.filter((d) => d.severity === 'error');
   if (errors.length) throw new Error(`sinter: build failed\n${errors.map(formatDiagnostic).join('\n')}`);
+  return { parts, manifest, actions };
+}
+
+/** The compiled page into the test document; the `<html>` element's own attributes as the browser has them. */
+function writePage(html: string) {
+  const doc = document;
+  // parsed, not matched: an `<html>` in a comment or text before the real tag is not the element
+  const page = new DOMParser().parseFromString(html, 'text/html').documentElement;
+  page.querySelector('script[type="module"][src="about:blank"]')?.remove();
+  const top = doc.documentElement;
+  for (const a of [...top.attributes]) top.removeAttribute(a.name);
+  for (const a of [...page.attributes]) top.setAttribute(a.name, a.value);
+  top.innerHTML = page.innerHTML;
+}
+
+export async function render(html: string, options: RenderOptions = {}): Promise<Rendered> {
+  if (current) { current.destroy(); current = null; }
+
+  // compile with the real compiler
+  const { parts, actions } = compilePage(html, options);
+  const helpers = options.helpers ?? {};
 
   // function table, with helpers and namespace members in scope
   const names: string[] = ['$k'];
@@ -262,14 +313,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
 
   // the page
   const doc = document;
-  // parsed, not matched: an `<html>` in a comment or text before the real tag is not the element
-  const page = new DOMParser().parseFromString(parts.html, 'text/html').documentElement;
-  page.querySelector('script[type="module"][src="about:blank"]')?.remove();
-  const top = doc.documentElement;
-  // the <html> element's own attributes (state, persist, bindings) as the browser has them
-  for (const a of [...top.attributes]) top.removeAttribute(a.name);
-  for (const a of [...page.attributes]) top.setAttribute(a.name, a.value);
-  top.innerHTML = page.innerHTML;
+  writePage(parts.html);
 
   // environment: fake clock, recorded navigation, in-memory storage
   let now = options.now instanceof Date ? options.now.getTime() : options.now ?? Date.parse('2026-01-01T09:00:00Z');
@@ -278,6 +322,12 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   let nextTimer = 1;
   const navigations: string[] = [];
   const store = options.storage ?? memoryStorage(), session = options.session ?? memoryStorage();
+  if (options.firstPaint) {
+    const fp = options.firstPaint === true ? {} : options.firstPaint;
+    paint(store, fp.languages);
+    // as the app does: its i18n starts in the locale the first-paint script picked (`<html lang>`)
+    if (fp.locale?.use) fp.locale.use(doc.documentElement.lang);
+  }
   const winListeners = new Map<string, Set<(e: Event) => void>>();
   const env: Env = {
     now: () => now,

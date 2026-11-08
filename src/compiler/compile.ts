@@ -11,6 +11,8 @@ import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, N
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { matchOperation, matchResource, queryNames, walk, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, Binding, EventDef, IR, NodeDef, Paginate, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
+import type { FirstPaintData, FirstPaintWrite } from '../first-paint.js';
+import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 
 type P5Node = DefaultTreeAdapterMap['node'];
 type P5Element = DefaultTreeAdapterMap['element'];
@@ -44,6 +46,29 @@ export interface CompileOptions {
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
   checkCycles?: boolean;
+  /** first paint: write bindings whose value is known at build time into the HTML (off without it) */
+  firstPaint?: FirstPaintOptions;
+}
+
+/** What the compiler needs to write a page's first paint. */
+export interface FirstPaintOptions {
+  /** the helpers module's exports (functions and namespace objects), for bindings that call helpers; null or absent: such bindings stay runtime-only */
+  helpers?: Record<string, unknown> | null;
+  /** the app's locales, when the browser picks one: the HTML is written in the first, the first-paint script writes the others */
+  locale?: FirstPaintLocale | null;
+  /** the first-paint script (FIRST_PAINT_SCRIPT, served by the adapter): loaded `defer blocking="render"` before the page module when the page has first-paint data */
+  script?: { src: string; attrs?: Record<string, string> } | null;
+}
+
+export interface FirstPaintLocale {
+  /** supported locales; the first is the fallback */
+  locales: string[];
+  /** localStorage key holding the visitor's choice (a plain locale string), read first */
+  storage?: string | null;
+  /** then `navigator.languages` (default true) */
+  navigator?: boolean;
+  /** switches the helpers' locale at build time; without it (and with several locales) bindings that call helpers stay runtime-only */
+  use?: ((locale: string) => void) | null;
 }
 
 export interface CompileResult {
@@ -53,6 +78,8 @@ export interface CompileResult {
   files: string[];
   /** with `check: true` */
   check?: CheckUnit;
+  /** with `firstPaint`: the page's first-paint data, or null when it needs none */
+  firstPaint?: FirstPaintData | null;
 }
 
 export interface CompiledParts {
@@ -69,6 +96,8 @@ export interface CompiledParts {
   files: string[];
   /** with `check: true` */
   check?: CheckUnit;
+  /** with `firstPaint`: the data written to `<script type="application/json" id="sn-first-paint">`, or null when the page needs none */
+  firstPaint?: FirstPaintData | null;
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
@@ -135,6 +164,13 @@ class Compiler {
   readonly exprsOf = new Map<P5Element, Array<{ attr: string; i: number }>>();
   /** handlers that call `run()` or `refresh()`, for SN509 */
   readonly flows: Array<{ el: P5Element; attr: string; shift: number; runs: NonNullable<ExprResult['runs']>; refreshes: NonNullable<ExprResult['refreshes']> }> = [];
+  /** first paint: page-level nodes with bindings, state scopes, and what persistence writes at mount */
+  readonly paints: Array<{ el: P5Element; node: NodeDef }> = [];
+  readonly stateInits: Array<{ sid: number; fields: Array<{ key: string; code: string; deps: string[] }>; persist: string | null }> = [];
+  /** `$s<sid>.<name>` paths a persisted model writes at mount */
+  readonly persisted = new Set<string>();
+  /** model bindings that read a persisted value: by node */
+  readonly persistedControls = new Map<NodeDef, { key: string; field?: string }>();
 
   constructor(readonly opts: CompileOptions) {
     this.check = opts.check ? { file: opts.file, resources: [], frames: [], exprs: [] } : null;
@@ -168,6 +204,8 @@ class Compiler {
     this.runTargets();
     if (this.opts.checkCycles) this.runCycles();
     for (const el of this.remove) detach(el);
+    const firstPaint = this.opts.firstPaint ? this.prerender() : null;
+    if (firstPaint) this.injectFirstPaint(doc, firstPaint);
     this.injectScript(doc);
     // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
     // toggle and use the generic path walk, which costs no code per template
@@ -189,6 +227,7 @@ class Compiler {
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
+      ...(this.opts.firstPaint ? { firstPaint } : {}),
     };
   }
 
@@ -625,6 +664,7 @@ class Compiler {
           node.persist = get('persist')!;
           this.features.add('persist');
         }
+        this.stateInits.push({ sid, fields: r.entries!.map((e) => ({ key: e.key, code: e.code, deps: e.deps })), persist: node.persist ?? null });
       }
     }
 
@@ -730,6 +770,7 @@ class Compiler {
       if (ctx.tid < 0) {
         node.id = this.nextId++;
         setAttr(el, 'data-sn', String(node.id));
+        this.paints.push({ el, node });
       } else node.path = [...ctx.path, index];
       if (this.opts.dev) (node as NodeDef & { src?: string }).src = this.position(el);
       ctx.list.push(node);
@@ -1021,7 +1062,15 @@ class Compiler {
     const inner = r.code.slice('($) => ('.length, -1);
     const setter = this.fn(`($, v) => { ${inner} = v; }`);
     const b = binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')], ...usesEl(r) });
-    if (persist !== undefined) b.p = persist;
+    if (persist !== undefined) {
+      b.p = persist;
+      this.persisted.add(r.path.slice(0, 2).join('.'));
+      this.persistedControls.set(node, { key: persist });
+    } else if (r.path.length === 2) {
+      // a field of a persisted state object
+      const sid = Number(r.path[0]!.slice(2)), st = this.stateInits.find((x) => x.sid === sid);
+      if (st?.persist) this.persistedControls.set(node, { key: st.persist, field: r.path[1]! });
+    }
     node.b.push(b);
   }
 
@@ -1400,6 +1449,147 @@ class Compiler {
     };
   }
 
+  // ---- first paint
+
+  /**
+   * Writes page-level bindings whose value is known at build time into the HTML: their
+   * expressions read only literal state (not persisted), `$locale` and helpers, and evaluate
+   * without error to a value the runtime would write as is. With several locales each is
+   * evaluated per locale: the HTML gets the first, the first-paint data the others where they
+   * differ. Anything else stays runtime-only. Returns the page's first-paint data, or null.
+   */
+  prerender(): FirstPaintData | null {
+    const fp = this.opts.firstPaint!;
+    const spec = fp.locale?.locales.length ? fp.locale : null;
+    const locales: Array<string | null> = spec ? spec.locales : [null];
+    // several locales and no way to switch the helpers: what reads the locale cannot be known
+    const switchable = locales.length < 2 || !!spec?.use;
+    const data: FirstPaintData = {};
+    if (spec) data.l = { locales: spec.locales, ...(spec.storage ? { storage: spec.storage } : {}), ...(spec.navigator === false ? { navigator: false } : {}) };
+
+    const controls: NonNullable<FirstPaintData['p']> = [];
+    for (const { node } of this.paints) {
+      const c = this.persistedControls.get(node), b = node.b.find((x) => x.k === 'model');
+      if (c && b && node.id !== undefined) controls.push(c.field !== undefined ? [node.id, c.key, b.n!, c.field] : [node.id, c.key, b.n!]);
+    }
+    if (controls.length) data.p = controls;
+
+    type Cand = { el: P5Element; id: number; b: Binding; f: number };
+    const cands: Cand[] = [];
+    for (const { el, node } of this.paints) {
+      for (const b of node.b) {
+        if (b.f === undefined || b.e || !['text', 'attr', 'class', 'style', 'show', 'model'].includes(b.k)) continue;
+        if (b.k === 'class' && !b.n) continue;
+        if (b.k === 'text' && el.childNodes.some(isElement)) continue;
+        if (b.k === 'model' && !['checkbox', 'radio', 'text', 'number'].includes(b.n!)) continue;
+        cands.push({ el, id: node.id!, b, f: b.f });
+      }
+    }
+    if (!cands.length) return data.l || data.p ? data : null;
+
+    // the function table, with helpers in scope; what cannot be evaluated here throws
+    const NOT = new Error('not known at build time');
+    const stub = new Proxy(function () {}, { apply() { throw NOT; }, get() { throw NOT; } });
+    const mod = fp.helpers ?? null;
+    const params = new Map<string, unknown>([['$k', $k], ['Date', stub], ['Intl', stub]]);
+    const math: Record<string, unknown> = {};
+    for (const k of Object.getOwnPropertyNames(Math)) if (k !== 'random') math[k] = (Math as unknown as Record<string, unknown>)[k];
+    params.set('Math', Object.freeze(math));
+    for (const h of ['date', 'time', 'datetime', 'relative', 'number', 'bytes']) params.set(h, stub);
+    for (const h of this.opts.helpers.names) params.set(h, mod && mod[h] !== undefined ? mod[h] : stub);
+    for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) {
+      const obj = mod?.[ns] as Record<string, unknown> | undefined;
+      for (const m of members) params.set(`${ns}$${m}`, obj && obj[m] !== undefined ? obj[m] : stub);
+    }
+    // each state field on its own: one that reads the clock or a resource leaves the others known
+    const used = [...new Set([...this.stateInits.flatMap((s) => s.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!)])];
+    let table: Array<($: unknown) => unknown>;
+    try {
+      // eslint-disable-next-line no-new-func -- build time only: the page's own compiled expressions
+      table = new Function(...params.keys(), `"use strict"; return [\n${used.join(',\n')}\n];`)(...params.values());
+    } catch { return data.l || data.p ? data : null; }
+    const fnOf = new Map(used.map((code, i) => [code, table[i]!]));
+
+    const results: unknown[][] = cands.map(() => []);
+    const schemes = schemesOf([]);
+    for (const locale of locales) {
+      let localeOk = switchable;
+      if (spec?.use && locale !== null && locales.length > 1) { try { spec.use(locale); } catch { localeOk = false; } }
+      // a persisted model's own state path: its initial value is the fallback when storage has none
+      let own: string | null = null;
+      const isPersisted = (p: string) => p !== own && this.persisted.has(p);
+      const known = (deps: string[], states: Map<number, unknown>) => deps.every((d) => {
+        if (d === '$locale') return localeOk;
+        const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
+        if (!m || !states.has(Number(m[1]))) return false;
+        return m[2] !== undefined ? !isPersisted(`$s${m[1]}.${m[2]}`) : ![...this.persisted].some((p) => p !== own && p.startsWith(`$s${m[1]}.`));
+      });
+      const states = new Map<number, unknown>();
+      const scope = new Proxy({}, {
+        get: (_, k) => {
+          if (typeof k === 'string') {
+            const m = /^\$s(\d+)$/.exec(k);
+            if (m && states.has(Number(m[1]))) return states.get(Number(m[1]));
+            if (k === '$locale' && locale !== null && localeOk) return locale;
+          }
+          throw NOT;
+        },
+      });
+      const run = (code: string): unknown => { try { return fnOf.get(code)!(scope); } catch { return FAIL; } };
+      for (const st of this.stateInits) {
+        if (st.persist) continue;
+        const sid = st.sid, obj: Record<string, unknown> = {};
+        for (const x of st.fields) {
+          // a field read before (an outer state's) is known only as far as its own deps are
+          const v = known(x.deps, states) ? run(x.code) : FAIL;
+          if (v !== FAIL && plainData(v)) obj[x.key] = v;
+          else delete obj[x.key];
+        }
+        // a field not known here, or written by a persisted model at mount, is read when the page module runs
+        states.set(sid, new Proxy(deepFreeze(obj), {
+          get: (t, k) => { if (typeof k === 'string' && (!Object.hasOwn(t, k) || isPersisted(`$s${sid}.${k}`))) throw NOT; return Reflect.get(t, k); },
+        }));
+      }
+      cands.forEach((c, i) => {
+        own = c.b.k === 'model' && c.b.p !== undefined ? c.b.w![0]!.split('.').slice(0, 2).join('.') : null;
+        if (!known(c.b.d ?? [], states)) return results[i]!.push(FAIL);
+        const v = run(this.fns[c.f]!);
+        own = null;
+        results[i]!.push(v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes));
+      });
+    }
+    if (spec?.use && locales.length > 1) { try { spec.use(locales[0]!); } catch { /* ignored */ } }
+
+    cands.forEach((c, i) => {
+      const vs = results[i]!;
+      if (vs.some((v) => v === FAIL)) return;
+      const [kind, value] = vs[0] as [FirstPaintWrite[1], unknown];
+      writeFirstPaint(c.el, kind, c.b.n ?? null, value);
+      const base = JSON.stringify(vs[0]);
+      vs.forEach((v, li) => {
+        if (li === 0 || JSON.stringify(v) === base) return;
+        const l = locales[li]!, w = v as [FirstPaintWrite[1], unknown];
+        ((data.t ??= {})[l] ??= []).push([c.id, w[0], c.b.k === 'attr' ? c.b.n!.toLowerCase() : c.b.n ?? null, w[1]]);
+      });
+    });
+    return data.l || data.p || data.t ? data : null;
+  }
+
+  /** `<script type="application/json" id="sn-first-paint">` in the head, for the first-paint script. */
+  injectFirstPaint(doc: DefaultTreeAdapterMap['document'], data: FirstPaintData) {
+    const html = doc.childNodes.find((n) => isElement(n) && n.tagName === 'html') as P5Element | undefined;
+    const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
+    if (!head) return;
+    const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+    const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+    const s = this.opts.firstPaint?.script;
+    const tag = s ? `<script src="${esc(s.src)}" defer blocking="render"${Object.entries(s.attrs ?? {}).map(([k, v]) => ` ${k}${v === '' ? '' : `="${esc(v)}"`}`).join('')}></script>` : '';
+    for (const n of parse5.parseFragment(`<script type="application/json" id="sn-first-paint">${json}</script>${tag}`).childNodes) {
+      (n as { parentNode: P5Parent }).parentNode = head;
+      head.childNodes.push(n as never);
+    }
+  }
+
   injectScript(doc: DefaultTreeAdapterMap['document']) {
     const html = doc.childNodes.find((n) => isElement(n) && n.tagName === 'html') as P5Element | undefined;
     const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
@@ -1532,4 +1722,88 @@ export function findCode(nodes: NodeDef[]): string {
     return `${x}?.localName == ${JSON.stringify(nd.tag)} ? ${x} : null`;
   });
   return `(c) => { const ${decls.join(', ')}; return [${out.join(', ')}]; }`;
+}
+
+// ---- first paint
+
+/** JSON-like data: what a literal state object holds. */
+function plainData(v: unknown, depth = 0): boolean {
+  if (v === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof v)) return true;
+  if (depth > 20 || typeof v !== 'object') return false;
+  if (Array.isArray(v)) return v.every((x) => plainData(x, depth + 1));
+  const proto = Object.getPrototypeOf(v);
+  return (proto === Object.prototype || proto === null) && Object.values(v as object).every((x) => plainData(x, depth + 1));
+}
+
+function deepFreeze<T extends object>(v: T): T {
+  for (const x of Object.values(v)) if (x && typeof x === 'object') deepFreeze(x);
+  return Object.freeze(v);
+}
+
+/** a binding that cannot be written ahead */
+const FAIL = Symbol('first paint: runtime-only');
+
+const isPrimitive = (v: unknown) => v == null || ['string', 'number', 'boolean'].includes(typeof v);
+
+/**
+ * What the runtime would write for value `v` of binding `b` on `el`, as `[kind, value]`, or FAIL
+ * when it cannot be written ahead (an object, a refused URL or style, a select).
+ */
+function firstPaintValue(el: P5Element, b: Binding, v: unknown, schemes: Set<string>): [FirstPaintWrite[1], unknown] | symbol {
+  const fail = FAIL;
+  switch (b.k) {
+    case 'text': return isPrimitive(v) ? ['text', '' + (v ?? '')] : fail;
+    case 'show': return ['show', !!v];
+    case 'class': return ['class', !!v];
+    case 'attr': {
+      if (!isPrimitive(v)) return fail;
+      if (v == null || v === false) return ['attr', null];
+      const s = v === true ? '' : '' + v;
+      return urlAllowed({ localName: el.tagName } as Element, b.n!, s, 'https://sinter.invalid/', schemes) ? ['attr', s] : fail;
+    }
+    case 'style': {
+      if (!isPrimitive(v)) return fail;
+      if (v == null || v === false) return ['style', null];
+      return STYLE_BAD.test('' + v) ? fail : ['style', '' + v];
+    }
+    case 'model': {
+      const value = attr(el, 'value') ?? 'on';
+      if (b.n === 'checkbox') return ['checked', Array.isArray(v) ? v.map(String).includes(value) : !!v];
+      if (b.n === 'radio') return ['checked', v != null && '' + v == value];
+      return isPrimitive(v) ? ['value', '' + (v ?? '')] : fail;
+    }
+  }
+  return fail;
+}
+
+/** Writes one first-paint value into the static HTML, as the runtime's write would into the DOM. */
+function writeFirstPaint(el: P5Element, kind: FirstPaintWrite[1], name: string | null, v: unknown) {
+  const text = (s: string) => {
+    for (const c of el.childNodes) (c as { parentNode: unknown }).parentNode = null;
+    el.childNodes = s ? [{ nodeName: '#text', value: s, parentNode: el } as unknown as P5Node] as never : [];
+  };
+  const set = (n: string, value: string | null) => {
+    if (value === null) el.attrs = el.attrs.filter((a) => a.name !== n);
+    else setAttr(el, n, value);
+  };
+  switch (kind) {
+    case 'text': text(v as string); break;
+    case 'show': set('hidden', v ? null : ''); break;
+    case 'attr': set(name!.toLowerCase(), v as string | null); break;
+    case 'class': {
+      const list = (attr(el, 'class') ?? '').split(/\s+/).filter((c) => c && c !== name);
+      if (v) list.push(name!);
+      set('class', list.length ? list.join(' ') : attr(el, 'class') != null ? '' : null);
+      break;
+    }
+    case 'style': {
+      const cur = attr(el, 'style') ?? '';
+      const rest = cur.split(';').map((d) => d.trim()).filter((d) => d && d.slice(0, d.indexOf(':')).trim().toLowerCase() !== name);
+      if (v !== null) rest.push(`${name}: ${v as string}`);
+      set('style', rest.length ? rest.join('; ') : cur ? '' : null);
+      break;
+    }
+    case 'checked': set('checked', v ? '' : null); break;
+    case 'value': if (el.tagName === 'textarea') text(v as string); else set('value', v as string); break;
+  }
 }

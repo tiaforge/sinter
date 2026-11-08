@@ -1,8 +1,9 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type HelperManifest } from './compile.js';
+import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type FirstPaintLocale, type FirstPaintOptions, type HelperManifest } from './compile.js';
 
-export type { CompileOptions, CompileResult, CompiledParts, HelperManifest };
+export type { CompileOptions, CompileResult, CompiledParts, FirstPaintLocale, FirstPaintOptions, HelperManifest };
+export { FIRST_PAINT_SCRIPT, firstPaint, pickLocale, type FirstPaintData, type FirstPaintWrite } from '../first-paint.js';
 export type { Diagnostic } from './diagnostics.js';
 export type { CheckUnit } from './check-unit.js';
 export { formatDiagnostic, docsUrl, CODES } from './diagnostics.js';
@@ -17,6 +18,7 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   const parts = compileParts(html, options);
   const out: CompileResult = { html: parts.html, module: pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files };
   if (parts.check) out.check = parts.check;
+  if (parts.firstPaint !== undefined) out.firstPaint = parts.firstPaint;
   return out;
 }
 
