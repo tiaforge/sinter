@@ -48,14 +48,16 @@ test('random list changes: DOM order matches state, surviving rows keep their no
 
 type Item = { id: string; n: number };
 
-test('random interleavings of server writes and optimistic layers match a reference store', () => {
+test('random interleavings of server writes and optimistic layers that fail or succeed match a reference store', () => {
   for (const seed of [11, 12, 13, 14, 15, 16, 17, 18, 19, 20]) {
     const rand = rng(seed);
     const int = (n: number) => Math.floor(rand() * n);
     const r = createResource<Item>('xs', { key: ['id'], order: 'n' });
     r.setTotal(50);
     let base = new Map<string, Item>();
-    const layers: Array<{ id: number; ops: Op[] }> = [];
+    // `ok`: succeeded, waiting for the older layers to settle before it joins the base
+    let layers: Array<{ id: number; ops: Op[]; ok?: boolean }> = [];
+    let total = 50;
     const key = () => String(int(6));
     const randomOp = (): Op => {
       const k = int(3);
@@ -73,6 +75,9 @@ test('random interleavings of server writes and optimistic layers match a refere
       if (action <= 1) {
         // a server event or a `then` write: always to the base
         const op = randomOp();
+        const k = op.op === 'upsert' ? op.item.id : op.key;
+        // it wins over the changes of succeeded layers still waiting
+        for (const l of layers) if (l.ok) l.ops = l.ops.filter((x) => (x.op === 'upsert' ? x.item.id : x.key) !== k);
         apply(base, op);
         if (op.op === 'upsert') r.upsert(op.item);
         else if (op.op === 'patch') r.patch(op.key, op.fields);
@@ -80,10 +85,15 @@ test('random interleavings of server writes and optimistic layers match a refere
       } else if (action === 2) {
         const ops = Array.from({ length: 1 + int(3) }, randomOp);
         layers.push({ id: r.addLayer(ops), ops });
-      } else if (layers.length) {
-        // a request settles, in any order
-        const [l] = layers.splice(int(layers.length), 1);
-        r.dropLayer(l!.id);
+      } else if (layers.some((l) => !l.ok)) {
+        // a request settles, in any order: fails (rollback) or succeeds (into the base once the older ones settle)
+        const open = layers.filter((l) => !l.ok);
+        const l = open[int(open.length)]!;
+        if (rand() < 0.5) { layers = layers.filter((x) => x !== l); r.dropLayer(l.id); }
+        else { l.ok = true; r.commitLayer(l.id); }
+        while (layers[0]?.ok) {
+          for (const op of layers.shift()!.ops) { if (op.op === 'remove' && base.has(op.key)) total--; apply(base, op); }
+        }
       }
       const view = new Map(base);
       // the total drops by every layer removal of an item present at that point (adds do not raise it)
@@ -92,8 +102,8 @@ test('random interleavings of server writes and optimistic layers match a refere
       // a full stable sort of arrival (Map) order: the store patches its sorted list in place and must agree exactly
       const expected = [...view.values()].sort((a, b) => a.n - b.n).map((i) => `${i.id}:${i.n}`);
       expect(r.all().map((i) => `${i.id}:${i.n}`), `seed ${seed} step ${step}`).toEqual(expected);
-      expect(r.meta.pending).toBe(layers.length);
-      expect(r.meta.total, `seed ${seed} step ${step}`).toBe(Math.max(0, 50 - removed));
+      expect(r.meta.pending).toBe(layers.filter((l) => !l.ok).length);
+      expect(r.meta.total, `seed ${seed} step ${step}`).toBe(Math.max(0, total - removed));
     }
     base = new Map();
   }

@@ -375,7 +375,7 @@ Status lives under `$meta.<name>`, never on the data itself. The field set is fi
 | `loading` | boolean | a request for this resource is in flight |
 | `error` | `{status, body, message}` or `null` | the last load failed; cleared on success |
 | `loadedAt` | number (ms) or `null` | time of the last successful load |
-| `pending` | number | optimistic layers not yet settled |
+| `pending` | number | optimistic layers whose request has not settled |
 | `total` | number or `null` | from the `total` path; adjusted by optimistic removes |
 | `page` | number | offset pagination only |
 | `pages` | number or `null` | paginated, when `total` is known |
@@ -619,7 +619,7 @@ A text input with suggestions below it, the WAI-ARIA combobox pattern:
 - Typing unmarks. A mouse press on an option does not take the focus from the input. Picking is the option's own click handler.
 
 ## Optimistic updates
-An action with `data-sn-optimistic` changes the store before the request is sent and undoes exactly that change if the request fails. It ships in v0.1 as the `optimistic` module.
+An action with `data-sn-optimistic` changes the store before the request is sent, keeps the change when the request succeeds, and undoes exactly that change if it fails. It ships in v0.1 as the `optimistic` module.
 ```html
 <button data-sn-patch="/api/email/message/flags"
         data-sn-body="{account_id: m.account_id, mailbox: m.mailbox, uid: m.uid, flags: ['\\Flagged'], set: !m.is_flagged}"
@@ -632,18 +632,20 @@ An action with `data-sn-optimistic` changes the store before the request is sent
 Each resource holds a base (what the server last confirmed) and an ordered list of optimistic layers. What templates see is the base with every layer applied on top, in order.
 - On trigger, the `optimistic` expression runs against a recorder. Its `patch`, `upsert` and `remove` calls become one layer, tagged with the action's request.
 - The visible state is recomputed; affected rows re-render immediately.
-- Success: the layer is dropped. If `then` writes the response (`upsert('contacts', $result)`), that write goes to the base in the same flush, so nothing flickers.
-- Failure: the layer is dropped, which is the rollback; `catch` runs.
-- Server events always write to the base. Layers are re-applied on top, so an SSE update arriving mid-flight is neither lost nor overwritten by a later rollback.
+- Success (2xx, or a call that resolves): the layer is committed: its changes are applied to the base, then `then` runs, so a `then` write (`upsert('contacts', $result)`) goes on top of them and wins. What the page shows does not change at commit, so nothing flickers and nothing flips back. A server event or a refetch that comes later wins too, as any later base write does. (Changed 2026-11-08: before, a success dropped the layer, so a change `then` did not write again flipped back until the next refetch.)
+- Failure: the layer is dropped, which is the rollback; `catch` runs. An aborted or superseded request (a newer `GET` trigger) is a failure; so is a `latest` trigger replaced before it was sent.
+- Commits keep the layers' order: a layer whose request succeeds while an older layer is still pending waits on top of it, and joins the base once every older layer has settled (committed or rolled back). So the change made last stays on top, whatever order the responses come in. While it waits it no longer counts in `pending`, and a server write to the same item wins over it (it drops that layer's changes to the item).
+- Server events always write to the base. Layers are re-applied on top, so an SSE update arriving mid-flight is neither lost nor overwritten by a later rollback; on success the layer is applied on top of it.
+- A commit is a confirmed write: a load in flight when it happens replays it on its (older) response, as for any write made during a load. A load that starts after the commit wins.
 This is why rollback is "drop the layer", not "restore a snapshot": with two overlapping actions on the same item, a snapshot restore from the first failure would wipe out the second action's change.
 
 ### Rules
 - `optimistic` may only call `patch`, `upsert` and `remove`. Anything else is a build error, because local state and side effects cannot be rolled back.
 - A layer's `patch` on an item that the base no longer has is ignored; a `remove` of an absent item is a no-op.
-- An optimistic `remove` on a paginated resource also decrements `$meta.<name>.total` inside the same layer.
-- A layer lives until its request settles, including the 30 s timeout.
+- An optimistic `remove` on a paginated resource also decrements `$meta.<name>.total` inside the same layer; its commit keeps the total down.
+- A layer lives until its request settles, including the 30 s timeout; then it is committed or dropped.
 - Bulk actions put all their changes into one layer, so they roll back together.
-- Pending layers are visible in dev tools through `$meta.<name>.pending` (count of layers).
+- Pending layers are visible in dev tools through `$meta.<name>.pending` (count of layers whose request has not settled).
 
 ### Typical cases
 
@@ -866,7 +868,7 @@ app.on('new_email', payload => notify(payload));  // any server event, mapped or
 | `instance(root)` | the instance mounted on `root`; throws if none |
 | `resource(name)` | the store handle of a declared resource |
 | `request(url, init)` | fetch through the middleware chain; same 401 handling |
-| `optimistic(change, run)` | apply `change` as a layer, settle it with the promise from `run` |
+| `optimistic(change, run)` | apply `change` as a layer, settle it with the promise from `run`: committed when it resolves, rolled back when it rejects |
 | `on(event, fn)` | subscribe to a server event by name; returns unsubscribe |
 | `state(el)` | the state handle, with get() and update(fn), of the nearest `data-sn-state` scope |
 

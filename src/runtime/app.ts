@@ -103,7 +103,7 @@ export interface App {
   readonly page: any;
   readonly transport: (url: string) => Transport | undefined;
   readonly ext: {
-    optimistic?: { begin(fn: number, scope: any): () => void };
+    optimistic?: { begin(fn: number, scope: any): (ok?: boolean) => void };
     each?: { fanOut(loader: ResourceLoader): void };
     paginate?: { pager(loader: ResourceLoader): Pager; page(name: string, target: string | number): void };
     persist?: {
@@ -147,7 +147,8 @@ export interface App {
   scopeOf(i: number): any;
   mark(path: string, scope?: any): void;
   flush(): void;
-  record(change: () => void): () => void;
+  /** records `change` as optimistic layers; the returned function settles them: committed when `ok`, else rolled back */
+  record(change: () => void): (ok?: boolean) => void;
   storeFns(el: Element | null): Record<string, (...a: any[]) => unknown>;
   serverEvent(name: string, payload: unknown): void;
   /** runs handler `f` in `scope` and invalidates the paths it writes */
@@ -360,8 +361,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     resource: res as App['resource'],
     request: (url, init) => req.send(url, init),
     async optimistic(change, run) {
-      const drop = app.record(change);
-      try { return await run(); } finally { drop(); }
+      const settle = app.record(change);
+      let ok = false;
+      try { const v = await run(); ok = true; return v; } finally { settle(ok); }
     },
     on(event, fn) {
       if (!listeners.has(event)) listeners.set(event, new Set());
@@ -439,7 +441,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       try { change(); } finally { recs = rs.map((r) => [r, r.recording!] as const); for (const r of rs) r.recording = null; }
       const ids = recs.filter(([, ops]) => ops.length).map(([r, ops]) => [r, r.addLayer(ops)] as const);
       let done = false;
-      return () => { if (!done) { done = true; for (const [r, id] of ids) r.dropLayer(id); } };
+      return (ok) => { if (!done) { done = true; for (const [r, id] of ids) ok ? r.commitLayer(id) : r.dropLayer(id); } };
     },
     storeFns: (el) => ({
       showModal: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
@@ -971,7 +973,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
   }
 
-  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: () => void, c?: AbortController) {
+  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, c?: AbortController) {
     const el = rb.el as HTMLFormElement;
     st.n++;
     el.setAttribute('aria-busy', 'true');
@@ -983,8 +985,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       const result = a.call
         ? await invoke(a.call.run, body, { signal: hide.signal, request: (u: string, i?: SendInit) => req.send(u, i), el })
         : await req.send(url, { method: a.method, body, signal: c?.signal });
-      if (c && st.c != c) return;
-      drop();
+      // a superseded GET's change is rolled back; a success keeps it, under what `then` writes
+      if (c && st.c != c) return drop();
+      drop(true);
       if (a.then != null) handle(rb, a.then, null, a.w, { $result: result });
     } catch (err) {
       drop();

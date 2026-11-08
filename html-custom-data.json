@@ -222,7 +222,7 @@
     },
     {
       "name": "data-sn-optimistic",
-      "description": "patch/upsert/remove calls applied before the request, rolled back on failure (handler expression)"
+      "description": "patch/upsert/remove calls applied before the request, kept on success, rolled back on failure (handler expression)"
     },
     {
       "name": "data-sn-then",

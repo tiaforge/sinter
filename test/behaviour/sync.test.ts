@@ -140,9 +140,9 @@ test('optimistic layers: overlapping actions and server events mid-flight', asyn
   stream.emit('msg', { id: 1, read: false, flagged: false, subject: 'edited' });
   await flush();
   expect(text()).toBe('edited read flag');
-  // the read request fails: only its layer is dropped; the flag layer stays until it settles
+  // the read request fails: only its layer is dropped; the flag request succeeds, so its change stays
   await settle();
-  expect(text()).toBe('edited unread -');
+  expect(text()).toBe('edited unread flag');
 });
 
 test('islands use app.optimistic() with the same layers', async () => {

@@ -19,6 +19,19 @@ Attribute names, function names and diagnostic codes are public API. Before
   `then="$result && (compose = $result, showModal('mail-compose'))"`. The core grows by
   45 B gzip, the each module by 9 B.
 
+### Changed
+
+- Optimistic changes stay when the request succeeds. A 2xx response (or a call that resolves,
+  or `app.optimistic()`'s `run`) commits the layer into the base before `then` runs, so a
+  `then` write, and any later server event or refetch, still wins. Before, success dropped the
+  layer, and a change `then` did not write again flipped back until the next refetch. Commits
+  keep the order of the changes: a layer that succeeds while an older one is pending waits on
+  top of it and joins the base when every older layer has settled (it leaves
+  `$meta.<name>.pending` at once; a server write to the same item wins over it). A load in
+  flight replays a commit on its response; a committed `remove` keeps `total` down. A
+  superseded `GET` action now rolls its layer back instead of leaving it. The core grows by
+  146 B gzip.
+
 ## 0.3.3 (2026-11-08)
 
 ### Added

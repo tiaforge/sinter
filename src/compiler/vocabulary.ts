@@ -29,7 +29,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'trigger', value: 'DOM event name', doc: 'overrides the default trigger' },
   { name: 'debounce', value: 'milliseconds', doc: 'delays the trigger, resets on each event; without a method, delays the element\'s data-sn-on-* handlers' },
   { name: 'concurrency', value: 'block | queue | latest', doc: 'mutations only; default block for forms, queue otherwise' },
-  { name: 'optimistic', value: 'handler expression', doc: 'patch/upsert/remove calls applied before the request, rolled back on failure' },
+  { name: 'optimistic', value: 'handler expression', doc: 'patch/upsert/remove calls applied before the request, kept on success, rolled back on failure' },
   { name: 'then', value: 'handler expression', doc: 'runs after a 2xx response; $result = parsed body' },
   { name: 'catch', value: 'handler expression', doc: 'runs after an error; $error = {status, body, message, detail}' },
   { name: 'confirm', value: 'value expression', doc: 'asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy' },

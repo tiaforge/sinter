@@ -65,7 +65,10 @@ export interface Resource<T extends object = any> {
   startLoad(): number;
   endLoad(mark: number, loaded: boolean): void;
   addLayer(ops: Op[]): number;
+  /** the rollback: the layer's changes are gone */
   dropLayer(id: number): void;
+  /** the request succeeded: the layer goes into the base, in order (after the older layers settle) */
+  commitLayer(id: number): void;
   setTotal(total: number | null): void;
   /** what the server last confirmed, without optimistic layers (in arrival order) */
   base(): { items: T[] | T | null; total: number | null };
@@ -95,7 +98,8 @@ export function createResource<T extends object = any>(name: string, o: Resource
   /** base items in arrival order, and each key's arrival number (ties in `order` keep arrival order) */
   let base = new Map<string, T>(), seq = new Map<string, number>(), next = 0;
   let single: T | null = null, total: number | null = null;
-  let layers: Array<{ id: number; ops: Op[] }> = [], lastLayer = 0;
+  /** `ok`: its request succeeded; it waits for the older layers to settle before it joins the base */
+  let layers: Array<{ id: number; ops: Op[]; ok?: 1 }> = [], lastLayer = 0;
   /**
    * The base in display order, the locale it was sorted for, and the keys written since, with
    * their value before the first write. Reads patch it instead of sorting
@@ -113,6 +117,8 @@ export function createResource<T extends object = any>(name: string, o: Resource
     return x[f];
   }).join('\x1f');
 
+  const kOf = (op: Op) => op.op == 'upsert' ? keyOf(op.item) : op.key;
+
   const merge = (cur: any, op: Op) => op.op == 'upsert' ? prep(op.item)
     : op.op == 'remove' ? null
     : cur && prep({ ...cur, ...clean(op.fields) });
@@ -120,7 +126,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
   /** Applies one op to the base. */
   const apply = (op: Op) => {
     if (!coll) return void (single = merge(single, op));
-    const k = op.op == 'upsert' ? keyOf(op.item) : op.key, cur = base.get(k), v = merge(cur, op);
+    const k = kOf(op), cur = base.get(k), v = merge(cur, op);
     if (sorted && !touched.has(k)) touched.set(k, cur);
     if (v) { if (!cur) seq.set(k, next++); base.set(k, v); }
     else if (cur) { base.delete(k); seq.delete(k); }
@@ -186,7 +192,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
       let removed = 0, n = next, s = single;
       for (const l of layers) for (const op of l.ops) {
         if (!coll) { s = merge(s, op); continue; }
-        const k = op.op == 'upsert' ? keyOf(op.item) : op.key, cur = m.has(k) ? m.get(k) : base.get(k), v = merge(cur, op);
+        const k = kOf(op), cur = m.has(k) ? m.get(k) : base.get(k), v = merge(cur, op);
         if (v) { if (!cur) add.set(k, n++); m.set(k, v); }
         else { if (cur) removed++; m.set(k, null); add.delete(k); }
       }
@@ -201,7 +207,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
     view = null;
     sync();
     r.onDirty('data');
-    if (pending) { meta.pending = layers.length; r.onDirty('meta'); }
+    if (pending) { meta.pending = layers.filter((l) => !l.ok).length; r.onDirty('meta'); }
   };
 
   function visible() {
@@ -225,10 +231,26 @@ export function createResource<T extends object = any>(name: string, o: Resource
 
   function write(op: Op) {
     if (r.recording) return void r.recording.push(op);
+    // a server write wins over a confirmed layer still waiting for an older one
+    for (const l of layers) if (l.ok) l.ops = l.ops.filter((x) => coll && kOf(x) != kOf(op));
     journal?.push(op);
     apply(op);
     changed();
     for (const f of subs) f({ resource: name, ...op } as Change<T>);
+  }
+
+  /** Moves the confirmed layers at the bottom into the base; a running load replays them on its response. */
+  function fold() {
+    const done: Op[] = [];
+    while (layers[0]?.ok) for (const op of layers.shift()!.ops) {
+      journal?.push(op);
+      // an item the server confirms gone leaves the total too, as the layer counted it
+      if (op.op == 'remove' && total != null && (coll ? base.has(op.key) : single)) total--;
+      apply(op);
+      done.push(op);
+    }
+    changed(true);
+    for (const op of done) for (const f of subs) f({ resource: name, ...op } as Change<T>);
   }
 
   const r: Resource<T> = {
@@ -279,7 +301,11 @@ export function createResource<T extends object = any>(name: string, o: Resource
     dropLayer(id) {
       const n = layers.length;
       layers = layers.filter((l) => l.id != id);
-      if (n != layers.length) changed(true);
+      if (n != layers.length) fold();
+    },
+    commitLayer(id) {
+      const l = layers.find((x) => x.id == id);
+      if (l) { l.ok = 1; fold(); }
     },
     /** the total changes `meta` only: bindings that read the items do not re-run */
     setTotal(t) { total = t; sync(); },

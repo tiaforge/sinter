@@ -1,6 +1,6 @@
 // Optimistic layers for actions: the `data-sn-optimistic` expression runs
 // against recording resources; its changes become one layer per resource,
-// dropped when the request settles (success or rollback alike).
+// committed into the base when the request succeeds, dropped when it fails.
 import type { App, Feature } from './runtime/app.js';
 
 const optimistic: Feature = {
