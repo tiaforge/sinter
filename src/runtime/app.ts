@@ -677,7 +677,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       case 'show': el.hidden = !v; break;
       case 'prop':
         (el as any)[n] = v;
-        if (early.has(el) || !customElements.get(el.localName)) upgrade(el, n, v);
+        // not defined yet, or defined but not upgraded yet (a row cloned from a template)
+        if (early.has(el) || !(el instanceof (customElements.get(el.localName) ?? Boolean))) upgrade(el, n, v);
         break;
       case 'class':
         // a new element without a class attribute cannot have the class: skip removing it

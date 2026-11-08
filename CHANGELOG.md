@@ -67,6 +67,17 @@ Attribute names, function names and diagnostic codes are public API. Before
 - `data-sn-on-keydown-…` and `data-sn-on-keyup-…` are key filters now; a custom event whose
   name starts with `keydown-` or `keyup-` can no longer be handled with `data-sn-on-*`.
 
+### Fixed
+
+- `data-sn-prop` on a custom element that is already defined but not upgraded yet: a row of
+  `data-sn-for` or a `data-sn-if` branch is cloned from the template and gets its props before
+  it is connected, and only connecting upgrades it. The values were own properties that hid
+  the class's setters (Caley's `<mail-frame>` in a list row showed an empty frame on a direct
+  page load). The props of an element that is not an instance of its definition now go the
+  same way as those of an element defined later: they are set again through the class when
+  `customElements.whenDefined()` resolves, by which time the row is in the document. An upgraded element still pays one `customElements.get()` and an `instanceof`
+  per write. 9 B gzip on the core.
+
 ## 0.4.0 (2026-11-08)
 
 ### Added
