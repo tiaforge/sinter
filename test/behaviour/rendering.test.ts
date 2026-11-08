@@ -151,7 +151,8 @@ test('state-dependent src refetches, latest wins, when gates loading', async () 
   input(root.querySelector('input')!, 'c');
   await settle();
   expect([...root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['c']);
-  expect(requests.calls.map((c) => c.url)).toEqual(['/api/items?q=a', '/api/items?q=b', '/api/items?q=c']);
+  // two keystrokes in one pause: one request (see typing.test.ts)
+  expect(requests.calls.map((c) => c.url)).toEqual(['/api/items?q=a', '/api/items?q=c']);
   root.querySelector('button')!.click();
   await settle();
   expect(root.querySelectorAll('li')).toHaveLength(0);

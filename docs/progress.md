@@ -208,6 +208,15 @@ built, what deviates, and what is left.
   `:disabled` inside a disabled `<fieldset>` and passes the form as `requestSubmit()`'s submitter;
   the tests allow for both. Core +86 B gzip.
 
+- 2026-11-08: loading optimizations without attributes (asked: "where there is a clear pattern we can just do"):
+  preconnect links for origins literal `src`s name (compiler, `preconnects()`); low request priority for
+  resources only dialogs read (`ResourceDef.lo`, from the function table's `$.$r.<name>`/`$.$meta.<name>`
+  reads of nodes outside dialogs, templates inside dialogs tracked in `dlTemplates`; `SendInit.priority`,
+  `fetchpriority` on the preload); a 250 ms pause for URL changes that keystrokes cause (the model
+  handler marks its dirty paths as typing, `hits()` tells a loader whether only such marks reached it);
+  refetch on persisted `pageshow` and `online` for resources no stream feeds. Core +230 B gzip. Next:
+  write-through of mutation responses from OpenAPI, designed first.
+
 ## Decisions and deviations
 
 - `CompileOptions` gains optional `moduleSrc` (URL of the injected

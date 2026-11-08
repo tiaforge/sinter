@@ -7,8 +7,8 @@
  * once each.
  */
 export interface Prefetched {
-  /** starts the request for a URL (once) */
-  add(url: string): void;
+  /** starts the request for a URL (once); `lo`: with low priority */
+  add(url: string, lo?: 1): void;
   /** the response started for this request, if it is the request the early file sent (method, URL, credentials, headers); else null */
   take(request: Request, signal: AbortSignal): Promise<Response> | null;
   /** aborts and forgets what no resource took */

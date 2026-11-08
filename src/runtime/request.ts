@@ -13,6 +13,8 @@ export interface SendInit {
   body?: unknown;
   headers?: Record<string, string>;
   signal?: AbortSignal | undefined;
+  /** `low`: the browser schedules it after the default-priority requests (data nobody can see yet) */
+  priority?: 'low';
 }
 
 export interface RequestLayer {
@@ -77,7 +79,7 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     const keepalive = method != 'GET' && method != 'HEAD' && (body == null || (typeof body == 'string' && bytes(body) < 60_000));
     inflight++;
     try {
-      const res = await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null, keepalive }));
+      const res = await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null, keepalive, ...(init.priority ? { priority: init.priority } : {}) } as RequestInit));
       // also a 401 that middleware answered itself (fetch above clears before onUnauthorized runs)
       if (res.status == 401) clearCached(env);
       return res;

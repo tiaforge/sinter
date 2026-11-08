@@ -78,7 +78,7 @@ export function requests(): EarlyRequests {
           const s = r.scope < 0 ? base : scopes[r.scope];
           if (r.when != null && !fns[r.when]!(s)) continue;
           const u = new URL(expand(r.src, s, fns), here);
-          if (u.origin == new URL(here).origin) (prefetched() ?? own(pending(env))).add(u.href);
+          if (u.origin == new URL(here).origin) (prefetched() ?? own(pending(env))).add(u.href, r.lo);
         } catch { /* not known early: the page module requests it */ }
       }
     },
@@ -93,9 +93,9 @@ export function requests(): EarlyRequests {
 function pending(env: EarlyEnv): Prefetched {
   const started = new Map<string, { res: Promise<Response>; c: AbortController }>();
   return {
-    add(url: string) {
+    add(url: string, lo?: 1) {
       if (started.has(url)) return;
-      const c = new AbortController(), res = env.fetch(new Request(url, { headers: { Accept: 'application/json' }, credentials: 'same-origin', signal: c.signal }));
+      const c = new AbortController(), res = env.fetch(new Request(url, { headers: { Accept: 'application/json' }, credentials: 'same-origin', signal: c.signal, ...(lo ? { priority: 'low' } : {}) } as RequestInit));
       res.catch(() => {});
       started.set(url, { res, c });
     },

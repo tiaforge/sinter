@@ -143,6 +143,8 @@ class Compiler {
   readonly resources: ResourceDef[] = [];
   readonly resourceEls = new Map<string, P5Element>();
   readonly syncs: SyncDef[] = [];
+  /** templates inside a `<dialog>`, at any depth: nothing in them is painted before that dialog opens */
+  readonly dlTemplates = new Set<number>();
   readonly roots: NodeDef[] = [];
   readonly templates: TemplateDef[] = [];
   readonly actions: ActionDef[] = [];
@@ -207,6 +209,7 @@ class Compiler {
     this.runTargets();
     if (this.opts.checkCycles) this.runCycles();
     for (const el of this.remove) detach(el);
+    this.markLowPriority();
     if (this.opts.prerender) this.prerender();
     const early = this.opts.early ? this.earlyParts() : undefined;
     this.injectScript(doc, early !== undefined && (early !== null || !!this.opts.early!.module) ? this.opts.early!.src ?? null : null);
@@ -781,6 +784,7 @@ class Compiler {
     stripSn(el);
 
     if (content) {
+      if (inDialog || this.dlTemplates.has(ctx.tid)) this.dlTemplates.add(content.tid);
       const t = this.templates[content.tid]!;
       this.walkChildren((el as P5Template).content, { scope: content.scope, list: t.nodes, tid: content.tid, path: [], stateIdx: -1 });
     } else if (isTemplate) {
@@ -1637,7 +1641,7 @@ class Compiler {
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
       reads.push(...def.deps);
       url ||= codes.some((c) => c.includes('$url'));
-      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope });
+      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.lo ? { lo: 1 as const } : {}) });
     }
     if (!roots.some((n) => n.b.length) && !res.length) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
@@ -1679,6 +1683,26 @@ class Compiler {
     return { ir, fns, helpers, namespaces };
   }
 
+  /**
+   * A resource that only elements inside `<dialog>`s read (bindings, state, actions, their handlers)
+   * is not needed for the first paint: its requests go out with low priority (`lo`), so the
+   * visible content's requests get the bandwidth first. A read anywhere else, in another
+   * resource's `src`/`when`/`then`, or in a stream's events keeps the default priority.
+   */
+  markLowPriority() {
+    const codes: string[] = [];
+    const fn = (i: number | null | undefined) => { if (i != null) codes.push(this.fns[i]!); };
+    const action = (a: ActionDef) => { for (const x of a.url) if (typeof x === 'number') fn(x); fn(a.body); fn(a.optimistic); fn(a.then); fn(a.catch); fn(a.confirm); if (a.call) { fn(a.call.args); fn(a.call.run); } };
+    const node = (n: NodeDef) => { fn(n.state); for (const b of n.b) { fn(b.f); fn(b.a); if (b.k === 'on' && b.x != null) action(this.actions[b.x]!); } };
+    for (const n of this.roots) if (!n.dl) node(n);
+    for (const t of this.templates) if (!this.dlTemplates.has(t.id)) for (const n of t.nodes) if (!n.dl) node(n);
+    for (const r of this.resources) { for (const x of r.src) if (typeof x === 'number') fn(x); fn(r.when); fn(r.then); if (r.each) fn(r.each.list); if (r.call) { fn(r.call.args); fn(r.call.run); } fn(r.paginate?.cursor); }
+    for (const y of this.syncs) { for (const x of y.src) if (typeof x === 'number') fn(x); for (const e of y.events) { fn(e.item); fn(e.set); fn(e.when); fn(e.then); } }
+    const read = new Set<string>();
+    for (const c of codes) for (const m of c.matchAll(/\$\.\$(?:r|meta)\.([A-Za-z_$][\w$]*)/g)) read.add(m[1]!);
+    for (const r of this.resources) if (!read.has(r.name) && r.data == null) r.lo = 1;
+  }
+
   injectScript(doc: DefaultTreeAdapterMap['document'], early: string | null) {
     const html = doc.childNodes.find((n) => isElement(n) && n.tagName === 'html') as P5Element | undefined;
     const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
@@ -1687,7 +1711,10 @@ class Compiler {
     // first paint: the requests fixed at build time start while the head is parsed, before any script;
     // the runtime's fetch() takes the preloaded response (same URL and credentials mode)
     if (this.opts.early) {
-      const links = preloads(this.resources).map((u) => parse5.parseFragment(`<link rel="preload" as="fetch" crossorigin href="${esc(u)}">`).childNodes[0] as P5Element);
+      // another origin named in a `src`: its connection (DNS, TCP, TLS) is made while the page bundle downloads,
+      // instead of when the first request leaves the runtime; anonymous, as the request layer and EventSource connect
+      const links = [...preconnects(this.resources, this.syncs).map((o) => `<link rel="preconnect" href="${esc(o)}" crossorigin>`), ...preloads(this.resources).map(({ url, lo }) => `<link rel="preload" as="fetch" crossorigin href="${esc(url)}"${lo ? ' fetchpriority="low"' : ''}>`)]
+        .map((t) => parse5.parseFragment(t).childNodes[0] as P5Element);
       for (const l of links) l.parentNode = head;
       // after the leading <meta>s (charset first), before stylesheets and scripts
       let at = 0;
@@ -1834,10 +1861,24 @@ export function findCode(nodes: NodeDef[]): string {
 /** A resource whose request is fixed at build time: a literal `src`, no `when`, not paginated, `each`, `call` or embedded. */
 const fixedRequest = (r: ResourceDef) => !r.call && !r.each && r.data == null && !r.paginate && r.when == null && r.src.length > 0 && r.src.every((p) => typeof p === 'string');
 
-/** Same-origin URLs of the resources whose request is fixed at build time: the page preloads them from its HTML. */
-export function preloads(resources: ResourceDef[]): string[] {
-  const urls = resources.filter(fixedRequest).map((r) => (r.src as string[]).join('').replace(/[?&](?=#|$)/, '')).filter((u) => /^\/(?!\/)/.test(u));
-  return [...new Set(urls)];
+/** Same-origin URLs of the resources whose request is fixed at build time: the page preloads them from its HTML (low priority when every resource of that URL is `lo`). */
+export function preloads(resources: ResourceDef[]): Array<{ url: string; lo: boolean }> {
+  const urls = new Map<string, boolean>();
+  for (const r of resources.filter(fixedRequest)) {
+    const u = (r.src as string[]).join('').replace(/[?&](?=#|$)/, '');
+    if (/^\/(?!\/)/.test(u)) urls.set(u, (urls.get(u) ?? true) && !!r.lo);
+  }
+  return [...urls].map(([url, lo]) => ({ url, lo }));
+}
+
+/** The origins literal `src`s name (`https://api.example.com/…`), of resources and streams: the page preconnects to them. */
+export function preconnects(resources: ResourceDef[], syncs: SyncDef[]): string[] {
+  const out = new Set<string>();
+  for (const { src } of [...resources, ...syncs]) {
+    const m = typeof src[0] === 'string' && /^https?:\/\/[^/?#]+/i.exec(src[0]);
+    if (m) out.add(m[0]);
+  }
+  return [...out];
 }
 
 /** JSON-like data: what a literal state object holds. */

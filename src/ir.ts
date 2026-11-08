@@ -46,6 +46,8 @@ export interface ResourceDef {
   /** `then`: handler run after each successful load, with `$result`; `w`: the state paths it writes */
   then?: number;
   w?: string[];
+  /** only elements inside `<dialog>`s read it: requested with low priority */
+  lo?: 1;
 }
 
 export interface EventDef {
@@ -130,7 +132,7 @@ export interface EarlyIR {
   /** by template id; null for templates the early chunk does not render */
   templates: Array<{ nodes: NodeDef[] } | null>;
   /** resources the early file requests: URL template and `when` (function indexes into the early table), scope by index into `roots`, -1 for the page */
-  res?: Array<{ name: string; src: UrlTemplate; when: number | null; scope: number }>;
+  res?: Array<{ name: string; src: UrlTemplate; when: number | null; scope: number; lo?: 1 }>;
   /** `data-sn-path` patterns, when a request reads `$url` */
   path?: string[];
 }

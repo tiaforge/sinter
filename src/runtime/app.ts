@@ -77,8 +77,8 @@ export interface ResourceLoader {
   pager: Pager | null;
   /** first load (or embedded/cached data) */
   start(): void;
-  /** `src`, `when` (or an `each` list) may have changed */
-  changed(): void;
+  /** `src`, `when` (or an `each` list) may have changed; `typing`: the change comes from a text field, so it waits for a pause */
+  changed(typing?: boolean): void;
   load(move?: unknown): Promise<void>;
   refetch(hint?: object): Promise<void>;
   /** for feature modules: the scope `src` and `when` are evaluated in */
@@ -149,7 +149,8 @@ export interface App {
   url(tpl: UrlTemplate, scope: any): string;
   /** the scope of root node `i` (its state), or the page scope for -1 */
   scopeOf(i: number): any;
-  mark(path: string, scope?: any): void;
+  /** `typing`: the change is a keystroke in a text field, so a resource URL it changes waits for a pause */
+  mark(path: string, scope?: any, typing?: boolean): void;
   flush(): void;
   /** records `change` as optimistic layers; the returned function settles them: committed when `ok`, else rolled back */
   record(change: () => void): (ok?: boolean) => void;
@@ -218,6 +219,8 @@ const toDeps = (list: string[]) => list.map((d) => {
   const p = d.split('.'), a = p.findIndex((x) => x.startsWith('{$'));
   return { p, n: p.map((x) => (x[0] == '{' ? x.slice(1, -1) : undefined)), a, t: a < 0 ? -1 : +p[a]!.slice(3, -1) };
 });
+/** How long a URL change from typing waits for the next keystroke before the resource is requested. */
+const TYPING = 250;
 const depsOf = (key: object, list: string[] = []) => compiled.get(key) ?? (compiled.set(key, toDeps(list)), compiled.get(key)!);
 /** Sentinel for "not written yet". */
 const UNSET = {};
@@ -260,7 +263,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const env = o.env ?? envOf(config);
   const req = createRequestLayer(env, o.request ?? config.request);
   const schemes = schemesOf(config.urlSchemes);
-  const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(): void; start(): void }> = [];
+  const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(typing?: boolean): void; start(): void; refetch(): Promise<void> }> = [];
   const acts = new WeakMap<Element, ActState>();
   /** props set on custom elements not defined yet, by element: the latest value of each */
   const early = new WeakMap<Element, Map<string, unknown>>();
@@ -272,6 +275,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const dialog = (id: string) => byId(id, 'dialog') as HTMLDialogElement | undefined;
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element>();
   let dirty: string[][] = [], cur: string[][] = [], scheduled = false, flushing = false, round = 0, destroyed = false;
+  /** dirty paths of this round that keystrokes in text fields produced */
+  const typed = new Set<string[]>();
 
   const res = (name: string): Resource => {
     const r = resources.get(name);
@@ -349,6 +354,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
     for (const dep of deps) for (const d of cur) if (overlaps(dep, d, s)) return true;
     return false;
   };
+  /** 0: no dirty path reaches `deps`; 1: only keystrokes do; 2: some other change does. */
+  const hits = (deps: Dep[]) => {
+    let k = 0;
+    for (const d of cur) if (deps.some((dep) => overlaps(dep, d))) k = typed.has(d) ? k || 1 : 2;
+    return k;
+  };
 
   const app: App = {
     ir, fns, env, req, root, transport: o.transport ?? (() => undefined), ext: {},
@@ -395,8 +406,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     },
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     url: (tpl, s) => expand(tpl, s, fns),
-    mark(path, s) {
-      dirty.push(fill(path, s));
+    mark(path, s, typing) {
+      const d = fill(path, s);
+      dirty.push(d);
+      if (typing) typed.add(d);
       if (!scheduled && !flushing) { scheduled = true; env.queueMicrotask(app.flush); }
     },
     flush() {
@@ -410,13 +423,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
           for (const h of app.beforeFlush) h(cur);
           round++;
           rowHits = new Map();
-          for (const l of loaders) if (hit(depsOf(l.def, l.def.deps))) l.changed();
+          for (const l of loaders) { const k = hits(depsOf(l.def, l.def.deps)); if (k) l.changed(k == 1); }
           walk(rootRbs, 0);
           syncSelects();
           for (const h of app.afterFlush) h(cur);
         }
       } finally {
         cur = dirty = [];
+        typed.clear();
         marked.clear();
         flushing = false;
       }
@@ -481,6 +495,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
   if (ir.actions.some((x) => x.call) || ir.resources.some((x) => x.call)) {
     app.addCleanup(env.listen('pagehide', () => { hide.abort(); hide = new AbortController(); }));
   }
+  // back from the bfcache, or online again: the data may have changed meanwhile. Resources a stream
+  // feeds are refetched by the stream module when it reconnects.
+  const fed = new Set(ir.syncs.flatMap((s) => s.events.map((e) => e.resource)));
+  const again = () => { for (const l of loaders) if (!fed.has(l.def.name)) void l.refetch(); };
+  app.addCleanup(env.listen('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) again(); }));
+  app.addCleanup(env.listen('online', again));
   // listeners for every event type the page binds, rows included
   listen('toggle');
   for (const nd of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) for (const b of nd.b) {
@@ -712,10 +732,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return cur;
   }
 
-  function setModel(rb: RB, v: unknown) {
+  /** `typing`: a keystroke in a text field (`input` on an `<input>`/`<textarea>`), not a paste-like whole change */
+  function setModel(rb: RB, v: unknown, typing?: boolean) {
     if (v === undefined) return;
     try { fns[rb.b.a!]!(rb.s, v); } catch (e) { return warn(9, rb.el.localName, (e as Error)?.message); }
-    for (const w of rb.b.w ?? []) app.mark(w, rb.s);
+    for (const w of rb.b.w ?? []) app.mark(w, rb.s, typing);
   }
 
   // ---- lists and conditionals
@@ -922,7 +943,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     // models update state before other handlers on the same event
     const m = (el as Tagged)[MODEL];
-    if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m));
+    if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
     for (; el; el = el.parentElement) {
       const h = (el as Tagged)[HANDLERS], hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
       if (hs?.length) {
@@ -1058,7 +1079,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     resources.set(def.name, r);
     Object.defineProperty(app.page.$r, def.name, { get: r.value, enumerable: true });
     app.page.$meta[def.name] = r.meta;
-    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null;
+    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, typing: unknown = null;
 
     const scope = () => app.scopeOf(def.scope);
     /** `call`: the arguments of the current load; the identity of a load is its arguments' JSON */
@@ -1134,8 +1155,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
         r.meta.loadedAt = env.now();
         l.done(v);
       },
-      /** `src` or `when` may have changed: reload from the first page if the URL differs. */
-      changed() {
+      /** `src` or `when` may have changed: reload from the first page if the URL differs. From typing: once the typing pauses. */
+      changed(soft?: boolean) {
+        if (typing != null) { env.clearTimeout(typing); typing = null; app.busy--; }
+        if (soft) { app.busy++; typing = env.setTimeout(() => { typing = null; app.busy--; l.changed(); }, TYPING, 'debounce'); return; }
         const u = resolve();
         if (u === url) return;
         url = u;
@@ -1159,7 +1182,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           const req = withParams(url, m ? l.pager!.params(m) : null);
           const body = def.call
             ? await invoke(def.call.run, args, { signal: ctl.signal, request: (u: string, i?: SendInit) => app.req.send(u, i), el: null })
-            : await loadShared(req, ctl.signal);
+            : await loadShared(req, ctl.signal, def.lo);
           if (n != seq) return;
           v = store(body, req, m);
           loaded = true;
@@ -1183,11 +1206,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     loaders.push(l);
   }
 
-  /** GETs `url`; concurrent loads of one URL share one request, aborted when no one waits. */
-  function loadShared(url: string, signal: AbortSignal): Promise<unknown> {
+  /** GETs `url`; concurrent loads of one URL share one request, aborted when no one waits. `lo`: low priority (a resource only dialogs read). */
+  function loadShared(url: string, signal: AbortSignal, lo?: 1): Promise<unknown> {
     let e = shared.get(url);
     if (!e) {
-      const c = new AbortController(), entry = { n: 0, c, p: req.send(url, { signal: c.signal }) };
+      const c = new AbortController(), entry = { n: 0, c, p: req.send(url, { signal: c.signal, ...(lo ? { priority: 'low' as const } : {}) }) };
       entry.p.catch(() => {}).finally(() => shared.get(url) == entry && shared.delete(url));
       shared.set(url, (e = entry));
     }

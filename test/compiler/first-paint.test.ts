@@ -114,3 +114,21 @@ test('early requests: resources whose URL reads only what is known early (state,
   expect(early).toContain("import { start, $k, requests } from '@tiaforge-ui/sinter/early';");
   expect(early!.endsWith('start(page, null, requests());\n')).toBe(true);
 });
+
+test('preconnect: every origin a literal resource or stream `src` names gets one `<link rel="preconnect" crossorigin>` (anonymous, as the runtime connects), before the preloads; such a `src` is no preload', () => {
+  const { html } = build(page(`
+    <sn-resource name="user" src="https://api.example.com/api/user"></sn-resource>
+    <sn-resource name="tags" src="https://api.example.com/api/tags?x={here}"></sn-resource>
+    <sn-resource name="local" src="/api/local"></sn-resource>
+    <sn-sync src="https://events.example.com/stream"><sn-event name="e" resource="local" op="refetch"></sn-event></sn-sync>`));
+  const head = html.slice(0, html.indexOf('<body'));
+  expect(head.match(/<link rel="preconnect" href="([^"]+)" crossorigin="">/g)).toEqual([
+    '<link rel="preconnect" href="https://api.example.com" crossorigin="">',
+    '<link rel="preconnect" href="https://events.example.com" crossorigin="">',
+  ]);
+  expect(head.match(/rel="preload"/g)).toHaveLength(1);
+  expect(head.indexOf('rel="preconnect"')).toBeLessThan(head.indexOf('rel="preload"'));
+  // off with first paint
+  const plain = compile(page('<sn-resource name="u" src="https://api.example.com/u"></sn-resource>'), { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} } });
+  expect(plain.html).not.toContain('preconnect');
+});

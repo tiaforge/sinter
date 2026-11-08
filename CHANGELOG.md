@@ -13,6 +13,29 @@ Attribute names, function names and diagnostic codes are public API. Before
   file itself; the output is the same. An early build that still comes out as several chunks now
   fails the build instead of emitting an early file whose imports cannot load.
 
+## Unreleased
+
+### Added
+
+- Loading optimizations that need no attributes:
+  - Preconnect: every origin a literal resource or stream `src` names (`https://api.example.com/…`)
+    gets `<link rel="preconnect" crossorigin>` in the head, so the connection is made while the page
+    bundle downloads (with first paint on). RealWorld's pages name their API origin on every resource
+    and had neither a preload nor an early request for it.
+  - Request priority: a resource that only elements inside `<dialog>`s read (bindings, state,
+    actions and handlers there, templates of the dialog included) is requested with
+    `priority: 'low'`, and its preload link with `fetchpriority="low"`: the visible content's
+    requests get the bandwidth first. Any read outside, by another resource or by a stream keeps
+    the default.
+  - Typing: a resource whose `src` or `when` changes only through keystrokes in a text field
+    (`data-sn-model` on an `<input>` or `<textarea>`, `input` events) waits 250 ms for the next
+    keystroke before it requests, instead of one aborted request per keystroke. Any other change
+    (a select, a handler, `$url`) is requested at once. `settle()` in tests runs the pause.
+  - Coming back: a `pageshow` after a back/forward-cache restore and `online` refetch every
+    resource. Resources a stream feeds are left to the stream's reconnect, which already refetches
+    them. Testing: `window('online')`.
+  - Core +230 B gzip (RealWorld article 18.0 → 18.2 kB).
+
 ## 0.8.0 (2026-11-08)
 
 ### Added

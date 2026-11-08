@@ -225,7 +225,7 @@ export interface Rendered {
   /** current page URL (after `$url` writes) */
   url(): string;
   /** dispatches pagehide/pageshow/popstate to sinter */
-  window(type: 'pagehide' | 'pageshow' | 'popstate'): Promise<void>;
+  window(type: 'pagehide' | 'pageshow' | 'popstate' | 'online'): Promise<void>;
 }
 
 interface Timer { id: number; at: number; fn: () => void; kind: string }
