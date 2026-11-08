@@ -19,12 +19,6 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
-- `SN301` for a name argument that cannot be listed (a state variable, a helper's result) now
-  says which forms are allowed: "takes a resource name: a string literal, `?:`, `||` or `??`
-  between them, or a `data-sn-let` name that is one".
-- A resource named only in a store call (`refresh('x')`, `page('x', 'next')`) counts as used: no
-  `SN501`.
-
 - Breaking (behaviour): `page()` with `prev` does nothing while `$meta.<name>.hasPrev` is false,
   and with `next` while `hasNext` is false, in every mode. Before, keyset and append sent the
   request anyway (`next` after a short page loaded an empty page), and offset `next` without a
@@ -32,7 +26,6 @@ Attribute names, function names and diagnostic codes are public API. Before
   and `next` do nothing. Migration: a handler no longer needs `$meta.x.hasNext && page('x', 'next')`
   (the guard still works); a live keyset list that relied on `next` past a short page to find new
   items uses `refresh('x')` or a server event's `refetch` instead.
-
 - Breaking (behaviour): bubbling custom events are notifications. `emit()`, islands'
   `CustomEvent`s, `sn-error` and the `listbox` module's `dismiss` no longer stop at the nearest
   element with a handler: every element from the target up with a `data-sn-on-<name>` for the
@@ -46,6 +39,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   event and only the inner one should run, add `$event.preventDefault()` to the inner handler
   (`data-sn-on-saved="saving = false; $event.preventDefault()"`); an island whose events must be
   stoppable dispatches them with `cancelable: true`.
+- `SN301` for a name argument that cannot be listed (a state variable, a helper's result) now
+  says which forms are allowed: "takes a resource name: a string literal, `?:`, `||` or `??`
+  between them, or a `data-sn-let` name that is one".
+- A resource named only in a store call (`refresh('x')`, `page('x', 'next')`) counts as used: no
+  `SN501`.
 
 ### Fixed
 
