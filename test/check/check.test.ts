@@ -322,6 +322,22 @@ export { D, type E, F as G };
 /** @typedef {{a: 1}} H */`)).toEqual(['A', 'B', 'C', 'D', 'E', 'G', 'H']);
   });
 
+  test('the export scanner skips comments and strings', () => {
+    // Caley: a comment in src/sinter.types.ts showed how to re-export, and its names were taken as exports
+    expect(typeExports(`// export type { Draft } from './compose';
+/* export interface Old {}
+   export { Gone } */
+/**
+ * Re-export with \`export type { X } from './x'\`.
+ * @typedef {{a: 1}} H
+ */
+const hint = 'export type { Fake }';
+const t = \`export interface Tpl {}\`;
+const url = "https://x//y"; export interface Real { s: '/*' }
+export type { Kept } from './kept'; // export { Trailing }
+export type Also = '*/';`)).toEqual(['Also', 'H', 'Kept', 'Real']);
+  });
+
   test('the RealWorld example: untyped and typed from its OpenAPI spec, no false positives', () => {
     const root = join(import.meta.dirname, '../../examples/realworld');
     const pages = readdirSync(root).filter((f) => f.endsWith('.html'));

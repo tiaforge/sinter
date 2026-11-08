@@ -162,14 +162,21 @@ export function findTsc(root: string): string {
 /** Names a types module exports: TS declarations, `export { … }` lists and JSDoc typedefs. */
 export function typeExports(source: string): string[] {
   const names = new Set<string>();
-  for (const m of source.matchAll(/export\s+(?:declare\s+)?(?:abstract\s+)?(?:interface|type|class|enum)\s+([A-Za-z_$][\w$]*)/g)) names.add(m[1]!);
-  for (const m of source.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}/g)) {
+  // exports are read from the code without comments and strings; `@typedef`s from the comments
+  const comments: string[] = [];
+  const code = source.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\[\s\S]|[^`\\])*`/g, (m) => {
+    if (m[0] !== '/') return '""';
+    comments.push(m);
+    return ' ';
+  });
+  for (const m of code.matchAll(/export\s+(?:declare\s+)?(?:abstract\s+)?(?:interface|type|class|enum)\s+([A-Za-z_$][\w$]*)/g)) names.add(m[1]!);
+  for (const m of code.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}/g)) {
     for (const part of m[1]!.split(',')) {
       const name = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/).pop()!.trim();
       if (/^[A-Za-z_$][\w$]*$/.test(name) && name !== 'default') names.add(name);
     }
   }
-  for (const m of source.matchAll(/@typedef\s+(?:\{.*?\}\s+)?([A-Za-z_$][\w$]*)/g)) names.add(m[1]!);
+  for (const m of comments.join('\n').matchAll(/@typedef\s+(?:\{.*?\}\s+)?([A-Za-z_$][\w$]*)/g)) names.add(m[1]!);
   return [...names].sort();
 }
 

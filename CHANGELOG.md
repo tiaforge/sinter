@@ -58,6 +58,10 @@ Attribute names, function names and diagnostic codes are public API. Before
   kept only what was inside `<html>`, so `data-sn-state`, `data-sn-persist` or bindings on
   `<html>` were lost in tests although they work in the browser. Each render also clears the
   previous page's `<html>` attributes.
+- `sinter check` read the types module's exported names from comments and strings too: a
+  comment such as `// export type { Draft } from './compose'` in `src/sinter.types.ts` made
+  `Draft` an export that the generated check file then imported. The scanner now skips
+  comments and string and template literals; `@typedef`s are still read from comments.
 
 ## 0.3.3 (2026-11-08)
 
