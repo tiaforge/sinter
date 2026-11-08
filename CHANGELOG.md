@@ -52,7 +52,7 @@ Attribute names, function names and diagnostic codes are public API. Before
   returning an object merged with `Object.assign` when they write properties of one state object. On
   `data-sn-call` and `<sn-resource call>`, "Extract to action" moves the call into a new action. Each
   extraction is compiled before it is offered. Code actions resolve their edit lazily when the
-  client supports it. Runtime size is unchanged.
+  client supports it. Runtime size is unchanged. `SN507` offers the same extraction as its quick fix.
 
 ### Docs
 

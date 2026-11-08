@@ -18,10 +18,9 @@ export const TYPECHECK_DELAY = 300;
 
 /**
  * Diagnostic codes (`SN…`) whose quick fixes include "Extract to helper" for the expression they
- * are about (`fixPlans` in `extract.ts`).
- * TODO(complexity): add the complexity warning's code once it is on main.
+ * are about (`fixPlans` in `extract.ts`): `SN507`, an expression too complex for markup.
  */
-export const EXTRACT_FIX_CODES = new Set<string>();
+export const EXTRACT_FIX_CODES = new Set<string>(['SN507']);
 
 export interface Position { line: number; character: number }
 export interface Range { start: Position; end: Position }

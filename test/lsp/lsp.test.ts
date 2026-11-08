@@ -755,23 +755,28 @@ export function runSend(draft, sig, ctx) {
     expect(await e.actions('index.html', find(PAGE, 'query = c.name', { cursor: 10 }), ['quickfix'])).toEqual([]);
   });
 
-  test('diagnostics listed in EXTRACT_FIX_CODES get the extraction as a quick fix', async () => {
-    // stands in for the complexity warning: any diagnostic about one expression
+  test('SN507 (complex expression) gets the extraction as a quick fix', async () => {
+    const page = '<div data-sn-state="{ n: 0 }"><p data-sn-text="n === 0 ? \'none\' : n === 1 ? \'one\' : n === 2 ? \'two\' : \'many\'"></p></div>\n';
+    const root = project({ 'src/sinter.helpers.js': '', 'index.html': page });
+    const e = await editor(root);
+    e.open('index.html', page);
+    const d = await e.diagnostics('index.html', (d) => d.some((x) => x.code.startsWith('SN507')));
+    expect(EXTRACT_FIX_CODES.has('SN507')).toBe(true);
+    const fixes = (await e.codeActions('index.html', d.filter((x) => x.code.startsWith('SN507')))) as Action[];
+    const fix = fixes.find((a) => a.kind === 'quickfix' && a.title.startsWith('Extract'))!;
+    expect(fix.title).toBe('Extract to helper `textValue` in src/sinter.helpers.js');
+    expect(fix.diagnostics![0]!.code).toMatch(/^SN507/);
+    expect(apply(root, fix.edit)['index.html']).toBe('<div data-sn-state="{ n: 0 }"><p data-sn-text="textValue(n)"></p></div>\n');
+  });
+
+  test('diagnostics outside EXTRACT_FIX_CODES get no extraction quick fix', async () => {
     const page = "<p data-sn-text=\"'at ' + Date.now()\"></p>\n";
     const root = project({ 'src/sinter.helpers.js': '', 'index.html': page });
     const e = await editor(root);
     e.open('index.html', page);
     const d = await e.diagnostics('index.html', (d) => d.some((x) => x.code.startsWith('SN502')));
-    EXTRACT_FIX_CODES.add('SN502');
-    try {
-      const fixes = (await e.codeActions('index.html', d.filter((x) => x.code.startsWith('SN502')))) as Action[];
-      const fix = fixes.find((a) => a.kind === 'quickfix' && a.title.startsWith('Extract'))!;
-      expect(fix.title).toBe('Extract to helper `textValue` in src/sinter.helpers.js');
-      expect(fix.diagnostics![0]!.code).toMatch(/^SN502/);
-      expect(apply(root, fix.edit)['index.html']).toBe('<p data-sn-text="textValue()"></p>\n');
-    } finally {
-      EXTRACT_FIX_CODES.delete('SN502');
-    }
+    const fixes = (await e.codeActions('index.html', d.filter((x) => x.code.startsWith('SN502')))) as Action[];
+    expect(fixes.filter((a) => a.kind === 'quickfix' && a.title.startsWith('Extract'))).toEqual([]);
   });
 });
 

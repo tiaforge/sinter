@@ -9,7 +9,7 @@ own `@tiaforge-ui/sinter`, so the editor always matches the compiler the build u
 | Type errors (`SN208`) as you type, hover types, completion in expressions, go to definition | TypeScript 7 in the project |
 | Type errors on save | TypeScript 5 or 6 |
 | Did-you-mean quick fix | any |
-| Extract to helper / action (refactoring) | any; parameter types need TypeScript 7 |
+| Extract to helper / action (refactoring, and the quick fix for `SN507`) | any; parameter types need TypeScript 7 |
 
 The server finds pages and plugin options (`openapi`, `types`, …) in the Vite config, like
 `sinter check`. It writes generated files to `.sinter/`; add that to `.gitignore`.
