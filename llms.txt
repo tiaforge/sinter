@@ -9,7 +9,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-state` (object literal): declares local reactive state for the element and its subtree
 - `data-sn-let` (object literal {name: expression}): derived names for the element and its subtree, computed where they are read; later names may use earlier ones
 - `data-sn-text` (value expression): sets textContent; never HTML
-- `data-sn-attr` (object literal {href: …}): literal keys; null/false removes, true sets empty; URL values are checked
+- `data-sn-attr` (object literal {href: …}): literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property
 - `data-sn-class` (object literal {unread: …}): toggles each class
 - `data-sn-style` (object literal {'--color': …}): sets each property with style.setProperty
 - `data-sn-show` (value expression): toggles the hidden attribute

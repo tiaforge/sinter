@@ -197,3 +197,43 @@ test('islands: app.optimistic() keeps the change when `run` resolves', async () 
   await flush();
   expect(root.querySelector('p')!.textContent).toBe('1 0');
 });
+
+describe('data-sn-attr sets the live form state', () => {
+  test('a checkbox the user clicked unchecks when its optimistic change rolls back', async () => {
+    const requests = mockRequests({ 'GET /api/t': [{ id: 1, done: false }], 'PATCH /api/t/1': { status: 500 } });
+    const { root, flush, settle } = await render(`
+      <sn-resource name="t" src="/api/t" key="id"></sn-resource>
+      <template data-sn-for="x in t">
+        <input type="checkbox" data-sn-attr="{checked: x.done}" data-sn-trigger="change"
+          data-sn-patch="/api/t/{x.id}" data-sn-body="{done: !x.done}" data-sn-optimistic="patch('t', x, {done: !x.done})" data-sn-catch="0">
+      </template>`, { requests });
+    await settle();
+    const box = root.querySelector('input')!;
+    box.click();   // the browser checks it, then the change event runs the action
+    await flush();
+    expect([box.checked, box.hasAttribute('checked')]).toEqual([true, true]);
+    await settle();
+    expect([box.checked, box.hasAttribute('checked')]).toEqual([false, false]);
+  });
+
+  test('value, selected and indeterminate follow the binding too; null and false clear them', async () => {
+    const { root, flush, app } = await render(`
+      <div data-sn-state="{ v: 'a', sel: true, mixed: true }">
+        <input id="text" data-sn-attr="{value: v}">
+        <select><option>x</option><option id="opt" data-sn-attr="{selected: sel}">y</option></select>
+        <input id="box" type="checkbox" data-sn-attr="{indeterminate: mixed}">
+      </div>`);
+    const text = root.querySelector<HTMLInputElement>('#text')!, opt = root.querySelector<HTMLOptionElement>('#opt')!;
+    const box = root.querySelector<HTMLInputElement>('#box')!;
+    expect([text.value, opt.selected, box.indeterminate]).toEqual(['a', true, true]);
+    // the user edits; the next value from the state still lands
+    text.value = 'typed';
+    opt.selected = false;
+    app.state(text).update((s) => { s.v = 'b'; s.sel = false; s.mixed = false; });
+    await flush();
+    expect([text.value, opt.selected, box.indeterminate]).toEqual(['b', false, false]);
+    app.state(text).update((s) => { s.v = null; s.sel = true; });
+    await flush();
+    expect([text.value, text.hasAttribute('value'), opt.selected]).toEqual(['', false, true]);
+  });
+});

@@ -777,6 +777,11 @@ class Compiler {
       if (key === 'style') { this.report(el, 'data-sn-attr', 'SN207', '`style` cannot be bound with `data-sn-attr`; use `data-sn-style`', e.offset); continue; }
       if (key === 'srcdoc') { this.report(el, 'data-sn-attr', 'SN207', '`srcdoc` cannot be bound', e.offset); continue; }
       if (key.startsWith('data-sn')) { this.report(el, 'data-sn-attr', 'SN207', `\`${e.key}\` cannot be bound`, e.offset); continue; }
+      // both would write the control's live state; the model's state is the one source
+      if (attr(el, 'data-sn-model') != null && key === (/^(checkbox|radio)$/i.test(attr(el, 'type') ?? '') ? 'checked' : 'value')) {
+        this.report(el, 'data-sn-attr', 'SN102', `\`${key}\` is the control state \`data-sn-model\` writes; set it through the model's state, not \`data-sn-attr\``, e.offset);
+        continue;
+      }
       if ((key === 'id' || key === 'name') && !e.literal) {
         this.report(el, 'data-sn-attr', 'SN503', `\`${key}\` bound from data can shadow globals other scripts read (DOM clobbering)`, e.offset);
       }

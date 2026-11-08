@@ -119,6 +119,19 @@ describe('<sn-event then>', () => {
   });
 });
 
+describe('data-sn-attr with data-sn-model', () => {
+  const codes = (html: string) => diags(`<div data-sn-state="{ v: '', on: false, list: [] }">${html}</div>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
+  test('the state the model writes cannot also be bound', () => {
+    expect(codes(`<input data-sn-model="v" data-sn-attr="{value: v}">`))
+      .toEqual(["SN102 `value` is the control state `data-sn-model` writes; set it through the model's state, not `data-sn-attr`"]);
+    expect(codes(`<input type="checkbox" data-sn-model="on" data-sn-attr="{checked: on}">`))
+      .toEqual(["SN102 `checked` is the control state `data-sn-model` writes; set it through the model's state, not `data-sn-attr`"]);
+  });
+  test('a checkbox list binds `value` (what the model collects) and `indeterminate`', () => {
+    expect(codes(`<input type="checkbox" data-sn-model="list" data-sn-attr="{value: 'a', indeterminate: !list.length}">`)).toEqual([]);
+  });
+});
+
 describe('<sn-resource then>', () => {
   const codes = (then: string, attrs = '') => diags(`<dialog id="detail"></dialog><main data-sn-state="{ sel: null }"><p data-sn-text="sel + c.length"></p>
     <sn-resource name="c" src="/api/c" key="id" ${attrs} then="${then}"></sn-resource></main>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);

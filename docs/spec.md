@@ -221,7 +221,7 @@ The whole vocabulary is the tables below; any other `data-sn-*` name is a build 
 | `data-sn-state` | object literal | declares state for the subtree |
 | `data-sn-let` | object literal `{name: expression}` | derived names for the element and its subtree; see Derived names |
 | `data-sn-text` | value expression | sets `textContent`; never HTML |
-| `data-sn-attr` | object literal `{href: …, title: …}` | literal keys; `null`/`false` removes, `true` sets empty; URL values are checked (see Security) |
+| `data-sn-attr` | object literal `{href: …, title: …}` | literal keys; `null`/`false` removes, `true` sets empty; URL values are checked (see Security). `checked`, `selected`, `indeterminate` and `value` also set the live property (see below) |
 | `data-sn-class` | object literal `{unread: !m.is_read}` | toggles each class |
 | `data-sn-style` | object literal `{'--color': cal.color, width: pct + '%'}` | sets each property with `style.setProperty` |
 | `data-sn-show` | value expression | toggles the `hidden` attribute |
@@ -234,6 +234,11 @@ The whole vocabulary is the tables below; any other `data-sn-*` name is a build 
 | `data-sn-path` | URL patterns, space-separated | on `<html>` only; the path shapes the page is served for, e.g. `/editor /editor/:slug`; `:name` segments of the first matching pattern appear read-only in `$url` (added 2026-11-04) |
 | `data-sn-persist` | storage key | persists the element's model or state in localStorage under `sn:`; refused on password and payment fields; storage failures are ignored |
 
+
+### Form state through `data-sn-attr`
+`checked`, `selected` and `value` attributes are only a control's default: once the user has changed it, the attribute no longer moves the control. So for these names, and for `indeterminate` (a property without an attribute), `data-sn-attr` sets the element's property as well as the attribute, whenever the bound value changes: a re-render, or an optimistic rollback, puts a control the user changed back to what the data says. A checkbox clicked and then rolled back unchecks. `null` and `false` remove the attribute and set the property to `false` (`value`: to `''`); `true` sets `checked`, `selected` or `indeterminate` (for `value`: `''`). A value that did not change is not written again, so text the user types stays until the bound value changes. (Changed 2026-11-08: before, only the attribute was set.)
+
+On a control with `data-sn-model`, the model owns its state: `data-sn-attr` binding `checked` on a checkbox or radio, or `value` on any other control, is `SN102`; write the model's state instead. `value` on a checkbox or radio with a model is allowed (it is what the model collects), and so is `indeterminate`.
 
 ### `data-sn-model` by control
 

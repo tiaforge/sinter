@@ -18,7 +18,7 @@ Error, for example:
 
 > `data-sn-for` must be on a `<template>`
 
-The attribute or element is valid, but not here: lists and conditionals render from a `<template>`, `data-sn-path` belongs on `<html>`, `<sn-event>` inside `<sn-sync>`, and options such as `data-sn-debounce` need a method attribute on the same element.
+The attribute or element is valid, but not here: lists and conditionals render from a `<template>`, `data-sn-path` belongs on `<html>`, `<sn-event>` inside `<sn-sync>`, options such as `data-sn-debounce` need a method attribute on the same element, and `data-sn-attr` cannot bind the `value` or `checked` that a `data-sn-model` on the same control writes.
 
 **Fix:** Move it to where the message says, wrapping the content in a `<template>` if needed.
 

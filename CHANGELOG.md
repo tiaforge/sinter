@@ -48,6 +48,12 @@ Attribute names, function names and diagnostic codes are public API. Before
   sinter now keeps the latest value of each property set before the definition and, when
   `customElements.whenDefined()` resolves, deletes the own property and sets it again through
   the class. Defined elements pay one `customElements.get()` per write. 88 B gzip on the core.
+- `data-sn-attr` sets the live property for form state: `checked`, `selected`,
+  `indeterminate` and `value` are set as properties as well as attributes, so a re-render or
+  an optimistic rollback moves a control the user already changed (a clicked checkbox whose
+  change rolls back unchecks). `null`/`false` set the property to `false` (`value`: `''`).
+  Binding the `checked` (checkbox, radio) or `value` (other controls) that a `data-sn-model` on
+  the same element writes is now `SN102`. 50 B gzip on the core.
 
 ## 0.3.3 (2026-11-08)
 

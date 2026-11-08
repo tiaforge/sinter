@@ -134,7 +134,7 @@
     },
     {
       "name": "data-sn-attr",
-      "description": "literal keys; null/false removes, true sets empty; URL values are checked (object literal {href: …})"
+      "description": "literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property (object literal {href: …})"
     },
     {
       "name": "data-sn-class",

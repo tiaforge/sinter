@@ -7,7 +7,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'state', value: 'object literal', doc: 'declares local reactive state for the element and its subtree' },
   { name: 'let', value: 'object literal {name: expression}', doc: 'derived names for the element and its subtree, computed where they are read; later names may use earlier ones' },
   { name: 'text', value: 'value expression', doc: 'sets textContent; never HTML' },
-  { name: 'attr', value: 'object literal {href: …}', doc: 'literal keys; null/false removes, true sets empty; URL values are checked' },
+  { name: 'attr', value: 'object literal {href: …}', doc: 'literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property' },
   { name: 'class', value: 'object literal {unread: …}', doc: 'toggles each class' },
   { name: 'style', value: "object literal {'--color': …}", doc: 'sets each property with style.setProperty' },
   { name: 'show', value: 'value expression', doc: 'toggles the hidden attribute' },

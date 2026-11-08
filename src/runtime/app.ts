@@ -686,6 +686,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
         break;
       case 'attr':
+        // form state: the attribute is only the default once the user has changed the control
+        if (/^(checked|selected|indeterminate|value)$/.test(n) && n in el) (el as any)[n] = n == 'value' ? (v == null || v === false || v === true ? '' : v) : v != null && v !== false;
         if (v == null || v === false) el.removeAttribute(n);
         else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), /^https?:/.test(el.baseURI) ? el.baseURI : env.href(), schemes)) el.setAttribute(n, v);
         else { el.removeAttribute(n); warn(7, n, el.localName, v); }
