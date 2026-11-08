@@ -21,7 +21,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   `<span id="mark-read" data-sn-call="…" data-sn-optimistic="…">`. Islands still have no
   `app.run()`: they emit an event and the page runs the action. Core +86 B gzip.
 - `SN311 unknown-run-target`: `run()` takes a string literal naming one element on the page that
-  carries an action, outside `data-sn-for` rows, with a did-you-mean suggestion.
+  carries an action, outside `data-sn-for` rows, with a did-you-mean suggestion (and the LSP
+  quick fix, which now also fixes `SN309` dialog ids).
 - `sinter check` types `$event` in the URL, body, call arguments and confirm of a non-form
   `run()` target as `RunEvent<…>` (the event or `void`), so `$event.shiftKey` there is `SN208`
   and `$event && $event.shiftKey` is not.

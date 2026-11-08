@@ -27,9 +27,9 @@ export function suggestionOf(message: string): { wrong: string; right: string } 
   const before = message.slice(0, m.index);
   let best: { wrong: string; d: number } | null = null;
   for (const q of before.matchAll(/`([^`]+)`|'([^']+)'/g)) {
-    // `m.inbox_titel`, `$meta.contacts.loadng`: the suggestion replaces the last part
+    // `m.inbox_titel`, `$meta.contacts.loadng`, `id="mark-raed"`: the suggestion replaces the last part
     const whole = q[1] ?? q[2]!;
-    const wrong = /^[\w$-]+$/.test(right) ? whole.split(/[.\s/]/).pop()! : whole;
+    const wrong = /^[\w$-]+$/.test(right) ? whole.split(/[.\s/="<>]/).filter(Boolean).pop() ?? '' : whole;
     if (!wrong || wrong === right) continue;
     const d = distance(wrong, right);
     if (!best || d < best.d) best = { wrong, d };

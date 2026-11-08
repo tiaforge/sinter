@@ -296,6 +296,8 @@ describe('did-you-mean', () => {
     expect(suggestionOf('`$meta.contacts.loadng` is not a status field. Did you mean `loading`?')).toEqual({ wrong: 'loadng', right: 'loading' });
     expect(suggestionOf('the response of `GET /articles` has no `articls`. Did you mean `articles`?')).toEqual({ wrong: 'articls', right: 'articles' });
     expect(suggestionOf('`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`?')).toEqual({ wrong: 'data-sn-txt', right: 'data-sn-text' });
+    expect(suggestionOf('no element `id="mark-raed"` on this page. Did you mean `mark-read`?')).toEqual({ wrong: 'mark-raed', right: 'mark-read' });
+    expect(suggestionOf('no `<dialog id="compse">` on this page. Did you mean `compose`?')).toEqual({ wrong: 'compse', right: 'compose' });
     expect(suggestionOf('resource `x` is declared twice')).toBeNull();
   });
 
