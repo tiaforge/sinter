@@ -30,6 +30,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   through `run()` (and `refresh()`), listing each step's element, handler and line. Off by
   default; `sinter check --check-cycles` for one run, `sinter({ checkCycles: true })` for the
   build, `sinter check` and `sinter lsp`.
+- New recipe: run an action from a handler (mark a mail read after its body loaded; a shortcut
+  on a button that is disabled when nothing is open).
 
 - Key filters on keyboard handlers: `data-sn-on-keydown-<modifiers->key` and
   `data-sn-on-keyup-…` run only for that key, so each shortcut is its own attribute

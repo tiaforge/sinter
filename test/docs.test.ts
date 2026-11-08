@@ -25,6 +25,7 @@ const RECIPES: Array<[string, string, string[]?]> = [
   ['local-actions', 'Local actions: hash a file, then upload it', ['local-actions.actions.js']],
   ['keyboard-shortcuts', 'Keyboard shortcuts'],
   ['row-select', 'Row selection with Ctrl and Shift: logic in a helper, applied by the handler', ['row-select.helpers.js']],
+  ['run-action', 'Run an action from a handler: mark a mail read once its body has loaded, and a shortcut'],
 ];
 
 function llms(): string {

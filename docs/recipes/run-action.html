@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<body data-sn-state="{ open: null, error: '' }" data-sn-on-keydown-e="run('archive')">
+  <sn-resource name="messages" src="/api/messages" items="messages" key="id"></sn-resource>
+  <!-- loads when a mail opens; once its body is there, an unread mail is marked read -->
+  <sn-resource name="body" src="/api/messages/{open.id}/body" when="open"
+               then="$result && !open.is_read && run('mark-read')"></sn-resource>
+
+  <ul>
+    <template data-sn-for="m in messages">
+      <li data-sn-class="{unread: !m.is_read}" data-sn-on-click="open = m" data-sn-text="m.subject"></li>
+    </template>
+  </ul>
+  <article data-sn-show="open" data-sn-text="body && body.text"></article>
+
+  <!-- no visible control: the element only carries the action (data-sn-call works the same) -->
+  <span hidden id="mark-read" data-sn-patch="/api/messages/{open.id}" data-sn-body="{is_read: true}"
+        data-sn-optimistic="patch('messages', open, {is_read: true})"
+        data-sn-catch="error = $error.message"></span>
+  <!-- the button and E run one action; while it is disabled, E does nothing either -->
+  <button id="archive" data-sn-post="/api/messages/{open.id}/archive" data-sn-attr="{disabled: !open}"
+          data-sn-optimistic="remove('messages', open)" data-sn-then="open = null">Archive (E)</button>
+  <p role="alert" data-sn-text="error"></p>
+</body>
+</html>
