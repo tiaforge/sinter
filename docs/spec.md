@@ -759,11 +759,11 @@ Pagination is declared on the resource and driven by `page()` calls; v0.1 suppor
 
 | Mode | Request parameters | `page()` targets | Fits |
 | --- | --- | --- | --- |
-| `keyset` | `cursor` fields read from the boundary item + `direction` | `first`, `prev`, `next`, `last`; with `offset-param` also a page number | large or live lists where pages must not shift |
+| `keyset` | `cursor` fields read from the current page's boundary item + `direction` | `first`, `prev`, `next`, `last`; with `offset-param` also a page number | large or live lists where pages must not shift |
 | `offset` | `page-param` (1-based) + `size-param` | the above + a page number | lists that need "go to page N" |
 | `append` | like `keyset`, `next` only | `next` | "load more", infinite scroll |
 
-Keyset mode jumps only when the server can skip by offset as well. With `offset-param="offset"`, `page('messages', 7)` requests the `first` direction with `offset=300` (page size 50) and no cursor; `prev` and `next` then continue by cursor from that page's boundary items. Without it, a page number on a keyset resource is error `SN304`, with a hint to add `offset-param` or use offset mode. sinter never simulates jumps by stepping through pages. (Added 2026-11-05, for APIs such as Caley's mail list.)
+Keyset mode jumps only when the server can skip by offset as well. With `offset-param="offset"`, `page('messages', 7)` requests the `first` direction with `offset=300` (page size 50) and no cursor; `prev` and `next` then continue by cursor from that page's first and last items. Without it, a page number on a keyset resource is error `SN304`, with a hint to add `offset-param` or use offset mode. sinter never simulates jumps by stepping through pages. (Added 2026-11-05, for APIs such as Caley's mail list.)
 - The target may be computed: `page('results', $event.shiftKey ? 'prev' : 'next')`, or a helper's result, so one handler serves both directions. The compiler cannot tell a computed direction from a page number, so it accepts it, and `sinter check` types it: on a keyset resource without `offset-param` it must be a subset of `'first' | 'prev' | 'next' | 'last'` (a `number`, or a plain `string`, is `SN208`, whose message says to add `offset-param` for page numbers); elsewhere a direction or a number. A literal page number stays `SN304`; `append` takes only the literal `'next'`. (Added 2026-11-08, for Caley's keyset list.)
 - At run time a target the resource cannot go to (a page number on keyset without `offset-param`, a string that is not a direction, `NaN`) sends no request: it takes the error path of a failed load, `$meta.<name>.error` with the reason and the unhandled-error path (see Unhandled errors), plus a dev warning. The next load clears the error.
 - A jump target is clamped to `$meta.<name>.pages` when the total is known.
@@ -781,9 +781,9 @@ Keyset mode jumps only when the server can skip by offset as well. With `offset-
 | `paginate` | `keyset`, `offset` or `append` |
 | `page-size` | items per page; sent as `size-param` |
 | `size-param` | name of the size query parameter, default `limit` |
-| `cursor` | object literal evaluated on the boundary item: last item for `next`, first for `prev`; fields that are `null` or `undefined` are left out, as in URL templates |
+| `cursor` | object literal evaluated on the boundary item of the current page: its last item for `next`, its first item for `prev`; `first` and `last` send no cursor. Fields that are `null` or `undefined` are left out, as in URL templates |
 | `direction-param` | name of the direction parameter; values `first`, `prev`, `next`, `last` |
-| `direction-values` | keyset/append: object literal of strings, the value sent for a direction where the server names it differently, e.g. `{first: 'forward', prev: 'backward', next: 'forward'}`; directions not listed are sent by name |
+| `direction-values` | keyset/append: object literal of strings, the value sent for a direction where the server names it differently, e.g. `{first: 'forward', prev: 'backward', next: 'forward'}` (`first` and `next` may share a value: the server tells them apart by the cursor, which `first` does not send); directions not listed are sent by name |
 | `page-param` | offset mode: name of the page parameter, default `page` |
 | `offset-param` | keyset mode: name of an offset parameter the server also accepts; enables `page(name, n)` and `$meta.<name>.page` |
 

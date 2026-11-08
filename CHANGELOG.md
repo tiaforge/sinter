@@ -26,6 +26,11 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- Spec, Pagination: `cursor` is evaluated on the boundary item *of the current page* (its last
+  item for `next`, its first for `prev`; `first` and `last` send no cursor). "last item for
+  `next`, first for `prev`" read as if the direction `first` mapped to `prev`. The modes table,
+  the offset-param jump and the `direction-values` row say the same.
+
 - `<sn-event>` `when`, `then`, `item` and `set` see the `data-sn-let` names declared around the
   `<sn-sync>`, resolved like state there: before payload fields of the same name. They were taken
   for payload fields, so a typed payload reported them as missing (`not on type EmailUpdatedEvent`),
