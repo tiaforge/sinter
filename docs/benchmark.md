@@ -1,5 +1,34 @@
 # js-framework-benchmark results
 
+## 2026-11-08, pinned clock: before and after the three row changes
+
+The machine (amd-pstate, boost to 5.09 GHz) ran the earlier sections in two clock modes 35–60 % apart,
+so their medians flip between runs. For this section the clock was pinned at 4.0 GHz (governor
+`performance`, min = max; see the memory notes), which brings the standard deviation of a benchmark
+from 10–16 ms down to 2–4 ms. Headless Chrome 156, 10 iterations, vanillajs in the same run.
+"Before" is 0.8.0 as released; "after" has selection bindings, simple rows without binding objects and
+compiled row creation (the sections below).
+
+| benchmark | vanillajs ms | before ms | after ms | ratio before → after | vanillajs script | before script | after script |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 01 create 1k | 48.1 | 55.7 | 49.0 | 1.16 → 1.02 | 2.8 | 5.6 | 3.5 |
+| 02 replace 1k | 51.9 | 59.2 | 54.5 | 1.14 → 1.05 | 6.5 | 10.7 | 8.4 |
+| 03 update every 10th | 36.0 | 43.9 | 41.1 | 1.22 → 1.14 | 1.8 | 4.2 | 3.8 |
+| 04 select row | 8.7 | 12.7 | 10.1 | 1.46 → 1.16 | 1.1 | 4.7 | 2.0 |
+| 05 swap rows | 41.6 | 46.2 | 49.1 | 1.11 → 1.18 | 0.7 | 4.2 | 5.5 |
+| 06 remove row | 32.3 | 32.9 | 30.2 | 1.02 → 0.94 | 0.9 | 1.1 | 1.1 |
+| 07 create 10k | 483.7 | 529.9 | 523.6 | 1.10 → 1.08 | 25.0 | 43.5 | 40.9 |
+| 08 append 1k | 59.8 | 60.2 | 67.6 | 1.01 → 1.13 | 3.0 | 5.1 | 4.5 |
+| 09 clear 1k | 26.4 | 28.4 | 26.5 | 1.08 → 1.01 | 20.8 | 24.2 | 22.2 |
+
+Rank in the official Chrome 156 table (208 keyed frameworks, `rank.mjs`): CPU 53 → **28**
+(geometric mean of the ratios 1.08), memory **49** (1.27; ready 1.20, 1,000 rows 1.17, run-clear 1.46).
+Of the earlier noisy estimate (CPU 46, memory 56) a part was the clock, not the code: compare the
+pinned "before" column. Swap rows and append 1k look worse in the table but are not: sinter's own
+click-to-flush time for a swap is 0.6–0.7 ms after against 0.8 before (vanillajs 0.04; median of 20
+page loads, pinned), and append's script time fell 5.1 → 4.5. The benchmark's "script" figure also
+carries browser work the trace files under script, and its totals are paint-bound.
+
 ## 2026-11-08, selection bindings and simple rows
 
 Two runtime changes, measured on the entry against vanillajs on the same machine (headless Chrome 156,
