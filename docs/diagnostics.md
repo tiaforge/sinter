@@ -331,3 +331,13 @@ Warning, for example:
 `then`/`catch` handlers start each other again through `run()` (and `refresh()`, whose load runs the resource's `then`), so the requests may never stop. The message lists every step with its handler and line. The check is off by default: a guarded retry is a deliberate cycle. `sinter check --check-cycles` turns it on for one run, and `sinter({ checkCycles: true })` for the build, `sinter check` and `sinter lsp`.
 
 **Fix:** Make sure a step stops: a condition that becomes false (`$error.status === 503 && tries < 3 && run('save')`), or drop one step.
+
+## SN510 redundant-write
+
+Warning, for example:
+
+> `patch('articles', …, $result.article)` is what write-through does: the response of `POST /articles/{slug}/favorite` is `Article`, which `articles` holds; remove this write, or add `data-sn-apply="off"` to keep it
+
+A `then` handler writes to the store what write-through writes by itself after the response: an object of a resource's schema is patched into the item with its key (and into what the URL named), a POST to a list's URL inserts the created item, a DELETE of a row's URL removes the row. The handler's write lands on top and changes nothing.
+
+**Fix:** Remove the write from the handler (keep its other statements). To keep the explicit write, turn write-through off for that element with `data-sn-apply="off"`.

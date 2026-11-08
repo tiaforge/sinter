@@ -48,6 +48,8 @@ export interface ResourceDef {
   w?: string[];
   /** only elements inside `<dialog>`s read it: requested with low priority */
   lo?: 1;
+  /** the named OpenAPI schema of its items (`Article`): write-through matches response objects by it */
+  sch?: string;
 }
 
 export interface EventDef {
@@ -177,6 +179,25 @@ export interface ActionDef {
   confirm?: number;
   /** `data-sn-encoding="form"`: the body goes as application/x-www-form-urlencoded */
   enc?: 'form';
+  /** write-through of the response (absent with `data-sn-apply="off"`, for GET and `call`) */
+  ap?: ApplyDef;
+}
+
+/** What a mutation is about and what its response holds, for the `apply` feature (write-through). */
+export interface ApplyDef {
+  /**
+   * provenance: what the URL and body read. `r`: the resource; `v`: the loop variable when it is a
+   * row of that list; `p`: a sub-path inside the item (`['author']`); `s`: the named schema there
+   */
+  tg: Array<{ r: string; v?: string; p?: string[]; s?: string }>;
+  /** response paths holding an object of a named schema (`''`: the response itself; `a`: an array of them) */
+  rs?: Array<{ p: string; s: string; a?: 1 }>;
+  /** the request body's wrapper property, when the request schema is `{ wrapper: {…} }` */
+  rq?: string;
+  /** index in `tg` of the entity the request body describes (its fields are fields of that schema) */
+  u?: number;
+  /** the operation matched an OpenAPI spec (rules that need schemas apply) */
+  t?: 1;
 }
 
 export interface IR {

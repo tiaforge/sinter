@@ -214,8 +214,15 @@ built, what deviates, and what is left.
   reads of nodes outside dialogs, templates inside dialogs tracked in `dlTemplates`; `SendInit.priority`,
   `fetchpriority` on the preload); a 250 ms pause for URL changes that keystrokes cause (the model
   handler marks its dirty paths as typing, `hits()` tells a loader whether only such marks reached it);
-  refetch on persisted `pageshow` and `online` for resources no stream feeds. Core +230 B gzip. Next:
-  write-through of mutation responses from OpenAPI, designed first.
+  refetch on persisted `pageshow` and `online` for resources no stream feeds. Core +230 B gzip.
+- 2026-11-08: write-through (designed in the roadmap doc's "Write-through (0.9)" tab, decisions there). Compiler:
+  `ExprResult.reads` (member chains rooted at a resource or a row; `LoopEntry.resources` for `cond ? feed : articles`),
+  `ResourceDef.sch` from `namedSchema()` (`$ref`, identical inline copy, or inline projection: RealWorld's list
+  response inlines an Article without `body`), `ActionDef.ap` from `applyDef()` (provenance with named sub-paths,
+  response entities, request wrapper, the body's target), `SN510` from the `then` AST. Runtime: `src/apply.ts`
+  (rules 1–4, unchanged fields skipped because a base write drops a waiting layer's changes to the item: the
+  overlapping-actions test caught that), one hook in `send()`. The RealWorld check test doubles as the acceptance:
+  12 handlers removed.
 
 ## Decisions and deviations
 

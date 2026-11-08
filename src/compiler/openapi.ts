@@ -183,3 +183,99 @@ export function queryNames(src: UrlTemplate): string[] {
     try { return decodeURIComponent(k); } catch { return k; }
   });
 }
+
+const SCHEMAS = '#/components/schemas/';
+
+const isObjectSchema = (s: Json | null) => !!s && (s.type === 'object' || isObj(s.properties) || Array.isArray(s.allOf));
+
+/** JSON with object keys sorted, so two copies of one schema compare equal. */
+const canon = (v: unknown): string => Array.isArray(v) ? `[${v.map(canon).join(',')}]`
+  : isObj(v) ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}` : JSON.stringify(v);
+
+/** Component object schemas by their canonical JSON: specs often inline a copy of a schema instead of a `$ref` (RealWorld's list response does). */
+const byShape = new WeakMap<object, Map<string, string>>();
+function shapes(doc: unknown): Map<string, string> {
+  if (!isObj(doc)) return new Map();
+  let m = byShape.get(doc);
+  if (m) return m;
+  m = new Map();
+  const comps = isObj(doc.components) && isObj(doc.components.schemas) ? doc.components.schemas : {};
+  for (const [name, s] of Object.entries(comps)) if (isObj(s) && isObjectSchema(s) && !m.has(canon(s))) m.set(canon(s), name);
+  byShape.set(doc, m);
+  return m;
+}
+
+/**
+ * The component schema an object (or an array of objects) is, by name: `{ $ref: '#/components/schemas/Article' }` → `Article`;
+ * an inline object schema identical to a component schema counts as that schema.
+ */
+export function namedSchema(doc: unknown, schema: unknown): { name: string; array: boolean } | null {
+  if (!isObj(schema)) return null;
+  if (typeof schema.$ref === 'string' && schema.$ref.startsWith(SCHEMAS)) {
+    return isObjectSchema(deref(doc, schema)) ? { name: schema.$ref.slice(SCHEMAS.length).replace(/~1/g, '/').replace(/~0/g, '~'), array: false } : null;
+  }
+  if (schema.type === 'array') {
+    const inner = namedSchema(doc, schema.items);
+    return inner && !inner.array ? { name: inner.name, array: true } : null;
+  }
+  if (isObjectSchema(schema)) {
+    const name = shapes(doc).get(canon(schema)) ?? projectionOf(doc, schema);
+    return name ? { name, array: false } : null;
+  }
+  return null;
+}
+
+/**
+ * The component schema an inline object is a projection of: every property it has is in the component
+ * with the same schema (a list item without the `body` field is still an Article). At least three
+ * properties, and one best candidate (the component with the fewest properties more), else null.
+ */
+function projectionOf(doc: unknown, schema: Json): string | null {
+  const props = properties(doc, schema);
+  if (props.size < 3 || !isObj(doc) || !isObj(doc.components) || !isObj(doc.components.schemas)) return null;
+  let best: { name: string; extra: number } | null = null, tie = false;
+  for (const [name, c] of Object.entries(doc.components.schemas)) {
+    if (!isObj(c) || !isObjectSchema(c)) continue;
+    const cp = properties(doc, c);
+    if (cp.size <= props.size || ![...props].every(([k, v]) => cp.has(k) && canon(cp.get(k)) === canon(v))) continue;
+    const extra = cp.size - props.size;
+    if (!best || extra < best.extra) { best = { name, extra }; tie = false; } else if (extra === best.extra) tie = true;
+  }
+  return best && !tie ? best.name : null;
+}
+
+/** Where a response holds objects of named schemas: the response itself, or its top-level properties. */
+export function responseEntities(doc: unknown, schema: unknown): Array<{ p: string; s: string; a?: 1 }> {
+  const root = namedSchema(doc, schema);
+  if (root) return [{ p: '', s: root.name, ...(root.array ? { a: 1 as const } : {}) }];
+  const out: Array<{ p: string; s: string; a?: 1 }> = [];
+  for (const [k, v] of properties(doc, schema)) {
+    const n = namedSchema(doc, v);
+    if (n) out.push({ p: k, s: n.name, ...(n.array ? { a: 1 as const } : {}) });
+  }
+  return out;
+}
+
+/** The single property a request body wraps its object in (`{ article: {…} }` → `article`), or null. */
+export function wrapperKey(doc: unknown, schema: unknown): string | null {
+  const props = properties(doc, schema);
+  if (props.size !== 1) return null;
+  const [k, v] = [...props][0]!;
+  const inner = deref(doc, v);
+  return inner && (inner.type === 'object' || isObj(inner.properties) || Array.isArray(inner.allOf)) ? k : null;
+}
+
+/** The named object schema a member path inside an item schema leads to (`['author']` in Article → `Profile`), or null. */
+export function namedAt(doc: unknown, schema: unknown, path: string[]): string | null {
+  let cur = schema;
+  for (const seg of path) {
+    const props = properties(doc, cur);
+    if (!props.has(seg)) return null;
+    cur = props.get(seg);
+  }
+  const n = namedSchema(doc, cur);
+  return n && !n.array ? n.name : null;
+}
+
+/** Property names of an object schema (through `$ref`, `allOf`, …). */
+export const propertyNames = (doc: unknown, schema: unknown): string[] => [...properties(doc, schema).keys()];

@@ -328,6 +328,7 @@ Text-like controls update on `input`, all others on `change`.
 | `data-sn-catch` | handler expression | runs after an error, `$error` = error object |
 | `data-sn-confirm` | value expression | a question asked before the action runs; no request when the answer is no, no question when the value is falsy |
 | `data-sn-encoding` | `json` or `form` | `form`: the body is sent as `application/x-www-form-urlencoded` (see Request body) |
+| `data-sn-apply` | `off` | turns write-through off for this mutation (see Write-through) |
 | `data-sn-listbox` | the `id` of a suggestion list | on a text input: the combobox keys (see Suggestion lists) |
 | `data-sn-on-<event>` | handler expression | plain event handler, no request; e.g. `data-sn-on-click` |
 | `data-sn-on-keydown-<key>`, `data-sn-on-keyup-<key>` | handler expression | runs only for that key, with modifiers before it: `-j`, `-shift-n`, `-mod-enter`, `-escape`; see Key filters |
@@ -634,6 +635,25 @@ An action is an element with one method attribute; it sends a request when its t
 
 State assignments work too: `data-sn-then="editing = null; close()"`.
 The dialog id of `showModal()` and `close()` is a string literal that must name a `<dialog id>` on the page or its partials (`SN309`), so a typo fails the build. A button that only opens a dialog needs no handler: `commandfor="edit" command="show-modal"` is the platform's. `showModal()` is for opening after a request or call (`data-sn-then`), from a custom event, or after setting state in the same handler. Bindings inside the dialog render when it opens.
+
+### Write-through
+A mutation's 2xx response is applied to the resources it is about, by the `apply` feature module (loaded by pages that have something to apply), after the optimistic layer commits and before `then` runs, so `then` has the last word. Nothing is declared: the compiler knows what the action is about and what the response holds.
+
+**What the action is about** (provenance): the resources, rows and nested entities its URL and body read. `{a.slug}` with `a in articles` names a row of `articles` (also of each list in `a in (following ? feed : articles)`); `{article.slug}` names the single-object resource `article`; `{article.author.username}` also names `article.author`, a `Profile` by the schema walk. **What the response holds**: with an OpenAPI spec, the objects of named component schemas in it, at the top level or one property down (`{article: Article}`, `{articles: Article[]}`); each resource is matched to a schema the same way (a `$ref`, an inline copy, or an inline projection with fewer fields, as list responses often are). The request body's wrapper property (`{comment: {…}}`) comes from the request schema.
+
+| Rule | When | Effect |
+| --- | --- | --- |
+| 1 Confirm | the response holds an object of schema `S` | every keyed list resource of schema `S` patches the item with that key, if it holds one; what the URL named (a row, a single resource, a nested entity at its path) is patched when its schema is `S` |
+| 2 Create | a `POST` whose resolved URL equals a keyed list's current URL, query included | the response's object of the list's schema is upserted; without one, the body (unwrapped) merged with the response object that carries the key fields (`{id: 42}`, also wrapped) is; without either, the list is refetched. A filtered or paginated list is never inserted into: its URL carries parameters the POST does not |
+| 3 Update | a `PUT` or `PATCH` | the body (unwrapped) patches the entity the URL named whose schema has every field the body may carry; without a spec, the row or single the URL named, when every body key is a field it already has |
+| 4 Delete | a `DELETE` whose resolved URL is a keyed list's current URL plus one path segment, built from a row of that list | the row is removed (no spec needed) |
+
+- Patches merge. A field the response omits stays; a row created by rule 2 lacks fields only the server sets until the next load or event. Fields that already hold the value are not written: a base write to an item drops an older pending layer's changes to that item (as a server event does), so a confirmation that changes nothing must write nothing.
+- Never by type alone: a response `Article` does not replace the single `article` unless the URL read it; a response `Profile` does not touch `article.author` unless the URL read it. A `DELETE` on a sub-resource (`/articles/{slug}/favorite`) removes nothing; a `DELETE` of a single-object resource's URL leaves it (the page usually navigates).
+- Rules 1 to 3 need the spec (`sinter({ openapi })`); untyped pages get rule 4 and the body-only form of rule 3.
+- `data-sn-apply="off"` turns it off for one element. `GET` actions and `data-sn-call` have no write-through.
+- `SN510 redundant-write` (warning): a `then` that `patch`es or `upsert`s a resource with `$result.<path>` a rule applies, or `remove`s the row a rule 4 removes. Dev builds log each application: `write-through after POST /api/articles/x/favorite: articles: patch, feed: patch`.
+- RealWorld (2026-11-08): 12 of 19 `then` handlers went, among them every favorite and follow button and the comment form's `upsert`.
 
 ### Resource names
 `refresh()`, `upsert()`, `patch()`, `remove()` and `page()` take the resource name as an expression whose possible values the compiler can list from the source: a string literal; `c ? x : y` where `x` and `y` are such expressions (the test is any value expression); `x || y` and `x ?? y` where both are; parentheses; and a `data-sn-let` name whose value is such an expression (lets are inlined, so the compiler has their expression). "Page the list shown", where the list is one of two resources:

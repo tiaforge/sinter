@@ -46,6 +46,7 @@ export const CODES = {
   SN506: 'untyped-event',
   SN507: 'complex-expression',
   SN509: 'run-cycle',
+  SN510: 'redundant-write',
 } as const;
 
 export type Code = keyof typeof CODES;

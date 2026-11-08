@@ -49,7 +49,7 @@
           <template data-sn-if="user">
             <form class="card comment-form" data-sn-state="{ body: '' }"
                   data-sn-post="https://api.realworld.show/api/articles/{article.slug}/comments" data-sn-body="{comment: {body}}"
-                  data-sn-then="upsert('comments', $result.comment); body = ''; commentError = null" data-sn-catch="commentError = $error">
+                  data-sn-then="body = ''; commentError = null" data-sn-catch="commentError = $error">
               <div class="card-block"><textarea class="form-control" placeholder="Write a comment..." rows="3" data-sn-model="body"></textarea></div>
               <div class="card-footer">
                 <img class="comment-author-img" alt="" data-sn-attr="{src: avatar(user.image)}">
@@ -71,7 +71,7 @@
                 <template data-sn-if="user && user.username == c.author.username">
                   <span class="mod-options">
                     <i class="ion-trash-a" data-sn-delete="https://api.realworld.show/api/articles/{article.slug}/comments/{c.id}"
-                       data-sn-then="remove('comments', c)" data-sn-catch="commentError = $error"></i>
+                       data-sn-catch="commentError = $error"></i>
                   </span>
                 </template>
               </div>

@@ -4,13 +4,14 @@ import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
-import { analyze, literalNames, STORE_FNS, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, literalNames, STORE_FNS, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import type { Node } from 'acorn';
+import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
-import { matchOperation, matchResource, queryNames, walk, type OpenApiSpec } from './openapi.js';
-import type { ActionDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
+import { matchOperation, matchResource, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
+import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 
 type P5Node = DefaultTreeAdapterMap['node'];
@@ -104,7 +105,7 @@ const ATTRS = ATTRIBUTES.map((a) => a.name);
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 /** an action's expressions evaluated when it triggers, so they see `$event` */
 const TRIGGER_TIME = new Set(['data-sn-get', 'data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
-const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding'];
+const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'apply'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
 const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs;
@@ -145,6 +146,8 @@ class Compiler {
   readonly syncs: SyncDef[] = [];
   /** templates inside a `<dialog>`, at any depth: nothing in them is painted before that dialog opens */
   readonly dlTemplates = new Set<number>();
+  /** per resource matched to a spec: its item schema, for write-through (`sch`, provenance sub-paths) */
+  readonly itemSchema = new Map<string, { spec: number; schema: unknown }>();
   readonly roots: NodeDef[] = [];
   readonly templates: TemplateDef[] = [];
   readonly actions: ActionDef[] = [];
@@ -229,7 +232,7 @@ class Compiler {
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'each', 'listbox', 'keys'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'each', 'listbox', 'keys', 'apply'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -1091,7 +1094,8 @@ class Compiler {
     // arguments and body are taken when the trigger fires, so they see its event
     const call = method === 'call' ? this.callExpr(el, 'data-sn-call', scope, undefined, ['$event']) : null;
     if (method === 'call' && get('body') !== undefined) this.report(el, 'data-sn-body', 'SN102', '`data-sn-body` belongs to a method attribute; a call takes its arguments in `data-sn-call`', 0);
-    const url = method === 'call' ? [] : this.urlTemplate(el, `data-sn-${method}`, scope);
+    const reads: Read[] = [];
+    const url = method === 'call' ? [] : this.urlTemplate(el, `data-sn-${method}`, scope, {}, undefined, reads);
     const tag = el.tagName;
     const isForm = tag === 'form';
     const trigger = get('trigger') ?? (isForm ? 'submit' : FORM_CONTROLS.has(tag) ? 'change' : 'click');
@@ -1105,15 +1109,16 @@ class Compiler {
     }
     if (get('concurrency') && method === 'get') this.report(el, 'data-sn-concurrency', 'SN102', '`data-sn-concurrency` applies to mutations only; `GET` actions are always latest-wins', 0);
     const fnOf = (n: string, o: Omit<ExprOptions, 'report'>, type?: Parameters<Compiler['typeLast']>[0]) => {
-      if (get(n) === undefined) return { f: null, w: [] as string[] };
+      if (get(n) === undefined) return { f: null, w: [] as string[], r: null };
       const r = this.expr(el, `data-sn-${n}`, scope, o);
       if (type) this.typeLast(type);
-      return { f: r.ok ? this.fn(r.code) : null, w: r.writes };
+      return { f: r.ok ? this.fn(r.code) : null, w: r.writes, r };
     };
-    // with OpenAPI specs: the body must fit the request schema, `$result` gets the response's type
-    const op = method !== 'call' && this.check && this.opts.openapi?.length ? matchOperation(this.opts.openapi, url, method) : null;
+    // with OpenAPI specs: the body must fit the request schema, `$result` gets the response's type, and write-through knows the response's entities
+    const op = method !== 'call' && this.opts.openapi?.length ? matchOperation(this.opts.openapi, url, method) : null;
     const typed = op && 'spec' in op ? op : null;
     const body = fnOf('body', { mode: 'value', magic: ['$event'] }, typed?.request != null ? { returns: { kind: 'openapi', spec: typed.spec, schema: typed.request } } : undefined);
+    reads.push(...(body.r?.reads ?? []));
     const optimistic = fnOf('optimistic', { mode: 'optimistic' });
     if (optimistic.f !== null) this.features.add('optimistic');
     const then = fnOf('then', { mode: 'handler', magic: ['$event', '$result'] },
@@ -1124,15 +1129,103 @@ class Compiler {
     const encoding = get('encoding');
     if (encoding !== undefined && encoding !== 'form' && encoding !== 'json') this.report(el, 'data-sn-encoding', 'SN401', '`data-sn-encoding` is `json` (the default) or `form`', 0);
     if (encoding !== undefined && method === 'call') this.report(el, 'data-sn-encoding', 'SN102', '`data-sn-encoding` belongs to a method attribute; a call sends its own requests', 0);
+    const applyAttr = get('apply');
+    if (applyAttr !== undefined && applyAttr.trim() !== 'off') this.report(el, 'data-sn-apply', 'SN401', '`data-sn-apply` takes `off`; write-through is on without the attribute', 0);
+    if (applyAttr !== undefined && (method === 'call' || method === 'get')) this.report(el, 'data-sn-apply', 'SN102', '`data-sn-apply` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): a GET or a call has no write-through', 0);
+    const ap = method !== 'call' && method !== 'get' && applyAttr === undefined ? this.applyDef(reads, typed) : null;
+    if (ap) {
+      this.features.add('apply');
+      if (then.r?.ast) this.redundantWrites(el, then.r, ap, url, method, typed?.path ?? null);
+    }
     const def: ActionDef = {
       method: method.toUpperCase() as ActionDef['method'], url, body: body.f, trigger, debounce, concurrency,
       optimistic: optimistic.f, then: then.f, catch: catch_.f, w: [...new Set([...then.w, ...catch_.w])].sort(), form: isForm,
       ...(call ? { call: { args: call.args, run: call.run } } : {}),
       ...(confirm.f !== null ? { confirm: confirm.f } : {}),
       ...(encoding === 'form' ? { enc: 'form' as const } : {}),
+      ...(ap ? { ap } : {}),
     };
     this.actions.push(def);
     node.b.push(binding({ k: 'on', n: trigger, x: this.actions.length - 1 }));
+  }
+
+  /**
+   * Write-through: what a mutation is about (the resources, rows and nested entities its URL and body
+   * read) and what its response holds (objects of named schemas). Null when there is nothing to apply.
+   */
+  applyDef(reads: Read[], typed: { spec: number; body: unknown; request: unknown } | null): ApplyDef | null {
+    const tg: ApplyDef['tg'] = [];
+    const seen = new Set<string>();
+    const add = (t: ApplyDef['tg'][number]) => { const k = `${t.r}\0${t.v ?? ''}\0${(t.p ?? []).join('.')}`; if (!seen.has(k)) { seen.add(k); tg.push(t); } };
+    for (const rd of reads) {
+      const info = this.itemSchema.get(rd.resource), doc = info ? this.opts.openapi![info.spec]!.doc : null;
+      const root = info ? namedSchema(doc, info.schema) : null;
+      add({ r: rd.resource, ...(rd.row ? { v: rd.row } : {}), ...(root ? { s: root.name } : {}) });
+      // the named entities along the path: `article.author.username` is also about `article.author`, a Profile
+      for (let i = 1; info && i < rd.path.length; i++) {
+        const s = namedAt(doc, info.schema, rd.path.slice(0, i));
+        if (s) add({ r: rd.resource, ...(rd.row ? { v: rd.row } : {}), p: rd.path.slice(0, i), s });
+      }
+    }
+    if (!tg.length && !typed) return null;
+    const ap: ApplyDef = { tg };
+    if (typed) {
+      const doc = this.opts.openapi![typed.spec]!.doc;
+      ap.t = 1;
+      const rs = responseEntities(doc, typed.body);
+      if (rs.length) ap.rs = rs;
+      const rq = typed.request != null ? wrapperKey(doc, typed.request) : null;
+      if (rq) ap.rq = rq;
+      // the entity the body describes: the most specific target whose schema has every field the body may carry
+      if (typed.request != null) {
+        const fields = propertyNames(doc, rq ? properties(doc, typed.request).get(rq) : typed.request);
+        const u = tg.map((t, i) => [t, i] as const).filter(([t]) => t.s && fields.length && fields.every((f) => propertyNames(doc, this.schemaNamed(doc, t.s!)).includes(f)))
+          .sort((a, b) => (b[0].p?.length ?? 0) - (a[0].p?.length ?? 0))[0];
+        if (u) ap.u = u[1];
+      }
+    }
+    return ap;
+  }
+
+  /** The component schema with that name. */
+  schemaNamed(doc: unknown, name: string): unknown {
+    return { $ref: `#/components/schemas/${name.replace(/~/g, '~0').replace(/\//g, '~1')}` };
+  }
+
+  /**
+   * `SN510`: a `then` write that write-through makes: `patch('x', item, $result.p)`/`upsert('x', $result.p)`
+   * where the response's `p` is an object of `x`'s schema (an upsert also needs the action's URL to be the
+   * list's URL, judged by the literal parts), and `remove('x', row)` on a DELETE of that row's URL.
+   */
+  redundantWrites(el: P5Element, then: ExprResult, ap: ApplyDef, url: UrlTemplate, method: string, opPath: string | null) {
+    const lits = (t: UrlTemplate) => t.filter((x): x is string => typeof x === 'string');
+    const src = (name: string) => this.resources.find((r) => r.name === name)?.src ?? null;
+    const sameUrl = (name: string) => { const s = src(name); return !!s && lits(s).join('\0') === lits(url).join('\0'); };
+    const rowUrl = (name: string) => { const s = src(name); if (!s) return false; const a = lits(url), b = lits(s); return a.length === b.length && a.slice(0, -1).join('\0') === b.slice(0, -1).join('\0') && a[a.length - 1] === b[b.length - 1] + '/'; };
+    const fix = 'remove this write, or add `data-sn-apply="off"` to keep it';
+    const op = opPath ? `the response of \`${method.toUpperCase()} ${opPath}\`` : 'the response';
+    const visit = (n: acorn.AnyNode) => {
+      if (n.type === 'CallExpression' && n.callee.type === 'Identifier' && ['patch', 'upsert', 'remove'].includes(n.callee.name) && n.arguments[0]?.type === 'Literal' && typeof n.arguments[0].value === 'string') {
+        const fn = n.callee.name, name = n.arguments[0].value, r = this.resources.find((x) => x.name === name);
+        const value = n.arguments[fn === 'patch' ? 2 : 1];
+        const resultPath = value && value.type === 'MemberExpression' && !value.computed && value.object.type === 'Identifier' && value.object.name === '$result' && value.property.type === 'Identifier' ? value.property.name
+          : value && value.type === 'Identifier' && value.name === '$result' ? '' : null;
+        const entry = resultPath != null ? ap.rs?.find((e) => e.p === resultPath && !e.a) : undefined;
+        if (r && entry && r.sch === entry.s && fn === 'patch' && (r.key || ap.tg.some((t) => t.r === name && t.s === entry.s))) {
+          this.report(el, 'data-sn-then', 'SN510', `\`patch('${name}', …, $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: ${op} is \`${entry.s}\`, which \`${name}\` holds; ${fix}`, n.start);
+        } else if (r && entry && r.sch === entry.s && fn === 'upsert' && r.key && sameUrl(name)) {
+          this.report(el, 'data-sn-then', 'SN510', `\`upsert('${name}', $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: a POST to \`${name}\`'s URL inserts ${op}'s \`${entry.s}\`; ${fix}`, n.start);
+        } else if (r && fn === 'remove' && method === 'delete' && value?.type === 'Identifier' && ap.tg.some((t) => t.r === name && t.v === (value as acorn.Identifier).name && !t.p) && rowUrl(name)) {
+          this.report(el, 'data-sn-then', 'SN510', `\`remove('${name}', ${(value as acorn.Identifier).name})\` is what write-through does: a DELETE of a row's URL removes the row; ${fix}`, n.start);
+        }
+      }
+      for (const k of Object.keys(n)) {
+        const v = (n as unknown as Record<string, unknown>)[k];
+        if (Array.isArray(v)) { for (const c of v) if (c && typeof c === 'object' && 'type' in c) visit(c as acorn.AnyNode); }
+        else if (v && typeof v === 'object' && 'type' in v && k !== 'loc') visit(v as acorn.AnyNode);
+      }
+    };
+    visit(then.ast as acorn.AnyNode);
   }
 
   forTemplate(el: P5Element, node: NodeDef, scope: Scope, value: string, keySrc: string | undefined): { tid: number; scope: Scope } | null {
@@ -1153,7 +1246,7 @@ class Compiler {
     t.ii = ii;
     const resInfo = list.resource ? this.page.resources.get(list.resource) : undefined;
     const alias = list.path && list.path[0]!.startsWith('$s') ? [...list.path, `{${ii}}`] : null;
-    const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource }];
+    const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource, ...(list.resources ? { resources: list.resources } : {}) }];
     if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias });
     if (this.check) {
       for (const l of loops.slice(scope.loops.length)) this.frameOf.set(l, this.check.frames.length);
@@ -1180,7 +1273,7 @@ class Compiler {
     return { tid, scope: inner };
   }
 
-  urlTemplate(el: P5Element, attrName: string, scope: Scope, exprOpts: Partial<ExprOptions> = {}, deps?: Set<string>): UrlTemplate {
+  urlTemplate(el: P5Element, attrName: string, scope: Scope, exprOpts: Partial<ExprOptions> = {}, deps?: Set<string>, reads?: Read[]): UrlTemplate {
     const value = attr(el, attrName) ?? '';
     const parts: UrlTemplate = [];
     let i = 0;
@@ -1208,6 +1301,7 @@ class Compiler {
       if (!/[?#]/.test(value.slice(0, i))) this.typeLast({ returns: { kind: 'decl', name: 'PathValue' } });
       parts.push(this.fn(r.code));
       if (deps) for (const d of r.deps) deps.add(d);
+      reads?.push(...(r.reads ?? []));
       i = j + 1;
     }
     if (lit) parts.push(lit);
@@ -1338,6 +1432,8 @@ class Compiler {
     const order = attr(el, 'order');
     const type = attr(el, 'type')?.trim() || null;
     const openapi = type || hasCall ? null : this.openapi(el, src, attr(el, 'items') ?? null, attr(el, 'total') ?? null);
+    const sch = openapi && 'schema' in openapi ? namedSchema(this.opts.openapi![openapi.spec]!.doc, openapi.schema) : null;
+    if (openapi && 'schema' in openapi) this.itemSchema.set(name, { spec: openapi.spec, schema: sch?.array ? (openapi.schema as { items: unknown }).items : openapi.schema });
     if (this.check) {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
@@ -1359,6 +1455,7 @@ class Compiler {
       ...(each ? { each } : {}),
       ...(call ? { call: { args: call.args, run: call.run } } : {}),
       ...(then ? { then: then.f, ...(then.w.length ? { w: then.w } : {}) } : {}),
+      ...(sch ? { sch: sch.name } : {}),
     });
   }
 

@@ -79,6 +79,8 @@ export interface ResourceLoader {
   start(): void;
   /** `src`, `when` (or an `each` list) may have changed; `typing`: the change comes from a text field, so it waits for a pause */
   changed(typing?: boolean): void;
+  /** the resolved URL of the current load (null: `when` is false, or not resolved yet) */
+  url(): string | null;
   load(move?: unknown): Promise<void>;
   refetch(hint?: object): Promise<void>;
   /** for feature modules: the scope `src` and `when` are evaluated in */
@@ -123,6 +125,8 @@ export interface App {
     };
     /** a key filter's handler (`b.q`): whether this key event is for it (a match prevents its default) */
     keys?: (rb: BoundBinding, e: KeyboardEvent) => boolean;
+    /** write-through: a mutation's 2xx response, applied to the resources it is about (before `then`) */
+    apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
   };
   readonly beforeFlush: Array<(dirty: string[][]) => void>;
   readonly afterFlush: Array<(dirty: string[][]) => void>;
@@ -1030,7 +1034,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, c?: AbortController) {
-    const el = rb.el as HTMLFormElement;
+    const el = rb.el as HTMLFormElement, s = rb.s;
     st.n++;
     el.setAttribute('aria-busy', 'true');
     if (a.form && a.concurrency == 'block' && !c && !st.off) {
@@ -1044,6 +1048,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // a superseded GET's change is rolled back; a success keeps it, under what `then` writes
       if (c && st.c != c) return drop();
       drop(true);
+      // write-through lands between the commit and `then`, so `then` still has the last word
+      if (a.ap) app.ext.apply?.(a, s, url, body, result);
       if (a.then != null) handle(rb, a.then, null, a.w, { $result: result });
     } catch (err) {
       drop();
@@ -1123,7 +1129,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     const l: ResourceLoader = {
       def, res: r, app, pager: null as Pager | null,
-      scope, get: loadShared, failed: fail, loading,
+      scope, get: loadShared, failed: fail, loading, url: () => url,
       done: (v) => def.then != null && app.exec(def.then, child(scope(), { $result: v }), def.w),
       items(body) {
         let items = pick(def.items, body);

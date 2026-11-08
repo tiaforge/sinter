@@ -54,8 +54,9 @@ or as an element that stays empty.
 ## Why sinter
 
 - **The server-state plumbing is gone.** You don't write loading flags, stale-response guards,
-  refetch on reconnect, list upserts from SSE or WebSocket events, or rollback of failed updates.
-  They are attributes.
+  refetch on reconnect, list upserts from SSE or WebSocket events, rollback of failed updates, or
+  the store writes after a mutation: the response is applied to the lists and objects it is about.
+  They are attributes, or nothing at all.
 - **Optimistic updates that stay correct**, also when requests overlap or a server event arrives
   while a request is in flight.
 - **Checked before it ships.** Every name in every expression is resolved at build time and

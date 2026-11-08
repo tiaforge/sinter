@@ -15,6 +15,8 @@ export interface LoopEntry {
   alias: string[] | null;
   /** item rooted at a resource */
   resource: string | null;
+  /** item rooted at one of several resources (`cond ? feed : articles`): provenance names each */
+  resources?: string[];
   /** index: the item's alias, so `list[i]` over the same list becomes the row's own element */
   of?: string[] | null;
 }
@@ -99,6 +101,8 @@ export interface ExprResult {
   path: string[] | null;
   /** resource the expression is rooted at */
   resource: string | null;
+  /** a `?:` (or `||`, `??`) between expressions rooted at resources: each of them */
+  resources?: string[];
   ast: Node | null;
   /** names resolved to payload fields (`payload` mode) */
   payloadNames?: string[];
@@ -111,7 +115,12 @@ export interface ExprResult {
   refreshes?: Array<{ name: string; offset: number }>;
   /** lets read as a resource name (store calls, `$meta[…]`), with the lets their names come from: `sinter check` types them as those names */
   nameLets?: LetEntry[];
+  /** member chains rooted at a resource or at a row of one (`article.author.username`, `a.slug`): what the expression is about */
+  reads?: Read[];
 }
+
+/** A member chain rooted at a resource (`row` null) or at a loop variable over one (`row`: its name), with the members after the root. */
+export interface Read { resource: string; row: string | null; path: string[] }
 
 /**
  * The resource names an expression can take, each with where it is written: a string literal, `?:`
@@ -211,11 +220,13 @@ interface ChainPath {
   segs: string[] | null;
   /** resource the value is rooted at */
   resource: string | null;
-  /** the receiver chain is the callee of a call */
+  /** the member names after the root identifier (`*` for a computed one) */
+  props: string[];
 }
 
 export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOptions): ExprResult {
   const edits: Edit[] = [];
+  const reads: Read[] = [];
   const deps = new Set<string>();
   const writes = new Set<string>();
   let usesEl = false;
@@ -413,7 +424,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       const loop = seg[0] == '{' ? [...scope.loops].reverse().find((l) => l.kind == 'index' && `{${l.name}}` == seg) : undefined;
       if (loop?.of && loop.of.length == k + 1 && loop.of.slice(0, k).join('.') == segs.slice(0, k).join('.')) segs[k] = loop.of[k]!;
     });
-    return { root: name, res, segs, resource: base.resource };
+    return { root: name, res, segs, resource: base.resource, props };
   }
 
   /** Resolution without diagnostics, for chains already resolved by the walker. */
@@ -536,6 +547,13 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     // dependency of the whole chain (minus the method name when it is called)
     if (mode !== 'optimistic' || true) {
       const cp = chainPath(n, locals);
+      if (cp && (cp.res.kind === 'resource' || (cp.res.kind === 'loop' && cp.res.entry.kind === 'item'))) {
+        const path = isCallee && n.type === 'MemberExpression' ? cp.props.slice(0, -1) : cp.props;
+        const row = cp.res.kind === 'loop' ? cp.root : null;
+        for (const resource of cp.resource ? [cp.resource] : cp.res.kind === 'loop' ? cp.res.entry.resources ?? [] : []) {
+          if (!reads.some((x) => x.resource === resource && x.row === row && x.path.join('.') === path.join('.'))) reads.push({ resource, row, path });
+        }
+      }
       if (cp && cp.segs) {
         const segs = isCallee && n.type === 'MemberExpression' ? cp.segs.slice(0, -1) : cp.segs;
         // `$meta[shown].hasNext` with listable names depends on `$meta.<name>.hasNext` for each
@@ -997,22 +1015,33 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
 
   let path: string[] | null = null;
   let resource: string | null = null;
+  let resources: string[] | undefined;
+  /** the resource an expression is rooted at (its leftmost identifier) */
+  const rootResource = (e: Node): string | null => {
+    const l = leftmost(e);
+    if (l?.type !== 'Identifier') return null;
+    const res = resolveQuiet(l.name, root);
+    return res ? basePath(l.name, res).resource : null;
+  };
+  /** the resources a `?:`/`||`/`??` chooses between, when every branch is rooted at one */
+  const choices = (e: Node): string[] | null => {
+    const n = e.type === 'ParenthesizedExpression' ? (e as acorn.ParenthesizedExpression).expression as Node : e;
+    if (n.type === 'ConditionalExpression') { const a = choices(n.consequent as Node), b = choices(n.alternate as Node); return a && b ? [...a, ...b] : null; }
+    if (n.type === 'LogicalExpression' && (n.operator === '||' || n.operator === '??')) { const a = choices(n.left as Node), b = choices(n.right as Node); return a && b ? [...a, ...b] : null; }
+    const r = n.type === 'Identifier' || n.type === 'MemberExpression' || n.type === 'ChainExpression' || n.type === 'CallExpression' ? rootResource(n) : null;
+    return r ? [r] : null;
+  };
   if (body.length === 1 && !opts.object) {
     const e = body[0]!;
     if (e.type === 'Identifier' || e.type === 'MemberExpression') {
       const cp = chainPath(e, root);
       if (cp) { path = cp.segs; resource = cp.resource; }
     }
-    if (!resource) {
-      const l = leftmost(e);
-      if (l?.type === 'Identifier') {
-        const res = resolveQuiet(l.name, root);
-        if (res) resource = basePath(l.name, res).resource;
-      }
-    }
+    if (!resource) resource = rootResource(e);
+    if (!resource) { const c = choices(e); if (c && c.length > 1) resources = [...new Set(c)]; }
   }
 
-  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort(), payloadLets: [...payloadLets].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}) };
+  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort(), payloadLets: [...payloadLets].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

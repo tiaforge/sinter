@@ -10,8 +10,12 @@ const files: Record<string, string> = {
 
 const SPEC = { file: '/p/openapi.json', doc: {
   openapi: '3.0.3',
-  paths: { '/api/c': { get: { parameters: [{ name: 'q', in: 'query' }], responses: { '200': { description: 'ok', content: { 'application/json': {
-    schema: { type: 'object', properties: { contacts: { type: 'array', items: { type: 'object' } }, total: { type: 'integer' } } } } } } } } } },
+  paths: {
+    '/api/c': { get: { parameters: [{ name: 'q', in: 'query' }], responses: { '200': { description: 'ok', content: { 'application/json': {
+      schema: { type: 'object', properties: { contacts: { type: 'array', items: { $ref: '#/components/schemas/Contact' } }, total: { type: 'integer' } } } } } } } } },
+    '/api/c/{id}/star': { post: { responses: { '200': { description: 'ok', content: { 'application/json': { schema: { type: 'object', properties: { contact: { $ref: '#/components/schemas/Contact' } } } } } } } } },
+  },
+  components: { schemas: { Contact: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, starred: { type: 'boolean' } } } } },
 } };
 
 interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; checkCycles?: boolean }
@@ -62,6 +66,8 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN507', '<div data-sn-state="{ a: 0 }"><button data-sn-on-click="a = 1; a = 2; a = 3; a = 4; a = 5" data-sn-text="a"></button></div>', /`data-sn-on-click` is too complex for markup: 5 statements in one handler \(limit `statements`: 4\)\. Move the logic into a helper/],
   ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/, { checkCycles: true }],
   ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
+  ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="patch('c', x, $result.contact)"></button></template>`,
+    /`patch\('c', …, \$result\.contact\)` is what write-through does: the response of `POST \/api\/c\/\{id\}\/star` is `Contact`, which `c` holds; remove this write, or add `data-sn-apply="off"` to keep it/, { openapi: true }],
 ];
 
 /** Codes that do not come from compile(): `sinter check` runs TypeScript (SN208), loading a spec fails (SN307). Fixtures in test/check. */

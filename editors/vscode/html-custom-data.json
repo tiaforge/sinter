@@ -241,6 +241,10 @@
       "description": "form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded (json | form)"
     },
     {
+      "name": "data-sn-apply",
+      "description": "turns write-through off for this mutation: its response is not applied to the resources it is about (off)"
+    },
+    {
       "name": "data-sn-path",
       "description": "on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url (URL patterns /a/:b …)"
     },

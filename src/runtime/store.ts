@@ -74,7 +74,7 @@ export interface Resource<T extends object = any> {
   base(): { items: T[] | T | null; total: number | null };
   /** while set, upsert/patch/remove are recorded instead of applied */
   recording: Op[] | null;
-  loader: { refetch(hint?: object): Promise<void> } | null;
+  loader: { refetch(hint?: object): Promise<void>; url?(): string | null } | null;
   onDirty(what: 'data' | 'meta'): void;
 }
 

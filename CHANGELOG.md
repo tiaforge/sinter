@@ -17,6 +17,21 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Write-through: a mutation's 2xx response is applied to the resources it is about, after the
+  optimistic commit and before `then`. Four rules, nothing declared: (1) an object of a named
+  OpenAPI schema in the response patches the same-key item in every list of that schema, and the
+  row, single resource or nested entity the action's URL or body read (`{article.author.username}`
+  names `article.author`); (2) a POST to exactly a keyed list's current URL inserts the created
+  item: the response's, else the body merged with the response's key (`{id: 42}`), else the list is
+  refetched; (3) a PUT/PATCH body patches the entity the URL named; (4) a DELETE of a row's URL
+  removes the row. Rules 1 to 3 need `sinter({ openapi })`; untyped pages get rule 4 and the
+  body-only update. Patches merge and skip unchanged fields. New feature module
+  `@tiaforge-ui/sinter/apply` (loaded by pages with something to apply), `data-sn-apply="off"` per
+  element, warning `SN510 redundant-write` for a `then` that writes what a rule writes, dev log per
+  application. Resources are matched to schemas by `$ref`, by an identical inline copy, or by an
+  inline projection with fewer fields (RealWorld's list response). RealWorld: 12 of 19 `then`
+  handlers removed. Testing: `render(html, { openapi })`.
+
 - Loading optimizations that need no attributes:
   - Preconnect: every origin a literal resource or stream `src` names (`https://api.example.com/…`)
     gets `<link rel="preconnect" crossorigin>` in the head, so the connection is made while the page

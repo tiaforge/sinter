@@ -19,9 +19,10 @@ import each from '../each.js';
 import persist from '../persist.js';
 import listbox from '../listbox.js';
 import keys from '../keys.js';
+import apply from '../apply.js';
 import sse from '../sse.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each, listbox, keys };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each, listbox, keys, apply };
 
 // ---- requests
 
@@ -202,6 +203,8 @@ export interface RenderOptions {
    * early module, then the early bindings) before mounting, as the built page does in the browser
    */
   firstPaint?: true | FirstPaintTestOptions;
+  /** an OpenAPI 3 document (parsed), as `sinter({ openapi })` gives the compiler: types resources and actions, and write-through knows the entities */
+  openapi?: unknown;
 }
 
 export interface FirstPaintTestOptions {
@@ -305,6 +308,7 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
       return hit;
     },
     ...(options.firstPaint ? { prerender: true, early: { module: null } } : {}),
+    ...(options.openapi ? { openapi: [{ file: 'openapi.yml', doc: options.openapi }] } : {}),
   });
   const errors = parts.diagnostics.filter((d) => d.severity === 'error');
   if (errors.length) throw new Error(`sinter: build failed\n${errors.map(formatDiagnostic).join('\n')}`);

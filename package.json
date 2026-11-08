@@ -40,6 +40,7 @@
     "./persist": "./dist/persist.js",
     "./listbox": "./dist/listbox.js",
     "./keys": "./dist/keys.js",
+    "./apply": "./dist/apply.js",
     "./cache": "./dist/cache.js",
     "./early": "./dist/early.js",
     "./messages": "./dist/messages.js",
