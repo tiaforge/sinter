@@ -13,7 +13,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-class` (object literal {unread: …}): toggles each class
 - `data-sn-style` (object literal {'--color': …}): sets each property with style.setProperty
 - `data-sn-show` (value expression): toggles the hidden attribute
-- `data-sn-prop` (object literal): sets JS properties; custom elements only
+- `data-sn-prop` (object literal): sets JS properties; custom elements only (one defined later gets them again through its setters)
 - `data-sn-model` (state path): two-way binding for form controls
 - `data-sn-for` (item in list | (item, i) in list): repeats a <template> per item
 - `data-sn-key` (value expression): row identity; defaults to the resource key or object identity

@@ -256,6 +256,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const schemes = schemesOf(config.urlSchemes);
   const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(): void; start(): void }> = [];
   const acts = new WeakMap<Element, ActState>();
+  /** props set on custom elements not defined yet, by element: the latest value of each */
+  const early = new WeakMap<Element, Map<string, unknown>>();
   const types = new Set<string>(), selects = new Set<RB>(), deferred = new Set<RB>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<unknown> }>();
@@ -638,6 +640,22 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return true;
   }
 
+  /**
+   * A property set before its custom element is defined is an own property that would hide the
+   * class's setter: once defined, the latest values are set again, through the class.
+   */
+  function upgrade(el: any, n: string, v: unknown) {
+    let m = early.get(el);
+    if (!m) {
+      early.set(el, (m = new Map()));
+      customElements.whenDefined(el.localName).then(() => {
+        early.delete(el);
+        for (const [k, x] of m!) { delete el[k]; el[k] = x; }
+      });
+    }
+    m.set(n, v);
+  }
+
   function write(rb: RB, v: any, prev: any) {
     const el = rb.el as HTMLElement, n = rb.b.n!;
     switch (rb.b.k) {
@@ -649,7 +667,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
         break;
       }
       case 'show': el.hidden = !v; break;
-      case 'prop': (el as any)[n] = v; break;
+      case 'prop':
+        (el as any)[n] = v;
+        if (early.has(el) || !customElements.get(el.localName)) upgrade(el, n, v);
+        break;
       case 'class':
         // a new element without a class attribute cannot have the class: skip removing it
         if (n) { if (v || rb.v !== UNSET || el.hasAttribute('class')) el.classList.toggle(n, !!v); }

@@ -11,7 +11,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'class', value: 'object literal {unread: …}', doc: 'toggles each class' },
   { name: 'style', value: "object literal {'--color': …}", doc: 'sets each property with style.setProperty' },
   { name: 'show', value: 'value expression', doc: 'toggles the hidden attribute' },
-  { name: 'prop', value: 'object literal', doc: 'sets JS properties; custom elements only' },
+  { name: 'prop', value: 'object literal', doc: 'sets JS properties; custom elements only (one defined later gets them again through its setters)' },
   { name: 'model', value: 'state path', doc: 'two-way binding for form controls' },
   { name: 'for', value: 'item in list | (item, i) in list', doc: 'repeats a <template> per item' },
   { name: 'key', value: 'value expression', doc: 'row identity; defaults to the resource key or object identity' },

@@ -150,7 +150,7 @@
     },
     {
       "name": "data-sn-prop",
-      "description": "sets JS properties; custom elements only (object literal)"
+      "description": "sets JS properties; custom elements only (one defined later gets them again through its setters) (object literal)"
     },
     {
       "name": "data-sn-model",

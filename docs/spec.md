@@ -845,6 +845,7 @@ Islands are custom elements that own imperative work (encryption, rich editors, 
 </template>
 ```
 - `data-sn-prop` assigns JS properties, so islands receive objects, not strings.
+- An island's module may define its element after the page has mounted (a lazy `import()`). Until then, a property sinter sets is a plain own property of the element, readable but hiding the class's accessor once it is defined. So for an element that is not defined yet, sinter remembers the latest value of each property and, when `customElements.whenDefined()` resolves (a microtask after the upgrade, so after the constructor and `connectedCallback`), deletes the own property and sets the value again, through the class's setter. A class field the upgrade redefined gets the latest value too. Elements already defined pay one `customElements.get()` per write. (Fixed 2026-11-08; Caley had an `upgradeProps()` workaround.)
 - An island dispatches `CustomEvent`s with lowercase kebab-case names (`reader-flag`); `data-sn-on-<name>` handles them.
 
 ### Instance API

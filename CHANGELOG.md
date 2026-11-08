@@ -32,6 +32,15 @@ Attribute names, function names and diagnostic codes are public API. Before
   superseded `GET` action now rolls its layer back instead of leaving it. The core grows by
   146 B gzip.
 
+### Fixed
+
+- `data-sn-prop` on a custom element that is defined after sinter has set its properties (an
+  island loaded with `import()`): the values were own properties that hid the class's setters,
+  so the island never received them (Caley worked around it with an `upgradeProps()` helper).
+  sinter now keeps the latest value of each property set before the definition and, when
+  `customElements.whenDefined()` resolves, deletes the own property and sets it again through
+  the class. Defined elements pay one `customElements.get()` per write. 88 B gzip on the core.
+
 ## 0.3.3 (2026-11-08)
 
 ### Added

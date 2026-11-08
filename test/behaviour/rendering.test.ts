@@ -404,6 +404,38 @@ test('islands: props in, events out, state().update()', async () => {
   expect(root.querySelector('i')!.textContent).toBe('2');
 });
 
+test('islands defined after mount: props reach the class\'s setters, with the latest values', async () => {
+  // Caley: an island's module loads after sinter has mounted and assigned its props
+  const seen: unknown[] = [];
+  const { root, flush, app } = await render(`
+    <div data-sn-state="{ msg: {id: 1}, n: 0 }">
+      <late-reader data-sn-prop="{message: msg, count: n}"></late-reader>
+      <template data-sn-for="i in [1, 2]" data-sn-key="i"><late-reader data-sn-prop="{message: {id: i}}"></late-reader></template>
+    </div>`);
+  const [el, row] = [...root.querySelectorAll('late-reader')] as any[];
+  expect(el.message).toEqual({ id: 1 });   // a plain property until the class exists
+  // a value that changes before the class is defined: the latest one is what the setter gets
+  app.state(el).update((s) => { s.n = 2; });
+  await flush();
+  class LateReader extends HTMLElement {
+    #m: unknown = null;
+    count = -1;   // a class field is (re)defined on upgrade
+    get message() { return this.#m; }
+    set message(v) { this.#m = v; seen.push(['message', v]); }
+  }
+  customElements.define('late-reader', LateReader);
+  await flush();
+  expect(Object.hasOwn(el, 'message')).toBe(false);
+  expect(el.message).toEqual({ id: 1 });
+  expect(el.count).toBe(2);
+  expect(row.message).toEqual({ id: 1 });
+  expect(seen).toEqual([['message', { id: 1 }], ['message', { id: 1 }], ['message', { id: 2 }]]);
+  // later writes go through the setter
+  app.state(el).update((s) => { s.msg = { id: 3 }; });
+  await flush();
+  expect(seen.at(-1)).toEqual(['message', { id: 3 }]);
+});
+
 test('data-sn-let names a derived value for bindings and handlers in the subtree', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ q: 'a', picked: '' }" data-sn-let="{ hits: ['ab', 'ac', 'b'].filter(w => w.startsWith(q)), n: hits.length }">
