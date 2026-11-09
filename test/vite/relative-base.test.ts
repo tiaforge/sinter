@@ -45,7 +45,7 @@ test('a relative base: every image URL resolves from its page or stylesheet', as
   expect(post).toMatch(/<script type="module" crossorigin src="\.\.\/assets\/post-[\w-]+\.js" async>/);
   for (const [file, text] of [['index.html', html], ['blog/post.html', post]] as const) {
     const list = urls(text);
-    expect(list.length).toBeGreaterThan(3);
+    expect(list.length).toBeGreaterThan(2);
     for (const u of list) expect(existsSync(resolve(dirname(join(out, file)), u)), `${file}: ${u}`).toBe(true);
   }
   for (const f of readdirSync(join(out, 'assets')).filter((x) => x.endsWith('.css'))) {

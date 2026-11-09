@@ -120,9 +120,10 @@ test('a fluid image in a max-width container: sizes from the bound, files up to 
   const styles = [{ file: 'app.css', css: 'main { max-width: 300px } img { max-width: 100% }' }];
   const out = run('<main><img src="img/photo.jpg" alt=""></main>', { ...host, styles });
   // eager (the first image): no `auto`
-  expect(body(out.html)).toContain('srcset="/i/photo-480.avif 480w, /i/photo-900.avif 900w" sizes="(max-width: 300px) 100vw, 300px"');
+  // the browser's 8 px body margin: exact below 316 px, 300 px above
+  expect(body(out.html)).toContain('srcset="/i/photo-480.avif 480w, /i/photo-900.avif 900w" sizes="(max-width: 315.98px) calc(100vw - 16px), 300px"');
   const lazy = run('<main><img src="img/photo.jpg" alt=""><img src="img/photo.jpg" alt=""></main>', { ...host, styles });
-  expect(body(lazy.html)).toContain('sizes="auto, (max-width: 300px) 100vw, 300px"');
+  expect(body(lazy.html)).toContain('sizes="auto, (max-width: 315.98px) calc(100vw - 16px), 300px"');
 });
 
 test('SN513: only for a src that can only be local image paths', () => {

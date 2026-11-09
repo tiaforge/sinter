@@ -61,16 +61,17 @@ test('a build: <picture> with AVIF and lossless WebP, the variants in assets/, t
   expect(html).toMatch(/<img src="\/assets\/photo-64-[\w-]+\.jpg" alt="Sass"[^>]* width="64" height="64"/);
   expect(html).toMatch(/<img src="\/assets\/photo-72-[\w-]+\.jpg" alt="PostCSS"[^>]* width="72" height="72"/);
   expect(html).not.toContain('vite-ignore');
-  expect(html).toMatch(/<picture><source type="image\/avif" srcset="\/assets\/photo-480-[\w-]+\.avif 480w, \/assets\/photo-1000-[\w-]+\.avif 1000w" sizes="auto, 100vw"\s?><img src="\/assets\/photo-1000-[\w-]+\.jpg" alt="Hero"/);
+  // no reset (no max-width: 100%): the image is as wide as its width attribute, the source's 1000 px
+  expect(html).toMatch(/<picture><source type="image\/avif" srcset="\/assets\/photo-1000-[\w-]+\.avif 1000w" sizes="auto, 1000px"\s?><img src="\/assets\/photo-1000-[\w-]+\.jpg" alt="Hero"/);
   // a tiny PNG is the original file, with dimensions; a larger one is lossless WebP with a PNG fallback
   expect(html).toMatch(/<img src="\/assets\/logo-400-[\w-]+\.png" width="200" alt="Logo" height="50" loading="lazy" decoding="async"\s?>/);
-  expect(html).toMatch(/<source type="image\/webp" srcset="\/assets\/ui-480-[\w-]+\.webp 480w, \/assets\/ui-800-[\w-]+\.webp 800w"[^>]*><img src="\/assets\/ui-800-[\w-]+\.png"/);
+  expect(html).toMatch(/<source type="image\/webp" srcset="\/assets\/ui-800-[\w-]+\.webp 800w" sizes="auto, 800px"[^>]*><img src="\/assets\/ui-800-[\w-]+\.png"/);
   expect(html).toMatch(/<img src="\/assets\/photo-120-[\w-]+\.jpg" width="120" height="120" alt="Card"[^>]* loading="lazy" decoding="async"/);
   expect(html).not.toContain('object-fit');
   // the stylesheets size the avatar (40 px, cropped square by their object-fit); the hero's CSS width wins over its attribute
   expect(html).toMatch(/srcset="\/assets\/photo-40-[\w-]+\.avif 40w, \/assets\/photo-80-[\w-]+\.avif 80w, \/assets\/photo-120-[\w-]+\.avif 120w" sizes="\(max-width: 40px\) 100vw, 40px"/);
   expect(html).toMatch(/<img src="\/assets\/photo-40-[\w-]+\.jpg" alt="Avatar"[^>]* width="40" height="40" decoding="async"/);
-  expect(html).toMatch(/<img src="[^"]+" width="300" alt="Fluid by CSS"[^>]* sizes="auto, 100vw"/);
+  expect(html).toMatch(/<img src="[^"]+" width="300" alt="Fluid by CSS"[^>]* sizes="auto, calc\(100vw - 16px\)"/);
   // every URL in the page is a file of the build, with the format and size it claims
   const urls = [...html.matchAll(/\/assets\/([\w-]+\.(?:avif|webp|jpg|png))/g)].map((m) => m[1]!);
   expect(urls.length).toBeGreaterThan(8);

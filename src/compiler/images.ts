@@ -4,7 +4,7 @@
 // from the adapter's `ImageHost`, which analyses files with sharp and encodes the variants this
 // returns. See docs/images.md.
 import type { DefaultTreeAdapterMap } from 'parse5';
-import type { FixedBox, StyleSheet } from './layout.js';
+import type { FixedBox, FluidSizes, StyleSheet } from './layout.js';
 
 type P5Element = DefaultTreeAdapterMap['element'];
 type P5Node = DefaultTreeAdapterMap['node'];
@@ -83,6 +83,8 @@ export interface RewriteContext {
   layout?: (el: P5Element) => FixedBox | 'fluid' | null;
   /** an upper bound of a fluid image's width from its containers (layout.ts) */
   maxWidth?: (el: P5Element) => number | null;
+  /** a fluid image's rendered width at every viewport width, as `sizes` (layout.ts); `intrinsic`: its source width */
+  fluidSizes?: (el: P5Element, intrinsic?: number) => FluidSizes | null;
 }
 
 /** Rewrites every static `<img>` under `doc` in place; returns what the adapter encodes and the page's rules. */
@@ -245,10 +247,14 @@ function rewriteOne(el: P5Element, eager: boolean, ctx: RewriteContext): 'pendin
     else if (css !== 'fluid' && (aw !== null || ah !== null)) display = bw < info.width ? bw : null;
   }
 
-  // widths of the files; a fluid image's upper bound from its containers (layout.ts), for `sizes`
-  const bound = display === null && ctx.maxWidth ? ctx.maxWidth(el) : null;
+  // a fluid image: its width at every viewport width (layout.ts), else an upper bound from its containers
+  const fluid = display === null && ctx.fluidSizes ? ctx.fluidSizes(el, w0) : null;
+  const bound = display === null ? (fluid ? fluid.max : ctx.maxWidth ? ctx.maxWidth(el) : null) : null;
   let widths: number[];
-  if (display !== null) {
+  if (fluid?.constant) {
+    // a fixed width in every range (40 px on phones, 64 px elsewhere): exactly 1x, 2x (and 3x for small ones) of each
+    widths = [...new Set(fluid.constant.flatMap((w) => [w, 2 * w, ...(w * w / (w0 / h0) <= SMALL_BOX ? [3 * w] : [])]).map((w) => Math.min(w, w0)))];
+  } else if (display !== null) {
     const small = display * (display / (w0 / h0)) <= SMALL_BOX;
     const want = [1, 2, ...(small ? [3] : [])].map((d) => d * display!);
     if (w0 < 2 * display) {
@@ -279,8 +285,8 @@ function rewriteOne(el: P5Element, eager: boolean, ctx: RewriteContext): 'pendin
   }).join(', ');
 
   const lazy = (attrOf(el, 'loading') ?? (eager ? 'eager' : 'lazy')) === 'lazy';
-  const fluid = bound !== null ? `(max-width: ${bound}px) 100vw, ${bound}px` : '100vw';
-  const sizes = attrOf(el, 'sizes') ?? (display !== null ? `(max-width: ${display}px) 100vw, ${display}px` : lazy ? `auto, ${fluid}` : fluid);
+  const fluidSizes = fluid ? fluid.sizes : bound !== null ? `(max-width: ${bound}px) 100vw, ${bound}px` : '100vw';
+  const sizes = attrOf(el, 'sizes') ?? (display !== null ? `(max-width: ${display}px) 100vw, ${display}px` : lazy ? `auto, ${fluidSizes}` : fluidSizes);
   // the fallback `src`: the 1x file of a box, else the largest up to 1280 px
   const at = display !== null ? Math.min(display, w0) : [...widths].reverse().find((w) => w <= 1280) ?? widths[0]!;
   const main = tiny ? variant('original', w0) : variant(fallback, at);

@@ -11,6 +11,15 @@ Attribute names, function names and diagnostic codes are public API. Before
   `box-sizing: border-box`, the width less padding and borders), from longhands, logical
   properties and shorthands: an `<img>` at `width: 100%` in a 300 px card with `padding: 16px` is a
   268 px box. Before, any padding or border on the parent left the image fluid.
+- Fluid images: `sizes` is the image's width at every viewport width, from the page's CSS: per range
+  between its width media queries, linear in the viewport (`calc(50vw - 32px)`), split where a
+  `min()`, `max-width` or centred container meets the viewport. Grids (equal tracks with gaps,
+  `span`, `repeat(auto-fill, minmax(200px, 1fr))` with a split at every column count), flex rows
+  (equal `flex: 1` columns, wrapped items with a basis), margins, padding, borders and the
+  browser's default margins resolve. A 3-column grid from 768 px gets
+  `(max-width: 479.98px) calc(100vw - 48px), (max-width: 767.98px) calc(50vw - 32px), calc(33.33vw - 26.67px)`
+  instead of `100vw`; an image 40 px on phones and 64 px above gets exactly those files. Checked
+  against Chromium at 17 viewport widths. Static and API images; the upper bound stays the fallback.
 - Dev: the console warning for images that look soft also checks CSS backgrounds: the file the
   browser uses (`url()`, or the `image-set()` option it picks), drawn at the width
   `background-size` gives it (`cover`, `contain`, lengths, `%`, `auto`), also for elements added
