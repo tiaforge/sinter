@@ -15,9 +15,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   `$error` is its last failed send (or `null`), for any binding: a summary or a 5xx's `detail` is plain
   markup. Shown (no `sn-error`, no `onError`) when every message marked a field or the form reads `$error`.
   `data-sn-catch` opts out. Other formats: `configure({ fieldErrors: (error, { url, method }) => ({ name:
-  messages }) | null })`, reading the server's messages from `error.body` (or mapping error codes to
-  `m.key()`), with the default exported as `fieldErrors` from `@tiaforge-ui/sinter`. A feature module
-  (`fields`, 1.2 KB gzip), loaded only by pages with such an action or a form that reads `$error`. Recipe: `docs/recipes/field-errors.html`.
+  messages }) })`, reading the server's messages from `error.body` (or mapping error codes to `m.key()`);
+  `null` marks no field, `undefined` leaves it to the default. A feature module (`fields`, 1.1 KB gzip), loaded only by pages with such an action or a form that reads `$error`. Recipe: `docs/recipes/field-errors.html`.
   The create template's task forms use it.
 - `refresh="30s"` on `<sn-resource>` (`@tiaforge-ui/sinter/refresh`): the resource is reloaded in the
   background once its last load is that old, counted from every load (first load, `refresh()`, a

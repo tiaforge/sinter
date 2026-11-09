@@ -105,7 +105,7 @@ test('a button\'s action inside a form shows the errors on that form\'s fields, 
   expect(title.nextElementSibling!.textContent).toBe("can't be blank");
 });
 
-test('configure({ fieldErrors }) reads another error format; null leaves the error to the unhandled path', async () => {
+test('configure({ fieldErrors }) reads another error format; undefined leaves it to the default, null marks nothing', async () => {
   const seen: string[] = [];
   configure({
     onError: (e) => reported.push(e.message),
@@ -113,7 +113,8 @@ test('configure({ fieldErrors }) reads another error format; null leaves the err
     fieldErrors: (e, request) => {
       seen.push(`${request.method} ${request.url}`);
       const p = (e.body as any)?.['invalid-params'];
-      return Array.isArray(p) ? Object.fromEntries(p.map((x: any) => [x.name, x.reason])) : null;
+      if (Array.isArray(p)) return Object.fromEntries(p.map((x: any) => [x.name, x.reason]));
+      return request.url.includes('legacy') ? null : undefined;
     },
   });
   let res: unknown = { status: 400, body: { type: 'about:blank', title: 'Your request is not valid.', 'invalid-params': [{ name: 'email', reason: 'must be an email address' }] } };
@@ -126,7 +127,21 @@ test('configure({ fieldErrors }) reads another error format; null leaves the err
     expect(seen).toEqual(['POST /api/users']);
     expect(reported).toEqual([]);
 
-    res = { status: 422, body: { errors: { email: 'is invalid' } } };    // not the configured format
+    res = { status: 422, body: { errors: { email: 'is invalid' } } };    // not this format: undefined, the default reads it
+    root.querySelector('form')!.requestSubmit();
+    await settle();
+    expect(root.querySelector('[name=email]')!.nextElementSibling!.textContent).toBe('is invalid');
+    expect(reported).toEqual([]);
+  } finally {
+    configure({ fieldErrors: null });
+  }
+});
+
+test('a fieldErrors hook that returns null marks no field: the error takes the unhandled path', async () => {
+  configure({ onError: (e) => reported.push(e.message), fieldErrors: () => null });
+  const requests = mockRequests({ 'POST /api/users': { status: 422, body: { errors: { email: 'is invalid' } } } });
+  try {
+    const { root, settle } = await render(form(), { requests });
     root.querySelector('form')!.requestSubmit();
     await settle();
     expect(root.querySelector('[aria-invalid]')).toBeNull();
