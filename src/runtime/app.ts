@@ -131,6 +131,8 @@ export interface App {
     keys?: (rb: BoundBinding, e: KeyboardEvent) => boolean;
     /** write-through: a mutation's 2xx response, applied to the resources it is about (before `then`) */
     apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
+    /** server validation errors on a form's fields: `show` returns whether every error found its field */
+    fields?: { clear(form: HTMLFormElement): void; show(form: HTMLFormElement, error: SinterError): boolean };
   };
   readonly beforeFlush: Array<(dirty: string[][]) => void>;
   readonly afterFlush: Array<(dirty: string[][]) => void>;
@@ -1195,6 +1197,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const up: Element[] = [];
     for (let x = el.parentElement; x; x = x.parentElement) up.push(x);
     st.n++;
+    const fields = a.form && a.catch == null && !a.call ? app.ext.fields : undefined;
+    fields?.clear(el);
     el.setAttribute('aria-busy', 'true');
     if (a.form && a.concurrency == 'block' && !c && !st.off) {
       st.off = ([...el.elements] as HTMLInputElement[]).filter((x) => !x.disabled);
@@ -1214,6 +1218,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       drop();
       if (isAbort(err) || (c && st.c != c)) return;
       const error = a.call ? callError(err) : toError(err);
+      if (fields?.show(el, error)) return;
       a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null);
     } finally {
       if (c && st.c == c) st.c = null;
@@ -1230,7 +1235,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** The unhandled-error path: `sn-error` event, then `onError`, then the dev console. */
   function unhandled(error: SinterError, el: Element | null, resource?: string) {
     const target = el ?? root, ev = new CustomEvent('sn-error', { detail: { error, element: target, resource }, bubbles: true, cancelable: true });
-    ET.dispatchEvent.call(target, ev);
+    // the prototype's method: a control named `dispatchEvent` cannot shadow it; DOMs that wrap forms in a Proxy (happy-dom) refuse it as receiver
+    try { ET.dispatchEvent.call(target, ev); } catch { target.dispatchEvent(ev); }
     if (ev.defaultPrevented) return;
     config.onError?.(error, target as Element);
     warn(16, resource ? ` loading \`${resource}\`` : '', error.message, error);

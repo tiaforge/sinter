@@ -38,7 +38,7 @@
         <!-- Edit a copy; saving sends it, and the response updates `task`. -->
         <form data-layout="stack" data-gap="md" data-sn-state="{ draft: { title: task.title, notes: task.notes } }"
               data-sn-patch="/api/tasks/{task.id}" data-sn-body="draft">
-          <label>Title <input data-sn-model="draft.title" required></label>
+          <label>Title <input name="title" data-sn-model="draft.title" required></label>
           <label>Notes <textarea rows="5" data-sn-model="draft.notes"></textarea></label>
           <footer>
             <button type="button" data-variant="secondary"

@@ -3,6 +3,24 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Added
+
+- Server validation errors on the fields: a form with a mutating method and no `data-sn-catch` whose request
+  fails with a 4xx and `{ errors: { email: "…" } }` (or `email: ["…", "…"]`) sets `aria-invalid="true"` on
+  the control with that `name` and shows the message next to it: in the element its `aria-errormessage`
+  names, else in a `<small data-sn-error data-tone="danger">` inserted after it. The first such field gets
+  focus; editing a field clears its error, sending again clears all. When every key named a field, the
+  error counts as handled (no `sn-error`, no `onError`). A feature module (`fields`, 961 B gzip), loaded only
+  by pages with such a form. Recipe: `docs/recipes/field-errors.html`. The create template's task forms use it.
+
+### Fixed
+
+- A failed form action without `data-sn-catch` threw instead of dispatching `sn-error` under happy-dom
+  (tests with `render()`), which wraps forms in a Proxy that `EventTarget.prototype.dispatchEvent` refuses
+  as receiver. Browsers were not affected.
+
 ## 0.12.0 (2026-11-09)
 
 ### Added

@@ -38,6 +38,7 @@ const entries = {
   keys: `export { default } from '${dist}/keys.js';`,
   apply: `export { default } from '${dist}/apply.js';`,
   prefetch: `export { prefetch } from '${dist}/prefetch.js';`,
+  fields: `export { default } from '${dist}/fields.js';`,
   transition: `export { default } from '${dist}/transition.js';`,
   remote: `export { remote } from '${dist}/remote.js';`,
   dev: `export { default } from '${dist}/dev.js';`,

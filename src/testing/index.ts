@@ -22,11 +22,12 @@ import listbox from '../listbox.js';
 import keys from '../keys.js';
 import apply from '../apply.js';
 import transition from '../transition.js';
+import fields from '../fields.js';
 import sse from '../sse.js';
 import { prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each, listbox, keys, apply, transition };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each, listbox, keys, apply, fields, transition };
 
 // ---- requests
 
