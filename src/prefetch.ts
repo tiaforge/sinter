@@ -119,9 +119,15 @@ export function prefetch(pages: PrefetchPage[]): Feature {
         at = a;
         timer = env.setTimeout(() => { timer = null; go(a); }, HOVER);
       };
-      const now = (e: Event) => { const a = link(e); if (a) { cancel(); go(a); } };
+      // a mouse or pen press is a click about to happen: at once. A touch may start a scroll: it waits as
+      // a hover does, and the browser's pointercancel (it took the gesture for scrolling) ends the wait
+      const press = (e: Event) => {
+        if ((e as PointerEvent).pointerType == 'touch') return later(e);
+        const a = link(e);
+        if (a) { cancel(); go(a); }
+      };
       const leave = (e: Event) => { if (at && !at.contains((e as PointerEvent).relatedTarget as Node | null)) cancel(); };
-      const on: Array<[string, (e: Event) => void]> = [['pointerover', later], ['focusin', later], ['pointerout', leave], ['focusout', leave], ['pointerdown', now], ['touchstart', now]];
+      const on: Array<[string, (e: Event) => void]> = [['pointerover', later], ['focusin', later], ['pointerout', leave], ['focusout', leave], ['pointerdown', press], ['pointercancel', cancel]];
       for (const [type, fn] of on) app.root.addEventListener(type, fn, { passive: true });
       app.addCleanup(() => { cancel(); for (const [type, fn] of on) app.root.removeEventListener(type, fn); });
     },

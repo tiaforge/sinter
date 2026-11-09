@@ -7,6 +7,8 @@
 import type { App, Feature } from './runtime/app.js';
 
 const KEY = 'sn:vt';
+/** a pending name older than this is from a navigation that never reached a page with the feature: ignored */
+export const PENDING_MAX = 10_000;
 const ATTR = 'data-sn-vt';
 
 /** a `<custom-ident>` for any name, the same on both pages */
@@ -60,13 +62,18 @@ const transition: Feature = {
       } else if (activation?.navigationType == 'traverse' && els.length == 1) el = els[0];
       last = null;
       const v = el?.getAttribute(ATTR);
-      try { v ? env.session()?.setItem(KEY, v) : env.session()?.removeItem(KEY); } catch { /* ignored */ }
+      // with the time: a page without this feature never takes it, and a later page must not act on it
+      try { v ? env.session()?.setItem(KEY, JSON.stringify({ v, t: env.now() })) : env.session()?.removeItem(KEY); } catch { /* ignored */ }
       if (el && v) name(el, v, vt);
     };
     const reveal = (e: Event) => {
       const vt = (e as SwapEvent).viewTransition;
       let v: string | null = null;
-      try { const s = env.session(); v = s?.getItem(KEY) ?? null; s?.removeItem(KEY); } catch { /* ignored */ }
+      try {
+        const s = env.session(), e = JSON.parse(s?.getItem(KEY) ?? 'null') as { v: string; t: number } | null;
+        s?.removeItem(KEY);
+        if (e && env.now() - e.t <= PENDING_MAX) v = e.v;
+      } catch { /* ignored */ }
       // one element only: two with one name would end the transition
       const el = v ? named().find((x) => x.getAttribute(ATTR) == v) : undefined;
       if (vt && el) name(el, v!, vt);

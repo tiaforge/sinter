@@ -8,7 +8,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 ### Added
 
 - Next-page data: when a link to another page of the app is about to be followed (the pointer rests
-  on it for 65 ms, it has focus, or a press or touch starts on it), the resources of that page whose
+  on it for 65 ms, it has focus, a mouse press starts on it, or a touch stays on it for 65 ms without
+  becoming a scroll), the resources of that page whose
   request only the URL decides are requested, and the next page shows them at once, then
   revalidates (`$meta.loadedAt` stays null until the server answers, as with `cache`). Data the
   current page already loaded from the same request is handed over without one. Requests go

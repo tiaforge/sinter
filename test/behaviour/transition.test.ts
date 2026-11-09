@@ -60,7 +60,7 @@ test('a link to elsewhere, or a navigation the click did not start, names nothin
   await page.settle();
   await fire(page, 'pageswap', { viewTransition: transition().vt, activation: { entry: { url: 'http://localhost/' }, navigationType: 'traverse' } });
   expect(page.root.querySelector('h1')!.style.viewTransitionName).toBe(ident('article-one'));
-  expect(session.getItem('sn:vt')).toBe('article-one');
+  expect(JSON.parse(session.getItem('sn:vt')!).v).toBe('article-one');
 });
 
 test('the compiler adds the transition feature only to pages that use the attribute, and checks the expression', () => {
@@ -69,4 +69,14 @@ test('the compiler adds the transition feature only to pages that use the attrib
   expect(compileParts('<p data-sn-text="1"></p>', opts).features).not.toContain('transition');
   const bad = compileParts(`<div data-sn-state="{ id: 1 }"><p data-sn-transition="'x-' + idd"></p></div>`, opts);
   expect(bad.diagnostics.map((d) => d.code)).toContain('SN201');
+});
+
+test('a pending name older than PENDING_MAX is ignored (a page without the feature never took it)', async () => {
+  const session = memoryStorage();
+  session.setItem('sn:vt', JSON.stringify({ v: 'article-two', t: Date.parse('2026-01-01T08:59:00Z') }));
+  const page = await render(DETAIL, { session, url: '/article/two', requests: mockRequests({ 'GET /api/articles/two': { article: { title: 'Two' } } }) });
+  await page.settle();
+  await fire(page, 'pagereveal', { viewTransition: transition().vt });
+  expect(page.root.querySelector('h1')!.style.viewTransitionName).toBe('');
+  expect(session.getItem('sn:vt')).toBeNull();
 });

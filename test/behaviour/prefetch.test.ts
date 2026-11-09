@@ -31,7 +31,11 @@ const ROUTES: Record<string, RouteResponse> = {
 };
 
 const link = (root: HTMLElement, slug: string) => root.querySelector(`a[href="/article/${slug}"]`)!;
-const fire = (el: Element, type: string) => el.dispatchEvent(new Event(type, { bubbles: true }));
+const fire = (el: Element, type: string, pointerType = 'mouse') => {
+  const e = new Event(type, { bubbles: true });
+  Object.defineProperty(e, 'pointerType', { value: pointerType });
+  return el.dispatchEvent(e);
+};
 const paths = (r: { calls: Array<{ method: string; url: string }> }) => r.calls.map((c) => `${c.method} ${c.url}`);
 
 async function list(session: Storage, routes = ROUTES) {
@@ -69,7 +73,26 @@ test('resting on a link requests the page\'s data; the page shows it at once, th
   expect(again.root.querySelector('h1')!.textContent).toBe('loading');
 });
 
-test('passing over a link quickly requests nothing; a press or a touch requests at once', async () => {
+test('a touch waits as a hover does; a scroll that starts on a link (pointercancel) requests nothing', async () => {
+  const session = memoryStorage();
+  const { r, requests } = await list(session, { ...ROUTES, 'GET /api/articles/two': { article: { title: 'Two' } }, 'GET /api/articles/two/comments': { comments: [] } });
+  // pointerover comes with a touch too: both start the same wait, once
+  fire(link(r.root, 'one'), 'pointerover', 'touch');
+  fire(link(r.root, 'one'), 'pointerdown', 'touch');
+  await r.advance(HOVER - 10);
+  fire(link(r.root, 'one'), 'pointercancel', 'touch');
+  await r.advance(100);
+  await r.settle();
+  expect(paths(requests)).toEqual(['GET /api/articles']);
+  fire(link(r.root, 'two'), 'pointerdown', 'touch');
+  await r.settle();
+  expect(paths(requests)).toEqual(['GET /api/articles']);
+  await r.advance(HOVER);
+  await r.settle();
+  expect(paths(requests)).toEqual(['GET /api/articles', 'GET /api/articles/two', 'GET /api/articles/two/comments']);
+});
+
+test('passing over a link quickly requests nothing; a mouse press requests at once', async () => {
   const session = memoryStorage();
   const { r, requests } = await list(session);
   fire(link(r.root, 'one'), 'pointerover');
