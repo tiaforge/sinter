@@ -31,12 +31,13 @@ export interface FixedBox {
 
 type Match = 'yes' | 'no' | 'maybe';
 /** [layer path (larger wins), specificity, order] */
-interface Decl { prop: string; value: string; important: boolean; layer: number[]; spec: [number, number, number]; order: number; conditional: boolean; inline?: boolean }
+interface Decl { prop: string; value: string; important: boolean; layer: number[]; spec: [number, number, number]; order: number; conditional: boolean; inline?: boolean;
+  /** the preludes of the `@media` rules around it (all must match) */
+  media?: string[] }
 interface Rule { selectors: Array<{ ast: csstree.Selector; spec: [number, number, number] }>; decls: Decl[] }
 
 /** the properties this reads (and their aliases), and what a declaration of any of them on a parent means */
 const SIZE = { width: ['width', 'inline-size'], height: ['height', 'block-size'], 'min-width': ['min-width', 'min-inline-size'], 'max-width': ['max-width', 'max-inline-size'], 'min-height': ['min-height', 'min-block-size'], 'max-height': ['max-height', 'max-block-size'] } as const;
-const BOX_EDGE = /^(padding|border(-(left|right|inline|inline-start|inline-end))?(-width)?|border-width)$/;
 const GRID_TRACKS = /^(grid|grid-template(-columns|-areas)?|grid-auto-columns)$/;
 const TABLE = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption']);
 const BLOCK = new Set(['html', 'body', 'div', 'p', 'section', 'article', 'header', 'footer', 'main', 'nav', 'aside', 'figure', 'figcaption', 'li', 'ul', 'ol', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'dl', 'dd', 'dt', 'fieldset', 'details', 'summary', 'dialog', 'address', 'hgroup', 'menu', 'search', 'pre', 'hr']);
@@ -76,7 +77,7 @@ function rulesOf(css: string): Rule[] {
     parsed.set(css, rules);
     return rules;
   }
-  const visit = (list: csstree.List<csstree.CssNode> | null | undefined, layer: string[], conditional: boolean, parentSel: string | null) => {
+  const visit = (list: csstree.List<csstree.CssNode> | null | undefined, layer: string[], conditional: boolean, parentSel: string | null, media: string[] = []) => {
     list?.forEach((node) => {
       if (node.type === 'Atrule') {
         const name = node.name.toLowerCase();
@@ -86,10 +87,13 @@ function rulesOf(css: string): Rule[] {
           if (!node.block) { for (const n of names) rank([...layer, ...n]); return; }
           const path = [...layer, ...names[0]!];
           rank(path);
-          visit(node.block.children, path, conditional, parentSel);
+          visit(node.block.children, path, conditional, parentSel, media);
+        } else if (name === 'media' && node.block) {
+          // a media query: kept, so a viewport's evaluation (layout.at()) knows whether it applies
+          visit(node.block.children, layer, conditional, parentSel, [...media, prelude]);
         } else if (node.block) {
-          // @media, @supports, @container, @scope, @starting-style: may or may not apply
-          visit(node.block.children, layer, true, parentSel);
+          // @supports, @container, @scope, @starting-style: may or may not apply
+          visit(node.block.children, layer, true, parentSel, media);
         }
         return;
       }
@@ -108,7 +112,7 @@ function rulesOf(css: string): Rule[] {
       const decls: Decl[] = [];
       const nested = new csstree.List<csstree.CssNode>();
       const decl = (prop: string, value: string, important: boolean) =>
-        decls.push({ prop: prop.startsWith('--') ? prop : prop.toLowerCase(), value: value.trim(), important, layer: layer.length ? r : [Infinity], spec: [0, 0, 0], order: order++, conditional });
+        decls.push({ prop: prop.startsWith('--') ? prop : prop.toLowerCase(), value: value.trim(), important, layer: layer.length ? r : [Infinity], spec: [0, 0, 0], order: order++, conditional, ...(media.length ? { media } : {}) });
       node.block.children.forEach((d) => {
         if (d.type === 'Declaration') decl(d.property, typeof d.value === 'object' && d.value.type === 'Raw' ? d.value.value : csstree.generate(d.value), !!d.important);
         else if (d.type === 'Rule' || d.type === 'Atrule') nested.push(d);
@@ -130,7 +134,7 @@ function rulesOf(css: string): Rule[] {
         }
       });
       if (decls.length) rules!.push({ selectors, decls });
-      if (nested.size) visit(nested, layer, conditional, selText);
+      if (nested.size) visit(nested, layer, conditional, selText, media);
     });
   };
   visit((ast as csstree.StyleSheet).children, [], false, null);
@@ -227,9 +231,16 @@ export class Layout {
   private readonly vars = new Map<P5Element, Map<string, string | null | undefined>>();
   private readonly widths = new Map<P5Element, number | null>();
   private root: P5Element | null = null;
+  /** a viewport width: `@media` width conditions are decided for it (`at()`); undefined: they may or may not apply */
+  private viewport: number | undefined;
+  private readonly views = new Map<number, Layout>();
+  /** why the last `fluidSizes()` gave up, when it is something the author can change (shared by `at()` views) */
+  private readonly notes: { autoFitRows: P5Element | null } = { autoFitRows: null };
 
   constructor(sheets: StyleSheet[], doc: P5Parent) {
     let order = 0;
+    // the browser's own defaults that move a box's edges: below every author rule, as the UA origin is
+    for (const r of rulesOf(UA)) this.rules.push({ selectors: r.selectors, decls: r.decls.map((d) => ({ ...d, layer: [-1], order: order++ })) });
     for (const s of sheets) for (const r of rulesOf(s.css)) {
       // the order counts across sheets: later sheets win at equal layer and specificity
       this.rules.push({ selectors: r.selectors, decls: r.decls.map((d) => ({ ...d, order: order++ })) });
@@ -246,6 +257,29 @@ export class Layout {
   }
 
   get empty() { return this.rules.length === 0; }
+
+  /** The same page at a viewport `width` px wide: width media queries apply or do not. */
+  at(width: number): Layout {
+    let l = this.views.get(width);
+    if (l) return l;
+    l = Object.create(Layout.prototype) as Layout;
+    Object.assign(l, {
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: width, views: this.views, notes: this.notes,
+      cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(),
+    });
+    this.views.set(width, l);
+    return l;
+  }
+
+  /** every viewport width at which a width media query of the page's stylesheets starts or stops applying */
+  breakpoints(): number[] {
+    const out = new Set<number>();
+    for (const r of this.rules) for (const d of r.decls) {
+      const ranges = d.media ? mediaRanges(d.media) : null;
+      if (ranges && ranges !== 'unknown') for (const [lo, hi] of ranges) { if (lo > 0) out.add(lo); if (Number.isFinite(hi)) out.add(hi); }
+    }
+    return [...out].sort((a, b) => a - b);
+  }
 
   /**
    * The fixed box of `el` (an `<img>`); `fluid` when the stylesheets set its width but not to a
@@ -374,8 +408,17 @@ export class Layout {
       }
       if (!best) continue;
       for (const d of r.decls) {
+        // a media query: decided for this layout's viewport, else it may or may not apply
+        let media = !!d.media;
+        if (d.media && this.viewport !== undefined) {
+          const ranges = mediaRanges(d.media);
+          if (ranges !== 'unknown') {
+            if (!ranges.some(([lo, hi]) => this.viewport! >= lo && this.viewport! < hi)) continue;
+            media = false;
+          }
+        }
         const list = m.get(d.prop) ?? [];
-        list.push({ ...d, spec: best.spec, conditional: d.conditional || best.match === 'maybe' });
+        list.push({ ...d, spec: best.spec, conditional: d.conditional || media || best.match === 'maybe' });
         m.set(d.prop, list);
       }
     }
@@ -497,15 +540,418 @@ export class Layout {
     const parent = this.parentOf(el);
     if (!parent) return null;
     const pd = this.declsOf(parent);
-    // padding or borders on the parent: not resolved here, unless every rule that could set them sets 0 (a reset's `padding: 0; border: 0 solid`)
-    for (const [prop, list] of pd) if (BOX_EDGE.test(prop) && list.some((d) => !zeroEdge(d.value))) return null;
     const display = this.cascaded(parent, ['display']);
     if (display.ambiguous) return null;
     const d = (display.value ?? (BLOCK.has(parent.tagName) ? 'block' : 'inline')).toLowerCase().trim();
     if (d === 'inline' || d === 'contents' || d === 'none') return null;
     if (/flex/.test(d) && parent.childNodes.filter(isEl).length > 1) return null;
     if (/grid/.test(d)) for (const prop of pd.keys()) if (GRID_TRACKS.test(prop)) return null;
-    return this.size(parent, axis);
+    const size = this.size(parent, axis);
+    if (size === null) return null;
+    // a percentage refers to the content box: with border-box sizing, the width less its padding and borders
+    const bs = this.cascaded(parent, ['box-sizing']);
+    if (bs.ambiguous) return null;
+    if (!/^\s*border-box\s*$/i.test(bs.value ?? '')) return size;
+    const edges = this.edges(parent, axis);
+    return edges === null || edges >= size ? null : size - edges;
+  }
+
+  /** padding and border widths of `el` on both sides of `axis`, in px; null when one cannot be resolved */
+  private edges(el: P5Element, axis: 'width' | 'height'): number | null {
+    const rem = this.rootFont();
+    if (rem === null) return null;
+    let total = 0;
+    for (const side of axis === 'width' ? ['left', 'right'] as const : ['top', 'bottom'] as const) {
+      const pad = this.edge(el, 'padding', side, rem);
+      const style = this.edge(el, 'border-style', side, rem);
+      const width = this.edge(el, 'border-width', side, rem);
+      if (pad === null || style === null || width === null) return null;
+      total += (pad as number) + (/^(none|hidden)$/.test(style as string) ? 0 : (width as number));
+    }
+    return total;
+  }
+
+  /**
+   * One side's padding, border width or border style, from the declarations that set it (longhand,
+   * logical, shorthands) in cascade order; a horizontal, left-to-right writing mode.
+   */
+  private edge(el: P5Element, kind: 'padding' | 'border-width' | 'border-style', side: 'left' | 'right' | 'top' | 'bottom', rem: number): number | string | null {
+    const initial = kind === 'border-style' ? 'none' : kind === 'border-width' ? 'medium' : '0';
+    const v = this.sideValue(el, kind, side);
+    if (v === undefined) return null;
+    const raw = v ?? initial;
+    if (kind === 'border-style') return raw.toLowerCase();
+    const kw = { thin: 1, medium: 3, thick: 5 }[raw.toLowerCase() as 'thin'];
+    if (kw !== undefined) return kw;
+    if (/%/.test(raw)) return null;
+    return evaluate(raw, { rem, percent: 0 });
+  }
+
+  /**
+   * One side's padding, margin, border width or border style as written, from the declarations
+   * that set it (longhand, logical, shorthands) in cascade order, in a horizontal left-to-right
+   * writing mode; null when none sets it, undefined when that is not known.
+   */
+  private sideValue(el: P5Element, kind: 'padding' | 'margin' | 'border-width' | 'border-style', side: 'left' | 'right' | 'top' | 'bottom'): string | null | undefined {
+    const logical = { left: 'inline-start', right: 'inline-end', top: 'block-start', bottom: 'block-end' }[side];
+    const pair = side === 'left' || side === 'right' ? 'inline' : 'block';
+    /** position of the side in a 1–4 value box shorthand (top right bottom left) and a 1–2 value logical pair */
+    const box = { top: 0, right: 1, bottom: 2, left: 3 }[side], two = side === 'left' || side === 'top' ? 0 : 1;
+    const props: Array<[string, (v: string[]) => string | undefined]> = kind === 'padding' || kind === 'margin'
+      ? [[`${kind}-${side}`, (v) => v[0]], [`${kind}-${logical}`, (v) => v[0]], [`${kind}-${pair}`, (v) => v[two] ?? v[0]], [kind, (v) => boxValue(v, box)]]
+      : [[`border-${side}-${kind.slice(7)}`, (v) => v[0]], [`border-${logical}-${kind.slice(7)}`, (v) => v[0]], [`border-${pair}-${kind.slice(7)}`, (v) => v[two] ?? v[0]], [kind, (v) => boxValue(v, box)],
+        ...[`border-${side}`, `border-${logical}`, `border-${pair}`, 'border'].map((p): [string, (v: string[]) => string | undefined] => [p, (v) => borderPart(v, kind)])];
+    const c = this.cascaded(el, props.map((x) => x[0]));
+    if (c.ambiguous) return undefined;
+    if (c.value === null) return null;
+    const w = this.winner(el, props.map((x) => x[0]))!;
+    const value = this.subst(w.value, el);
+    if (value === undefined) return undefined;
+    return props.find((x) => x[0] === w.prop)![1](splitTop(value)) ?? null;
+  }
+
+  // ---- fluid widths: an image's rendered width as a function of the viewport width
+
+  /**
+   * The rendered width of a fluid image at every viewport width, as `sizes`: the cascade per range
+   * between the page's width media queries, widths linear in the viewport (`calc(50vw - 24px)`),
+   * ranges split where a `min()`/`max-width` or a grid's column count changes. Grid tracks
+   * (`repeat(3, 1fr)`, `repeat(auto-fill, minmax(200px, 1fr))`, gaps, `span`), flex rows (equal
+   * `flex: 1` columns, wrapped items with a basis) and margins, padding and borders resolve; anything
+   * else is null (the caller falls back to `maxWidth()`). Checked against Chromium at many widths.
+   */
+  fluidSizes(img: P5Element, intrinsic?: number): FluidSizes | null {
+    this.notes.autoFitRows = null;
+    if (this.empty || this.viewport !== undefined) return null;
+    const cuts = this.breakpoints().filter((b) => b > MIN_VIEWPORT && b < MAX_VIEWPORT);
+    const queue: Array<[number, number]> = [];
+    // from the narrowest real screen: a split below it (min(48px, 100vw) at 48) would only add noise
+    let lo = MIN_VIEWPORT;
+    for (const b of cuts) { queue.push([lo, b]); lo = b; }
+    queue.push([lo, Infinity]);
+    const pieces: FluidPiece[] = [];
+    for (let guard = 0; queue.length; guard++) {
+      if (guard > 200) return null;
+      const seg = queue.shift()!;
+      const mid = Number.isFinite(seg[1]) ? (seg[0] + seg[1]) / 2 : seg[0] + 1000;
+      let w: Lin | null;
+      try {
+        w = this.at(mid).imgWidth(img, seg, intrinsic);
+      } catch (e) {
+        if (!(e instanceof Split)) throw e;
+        // exact: rounded only when written into `sizes`, or the range would still hold the crossover
+        const at = e.at;
+        if (!(at > seg[0] + 1e-6 && at < seg[1] - 1e-6)) return null;
+        queue.unshift([seg[0], at], [at, seg[1]]);
+        continue;
+      }
+      if (!w) return null;
+      // a width of 0 or less on any real screen: not an image size the browser can use
+      const from = Math.max(seg[0], MIN_VIEWPORT), to = Number.isFinite(seg[1]) ? seg[1] : Infinity;
+      if (w.k * from + w.c < 1 || (Number.isFinite(to) ? w.k * to + w.c < 1 : w.k < 0)) return null;
+      pieces.push({ from: seg[0], to: seg[1], k: w.k, c: w.c });
+    }
+    pieces.sort((a, b) => a.from - b.from);
+    const merged: FluidPiece[] = [];
+    for (const p of pieces) {
+      const last = merged[merged.length - 1];
+      if (last && Math.abs(last.k - p.k) < 1e-9 && Math.abs(last.c - p.c) < 0.01) last.to = p.to;
+      else merged.push({ ...p });
+    }
+    const last = merged[merged.length - 1]!;
+    const max = last.k > 1e-9 ? null : Math.max(...merged.map((p) => Math.max(p.k * Math.max(p.from, MIN_VIEWPORT) + p.c, Number.isFinite(p.to) ? p.k * p.to + p.c : p.c)));
+    const sizes = merged.map((p, i) => (i === merged.length - 1 ? linCss(p) : `(max-width: ${maxWidthOf(p.to)}px) ${linCss(p)}`)).join(', ');
+    const constant = merged.every((p) => Math.abs(p.k) < 1e-9) ? [...new Set(merged.map((p) => Math.round(p.c)))] : null;
+    return { sizes, pieces: merged, max: max === null ? null : Math.ceil(max), constant };
+  }
+
+  /** The `auto-fit` grid whose rows from a template made the last `fluidSizes()` give up, if that was why. */
+  get autoFitRows(): P5Element | null { return this.notes.autoFitRows; }
+
+  /** an image's rendered width in this viewport range: its own width, else its `width` attribute, within min/max */
+  private imgWidth(img: P5Element, seg: [number, number], intrinsic?: number): Lin | null {
+    const parent = this.parentOf(img);
+    if (!parent) return null;
+    const pd = this.displayOf(parent);
+    if (pd === null) return null;
+    const avail = /grid/.test(pd) ? this.gridArea(parent, img, seg) : this.contentOf(parent, seg);
+    if (!avail) return null;
+    const wc = this.cascaded(img, SIZE.width);
+    if (wc.ambiguous) return null;
+    let w: Lin | null;
+    if (wc.value !== null && !/^\s*auto\s*$/i.test(wc.value)) w = this.lin(img, wc.value, avail, seg);
+    else {
+      // auto: the width attribute (sinter writes the source's); a flex or grid item's is its content size
+      if (/flex|grid/.test(pd)) return null;
+      const a = attrOf(img, 'width');
+      w = a && /^\s*\d+\s*$/.test(a) ? lin(Number(a)) : intrinsic ? lin(intrinsic) : null;
+    }
+    return w && this.minMax(img, w, avail, seg);
+  }
+
+  /** `width`/`height` of a box clamped by its `max-width` and `min-width` (lengths, % of `avail`) */
+  private minMax(el: P5Element, w: Lin, avail: Lin, seg: [number, number]): Lin | null {
+    const mx = this.cascaded(el, SIZE['max-width']);
+    if (mx.ambiguous) return null;
+    if (mx.value !== null && !/^\s*none\s*$/i.test(mx.value)) { const v = this.lin(el, mx.value, avail, seg); if (!v) return null; w = pick(w, v, seg, 'min'); }
+    const mn = this.cascaded(el, SIZE['min-width']);
+    if (mn.ambiguous) return null;
+    if (mn.value !== null && !/^\s*(auto|0[a-z%]*)\s*$/i.test(mn.value)) { const v = this.lin(el, mn.value, avail, seg); if (!v) return null; w = pick(w, v, seg, 'max'); }
+    return w;
+  }
+
+  /** a length (px, rem, vw, % of `percent`, calc/min/max/clamp) in this viewport range */
+  private lin(el: P5Element, value: string, percent: Lin | null, seg: [number, number]): Lin | null {
+    const rem = this.rootFont();
+    if (rem === null) return null;
+    const v = this.subst(value, el);
+    return v === undefined ? null : evaluateLin(v, rem, percent, seg);
+  }
+
+  private displayOf(el: P5Element): string | null {
+    if (el === this.root) return 'block';
+    const c = this.cascaded(el, ['display']);
+    if (c.ambiguous) return null;
+    return (c.value ?? (BLOCK.has(el.tagName) ? 'block' : TABLE.has(el.tagName) ? 'table' : 'inline')).trim().toLowerCase();
+  }
+
+  /** the width an element's children are laid out in (its content box) */
+  private contentOf(el: P5Element, seg: [number, number]): Lin | null {
+    if (el === this.root) { const e = this.edges(el, 'width'); return e === null ? null : { k: 1, c: -e }; }
+    const d = this.displayOf(el);
+    if (d === null || d === 'none') return null;
+    // an inline box, `contents`: its children are laid out in its container
+    if (d === 'contents' || d === 'inline') { const p = this.parentOf(el); return p ? this.contentOf(p, seg) : null; }
+    const box = this.borderBox(el, seg);
+    const e = this.edges(el, 'width');
+    return box && e !== null ? { k: box.k, c: box.c - e } : null;
+  }
+
+  /** a box's border-box width in this viewport range */
+  private borderBox(el: P5Element, seg: [number, number]): Lin | null {
+    const m = this.declsOf(el);
+    if (m.has('\0dynamic') || (m.get('position') ?? []).some((d) => !/^\s*(static|relative|sticky)\s*$/i.test(d.value))) return null;
+    if ((m.get('float') ?? []).some((d) => !/^\s*none\s*$/i.test(d.value))) return null;
+    const parent = this.parentOf(el);
+    if (!parent) return null;
+    const pd = this.displayOf(parent), d = this.displayOf(el);
+    if (pd === null || d === null) return null;
+    let avail: Lin | null;
+    if (/grid/.test(pd)) {
+      // a grid item stretches over its area unless it is aligned otherwise
+      for (const [who, prop] of [[parent, 'justify-items'], [el, 'justify-self']] as const) {
+        const j = this.cascaded(who, [prop]);
+        if (j.ambiguous || (j.value !== null && !/^\s*(normal|stretch|auto|legacy)\s*$/i.test(j.value))) return null;
+      }
+      avail = this.gridArea(parent, el, seg);
+    } else if (/flex/.test(pd)) {
+      const r = this.flexItem(parent, el, seg);
+      if (r !== 'stretch') return r;
+      avail = this.contentOf(parent, seg);
+    } else avail = this.contentOf(parent, seg);
+    if (!avail) return null;
+    const bs = this.cascaded(el, ['box-sizing']);
+    if (bs.ambiguous) return null;
+    const borderBox = /^\s*border-box\s*$/i.test(bs.value ?? '');
+    const e = this.edges(el, 'width');
+    if (e === null) return null;
+    const wc = this.cascaded(el, SIZE.width);
+    if (wc.ambiguous) return null;
+    let box: Lin;
+    if (wc.value !== null && !/^\s*auto\s*$/i.test(wc.value)) {
+      const v = this.lin(el, wc.value, avail, seg);
+      if (!v) return null;
+      box = borderBox ? v : { k: v.k, c: v.c + e };
+    } else {
+      // auto: a block-level box fills the available width less its margins; others shrink to their content
+      if (!/^(block|list-item|flow-root|flex|grid|table-cell)$/.test(d)) return null;
+      const ml = this.margin(el, 'left', avail, seg), mr = this.margin(el, 'right', avail, seg);
+      if (!ml || !mr) return null;
+      box = { k: avail.k - ml.k - mr.k, c: avail.c - ml.c - mr.c };
+    }
+    // min/max apply to the content box unless border-box
+    const asBox = (v: Lin) => (borderBox ? v : { k: v.k, c: v.c + e });
+    const mx = this.cascaded(el, SIZE['max-width']);
+    if (mx.ambiguous) return null;
+    if (mx.value !== null && !/^\s*none\s*$/i.test(mx.value)) { const v = this.lin(el, mx.value, avail, seg); if (!v) return null; box = pick(box, asBox(v), seg, 'min'); }
+    const mn = this.cascaded(el, SIZE['min-width']);
+    if (mn.ambiguous) return null;
+    if (mn.value !== null && !/^\s*(auto|0[a-z%]*)\s*$/i.test(mn.value)) { const v = this.lin(el, mn.value, avail, seg); if (!v) return null; box = pick(box, asBox(v), seg, 'max'); }
+    return box;
+  }
+
+  /** a horizontal margin (auto is 0 here: the box's width is auto or fixed, it does not center by changing width) */
+  private margin(el: P5Element, side: 'left' | 'right', avail: Lin, seg: [number, number]): Lin | null {
+    const raw = this.sideValue(el, 'margin', side);
+    if (raw === undefined) return null;
+    if (raw === null || /^\s*auto\s*$/i.test(raw)) return lin(0);
+    return this.lin(el, raw, avail, seg);
+  }
+
+  /** a column gap (`column-gap`, `gap`, the old `grid-` names), `normal` is 0 */
+  private columnGap(el: P5Element, avail: Lin, seg: [number, number]): Lin | null {
+    const props = ['column-gap', 'grid-column-gap', 'gap', 'grid-gap'];
+    const c = this.cascaded(el, props);
+    if (c.ambiguous) return null;
+    if (c.value === null) return lin(0);
+    const w = this.winner(el, props)!;
+    const parts = splitTop(this.subst(w.value, el) ?? '');
+    const v = /gap$/.test(w.prop) && !/column/.test(w.prop) ? parts[1] ?? parts[0] : parts[0];
+    if (!v || /^normal$/i.test(v)) return lin(0);
+    return this.lin(el, v, avail, seg);
+  }
+
+  /** the declaration that wins among `props` (not one that may or may not apply) */
+  private winner(el: P5Element, props: string[]): { prop: string; value: string } | null {
+    const m = this.declsOf(el);
+    const all = props.flatMap((p) => (m.get(p) ?? []).map((d) => ({ d, p }))).filter(({ d }) => !d.conditional).sort((a, b) => cascadeCmp(b.d, a.d));
+    return all[0] ? { prop: all[0].p, value: all[0].d.value } : null;
+  }
+
+  /** the width of the grid area `el` is placed in: equal tracks, a gap, one column or a `span` */
+  private gridArea(parent: P5Element, el: P5Element, seg: [number, number]): Lin | null {
+    const pm = this.declsOf(parent);
+    if (pm.has('grid') || pm.has('grid-template') || pm.has('grid-template-areas')) return null;
+    const W = this.contentOf(parent, seg);
+    if (!W) return null;
+    const gap = this.columnGap(parent, W, seg);
+    if (!gap) return null;
+    const gc = this.cascaded(parent, ['grid-template-columns']);
+    if (gc.ambiguous) return null;
+    // the span
+    const sc = this.cascaded(el, ['grid-column']);
+    const em = this.declsOf(el);
+    if (sc.ambiguous || em.has('grid-column-start') || em.has('grid-column-end') || em.has('grid-area')) return null;
+    const spanText = (sc.value ?? 'auto').trim();
+    const sm = /^span\s+(\d+)(\s*\/\s*auto)?$/i.exec(spanText);
+    const full = /^1\s*\/\s*-1$/.test(spanText);
+    if (!sm && !full && !/^auto$/i.test(spanText)) return null;
+    const area = (track: Lin, n: number) => {
+      const span = full ? n : sm ? Math.min(Number(sm[1]), n) : 1;
+      return { k: track.k * span + gap.k * (span - 1), c: track.c * span + gap.c * (span - 1) };
+    };
+    if (gc.value === null || /^\s*none\s*$/i.test(gc.value)) return area(W, 1);
+    const text = (this.subst(gc.value, el) ?? '').trim().toLowerCase();
+    const auto = /^repeat\(\s*(auto-fill|auto-fit)\s*,\s*(.+)\)$/s.exec(text);
+    if (auto) {
+      const track = auto[2]!.trim();
+      const mm = /^minmax\(\s*([^,]+?)\s*,\s*1fr\s*\)$/.exec(track);
+      if (!mm) {
+        // a fixed track: its width, however many fit
+        const L = this.lin(el, track, W, seg);
+        return L && !full && Math.abs(L.k) < 1e-9 && Math.abs(gap.k) < 1e-9 ? area(L, Infinity) : null;
+      }
+      const min = this.lin(el, mm[1]!, W, seg);
+      if (!min || Math.abs(min.k) > 1e-9 || Math.abs(gap.k) > 1e-9 || W.k < -1e-9) return null;
+      const step = min.c + gap.c;
+      if (step <= 0) return null;
+      const count = (v: number) => Math.max(1, Math.floor((W.k * v + W.c + gap.c) / step + 1e-9));
+      const n0 = count(seg[0] + 0.01);
+      // with n columns a track is between its minimum and minimum + step / n wide: once that is within
+      // 15%, the rest is one width, the widest (`sizes` stays short; it overestimates by at most 15%)
+      if (W.k > 1e-9 && auto[1] === 'auto-fill' && n0 >= 2 && step / n0 <= 0.15 * min.c) return area(lin(min.c + step / n0), n0);
+      // the viewport width at which one more column fits (a container of fixed width: never); past the
+      // widest screen the count stays, which only overestimates the image there
+      if (W.k > 1e-9) {
+        const next = ((n0 + 1) * step - gap.c - W.c) / W.k;
+        if (next < Math.min(seg[1], MAX_VIEWPORT)) throw new Split(next);
+      }
+      let n = n0;
+      if (auto[1] === 'auto-fit') {
+        // empty tracks collapse: the number of items matters, and the rows of a template are known only at runtime
+        if (parent.childNodes.some((c) => isEl(c) && c.tagName === 'template')) { this.notes.autoFitRows = parent; return null; }
+        n = Math.min(n, parent.childNodes.filter((c) => isEl(c)).length);
+      }
+      return area({ k: (W.k - 0) / n, c: (W.c - (n - 1) * gap.c) / n }, n);
+    }
+    // a fixed number of tracks; all equal
+    const tracks: string[] = [];
+    for (const t of splitTop(text)) {
+      const rm = /^repeat\(\s*(\d+)\s*,\s*(.+)\)$/s.exec(t);
+      if (rm) { for (let i = 0; i < Number(rm[1]); i++) tracks.push(...splitTop(rm[2]!)); } else tracks.push(t);
+    }
+    const norm = tracks.map((t) => t.replace(/\s+/g, '').replace(/^minmax\(0(px)?,(\d*\.?\d*)fr\)$/, '$2fr'));
+    if (!norm.length || norm.some((t) => t !== norm[0])) return null;
+    const n = norm.length;
+    if (/^\d*\.?\d+fr$/.test(norm[0]!)) return area({ k: (W.k - (n - 1) * gap.k) / n, c: (W.c - (n - 1) * gap.c) / n }, n);
+    const L = this.lin(el, tracks[0]!, W, seg);
+    return L && area(L, n);
+  }
+
+  /** a flex item's border-box width; 'stretch' for a column container (the item fills it like a block) */
+  private flexItem(parent: P5Element, el: P5Element, seg: [number, number]): Lin | null | 'stretch' {
+    const flow = (prop: 'direction' | 'wrap'): string | null | undefined => {
+      const props = [`flex-${prop}`, 'flex-flow'];
+      const c = this.cascaded(parent, props);
+      if (c.ambiguous) return undefined;
+      if (c.value === null) return null;
+      const w = this.winner(parent, props)!;
+      const parts = splitTop(w.value.toLowerCase());
+      if (w.prop !== 'flex-flow') return parts[0] ?? null;
+      return parts.find((x) => (prop === 'direction' ? /^(row|column)/.test(x) : /wrap/.test(x))) ?? null;
+    };
+    const dir = flow('direction');
+    if (dir === undefined) return null;
+    if (dir && dir.startsWith('column')) {
+      for (const [who, prop] of [[parent, 'align-items'], [el, 'align-self']] as const) {
+        const a = this.cascaded(who, [prop]);
+        if (a.ambiguous || (a.value !== null && !/^\s*(normal|stretch|auto)\s*$/i.test(a.value))) return null;
+      }
+      return 'stretch';
+    }
+    const W = this.contentOf(parent, seg);
+    if (!W) return null;
+    const gap = this.columnGap(parent, W, seg);
+    if (!gap) return null;
+    const flexOf = (x: P5Element): { grow: number; basis: string } | null => {
+      const props = ['flex', 'flex-grow', 'flex-basis'];
+      const c = this.cascaded(x, props);
+      if (c.ambiguous) return null;
+      let grow = 0, basis = 'auto';
+      const m = this.declsOf(x);
+      const decls = props.flatMap((p) => (m.get(p) ?? []).map((d) => ({ d, p }))).filter(({ d }) => !d.conditional).sort((a, b) => cascadeCmp(a.d, b.d));
+      for (const { d, p } of decls) {
+        const v = (this.subst(d.value, x) ?? '').trim().toLowerCase();
+        if (p === 'flex-grow') grow = Number(v) || 0;
+        else if (p === 'flex-basis') basis = v;
+        else {
+          const parts = splitTop(v);
+          if (v === 'none') { grow = 0; basis = 'auto'; } else if (v === 'auto') { grow = 1; basis = 'auto'; } else if (v === 'initial') { grow = 0; basis = 'auto'; }
+          else {
+            const nums = parts.filter((t) => /^\d*\.?\d+$/.test(t)), other = parts.find((t) => !/^\d*\.?\d+$/.test(t));
+            grow = nums.length ? Number(nums[0]) : 1;
+            basis = other ?? '0%';
+          }
+        }
+      }
+      return { grow, basis };
+    };
+    const own = flexOf(el);
+    if (!own) return null;
+    const zero = (b: string) => /^0([a-z%]*)?$/.test(b);
+    if (own.grow > 0 && zero(own.basis)) {
+      // equal columns: every item grows alike from 0, and their number is known
+      if (parent.childNodes.some((c) => isEl(c) && c.tagName === 'template')) return null;
+      const items = parent.childNodes.filter((c): c is P5Element => isEl(c));
+      for (const it of items) { const f = flexOf(it); if (!f || f.grow !== own.grow || !zero(f.basis)) return null; }
+      const n = items.length;
+      return { k: (W.k - (n - 1) * gap.k) / n, c: (W.c - (n - 1) * gap.c) / n };
+    }
+    if (own.grow === 0) {
+      // a wrapped item with a basis (or width) keeps it: no line is shrunk to fit
+      const wrap = flow('wrap');
+      if (wrap === undefined || !wrap || !/^wrap/.test(wrap)) return null;
+      let basis = own.basis;
+      if (basis === 'auto') { const wc = this.cascaded(el, SIZE.width); if (wc.ambiguous || wc.value === null || /^\s*auto\s*$/i.test(wc.value)) return null; basis = wc.value; }
+      if (basis === 'content') return null;
+      const bs = this.cascaded(el, ['box-sizing']);
+      const e = this.edges(el, 'width');
+      if (bs.ambiguous || e === null) return null;
+      const v = this.lin(el, basis, W, seg);
+      if (!v) return null;
+      return this.minMax(el, /^\s*border-box\s*$/i.test(bs.value ?? '') ? v : { k: v.k, c: v.c + e }, W, seg);
+    }
+    return null;
   }
 
   // ---- selectors
@@ -651,15 +1097,235 @@ function segments(text: string): Array<{ head: string; body: string | null }> {
   return out;
 }
 
+/** The user-agent styles that change horizontal edges (the HTML spec's rendering section). */
+const UA = `body { margin: 8px } ul, ol, menu { padding-inline-start: 40px } figure, blockquote { margin-inline: 40px } dd { margin-inline-start: 40px }
+fieldset { margin-inline: 2px; padding-inline: 0.75em; border: 2px groove }`;
+
+/** px = k × viewport width + c */
+interface Lin { k: number; c: number }
+const lin = (c: number): Lin => ({ k: 0, c });
+/** the range has to be split at a viewport width (where a min()/max() or a column count changes) */
+class Split { constructor(readonly at: number) {} }
+const MIN_VIEWPORT = 240, MAX_VIEWPORT = 4096;
+
+export interface FluidPiece { from: number; to: number; k: number; c: number }
+export interface FluidSizes {
+  /** the `sizes` attribute */
+  sizes: string;
+  /** the width per viewport range: k × viewport + c px */
+  pieces: FluidPiece[];
+  /** the widest the image gets, or null when it grows with the viewport */
+  max: number | null;
+  /** the widths, when the image has a fixed width in every range (40 px on phones, 64 px elsewhere) */
+  constant: number[] | null;
+}
+
+/** the smaller (or larger) of two widths over a viewport range; Split where they cross inside it */
+function pick(a: Lin, b: Lin, seg: [number, number], which: 'min' | 'max'): Lin {
+  const dk = a.k - b.k, dc = a.c - b.c;
+  const at = (v: number) => dk * v + dc;
+  const lo = at(seg[0]);
+  const hi = Number.isFinite(seg[1]) ? at(seg[1]) : dk > 1e-9 ? Infinity : dk < -1e-9 ? -Infinity : dc;
+  const aSmaller = lo <= 1e-6 && hi <= 1e-6, bSmaller = lo >= -1e-6 && hi >= -1e-6;
+  if (!aSmaller && !bSmaller) throw new Split(-dc / dk);
+  return (which === 'min') === aSmaller ? a : b;
+}
+
+const fmt = (n: number) => String(Math.round(n * 100) / 100);
+/** a width as CSS: px, vw, or calc() of both */
+function linCss(p: Lin): string {
+  if (Math.abs(p.k) < 1e-9) return `${fmt(p.c)}px`;
+  const vw = fmt(p.k * 100);
+  if (Math.abs(p.c) < 0.005) return `${vw}vw`;
+  return `calc(${vw}vw ${p.c < 0 ? '-' : '+'} ${fmt(Math.abs(p.c))}px)`;
+}
+/** the `max-width` of a range that ends at `to`: an inclusive media bound (767.0001) is 767, an exclusive one (768) 767.98 */
+function maxWidthOf(to: number): string {
+  const inclusive = to - EPS;
+  return Math.abs(inclusive - Math.round(inclusive)) < 1e-6 ? fmt(Math.round(inclusive)) : fmt(to - 0.02);
+}
+
+/**
+ * A length in a viewport range, linear in its width: px, rem, vw, % of `percent`, and calc(),
+ * min(), max(), clamp() (which may split the range). Null for anything else.
+ */
+function evaluateLin(value: string, rem: number, percent: Lin | null, seg: [number, number]): Lin | null {
+  const tokens = value.trim().toLowerCase().match(/-?\d*\.?\d+(?:e-?\d+)?(?:px|rem|vw|%)?|[a-z-]+\(|[()+*/,-]|\S+/g);
+  if (!tokens) return null;
+  let i = 0;
+  type V = { k: number; c: number; len: boolean };
+  const peek = () => tokens[i];
+  const primary = (): V | null => {
+    const t = tokens[i++];
+    if (t === undefined) return null;
+    if (t === '(' || t === 'calc(') { const v = sum(); if (tokens[i++] !== ')') return null; return v; }
+    if (t === 'min(' || t === 'max(' || t === 'clamp(') {
+      const args: V[] = [];
+      for (;;) { const v = sum(); if (!v) return null; args.push(v); const s2 = tokens[i++]; if (s2 === ')') break; if (s2 !== ',') return null; }
+      const pk = (a: V, b: V, w: 'min' | 'max'): V => ({ ...pick(a, b, seg, w), len: a.len || b.len });
+      if (t === 'clamp(') { if (args.length !== 3) return null; return pk(args[0]!, pk(args[1]!, args[2]!, 'min'), 'max'); }
+      return args.reduce((a, b) => pk(a, b, t === 'min(' ? 'min' : 'max'));
+    }
+    if (t === '-') { const v = primary(); return v && { k: -v.k, c: -v.c, len: v.len }; }
+    const m = /^(-?\d*\.?\d+(?:e-?\d+)?)(px|rem|vw|%)?$/.exec(t);
+    if (!m) return null;
+    const n = Number(m[1]);
+    if (!m[2]) return { k: 0, c: n, len: n === 0 };
+    if (m[2] === 'px') return { k: 0, c: n, len: true };
+    if (m[2] === 'rem') return { k: 0, c: n * rem, len: true };
+    if (m[2] === 'vw') return { k: n / 100, c: 0, len: true };
+    if (!percent) return null;
+    return { k: percent.k * n / 100, c: percent.c * n / 100, len: true };
+  };
+  const product = (): V | null => {
+    let v = primary();
+    while (v && (peek() === '*' || peek() === '/')) {
+      const op = tokens[i++], w = primary();
+      if (!w) return null;
+      if (op === '*') {
+        // a length times a number only
+        if (v.len && w.len) return null;
+        const [l, n] = v.len ? [v, w] : [w, v];
+        if (Math.abs(n.k) > 1e-12) return null;
+        v = { k: l.k * n.c, c: l.c * n.c, len: v.len || w.len };
+      } else {
+        if (w.len || Math.abs(w.k) > 1e-12 || w.c === 0) return null;
+        v = { k: v.k / w.c, c: v.c / w.c, len: v.len };
+      }
+    }
+    return v;
+  };
+  const sum = (): V | null => {
+    let v = product();
+    while (v && (peek() === '+' || peek() === '-')) {
+      const op = tokens[i++], w = product();
+      if (!w) return null;
+      v = op === '+' ? { k: v.k + w.k, c: v.c + w.c, len: v.len || w.len } : { k: v.k - w.k, c: v.c - w.c, len: v.len || w.len };
+    }
+    return v;
+  };
+  const v = sum();
+  if (!v || i !== tokens.length || !v.len) return null;
+  return { k: v.k, c: v.c };
+}
+
+const mediaCache = new Map<string, Array<[number, number]> | 'unknown'>();
+
+/**
+ * The viewport widths (px, `[from, to)`) at which all of `queries` (the preludes of nested `@media`
+ * rules) apply on a screen: `min-width`, `max-width` and the range syntax (`width >= 40rem`), in
+ * px, em or rem (16 px: media queries do not read the page's font size). 'unknown' for any other
+ * feature (`hover`, `prefers-color-scheme`, `orientation`), whose value the build cannot know.
+ */
+function mediaRanges(queries: string[]): Array<[number, number]> | 'unknown' {
+  const key = queries.join('\0');
+  const r = mediaCache.get(key);
+  if (r) return r;
+  let acc: Array<[number, number]> = [[0, Infinity]];
+  for (const q of queries) {
+    const one = mediaList(q);
+    if (one === 'unknown') { mediaCache.set(key, 'unknown'); return 'unknown'; }
+    const next: Array<[number, number]> = [];
+    for (const [a, b] of acc) for (const [c, d] of one) { const lo = Math.max(a, c), hi = Math.min(b, d); if (lo < hi) next.push([lo, hi]); }
+    acc = next;
+  }
+  mediaCache.set(key, acc);
+  return acc;
+}
+
+function mediaList(prelude: string): Array<[number, number]> | 'unknown' {
+  const out: Array<[number, number]> = [];
+  for (const raw of topCommas(prelude)) {
+    let q = raw.trim().toLowerCase().replace(/^only\s+/, '');
+    if (!q || /^not\b/.test(q) || /\bor\b|\bnot\b/.test(q)) return 'unknown';
+    let type = 'all';
+    const t = /^([a-z-]+)(\s+and\s+|$)/.exec(q);
+    if (t && !q.startsWith('(')) { type = t[1]!; q = q.slice(t[0].length); }
+    if (type === 'print' || type === 'speech' || (type !== 'all' && type !== 'screen')) continue;
+    let lo = 0, hi = Infinity;
+    for (const cond of q ? q.split(/\s+and\s+/) : []) {
+      const r = widthCondition(cond.trim());
+      if (r === null) return 'unknown';
+      lo = Math.max(lo, r[0]); hi = Math.min(hi, r[1]);
+    }
+    if (lo < hi) out.push([lo, hi]);
+  }
+  return out;
+}
+
+const EPS = 1e-4;
+/** one `(…)` condition on the viewport width, as `[from, to)` px; null when it is about something else */
+function widthCondition(cond: string): [number, number] | null {
+  const m = /^\((.*)\)$/s.exec(cond);
+  if (!m) return null;
+  const inner = m[1]!.trim();
+  const len = (v: string): number | null => { const x = /^(-?\d*\.?\d+)(px|em|rem)?$/.exec(v.trim()); return x ? Number(x[1]) * (x[2] === 'em' || x[2] === 'rem' ? 16 : 1) : null; };
+  const named = /^(min|max)-width\s*:\s*(.+)$/.exec(inner);
+  if (named) { const v = len(named[2]!); if (v === null) return null; return named[1] === 'min' ? [v, Infinity] : [0, v + EPS]; }
+  // range syntax: width >= 40rem, 30em < width <= 60em
+  const parts = inner.split(/\s*(<=|>=|<|>|=)\s*/);
+  if (parts.length !== 3 && parts.length !== 5) return null;
+  let lo = 0, hi = Infinity;
+  const apply = (op: string, value: number, widthOnLeft: boolean) => {
+    // normalize to `width OP value`
+    const o = widthOnLeft ? op : ({ '<': '>', '>': '<', '<=': '>=', '>=': '<=', '=': '=' } as Record<string, string>)[op]!;
+    if (o === '>') lo = Math.max(lo, value + EPS); else if (o === '>=') lo = Math.max(lo, value);
+    else if (o === '<') hi = Math.min(hi, value); else if (o === '<=') hi = Math.min(hi, value + EPS);
+    else { lo = Math.max(lo, value); hi = Math.min(hi, value + EPS); }
+  };
+  if (parts.length === 3) {
+    const [a, op, b] = parts as [string, string, string];
+    if (a === 'width') { const v = len(b); if (v === null) return null; apply(op, v, true); }
+    else if (b === 'width') { const v = len(a); if (v === null) return null; apply(op, v, false); }
+    else return null;
+  } else {
+    const [a, op1, w, op2, b] = parts as [string, string, string, string, string];
+    if (w !== 'width') return null;
+    const va = len(a), vb = len(b);
+    if (va === null || vb === null) return null;
+    apply(op1, va, false); apply(op2, vb, true);
+  }
+  return [lo, hi];
+}
+
+function topCommas(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0, cur = '';
+  for (const ch of s) { if (ch === '(') depth++; if (ch === ')') depth--; if (ch === ',' && depth === 0) { out.push(cur); cur = ''; } else cur += ch; }
+  out.push(cur);
+  return out;
+}
+
 /** A CSS identifier with its escapes resolved: `w-\\[72px\\]` is the class `w-[72px]`. */
 function unescape(s: string): string {
   return s.includes('\\') ? s.replace(/\\([0-9a-fA-F]{1,6}\s?|[^\n])/g, (_, e: string) => (/^[0-9a-fA-F]/.test(e) && /^[0-9a-fA-F]{1,6}\s?$/.test(e) ? String.fromCodePoint(parseInt(e, 16)) : e)) : s;
 }
 
-/** a padding or border value that adds nothing: every length in it is 0 */
-function zeroEdge(v: string): boolean {
-  if (/var\(|calc\(|min\(|max\(|clamp\(|thin|medium|thick/i.test(v)) return false;
-  return (v.match(/-?\d*\.?\d+[a-z%]*/gi) ?? []).every((n) => parseFloat(n) === 0);
+/** a side of a 1–4 value box shorthand: `a` / `a b` / `a b c` / `a b c d` (top right bottom left) */
+function boxValue(v: string[], i: number): string | undefined {
+  if (!v.length || v.length > 4) return undefined;
+  const [t, r = t, b = t, l = r] = v;
+  return [t, r, b, l][i];
+}
+
+const BORDER_STYLES = /^(none|hidden|dotted|dashed|solid|double|groove|ridge|inset|outset)$/i;
+/** the width or style in a `border` shorthand (`1px solid red`); a part left out is the initial value */
+function borderPart(v: string[], kind: 'border-width' | 'border-style'): string | undefined {
+  if (kind === 'border-style') return v.find((x) => BORDER_STYLES.test(x)) ?? 'none';
+  return v.find((x) => /^(thin|medium|thick)$/i.test(x) || /^-?[\d.]|^(calc|min|max|clamp)\(/i.test(x)) ?? 'medium';
+}
+
+/** a value's top-level space-separated parts (`calc(1px + 2px) solid` is two) */
+function splitTop(v: string): string[] {
+  const out: string[] = [];
+  let depth = 0, cur = '';
+  for (const ch of v.trim()) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if (/\s/.test(ch) && depth === 0) { if (cur) out.push(cur); cur = ''; } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
 }
 
 function topComma(s: string): number {

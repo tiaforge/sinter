@@ -112,3 +112,21 @@ test('a fluid API image in a max-width container: sizes and widths from the boun
   expect(hero.getAttribute('srcset')!.split(', ').map((c) => c.split(' ')[1])).toEqual(['480w', '960w', '1500w']);
   expect(hero.getAttribute('src')).toContain('https://img.example.com/500/');
 });
+
+test('SN514: an API image in the rows of an auto-fit grid; auto-fill gets exact sizes; an author sizes silences it', () => {
+  const grid = (fit: string, img = '<img alt="" data-sn-attr="{src: c.photo}">') => compile(`<!doctype html><html><head></head><body>
+    <sn-resource name="cards" src="/api/cards" key="id"></sn-resource>
+    <div class="g"><template data-sn-for="c in cards">${img}</template></div></body></html>`, {
+    file: '/app/index.html', root: '/app', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+    remoteImages: resolveRemote({ url: 'netlify', origins: ['self'] }),
+    images: { info: () => null, url: () => '', styles: [{ file: 'a.css', css: `body { margin: 0 } .g { display: grid; grid-template-columns: repeat(${fit}, minmax(200px, 1fr)); gap: 16px } img { width: 100% }` }] },
+  });
+  const fit = grid('auto-fit');
+  expect(fit.diagnostics.map((d) => d.code)).toEqual(['SN514']);
+  expect(fit.diagnostics[0]!.hint).toMatch(/use `repeat\(auto-fill, …\)`/);
+  const fill = grid('auto-fill');
+  expect(fill.diagnostics).toEqual([]);
+  // 200 px columns and 16 px gaps: a second column from 416 px, a third from 632
+  expect(fill.html).toMatch(/sizes="auto, \(max-width: 415\.98px\) 100vw, \(max-width: 631\.98px\) calc\(50vw - 8px\)/);
+  expect(grid('auto-fit', '<img alt="" sizes="300px" data-sn-attr="{src: c.photo}">').diagnostics).toEqual([]);
+});

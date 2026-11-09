@@ -120,9 +120,10 @@ test('a fluid image in a max-width container: sizes from the bound, files up to 
   const styles = [{ file: 'app.css', css: 'main { max-width: 300px } img { max-width: 100% }' }];
   const out = run('<main><img src="img/photo.jpg" alt=""></main>', { ...host, styles });
   // eager (the first image): no `auto`
-  expect(body(out.html)).toContain('srcset="/i/photo-480.avif 480w, /i/photo-900.avif 900w" sizes="(max-width: 300px) 100vw, 300px"');
+  // the browser's 8 px body margin: exact below 316 px, 300 px above
+  expect(body(out.html)).toContain('srcset="/i/photo-480.avif 480w, /i/photo-900.avif 900w" sizes="(max-width: 315.98px) calc(100vw - 16px), 300px"');
   const lazy = run('<main><img src="img/photo.jpg" alt=""><img src="img/photo.jpg" alt=""></main>', { ...host, styles });
-  expect(body(lazy.html)).toContain('sizes="auto, (max-width: 300px) 100vw, 300px"');
+  expect(body(lazy.html)).toContain('sizes="auto, (max-width: 315.98px) calc(100vw - 16px), 300px"');
 });
 
 test('SN513: only for a src that can only be local image paths', () => {
@@ -134,4 +135,14 @@ test('SN513: only for a src that can only be local image paths', () => {
   }
   // not an <img>
   expect(codes('<div data-sn-state="{ s: 1 }"><source data-sn-attr="{src: \'./a.png\'}"></div>')).toEqual([]);
+});
+
+test('SN514: a static image in the rows of an auto-fit grid', () => {
+  const styles = [{ file: 'app.css', css: '.g { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) } img { width: 100% }' }];
+  const out = run('<div class="g" data-sn-state="{ xs: [1, 2] }"><template data-sn-for="x in xs" data-sn-key="x"><div><img src="img/photo.jpg" alt=""></div></template></div>', { ...host, styles });
+  expect(out.diagnostics.map((d) => d.code)).toEqual(['SN514']);
+  // the same grid with its items in the markup: their number is known, exact sizes
+  const items = run('<div class="g"><div><img src="img/photo.jpg" alt=""></div><div></div></div>', { ...host, styles });
+  expect(items.diagnostics).toEqual([]);
+  expect(body(items.html)).toMatch(/sizes="\(max-width: 375\.98px\) calc\(100vw - 16px\), calc\(50vw - 8px\)"/);
 });

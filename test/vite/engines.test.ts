@@ -47,7 +47,7 @@ const sizeOf = (html: string, alt: string) => {
   return { width: Number(/width="(\d+)"/.exec(m)?.[1]), height: Number(/height="(\d+)"/.exec(m)?.[1]), sizes: /sizes="([^"]*)"/.exec(m)?.[1] };
 };
 
-test('Tailwind (Vite plugin): utilities the page uses size its images; responsive ones leave them fluid', async () => {
+test('Tailwind (Vite plugin): utilities the page uses size its images, responsive ones per breakpoint', async () => {
   const { html, out } = await project({
     'src/main.js': "import './app.css';\n",
     'src/app.css': '@import "tailwindcss";\n.card img { @apply size-24 object-cover; }\n',
@@ -61,8 +61,9 @@ test('Tailwind (Vite plugin): utilities the page uses size its images; responsiv
   expect(sizeOf(html, 'Avatar')).toEqual({ width: 48, height: 48, sizes: '(max-width: 48px) 100vw, 48px' });
   expect(sizeOf(html, 'Arbitrary')).toMatchObject({ width: 72, height: 72 });
   expect(sizeOf(html, 'Apply')).toMatchObject({ width: 96, height: 96 });
-  expect(sizeOf(html, 'Responsive').sizes).toBe('auto, 100vw');
-  expect(sizeOf(html, 'Plain').sizes).toBe('auto, 100vw');
+  expect(sizeOf(html, 'Responsive').sizes).toBe('auto, (max-width: 767.98px) 48px, 80px');
+  // Tailwind's reset: max-width: 100%, so min(source, viewport)
+  expect(sizeOf(html, 'Plain').sizes).toBe('auto, (max-width: 599.98px) 100vw, 600px');
   if (!chromium) return;
   // file:// pages load module scripts from /assets: open the built CSS through a relative base instead
   const r = await renderedBuilt(out, html);
@@ -82,7 +83,7 @@ test('UnoCSS: the generator with the project\'s config', async () => {
   }, [UnoCSS(), sinter()]);
   expect(sizeOf(html, 'Uno')).toMatchObject({ width: 64, height: 64 });
   expect(sizeOf(html, 'Shortcut')).toMatchObject({ width: 80, height: 80 });
-  expect(sizeOf(html, 'Responsive').sizes).toBe('auto, 100vw');
+  expect(sizeOf(html, 'Responsive').sizes).toBe('auto, (max-width: 767.98px) 64px, 128px');
   if (!chromium) return;
   const r = await renderedBuilt(out, html);
   expect(r['Uno']).toEqual([64, 64]);

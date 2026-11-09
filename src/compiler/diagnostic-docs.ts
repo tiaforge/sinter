@@ -197,4 +197,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'An `<img>` binds `src` to a local image path, or chooses between a few of them. The build optimizes static `<img src>` (formats, widths, dimensions) but cannot follow a path computed at runtime, so the bound image is served as the original file.',
     fix: 'Write each image as a static `<img>` and choose with `data-sn-if` or `data-sn-show`: `<img src="./logo-dark.png" alt="" data-sn-show="dark"><img src="./logo.png" alt="" data-sn-show="!dark">`. Images from the API are a different case: see `images.remote`.',
   },
+  SN514: {
+    example: 'this image is in a `repeat(auto-fit, …)` grid whose items are the rows of a `data-sn-for`: its columns stretch when there are fewer items than fit in a row, and how many rows there are is known only at runtime, so its size is not; it gets an upper bound instead',
+    means: 'With `auto-fit`, a grid\'s empty columns collapse: a list shorter than a row stretches its items. The rows of a `data-sn-for` exist only at runtime, so the build cannot tell how wide each item is, and the image gets `sizes` from an upper bound (its container), which may fetch larger files than needed. With `auto-fill` the columns stay the same whatever the number of items, and the build writes exact `sizes`.',
+    fix: 'Use `repeat(auto-fill, minmax(…, 1fr))` unless short lists should stretch. Otherwise write `sizes` on the image, which silences this.',
+  },
 };

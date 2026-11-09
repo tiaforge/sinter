@@ -39,7 +39,14 @@ const CASES: Array<[string, string, string, [number, number | null] | 'fluid' | 
   ['% of a fixed parent', 'div { width: 400px } img { width: 50% }', '<div><img id="t" src="a.png" alt=""></div>', [200, null]],
   ['% of a fluid parent', 'img { width: 50% }', '<div><img id="t" src="a.png" alt=""></div>', 'fluid'],
   ['% of an inline parent', 'span { width: 400px } img { width: 50% }', '<span><img id="t" src="a.png" alt=""></span>', 'fluid'],
-  ['parent padding: not resolved', 'div { width: 400px; padding: 10px } img { width: 100% }', '<div><img id="t" src="a.png" alt=""></div>', 'fluid'],
+  ['parent padding, content-box: the width is the content', 'div { width: 400px; padding: 10px } img { width: 100% }', '<div><img id="t" src="a.png" alt=""></div>', [400, null]],
+  ['parent padding and border, border-box: less both', 'div { box-sizing: border-box; width: 300px; padding: 16px; border: 2px solid } img { width: 100% }', '<div><img id="t" src="a.png" alt=""></div>', [264, null]],
+  ['logical padding and a border side', '* { box-sizing: border-box } div { width: 300px; padding-inline: 10px 20px; border-left: 0.25rem dashed red } img { width: 100% }', '<div><img id="t" src="a.png" alt=""></div>', [266, null]],
+  ['four-value padding; a border width without a style draws nothing', '* { box-sizing: border-box } div { width: 300px; padding: 1px 12px 3px 8px; border-width: 9px } img { width: 50% }', '<div><img id="t" src="a.png" alt=""></div>', [140, null]],
+  ['border: solid alone is medium (3px)', '* { box-sizing: border-box } div { width: 306px; border: solid } img { width: 100% }', '<div><img id="t" src="a.png" alt=""></div>', [300, null]],
+  ['a longhand after the shorthand wins', '* { box-sizing: border-box } div { width: 300px; padding: 20px; padding-right: 0 } img { width: 100% }', '<div><img id="t" src="a.png" alt=""></div>', [280, null]],
+  ['padding in %: not resolved', '* { box-sizing: border-box } div { width: 300px; padding: 5% } img { width: 100% }', '<div><img id="t" src="a.png" alt=""></div>', 'fluid'],
+  ['padding from a media query: not resolved', '* { box-sizing: border-box } div { width: 300px } @media (min-width: 600px) { div { padding: 20px } } img { width: 100% }', '<div><img id="t" src="a.png" alt=""></div>', 'fluid'],
   ['media query', 'img { width: 100px } @media (min-width: 600px) { img { width: 300px } }', '<img id="t" src="a.png" alt="">', 'fluid'],
   ['media query that loses', 'img { width: 100px !important } @media (min-width: 600px) { img { width: 300px } }', '<img id="t" src="a.png" alt="">', [100, null]],
   ['state', 'img { width: 100px } img:hover { width: 300px }', '<img id="t" src="a.png" alt="">', 'fluid'],
@@ -61,7 +68,8 @@ const CASES: Array<[string, string, string, [number, number | null] | 'fluid' | 
   [':host never matches in the page', ':root, :host { --s: 30px } img { width: var(--s) }', '<img id="t" src="a.png" alt="">', [30, null]],
   ['escaped class names', '.w-\\[72px\\] { width: 72px } .md\\:x { width: 1px }', '<img id="t" class="w-[72px]" src="a.png" alt="">', [72, null]],
   ['a reset\'s zero padding and border on the parent', '* { padding: 0; border: 0 solid } div { width: 300px } img { width: 50% }', '<div><img id="t" src="a.png" alt=""></div>', [150, null]],
-  ['a border on the parent', '* { padding: 0; border: 0 solid } div { width: 300px; border: 1px solid } img { width: 50% }', '<div><img id="t" src="a.png" alt=""></div>', 'fluid'],
+  ['a border on the parent, content-box', '* { padding: 0; border: 0 solid } div { width: 300px; border: 1px solid } img { width: 50% }', '<div><img id="t" src="a.png" alt=""></div>', [150, null]],
+  ['a border on the parent, border-box (Tailwind\'s reset)', '*, ::before { box-sizing: border-box; padding: 0; border: 0 solid } div { width: 300px; border-width: 1px } img { width: 50% }', '<div><img id="t" src="a.png" alt=""></div>', [149, null]],
   ['grid with tracks', 'div { display: grid; grid-template-columns: 1fr 1fr; width: 400px } img { width: 100% }', '<div><img id="t" src="a.png" alt=""></div>', 'fluid'],
 ];
 
@@ -188,4 +196,83 @@ describe.skipIf(!chromium)('the browser never renders a fluid image wider than i
       }
     });
   }
+});
+
+/** [name, css, body (#t is measured), the `sizes` the cascade writes] */
+const FLUID: Array<[string, string, string, string]> = [
+  ['the browser\'s body margin, a max-width column', 'main { max-width: 800px } img { max-width: 100% }', '<main><img id="t" src="a.png" width="2000" alt=""></main>', '(max-width: 815.98px) calc(100vw - 16px), 800px'],
+  ['a centered padded container', 'body { margin: 0 } * { box-sizing: border-box } .c { max-width: 1200px; margin: 0 auto; padding: 0 16px } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>', '(max-width: 1199.98px) calc(100vw - 32px), 1168px'],
+  ['a 3-column grid from 768 px, 2 from 480', 'body { margin: 0 } .g { display: grid; gap: 16px; padding: 0 24px } @media (min-width: 480px) { .g { grid-template-columns: repeat(2, 1fr) } } @media (min-width: 768px) { .g { grid-template-columns: repeat(3, minmax(0, 1fr)) } } img { width: 100% }', '<div class="g"><div><img id="t" src="a.png" alt=""></div><div></div><div></div></div>', '(max-width: 479.98px) calc(100vw - 48px), (max-width: 767.98px) calc(50vw - 32px), calc(33.33vw - 26.67px)'],
+  ['auto-fill columns of at least 200 px, capped container', 'body { margin: 0 } .g { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; max-width: 900px } img { width: 100% }', '<div class="g"><figure style="margin: 0"><img id="t" src="a.png" alt=""></figure></div>', ''],
+  ['a span across two tracks', 'body { margin: 0 } .g { display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 10px } .w { grid-column: span 2 } img { width: 100% }', '<div class="g"><div class="w"><img id="t" src="a.png" alt=""></div></div>', 'calc(50vw - 5px)'],
+  ['equal flex columns', 'body { margin: 0 } .r { display: flex; gap: 12px } .r > * { flex: 1 } img { width: 100% }', '<div class="r"><div><img id="t" src="a.png" alt=""></div><div></div><div></div></div>', 'calc(33.33vw - 8px)'],
+  ['wrapped flex items with a basis, by breakpoint', 'body { margin: 0 } .r { display: flex; flex-wrap: wrap } .r > * { flex: 0 0 100% } @media (min-width: 640px) { .r > * { flex-basis: 50% } } img { width: 100% }', '<div class="r"><div><img id="t" src="a.png" alt=""></div></div>', '(max-width: 639.98px) 100vw, 50vw'],
+  ['a fixed size per breakpoint', 'img.a { width: 40px } @media (min-width: 768px) { img.a { width: 64px } }', '<img id="t" class="a" src="a.png" alt="">', '(max-width: 767.98px) 40px, 64px'],
+  ['negative margins (a full-bleed image in a padded column)', 'body { margin: 0 } main { padding: 0 20px } .bleed { margin: 0 -20px } img { width: 100% }', '<main><div class="bleed"><img id="t" src="a.png" alt=""></div></main>', '100vw'],
+  ['clamp() and min() in the container', 'body { margin: 0 } .c { width: min(90vw, 70rem); margin-inline: auto } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>', '(max-width: 1244.42px) 90vw, 1120px'],
+  ['an image narrower than its column: min(source, column)', 'body { margin: 0 } img { max-width: 100% }', '<div><img id="t" src="a.png" width="600" alt=""></div>', '(max-width: 599.98px) 100vw, 600px'],
+];
+
+describe('the width of a fluid image at every viewport width', () => {
+  const sizes = (css: string, body: string) => {
+    const doc = parse5.parse(page('', body));
+    return new Layout([{ file: 'test.css', css }], doc).fluidSizes(find(doc, 't'))?.sizes ?? null;
+  };
+  for (const [name, css, body, want] of FLUID) if (want) test(name, () => expect(sizes(css, body)).toBe(want));
+  test('auto-fill: a split at every column count', () => {
+    // 200 px columns and 20 px gaps: 2 from 420 px, 3 from 640, 4 from 860; the container stops at 900
+    expect(sizes(FLUID[3]![1], FLUID[3]![2])).toBe('(max-width: 419.98px) 100vw, (max-width: 639.98px) calc(50vw - 10px), (max-width: 859.98px) calc(33.33vw - 13.33px), (max-width: 899.98px) calc(25vw - 15px), 210px');
+  });
+  test('given up: a column count from items rendered later, an unknown media feature, em', () => {
+    expect(sizes('.r { display: flex } .r > * { flex: 1 } img { width: 100% }', '<div class="r"><template><div><img id="t" src="a.png" alt=""></div></template></div>')).toBeNull();
+    expect(sizes('img { width: 100% } @media (hover: hover) { img { width: 50% } }', '<div><img id="t" src="a.png" alt=""></div>')).toBeNull();
+    expect(sizes('main { padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>')).toBeNull();
+  });
+});
+
+describe.skipIf(!chromium)('the browser renders a fluid image as wide as its sizes say, at every viewport width', () => {
+  let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
+  let tab: Page;
+  beforeAll(async () => { browser = await chromium!.launch(); tab = await browser.newPage(); }, 30_000);
+  afterAll(async () => { await browser?.close(); });
+  const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  const WIDTHS = [320, 375, 390, 479, 480, 600, 639, 640, 767, 768, 900, 1024, 1199, 1200, 1280, 1440, 1920];
+  for (const [name, css, body] of FLUID) {
+    test(name, async () => {
+      const doc = parse5.parse(page('', body));
+      const f = new Layout([{ file: 'test.css', css }], doc).fluidSizes(find(doc, 't'));
+      expect(f).not.toBeNull();
+      for (const v of WIDTHS) {
+        const p = f!.pieces.find((x) => v >= x.from && v < x.to) ?? (v < f!.pieces[0]!.from ? f!.pieces[0]! : null);
+        await tab.setViewportSize({ width: v, height: 600 });
+        await tab.setContent(page(css, body.replaceAll('src="a.png"', `src="${IMG}"`)));
+        const w = await tab.evaluate(() => document.getElementById('t')!.getBoundingClientRect().width);
+        expect(w, `${name} at ${v} px (sizes ${f!.sizes})`).toBeCloseTo(p!.k * v + p!.c, 0);
+      }
+    });
+  }
+});
+
+describe.skipIf(!chromium)('an unbounded auto-fill grid: exact while columns are few, then within 15% and never narrower than it is', () => {
+  let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
+  let tab: Page;
+  beforeAll(async () => { browser = await chromium!.launch(); tab = await browser.newPage(); }, 30_000);
+  afterAll(async () => { await browser?.close(); });
+  const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  test('repeat(auto-fill, minmax(200px, 1fr)), gap 16px', async () => {
+    const css = 'body { margin: 0 } .g { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px } img { width: 100% }';
+    const body = '<div class="g"><div><img id="t" src="a.png" alt=""></div></div>';
+    const doc = parse5.parse(page('', body));
+    const f = new Layout([{ file: 'test.css', css }], doc).fluidSizes(find(doc, 't'))!;
+    expect(f.pieces.length).toBeLessThan(10);
+    for (const v of [320, 415, 416, 631, 632, 900, 1280, 1500, 1711, 1712, 1920, 2200, 2560, 3000]) {
+      const p = f.pieces.find((x) => v >= x.from && v < x.to) ?? f.pieces[0]!;
+      await tab.setViewportSize({ width: v, height: 600 });
+      await tab.setContent(page(css, body.replace('src="a.png"', `src="${IMG}"`)));
+      const w = await tab.evaluate(() => document.getElementById('t')!.getBoundingClientRect().width);
+      const said = p.k * v + p.c;
+      if (v < 1712) expect(w, `at ${v} px`).toBeCloseTo(said, 0);
+      else { expect(w, `at ${v} px`).toBeLessThanOrEqual(said + 0.5); expect(said / w, `at ${v} px`).toBeLessThanOrEqual(1.15); }
+    }
+  });
 });

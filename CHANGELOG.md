@@ -7,6 +7,27 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Image sizes: a percentage of a parent with padding or borders resolves to its content box (with
+  `box-sizing: border-box`, the width less padding and borders), from longhands, logical
+  properties and shorthands: an `<img>` at `width: 100%` in a 300 px card with `padding: 16px` is a
+  268 px box. Before, any padding or border on the parent left the image fluid.
+- Fluid images: `sizes` is the image's width at every viewport width, from the page's CSS: per range
+  between its width media queries, linear in the viewport (`calc(50vw - 32px)`), split where a
+  `min()`, `max-width` or centred container meets the viewport. Grids (equal tracks with gaps,
+  `span`, `repeat(auto-fill, minmax(200px, 1fr))` with a split at every column count), flex rows
+  (equal `flex: 1` columns, wrapped items with a basis), margins, padding, borders and the
+  browser's default margins resolve. A 3-column grid from 768 px gets
+  `(max-width: 479.98px) calc(100vw - 48px), (max-width: 767.98px) calc(50vw - 32px), calc(33.33vw - 26.67px)`
+  instead of `100vw`; an image 40 px on phones and 64 px above gets exactly those files. Checked
+  against Chromium at 17 viewport widths. Static and API images; the upper bound stays the fallback.
+  An unbounded `auto-fill` grid is split until its tracks vary by at most 15%, then one width.
+- Warning `SN514 auto-fit-rows`: an image in the rows of a `data-sn-for` in a `repeat(auto-fit, …)`
+  grid, whose width depends on the number of rows; `auto-fill` gives it exact sizes.
+- Dev: the console warning for images that look soft also checks CSS backgrounds: the file the
+  browser uses (`url()`, or the `image-set()` option it picks), drawn at the width
+  `background-size` gives it (`cover`, `contain`, lengths, `%`, `auto`), also for elements added
+  later, and on `::before`/`::after` (a hero image on an overlay) at their computed size. For a
+  sinter-built `image-set()` it names the source width the 2x rule needs.
 - Static images (docs/images.md): every `<img src>` of a local JPEG, PNG, WebP or AVIF in a page or
   partial becomes a `<picture>` with nothing written for it. Photos get AVIF with a JPEG fallback,
   PNG graphics lossless WebP with a PNG fallback (a PNG that is really a photo gets AVIF), sources

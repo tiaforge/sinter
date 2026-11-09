@@ -50,6 +50,7 @@ export const CODES = {
   SN511: 'image-too-small',
   SN512: 'image-stretched',
   SN513: 'bound-local-image',
+  SN514: 'auto-fit-rows',
 } as const;
 
 export type Code = keyof typeof CODES;

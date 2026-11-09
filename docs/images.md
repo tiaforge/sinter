@@ -67,17 +67,41 @@ than) its source, is fluid: `width`/`height` are only its ratio. It gets the wid
 1920 and 2560 below the source's width, and the source's width itself. Its `sizes` is the
 author's, or `auto, 100vw` for a lazy image (`auto` where the browser supports it), else `100vw`.
 
-**Fluid images in a column.** Most fluid images sit in a container with a maximum width
-(`main { max-width: 1200px }`, Tailwind's `max-w-3xl`, temper's `data-layout="center"`). The
-cascade (step 1b) finds an upper bound of the image's width: its own absolute `max-width` and
-`width` attribute, and each container's fixed width or absolute `max-width`, for as long as the
-element below cannot be wider than it. It stops at an element that may be: positioned `absolute`
-or `fixed`, a negative or computed margin, a `min-width`, a width that is not `auto` or a `%` up
-to 100%, an image without `max-width`/`width` in `%`; and it skips a value a media query or a state
-could change. With a bound of 800 px, `sizes` is `(max-width: 800px) 100vw, 800px` (after `auto, `
-for a lazy image), and the widths stop at 3x of it (2400). Paddings are not subtracted: the bound
-can be a little wider than the image, never narrower. Checked against Chromium at 1600 and 390 px.
-An API image (step 2) uses the same bound.
+**Fluid images: their width at every viewport width.** The cascade (step 1b) works out how wide a
+fluid image is rendered, as a function of the viewport width, and writes it as `sizes`:
+
+```html
+<img … sizes="(max-width: 479.98px) calc(100vw - 48px), (max-width: 767.98px) calc(50vw - 32px), calc(33.33vw - 26.67px)">
+```
+
+- **Ranges.** The page's width media queries (`min-width`, `max-width`, `width >= 48rem`; px, em
+  and rem, which in media queries are 16 px) cut the viewport widths into ranges; in each, every
+  rule either applies or does not. Other media features (`hover`, `prefers-*`, `orientation`) may
+  or may not apply, as before.
+- **Widths linear in the viewport.** In a range, a width is `k × 100vw + c`: `%` of a parent, `vw`,
+  px and rem, margins (negative ones too), padding and borders, the browser's default margins
+  (`body { margin: 8px }`, list padding). Where a `min()`, `max()`, `clamp()` or a `max-width`
+  meets the viewport (a centred `max-width: 1200px` container), the range is split at the
+  crossing: `(max-width: 1199.98px) calc(100vw - 32px), 1168px`.
+- **Grids.** Equal tracks (`repeat(3, 1fr)`, `1fr 1fr`, `minmax(0, 1fr)`, `repeat(4, 200px)`)
+  with a `gap`, an item spanning `span N` or `1 / -1`; `repeat(auto-fill, minmax(200px, 1fr))`,
+  split at every viewport width where one more column fits, until a track varies by at most 15%
+  (with n columns it is between its minimum and minimum + (minimum + gap) / n wide): from there one
+  width, the widest, so `sizes` stays short. `auto-fit` only when the items are in the markup,
+  since empty tracks collapse and a short list stretches; with the rows of a `data-sn-for` the
+  image is `SN514` and gets the upper bound. Unequal tracks and named areas are not resolved.
+- **Flex rows.** Equal columns (every item `flex: 1` from a basis of 0, their number known: not
+  rows of a `data-sn-for`), and wrapped items (`flex-wrap: wrap`) with a basis or width; a flex
+  column stretches its items like a block.
+- **The image.** Its own width, else its `width` attribute (sinter writes the source's), within
+  its `min-width`/`max-width`: `max-width: 100%` makes it `min(source, column)`.
+
+An image with a fixed width in every range (`40px`, `64px` from 768 px) gets exactly 1x, 2x (and
+for small ones 3x) of each; otherwise widths stop at 3x of the widest it gets. Anything the engine
+cannot resolve falls back to an upper bound: each container's fixed width or absolute
+`max-width`, for as long as the element below cannot be wider (`(max-width: 800px) 100vw, 800px`).
+An API image (step 2) uses the same. Viewports under 240 px are not split further: the first
+range's condition covers them.
 
 **Fixed boxes.** `width`/`height` smaller than the source are a display size in CSS pixels. The
 image gets exactly 1x and 2x of the box, and 3x for small boxes (at most 300 × 300), each capped at
@@ -133,17 +157,21 @@ stylesheet it owns, and its CSS for a page's markup. Responsive variants (`md:si
 (with and without `&`), `@layer` order and nesting, specificity, source order, `!important`
 (reversed across layers) and inline style. Values: custom properties (inherited, with fallbacks),
 `calc()`, `min()`, `max()`, `clamp()`, `px`, `rem` (from the root's font size), `%` of a parent
-whose width is fixed, `min-`/`max-` sizes and `aspect-ratio`. An image in a `<template>` has the
+whose width is fixed (its content box: with `box-sizing: border-box`, less its padding and
+borders, from longhands, logical properties and shorthands; a border without a style draws
+nothing), `min-`/`max-` sizes and `aspect-ratio`. An image in a `<template>` has the
 template's parent as its parent.
 
 **Giving up.** A wrong size makes the image blurry; no size only costs bytes. So the image stays
 fluid when its width depends on layout or might change:
 
-- `%` of a fluid parent, `vw`, `em`, keywords such as `auto` or `fit-content`;
-- the parent is inline or `display: contents`, a flex container with other children, a grid with
-  explicit tracks, or has padding or borders;
-- a rule that could win sits in `@media`, `@supports` or `@container`, or depends on a state
-  (`:hover`, `:has()`, `:checked`) or a selector it does not know;
+- a fixed box: `%` of a fluid parent, `vw`, `em`, keywords such as `auto` or `fit-content`; the
+  parent is inline or `display: contents`, a flex container with other children, or a grid with
+  explicit tracks; its padding or border is in `%`, depends on a media query, or cannot be
+  resolved (a fluid image's width at every viewport width resolves more of these, above);
+- `em` anywhere (the font size is not followed), `vh`, `fit-content` and `max-content` widths;
+- a rule that could win sits in `@supports` or `@container`, in `@media` with a feature other than
+  the width, or depends on a state (`:hover`, `:has()`, `:checked`) or a selector it does not know;
 - a structural selector inside a `<template>` (rows repeat);
 - a binding can change what the selectors read: `data-sn-class`, `data-sn-attr` or `data-sn-model`
   (classes and attributes), `data-sn-style` (any property, custom properties included).
@@ -155,7 +183,8 @@ A `max-width` in `%` (`max-inline-size: 100%`) only shrinks the box on narrow sc
 `sizes` of a box allows for; an absolute one is applied.
 
 **Checked against Chromium.** `test/compiler/layout.test.ts` lays out every case the cascade
-claims a size for, at 1600 and 390 px wide, and compares.
+claims a size for, at 1600 and 390 px wide, and every fluid case at 17 viewport widths from 320 to
+1920 px (both sides of each breakpoint), and compares.
 
 **Planned:** slot widths measured in the dev server or by `temper-inspect`, for fluid images.
 
@@ -257,7 +286,7 @@ in builds alike, so dev does not hide what production does.
   `data:` URLs, files in `public/`, declarations that already use `image-set()`, `?inline` and
   `?url` imports, inline `style` attributes, and CSS a utility engine generates.
 - A background whose element is larger at 1x than half the source is soft on 1x screens: use a
-  source twice the largest width it is shown at.
+  source twice the largest width it is shown at. The dev console warns when that happens.
 
 ## Cropping
 
@@ -310,14 +339,24 @@ the file the browser chose with the device pixels the image covers (with `object
 larger side), and warns in the console when the file has less than 90% of them: either the
 source is too small, or a larger file exists and `sizes` is smaller than the image is shown. It
 checks every `<img>`, rewritten or not, at the screen it runs on: open the dev server on an iPad to
-check an iPad.
+check an iPad. CSS backgrounds too: for each element with a background image (and again when
+elements are added, or a `class` or `style` changes), the file the browser uses (a `url()`, or the
+`image-set()` option of a decoded type at the resolution nearest at or above the screen's), drawn
+at the width `background-size` gives it in the positioning area (`cover`, `contain`, lengths, `%`,
+or `auto`: the file's size at its resolution). For an `image-set()` the message says the build
+counts the source as 2x and names the width it needs. `::before` and `::after` are checked at
+their computed size (when they are drawn: `content` set, a size in px).
 
 **Planned in `temper-inspect`:** the same comparison at device scale factor 2 for pages without
-sinter, and for CSS backgrounds.
+sinter.
 
 - `SN513 bound-local-image`: an `<img>` binds `src` to a local image path, or chooses between a
   few (`dark ? './logo-dark.png' : './logo.png'`), which the build cannot optimize. Write each as a
   static `<img>` under `data-sn-if` or `data-sn-show`.
+
+- `SN514 auto-fit-rows`: an image in the rows of a `data-sn-for` inside a `repeat(auto-fit, …)`
+  grid. Its width depends on how many rows there are, known only at runtime, so it gets the upper
+  bound. Use `auto-fill` (the same columns, without stretching a short list), or write `sizes`.
 
 ## Build and dev
 
