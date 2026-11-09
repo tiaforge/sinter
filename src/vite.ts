@@ -97,6 +97,58 @@ const pageBase = (base: string, rel: string) => (relativeBase(base) ? '../'.repe
 
 const PREFIX = '/@sinter/';
 const EARLY = `${PREFIX}early/`;
+
+/**
+ * The runtime modules the early files share with the page bundle (sinter's own `runtime/<name>`):
+ * one chunk both load, so a page does not download them twice and the early files of different
+ * pages share them in the cache. Pure functions and globals only: one copy for both is the same as two.
+ */
+const SHARED_MODULES = ['security', 'url', 'handoff'];
+/** the emitted entry that makes the shared chunk; it re-exports every export of the modules */
+const SHARED = '\0sinter:shared';
+const SHARED_MAP = '\0sinter:shared-map';
+/** a chunk that only re-exports another: `export { t as expand, … } from "./url-….js"` */
+const FACADE = /^\s*export\s*\{([^}]*)\}\s*from\s*["'`]([^"'`]+)["'`]\s*;?\s*$/;
+
+/**
+ * The shared chunk in the rendered bundle, with each export's name in it: [export, name in the chunk].
+ * Rolldown makes the emitted entry a facade over a common chunk with the modules (whose export names
+ * are minified): the early files import the common chunk, and the facade, which nothing imports, is
+ * dropped. Rollup puts the modules into the entry itself.
+ */
+function sharedChunk(bundle: Record<string, { type: string; fileName: string; code?: string; exports?: string[] }>, fileName: string) {
+  const entry = bundle[fileName];
+  if (entry?.type !== 'chunk') return null;
+  const m = FACADE.exec(entry.code!);
+  const target = m ? bundle[posix.join(posix.dirname(fileName), m[2]!)] : entry;
+  if (target?.type !== 'chunk') return null;
+  const names = m
+    ? m[1]!.split(',').map((x) => x.trim()).filter(Boolean).map((x) => { const [inner, as] = x.split(/\s+as\s+/); return [as ?? inner!, inner!] as [string, string]; })
+    : entry.exports!.map((e) => [e, e] as [string, string]);
+  if (m) delete bundle[fileName];
+  return { fileName: target.fileName, code: target.code!, names };
+}
+
+/**
+ * For an early file's build: the shared modules are imports of the shared chunk (`dir`: its folder,
+ * relative to the early file's), so the early file stays one chunk and carries no copy of them.
+ */
+function importShared(chunk: { fileName: string; names: Array<[string, string]> }, dir: string, ids: Set<string>): Plugin {
+  const file = `./${posix.join(dir, posix.basename(chunk.fileName))}`;
+  const code = `export { ${chunk.names.map(([as, inner]) => (as == inner ? as : `${inner} as ${as}`)).join(', ')} } from ${JSON.stringify(file)};`;
+  return {
+    name: 'sinter:early-shared',
+    enforce: 'pre',
+    async resolveId(id, importer, o) {
+      if (id === SHARED_MAP) return SHARED_MAP;
+      if (importer === SHARED_MAP) return { id, external: true };
+      if (!importer) return null;
+      const r = await this.resolve(id, importer, { ...o, skipSelf: true });
+      return r && ids.has(r.id) ? SHARED_MAP : null;
+    },
+    load: (id) => (id === SHARED_MAP ? code : null),
+  };
+}
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
 /** dev: where the image variants are served */
@@ -133,6 +185,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const unlisted = new Set<string>();
   const earlyFiles = new Map<string, { fileName: string; code: string; modules: Record<string, { renderedLength: number }>; stub?: string }>();
   const budget = options.earlyBudget ?? 10_000;
+  /**
+   * build: the modules the early files share with the page bundle (security checks, URL expansion,
+   * the handoff), as one chunk both load: its resolved ids, the emitted entry that makes the chunk,
+   * and, once the bundle is rendered, the chunk with each export's name in it
+   */
+  const sharedIds = new Set<string>();
+  let sharedRef: string | null = null;
+  let shared: { fileName: string; code: string; names: Array<[string, string]> } | null = null;
   /** built-in messages: keys each module calls (`m.key`), keys each page's markup calls, and each page's language files */
   const moduleMessages = new Map<string, string[]>();
   const markupMessages = new Map<string, string[]>();
@@ -349,8 +409,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     /** build: the pages that have something to run early (bundled into one file each in generateBundle) */
-    buildStart(input) {
+    async buildStart(input) {
       unhashedPages = 0;
+      sharedIds.clear();
+      sharedRef = null;
+      shared = null;
       earlyPages.clear();
       splitPages.clear();
       unlisted.clear();
@@ -381,6 +444,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           for (const o of out.unlistedOrigins ?? []) unlisted.add(o);
         } catch { /* reported when the page itself is compiled */ }
       }
+      // what the early files share with the page bundle: one chunk, which both import (see generateBundle)
+      const early = earlyPages.size ? await this.resolve('@tiaforge-ui/sinter/early', resolve(root, 'index.html')) : null;
+      if (early && !early.external) {
+        for (const m of SHARED_MODULES) {
+          const r = await this.resolve(`./runtime/${m}.js`, early.id);
+          if (r && !r.external) sharedIds.add(r.id);
+        }
+        if (sharedIds.size == SHARED_MODULES.length) sharedRef = this.emitFile({ type: 'chunk', id: SHARED, name: 'sinter-shared', preserveSignature: 'strict' });
+      }
     },
 
     /**
@@ -399,6 +471,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           this.emitFile({ type: 'asset', fileName: `${r.build.assetsDir}/${name}`, source: await img.encode(v) });
         }));
       }
+      shared = sharedRef ? sharedChunk(bundle, this.getFileName(sharedRef)) : null;
       const earlyKeys = new Map<string, Set<string>>();
       const vite = earlyPages.size ? await import('vite') : null;
       const rolldown = !!vite && 'rolldownVersion' in vite;
@@ -408,7 +481,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const out = await vite!.build({
           configFile: false, root, base: r.base, mode: r.mode, logLevel: 'silent', publicDir: false, define: r.define,
           resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions },
-          plugins: [{
+          plugins: [...(shared ? [importShared(shared, posix.relative(r.build.assetsDir, posix.dirname(shared.fileName)), sharedIds)] : []), {
             name: 'sinter:early-entry', resolveId: (id) => (id === ENTRY ? '\0' + ENTRY : null), load: (id) => (id === '\0' + ENTRY ? code : null),
             transform(src, id) { if (messages && !id.includes('/node_modules/') && /\.[cm]?[jt]sx?$/.test(id)) for (const k of moduleKeys(src, id).keys) keys.add(k); },
           }],
@@ -426,7 +499,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         });
         const output = (Array.isArray(out) ? out[0] : out) as { output: Array<{ type: string; isEntry?: boolean; code?: string; modules?: Record<string, { renderedLength: number }> }> };
         const chunks = output.output.filter((c) => c.type === 'chunk');
-        // only the entry is emitted: another chunk would be an import the early file cannot load
+        // only the entry is emitted: another chunk would be an import the early file cannot load (the shared chunk is external)
         if (chunks.length !== 1) this.error(`sinter: the early file of ${rel} came out as ${chunks.length} chunks; it must be one file with nothing imported`);
         const chunk = chunks[0]!;
         const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
@@ -490,6 +563,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     resolveId(id) {
+      if (id === SHARED) return SHARED;
       // a build with source maps: page modules keep a plain id, as Rolldown drops the map of a `\0` module
       if (id.startsWith(PREFIX) && !dev && maps.has(id)) return id;
       if (id.startsWith(PREFIX)) return '\0' + id;
@@ -497,6 +571,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     load(id) {
+      if (id === SHARED) return [...sharedIds].map((m) => `export * from ${JSON.stringify(m)};`).join('\n');
       if (id.startsWith(`\0${IMG_CSS}`)) return imageCss.get(id.slice(IMG_CSS.length + 1, -4)) ?? '';
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
@@ -677,6 +752,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const hold = holdPages.has(rel);
         if (!early && !langs && !hold) return html;
         const tags: string[] = [];
+        // the shared chunk the early file imports, requested with it (not once the early file has arrived)
+        const preload = early && shared ? `<link rel="modulepreload" crossorigin href="${attr(base + shared.fileName)}">` : '';
+        if (preload && !early!.stub) tags.push(preload);
         // before the page module's tag, which it changes as the parser inserts it
         if (hold) tags.push(`<script src="${attr(base + holdFile)}"></script>`);
         // the picker before the early file: it runs while the head is parsed, so the language file it adds blocks the first paint too;
@@ -693,7 +771,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // the split early file first in the head, before the stylesheets and the classic scripts that wait for them, so
         // the parser creates it at once; `async`, so it runs (and starts the page's requests) as soon as it has loaded
         const first = html.search(/<link\b[^>]*\brel=["']?stylesheet|<script\b/i);
-        const tag = `<script type="module" crossorigin src="${attr(base + early.fileName)}" async></script>`;
+        const tag = `${preload ? preload + '\n  ' : ''}<script type="module" crossorigin src="${attr(base + early.fileName)}" async></script>`;
         return first < 0 ? html.replace('</head>', `  ${tag}\n</head>`) : html.slice(0, first) + tag + '\n  ' + html.slice(first);
       },
     },
@@ -702,9 +780,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** One line per page: the early file's size (gzip) and its language files'; over the budget a warning naming the largest modules. */
   function report(rel: string, early: { fileName: string; code: string; modules: Record<string, { renderedLength: number }> } | null, langs: Record<string, { code: string }> | null) {
     const kb = (n: number) => `${(n / 1000).toFixed(1)} kB`;
-    const gz = early ? gzipSync(early.code).length : 0;
+    // the shared chunk is on the first paint's path too: it counts toward the budget
+    const own = early ? gzipSync(early.code).length : 0, common = early && shared ? gzipSync(shared.code).length : 0, gz = own + common;
     const files = langs ? `, messages ${Object.entries(langs).map(([l, f]) => `${l} ${kb(gzipSync(f.code).length)}`).join(', ')} gzip` : '';
-    const line = `sinter: early file of ${rel}: ${early ? `${early.fileName} ${kb(gz)} gzip` : 'none'}${files}`;
+    const line = `sinter: early file of ${rel}: ${early ? `${early.fileName} ${kb(own)} gzip${common ? ` + ${shared!.fileName} ${kb(common)} gzip (shared)` : ''}` : 'none'}${files}`;
     const logger = resolved?.logger;
     if (!early || gz <= budget) { logger?.info(line); return; }
     const top = Object.entries(early.modules).sort((a, b) => b[1].renderedLength - a[1].renderedLength).slice(0, 5)

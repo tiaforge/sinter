@@ -80,7 +80,8 @@ try {
   await build({ root: realworld, configFile: join(realworld, 'vite.config.js'), logLevel: 'silent', build: { outDir: out, emptyOutDir: true } });
   for (const f of readdirSync(out).filter((f) => f.endsWith('.html')).sort()) {
     const html = readFileSync(join(out, f), 'utf8');
-    const srcs = [...html.matchAll(/<script type="module"[^>]* src="([^"]+)"|<link rel="modulepreload"[^>]* href="([^"]+)"/g)].map((m) => m[1] ?? m[2]);
+    // each file once: the early file's shared chunk is preloaded with it and for the page bundle
+    const srcs = [...new Set([...html.matchAll(/<script type="module"[^>]* src="([^"]+)"|<link rel="modulepreload"[^>]* href="([^"]+)"/g)].map((m) => m[1] ?? m[2]))];
     let raw = 0, size = 0;
     for (const s of srcs) {
       const code = readFileSync(join(out, s));
