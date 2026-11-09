@@ -23,7 +23,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 - Dev: the console warning for images that look soft also checks CSS backgrounds: the file the
   browser uses (`url()`, or the `image-set()` option it picks), drawn at the width
   `background-size` gives it (`cover`, `contain`, lengths, `%`, `auto`), also for elements added
-  later. For a sinter-built `image-set()` it names the source width the 2x rule needs.
+  later, and on `::before`/`::after` (a hero image on an overlay) at their computed size. For a
+  sinter-built `image-set()` it names the source width the 2x rule needs.
 - Static images (docs/images.md): every `<img src>` of a local JPEG, PNG, WebP or AVIF in a page or
   partial becomes a `<picture>` with nothing written for it. Photos get AVIF with a JPEG fallback,
   PNG graphics lossless WebP with a PNG fallback (a PNG that is really a photo gets AVIF), sources

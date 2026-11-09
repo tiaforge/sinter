@@ -78,4 +78,13 @@ describe.skipIf(!chromium)('the dev image check', () => {
     expect(await warnings('<div id="list"></div><script>setTimeout(() => { const d = document.createElement("div"); d.style.cssText = "width: 900px; height: 100px; background: url(/w300.png) 0 0 / cover"; document.getElementById("list").append(d); }, 50)</script>'))
       .toEqual([expect.stringMatching(/drawn 900 px wide/)]);
   });
+
+  test('::before and ::after backgrounds: drawn at their computed size', async () => {
+    const css = '<style>.hero { position: relative; width: 1000px; height: 300px } .hero::before { content: ""; position: absolute; inset: 0; background: url(/w600x300.png) center / cover }'
+      + ' .ok::after { content: ""; display: block; width: 200px; height: 100px; background: url(/w600x300.png) 0 0 / cover }'
+      + ' .gone::before { background: url(/w100.png) 0 0 / cover; width: 900px; height: 90px }</style>';
+    const w = await warnings(`${css}<div class="hero"></div><div class="ok"></div><div class="gone"></div>`);
+    // the overlay covers 1000 × 300 from a 600 px file; the ::after fits; a ::before without content is not drawn
+    expect(w).toEqual([expect.stringMatching(/a background image of ::before is drawn 1000 px wide \(1000 device px at 1x\) from a file 600 px wide/)]);
+  });
 });

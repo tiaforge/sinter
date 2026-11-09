@@ -3,7 +3,8 @@
 // covers, and warns in the console when the file is too small: a source with too few pixels, or
 // a `sizes` smaller than the image is shown (so the browser picked a smaller file than it has).
 // CSS backgrounds too: the file `url()` or `image-set()` gives (chosen as the browser chooses),
-// drawn at the size `background-size` makes it. Builds never include it. See docs/images.md.
+// drawn at the size `background-size` makes it, on elements and their ::before and ::after.
+// Builds never include it. See docs/images.md.
 export const IMAGE_CHECK = `const warned = new Set();
 const density = () => window.devicePixelRatio || 1;
 const largest = (img) => {
@@ -77,13 +78,23 @@ const drawn = (size, iw, ih, w, h) => {
   if (y !== null) return y * (iw / ih);
   return iw;
 };
-const checkBackground = async (el) => {
-  const cs = getComputedStyle(el);
+const checkBackground = async (el, pseudo) => {
+  const cs = getComputedStyle(el, pseudo);
   if (!cs.backgroundImage || cs.backgroundImage === 'none') return;
-  const rect = el.getBoundingClientRect();
+  const px = (v) => parseFloat(v) || 0;
+  let rect;
+  if (pseudo) {
+    // a pseudo-element has no getBoundingClientRect(), but when it is drawn its computed width and
+    // height are the ones it is drawn at (its content box, or its border box with border-box sizing)
+    if (cs.content === 'none' || cs.content === 'normal' || cs.display === 'none' || !/px$/.test(cs.width) || !/px$/.test(cs.height)) return;
+    const content = cs.boxSizing !== 'border-box';
+    rect = {
+      width: px(cs.width) + (content ? px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth) : 0),
+      height: px(cs.height) + (content ? px(cs.paddingTop) + px(cs.paddingBottom) + px(cs.borderTopWidth) + px(cs.borderBottomWidth) : 0),
+    };
+  } else rect = el.getBoundingClientRect();
   if (rect.width < 8 || rect.height < 8) return;
   // the positioning area: the padding box, unless background-origin says otherwise
-  const px = (v) => parseFloat(v) || 0;
   const origins = layers(cs.backgroundOrigin), sizes = layers(cs.backgroundSize), types = await supported;
   const images = layers(cs.backgroundImage);
   for (let i = 0; i < images.length; i++) {
@@ -102,11 +113,11 @@ const checkBackground = async (el) => {
     const key = c.url + ' ' + need;
     if (warned.has(key)) continue;
     warned.add(key);
-    console.warn('sinter: a background image is drawn ' + Math.round(shown) + ' px wide (' + need + ' device px at ' + density() + 'x) from a file ' + fw + ' px wide, so it looks soft. '
+    console.warn('sinter: a background image' + (pseudo ? ' of ' + pseudo : '') + ' is drawn ' + Math.round(shown) + ' px wide (' + need + ' device px at ' + density() + 'x) from a file ' + fw + ' px wide, so it looks soft. '
       + (c.set ? 'The build counts a CSS background as a 2x image (half its width for 1x screens): use a source at least ' + Math.round(2 * shown) + ' px wide, twice the largest width it is drawn at.' : 'Use a larger source, at least ' + need + ' px wide.'), el);
   }
 };
-const backgrounds = () => { for (const el of document.querySelectorAll('body, body *')) checkBackground(el); };
+const backgrounds = () => { for (const el of document.querySelectorAll('body, body *')) { checkBackground(el); checkBackground(el, '::before'); checkBackground(el, '::after'); } };
 
 const all = () => { document.querySelectorAll('img').forEach(check); backgrounds(); };
 document.addEventListener('load', (e) => { if (e.target instanceof HTMLImageElement) check(e.target); }, true);

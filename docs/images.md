@@ -341,7 +341,8 @@ elements are added, or a `class` or `style` changes), the file the browser uses 
 `image-set()` option of a decoded type at the resolution nearest at or above the screen's), drawn
 at the width `background-size` gives it in the positioning area (`cover`, `contain`, lengths, `%`,
 or `auto`: the file's size at its resolution). For an `image-set()` the message says the build
-counts the source as 2x and names the width it needs. Pseudo-elements are not checked.
+counts the source as 2x and names the width it needs. `::before` and `::after` are checked at
+their computed size (when they are drawn: `content` set, a size in px).
 
 **Planned in `temper-inspect`:** the same comparison at device scale factor 2 for pages without
 sinter.
