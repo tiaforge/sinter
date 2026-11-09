@@ -232,6 +232,8 @@ class Compiler {
   private at: Site | null = null;
   /** each compiled expression's site, by its code: a function made from it maps to where it was written */
   private readonly codeAt = new Map<string, Site>();
+  /** dev builds: the site of each function's latest `fn()` call (identical code, one entry: this use's own place) */
+  private readonly callAt = new Map<number, Site | null>();
   /** each `data-sn-for` template's site, by template id: its row lookups map there */
   private readonly templateAt = new Map<number, Site>();
   /** each state's `data-sn-state` and the site of each field, by state id: the early module's state functions */
@@ -882,7 +884,7 @@ class Compiler {
     const isTemplate = el.tagName === 'template';
     const valueB = (k: 'text' | 'show', name: string) => {
       const r = this.expr(el, name, scope, { mode: 'value' });
-      if (r.ok) node.b.push(binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
+      if (r.ok) node.b.push(this.binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
     };
 
     for (const n of ['for', 'if', 'else'] as const) {
@@ -895,7 +897,7 @@ class Compiler {
     // the morph across a navigation: the name is kept on the element, the transition feature uses it
     if (has('transition')) {
       const r = this.expr(el, 'data-sn-transition', scope, { mode: 'value' });
-      if (r.ok) { node.b.push(binding({ k: 'attr', n: 'data-sn-vt', f: this.fn(r.code), d: r.deps, ...usesEl(r) })); this.features.add('transition'); }
+      if (r.ok) { node.b.push(this.binding({ k: 'attr', n: 'data-sn-vt', f: this.fn(r.code), d: r.deps, ...usesEl(r) })); this.features.add('transition'); }
     }
     if (has('attr')) this.attrBinding(el, node, scope);
     if (has('class')) this.objectBinding(el, node, scope, 'class');
@@ -937,7 +939,7 @@ class Compiler {
       }
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'] });
       const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
-      if (r.ok) node.b.push(binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
+      if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
     }
 
     if (methods.length > 1) this.report(el, `data-sn-${methods[1]}`, 'SN102', 'an element can have only one method attribute', 0);
@@ -952,7 +954,7 @@ class Compiler {
     else if (isTemplate && has('if')) {
       const r = this.expr(el, 'data-sn-if', scope, { mode: 'value' });
       const tid = this.newTemplate();
-      const b = binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
+      const b = this.binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
       node.b.push(b);
       result = { node, binding: b };
       content = { tid, scope };
@@ -960,7 +962,7 @@ class Compiler {
       if (get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value', 0);
       if (!prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template', 0);
       const tid = this.newTemplate();
-      node.b.push(binding({ k: 'else', x: tid }));
+      node.b.push(this.binding({ k: 'else', x: tid }));
       if (prevIf) prevIf.binding.y = nodeIdx;
       content = { tid, scope };
     }
@@ -1080,7 +1082,38 @@ class Compiler {
       this.fnIndex.set(code, (i = this.fns.push(code) - 1));
       this.fnAt[i] = this.codeAt.get(code) ?? (site !== undefined ? site : this.at);
     }
+    if (this.opts.dev) this.callAt.set(i, site !== undefined ? site : this.at);
     return i;
+  }
+
+  /** `binding()`; in dev builds with where its functions were written (`at`) */
+  binding(b: Binding): Binding {
+    const out = binding(b);
+    if (this.opts.dev) this.devAt(out, [out.f, out.a]);
+    return out;
+  }
+
+  /**
+   * Dev builds: `o.at`, the place in the markup of each of the functions `fs` this object uses
+   * (`"file:line:col"` by function index), so the dev runtime can say which attribute threw although
+   * identical code shares one function. Read right after the functions are made: their latest use is this one.
+   */
+  devAtOf(fs: Array<number | null | undefined>): { at?: Record<number, string> } {
+    const o: { at?: Record<number, string> } = {};
+    this.devAt(o, fs);
+    return o;
+  }
+
+  devAt(o: { at?: Record<number, string> }, fs: Array<number | null | undefined>) {
+    if (!this.opts.dev) return;
+    const at: Record<number, string> = {};
+    for (const i of fs) {
+      const site = i == null ? null : this.callAt.get(i), o2 = site && this.origins.get(site.el);
+      if (!site || !o2 || !site.el.sourceCodeLocation || i! in at) continue;
+      const { line, col } = this.lineCol(o2.src, this.valueOffset(site.el, site.attr) + site.shift);
+      at[i!] = `${o2.file}:${line}:${col}`;
+    }
+    if (Object.keys(at).length) o.at = at;
   }
 
   /**
@@ -1266,8 +1299,8 @@ class Compiler {
           `write each image as a static \`<img src>\` (optimized at build time) and choose with \`data-sn-if\` or \`data-sn-show\`: \`<img src="${files[0]}" data-sn-show="…">\``);
       }
       const remote = key === 'src' ? this.remoteImage(el, e, r.entries.some((x) => x.key.toLowerCase() === 'srcset'), scope) : null;
-      node.b.push(binding({ k: 'attr', n: e.key, f: this.fn(remote ? remote.src : e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
-      if (remote) node.b.push(binding({ k: 'attr', n: 'srcset', f: this.fn(remote.srcset), d: e.deps, ...usesEl(r) }));
+      node.b.push(this.binding({ k: 'attr', n: e.key, f: this.fn(remote ? remote.src : e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
+      if (remote) node.b.push(this.binding({ k: 'attr', n: 'srcset', f: this.fn(remote.srcset), d: e.deps, ...usesEl(r) }));
     }
   }
 
@@ -1325,7 +1358,7 @@ class Compiler {
       }
       if (k === 'style' && !key.startsWith('--')) key = key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
       if (k === 'class' && attr(el, 'class') != null) node.cl = 1;
-      if (r.ok) node.b.push(binding({ k, n: key, f: this.fn(e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', entryValue(r, e), r) }));
+      if (r.ok) node.b.push(this.binding({ k, n: key, f: this.fn(e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', entryValue(r, e), r) }));
     }
   }
 
@@ -1387,7 +1420,7 @@ class Compiler {
     }
     const inner = r.code.slice('($) => ('.length, -1);
     const setter = this.fn(`($, v) => { ${inner} = v; }`);
-    const b = binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')], ...usesEl(r) });
+    const b = this.binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')], ...usesEl(r) });
     if (persist !== undefined) {
       b.p = persist;
       this.persisted.add(r.path.slice(0, 2).join('.'));
@@ -1468,8 +1501,9 @@ class Compiler {
       ...(ap ? { ap } : {}),
       ...(retryAttr && method !== 'call' && method !== 'get' ? { retry: retryAttr } : {}),
     };
+    this.devAt(def, [def.then, def.catch]);
     this.actions.push(def);
-    node.b.push(binding({ k: 'on', n: trigger, x: this.actions.length - 1 }));
+    node.b.push(this.binding({ k: 'on', n: trigger, x: this.actions.length - 1 }));
   }
 
   /**
@@ -1593,7 +1627,7 @@ class Compiler {
     }
     // a plain list path changes the rows only through its structure or replaced elements (`#`), not element fields
     const deps = alias && list.deps.length == 1 && list.deps[0] == list.path!.join('.') ? [list.deps[0] + '.#'] : list.deps;
-    node.b.push(binding({ k: 'for', f: this.fn(list.code), d: deps, x: tid, ...usesEl(list) }));
+    node.b.push(this.binding({ k: 'for', f: this.fn(list.code), d: deps, x: tid, ...usesEl(list) }));
     return { tid, scope: inner };
   }
 
@@ -1789,6 +1823,7 @@ class Compiler {
       }
     }
     this.resources.push({
+      ...(this.opts.dev && then ? this.devAtOf([then.f]) : {}),
       name, src, key: info.key, items: attr(el, 'items') ?? null, total: attr(el, 'total') ?? null,
       order: order ? order.trim() : null, when, paginate, deps: [...deps].sort(), scope: ctx.stateIdx, data: null,
       ...(cache !== undefined ? { cache } : {}),
@@ -1842,7 +1877,7 @@ class Compiler {
       }
       if (c.tagName !== 'sn-event') { this.report(c, null, 'SN102', '`<sn-sync>` may only contain `<sn-event>` elements', 0); continue; }
       const ev = this.event(c, ctx);
-      if (ev) events.push(ev);
+      if (ev) { this.devAt(ev, [ev.then]); events.push(ev); }
     }
     this.syncs.push({ src, events, ...(ctx.stateIdx >= 0 ? { scope: ctx.stateIdx } : {}) });
     this.features.add('sse');

@@ -2,6 +2,7 @@
 // "state changed outside sinter" detector. The compiler adds this module to
 // the page in dev mode only, so none of it ships to production.
 import type { App, Feature } from './runtime/app.js';
+import type { Binding } from './ir.js';
 import { config } from './runtime/config.js';
 
 /** Messages for the core's warning codes; `%` takes the next argument. */
@@ -11,10 +12,10 @@ const MESSAGES: Record<number, string> = {
   3: '`data-sn="%"` is on <%>, expected <%>; not bound',
   4: 'embedded data for `%` must be a <script> in <head>; ignored',
   5: 'embedded data for `%` is not valid JSON; ignored',
-  6: 'binding `%` on <%> threw: %',
+  6: 'binding `%` on <%>% threw: %',
   7: 'refused URL in `%` on <%>: %',
   8: 'refused style value for `%`: %',
-  9: 'model on <%> could not be set: %',
+  9: 'model on <%>% could not be set: %',
   10: 'a `data-sn-for` over primitive values needs `data-sn-key`',
   11: 'duplicate key in `data-sn-for`: %',
   12: 'resource `%`: `items` path `%` is not an array',
@@ -57,12 +58,32 @@ function deepFreeze<T>(v: T): T {
   return v;
 }
 
+/** Where function `f` was written, when one place in the IR uses it (a resource's or a stream event's `then`). */
+function onlyAt(app: App, f: number): string | undefined {
+  const owners = [...app.ir.resources, ...(app.ir.syncs ?? []).flatMap((s) => s.events)].filter((o) => o.at?.[f]);
+  return owners.length == 1 ? owners[0]!.at![f] : undefined;
+}
+
 const dev: Feature = {
   name: 'dev',
   install(app: App) {
     const seen = new Set<string>();
     app.dev = true;
     app.warn = (code, ...args) => {
+      // a throwing expression: the core passes what threw; the message names its place in the markup and
+      // the error follows (its stack, through the page module's source map, points at the expression too)
+      if (code == 6 || code == 9 || code == 24) {
+        const [o, el, e] = code == 24 ? [args[0], null, args[2]] : args as [Binding, Element, unknown];
+        const f = code == 24 ? (args[1] as number) : code == 6 ? (o as Binding).f! : (o as Binding).a!;
+        // an action's `then` and `catch` run for its trigger binding (`x`: the action)
+        const b = o as (Binding & { at?: Record<number, string> }) | undefined;
+        const at = b?.at?.[f] ?? (b?.k == 'on' && b.x != null ? app.ir.actions[b.x]?.at?.[f] : undefined) ?? onlyAt(app, f);
+        const where = at ? ` at ${at}` : '';
+        const message = (e as Error)?.message ?? String(e);
+        args = code == 24 ? [where, message, e] : [...(code == 6 ? [(o as Binding).k] : []), el!.localName, where, message, e];
+        // each failed run of a handler is reported, as the core reports it without the dev module
+        if (code == 24) return console.error(`sinter: handler${where} threw: ${message}`, e), true;
+      }
       let i = 0;
       const text = typeof code == 'string' ? code : MESSAGES[code]!.replace(/%/g, () => String(args[i++]).replace(/\x1f/g, ','));
       const msg = `sinter: ${text}`;

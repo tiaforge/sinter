@@ -21,6 +21,8 @@ export interface Paginate {
 }
 
 export interface ResourceDef {
+  /** dev builds: where each function it uses was written in the markup (`"file:line:col"`, by function index) */
+  at?: Record<number, string>;
   name: string;
   src: UrlTemplate;
   /** key fields; null for a single-object resource */
@@ -56,6 +58,8 @@ export interface ResourceDef {
 }
 
 export interface EventDef {
+  /** dev builds: where each function it uses was written in the markup (`"file:line:col"`, by function index) */
+  at?: Record<number, string>;
   name: string;
   // absent fields (in the page module: `compactIR`) are null
   /** null for an event that only runs `then` */
@@ -82,6 +86,8 @@ export type BindingKind =
   | 'for' | 'if' | 'else' | 'on';
 
 export interface Binding {
+  /** dev builds: where each function it uses was written in the markup (`"file:line:col"`, by function index) */
+  at?: Record<number, string>;
   k: BindingKind;
   /** value / handler function index */
   f?: number;
@@ -179,6 +185,8 @@ export interface CallDef {
 }
 
 export interface ActionDef {
+  /** dev builds: where each function it uses was written in the markup (`"file:line:col"`, by function index) */
+  at?: Record<number, string>;
   /** `CALL`: `data-sn-call`, with `call` set and an empty `url` */
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'CALL';
   url: UrlTemplate;

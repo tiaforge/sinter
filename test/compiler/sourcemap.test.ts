@@ -97,3 +97,21 @@ describe('source maps', () => {
     expect(origin(early.early!, early.earlyMap!, '"n": (', '"n": (')).toEqual({ file: '/p/page.html', line: 1, col: 23 });
   });
 });
+
+describe('places for the dev runtime', () => {
+  const page = '<div data-sn-state="{ a: 1 }">\n  <p data-sn-text="a"></p>\n  <i data-sn-text="a"></i>\n  <button data-sn-on-click="a++">+</button></div>';
+
+  test('dev builds: each binding names its own attribute, although identical code is one function', () => {
+    const r = compile(page, opts({ sourcemap: false }));
+    const ir = JSON.parse(/^const ir = (.*);$/m.exec(r.module)![1]!);
+    const at = ir.roots.flatMap((n: { b: Array<{ at?: object }> }) => n.b.map((b) => b.at));
+    const f = ir.roots[1].b[0].f;
+    expect(ir.roots[2].b[0].f).toBe(f);
+    expect(at).toEqual([{ [f]: '/p/page.html:2:20' }, { [f]: '/p/page.html:3:20' }, { [ir.roots[3].b[0].f]: '/p/page.html:4:29' }]);
+  });
+
+  test('production builds carry none of it', () => {
+    const prod = compile(page, opts({ dev: false, sourcemap: false }));
+    expect(prod.module).not.toMatch(/"at":|"src":"\/p/);
+  });
+});
