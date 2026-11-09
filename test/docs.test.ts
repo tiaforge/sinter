@@ -19,6 +19,7 @@ const RECIPES: Array<[string, string, string[]?]> = [
   ['field-errors', 'Server validation errors on the fields'],
   ['sse-sync', 'SSE sync'],
   ['optimistic-toggle', 'Optimistic toggle'],
+  ['offline-draft', 'Offline drafts: sent again once the connection is back'],
   ['pagination', 'Pagination'],
   ['signalr', 'SignalR (or another transport) for <sn-sync>', ['signalr-transport.js']],
   ['typed', 'Typed resources, state and events', ['typed.types.ts']],
@@ -81,6 +82,10 @@ ${STORE_FNS.map((f) => `\`${f}()\``).join(', ')}: \`refresh('name')\` (or severa
 ## Write-through
 
 A mutation's 2xx response is applied to the store by itself, before \`then\` runs (the \`apply\` module, loaded when a page has something to apply). With an OpenAPI spec: an object of a named schema in the response (\`{article: Article}\`) patches the same-key item in every list of that schema and what the URL named (\`{article.slug}\` names the single \`article\`; \`{article.author.username}\` also names \`article.author\`, a Profile); a POST to exactly a list's current URL inserts the created item (the response's, else body + returned key, else a refetch; a filtered or paginated list is never inserted into); a PUT/PATCH body patches the entity the URL named. Without a spec: a DELETE of a row's URL (the list's URL plus one segment, from \`c.id\` with \`c in comments\`) removes the row, and a PUT/PATCH body patches the row when its keys are fields of the row. Patches merge and skip unchanged fields; \`then\` writes land on top. So \`data-sn-then="patch('articles', a, $result.article)"\`, \`upsert('comments', $result.comment)\` and \`remove('comments', c)\` are not written (SN510 says so); \`data-sn-optimistic\` is still how a change shows before the answer. \`data-sn-apply="off"\` turns it off for one element.
+
+## Retries
+
+Nothing is sent again unless a retry policy says so. Policies are named in the config module: \`import { retry } from '@tiaforge-ui/sinter/retry'; configure({ sessionProbe: '/api/user', retry: retry({ policies: { drafts: { backoff: ['1s', '30s'] }, network: { backoff: ['1s', '10s'], retries: 3 } }, get: 'network' }) })\` (fields: \`backoff: [first, longest]\`, \`retries\`, \`maxAge\`, \`key\`: the header, default \`Idempotency-Key\`, or \`false\`). A write opts in on its element: \`data-sn-retry="drafts"\` (mutations only; writes have no default). \`get\` is the policy of every GET except background refreshes. A network error waits, then the session probe decides (2xx: send again, 401: lost to the login redirect); a 5xx is a failed try; a 429 or 503 waits for \`Retry-After\` and fails at once when that is after the policy's last try; a retried DELETE that gets 404 succeeded; other 4xx fail at once. Each trigger sends one idempotency key on every try. A server that ignores the key may create a duplicate from a retried POST: create with a client id (\`PUT /api/notes/{uuid}\`). While a write waits, its element keeps \`aria-busy\` (show "not saved" with \`body:has(form[aria-busy])\`), its optimistic change stays, \`latest\` replaces it with a newer trigger (use it for drafts: \`block\` keeps a form disabled), and leaving the page asks first (not on iOS).
 
 ## Diagnostics
 

@@ -165,7 +165,7 @@ const ATTRS = ATTRIBUTES.map((a) => a.name);
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 /** an action's expressions evaluated when it triggers, so they see `$event` */
 const TRIGGER_TIME = new Set(['data-sn-get', 'data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
-const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'apply'];
+const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'apply', 'retry'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
 const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs;
@@ -1352,6 +1352,11 @@ class Compiler {
     const applyAttr = get('apply');
     if (applyAttr !== undefined && applyAttr.trim() !== 'off') this.report(el, 'data-sn-apply', 'SN401', '`data-sn-apply` takes `off`; write-through is on without the attribute', 0);
     if (applyAttr !== undefined && (method === 'call' || method === 'get')) this.report(el, 'data-sn-apply', 'SN102', '`data-sn-apply` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): a GET or a call has no write-through', 0);
+    const retryAttr = get('retry')?.trim();
+    if (retryAttr === '') this.report(el, 'data-sn-retry', 'SN401', '`data-sn-retry` takes the name of a retry policy from `configure({ retry })`, e.g. `data-sn-retry="drafts"`', 0);
+    else if (retryAttr !== undefined && (method === 'call' || method === 'get')) this.report(el, 'data-sn-retry', 'SN102', method === 'get'
+      ? '`data-sn-retry` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): GETs use the policy `retry.get` names'
+      : '`data-sn-retry` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): a call may send several requests, so sinter cannot send it again', 0);
     const ap = method !== 'call' && method !== 'get' && applyAttr === undefined ? this.applyDef(reads, typed) : null;
     if (ap) {
       this.features.add('apply');
@@ -1376,6 +1381,7 @@ class Compiler {
       ...(confirm.f !== null ? { confirm: confirm.f } : {}),
       ...(encoding === 'form' ? { enc: 'form' as const } : {}),
       ...(ap ? { ap } : {}),
+      ...(retryAttr && method !== 'call' && method !== 'get' ? { retry: retryAttr } : {}),
     };
     this.actions.push(def);
     node.b.push(binding({ k: 'on', n: trigger, x: this.actions.length - 1 }));

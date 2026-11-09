@@ -44,6 +44,7 @@
     "./apply": "./dist/apply.js",
     "./cache": "./dist/cache.js",
     "./refresh": "./dist/refresh.js",
+    "./retry": "./dist/retry.js",
     "./versions": "./dist/versions.js",
     "./prefetch": "./dist/prefetch.js",
     "./fields": "./dist/fields.js",

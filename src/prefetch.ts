@@ -100,7 +100,7 @@ export function prefetch(pages: PrefetchPage[]): Feature {
           busy.add(key);
           const w = app.req.writes;
           let req = sent.get(url);
-          if (!req) sent.set(url, req = app.req.send(url, { priority: 'low', headers: { [PREFETCH_MARK]: '1' } }));
+          if (!req) sent.set(url, req = app.req.send(url, { priority: 'low', retry: false, headers: { [PREFETCH_MARK]: '1' } }));
           req.then((body) => {
             // a mutation ran meanwhile: the response may predate it
             if (app.req.writing || app.req.writes != w) return;

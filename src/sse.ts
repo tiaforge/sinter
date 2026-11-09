@@ -100,7 +100,7 @@ class Connection {
     if (!config.sessionProbe) { this.wait(() => this.open()); return; }
     let status: number;
     try {
-      status = (await this.app.req.raw(config.sessionProbe)).status;
+      status = (await this.app.req.raw(config.sessionProbe, { retry: false })).status;
     } catch (e) {
       status = e instanceof SinterError ? e.status ?? 0 : 0;
     }

@@ -103,10 +103,13 @@ export interface ResourceLoader {
   settle(ok: boolean): void;
   /** for feature modules: the scope `src` and `when` are evaluated in */
   scope(): any;
-  /** a shared GET's body (concurrent loads of one URL share one request); a feature module may replace it, and return UNCHANGED */
-  get(url: string, signal: AbortSignal, lo?: 1): Promise<unknown>;
+  /**
+   * a shared GET's body (concurrent loads of one URL share one request); a feature module may replace it, and return UNCHANGED.
+   * `lo`: flags, 1: low priority (a resource only dialogs read), 2: a background load (no retry policy: `refresh` retries by itself)
+   */
+  get(url: string, signal: AbortSignal, lo?: number): Promise<unknown>;
   /** for feature modules: the shared GET's response, before its body is read */
-  got(url: string, signal: AbortSignal, lo?: 1): Promise<Got>;
+  got(url: string, signal: AbortSignal, lo?: number): Promise<Got>;
   /** for feature modules: the collection items of a response body (`items` path, checked, cleaned) */
   items(body: unknown): any[];
   /** for feature modules: a failed load: `$meta.error`, then the unhandled-error path (`quiet`: only if it was not failing already) */
@@ -254,6 +257,8 @@ interface ActState {
   q: Array<() => void>;
   w: { run: () => void; drop: () => void } | null;
   c: AbortController | null;
+  /** the running write's retry: aborted when a newer `latest` trigger replaces it while it waits */
+  r: AbortController | null;
   t: unknown;
   off: HTMLInputElement[] | null;
 }
@@ -1173,7 +1178,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   function act(el: Element): ActState {
-    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, c: null, t: null, off: null });
+    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, c: null, r: null, t: null, off: null });
     return acts.get(el)!;
   }
 
@@ -1211,7 +1216,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     const run = () => void send(rb, a, st, url, body, drop);
     if (!st.n) run();
-    else if (a.concurrency == 'latest') { st.w ? st.w.drop() : app.busy++; st.w = { run, drop }; }
+    else if (a.concurrency == 'latest') { st.w ? st.w.drop() : app.busy++; st.w = { run, drop }; st.r?.abort(); }
     else { app.busy++; st.q.push(run); }
     }
   }
@@ -1232,7 +1237,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     try {
       const result = a.call
         ? await invoke(a.call.run, body, { signal: hide.signal, request: (u: string, i?: SendInit) => req.send(u, i), el })
-        : await req.send(url, { method: a.method, body, signal: c?.signal });
+        : await req.send(url, { method: a.method, body, signal: c?.signal, ...(a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : {}) });
       // a superseded GET's change is rolled back; a success keeps it, under what `then` writes
       if (c && st.c != c) return drop();
       drop(true);
@@ -1248,6 +1253,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null);
     } finally {
       if (c && st.c == c) st.c = null;
+      st.r = null;
       if (!--st.n) {
         for (const x of st.off ?? []) x.disabled = false;
         st.off = null;
@@ -1388,7 +1394,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           const req = withParams(url, m ? l.pager!.params(m) : null);
           const body = def.call
             ? await invoke(def.call.run, args, { signal: ctl.signal, request: (u: string, i?: SendInit) => app.req.send(u, i), el: null })
-            : await l.get(req, ctl.signal, def.lo);
+            : await l.get(req, ctl.signal, (def.lo ?? 0) | (quiet ? 2 : 0));
           if (n != seq) return;
           // UNCHANGED (the versions module): nothing to store; `then` still runs, with what that data's load stored
           loaded = body !== UNCHANGED;
@@ -1425,10 +1431,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * priority (a resource only dialogs read). Each waiter sees the response and reads the body only
    * if it needs it (parsed once; a non-2xx status rejects there).
    */
-  function loadShared(url: string, signal: AbortSignal, lo?: 1): Promise<Got> {
+  function loadShared(url: string, signal: AbortSignal, lo = 0): Promise<Got> {
     let e = shared.get(url);
     if (!e) {
-      const c = new AbortController(), entry = { n: 0, c, p: req.raw(url, { signal: c.signal, ...(lo ? { priority: 'low' as const } : {}) }).then(gotOf) };
+      const c = new AbortController(), entry = { n: 0, c, p: req.raw(url, { signal: c.signal, ...(lo & 1 ? { priority: 'low' as const } : {}), ...(lo & 2 ? { retry: false as const } : {}) }).then(gotOf) };
       entry.p.catch(() => {}).finally(() => shared.get(url) == entry && shared.delete(url));
       shared.set(url, (e = entry));
     }

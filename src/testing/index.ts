@@ -247,7 +247,7 @@ export interface Rendered {
   /** hides or shows the page (a background tab), then dispatches `visibilitychange` */
   visibility(state: 'hidden' | 'visible'): Promise<void>;
   /** dispatches a window event to sinter; `props` are set on the event (`pageswap`/`pagereveal`: `viewTransition`, `activation`) */
-  window(type: 'pagehide' | 'pageshow' | 'popstate' | 'online' | 'pageswap' | 'pagereveal', props?: Record<string, unknown>): Promise<void>;
+  window(type: 'pagehide' | 'pageshow' | 'popstate' | 'online' | 'beforeunload' | 'pageswap' | 'pagereveal', props?: Record<string, unknown>): Promise<void>;
 }
 
 interface Timer { id: number; at: number; fn: () => void; kind: string }
@@ -484,7 +484,8 @@ export async function render(html: string, options: RenderOptions = {}): Promise
       if (requests && requests.pending) { await requests.deliver(); continue; }
       const debounce = timers.filter((t) => t.kind === 'debounce').sort((a, b) => a.at - b.at)[0];
       if (debounce) { runDue(debounce.at, new Set(['debounce'])); continue; }
-      if (app.req.inflight > 0 || app.busy > 0 || app.isDirty) continue;
+      // a request waiting between retries runs again only when the clock moves (advance)
+      if (app.req.inflight > app.req.waiting || app.busy > 0 || app.isDirty) continue;
       await flush();
       return;
     }
@@ -515,7 +516,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     window: async (type, props) => {
       const e = new Event(type);
       if (type === 'pageshow') Object.defineProperty(e, 'persisted', { value: true });
-      for (const [k, v] of Object.entries(props ?? {})) Object.defineProperty(e, k, { value: v });
+      for (const [k, v] of Object.entries(props ?? {})) Object.defineProperty(e, k, { value: v, writable: true });
       for (const fn of winListeners.get(type) ?? []) fn(e);
       await flush();
     },

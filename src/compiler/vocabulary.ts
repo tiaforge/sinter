@@ -36,6 +36,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'catch', value: 'handler expression', doc: 'runs after an error; $error = {status, body, message, detail}. A form without it shows a 4xx `{errors: {name: message}}` on its fields (aria-invalid and the message); its markup reads the failure as `$error`' },
   { name: 'confirm', value: 'value expression', doc: 'asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy' },
   { name: 'encoding', value: 'json | form', doc: 'form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded' },
+  { name: 'retry', value: 'retry policy name', doc: 'mutations only: sends the request again as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once' },
   { name: 'apply', value: 'off', doc: 'turns write-through off for this mutation: its response is not applied to the resources it is about' },
   { name: 'path', value: 'URL patterns /a/:b …', doc: 'on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url' },
   { name: 'data', value: 'resource name', doc: 'on <script type="application/json"> in <head>: initial data for a resource' },

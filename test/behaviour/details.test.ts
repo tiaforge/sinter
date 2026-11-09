@@ -85,12 +85,18 @@ function fakeEnv(fetch: Env['fetch']) {
   return { env, timers };
 }
 
-test('request layer: one retry for idempotent requests on network errors only', async () => {
+test('request layer: nothing is sent again without a retry policy', async () => {
   let n = 0;
   const { env } = fakeEnv(async () => { if (n++ === 0) throw new TypeError('net'); return new Response('{"ok":1}', { headers: { 'Content-Type': 'application/json' } }); });
   const layer = createRequestLayer(env, []);
-  expect(await layer.send('/x')).toEqual({ ok: 1 });
-  expect(n).toBe(2);
+  const e1: SinterError = await layer.send('/x').catch((e: SinterError) => e) as SinterError;
+  expect([e1.status, n]).toEqual([0, 1]);
+  for (const method of ['PUT', 'DELETE']) {
+    n = 0;
+    const once = createRequestLayer(fakeEnv(async () => { n++; throw new TypeError('net'); }).env, []);
+    await once.send('/x', { method }).catch(() => {});
+    expect(n).toBe(1);
+  }
 
   n = 0;
   const post = createRequestLayer(fakeEnv(async () => { n++; throw new TypeError('net'); }).env, []);

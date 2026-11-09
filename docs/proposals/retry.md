@@ -1,6 +1,6 @@
 # Proposal: retry policies
 
-Status: draft for review, 2026-11-09. Target: the groupware app (drafts, notes, events), where a write
+Status: accepted and implemented, 2026-11-09 (spec: Retry policies, under Actions). The open questions below were decided as recommended: background refreshes skip `retry.get`, unknown policy names are found at runtime (a dev warning at mount, the action fails), and leaving the page asks only while a write waits for a retry. Target: the groupware app (drafts, notes, events), where a write
 made while the connection is down must not get lost and the user must know before leaving the page.
 
 ## Summary
