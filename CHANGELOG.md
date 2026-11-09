@@ -7,6 +7,19 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Early requests to other origins: resources whose `src` names an origin listed in the new
+  `sinter({ origins: [...] })` (the build's copy of `configure({ origins })`) are preloaded or
+  requested before the page module like same-origin ones, without credentials. The build names the
+  origins it left to the page module.
+- A page with early requests loads its early file `async` before the stylesheets, so its requests
+  leave while they load, and renders it from a small render-blocking stub
+  (`assets/<page>-render-<hash>.js`). Pages without early requests and `vite dev` are unchanged.
+- `<sn-resource early="off">`: no preload and no early request for that resource (one a request
+  middleware answers itself or adds a header to).
+- Google Fonts inlined at build time (on by default; `sinter({ fonts: { inline: false } })`): a
+  `fonts.googleapis.com` stylesheet link becomes one of the app's CSS files, with a preconnect to the
+  font files' origin. Same fonts and look; cached in `node_modules/.cache/sinter/fonts`, an offline
+  build keeps the link and warns.
 - Image sizes: a percentage of a parent with padding or borders resolves to its content box (with
   `box-sizing: border-box`, the width less padding and borders), from longhands, logical
   properties and shorthands: an `<img>` at `width: 100%` in a 300 px card with `padding: 16px` is a

@@ -37,20 +37,38 @@ export type EarlyPage = () => { ir: EarlyIR; fns: Fn[] };
  * rendering until it has run; a language file the picker added holds the paint until it is there).
  */
 export function start(page: EarlyPage | null, messages: { use(): void; ready(): Promise<void> } | null, req: EarlyRequests | null = null, doc: Document = document): void {
-  const m = meeting();
-  m.started = true;
+  prime(page, messages, req, doc)();
+}
+
+/**
+ * Starts the page's early requests at once and returns the render step. A page with early requests
+ * loads its early file twice from one URL (the browser runs a module once): `async` before the
+ * stylesheets, so the requests leave while they load (a deferred script waits for every
+ * stylesheet), and as the render-blocking deferred stub that imports it and calls the render step
+ * after the parse. Without early requests, `start` does both at once in the deferred file.
+ */
+export function prime(page: EarlyPage | null, messages: { use(): void; ready(): Promise<void> } | null, req: EarlyRequests | null = null, doc: Document = document): () => void {
   messages?.use();
-  const fail = (e: unknown) => { setTimeout(() => { throw e; }); };
   let p: ReturnType<typeof prepare> | null = null;
   // the requests need no DOM: they start before anything waits
   try { if (page) (p = prepare(page(), req)).fetch(); } catch (e) { fail(e); }
-  void (async () => {
-    await messages?.ready();
-    // a failure is reported, and the page module mounts all the same
-    try { p?.render(doc); } catch (e) { fail(e); }
-    m.finish();
-  })();
+  let ran = false;
+  return () => {
+    if (ran) return;
+    ran = true;
+    // started only now: a render stub that failed to load leaves the page module to mount by itself
+    const m = meeting();
+    m.started = true;
+    void (async () => {
+      await messages?.ready();
+      // a failure is reported, and the page module mounts all the same
+      try { p?.render(doc); } catch (e) { fail(e); }
+      m.finish();
+    })();
+  };
 }
+
+const fail = (e: unknown) => { setTimeout(() => { throw e; }); };
 
 /**
  * The early requests: the compiler has the early file import this only when the page has resources
@@ -78,7 +96,8 @@ export function requests(): EarlyRequests {
           const s = r.scope < 0 ? base : scopes[r.scope];
           if (r.when != null && !fns[r.when]!(s)) continue;
           const u = new URL(expand(r.src, s, fns), here);
-          if (u.origin == new URL(here).origin) (prefetched() ?? own(pending(env))).add(u.href, r.lo);
+          // another origin only when the build found it in `sinter({ origins })` (`xo`)
+          if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env))).add(u.href, r.lo);
         } catch { /* not known early: the page module requests it */ }
       }
     },

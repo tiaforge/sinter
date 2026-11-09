@@ -27,6 +27,9 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   if (parts.images) out.images = parts.images;
   if (parts.remoteWidths) out.remoteWidths = parts.remoteWidths;
   if (parts.early !== undefined) out.early = earlyModule(parts.early, options);
+  if (parts.unlistedOrigins) out.unlistedOrigins = parts.unlistedOrigins;
+  // a build splits the early file of a page with early requests: loaded `async` first, rendered by a stub (see `prime`)
+  if (options.splitEarly && out.early && parts.early?.ir.res?.length) { out.early = earlyModule(parts.early, options, true); out.earlySplit = true; }
   const ns = Object.entries(options.helpers.namespaces).find(([, v]) => v.module === MESSAGES)?.[0];
   if (ns) out.messages = parts.namespaces[ns] ?? [];
   return out;
@@ -38,13 +41,13 @@ export function compile(html: string, options: CompileOptions): CompileResult {
  * (with the built-in messages' locale source and wait, if the app has them). Null when there is
  * neither.
  */
-export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early'>): string | null {
+export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early'>, split = false): string | null {
   const app = options.early?.module ?? null;
   if (!early && !app) return null;
   const lines: string[] = [];
   if (app) lines.push(`import ${JSON.stringify(app)};`);
   const req = !!early?.ir.res?.length;
-  lines.push(`import { start${early ? ', $k' : ''}${req ? ', requests' : ''} } from '${PACKAGE}/early';`);
+  lines.push(`import { ${split ? 'prime' : 'start'}${early ? ', $k' : ''}${req ? ', requests' : ''} } from '${PACKAGE}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
   if (early) {
@@ -75,7 +78,9 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
     for (const f of early.fns) lines.push(`    ${f},`);
     lines.push('  ];', '  return { ir, fns };', '};');
   }
-  lines.push(`start(${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? ', requests()' : ''});`);
+  const args = `${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? ', requests()' : ''}`;
+  // split: the requests start when the file runs (`async`, before the stylesheets); the stub calls `render` after the parse
+  lines.push(split ? `export const render = prime(${args});` : `start(${args});`);
   return lines.join('\n') + '\n';
 }
 

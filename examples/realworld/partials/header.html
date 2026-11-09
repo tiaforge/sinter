@@ -1,6 +1,8 @@
 <!-- Navbar. Declares the `user` resource; expects state variables `nav` (the active link) and `guest`
      (signed out: `signedOut()` at first, then whether the server knows the user). -->
-<sn-resource cache name="user" src="https://api.realworld.show/api/user" items="user" then="guest = !$result"></sn-resource>
+<!-- early="off": the auth middleware answers this request without a token, and adds one otherwise:
+     a request sent before the page module would go unused -->
+<sn-resource cache name="user" src="https://api.realworld.show/api/user" items="user" then="guest = !$result" early="off"></sn-resource>
 <nav class="navbar navbar-light">
   <div class="container">
     <a class="navbar-brand" href="/">conduit</a>

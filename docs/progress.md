@@ -274,6 +274,19 @@ built, what deviates, and what is left.
   default (no server setup), the build adds the hash to a CSP `<meta>` (works, tested), a header CSP needs
   `'inline-speculation-rules'`; dev warns (code 22, buffered `ReportingObserver`: tested, it gets the report from before mount).
   `delivery: 'header'` stays the opt-in that no CSP blocks. `e2e/navigation` runs under a `script-src 'self'` `<meta>`.
+- 2026-11-09: data and fonts before the first paint, from Lighthouse on RealWorld (bench/realworld/lighthouse.mjs). The early
+  requests waited for the stylesheets (the early file is deferred) and skipped other origins; the article title (the LCP)
+  needs its data and its font. A/B, mobile, median of 5 (LCP): base 3.0 s, Google Fonts inlined 2.8 s, early requests from an
+  `async` file 2.8 s, both 2.3 s; desktop unchanged (1.0–1.1 s). Decided: (1) a page with early requests splits its early file:
+  loaded `async` before the stylesheets (starts the requests), rendered by a ~60-byte render-blocking stub that imports it (one
+  module per URL), instead of the prototype's second, near-duplicate requests file (3.2 kB gzip a page); one script cannot do
+  both (an async render-blocking module that awaits the parse does not hold the paint, see Messages). (2) Other origins
+  requested early only when listed in `sinter({ origins })` (the build's copy of `configure({ origins })`), on by default for
+  those. (3) `<sn-resource early="off">` for a resource a middleware answers or changes (RealWorld's `user` logged a 401 from
+  its preload). (4) Google Fonts inlined by default (the Angular CLI does; its RealWorld demo has the preconnect), cached in
+  `node_modules/.cache/sinter/fonts`. Not done: other third-party CSS (the app's call), `font-display` (a visual choice),
+  non-blocking CSS (the build cannot know what affects layout). The RealWorld article page's budget: 26 KB (its early file
+  now carries the request code). Tested in Chromium under a `script-src 'self'` header CSP: no violations.
 
 ## Decisions and deviations
 

@@ -20,6 +20,7 @@ import { resolveRemote, type RemoteImages } from './remote.js';
 import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { ImageHost, ImageVariant, PrefetchParts, StyleSheet } from './compiler/index.js';
 import { pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
+import { fontDownloader, inlineFonts } from './fonts-build.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -65,9 +66,27 @@ export interface SinterOptions extends ProjectOptions {
    * that page's data is requested, and the page shows it at once (then revalidates). `false`: off.
    */
   prefetch?: boolean;
+  /**
+   * Other origins the app's resources may load from, as `configure({ origins })` lists them for the
+   * runtime: their resources with a literal `src` are preloaded or requested before the page module,
+   * like same-origin ones (without credentials, as the request layer sends them). A resource on an
+   * origin not listed waits for the page module; the build names them. `<sn-resource early="off">`
+   * keeps one resource out (one a request middleware answers or adds a header to).
+   */
+  origins?: string[];
+  /**
+   * Google Fonts (default `{ inline: true }`, builds only): a page's `<link rel="stylesheet"
+   * href="https://fonts.googleapis.com/…">` is downloaded at build time and bundled as one of the app's
+   * own CSS assets (a file, not an inline style: no CSP change), and the page preconnects to the
+   * origin of its font files. The fonts, their `font-display` and the look stay as they are: one
+   * render-blocking request to another origin less, and the font files' connection is open when they
+   * are requested (as the Angular CLI does). Downloads are cached in `node_modules/.cache/sinter/fonts`;
+   * a build that cannot download one keeps the link and warns. `{ inline: false }`: off.
+   */
+  fonts?: { inline?: boolean };
 }
 
-type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin];
+type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin, Plugin];
 
 /** a base Vite resolves per file (`./`, ''): its URLs are relative to the page or stylesheet */
 const relativeBase = (base: string) => base === '' || base.startsWith('.');
@@ -100,7 +119,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let holdFile = '';
   /** build: the pages with an early module, and each one's bundled early file */
   const earlyPages = new Map<string, string>();
-  const earlyFiles = new Map<string, { fileName: string; code: string; modules: Record<string, { renderedLength: number }> }>();
+  /** pages whose early file is split (it has early requests): loaded `async` first, rendered by a stub */
+  const splitPages = new Set<string>();
+  /** origins of resources that could have been requested early, not listed in `origins` (reported once per build) */
+  const unlisted = new Set<string>();
+  const earlyFiles = new Map<string, { fileName: string; code: string; modules: Record<string, { renderedLength: number }>; stub?: string }>();
   const budget = options.earlyBudget ?? 10_000;
   /** built-in messages: keys each module calls (`m.key`), keys each page's markup calls, and each page's language files */
   const moduleMessages = new Map<string, string[]>();
@@ -250,6 +273,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
+      ...(firstPaint && options.origins?.length ? { origins: options.origins } : {}),
+      ...(firstPaint && !dev ? { splitEarly: true } : {}),
     });
     if (out.early) modules.set(`${EARLY}${rel}.js`, out.early);
     if (out.module.includes(`/transition';`)) holdPages.add(rel); else holdPages.delete(rel);
@@ -304,6 +329,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     /** build: the pages that have something to run early (bundled into one file each in generateBundle) */
     buildStart(input) {
       earlyPages.clear();
+      splitPages.clear();
+      unlisted.clear();
       earlyFiles.clear();
       languageFiles.clear();
       described.clear();
@@ -327,6 +354,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         try {
           const { out } = build(readFileSync(file, 'utf8'), file, null);
           if (out.early && firstPaint) earlyPages.set(relOf(file), out.early);
+          if (out.earlySplit) splitPages.add(relOf(file));
+          for (const o of out.unlistedOrigins ?? []) unlisted.add(o);
         } catch { /* reported when the page itself is compiled */ }
       }
     },
@@ -366,6 +395,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
             // deprecates `inlineDynamicImports`), Vite 6 and 7 with Rollup, which knows only the latter.
             [rolldown ? 'rolldownOptions' : 'rollupOptions']: {
               input: ENTRY,
+              // a split early file exports `render` for its stub (an app build drops entry exports by default)
+              preserveEntrySignatures: 'strict',
               output: rolldown ? { format: 'es', codeSplitting: false } : { format: 'es', inlineDynamicImports: true },
             },
           },
@@ -378,8 +409,16 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
         const fileName = `${r.build.assetsDir}/${name}-early-${createHash('sha256').update(chunk.code!).digest('base64url').slice(0, 8)}.js`;
         this.emitFile({ type: 'asset', fileName, source: chunk.code! });
-        earlyFiles.set(rel, { fileName, code: chunk.code!, modules: chunk.modules ?? {} });
+        // split: the render-blocking stub imports the early file (one module: the `async` tag already runs it) and renders
+        let stub: string | undefined;
+        if (splitPages.has(rel)) {
+          const source = `import{render}from"./${fileName.slice(fileName.lastIndexOf('/') + 1)}";render();\n`;
+          stub = `${r.build.assetsDir}/${name}-render-${createHash('sha256').update(source).digest('base64url').slice(0, 8)}.js`;
+          this.emitFile({ type: 'asset', fileName: stub, source });
+        }
+        earlyFiles.set(rel, { fileName, code: chunk.code!, modules: chunk.modules ?? {}, ...(stub ? { stub } : {}) });
       }
+      if (unlisted.size) resolved?.logger.info(`sinter: resources on ${[...unlisted].join(', ')} are requested when the page module runs; list ${unlisted.size > 1 ? 'these origins' : 'the origin'} in sinter({ origins: [...] }) (as in configure({ origins })) to request them before it`);
       // Speculation Rules for a response header: one file at the site root, under a fixed name
       const rules = spec()?.delivery === 'header' ? rulesJson() : null;
       rulesWritten = !!rules;
@@ -615,11 +654,18 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // it (or, without messages, the paint script) also holds the first paint where `blocking` is not supported
         if (langs) tags.push(pickerTag(base + pickerFile, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName])), !!early));
         else if (early) tags.push(paintTag(base + paintFile));
-        if (early) tags.push(`<script type="module" crossorigin src="${attr(base + early.fileName)}" blocking="render"></script>`);
+        // a split early file renders from its stub, here; the file itself is loaded `async` before the stylesheets (below)
+        if (early) tags.push(`<script type="module" crossorigin src="${attr(base + (early.stub ?? early.fileName))}" blocking="render"></script>`);
         if (early || langs) report(rel, early ?? null, langs ?? null);
         const at = html.search(/<script type="module"|<link rel="modulepreload"/);
         const block = tags.join('\n    ');
-        return at >= 0 ? html.slice(0, at) + block + '\n    ' + html.slice(at) : html.replace('</head>', `    ${block}\n  </head>`);
+        html = at >= 0 ? html.slice(0, at) + block + '\n    ' + html.slice(at) : html.replace('</head>', `    ${block}\n  </head>`);
+        if (!early?.stub) return html;
+        // the split early file first in the head, before the stylesheets and the classic scripts that wait for them, so
+        // the parser creates it at once; `async`, so it runs (and starts the page's requests) as soon as it has loaded
+        const first = html.search(/<link\b[^>]*\brel=["']?stylesheet|<script\b/i);
+        const tag = `<script type="module" crossorigin src="${attr(base + early.fileName)}" async></script>`;
+        return first < 0 ? html.replace('</head>', `  ${tag}\n</head>`) : html.slice(0, first) + tag + '\n  ' + html.slice(first);
       },
     },
   };
@@ -638,5 +684,29 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (logger) logger.warn(msg); else console.warn(msg);
   }
 
-  return [main, post, cssImages];
+  // Google Fonts as the app's own CSS (`fonts`, on by default; see fonts-build.ts)
+  const fontSheets = new Map<string, string>();
+  let downloadFont: ((url: string) => Promise<string | null>) | null = null;
+  const fonts: Plugin = {
+    name: 'sinter:fonts',
+    enforce: 'pre',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'pre',
+      async handler(html) {
+        if (options.fonts?.inline === false) return html;
+        downloadFont ??= fontDownloader(resolve(root, 'node_modules/.cache/sinter/fonts'));
+        const out = await inlineFonts(html, downloadFont);
+        for (const [id, url] of out.ids) fontSheets.set(id, url);
+        for (const url of out.failed) resolved?.logger.warn(`sinter: could not download ${url}; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)`);
+        return out.html;
+      },
+    },
+    resolveId: (id) => (fontSheets.has(id) ? id : null),
+    async load(id) {
+      const url = fontSheets.get(id);
+      return url ? ((await downloadFont!(url)) ?? '') : null;
+    },
+  };
+  return [main, post, cssImages, fonts];
 }
