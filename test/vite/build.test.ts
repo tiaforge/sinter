@@ -64,6 +64,25 @@ test('`<html data-sn-prefetch="off">`: the page is in neither the next-page modu
   }
 });
 
+test('a page that uses data-sn-transition gets the hold script before its page module; others do not', async () => {
+  const page = join(root, 'index.html');
+  const original = readFileSync(page, 'utf8');
+  const plain = readFileSync(join(out, 'index.html'), 'utf8');
+  expect(plain).not.toContain('sinter-hold-');
+  writeFileSync(page, original.replace('<input data-sn-model="q">', '<input data-sn-model="q"><h2 data-sn-transition="\'people\'">People</h2>'));
+  try {
+    const dir = join(out, 'hold');
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+    const html = readFileSync(join(dir, 'index.html'), 'utf8');
+    const hold = html.search(/<script src="\/assets\/sinter-hold-[\w-]+\.js"><\/script>/), module = html.search(/<script type="module" crossorigin src="\/assets\/index-[\w-]+\.js" async>/);
+    expect(hold).toBeGreaterThan(0);
+    expect(hold).toBeLessThan(module);
+    expect(readdirSync(join(dir, 'assets')).some((f) => f.startsWith('sinter-hold-'))).toBe(true);
+  } finally {
+    writeFileSync(page, original);
+  }
+});
+
 test('Speculation Rules: every page gets them for the app\'s paths; `speculation: false` leaves them out', async () => {
   await run(out);
   const html = readFileSync(join(out, 'index.html'), 'utf8');

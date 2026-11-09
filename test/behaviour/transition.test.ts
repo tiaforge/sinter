@@ -33,8 +33,10 @@ test('the followed row\'s element and the next page\'s element of the same name 
   const out = transition();
   await fire(r, 'pageswap', { viewTransition: out.vt, activation: { entry: { url: 'http://localhost/article/two' }, navigationType: 'push' } });
   expect(imgs.map((i) => i.style.viewTransitionName)).toEqual(['', ident('article-two')]);
+  expect(imgs[1]!.style.getPropertyValue('view-transition-class')).toBe('sn-transition');
   await out.done();
   expect(imgs[1]!.style.viewTransitionName).toBe('');
+  expect(imgs[1]!.style.getPropertyValue('view-transition-class')).toBe('');
 
   const page = await render(DETAIL, { session, url: '/article/two', requests: mockRequests({ 'GET /api/articles/two': { article: { title: 'Two' } } }) });
   await page.settle();

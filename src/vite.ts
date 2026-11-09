@@ -10,7 +10,7 @@ import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult } from './compiler/index.js';
 import { project, type ProjectOptions } from './project.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
-import { PAINT_SCRIPT } from './paint-build.js';
+import { HOLD_SCRIPT, PAINT_SCRIPT } from './paint-build.js';
 import { pagePaths, prefetchModule, speculationRules } from './prefetch-build.js';
 import type { PrefetchParts } from './compiler/index.js';
 
@@ -57,6 +57,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const firstPaint = options.firstPaint !== false;
   let pickerFile = '';
   let paintFile = '';
+  /** pages that use `data-sn-transition`: they get the hold script (paint-build.ts), and its file */
+  const holdPages = new Set<string>();
+  let holdFile = '';
   /** build: the pages with an early module, and each one's bundled early file */
   const earlyPages = new Map<string, string>();
   const earlyFiles = new Map<string, { fileName: string; code: string; modules: Record<string, { renderedLength: number }> }>();
@@ -147,6 +150,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
     });
     if (out.early) modules.set(`${EARLY}${rel}.js`, out.early);
+    if (out.module.includes(`/transition';`)) holdPages.add(rel); else holdPages.delete(rel);
     messages = p.messages;
     if (out.messages) markupMessages.set(rel, out.messages);
     return { out, p };
@@ -247,6 +251,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         this.emitFile({ type: 'asset', fileName, source: chunk.code! });
         earlyFiles.set(rel, { fileName, code: chunk.code!, modules: chunk.modules ?? {} });
       }
+      // a morph pending: the first paint waits for the page module (pages that use data-sn-transition)
+      holdFile = `${r.build.assetsDir}/sinter-hold-${createHash('sha256').update(HOLD_SCRIPT).digest('base64url').slice(0, 8)}.js`;
+      if (holdPages.size) this.emitFile({ type: 'asset', fileName: holdFile, source: HOLD_SCRIPT });
       // the render-blocking fallback, for the pages with an early file and no picker to carry it (emitted at the end)
       paintFile = `${r.build.assetsDir}/sinter-paint-${createHash('sha256').update(PAINT_SCRIPT).digest('base64url').slice(0, 8)}.js`;
       const paint = () => { if ([...earlyFiles.keys()].some((rel) => !languageFiles.has(rel))) this.emitFile({ type: 'asset', fileName: paintFile, source: PAINT_SCRIPT }); };
@@ -371,14 +378,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // the page bundle is `async`: it does not wait for the stylesheets as a deferred module does,
         // and mounts once the document is parsed and the early file has rendered (see the page module)
         if (ctx.chunk) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');
-        if (!early && !langs) return html;
+        const hold = holdPages.has(rel);
+        if (!early && !langs && !hold) return html;
         const tags: string[] = [];
+        // before the page module's tag, which it changes as the parser inserts it
+        if (hold) tags.push(`<script src="${attr(base + holdFile)}"></script>`);
         // the picker before the early file: it runs while the head is parsed, so the language file it adds blocks the first paint too;
         // it (or, without messages, the paint script) also holds the first paint where `blocking` is not supported
         if (langs) tags.push(pickerTag(base + pickerFile, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName])), !!early));
         else if (early) tags.push(paintTag(base + paintFile));
         if (early) tags.push(`<script type="module" crossorigin src="${attr(base + early.fileName)}" blocking="render"></script>`);
-        report(rel, early ?? null, langs ?? null);
+        if (early || langs) report(rel, early ?? null, langs ?? null);
         const at = html.search(/<script type="module"|<link rel="modulepreload"/);
         const block = tags.join('\n    ');
         return at >= 0 ? html.slice(0, at) + block + '\n    ' + html.slice(at) : html.replace('</head>', `    ${block}\n  </head>`);

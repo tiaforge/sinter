@@ -252,6 +252,11 @@ built, what deviates, and what is left.
   (`::view-transition-group(sn-1k2g1wp)` beside `root`, only the clicked title named); back to the list fades only: Playwright's
   Chromium reloads it (no bfcache) and the rows render after the first paint, which is when the browser captures.
   temper: `@view-transition { navigation: auto; }` in `core.css` (on by default, off with `navigation: none` in the app's CSS).
+- 2026-11-09: holding the first paint while a morph is pending (`HOLD_SCRIPT`: a MutationObserver makes the async page
+  module deferred and render-blocking before the parser prepares it). Tried first on a bare page with the module delayed
+  400 ms: first paint 35 ms without the element, 420 ms with it. RealWorld back to a reloaded list: morphs, 3 of 3.
+  `view-transition-class: sn-transition` on the named pair. Per-link prefetch opt-out dropped: the browser's rules can
+  only skip a link by a marker in the page; `<html data-sn-prefetch="off">` is build-time and stripped.
 
 ## Decisions and deviations
 

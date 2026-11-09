@@ -39,9 +39,11 @@ const transition: Feature = {
     const root = app.root, env = app.env;
     let last: Element | null = null;
     const named = () => [...root.querySelectorAll(`[${ATTR}]`)] as HTMLElement[];
+    // the class lets the app's CSS style every morph (`::view-transition-group(.sn-transition)`): the names are hashes
     const name = (el: HTMLElement, v: string, vt: ViewTransitionLike) => {
       el.style.viewTransitionName = ident(v);
-      const off = () => { el.style.viewTransitionName = ''; };
+      el.style.setProperty('view-transition-class', 'sn-transition');
+      const off = () => { el.style.viewTransitionName = ''; el.style.removeProperty('view-transition-class'); };
       vt.finished.then(off, off);
     };
     const click = (e: Event) => { last = e.target as Element; };

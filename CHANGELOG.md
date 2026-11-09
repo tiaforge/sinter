@@ -33,7 +33,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   transitions; back from a page with one named element too). Only that pair gets a
   `view-transition-name`, during the transition. New module `@tiaforge-ui/sinter/transition`, added to
   pages that use the attribute. Testing: `r.window('pageswap' | 'pagereveal', { viewTransition, activation })`.
-  RealWorld: an article's title morphs from the list.
+  Morphing elements also get `view-transition-class: sn-transition`, so
+  `::view-transition-group(.sn-transition)` styles them all. When a morph is pending, the first paint of
+  the next page waits for its page module (a small classic script in the head of pages that use the
+  attribute), so data-rendered elements exist when the browser captures the page.
+  RealWorld: an article's title morphs from the list, and back.
 
 ### Changed
 
