@@ -50,6 +50,7 @@
     "./fields": "./dist/fields.js",
     "./form": "./dist/form.js",
     "./select": "./dist/select.js",
+    "./location": "./dist/location.js",
     "./transition": "./dist/transition.js",
     "./early": "./dist/early.js",
     "./messages": "./dist/messages.js",

@@ -8,9 +8,10 @@ import { $k } from '../../src/runtime/security.js';
 import * as builtins from '../../src/runtime/helpers.js';
 import form from '../../src/form.js';
 import select from '../../src/select.js';
+import location from '../../src/location.js';
 
 /** features that are only parts of the renderer, split off the core for size: what the page would load */
-const FEATURES: Record<string, typeof select> = { form, select };
+const FEATURES: Record<string, typeof select> = { form, select, location };
 
 const none = { module: null, names: [], namespaces: {} };
 let current: App | null = null;

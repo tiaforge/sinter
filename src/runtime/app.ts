@@ -158,6 +158,8 @@ export interface App {
     /** write-through: a mutation's 2xx response, applied to the resources it is about (before `then`) */
     apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
     /** an action is sent: the form's marks and `$error` are cleared; the function reports a failure, true when the form shows it */
+    /** `$url` was written: the query string follows (location.ts) */
+    location?: () => void;
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
     form?: (el: Element, a: ActionDef, body: unknown) => unknown;
     /**
@@ -641,7 +643,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     exec(f, s, writes, o) {
       try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); }
       for (const w of writes ?? []) app.mark(w, s);
-      if (writes?.some((w) => up(w as number)[0] == ps.x.$url)) writeUrl();
+      // `$url` written: the query string follows (location.ts, on pages whose handlers write it)
+      if (app.ext.location && writes?.some((w) => up(w as number)[0] == ps.x.$url)) app.ext.location();
     },
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),
@@ -726,13 +729,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return readFrom(env.href(), ir.path);
   }
 
-  function writeUrl() {
-    const u = new URL(env.href()), q = new URLSearchParams();
-    const fromPath = new Set((ir.path ?? []).flatMap((p) => p.split('/').filter((s) => s[0] == ':').map((s) => s.slice(1))));
-    for (const [k, v] of Object.entries(app.page.$url)) if (v != null && v !== '' && !fromPath.has(k)) q.set(k, '' + v);
-    u.search = '' + q;
-    env.replaceState(u.pathname + u.search + u.hash);
-  }
 
   /** One delegated capture listener per used event type, at the mount root. */
   function listen(type: string) {

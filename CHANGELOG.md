@@ -17,6 +17,9 @@ Attribute names, function names and diagnostic codes are public API. Before
     selected re-render) moved into `@tiaforge-ui/sinter/select` (0.5 KB gzip), imported only by pages with
     such a binding: core −214 B. Selecting a row in a 5,000-row list is unchanged (0.009 ms, happy-dom; the
     runtime benchmark has the case now).
+  - Writing `$url` from a handler (the query string follows, `replaceState`) moved into
+    `@tiaforge-ui/sinter/location` (0.3 KB gzip), imported only by pages whose handlers write `$url`:
+    core −96 B.
   - The dev warning for duplicate `data-sn-for` keys moved into the dev module: core −43 B.
   - The Vite plugin turns off Vite's modulepreload polyfill unless the app sets `build.modulePreload`'s
     `polyfill` (or `modulePreload: false`): every browser sinter's pages need preloads modules natively.
