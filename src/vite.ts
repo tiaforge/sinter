@@ -456,9 +456,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     /**
-     * build: each page's early module bundled on its own into one file, with nothing imported, so
-     * the first paint waits for one request. Modules it shares with the page bundle are copies:
-     * state the app sets early (an i18n library's locale, configure()) is set again by the page.
+     * build: each page's early module bundled on its own into one file, whose one import is the
+     * chunk it shares with the page bundle (SHARED_MODULES, preloaded with it). Other modules it
+     * shares with the page bundle are copies: state the app sets early (an i18n library's locale,
+     * configure()) is set again by the page.
      */
     async generateBundle(_, bundle) {
       const r = resolved!, ENTRY = `${PREFIX}early-entry.js`;

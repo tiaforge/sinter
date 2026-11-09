@@ -26,6 +26,12 @@ Attribute names, function names and diagnostic codes are public API. Before
     (~600 B gzip) into every page: the other pages −814 B each, the article +214 B (the helper is in its
     own chunk now). The article requests the renderer when the module runs, alongside its data, instead
     of once the data has arrived.
+  - Early files no longer carry their own copy of the URL checks, URL expansion and handoff: the build
+    emits them as one chunk the early files and the page bundle import, preloaded with the early file.
+    Each RealWorld early file is 0.3–0.8 KB smaller (also when following a link to another page); per
+    page, the article, index, profile and editor about −380 B, login, register and settings about
+    +110 B (their early files used little of that code). Lighthouse (mobile, fixed API): no change in
+    FCP or LCP. The early file's size report and budget include the shared chunk.
   - The page module imports feature modules as `sn$<name>`, so a helper named like a feature (`keys`,
     `form`, …) no longer collides with its import.
 

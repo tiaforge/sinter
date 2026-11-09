@@ -257,7 +257,9 @@ test('first paint: an early module\'s dynamic import is inlined, without a depre
   const file = /src="\/assets\/(index-early-[\w-]+\.js)" blocking="render"/.exec(html)![1]!;
   const code = readFileSync(join(dir, 'assets', file), 'utf8');
   expect(code).toContain('lazy-early-module');            // in the early file itself
-  expect(code).not.toMatch(/^\s*import\s|\bimport\(/m);  // which loads nothing (Vite's preload helper reads import.meta)
+  // which loads nothing at run time (Vite's preload helper reads import.meta); its one static import is the shared chunk
+  expect(code).not.toMatch(/\bimport\(/);
+  expect([...code.matchAll(/^\s*import\s/gm)]).toHaveLength(1);
   expect(said.join('\n')).not.toMatch(/inlineDynamicImports|codeSplitting/);
 });
 

@@ -3,9 +3,9 @@
 // takes the responses), and renders, once, the bindings the compiler found renderable before any data: page-level values from state
 // (persisted values read from storage) and helpers, and the branch of each such `data-sn-if`.
 // No reactivity: the page module mounts later and takes the rendered DOM over (an early branch is
-// adopted, not rendered again). The early file and the page bundle are bundled apart (each holds
-// its own copy of what it imports), so what they share goes through a global: `start` (early
-// file) and `rendered` (page module, from the core) meet there.
+// adopted, not rendered again). The early file and the page bundle are bundled apart (they share
+// one chunk, `runtime/security`, `url` and `handoff`, and hold copies of the rest), so what they
+// share goes through a global: `start` (early file) and `rendered` (page module, from the core) meet there.
 import { config } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/handoff.js';
