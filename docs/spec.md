@@ -1154,6 +1154,8 @@ sinter never creates HTML from data, and every remaining DOM sink is closed at b
 - Allowed: `http:`, `https:`, `mailto:`, `tel:`, and relative URLs. `data:` and `blob:` only in `src` of `<img>`, `<video>`, `<audio>` and `<source>`.
 - A rejected value removes the attribute; dev builds warn with the element and the value.
 - `configure({ urlSchemes: ['webcal:'] })` adds schemes. `javascript:`, `vbscript:` and `data:` outside media can never be added.
+- The check is about the scheme only: a protocol-relative `//other.example` or an `https:` URL to another origin is allowed, as in static HTML.
+- The early file skips the check where the compiler proves the scheme from the expression: a value whose literal start is `/` followed by any character but `/` or `\` (`'/article/' + slug`; not `'/' + v`, which is `//host` when `v` starts with `/` or `\`, nor `` `/${v}` ``), `./`, `../` (or `.\`, `..\`), `?`, `#`, `http://`, `https://`, `mailto:` or `tel:`, tabs and line breaks removed first as the URL parser removes them; a ternary or `||`/`??` of such values, `&&` with one on its right, `null` and `false`. Every other URL value is checked.
 
 ### No runtime template processing
 Vue, Alpine, Datastar and htmx all process directives found in the live DOM, so server-rendered user content that contains a directive runs as code (client-side template injection). sinter cannot have this class of bug: directives exist only at build time, and the runtime never reads a `data-sn-*` attribute. Injected markup with directives is inert HTML.

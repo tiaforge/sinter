@@ -176,8 +176,11 @@ test('preconnect: every origin a literal resource or stream `src` names gets one
 
 test('early attributes: the URL check only where the expression does not fix the scheme', async () => {
   const { fixedScheme } = await import('../../src/compiler/early-render.js');
-  for (const ok of [`($) => ('/article/' + $.a.slug)`, '($) => (`/p/${$.u}`)', `($) => ($.x ? '#top' : null)`, `($) => ($.on && '?q=' + $.q)`, `($) => ('https://cdn.example/' + $.f)`, `($) => ('./x' + $.y || '/home')`])
+  for (const ok of [`($) => ('/article/' + $.a.slug)`, '($) => (`/p/${$.u}`)', `($) => ($.x ? '#top' : null)`, `($) => ($.on && '?q=' + $.q)`, `($) => ('https://cdn.example/' + $.f)`, `($) => ('./x' + $.y || '/home')`, `($) => ('.\\\\' + $.y)`, `($) => ('/a' + $.y)`])
     expect(fixedScheme(ok), ok).toBe(true);
+  // a lone leading `/` does not count: `'/' + '/evil.com'` and `'/' + '\\evil.com'` are `//evil.com`, another origin
+  for (const no of [`($) => ('/' + $.u)`, '($) => (`/${$.u}`)', `($) => ('/\\\\' + $.u)`, `($) => ('//' + $.u)`, `($) => ('/\t' + $.u)`, `($) => ($.x ? '/' + $.y : null)`])
+    expect(fixedScheme(no), no).toBe(false);
   for (const no of [`($) => ($.a.url)`, `($) => (avatar($.a.image))`, `($) => ('' + $.u)`, '($) => (`${$.u}/x`)', `($) => ($.x ? '/a' : $.y)`, `($) => ('java' + 'script:x')`, `($) => ($.u + '/x')`])
     expect(fixedScheme(no), no).toBe(false);
   // persisted state: rendered early, not written into the HTML at build time

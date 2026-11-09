@@ -9,14 +9,21 @@ import * as acorn from 'acorn';
 import type { Binding, EarlyIR, NodeDef } from '../ir.js';
 import { URL_ATTR } from '../runtime/security.js';
 
-/** A literal start that fixes the URL's scheme: relative (`/`, `./`, `../`, `?`, `#`) or an allowed scheme. */
-const SAFE_START = /^(\/|\.\.?\/|\?|#|https?:\/\/|mailto:|tel:)/i;
+/**
+ * A literal start that fixes the URL's scheme, which is what the browser's check (`urlAllowed`)
+ * enforces: a relative path, query or fragment on the page's own origin (`/a`, `./`, `../`, `?`,
+ * `#`; the parser reads `\` as `/`), or an allowed scheme (`http(s)://`, `mailto:`, `tel:`, whose
+ * origin is the literal's). A `/` counts only with a next character that is no `/` or `\`: `'/' + v`
+ * is `//host` (protocol-relative, another origin) when `v` starts with either.
+ */
+const SAFE_START = /^(\/[^/\\]|\.\.?[/\\]|\?|#|https?:\/\/|mailto:|tel:)/i;
 
 /**
  * Whether the value of `code` (a value function `($) => (…)`) can only be a URL whose scheme is
  * fixed by its own literal start, or no value: then its attribute needs no check in the browser.
  */
 export function fixedScheme(code: string): boolean {
+  // (a value whose scheme the literal fixes; the origin is the page's, or the literal's own absolute URL)
   let e: any;
   try { e = (acorn.parseExpressionAt(code, 0, { ecmaVersion: 'latest' }) as any).body; } catch { return false; }
   const str = (x: any): string | null => x.type == 'Literal' && typeof x.value == 'string' ? x.value
@@ -28,8 +35,9 @@ export function fixedScheme(code: string): boolean {
     if (x.type == 'Identifier' && x.name == 'undefined') return false;
     if (x.type == 'ConditionalExpression') return safe(x.consequent) && safe(x.alternate);
     if (x.type == 'LogicalExpression') return x.operator == '&&' ? safe(x.right) : safe(x.left) && safe(x.right);
+    // tabs and line breaks are removed by the URL parser before anything else: `'/\t' + v` is `'/' + v`
     const s = str(x);
-    return s != null && SAFE_START.test(s);
+    return s != null && SAFE_START.test(s.replace(/[\t\n\r]/g, ''));
   };
   return safe(e);
 }

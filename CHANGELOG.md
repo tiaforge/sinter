@@ -55,7 +55,9 @@ Attribute names, function names and diagnostic codes are public API. Before
     only the writers its bindings use, and the clock, location, fetch, storage and `config` only when
     its requests, persisted state or `$locale` need them. An attribute that is no URL attribute, or a
     URL whose expression fixes its scheme (`'/article/' + slug`, `` `#${id}` ``, `x ? '/a' : null`), is
-    written without the browser's URL check. A page with nothing to wait for (no early request, no
+    written without the browser's URL check, which checks only the scheme. A lone leading `/`
+    (`'/' + v`, `` `/${v}` ``, also `'//'`, `'/\'`) does not count: `v` starting with `/` or `\` makes
+    it `//host`; those keep the check (docs/spec.md, URL attributes). A page with nothing to wait for (no early request, no
     messages) renders in one step (`run(page)`). RealWorld's early files 1.0–2.0 KB gzip (were
     2.0–3.4 KB); login, register and settings import nothing. Each page 700–900 B smaller (login
     22,364 → 21,254 B, the article 26,578 → 25,810 B). The early page object is
