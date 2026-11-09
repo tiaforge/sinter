@@ -136,8 +136,8 @@ export interface App {
     paginate?: { pager(loader: ResourceLoader): Pager; page(name: string, target: string | number): void };
     persist?: {
       model(rb: BoundBinding, set: (v: unknown) => void): void;
-      state(key: string, obj: Record<string, unknown>): void;
-      saveState(key: string, obj: Record<string, unknown>): void;
+      /** restores a persisted state object, and saves it after each flush that changed its scope `sid` */
+      state(key: string, obj: Record<string, unknown>, sid: number): void;
     };
     cache?: {
       /** the cached data for a request, if any and not older than the resource allows */
@@ -193,10 +193,6 @@ export interface App {
    * in a text field, so a resource URL it changes waits for a pause
    */
   mark(path: number | string, scope?: any, typing?: boolean): void;
-  /** whether one of `dirty` reaches one of `nodes` (any scope) */
-  reaches(nodes: PathRef[], dirty: Dirty[]): boolean;
-  /** whether `d` is a change inside state scope `sid` */
-  inState(d: Dirty, sid: number): boolean;
   flush(): void;
   /** records `change` as optimistic layers; the returned function settles them: committed when `ok`, else rolled back */
   record(change: () => void): (ok?: boolean) => void;
@@ -423,21 +419,29 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** the template whose row element a dependency node reads (its first `{$i<tid>}` segment), -1 for none */
   const ownOf = (n: number) => { const k = up(n).map((x) => kinds[x]).find((k) => k?.startsWith('{$')); return k ? +k.slice(3, -1) : -1; };
   /**
-   * Per flush round: by dependency node, the dirty paths that may reach it with their entries, as
-   * pairs (the checks that need no scope passed). The lists are kept and stamped with the round (read
-   * only in a flush, whose rounds start at 1).
+   * Per flush round: by dependency node, the dirty paths that may reach it with their entries (the
+   * checks that need no scope passed). The first one is in `tD`/`tE`, further ones in `tX` as pairs,
+   * `tC` of them; all is stamped with the round (read only in a flush, whose rounds start at 1) and
+   * reused, so a flush allocates nothing here.
    */
-  const tR = new Int32Array(par.length), tL: Array<Array<Dirty | Reach>> = [], NO: Array<Dirty | Reach> = [];
+  const N = par.length, tR = new Int32Array(N), tC = new Int32Array(N), tD: Dirty[] = [], tE: Reach[] = [], tX: Array<Array<Dirty | Reach>> = [];
   function index(list: Dirty[]) {
     for (const d of list) if (d.w >= 0) for (const e of entries(d.w)) {
-      if (!passes(e, d.v)) continue;
-      const n = e.d, l = tR[n] == round ? tL[n]! : (tL[n] ??= []);
-      if (tR[n] != round) { tR[n] = round; l.length = 0; }
-      l.push(d, e);
+      if (e.conds.length && !passes(e, d.v)) continue;
+      const n = e.d;
+      if (tR[n] != round) { tR[n] = round; tC[n] = 0; tD[n] = d; tE[n] = e; continue; }
+      const x = tX[n] ??= [], c = tC[n]++ * 2;
+      x[c] = d;
+      x[c + 1] = e;
     }
   }
-  /** the round's dirty paths that may reach dependency node `n`, with their entries: `[dirty, entry, …]` */
-  const touched = (n: number) => (tR[n] == round ? tL[n]! : NO);
+  /** calls `f` for each dirty path of the round that may reach dependency node `n`, with its entry; stops when it returns true */
+  const each = (n: number, f: (d: Dirty, e: Reach) => unknown): boolean => {
+    if (tR[n] != round) return false;
+    if (f(tD[n]!, tE[n]!)) return true;
+    for (let x = tX[n]!, j = 0, c = tC[n]! * 2; j < c; j += 2) if (f(x[j] as Dirty, x[j + 1] as Reach)) return true;
+    return false;
+  };
 
   /**
    * How dirty path `d` reaches a dependency through entry `e`, its `{name}` segments read from scope
@@ -446,7 +450,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * reach it (the compiler left no entry): reconcile re-evaluates rows whose item or index changed.
    */
   const isMarked = (t: number, s: any) => marked.has(s[ir.templates[t]!.item!]);
-  const level = (e: any, d: any, s?: any) => (e.conds.length ? reachLevel(e, d.v, s, isMarked) : 2);
+  const level = (e: Reach, d: Dirty, s?: any) => (e.conds.length ? reachLevel(e, d.v, s, isMarked) : 2);
 
   /** Whether a binding in a template's rows (nested templates included) reads a loop index. */
   const readsIndex = (t: TemplateDef): boolean => indexReaders.get(t) ?? (indexReaders.set(t, t.nodes.some((nd) => nd.b.some((b) =>
@@ -470,13 +474,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Whether a dirty path of the current flush reaches one of `deps`. */
   const hit = (deps: PathRef[] | undefined, s?: any) => {
-    for (const n of ids(deps)) for (let l = touched(n), j = 0; j < l.length; j += 2) if (level(l[j + 1], l[j], s)) return true;
+    for (const n of ids(deps)) if (tR[n] == round && ((!tE[n]!.conds.length && !tC[n]) || each(n, (d, e) => level(e, d, s)))) return true;
     return false;
   };
   /** 0: no dirty path reaches `deps`; 1: only keystrokes do; 2: some other change does. */
   const hits = (deps: PathRef[] | undefined) => {
     let k = 0;
-    for (const n of ids(deps)) for (let l = touched(n), j = 0; j < l.length; j += 2) k = typed.has(l[j] as Dirty) ? k || 1 : 2;
+    for (const n of ids(deps)) each(n, (d) => { k = typed.has(d) ? k || 1 : 2; });
     return k;
   };
 
@@ -489,13 +493,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (rowSel.has(t)) return rowSel.get(t)!;
     const out = new Set<number>();
     let all = false;
-    for (const n of otherDeps(t)) for (let l = touched(n), j = 0; j < l.length; j += 2) {
-      const d = l[j] as Dirty, c = (l[j + 1] as Reach).conds.find((c) => (c[0] == 1 || c[0] == 2) && c[1] == t.ii);
-      if (!c) { all = true; break; }
+    for (const n of otherDeps(t)) if (each(n, (d, e) => {
+      const c = e.conds.find((c) => (c[0] == 1 || c[0] == 2) && c[1] == t.ii);
+      if (!c) return (all = true);
       // the index loosely equals the value (as `s[name] != value` compares it): the value as a number
       const i = Number(c[0] == 1 ? d.v[c[2]] : c[2]);
       if (Number.isInteger(i) && i >= 0) out.add(i);
-    }
+    })) break;
     const r = all ? null : out;
     rowSel.set(t, r);
     return r;
@@ -622,8 +626,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
       for (const w of writes ?? []) app.mark(w, s);
       if (writes?.some((w) => up(w as number)[0] == ps.x.$url)) writeUrl();
     },
-    reaches: (nodes, list) => list.some((d) => d.w >= 0 && entries(d.w).some((e) => nodes.includes(e.d) && passes(e, d.v))),
-    inState: (d, sid) => d.w >= 0 && up(d.w)[0] == par[ps.x[`$s${sid}.**`]!],
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),
     shown: (fn) => void (waiting ? waiting.push(fn) : fn()),
@@ -737,8 +739,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         el[STATE] = [sid, obj];
         if (rbs == rootRbs) app.states.push([sid, obj]);
         if (key) {
-          app.ext.persist?.state(key, obj);
-          app.afterFlush.push((d) => d.some((p) => app.inState(p, sid)) && app.ext.persist?.saveState(key, obj));
+          app.ext.persist?.state(key, obj, sid);
         }
       }
       if (s !== base) (scopes ??= [])[i] = s;
@@ -774,7 +775,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (r == null) {
         r = 0;
         // a mark counts as "only marked rows" for dependencies on this list's own element; others (outer rows) reach any row
-        for (const n of otherDeps(t!)) for (let l = touched(n), j = 0; j < l.length; j += 2) { const x = level(l[j + 1], l[j]); r = Math.max(r, x == 1 && ownOf(n) != t!.id ? 2 : x); }
+        for (const n of otherDeps(t!)) each(n, (d, e) => { const x = level(e, d); r = Math.max(r!, x == 1 && ownOf(n) != t!.id ? 2 : x); });
         rowHits.set(t!, r);
       }
       // only a selection's outer side changed: the rows it concerns, through the index; rows that were

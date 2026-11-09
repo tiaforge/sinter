@@ -5,6 +5,23 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Changed
+
+- IR v2: the page module's dependency and written paths are node ids of one trie per page, with a path table
+  (`ps`) in place of the strings; the compiler decides which written path reaches which binding and leaves the
+  runtime only the checks against scope values (`src/paths.ts`). The runtime refuses IR v1. The compiler's IR
+  (`compileParts().ir`) keeps its strings; pass it through `compactIR()` before `mount()`. Feature modules
+  receive dirty paths as `{ w, v }` (a node and its `{name}` values) and test a state scope with `inState()`
+  from `src/paths.ts`; `app.mark()` takes a node, or one of the paths the runtime marks by name. Saving a
+  persisted state object after a change moved from the core into the persist module.
+- Writes through a row's own element (`rows[i].v = …`, typing into `data-sn-model="rows[i].v"`) reach that
+  row only: the runtime no longer checks every row of the list. A keystroke in one row of a 20,000-row state
+  list: 2.9 ms → 0.006 ms, the same as in a 10-row list (runtime benchmark, happy-dom); a handler writing
+  one field among 5,000 root bindings: 0.39 → 0.10 ms; an island's `update()` on that page and a server
+  upsert into a 5,000-row list are unchanged. Sizes, gzip: the minimal page +410 B (14,787 B of its
+  15,360 B budget); RealWorld pages about +500 B each (the article 27,627 B of its 27,648 B budget). The
+  path table compresses less well than the strings did, which shared their bytes with the function table.
+
 ### Added
 
 - Source maps for the page module: an error thrown in a markup expression points at its attribute in the HTML

@@ -137,6 +137,13 @@ export function numberPaths(ir: IR): PathTable {
   return { p: parents, ...(Object.keys(kinds).length ? { k: kinds } : {}), r: reach, x };
 }
 
+/** Whether dirty path `d` (a node, -1 for none) is a change inside state scope `sid`: its top segment is `$s<sid>`. */
+export const inState = (ps: PathTable, d: { w: number }, sid: number) => {
+  let n = d.w;
+  while (n >= 0 && ps.p[n]! >= 0) n = ps.p[n]!;
+  return n >= 0 && n == ps.p[ps.x[`$s${sid}.**`]!];
+};
+
 /** A reach entry for the runtime: the dependency node, whether a `**` ended the match, and the checks left. */
 export interface Reach { d: number; all: boolean; conds: Cond[] }
 const NONE: Cond[] = [];
