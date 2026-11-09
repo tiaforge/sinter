@@ -38,6 +38,7 @@ interface Rule { selectors: Array<{ ast: csstree.Selector; spec: [number, number
 const SIZE = { width: ['width', 'inline-size'], height: ['height', 'block-size'], 'min-width': ['min-width', 'min-inline-size'], 'max-width': ['max-width', 'max-inline-size'], 'min-height': ['min-height', 'min-block-size'], 'max-height': ['max-height', 'max-block-size'] } as const;
 const BOX_EDGE = /^(padding|border(-(left|right|inline|inline-start|inline-end))?(-width)?|border-width)$/;
 const GRID_TRACKS = /^(grid|grid-template(-columns|-areas)?|grid-auto-columns)$/;
+const TABLE = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption']);
 const BLOCK = new Set(['html', 'body', 'div', 'p', 'section', 'article', 'header', 'footer', 'main', 'nav', 'aside', 'figure', 'figcaption', 'li', 'ul', 'ol', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'dl', 'dd', 'dt', 'fieldset', 'details', 'summary', 'dialog', 'address', 'hgroup', 'menu', 'search', 'pre', 'hr']);
 /** pseudo-classes that depend on state or on things not in the markup */
 const STRUCTURAL = new Set(['first-child', 'last-child', 'only-child', 'nth-child', 'nth-last-child', 'first-of-type', 'last-of-type', 'only-of-type', 'nth-of-type', 'nth-last-of-type']);
@@ -183,7 +184,38 @@ function cascadeCmp(x: Decl, y: Decl): number {
 
 const isEl = (n: P5Node | null | undefined): n is P5Element => !!n && 'tagName' in n;
 const attrOf = (el: P5Element, name: string) => el.attrs.find((a) => a.name === name)?.value;
-const dynamic = (el: P5Element, kind: 'class' | 'attr' | 'style') => el.attrs.some((a) => a.name === `data-sn-${kind}` || (kind === 'attr' && a.name === 'data-sn-model'));
+const dynamic = (el: P5Element, kind: 'class' | 'style') => el.attrs.some((a) => a.name === `data-sn-${kind}`);
+/**
+ * Attributes a binding may change on `el`: `data-sn-attr`'s keys (literal, the compiler requires
+ * it), `value`/`checked` for a model; 'all' when the keys cannot be read here.
+ */
+function boundAttrs(el: P5Element): Set<string> | 'all' {
+  const out = new Set<string>();
+  for (const a of el.attrs) {
+    if (a.name === 'data-sn-model') { out.add('value'); out.add('checked'); }
+    if (a.name !== 'data-sn-attr') continue;
+    const text = a.value.trim();
+    if (!text.startsWith('{')) return 'all';
+    // the keys at the object's top level
+    let depth = 0, start = 1;
+    for (let i = 1; i < text.length; i++) {
+      const ch = text[i]!;
+      if (ch === '(' || ch === '[' || ch === '{') depth++;
+      else if (ch === ')' || ch === ']' || ch === '}') { if (depth === 0) break; depth--; }
+      else if (ch === '"' || ch === "'" || ch === '`') { const q = ch; for (i++; i < text.length && text[i] !== q; i++) if (text[i] === '\\') i++; }
+      else if (ch === ',' && depth === 0) start = i + 1;
+      else if (ch === ':' && depth === 0 && start >= 0) {
+        const key = text.slice(start, i).trim().replace(/^(['"])(.*)\1$/, '$2');
+        if (!/^[\w-]+$/.test(key)) return 'all';
+        out.add(key.toLowerCase());
+        start = -1;
+      }
+    }
+    if (out.size === 0 && text !== '{}') return 'all';
+  }
+  return out;
+}
+const mayChange = (el: P5Element, name: string) => { const b = boundAttrs(el); return b === 'all' || b.has(name); };
 
 interface Cascaded { value: string | null; ambiguous: boolean; inline: boolean }
 
@@ -238,6 +270,77 @@ export class Layout {
     const fit = this.cascaded(el, ['object-fit']), pos = this.cascaded(el, ['object-position']);
     if (fit.ambiguous || pos.ambiguous) return 'fluid';
     return { width, height, fit: fit.value?.toLowerCase() ?? null, position: pos.value, inlineFit: fit.inline };
+  }
+
+  /**
+   * An upper bound of a fluid image's rendered width in px (it may be narrower), or null when nothing
+   * below the viewport bounds it: its own absolute `max-width`, its `width` attribute, and, while it
+   * cannot overflow them, each container's fixed width or absolute `max-width` (`.prose { max-width:
+   * 65ch }` is not absolute; `main { max-width: 1200px }` is). Feeds `sizes`; it never makes a box.
+   */
+  maxWidth(img: P5Element): number | null {
+    if (this.empty) return null;
+    return this.bound(img, true);
+  }
+
+  private readonly bounds = new Map<P5Element, number | null>();
+
+  private bound(el: P5Element, isImg: boolean): number | null {
+    if (!isImg && this.bounds.has(el)) return this.bounds.get(el)!;
+    if (!isImg) this.bounds.set(el, null); // cycle guard
+    const result = this.computeBound(el, isImg);
+    if (!isImg) this.bounds.set(el, result);
+    return result;
+  }
+
+  private computeBound(el: P5Element, isImg: boolean): number | null {
+    if (el === this.root) return null;
+    const parent = () => { const p = this.parentOf(el); return p ? this.bound(p, false) : null; };
+    const dc = this.cascaded(el, ['display']);
+    if (dc.ambiguous) return null;
+    const display = (dc.value ?? (isImg ? 'inline' : BLOCK.has(el.tagName) ? 'block' : TABLE.has(el.tagName) ? 'table' : 'inline')).trim().toLowerCase();
+    if (display === 'none') return null;
+    // an inline box (a link around the image) and `contents` take their width from their container
+    if (display === 'contents' || (display === 'inline' && !isImg)) return parent();
+    const rem = this.rootFont();
+    if (rem === null) return null;
+    const fixed = this.size(el, 'width');
+    if (fixed !== null) return fixed;
+    const abs = (props: readonly string[]): number | null | undefined => {
+      const c = this.cascaded(el, props);
+      if (c.ambiguous) return undefined;
+      if (c.value === null || /%|^\s*(none|auto)\s*$/i.test(c.value)) return null;
+      const v = this.subst(c.value, el);
+      return v === undefined ? undefined : evaluate(v, { rem, percent: 0 });
+    };
+    let own = abs(SIZE['max-width']) ?? null;
+    if (isImg) {
+      // the `width` attribute, when no stylesheet sets the width
+      const wc = this.cascaded(el, SIZE.width);
+      const a = attrOf(el, 'width');
+      if (!wc.ambiguous && wc.value === null && a && /^\s*\d+\s*$/.test(a)) own = own === null ? Number(a) : Math.min(own, Number(a));
+    }
+    if (!this.contained(el, isImg)) return own;
+    const p = parent();
+    return p === null ? own : own === null ? p : Math.min(own, p);
+  }
+
+  /** `el` is no wider than its container's content box: no positioning out of flow, negative margin, `vw` or `min-width` */
+  private contained(el: P5Element, isImg: boolean): boolean {
+    const m = this.declsOf(el);
+    // out of flow if any rule that may apply says so (`relative` from an `:has()` rule that may or may not match is fine)
+    if (m.has('\0dynamic') || (m.get('position') ?? []).some((d) => !/^\s*(static|relative|sticky)\s*$/i.test(d.value))) return false;
+    for (const [prop, list] of m) if (/^margin(-(left|right|inline|inline-start|inline-end))?$/.test(prop) && list.some((d) => /-\s*[\d.]|var\(|calc\(|min\(|max\(|clamp\(/.test(d.value))) return false;
+    const minW = this.cascaded(el, SIZE['min-width']);
+    if (minW.ambiguous || (minW.value !== null && !/^\s*(0[a-z%]*|auto)\s*$/i.test(minW.value))) return false;
+    const pct = (v: string | null) => { const x = v === null ? null : /^\s*(\d+(?:\.\d+)?)%\s*$/.exec(v); return x ? Number(x[1]) <= 100 : false; };
+    const maxW = this.cascaded(el, SIZE['max-width']);
+    if (!maxW.ambiguous && pct(maxW.value)) return true;
+    const w = this.cascaded(el, SIZE.width);
+    if (w.ambiguous) return false;
+    if (pct(w.value) || /^\s*fit-content\s*$/i.test(w.value ?? '')) return true;
+    // an image's auto width is its own size; a box's fills its container
+    return !isImg && (w.value === null || /^\s*auto\s*$/i.test(w.value));
   }
 
   private parentOf(el: P5Element): P5Element | null {
@@ -457,8 +560,8 @@ export class Layout {
   private simple(n: csstree.CssNode, el: P5Element): Match {
     switch (n.type) {
       case 'TypeSelector': return n.name === '*' || n.name.toLowerCase() === el.tagName ? 'yes' : 'no';
-      case 'IdSelector': return attrOf(el, 'id') === unescape(n.name) ? 'yes' : dynamic(el, 'attr') ? 'maybe' : 'no';
-      case 'ClassSelector': return (attrOf(el, 'class') ?? '').split(/\s+/).includes(unescape(n.name)) ? 'yes' : dynamic(el, 'class') || dynamic(el, 'attr') ? 'maybe' : 'no';
+      case 'IdSelector': return mayChange(el, 'id') ? 'maybe' : attrOf(el, 'id') === unescape(n.name) ? 'yes' : 'no';
+      case 'ClassSelector': return mayChange(el, 'class') ? 'maybe' : (attrOf(el, 'class') ?? '').split(/\s+/).includes(unescape(n.name)) ? 'yes' : dynamic(el, 'class') ? 'maybe' : 'no';
       case 'AttributeSelector': {
         const name = unescape(n.name.name).toLowerCase();
         const v = attrOf(el, name);
@@ -479,7 +582,9 @@ export class Layout {
             default: return 'maybe';
           }
         }
-        return ok ? 'yes' : dynamic(el, 'attr') ? 'maybe' : 'no';
+        // an attribute a binding writes may be anything, whatever the markup says
+        if (mayChange(el, name) || (name === 'class' && dynamic(el, 'class'))) return 'maybe';
+        return ok ? 'yes' : 'no';
       }
       case 'PseudoElementSelector': return 'no';
       case 'PseudoClassSelector': {

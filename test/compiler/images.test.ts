@@ -115,3 +115,12 @@ test('an unknown file is pending: left as written for now', () => {
 test('vite-ignore on the variants when asked', () => {
   expect(body(run('<img src="img/photo.jpg" alt="">', { ...host, ignore: true }).html)).toMatch(/<source [^>]*vite-ignore=""><img [^>]*vite-ignore="">/);
 });
+
+test('a fluid image in a max-width container: sizes from the bound, files up to 3x of it', () => {
+  const styles = [{ file: 'app.css', css: 'main { max-width: 300px } img { max-width: 100% }' }];
+  const out = run('<main><img src="img/photo.jpg" alt=""></main>', { ...host, styles });
+  // eager (the first image): no `auto`
+  expect(body(out.html)).toContain('srcset="/i/photo-480.avif 480w, /i/photo-900.avif 900w" sizes="(max-width: 300px) 100vw, 300px"');
+  const lazy = run('<main><img src="img/photo.jpg" alt=""><img src="img/photo.jpg" alt=""></main>', { ...host, styles });
+  expect(body(lazy.html)).toContain('sizes="auto, (max-width: 300px) 100vw, 300px"');
+});

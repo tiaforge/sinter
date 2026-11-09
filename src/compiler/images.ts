@@ -81,6 +81,8 @@ export interface RewriteContext {
   warn(el: P5Element, attr: string, code: 'SN511' | 'SN512', message: string, hint: string): void;
   /** the box the page's stylesheets give the element (layout.ts), when the adapter passed them */
   layout?: (el: P5Element) => FixedBox | 'fluid' | null;
+  /** an upper bound of a fluid image's width from its containers (layout.ts) */
+  maxWidth?: (el: P5Element) => number | null;
 }
 
 /** Rewrites every static `<img>` under `doc` in place; returns what the adapter encodes and the page's rules. */
@@ -243,7 +245,8 @@ function rewriteOne(el: P5Element, eager: boolean, ctx: RewriteContext): 'pendin
     else if (css !== 'fluid' && (aw !== null || ah !== null)) display = bw < info.width ? bw : null;
   }
 
-  // widths of the files
+  // widths of the files; a fluid image's upper bound from its containers (layout.ts), for `sizes`
+  const bound = display === null && ctx.maxWidth ? ctx.maxWidth(el) : null;
   let widths: number[];
   if (display !== null) {
     const small = display * (display / (w0 / h0)) <= SMALL_BOX;
@@ -254,8 +257,10 @@ function rewriteOne(el: P5Element, eager: boolean, ctx: RewriteContext): 'pendin
     }
     widths = [...new Set(want.map((w) => Math.min(w, w0)))];
   } else {
-    widths = (ctx.host.widths ?? FLUID_WIDTHS).filter((w) => w <= w0 * 0.9);
-    widths.push(w0);
+    // a fluid image no wider than `bound` CSS px needs at most 3x of it (a DPR-3 phone)
+    const cap = bound !== null ? Math.min(w0, 3 * bound) : w0;
+    widths = (ctx.host.widths ?? FLUID_WIDTHS).filter((w) => w <= cap * 0.9);
+    widths.push(cap);
   }
   widths.sort((a, b) => a - b);
   const height = (w: number) => Math.max(1, Math.round(w * h0 / w0));
@@ -274,7 +279,8 @@ function rewriteOne(el: P5Element, eager: boolean, ctx: RewriteContext): 'pendin
   }).join(', ');
 
   const lazy = (attrOf(el, 'loading') ?? (eager ? 'eager' : 'lazy')) === 'lazy';
-  const sizes = attrOf(el, 'sizes') ?? (display !== null ? `(max-width: ${display}px) 100vw, ${display}px` : lazy ? 'auto, 100vw' : '100vw');
+  const fluid = bound !== null ? `(max-width: ${bound}px) 100vw, ${bound}px` : '100vw';
+  const sizes = attrOf(el, 'sizes') ?? (display !== null ? `(max-width: ${display}px) 100vw, ${display}px` : lazy ? `auto, ${fluid}` : fluid);
   // the fallback `src`: the 1x file of a box, else the largest up to 1280 px
   const at = display !== null ? Math.min(display, w0) : [...widths].reverse().find((w) => w <= 1280) ?? widths[0]!;
   const main = tiny ? variant('original', w0) : variant(fallback, at);

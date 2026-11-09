@@ -220,7 +220,7 @@ class Compiler {
     const layout = this.layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
     const images = this.opts.images ? rewriteImages(doc, {
       host: this.opts.images, root: this.opts.root,
-      ...(layout ? { layout: (el: P5Element) => layout.box(el) } : {}),
+      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el) } : {}),
       fileOf: (el) => this.origins.get(el)?.file ?? this.opts.file,
       warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
     }) : undefined;
@@ -1099,9 +1099,12 @@ class Compiler {
       if (attr(el, 'width') === undefined) setAttr(el, 'width', String(w));
       if (box.height !== null && attr(el, 'height') === undefined) setAttr(el, 'height', String(Math.round(box.height)));
     } else {
-      widths = [...(this.opts.images?.widths ?? FLUID_WIDTHS)];
-      at = 1280;
-      sizes = 'auto, 100vw';
+      // no wider than its containers allow (layout.ts): at most 3x of that
+      const bound = this.layout?.maxWidth(el) ?? null;
+      const ladder = this.opts.images?.widths ?? FLUID_WIDTHS;
+      widths = bound === null ? [...ladder] : [...ladder.filter((w) => w < 3 * bound * 0.9), 3 * bound];
+      at = bound === null ? 1280 : Math.min(1280, bound);
+      sizes = bound === null ? 'auto, 100vw' : `auto, (max-width: ${bound}px) 100vw, ${bound}px`;
     }
     if (attr(el, 'sizes') === undefined) setAttr(el, 'sizes', sizes);
     // rows load as they scroll in; an image outside a template may be the page's largest, so it is not deferred

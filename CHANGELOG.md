@@ -41,6 +41,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   `@tiaforge-ui/sinter/remote` (0.5 KB gzip, only in pages that use it); testing:
   `render(html, { remoteImages, css })`. A build with the `vercel` preset prints the widths for
   `vercel.json`.
+- Fluid images in a column: `sizes` from the narrowest container with a fixed width or an absolute
+  `max-width` the image cannot overflow (`main { max-width: 800px }`, Tailwind's `max-w-3xl`,
+  temper's `data-layout="center"`): `(max-width: 800px) 100vw, 800px`, files up to 3x of it.
+  Static and API images. Only the attributes a binding writes are uncertain in the cascade now
+  (`data-sn-attr`'s keys), not every attribute of the element.
 - Dev: a console warning for every image shown with fewer pixels than the screen has, naming the
   cause (a small source, or a `sizes` smaller than the image is shown).
 

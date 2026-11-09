@@ -66,6 +66,18 @@ than) its source, is fluid: `width`/`height` are only its ratio. It gets the wid
 1920 and 2560 below the source's width, and the source's width itself. Its `sizes` is the
 author's, or `auto, 100vw` for a lazy image (`auto` where the browser supports it), else `100vw`.
 
+**Fluid images in a column.** Most fluid images sit in a container with a maximum width
+(`main { max-width: 1200px }`, Tailwind's `max-w-3xl`, temper's `data-layout="center"`). The
+cascade (step 1b) finds an upper bound of the image's width: its own absolute `max-width` and
+`width` attribute, and each container's fixed width or absolute `max-width`, for as long as the
+element below cannot be wider than it. It stops at an element that may be: positioned `absolute`
+or `fixed`, a negative or computed margin, a `min-width`, a width that is not `auto` or a `%` up
+to 100%, an image without `max-width`/`width` in `%`; and it skips a value a media query or a state
+could change. With a bound of 800 px, `sizes` is `(max-width: 800px) 100vw, 800px` (after `auto, `
+for a lazy image), and the widths stop at 3x of it (2400). Paddings are not subtracted: the bound
+can be a little wider than the image, never narrower. Checked against Chromium at 1600 and 390 px.
+An API image (step 2) uses the same bound.
+
 **Fixed boxes.** `width`/`height` smaller than the source are a display size in CSS pixels. The
 image gets exactly 1x and 2x of the box, and 3x for small boxes (at most 300 × 300), each capped at
 the source. `sizes` is `(max-width: <w>px) 100vw, <w>px`, so a box that CSS shrinks on a narrow

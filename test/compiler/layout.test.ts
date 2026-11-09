@@ -102,6 +102,9 @@ describe('the cascade', () => {
     expect(derive('img { width: 10px } .big img { width: 60px }', '<div data-sn-class="{big: x}"><img id="t" src="a.png" alt=""></div>')).toBe('fluid');
     expect(derive(TEMPER, '<span data-avatar data-sn-style="{\'--_size\': s}"><img id="t" src="a.png" alt=""></span>')).toBe('fluid');
     expect(derive(TEMPER, '<span data-avatar data-sn-attr="{\'data-size\': s}"><img id="t" src="a.png" alt=""></span>')).toBe('fluid');
+    expect(derive(TEMPER, '<span data-avatar data-size="sm" data-sn-attr="{\'data-size\': s}"><img id="t" src="a.png" alt=""></span>')).toBe('fluid');
+    // only the attributes a binding writes are uncertain: a bound `src` does not change `[data-avatar]`
+    expect(derive(TEMPER, '<span data-avatar data-sn-attr="{title: t}"><img id="t" data-sn-attr="{src: c.photo}" alt=""></span>')).toEqual([40, 40]);
   });
 
   test('evaluate', () => {
@@ -138,6 +141,52 @@ describe.skipIf(!chromium)('the browser renders what the cascade claims', () => 
         if (shrinks && width < want[0]) { expect(r[0]).toBeLessThanOrEqual(want[0]); continue; }
         expect(r[0], `${name} at ${width}px`).toBeCloseTo(want[0], 0);
         if (want[1] !== null) expect(r[1], `${name} at ${width}px`).toBeCloseTo(want[1], 0);
+      }
+    });
+  }
+});
+
+/** [name, css, body, the bound of #t, the browser renders exactly the bound at 1600 px] */
+const BOUNDS: Array<[string, string, string, number | null, boolean?]> = [
+  ['a max-width container', 'main { max-width: 800px } img { max-width: 100% }', '<main><p><img id="t" src="a.png" width="2000" alt=""></p></main>', 800, true],
+  ['rem, nested: the smaller wins', 'main { max-width: 75rem } article { max-width: 40rem } img { width: 100% }', '<main><article><img id="t" src="a.png" alt=""></article></main>', 640, true],
+  ['through a link', 'main { max-width: 600px } img { max-width: 100% }', '<main><a href="#"><img id="t" src="a.png" width="2000" alt=""></a></main>', 600, true],
+  ['a fixed column', '.col { width: 300px } img { width: 100% }', '<div class="col"><div><img id="t" src="a.png" alt=""></div></div>', 300, true],
+  ['the width attribute', 'img { max-width: 100% }', '<div><img id="t" src="a.png" width="500" alt=""></div>', 500, true],
+  ['no container: none', 'img { max-width: 100% }', '<div><img id="t" src="a.png" alt=""></div>', null],
+  ['a % max-width container: none', 'main { max-width: 80% } img { max-width: 100% }', '<main><img id="t" src="a.png" alt=""></main>', null],
+  ['an image that may overflow: only its own size', 'main { max-width: 600px }', '<main><img id="t" src="a.png" width="900" alt=""></main>', 900, true],
+  ['negative margin between: not past it', 'main { max-width: 600px } .bleed { margin: 0 -40px } img { width: 100% }', '<main><div class="bleed"><img id="t" src="a.png" alt=""></div></main>', null],
+  ['vw between: not past it', 'main { max-width: 600px } .full { width: 100vw } img { width: 100% }', '<main><div class="full"><img id="t" src="a.png" alt=""></div></main>', null],
+  ['position: absolute between: not past it', 'main { max-width: 600px; position: relative } .abs { position: absolute; left: 0 } img { max-width: 100% }', '<main><div class="abs"><img id="t" src="a.png" width="2000" alt=""></div></main>', 2000],
+  ['a media query on the container: not from it', 'main { max-width: 600px } @media (min-width: 1000px) { main { max-width: none } } body { max-width: 1400px } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>', 1400, true],
+  ['a position that may apply but stays in flow', 'main { max-width: 600px } article:has(.x) { position: relative } img { max-width: 100% }', '<main><article><img id="t" src="a.png" width="2000" alt=""></article></main>', 600, true],
+  ['flex item', 'main { max-width: 700px; display: flex } img { max-width: 100% }', '<main><div><img id="t" src="a.png" width="3000" alt=""></div><p>x</p></main>', 700],
+];
+
+describe('the bound of a fluid image', () => {
+  const bound = (css: string, body: string) => {
+    const doc = parse5.parse(page('', body));
+    return new Layout([{ file: 'test.css', css }], doc).maxWidth(find(doc, 't'));
+  };
+  for (const [name, css, body, want] of BOUNDS) test(name, () => expect(bound(css, body)).toBe(want));
+});
+
+describe.skipIf(!chromium)('the browser never renders a fluid image wider than its bound', () => {
+  let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
+  let tab: BrowserPage;
+  beforeAll(async () => { browser = await chromium!.launch(); tab = await browser.newPage(); }, 30_000);
+  afterAll(async () => { await browser?.close(); });
+  const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  for (const [name, css, body, want, exact] of BOUNDS) {
+    if (want === null) continue;
+    test(name, async () => {
+      for (const width of [1600, 390]) {
+        await tab.setViewportSize({ width, height: 800 });
+        await tab.setContent(page(css, body.replaceAll('src="a.png"', `src="${IMG}"`)));
+        const w = await tab.evaluate(() => document.getElementById('t')!.getBoundingClientRect().width);
+        expect(w, `${name} at ${width}px`).toBeLessThanOrEqual(want + 0.5);
+        if (exact && width === 1600) expect(w, `${name} at ${width}px`).toBeCloseTo(want, 0);
       }
     });
   }

@@ -100,3 +100,15 @@ test('remote() on its own', () => {
   expect(r.set('javascript:alert(1)', [1], 0)).toBeNull();
   expect(r.src(42, 100, 0)).toBe(42);
 });
+
+test('a fluid API image in a max-width container: sizes and widths from the bound', async () => {
+  const { root, settle } = await render(page, {
+    requests: mockRequests(data), css: AVATAR + ' body { max-width: 500px } img { max-width: 100% }',
+    remoteImages: { url: 'https://img.example.com/{w}/{url}', origins: ['https://uploads.example.com'] },
+  });
+  await settle();
+  const hero = root.querySelector('#hero')!;
+  expect(hero.getAttribute('sizes')).toBe('auto, (max-width: 500px) 100vw, 500px');
+  expect(hero.getAttribute('srcset')!.split(', ').map((c) => c.split(' ')[1])).toEqual(['480w', '960w', '1500w']);
+  expect(hero.getAttribute('src')).toContain('https://img.example.com/500/');
+});
