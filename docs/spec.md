@@ -833,7 +833,7 @@ Durations are written as in `refresh` and `cache` (`30s`, `5m`, `1h`, `1d`); `re
 - **Reads.** A GET waiting for a retry is aborted like a running one (a `src` change, `when` turning falsy, a newer GET trigger). `$meta.<name>.loading` stays true while an ordinary load waits; `error` is set only when the policy gives up. Concurrent loads of one URL share one request and so one retry. Unchanged reloads (`versions`) look at the response that finally arrives.
 - **Dev builds** log each failed try and its outcome (`console.info`): `sinter: retry (drafts): PUT /api/notes/7 failed (Failed to fetch); try 2 in 1 s`, `… succeeded on try 2`, `… gave up after 4 tries`.
 - Not covered: writes that survive a navigation or a closed tab (a stored outbox), retrying `data-sn-call`, policies written as functions. The testing module drives the waits with `advance(ms)`; `settle()` does not wait for them.
-- Cost: the `retry` module, in the config module's bundle only in apps that call `retry()`; core grew 39 B gzip (14,196 to 14,235) for the hook.
+- Cost: the `retry` module, in the config module's bundle only in apps that call `retry()`; core grew 39 B gzip (14,203 to 14,242) for the hook.
 - Recipe: "Offline drafts".
 
 ### Local actions (`data-sn-call`)
