@@ -36,6 +36,7 @@ const entries = {
   persist: `export { default } from '${dist}/persist.js';`,
   cache: `export { default } from '${dist}/cache.js';`,
   refresh: `export { default } from '${dist}/refresh.js';`,
+  versions: `export { default } from '${dist}/versions.js';`,
   keys: `export { default } from '${dist}/keys.js';`,
   apply: `export { default } from '${dist}/apply.js';`,
   prefetch: `export { prefetch } from '${dist}/prefetch.js';`,

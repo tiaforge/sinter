@@ -3,7 +3,7 @@
 // stream's reconnect, `src` changing), so with a stream feeding it, it rarely reloads by itself:
 // only when nothing else has. A refresh is a background load: `$meta.loading` stays false, and
 // a response with the version (`ETag`, `Last-Modified`) of the data shown is not parsed or stored
-// again. Paused while the page is hidden (a background tab, a prerendered page); a refresh that
+// again (the versions module, which every page with `refresh` has). Paused while the page is hidden (a background tab, a prerendered page); a refresh that
 // fell due meanwhile runs when it is shown again. While `when` is falsy there is nothing to
 // reload: the next load starts the clock again. A failure retries later, doubling the wait up to
 // 30 s (never sooner than `refresh`), and reports once until a load succeeds again.
@@ -12,7 +12,8 @@ import type { App, Feature, ResourceLoader } from './runtime/app.js';
 const MAX_BACKOFF = 30_000;
 
 function watch(l: ResourceLoader, app: App) {
-  const env = app.env, every = l.def.refresh!;
+  if (l.def.refresh == null) return;
+  const env = app.env, every = l.def.refresh;
   let timer: unknown = null, fails = 0, due = false;
 
   const stop = () => { if (timer != null) { env.clearTimeout(timer); timer = null; } };

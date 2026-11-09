@@ -14,6 +14,7 @@ import * as builtins from '../runtime/helpers.js';
 import { remote, resolveRemote, type RemoteImages } from '../remote.js';
 import cache from '../cache.js';
 import refresh from '../refresh.js';
+import versions from '../versions.js';
 import dev from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
@@ -27,7 +28,7 @@ import sse from '../sse.js';
 import { prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, refresh, each, listbox, keys, apply, transition };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, transition };
 
 // ---- requests
 

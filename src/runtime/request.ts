@@ -122,12 +122,6 @@ export async function readBody(res: Response): Promise<unknown> {
   return body;
 }
 
-/**
- * What identifies a response's content: its `ETag`, else its `Last-Modified`; null without either.
- * A 304 carries the validator of the content it confirms.
- */
-export const versionOf = (res: Response): string | null => (res.ok || res.status == 304 ? res.headers.get('ETag') ?? res.headers.get('Last-Modified') : null);
-
 /** 204 or empty → null; JSON content type → parsed; anything else → text. */
 export async function parseBody(res: Response): Promise<unknown> {
   const text = res.status == 204 ? '' : await res.text();
