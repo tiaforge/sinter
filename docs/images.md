@@ -259,7 +259,7 @@ in builds alike, so dev does not hide what production does.
   `data:` URLs, files in `public/`, declarations that already use `image-set()`, `?inline` and
   `?url` imports, inline `style` attributes, and CSS a utility engine generates.
 - A background whose element is larger at 1x than half the source is soft on 1x screens: use a
-  source twice the largest width it is shown at.
+  source twice the largest width it is shown at. The dev console warns when that happens.
 
 ## Cropping
 
@@ -312,10 +312,15 @@ the file the browser chose with the device pixels the image covers (with `object
 larger side), and warns in the console when the file has less than 90% of them: either the
 source is too small, or a larger file exists and `sizes` is smaller than the image is shown. It
 checks every `<img>`, rewritten or not, at the screen it runs on: open the dev server on an iPad to
-check an iPad.
+check an iPad. CSS backgrounds too: for each element with a background image (and again when
+elements are added, or a `class` or `style` changes), the file the browser uses (a `url()`, or the
+`image-set()` option of a decoded type at the resolution nearest at or above the screen's), drawn
+at the width `background-size` gives it in the positioning area (`cover`, `contain`, lengths, `%`,
+or `auto`: the file's size at its resolution). For an `image-set()` the message says the build
+counts the source as 2x and names the width it needs. Pseudo-elements are not checked.
 
 **Planned in `temper-inspect`:** the same comparison at device scale factor 2 for pages without
-sinter, and for CSS backgrounds.
+sinter.
 
 - `SN513 bound-local-image`: an `<img>` binds `src` to a local image path, or chooses between a
   few (`dark ? './logo-dark.png' : './logo.png'`), which the build cannot optimize. Write each as a
