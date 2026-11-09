@@ -172,11 +172,12 @@ describe('resource names from a closed set of literals', () => {
   });
 
   test('dependencies: a listable $meta key reads only those resources\' status', () => {
-    const r = compile(`${P}<main data-sn-state="{ s: false, tab: 'x' }" data-sn-let="{ shown: s ? 'results' : 'messages' }"><p data-sn-text="$meta[shown].hasNext"></p><p data-sn-text="$meta[tab].loading"></p><p data-sn-text="results.length + messages.length + jumps.length + feed.length + other.length"></p></main>`, {
+    const r = compileParts(`${P}<main data-sn-state="{ s: false, tab: 'x' }" data-sn-let="{ shown: s ? 'results' : 'messages' }"><p data-sn-text="$meta[shown].hasNext"></p><p data-sn-text="$meta[tab].loading"></p><p data-sn-text="results.length + messages.length + jumps.length + feed.length + other.length"></p></main>`, {
       file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: '/h.js', names: [], namespaces: {} },
     });
     expect(r.diagnostics).toEqual([]);
-    const deps = [...r.module.matchAll(/"(\$meta[^"]*)"/g)].map((m) => m[1]);
+    // the compiler's IR keeps the paths as strings (the page module numbers them)
+    const deps = r.ir.roots.flatMap((n) => n.b.flatMap((b) => (b.d ?? []) as string[])).filter((d) => d.startsWith('$meta'));
     expect(deps).toEqual(expect.arrayContaining(['$meta.results.hasNext', '$meta.messages.hasNext', '$meta']));
     expect(deps).not.toContain('$meta.other.hasNext');
   });

@@ -96,7 +96,7 @@ import optimistic from '@tiaforge-ui/sinter/optimistic';
 import { date } from '/src/sinter.helpers.js';               // only the helpers this page uses
 import { inbox_title } from '/src/paraglide/messages.js';     // namespace members, imported by name
 
-const ir = { v: 1, resources: [...], syncs: [...], roots: [...], templates: [...], actions: [...] };
+const ir = { v: 2, resources: [...], syncs: [...], roots: [...], templates: [...], actions: [...], ps: {...} };
 const fns = [
   (s) => s.c.fn_name,
   (s) => date(s.c.birthday, 'short'),
@@ -109,8 +109,8 @@ mount(document, { ir, fns, features: [sse, optimistic] });
 
 **Source maps.** With `sourcemap`, `compile` also returns a v3 source map for the page module (`map`) and the early module (`earlyMap`): each function in `fns` maps to where its expression starts in the markup (the attribute's value, `shift` characters in for a part such as a URL template's `{…}`), in the page or the partial it came from, with the files' text in `sourcesContent`. An error thrown in an expression then points at the HTML in the browser's devtools. A function maps as a whole: identifiers are rewritten (`q` becomes `$.$s0.q`), so every column inside it maps to the expression's start. A function shared by several attributes (identical code is one table entry) maps to the first. Functions the compiler writes itself map to the markup they come from: a row template's lookups (`find`, `make`) to its `data-sn-for`, a form's state with `$error` to its `data-sn-state` (or its start tag), the early module's state functions to `data-sn-state`, and the setter of a `data-sn-model` to that attribute; an expression inlined into one (each binding in `make`, a state's fields) maps to its own place. The module text is the same with or without a map. Because a shared function can map to one place only, dev builds also name each use when it throws: the dev IR gives each binding, action, resource and event an `at` (`{ [fn]: "file:line:col" }`, the place of each function it uses, recorded as it is compiled), and the core hands the dev module what threw (the binding, its element and the error; for a handler, the binding it runs for), which reports `binding \`text\` on <p> at page.html:2:20 threw: …` with the error after it. Production builds carry no `at`, and the core's error paths pass objects instead of formatting messages. The Vite plugin asks for maps in `vite dev` and in builds with `build.sourcemap`, and returns them from `load()`; in a build with maps, page modules get a plain id (`/@sinter/<page>.js`, not `\0/@sinter/…`), since Rolldown drops the map of a `\0` module.
 
-### Intermediate format (IR v1)
-The IR is the only contract between compiler and runtime. It is plain JSON plus a function table, carries `v: 1`, and the runtime refuses a version it does not know.
+### Intermediate format (IR v2)
+The IR is the only contract between compiler and runtime. It is plain JSON plus a function table, carries `v: 2`, and the runtime refuses a version it does not know.
 
 | Part | Holds |
 | --- | --- |
@@ -120,8 +120,16 @@ The IR is the only contract between compiler and runtime. It is plain JSON plus 
 | `templates` | per template: node paths, bindings, key expression (absent `index`, `key`, `keyFields` are null) |
 | `actions` | method, URL template, concurrency, and only where the page sets them: body source, debounce, optimistic, then, catch, the paths they write, form (the trigger event is the action's `on` binding) |
 | `bindings` | kind (`text`, `attr`, `class`, `style`, `show`, `model`, `prop`, `for`, `if`, `else`, `on`), target, function index, static dependency paths; for a key filter, the `key` to match and modifier bits |
+| `ps` | the path table (page module only, below) |
 
 Dependencies are extracted at compile time: every binding lists the state and resource paths it reads (`q`, `contacts`, `c`). The runtime matches them against dirty paths (see Reactivity), so it needs no proxies and no read tracking.
+
+**Numbered paths (IR v2, added 2026-11-09).** The compiler's IR holds paths as strings (`$s0.draft.emails.{$i1}.value`). In the page module (`compactIR`, `src/paths.ts`) every path read or written (`d`, `w`, `deps`, a selection's `s.d`) is a node id of one trie per page: numbered in pre-order with children sorted by name, so the same page gets the same ids. The table `ps` holds no segment names:
+- `p`: each node's parent (-1 for a top-level segment); `k`: the special segments by node (`*`, `#`, `~`, `**`, `{name}`);
+- `r`: by written node, the dependency nodes it can reach: a node id, or `[node, flags, ...checks]` when checks remain at runtime: a `{name}` value of the write equal to a segment the dependency names, the reader's row index equal to the writer's (or to a literal index), a marked row (`~`); flags 1: a `**` ended the match;
+- `x`: the nodes of the paths the runtime marks by itself (`$locale`, `$url`, `$now`, `$r.<name>`, `$meta.<name>`, `$s<sid>.**`, `$s<sid>.$error`), by name.
+
+The compiler decides, for every pair of written path and dependency, what the runtime's string matching decided before (`staticReach`); the runtime keeps only the checks against scope values. A dirty path is a written node plus the values its `{name}` segments took from the writer's scope. Each flush indexes the round's dirty paths by dependency node, so a binding's check is a lookup. `test/paths.test.ts` compares both halves with the former string matching on random paths, scopes and marked rows.
 
 ### Adapters
 - Vite (v0.1): `@tiaforge-ui/sinter/vite` hooks `transformIndexHtml` for every HTML entry and serves the page module as a virtual module. Dev and build use the same path. Partials returned in `files` are watched. Diagnostics go to the terminal and Vite's error overlay. An HTML or partial change triggers a full reload in v0.1.
@@ -278,7 +286,7 @@ Invalidation by path. After a handler runs, generated code marks the state paths
 
 Each binding lists the paths it reads. A binding re-runs when one of its paths and a dirty path are prefixes of each other. `data-sn-model` on a path invalidates that path the same way.
 Method classes. Known read-only methods (`includes`, `map`, `filter`, `slice`, `find`, `some`, …) invalidate nothing. Known mutators (`push`, `pop`, `splice`, `sort`, `reverse`, `shift`, `unshift`, `fill`; `add`, `delete`, `clear` on `Set` and `Map`) and unknown methods invalidate the receiver's path. Helpers and store functions only read their arguments.
-Rows. A row re-evaluates only if its item object was replaced or its own path is dirty. Only the whole-root fallback checks every row.
+Rows. A row re-evaluates only if its item object was replaced or its own path is dirty. Only the whole-root fallback checks every row. A write through the row's own element (`draft.emails[i].value = x`, `i` the list's index, a `{$i<tid>}` segment) reaches the row at that index only: the walk visits that row and skips the others without checking them (IR v2, added 2026-11-09), unless the list was reconciled since its rows were last all walked; then every row is checked as before. Typing in one row of a 20,000-row state list costs what it costs in a 10-row list (0.006 ms in the runtime benchmark, against 2.9 ms before). A write into another list indexed by the row's index (`other[i] = x`) still checks every row.
 Default keys. Without `data-sn-key`, a `for` over resource items keys by the resource's `key` fields. A list the compiler cannot trace to a resource (a helper's result, `t in visible(tasks, q)`) keys each item that is a keyed resource's current item by that resource's key, at runtime, so a patch (which replaces the object) keeps the row. A `for` over a state array of objects keys by object identity (an internal id per object via `WeakMap`), so `splice` never re-binds rows. Arrays of primitives need an explicit key.
 Writes from outside handlers. Islands change state only through `app.state(el).update(s => { … })`, which invalidates the roots it touched. Dev builds snapshot each state root after every flush and warn when a root changed without invalidation ("state `draft` changed outside sinter: use `update()`").
 Resources are read-only in expressions. Assigning to, or calling a mutator on, a value rooted in a resource is error `SN205`, including loop variables over resources; the message shows the `patch()` equivalent. To edit resource data, copy it with `structuredClone(c)`, which returns unfrozen plain data.
