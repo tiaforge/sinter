@@ -6,9 +6,9 @@ import type { EventDef, SyncDef } from './ir.js';
 import { config, SinterError } from './runtime/config.js';
 import type { App, Feature, Transport } from './runtime/app.js';
 import { clean } from './runtime/store.js';
+import { doubled, jittered } from './backoff.js';
 
 const MIN_BACKOFF = 1000;
-const MAX_BACKOFF = 30_000;
 
 /** JSON payloads are parsed; anything else is delivered as the raw string. */
 export const parsePayload = (data: string): unknown => { try { return JSON.parse(data); } catch { return data; } };
@@ -111,8 +111,8 @@ class Connection {
   }
 
   private wait(fn: () => void): void {
-    const delay = Math.round(this.backoff * (0.75 + this.app.env.random() * 0.5));
-    this.backoff = Math.min(this.backoff * 2, MAX_BACKOFF);
+    const delay = jittered(this.backoff, this.app.env.random, 0.25);
+    this.backoff = doubled(this.backoff);
     this.timer = this.app.env.setTimeout(() => { this.timer = null; fn(); }, delay, 'backoff');
   }
 

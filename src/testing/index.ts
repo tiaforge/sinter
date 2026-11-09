@@ -13,6 +13,8 @@ import { $k } from '../runtime/security.js';
 import * as builtins from '../runtime/helpers.js';
 import { remote, resolveRemote, type RemoteImages } from '../remote.js';
 import cache from '../cache.js';
+import refresh from '../refresh.js';
+import versions from '../versions.js';
 import dev from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
@@ -26,7 +28,7 @@ import sse from '../sse.js';
 import { prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each, listbox, keys, apply, transition };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, transition };
 
 // ---- requests
 
@@ -240,6 +242,8 @@ export interface Rendered {
   navigations: string[];
   /** current page URL (after `$url` writes) */
   url(): string;
+  /** hides or shows the page (a background tab), then dispatches `visibilitychange` */
+  visibility(state: 'hidden' | 'visible'): Promise<void>;
   /** dispatches a window event to sinter; `props` are set on the event (`pageswap`/`pagereveal`: `viewTransition`, `activation`) */
   window(type: 'pagehide' | 'pageshow' | 'popstate' | 'online' | 'pageswap' | 'pagereveal', props?: Record<string, unknown>): Promise<void>;
 }
@@ -381,6 +385,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   const navigations: string[] = [];
   const store = options.storage ?? memoryStorage(), session = options.session ?? memoryStorage();
   const winListeners = new Map<string, Set<(e: Event) => void>>();
+  let hidden = false;
   const env: Env = {
     now: () => now,
     setTimeout: (fn, ms, kind = 'timeout') => { const t = { id: nextTimer++, at: now + ms, fn, kind }; timers.push(t); return t.id; },
@@ -393,6 +398,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     href: () => href,
     replaceState: (url) => { href = new URL(url, href).href; },
     random: () => 0.5,
+    hidden: () => hidden,
     listen: (type, fn) => {
       if (!winListeners.has(type)) winListeners.set(type, new Set());
       winListeners.get(type)!.add(fn);
@@ -498,6 +504,11 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   return {
     root: doc.body, app, flush, settle, advance, navigations,
     url: () => href,
+    visibility: async (state) => {
+      hidden = state === 'hidden';
+      for (const fn of winListeners.get('visibilitychange') ?? []) fn(new Event('visibilitychange'));
+      await flush();
+    },
     window: async (type, props) => {
       const e = new Event(type);
       if (type === 'pageshow') Object.defineProperty(e, 'persisted', { value: true });
