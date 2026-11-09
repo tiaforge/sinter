@@ -1,5 +1,6 @@
 // The compiler: one pure, deterministic function from annotated HTML to a
 // rewritten page plus its IR and function table.
+import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
 import { Layout } from './layout.js';
 import type { RemoteConfig } from '../remote.js';
@@ -79,11 +80,29 @@ export interface CompileOptions {
   splitEarly?: boolean;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
+  /** also return where each function in `fns` was written (`CompiledParts.sources`), for the page module's source map */
+  sourcemap?: boolean;
 }
+
+/** A place in the markup: `file`, 1-based line and column. */
+export interface SourcePos { file: string; line: number; col: number }
+
+/**
+ * Where a compiled function was written: the start of the expression (or of its element). `parts`:
+ * expressions the compiler inlined into a function it wrote, each at `at` for `len` characters of its code.
+ */
+export interface FnSource extends SourcePos { parts?: Array<SourcePos & { at: number; len: number }> }
+
+/** With `sourcemap`: the source of each function in a table (null: generated, nothing in the markup), and the files' text. */
+export interface FnSources { fns: Array<FnSource | null>; content: Record<string, string> }
 
 export interface CompileResult {
   html: string;
   module: string;
+  /** with `sourcemap`: the page module's source map, from each function back to the markup (null-free; absent when nothing maps) */
+  map?: SourceMap;
+  /** with `sourcemap`: the early module's source map */
+  earlyMap?: SourceMap;
   diagnostics: Diagnostic[];
   files: string[];
   /** with `check: true` */
@@ -112,6 +131,8 @@ export interface CompileResult {
 export interface EarlyParts {
   ir: EarlyIR;
   fns: string[];
+  /** with `sourcemap` */
+  sources?: FnSources;
   /** helper names and namespace members the early bindings call */
   helpers: string[];
   namespaces: Record<string, string[]>;
@@ -135,6 +156,8 @@ export interface CompiledParts {
   html: string;
   ir: IR;
   fns: string[];
+  /** with `sourcemap` */
+  sources?: FnSources;
   features: string[];
   /** helper names imported from the helpers module or the core */
   helpers: { user: string[]; builtin: string[] };
@@ -175,6 +198,11 @@ const BAD_PARAM = /^(constructor|__proto__|prototype)$/;
 const SECRET_AUTOCOMPLETE = /^(cc-|one-time-code$|current-password$|new-password$)/;
 
 interface Origin { file: string; src: string; chain: string[] }
+/**
+ * an expression's place: the value of `attr` (null: the element's start tag), `shift` characters in.
+ * `parts`: for a function the compiler wrote, the code it inlined (found in order) and where each was written.
+ */
+interface Site { el: P5Element; attr: string | null; shift: number; parts?: Array<{ code: string; site: Site | null }> }
 
 interface Ctx {
   scope: Scope;
@@ -198,6 +226,20 @@ class Compiler {
   readonly files = new Set<string>();
   readonly fns: string[] = [];
   readonly fnIndex = new Map<string, number>();
+  /** where each function in `fns` was first written: the expression that compiled to it, else the element being compiled */
+  readonly fnAt: Array<Site | null> = [];
+  /** the element or expression being compiled: the site of functions the compiler writes itself */
+  private at: Site | null = null;
+  /** each compiled expression's site, by its code: a function made from it maps to where it was written */
+  private readonly codeAt = new Map<string, Site>();
+  /** dev builds: the site of each function's latest `fn()` call (identical code, one entry: this use's own place) */
+  private readonly callAt = new Map<number, Site | null>();
+  /** each `data-sn-for` template's site, by template id: its row lookups map there */
+  private readonly templateAt = new Map<number, Site>();
+  /** each state's `data-sn-state` and the site of each field, by state id: the early module's state functions */
+  /** the early module's state functions, written for its table alone, by code */
+  private readonly earlySites = new Map<string, Site>();
+  private readonly stateAt = new Map<number, { site: Site; fields: Map<string, Site> }>();
   readonly origins = new WeakMap<object, Origin>();
   /** attributes SN507 has measured, so an expression analysed twice is reported once */
   readonly measured = new WeakMap<P5Element, Set<string>>();
@@ -306,15 +348,20 @@ class Compiler {
     this.markLowPriority();
     if (this.opts.prerender) this.prerender();
     const early = this.opts.early ? this.earlyParts() : undefined;
+    if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
     this.injectScript(doc, early !== undefined && (early !== null || !!this.opts.early!.module) ? this.opts.early!.src ?? null : null);
     // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
     // toggle and use the generic path walk, which costs no code per template
     const rowTemplates = new Set([...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((n) => n.b.filter((b) => b.k === 'for').map((b) => b.x!)));
+    this.at = null;
     for (const t of this.templates) {
       if (!t.nodes.length || !rowTemplates.has(t.id)) continue;
-      t.find = this.fn(findCode(t.nodes));
+      const at = this.templateAt.get(t.id) ?? null;
+      t.find = this.fn(findCode(t.nodes), at);
       const make = makeCode(t.nodes, this.fns);
-      if (make) t.make = this.fn(make);
+      // each binding's expression is inlined: it maps to its own attribute
+      const parts = t.nodes.flatMap((nd) => nd.b.filter((b) => b.k !== 'on' && b.f !== undefined).map((b) => ({ code: bodyOf(this.fns[b.f!]!), site: this.fnAt[b.f!] ?? null })));
+      if (make) t.make = this.fn(make, at && { ...at, parts });
     }
 
     const ir: IR = { v: 1, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
@@ -330,6 +377,7 @@ class Compiler {
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
+      ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'transition'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
@@ -701,6 +749,7 @@ class Compiler {
   }
 
   element(el: P5Element, ctx: Ctx, index: number, prevIf: { node: NodeDef; binding: Binding } | null): { node: NodeDef; binding: Binding } | null {
+    this.at = { el, attr: null, shift: 0 };
     switch (el.tagName) {
       case 'sn-resource': this.resource(el, ctx); return null;
       case 'sn-sync': this.sync(el, ctx); return null;
@@ -783,6 +832,8 @@ class Compiler {
           this.features.add('persist');
         }
         this.stateInits.push({ sid, fields: r.entries!.map((e) => ({ key: e.key, code: e.code, deps: e.deps })), persist: node.persist ?? null });
+        const site: Site = { el, attr: 'data-sn-state', shift: 0 };
+        this.stateAt.set(sid, { site, fields: new Map(r.entries!.map((e) => [e.key, { ...site, shift: e.offset }])) });
       }
     }
 
@@ -793,13 +844,14 @@ class Compiler {
       let entry = node.state !== undefined ? scope.states.at(-1)! : null;
       if (entry) {
         const init = this.fns[node.state!]!;
-        node.state = this.fn(`($) => Object.assign((${init})($), { $error: null })`);
+        node.state = this.fn(`($) => Object.assign((${init})($), { $error: null })`, { el, attr: 'data-sn-state', shift: 0, parts: [{ code: init, site: this.fnAt[node.state!] ?? null }] });
         entry.names.add('$error');
         this.stateInits.find((x) => x.sid === entry!.sid)!.fields.push({ key: '$error', code: '($) => (null)', deps: [] });
       } else {
         const sid = this.nextSid++;
-        node.state = this.fn('($) => ({ $error: null })');
+        node.state = this.fn('($) => ({ $error: null })', { el, attr: null, shift: 0 });
         node.sid = sid;
+        this.stateAt.set(sid, { site: { el, attr: null, shift: 0 }, fields: new Map() });
         entry = { sid, names: new Set(['$error']) };
         scope = { ...scope, states: [...scope.states, entry] };
         this.stateInits.push({ sid, fields: [{ key: '$error', code: '($) => (null)', deps: [] }], persist: null });
@@ -832,7 +884,7 @@ class Compiler {
     const isTemplate = el.tagName === 'template';
     const valueB = (k: 'text' | 'show', name: string) => {
       const r = this.expr(el, name, scope, { mode: 'value' });
-      if (r.ok) node.b.push(binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
+      if (r.ok) node.b.push(this.binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
     };
 
     for (const n of ['for', 'if', 'else'] as const) {
@@ -845,7 +897,7 @@ class Compiler {
     // the morph across a navigation: the name is kept on the element, the transition feature uses it
     if (has('transition')) {
       const r = this.expr(el, 'data-sn-transition', scope, { mode: 'value' });
-      if (r.ok) { node.b.push(binding({ k: 'attr', n: 'data-sn-vt', f: this.fn(r.code), d: r.deps, ...usesEl(r) })); this.features.add('transition'); }
+      if (r.ok) { node.b.push(this.binding({ k: 'attr', n: 'data-sn-vt', f: this.fn(r.code), d: r.deps, ...usesEl(r) })); this.features.add('transition'); }
     }
     if (has('attr')) this.attrBinding(el, node, scope);
     if (has('class')) this.objectBinding(el, node, scope, 'class');
@@ -887,7 +939,7 @@ class Compiler {
       }
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'] });
       const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
-      if (r.ok) node.b.push(binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
+      if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
     }
 
     if (methods.length > 1) this.report(el, `data-sn-${methods[1]}`, 'SN102', 'an element can have only one method attribute', 0);
@@ -902,7 +954,7 @@ class Compiler {
     else if (isTemplate && has('if')) {
       const r = this.expr(el, 'data-sn-if', scope, { mode: 'value' });
       const tid = this.newTemplate();
-      const b = binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
+      const b = this.binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
       node.b.push(b);
       result = { node, binding: b };
       content = { tid, scope };
@@ -910,7 +962,7 @@ class Compiler {
       if (get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value', 0);
       if (!prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template', 0);
       const tid = this.newTemplate();
-      node.b.push(binding({ k: 'else', x: tid }));
+      node.b.push(this.binding({ k: 'else', x: tid }));
       if (prevIf) prevIf.binding.y = nodeIdx;
       content = { tid, scope };
     }
@@ -1024,15 +1076,81 @@ class Compiler {
   }
 
   /** Index of a function in the page's table; identical code shares one entry (one compile in the engine). */
-  fn(code: string): number {
+  fn(code: string, site?: Site | null): number {
     let i = this.fnIndex.get(code);
-    if (i === undefined) this.fnIndex.set(code, (i = this.fns.push(code) - 1));
+    if (i === undefined) {
+      this.fnIndex.set(code, (i = this.fns.push(code) - 1));
+      this.fnAt[i] = this.codeAt.get(code) ?? (site !== undefined ? site : this.at);
+    }
+    if (this.opts.dev) this.callAt.set(i, site !== undefined ? site : this.at);
     return i;
+  }
+
+  /** `binding()`; in dev builds with where its functions were written (`at`) */
+  binding(b: Binding): Binding {
+    const out = binding(b);
+    if (this.opts.dev) this.devAt(out, [out.f, out.a]);
+    return out;
+  }
+
+  /**
+   * Dev builds: `o.at`, the place in the markup of each of the functions `fs` this object uses
+   * (`"file:line:col"` by function index), so the dev runtime can say which attribute threw although
+   * identical code shares one function. Read right after the functions are made: their latest use is this one.
+   */
+  devAtOf(fs: Array<number | null | undefined>): { at?: Record<number, string> } {
+    const o: { at?: Record<number, string> } = {};
+    this.devAt(o, fs);
+    return o;
+  }
+
+  devAt(o: { at?: Record<number, string> }, fs: Array<number | null | undefined>) {
+    if (!this.opts.dev) return;
+    const at: Record<number, string> = {};
+    for (const i of fs) {
+      const site = i == null ? null : this.callAt.get(i), o2 = site && this.origins.get(site.el);
+      if (!site || !o2 || !site.el.sourceCodeLocation || i! in at) continue;
+      const { line, col } = this.lineCol(o2.src, this.valueOffset(site.el, site.attr) + site.shift);
+      at[i!] = `${o2.file}:${line}:${col}`;
+    }
+    if (Object.keys(at).length) o.at = at;
+  }
+
+  /**
+   * Where each function of a table (the page's, or one copied from it) was written, and the files' text.
+   * `sites`: the sites of functions written for that table alone (the early module's state functions).
+   */
+  sourcesOf(fns: string[], sites?: Map<string, Site>): FnSources {
+    const content: Record<string, string> = {};
+    const pos = (site: Site | null | undefined): SourcePos | null => {
+      const o = site && this.origins.get(site.el);
+      if (!site || !o || !site.el.sourceCodeLocation) return null;
+      content[o.file] ??= o.src;
+      return { file: o.file, ...this.lineCol(o.src, this.valueOffset(site.el, site.attr) + site.shift) };
+    };
+    const at = (code: string): FnSource | null => {
+      const i = this.fnIndex.get(code), site = sites?.get(code) ?? (i === undefined ? null : this.fnAt[i]);
+      const p = pos(site);
+      if (!p || !site?.parts) return p;
+      // each inlined expression where it is in the code, in order
+      const parts: NonNullable<FnSource['parts']> = [];
+      let from = 0;
+      for (const part of site.parts) {
+        const k = code.indexOf(part.code, from), q = k < 0 ? null : pos(part.site);
+        if (k < 0) continue;
+        from = k + part.code.length;
+        if (q) parts.push({ ...q, at: k, len: part.code.length });
+      }
+      return parts.length ? { ...p, parts } : p;
+    };
+    return { fns: fns.map(at), content };
   }
 
   expr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, value?: string, shift = 0): ExprResult {
     const src = value ?? attr(el, attrName) ?? '';
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
+    this.at = { el, attr: attrName, shift };
+    if (r.ok && !this.codeAt.has(r.code)) this.codeAt.set(r.code, this.at);
     if (r.ok && r.ast) this.complexity(el, attrName, o, r.ast);
     if (r.runs || r.refreshes) this.flows.push({ el, attr: attrName, shift, runs: r.runs ?? [], refreshes: r.refreshes ?? [] });
     this.lastExpr = null;
@@ -1181,8 +1299,8 @@ class Compiler {
           `write each image as a static \`<img src>\` (optimized at build time) and choose with \`data-sn-if\` or \`data-sn-show\`: \`<img src="${files[0]}" data-sn-show="…">\``);
       }
       const remote = key === 'src' ? this.remoteImage(el, e, r.entries.some((x) => x.key.toLowerCase() === 'srcset'), scope) : null;
-      node.b.push(binding({ k: 'attr', n: e.key, f: this.fn(remote ? remote.src : e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
-      if (remote) node.b.push(binding({ k: 'attr', n: 'srcset', f: this.fn(remote.srcset), d: e.deps, ...usesEl(r) }));
+      node.b.push(this.binding({ k: 'attr', n: e.key, f: this.fn(remote ? remote.src : e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
+      if (remote) node.b.push(this.binding({ k: 'attr', n: 'srcset', f: this.fn(remote.srcset), d: e.deps, ...usesEl(r) }));
     }
   }
 
@@ -1240,7 +1358,7 @@ class Compiler {
       }
       if (k === 'style' && !key.startsWith('--')) key = key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
       if (k === 'class' && attr(el, 'class') != null) node.cl = 1;
-      if (r.ok) node.b.push(binding({ k, n: key, f: this.fn(e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', entryValue(r, e), r) }));
+      if (r.ok) node.b.push(this.binding({ k, n: key, f: this.fn(e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', entryValue(r, e), r) }));
     }
   }
 
@@ -1302,7 +1420,7 @@ class Compiler {
     }
     const inner = r.code.slice('($) => ('.length, -1);
     const setter = this.fn(`($, v) => { ${inner} = v; }`);
-    const b = binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')], ...usesEl(r) });
+    const b = this.binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')], ...usesEl(r) });
     if (persist !== undefined) {
       b.p = persist;
       this.persisted.add(r.path.slice(0, 2).join('.'));
@@ -1383,8 +1501,9 @@ class Compiler {
       ...(ap ? { ap } : {}),
       ...(retryAttr && method !== 'call' && method !== 'get' ? { retry: retryAttr } : {}),
     };
+    this.devAt(def, [def.then, def.catch]);
     this.actions.push(def);
-    node.b.push(binding({ k: 'on', n: trigger, x: this.actions.length - 1 }));
+    node.b.push(this.binding({ k: 'on', n: trigger, x: this.actions.length - 1 }));
   }
 
   /**
@@ -1477,6 +1596,7 @@ class Compiler {
     const list = this.expr(el, 'data-sn-for', scope, { mode: 'value' }, value.slice(m[0].length), m[0].length);
     const listExpr = this.lastExpr;
     const tid = this.newTemplate();
+    this.templateAt.set(tid, { el, attr: 'data-sn-for', shift: 0 });
     const t = this.templates[tid]!;
     const ii = `$i${tid}`;
     t.item = item;
@@ -1507,7 +1627,7 @@ class Compiler {
     }
     // a plain list path changes the rows only through its structure or replaced elements (`#`), not element fields
     const deps = alias && list.deps.length == 1 && list.deps[0] == list.path!.join('.') ? [list.deps[0] + '.#'] : list.deps;
-    node.b.push(binding({ k: 'for', f: this.fn(list.code), d: deps, x: tid, ...usesEl(list) }));
+    node.b.push(this.binding({ k: 'for', f: this.fn(list.code), d: deps, x: tid, ...usesEl(list) }));
     return { tid, scope: inner };
   }
 
@@ -1703,6 +1823,7 @@ class Compiler {
       }
     }
     this.resources.push({
+      ...(this.opts.dev && then ? this.devAtOf([then.f]) : {}),
       name, src, key: info.key, items: attr(el, 'items') ?? null, total: attr(el, 'total') ?? null,
       order: order ? order.trim() : null, when, paginate, deps: [...deps].sort(), scope: ctx.stateIdx, data: null,
       ...(cache !== undefined ? { cache } : {}),
@@ -1756,7 +1877,7 @@ class Compiler {
       }
       if (c.tagName !== 'sn-event') { this.report(c, null, 'SN102', '`<sn-sync>` may only contain `<sn-event>` elements', 0); continue; }
       const ev = this.event(c, ctx);
-      if (ev) events.push(ev);
+      if (ev) { this.devAt(ev, [ev.then]); events.push(ev); }
     }
     this.syncs.push({ src, events, ...(ctx.stateIdx >= 0 ? { scope: ctx.stateIdx } : {}) });
     this.features.add('sse');
@@ -2020,7 +2141,11 @@ class Compiler {
     for (const o of states) {
       const f = reqFields.get(o.sid!)!, n = need.get(o.sid!);
       const keep = [...f].filter(([k]) => n === 'all' || n?.has(k));
-      o.state = fn(`($) => ({ ${keep.map(([k, code]) => `${JSON.stringify(k)}: (${code})`).join(', ')} })`);
+      const code = `($) => ({ ${keep.map(([k, code]) => `${JSON.stringify(k)}: (${code})`).join(', ')} })`;
+      o.state = fn(code);
+      // written here, from the state's fields: each maps to its field in `data-sn-state`
+      const at = this.stateAt.get(o.sid!);
+      if (at) this.earlySites.set(code, { ...at.site, parts: keep.map(([k, c]) => ({ code: `${JSON.stringify(k)}: (${c})`, site: at.fields.get(k) ?? null })) });
     }
     // the helpers and namespace members the early functions call
     const all = fns.join('\n');
@@ -2307,6 +2432,11 @@ const WRITER: Record<string, string> = { text: 't', attr: 'a', class: 'c', style
  * attribute, so a false first value has nothing to remove otherwise). Null when the template is not
  * simple, a binding reads `$el`, or an expression is not of the value form.
  */
+/** A value function's expression, as `makeCode` inlines it (`($) => (x)` → `x`). */
+function bodyOf(code: string): string {
+  return code.startsWith('($) => (') && code.endsWith(')') ? code.slice('($) => ('.length, -1) : code;
+}
+
 export function makeCode(nodes: NodeDef[], fns: string[]): string | null {
   if (!nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE_KINDS.has(b.k) && !b.e))) return null;
   // only elements with value bindings: a handler binds on its element's first event

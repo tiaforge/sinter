@@ -7,6 +7,17 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Source maps for the page module: an error thrown in a markup expression points at its attribute in the HTML
+  (or the partial it came from) in the browser's devtools. `compile(html, { sourcemap: true })` returns `map`
+  for the page module and `earlyMap` for the early module, mapping each function in `fns` to where its
+  expression starts; the module text is unchanged. The Vite plugin uses them in `vite dev` and in builds with
+  `build.sourcemap`.
+- Dev builds name the attribute an expression threw in, and pass the error on, so its stack shows: `binding
+  \`text\` on <p> at src/inbox.html:12:20 threw: …`, `model on <input> at … could not be set: …`, and
+  `handler at … threw: …` for `data-sn-on-*`, an action's `then`/`catch` and a resource's or event's `then`
+  (still each time it throws). Each use is named, although identical code is one function in the page's table:
+  the dev IR carries the place of each binding's, action's, resource's and event's functions (`at`). Production
+  IR is unchanged; the core is 17 B smaller minified and 8 B larger gzip.
 - Server errors on a form: a mutation without `data-sn-catch` on a form, or on a button or control inside one
   (a `type="button"` Publish), that fails with a 4xx and `{ errors: { email: "…" } }` (or `email: ["…", "…"]`)
   marks the control with that `name`: `aria-invalid="true"` and the message in the element its

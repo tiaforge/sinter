@@ -263,6 +263,29 @@ test('first paint in the dev server: the early chunk as a module of its own, bef
   }
 });
 
+test('source maps in the dev server: the page and early modules map their expressions to the HTML', async () => {
+  const devAlias = [{ find: '@tiaforge-ui/sinter/dev', replacement: `${src}/dev.ts` }, ...alias];
+  const server = await createServer({ root, logLevel: 'silent', resolve: { alias: devAlias }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', plugins: [sinter()] });
+  try {
+    await server.transformIndexHtml('/index.html', readFileSync(join(root, 'index.html'), 'utf8'));
+    for (const id of ['/@sinter/index.html.js', '/@sinter/early/index.html.js']) {
+      const r = await server.transformRequest(id);
+      const map = r?.map as { sources?: string[]; mappings: string } | null | undefined;
+      expect(map?.sources, id).toContain(join(root, 'index.html'));
+      expect(map?.mappings, id).toMatch(/[A-Za-z]/);
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test('source maps in a build with build.sourcemap: the page bundle\'s map lists the HTML', async () => {
+  const dir = join(out, 'sourcemap');
+  await build({ root, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false, sourcemap: true } });
+  const maps = readdirSync(join(dir, 'assets')).filter((f) => f.endsWith('.js.map')).map((f) => JSON.parse(readFileSync(join(dir, 'assets', f), 'utf8')) as { sources: string[] });
+  expect(maps.some((m) => m.sources.some((s) => s.endsWith('index.html')))).toBe(true);
+});
+
 const i18nRoot = resolve(__dirname, '../fixtures/vite-i18n');
 const i18nAlias = [...alias.slice(0, -1), { find: '@tiaforge-ui/sinter/messages', replacement: `${src}/messages.ts` }, alias.at(-1)!];
 

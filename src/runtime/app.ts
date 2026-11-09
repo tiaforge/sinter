@@ -170,7 +170,8 @@ export interface App {
   readonly isDirty: boolean;
   /** dev hooks: dev-only checks on, warnings by code (or text), and item preparation (freezing) */
   dev: boolean;
-  warn(code: number | string, ...args: unknown[]): void;
+  /** dev builds: returns true for a handler's error (code 24) it reported; the core logs it otherwise */
+  warn(code: number | string, ...args: unknown[]): unknown;
   prep?: <T>(item: T) => T;
   /** dev: an EventSource stream opened (its connection counts against HTTP/1.1's 6 per origin) */
   streamOpened?: (url: string) => void;
@@ -192,8 +193,8 @@ export interface App {
   record(change: () => void): (ok?: boolean) => void;
   storeFns(el: Element | null): Record<string, (...a: any[]) => unknown>;
   serverEvent(name: string, payload: unknown): void;
-  /** runs handler `f` in `scope` and invalidates the paths it writes */
-  exec(f: number, scope: any, writes?: string[]): void;
+  /** runs handler `f` in `scope` and invalidates the paths it writes; `o`: the binding it runs for (dev builds name its place) */
+  exec(f: number, scope: any, writes?: string[], o?: { at?: Record<number, string> }): void;
   addCleanup(fn: () => void): void;
   /** runs `fn` now, or, on a page the browser prerenders (Speculation Rules), once it is shown */
   shown(fn: () => void): void;
@@ -351,7 +352,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
   /** `rb`: keeps the `$el` scope of a bound binding; a simple row's binding makes one per evaluation */
   const evalB = (b: Binding, s: any, el: Element, rb: RB | null): any => {
-    try { return fns[b.f!]!(b.e ? (rb ? (rb.e ??= child(s, { $el: el })) : child(s, { $el: el })) : s); } catch (e) { warn(6, b.k, el.localName, (e as Error)?.message); }
+    try { return fns[b.f!]!(b.e ? (rb ? (rb.e ??= child(s, { $el: el })) : child(s, { $el: el })) : s); } catch (e) { warn(6, b, el, e); }
   };
   const evaluate = (rb: RB): any => evalB(rb.b, rb.s, rb.el, rb);
   /** The writers, one per binding kind: `(element, name, value)`; a template's creation function calls them too. */
@@ -580,8 +581,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     serverEvent(name, payload) {
       for (const fn of listeners.get(name) ?? []) try { fn(payload); } catch (e) { console.error(e); }
     },
-    exec(f, s, writes) {
-      try { fns[f]!(s); } catch (err) { console.error(err); }
+    exec(f, s, writes, o) {
+      try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); }
       for (const w of writes ?? []) app.mark(w, s);
       if (writes?.some((w) => w.startsWith('$url'))) writeUrl();
     },
@@ -901,7 +902,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** `typing`: a keystroke in a text field (`input` on an `<input>`/`<textarea>`), not a paste-like whole change */
   function setModel(rb: RB, v: unknown, typing?: boolean) {
     if (v === undefined) return;
-    try { fns[rb.b.a!]!(rb.s, v); } catch (e) { return warn(9, rb.el.localName, (e as Error)?.message); }
+    try { fns[rb.b.a!]!(rb.s, v); } catch (e) { return warn(9, rb.b, rb.el, e); }
     for (const w of rb.b.w ?? []) app.mark(w, rb.s, typing);
   }
 
@@ -1151,7 +1152,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Runs a handler expression and invalidates what it may have changed. */
   function handle(rb: RB, f: number, e: Event | null, writes: string[] | undefined, extra?: object) {
-    app.exec(f, child(rb.s, { $el: rb.el, $event: e, $f: app.storeFns(rb.el), ...extra }), writes);
+    app.exec(f, child(rb.s, { $el: rb.el, $event: e, $f: app.storeFns(rb.el), ...extra }), writes, rb.b);
   }
 
   /** A debounced handler: runs once `ms` after the last event, with that event. */
