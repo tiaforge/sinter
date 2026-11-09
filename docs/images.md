@@ -1,6 +1,6 @@
 # Images
 
-Status: 2026-11-09. Step 1 (static `<img>` in HTML) and 1b (sizes from the page's stylesheets) are implemented; the later steps are planned.
+Status: 2026-11-09. Step 1 (static `<img>` in HTML) and 1b (sizes from the page's stylesheets) are implemented, step 2 (images from the API) is in progress; step 3 is planned.
 
 sinter optimizes the images a page uses without any markup of its own: it writes the variants at
 build time and markup that lets the browser pick one. The browser knows the screen's pixel density,
@@ -145,6 +145,73 @@ A `max-width` in `%` (`max-inline-size: 100%`) only shrinks the box on narrow sc
 claims a size for, at 1600 and 390 px wide, and compares.
 
 **Planned:** slot widths measured in the dev server or by `temper-inspect`, for fluid images.
+
+## Images from the API (step 2)
+
+Most images in a sinter app come from the API: avatars, uploads, product photos, bound as
+`<img data-sn-attr="{src: c.avatar}">`. They are often what a phone wrote (4000 × 3000, several
+MB) and shown at 40 px. They do not exist at build time, but where they are shown does: the
+binding is on an `<img>`, and the stylesheets give its box (step 1b). So the build decides the
+widths, and a resizing service makes the files on request.
+
+**Everything is a URL template.** `sinter({ images: { remote } })`:
+
+```js
+remote: {
+  url: 'https://img.example.com/{w}/{url}',   // or a preset: 'cloudflare', 'vercel', 'netlify', 'imgproxy:<base URL>'
+  cover: 'https://img.example.com/{w}x{h}/{url}', // optional: for a box cropped by object-fit: cover
+  origins: ['self', 'https://uploads.example.com'], // the only image origins sent through it
+  quality: 75,                                // {q}, default 75
+}
+```
+
+| Placeholder | Value |
+| --- | --- |
+| `{url}` | the image's URL, percent-encoded (for a query parameter) |
+| `{url:raw}` | the same, as it is (for a path) |
+| `{w}`, `{h}` | the file's width and, in `cover`, height in px |
+| `{q}` | `quality` |
+
+A same-origin image (`'self'`) is passed as its path and query (`/uploads/1.jpg`), another origin's
+as its absolute URL. The service picks the format from the request's `Accept` header (every one
+of these does; Safari sends AVIF there too), so one URL per width is enough: no `<picture>`.
+
+**Presets** are templates:
+
+| Preset | `url` | `cover` |
+| --- | --- | --- |
+| `cloudflare` | `/cdn-cgi/image/width={w},quality={q},format=auto/{url:raw}` | `/cdn-cgi/image/width={w},height={h},fit=cover,quality={q},format=auto/{url:raw}` |
+| `vercel` | `/_vercel/image?url={url}&w={w}&q={q}` | none (Vercel resizes by width only) |
+| `netlify` | `/.netlify/images?url={url}&w={w}&q={q}` | `/.netlify/images?url={url}&w={w}&h={h}&fit=cover&q={q}` |
+| `imgproxy:<base>` | `<base>/insecure/rs:fit:{w}:0/q:{q}/plain/{url}` | `<base>/insecure/rs:fill:{w}:{h}/q:{q}/plain/{url}` |
+
+Each service has its own allowlist of source origins (Cloudflare's zone settings, Vercel's
+`images.domains` and `images.sizes`, Netlify's `remote_images`, imgproxy's
+`IMGPROXY_ALLOWED_SOURCES`) and must have it: URLs are built in the browser, so they cannot be
+signed with a secret (imgproxy runs unsigned, `insecure`). imgproxy fetches every source itself,
+so a same-origin path needs its `IMGPROXY_BASE_URL`.
+
+**What the compiler writes.** An `<img>` whose `data-sn-attr` binds `src` to data (a resource, an
+item of one, a helper reading them; not a constant or state) gets a `srcset` binding next to the
+`src` binding, both from the same value, through `@tiaforge-ui/sinter/remote` (a few hundred bytes,
+only in pages that have such images). Its box is the one the stylesheets give it (step 1b):
+
+- a fixed box: 1x, 2x and (up to 300 × 300) 3x of its width, `sizes` of the box, `width`/`height`;
+  cropped with `cover` when the stylesheets say `object-fit: cover` and `cover` is set (else
+  resized to the width only: the dev check warns if that leaves too few rows);
+- otherwise fluid: the fluid widths, `sizes="auto, 100vw"`.
+
+`src` is the 1x file (fluid: 1280 px). `loading="lazy"` and `decoding="async"` as for static images.
+
+**At runtime**, a URL whose origin is not in `origins`, that is not http(s), or that ends in `.svg`
+or `.gif`, is written as it is, with no `srcset`: no other origin is ever sent through the
+service. A `null` value removes both, as before.
+
+**Dev.** No service resizes `localhost`, so the dev server does: the same bindings use
+`/@sinter/remote?url=…&w=…&h=…&q=…`, which fetches the source (only from `origins`, and the dev
+server itself for `'self'`, through its proxy), resizes it with sharp, picks AVIF, WebP or JPEG/PNG
+from `Accept`, and keeps it in memory. Without `remote`, API images are left as written, in dev and
+in builds alike, so dev does not hide what production does.
 
 ## Cropping
 
