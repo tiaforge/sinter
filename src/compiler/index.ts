@@ -1,8 +1,8 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type HelperManifest, type HelperOrigin } from './compile.js';
+import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type HelperManifest, type HelperOrigin, type PrefetchParts } from './compile.js';
 
-export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, HelperManifest, HelperOrigin };
+export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, HelperManifest, HelperOrigin, PrefetchParts };
 export type { Diagnostic } from './diagnostics.js';
 export type { CheckUnit } from './check-unit.js';
 export type { ImageFormat, ImageHost, ImageInfo, ImageKind, ImageResult, ImageVariant } from './images.js';
@@ -22,7 +22,7 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   const parts = compileParts(html, options);
   // the images' rules: imported, so the bundler puts them in the page's stylesheet (no request, no inline style)
   const css = parts.images?.css && options.images?.stylesheet ? `import ${JSON.stringify(options.images.stylesheet)};\n` : '';
-  const out: CompileResult = { html: parts.html, module: css + pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files };
+  const out: CompileResult = { html: parts.html, module: css + pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files, prefetch: parts.prefetch, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}) };
   if (parts.check) out.check = parts.check;
   if (parts.images) out.images = parts.images;
   if (parts.remoteWidths) out.remoteWidths = parts.remoteWidths;
@@ -79,12 +79,15 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
   return lines.join('\n') + '\n';
 }
 
-export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions'>): string {
+export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch'>): string {
   const lines: string[] = [];
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
   lines.push(`import { ${core.join(', ')} } from '${PACKAGE}';`);
   for (const f of parts.features) lines.push(`import ${f} from '${PACKAGE}/${f}';`);
+  // next-page data: the app's pages, described in one module every page shares
+  const features = options.prefetch ? [...parts.features, '$prefetch'] : parts.features;
+  if (options.prefetch) lines.push(`import $prefetch from ${JSON.stringify(options.prefetch)};`);
   if (parts.helpers.user.length && options.helpers.module) {
     lines.push(`import { ${parts.helpers.user.join(', ')} } from ${JSON.stringify(options.helpers.module)};`);
   }
@@ -128,8 +131,8 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
   lines.push(parts.early ? 'await rendered();' : 'await parsed();');
   if (messages) {
     // sinter's messages are the locale source; the dictionary the early step loaded, once it is there
-    lines.push('$use();', 'await $ready();', `$use(mount(document, { ir, fns, features: [${parts.features.join(', ')}] }));`);
-  } else lines.push(`mount(document, { ir, fns, features: [${parts.features.join(', ')}] });`);
+    lines.push('$use();', 'await $ready();', `$use(mount(document, { ir, fns, features: [${features.join(', ')}] }));`);
+  } else lines.push(`mount(document, { ir, fns, features: [${features.join(', ')}] });`);
   return lines.join('\n') + '\n';
 }
 

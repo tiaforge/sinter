@@ -1,0 +1,4 @@
+/* navigations cross-fade; data-sn-transition morphs the item's title (temper has this rule built in) */
+@view-transition { navigation: auto; }
+body { font: 16px/1.5 system-ui, sans-serif; margin: 2rem; }
+#items a { display: block; padding: 0.5rem 0; }

@@ -118,7 +118,7 @@ Then write `data-sn-*` attributes in your HTML pages. Optional:
 - Messages: with an inlang project (`project.inlang`, `messages/{locale}.json`), `m.key({ param })` in markup and `m` from `@tiaforge-ui/sinter/messages` in code; one small file per page and language, loaded before the first paint; `$locale = 'de'` switches without a reload.
 - `src/sinter.types.ts`: types named by `<sn-resource type="Contact[]">`. Or use `sinter({ openapi: 'openapi.yml' })` to type resources from your API spec.
 - `npx sinter check` type-checks every expression. `sinter({ typecheck: true })` runs it in `vite build`.
-- Loading: concurrent loads share requests, typing waits for a pause, data only dialogs show is fetched with low priority, origins in `src` are preconnected, a bfcache restore refetches. Nothing to configure.
+- Loading: concurrent loads share requests, typing waits for a pause, data only dialogs show is fetched with low priority, origins in `src` are preconnected, a bfcache restore refetches, and a link to another page requests that page's data while the pointer rests on it, so the next page shows it at once (`sinter({ prefetch: false })` turns that off). `data-sn-transition="'article-' + a.slug"` on a list row and the same name on the detail page morphs one into the other across the navigation (view transitions). In Chromium the pages also carry Speculation Rules, so the next page's HTML is fetched ahead too, or the whole page prerendered with `sinter({ speculation: 'prerender' })` ([`docs/navigation.md`](docs/navigation.md)). Nothing to configure.
 - First paint: page chrome outside data templates shows before the page bundle. Build-time constants go into the HTML; a small render-blocking early chunk per page runs `src/sinter.early.ts` (e.g. pick the language) and the bindings that need no data, persisted values included. The build reports its size.
 - `<sn-resource … cache>` shows the last page load's data at once, then revalidates. Call `clearPersisted()` on logout.
 - Serve `<sn-sync>` streams over HTTP/2. Over HTTP/1.1, each tab's stream takes one of six connections per origin.
@@ -129,6 +129,7 @@ Then write `data-sn-*` attributes in your HTML pages. Optional:
 - [`llms.txt`](llms.txt): attribute reference, scope rules and recipes (each with tests).
 - [`docs/spec.md`](docs/spec.md): the v0.1 specification.
 - [`docs/diagnostics.md`](docs/diagnostics.md): every `SN` error code and how to fix it.
+- [`docs/navigation.md`](docs/navigation.md): between pages: next-page data, Speculation Rules (and a Content Security Policy), page transitions.
 - [`examples/realworld`](examples/realworld): a complete multi-page app.
 - [`docs/progress.md`](docs/progress.md): implementation status and decisions.
 
@@ -143,6 +144,7 @@ Then write `data-sn-*` attributes in your HTML pages. Optional:
 | `@tiaforge-ui/sinter/paginate` | keyset, offset, append |
 | `@tiaforge-ui/sinter/each` | fan-out resources (`each="a in accounts"`) |
 | `@tiaforge-ui/sinter/persist` | `data-sn-persist` |
+| `@tiaforge-ui/sinter/prefetch` | next-page data (added by the Vite plugin) |
 | `@tiaforge-ui/sinter/compiler` | `compile()` |
 | `@tiaforge-ui/sinter/vite` | Vite plugin |
 | `@tiaforge-ui/sinter/check` | `check()` (used by `sinter check`), `checkPage()` for tests |

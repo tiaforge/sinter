@@ -56,6 +56,51 @@ Attribute names, function names and diagnostic codes are public API. Before
   `data-sn-if`/`data-sn-show`.
 - Dev: a console warning for every image shown with fewer pixels than the screen has, naming the
   cause (a small source, or a `sizes` smaller than the image is shown).
+- Next-page data: when a link to another page of the app is about to be followed (the pointer rests
+  on it for 65 ms, it has focus, a mouse press starts on it, or a touch stays on it for 65 ms without
+  becoming a scroll), the resources of that page whose
+  request only the URL decides are requested, and the next page shows them at once, then
+  revalidates (`$meta.loadedAt` stays null until the server answers, as with `cache`). Data the
+  current page already loaded from the same request is handed over without one. Requests go
+  through the middleware chain with low priority; a failed one never starts a login redirect; a
+  mutation drops what was prefetched. Nothing to declare: the compiler describes each page, the Vite
+  plugin shares one module of every page's description, `sinter({ prefetch: false })` turns it off.
+  New module `@tiaforge-ui/sinter/prefetch`. Testing: `render(html, { pages: { 'article.html': … } })`.
+  RealWorld in Chromium with a 1.5 s API: the article shows 215 ms after the click instead of after
+  the API answers.
+
+- Speculation Rules for links to the app's pages (their `data-sn-path` patterns or file paths,
+  eagerness `moderate`). `sinter({ speculation })`: `'prefetch'` (default, the next page's HTML),
+  `'prerender'`, or `false`. They are an inline `<script type="speculationrules">` in every page (no
+  server setup). A CSP declared in the page (`<meta http-equiv="Content-Security-Policy">`) gets their
+  hash from the build; a CSP sent as a response header needs `'inline-speculation-rules'` in
+  `script-src`, and dev builds warn when it blocks them. `{ mode, delivery: 'header' }` writes
+  `speculation-rules.json` at the site root for a `Speculation-Rules: "/speculation-rules.json"`
+  response header instead, which no CSP blocks (the server sends the header and serves the file as
+  `application/speculationrules+json`; `vite dev` and `vite preview` do both). Guide: `docs/navigation.md`. A prerendered page
+  connects its streams once it is shown and refetches its resources then (`app.shown()` for features).
+
+  `e2e/navigation` runs the default under `script-src 'self'`.
+- `<html data-sn-prefetch="off">`: no other page prefetches this page's data or HTML, or prerenders it
+  (for pages that do something when they load). Build time only: the attribute is stripped; anywhere but
+  `<html>` it is `SN102`.
+- `data-sn-transition` (value expression, a name): the same thing on two pages. Following a link from a
+  list row to a page with an element of the same name morphs one into the other (cross-document view
+  transitions; back from a page with one named element too). Only that pair gets a
+  `view-transition-name`, during the transition. New module `@tiaforge-ui/sinter/transition`, added to
+  pages that use the attribute. Testing: `r.window('pageswap' | 'pagereveal', { viewTransition, activation })`.
+  Morphing elements also get `view-transition-class: sn-transition`, so
+  `::view-transition-group(.sn-transition)` styles them all. When a morph is pending, the first paint of
+  the next page waits for its page module (a small classic script in the head of pages that use the
+  attribute), so data-rendered elements exist when the browser captures the page.
+  RealWorld: an article's title morphs from the list, and back. For the morph back to a list, its rows
+  must render from what the page has at mount: give the list `cache`.
+- `e2e/navigation`: next-page data, Speculation Rules and morphs in headless Chrome.
+
+### Changed
+
+- The RealWorld article page's size budget is 22 KB (was 20 KB): next-page data adds 1.3 KB gzip to
+  every page.
 
 ### Fixed
 

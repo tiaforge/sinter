@@ -26,6 +26,7 @@ const MESSAGES: Record<number, string> = {
   19: 'resource `%`: % KB of data is over the page-load cache limit of 256 KB per entry; not cached',
   20: "`run('%')`: no element with that id and an action is on the page (a `data-sn-if` branch that is not rendered?); nothing ran",
   21: 'write-through after `%`: %',
+  22: "the page's Content-Security-Policy blocked an inline script (%): sinter's Speculation Rules are one, so the next page's HTML is not prefetched. If the policy comes from a response header, add 'inline-speculation-rules' to its script-src (a CSP in a <meta> gets their hash from the build), or set sinter({ speculation: { mode: 'prefetch', delivery: 'header' } }). See docs/navigation.md",
 };
 
 /**
@@ -68,6 +69,17 @@ const dev: Feature = {
       (code == 16 ? console.error : console.warn)(msg, ...args.slice(i));
     };
     app.prep = deepFreeze;
+    // the Speculation Rules are inline: a CSP from a response header (the build cannot see it) blocks
+    // them while the page is parsed, before this runs; a buffered observer still gets that report
+    const doc = app.root && (app.root.ownerDocument ?? (app.root as Document)), RO = (globalThis as any).ReportingObserver;
+    if (RO && doc?.querySelector('script[type="speculationrules"]')) {
+      const ro = new RO((reports: Array<{ body: { blockedURL?: string; effectiveDirective?: string } }>) => {
+        const r = reports.find((x) => x.body.blockedURL == 'inline' && /^script-src/.test(x.body.effectiveDirective ?? ''));
+        if (r) { app.warn(22, r.body.effectiveDirective); ro.disconnect(); }
+      }, { types: ['csp-violation'], buffered: true });
+      ro.observe();
+      app.addCleanup(() => ro.disconnect());
+    }
     app.streamOpened = (url) => {
       if (/^http\/1\./i.test(protocolOf(url, app.env.href()) ?? '')) app.warn(18, url);
     };

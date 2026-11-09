@@ -21,9 +21,12 @@ import persist from '../persist.js';
 import listbox from '../listbox.js';
 import keys from '../keys.js';
 import apply from '../apply.js';
+import transition from '../transition.js';
 import sse from '../sse.js';
+import { prefetch, type PrefetchPage } from '../prefetch.js';
+import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each, listbox, keys, apply };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each, listbox, keys, apply, transition };
 
 // ---- requests
 
@@ -204,6 +207,11 @@ export interface RenderOptions {
    * early module, then the early bindings) before mounting, as the built page does in the browser
    */
   firstPaint?: true | FirstPaintTestOptions;
+  /**
+   * the app's other pages, by file (`'article.html'`), for next-page data: links to them request their
+   * data ahead, as in a build. A page answers at its `data-sn-path` patterns, else at its file's paths
+   */
+  pages?: Record<string, string>;
   /** an OpenAPI 3 document (parsed), as `sinter({ openapi })` gives the compiler: types resources and actions, and write-through knows the entities */
   openapi?: unknown;
   /** images from the API, as `sinter({ images: { remote } })`: a bound `<img src>` gets the service's `srcset` */
@@ -232,8 +240,8 @@ export interface Rendered {
   navigations: string[];
   /** current page URL (after `$url` writes) */
   url(): string;
-  /** dispatches pagehide/pageshow/popstate to sinter */
-  window(type: 'pagehide' | 'pageshow' | 'popstate' | 'online'): Promise<void>;
+  /** dispatches a window event to sinter; `props` are set on the event (`pageswap`/`pagereveal`: `viewTransition`, `activation`) */
+  window(type: 'pagehide' | 'pageshow' | 'popstate' | 'online' | 'pageswap' | 'pagereveal', props?: Record<string, unknown>): Promise<void>;
 }
 
 interface Timer { id: number; at: number; fn: () => void; kind: string }
@@ -407,10 +415,22 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     config.locale = { get: () => locale, set: (l) => { locale = l; } };
   }
 
+  // next-page data: the other pages described as the build describes them
+  const ahead: PrefetchPage[] = [];
+  for (const [rel, page] of Object.entries(options.pages ?? {})) {
+    const { parts: { prefetch: other } } = compilePage(page, { ...options, firstPaint: undefined });
+    if (!other) continue;
+    const ns = Object.entries(other.namespaces).flatMap(([n, ms]) => ms.map((m) => [`${n}$${m}`, (helpers[n] as Record<string, unknown>)[m]] as const));
+    // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
+    const f = new Function('$k', ...other.helpers, ...ns.map(([k]) => k), `"use strict"; return [\n${other.fns.join(',\n')}\n];`)($k, ...other.helpers.map((h) => helpers[h]), ...ns.map(([, v]) => v));
+    ahead.push({ m: pagePaths(rel, '/', other.path), r: other.res, f });
+  }
+
   const requests = options.requests;
   const app = mount(doc, {
     ir: parts.ir, fns, env,
-    features: parts.features.map((f) => FEATURES[f]!),
+    // as in a build, where every page has the app's prefetch feature
+    features: [...parts.features.map((f) => FEATURES[f]!), prefetch(ahead)],
     request: [...config.request, ...(requests ? [requests] : [])],
     transport: (url) => {
       const path = new URL(url, href).pathname;
@@ -478,9 +498,10 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   return {
     root: doc.body, app, flush, settle, advance, navigations,
     url: () => href,
-    window: async (type) => {
+    window: async (type, props) => {
       const e = new Event(type);
       if (type === 'pageshow') Object.defineProperty(e, 'persisted', { value: true });
+      for (const [k, v] of Object.entries(props ?? {})) Object.defineProperty(e, k, { value: v });
       for (const fn of winListeners.get(type) ?? []) fn(e);
       await flush();
     },

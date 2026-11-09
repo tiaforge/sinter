@@ -1,8 +1,9 @@
 // @vitest-environment node
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { build, createServer } from 'vite';
+import { build, createServer, preview } from 'vite';
 import { afterAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
 
@@ -11,7 +12,7 @@ const src = resolve(__dirname, '../../src');
 const out = mkdtempSync(join(tmpdir(), 'sinter-vite-'));
 afterAll(() => rmSync(out, { recursive: true, force: true }));
 
-const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early']
+const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 'transition']
   .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
   .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
 
@@ -36,6 +37,99 @@ test('builds a page: rewritten HTML, page module, helpers, namespace members and
   expect(js).not.toContain('never called');
   expect(js).not.toContain('tree-shaken');
   expect(js).not.toMatch(/(^|[^.\w$])eval\(|new Function\(/);
+});
+
+test('next-page data: every page shares one module describing the pages; `prefetch: false` leaves it out', async () => {
+  const js = (dir: string) => readdirSync(join(dir, 'assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n');
+  await run(out);
+  // the fixture's index page: its people request needs nothing but the URL
+  expect(js(out).replace(/\s+/g, '')).toContain(`prefetch([{m:["/","/index.html"],r:[{"s":["/api/people"],"i":null,"t":null,"k":1}]`);
+  const dir = join(out, 'no-prefetch');
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: false })] });
+  expect(js(dir)).not.toContain('"/index.html"');
+  expect(js(dir)).not.toContain('pointerover');
+});
+
+test('`<html data-sn-prefetch="off">`: the page is in neither the next-page module nor the rules', async () => {
+  const page = join(root, 'index.html');
+  const original = readFileSync(page, 'utf8');
+  writeFileSync(page, original.replace(/<html([^>]*)>/, '<html$1 data-sn-prefetch="off">'));
+  try {
+    const dir = join(out, 'off');
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+    const html = readFileSync(join(dir, 'index.html'), 'utf8');
+    expect(html).not.toContain('speculationrules');
+    // the app's only page is left out: no page to describe, no next-page module
+    expect(readdirSync(join(dir, 'assets')).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n')).not.toContain('"/index.html"');
+    expect(html).not.toContain('data-sn-prefetch');
+  } finally {
+    writeFileSync(page, original);
+  }
+});
+
+test('`delivery: \'header\'`: a rules file at the site root, no inline script; `vite preview` sends the header and its type', async () => {
+  const dir = join(out, 'header');
+  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: { mode: 'prerender', delivery: 'header' } })] };
+  await build(config);
+  expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
+  expect(JSON.parse(readFileSync(join(dir, 'speculation-rules.json'), 'utf8')).prerender[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
+  const server = await preview({ ...config, preview: { port: 0, host: '127.0.0.1' } });
+  try {
+    const url = server.resolvedUrls!.local[0]!;
+    const page = await fetch(url, { headers: { Accept: 'text/html' } });
+    expect(page.headers.get('speculation-rules')).toBe('"/speculation-rules.json"');
+    const rules = await fetch(new URL('speculation-rules.json', url));
+    expect(rules.headers.get('content-type')).toBe('application/speculationrules+json');
+  } finally {
+    await server.close();
+  }
+});
+
+test('a page that uses data-sn-transition gets the hold script before its page module; others do not', async () => {
+  const page = join(root, 'index.html');
+  const original = readFileSync(page, 'utf8');
+  const plain = readFileSync(join(out, 'index.html'), 'utf8');
+  expect(plain).not.toContain('sinter-hold-');
+  writeFileSync(page, original.replace('<input data-sn-model="q">', '<input data-sn-model="q"><h2 data-sn-transition="\'people\'">People</h2>'));
+  try {
+    const dir = join(out, 'hold');
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+    const html = readFileSync(join(dir, 'index.html'), 'utf8');
+    const hold = html.search(/<script src="\/assets\/sinter-hold-[\w-]+\.js"><\/script>/), module = html.search(/<script type="module" crossorigin src="\/assets\/index-[\w-]+\.js" async>/);
+    expect(hold).toBeGreaterThan(0);
+    expect(hold).toBeLessThan(module);
+    expect(readdirSync(join(dir, 'assets')).some((f) => f.startsWith('sinter-hold-'))).toBe(true);
+  } finally {
+    writeFileSync(page, original);
+  }
+});
+
+test('by default every page carries inline rules for the app\'s paths; `speculation: false`: neither rules nor file', async () => {
+  await run(out);
+  const html = readFileSync(join(out, 'index.html'), 'utf8');
+  const rules = JSON.parse(/<script type="speculationrules">(.*?)<\/script>/.exec(html)![1]!);
+  expect(rules.prefetch[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
+  expect(readdirSync(out)).not.toContain('speculation-rules.json');
+  const dir = join(out, 'no-speculation');
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: false })] });
+  expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
+  expect(readdirSync(dir)).not.toContain('speculation-rules.json');
+});
+
+test('a CSP the page declares in a <meta> gets the inline rules\' hash', async () => {
+  const page = join(root, 'index.html');
+  const original = readFileSync(page, 'utf8');
+  writeFileSync(page, original.replace(/<head>/, `<head>\n  <meta http-equiv="Content-Security-Policy" content="script-src 'self'">`));
+  try {
+    const dir = join(out, 'csp-meta');
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+    const html = readFileSync(join(dir, 'index.html'), 'utf8');
+    const json = /<script type="speculationrules">(.*?)<\/script>/.exec(html)![1]!;
+    const hash = `sha256-${createHash('sha256').update(json).digest('base64')}`;
+    expect(/http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html)![1]).toBe(`script-src 'self' '${hash}'`);
+  } finally {
+    writeFileSync(page, original);
+  }
 });
 
 test('compile errors fail the build with the diagnostic', async () => {

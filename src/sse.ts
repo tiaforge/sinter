@@ -192,7 +192,8 @@ const sse: Feature = {
         if (!c) conns.set(url, c = new Connection(app, url));
         for (const e of def.events) c.subs.push([e, base]);
       }
-      for (const c of conns.values()) c.start();
+      // a prerendered page connects once it is shown: no stream for a page nobody may ever see
+      app.shown(() => { if (alive) for (const c of conns.values()) c.start(); });
     });
   },
 };
