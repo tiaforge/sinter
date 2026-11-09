@@ -8,8 +8,9 @@ import { mockRequests, mockStream, render, type RecordedCall, type RouteResponse
 afterEach(() => configure({ request: [], onError: null }));
 
 const PAGE = (attrs = 'refresh="10s"', extra = '') => `
-  <main data-sn-state="{ loads: 0, on: true }">
-    <sn-resource name="jobs" src="/api/jobs" key="id" order="id" ${attrs} then="loads = loads + 1"></sn-resource>
+  <main data-sn-state="{ loads: 0, on: true, seen: '' }">
+    <sn-resource name="jobs" src="/api/jobs" key="id" order="id" ${attrs} then="loads = loads + 1; seen = $result.map((j) => j.state).join()"></sn-resource>
+    <s data-sn-text="seen"></s>
     <p data-sn-text="$meta.jobs.loading ? 'loading' : 'idle'"></p>
     <b data-sn-text="loads"></b>
     <i data-sn-text="$meta.jobs.error ? 'error' : ''"></i>
@@ -132,7 +133,7 @@ test('nothing is refreshed while `when` is falsy; the next load starts the clock
   expect(gets(requests.calls)).toBe(3);
 });
 
-test('a response with the version of the data shown is not stored again: no `then`, no re-render', async () => {
+test('a response with the version of the data shown is not stored again or re-rendered; `then` runs as for any load', async () => {
   let tag = '"v1"';
   const s = server(() => tag);
   const requests = mockRequests({ 'GET /api/jobs': s.route });
@@ -147,8 +148,10 @@ test('a response with the version of the data shown is not stored again: no `the
   await r.settle();
   expect(gets(requests.calls)).toBe(2);
   expect(states(r.root)).toEqual(['queued']);
-  expect(text(r.root, 'b')).toBe('1');
   expect(r.root.querySelector('li')).toBe(li);
+  // `then` behaves as on a page without the check: it runs, with what the stored load gave it
+  expect(text(r.root, 'b')).toBe('2');
+  expect(text(r.root, 's')).toBe('queued');
   // still counts as a load: loadedAt moves, and the clock starts again from it
   expect(r.app.page.$meta.jobs.loadedAt).toBe(Date.parse('2026-01-01T09:00:10Z'));
 
@@ -157,7 +160,8 @@ test('a response with the version of the data shown is not stored again: no `the
   await r.advance(10_000);
   await r.settle();
   expect(states(r.root)).toEqual(['done']);
-  expect(text(r.root, 'b')).toBe('2');
+  expect(text(r.root, 'b')).toBe('3');
+  expect(text(r.root, 's')).toBe('done');
 });
 
 test('`Last-Modified` serves as the version without an `ETag`', async () => {
@@ -165,9 +169,10 @@ test('`Last-Modified` serves as the version without an `ETag`', async () => {
   const requests = mockRequests({ 'GET /api/jobs': () => ({ status: 200, body: state.jobs, headers: { 'Last-Modified': 'Thu, 01 Jan 2026 08:00:00 GMT' } }) });
   const r = await render(PAGE(), { requests });
   await r.settle();
+  state.jobs = [{ id: 1, state: 'not stored' }];
   await r.advance(10_000);
   await r.settle();
-  expect(text(r.root, 'b')).toBe('1');
+  expect(states(r.root)).toEqual(['queued']);
 });
 
 test('a change to the data since (a server event) makes the next response count, whatever its version', async () => {
@@ -187,7 +192,6 @@ test('a change to the data since (a server event) makes the next response count,
   stream.emit('jobs_changed', {});
   await r.settle();
   expect(states(r.root)).toEqual(['queued']);
-  expect(text(r.root, 'b')).toBe('2');
 });
 
 test('on a page with a stream, the version check applies to every reload, not only refreshes', async () => {
@@ -197,10 +201,12 @@ test('on a page with a stream, the version check applies to every reload, not on
     <sn-sync src="/api/events"><sn-event name="jobs_changed" resource="jobs" op="refetch"></sn-event></sn-sync>`);
   const r = await render(html, { requests, streams: { '/api/events': mockStream() } });
   await r.settle();
+  s.state.jobs = [{ id: 1, state: 'not stored' }];
   r.root.querySelector('button')!.click();
   await r.settle();
   expect(gets(requests.calls)).toBe(2);
-  expect(text(r.root, 'b')).toBe('1');
+  expect(states(r.root)).toEqual(['queued']);
+  expect(text(r.root, 'b')).toBe('2');
 });
 
 test('a page with neither `refresh` nor a stream has no version check: every reload is stored', async () => {
@@ -208,8 +214,10 @@ test('a page with neither `refresh` nor a stream has no version check: every rel
   const requests = mockRequests({ 'GET /api/jobs': s.route });
   const r = await render(PAGE('', `<button data-sn-on-click="refresh('jobs')">reload</button>`), { requests });
   await r.settle();
+  s.state.jobs = [{ id: 1, state: 'stored' }];
   r.root.querySelector('button')!.click();
   await r.settle();
+  expect(states(r.root)).toEqual(['stored']);
   expect(text(r.root, 'b')).toBe('2');
 });
 
@@ -223,7 +231,7 @@ test('a 304 that reaches the page (middleware sent the condition) keeps the data
   await r.settle();
   expect(states(r.root)).toEqual(['queued']);
   expect(text(r.root, 'i')).toBe('');
-  expect(text(r.root, 'b')).toBe('1');
+  expect(text(r.root, 's')).toBe('queued');
 });
 
 test('failures retry later with a growing wait, and are reported once until a load succeeds', async () => {

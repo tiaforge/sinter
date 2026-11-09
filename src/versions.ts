@@ -1,8 +1,9 @@
 // Unchanged reloads. A reload of a `src` resource whose response carries the version (`ETag`,
 // else `Last-Modified`) of the response the data was last replaced with, while nothing has
 // changed the data since (server events, action results, confirmed optimistic layers, writes
-// during the load), is the data the store already holds: it is not parsed or stored, nothing
-// re-renders and `then` does not run. A 304 that reaches the page (a middleware sent the
+// during the load), is the data the store already holds: it is not parsed or stored and nothing
+// re-renders. Otherwise it is a load like any other: `then` runs, with the `$result` of the load
+// that stored the data, and `loadedAt` moves, so pages with and without this module behave alike. A 304 that reaches the page (a middleware sent the
 // condition) counts the same. sinter sends no conditional headers itself: the browser's HTTP
 // cache revalidates when the server sends `Cache-Control: no-cache`.
 // Added to pages whose resources are reloaded as a matter of course: those with `refresh` or an
@@ -18,7 +19,11 @@ function watch(l: ResourceLoader) {
   let changes = 0, version: { req: string; v: string; at: number } | null = null;
   /** the version of the response a load is storing; whether the data was unchanged while it ran */
   let next: { req: string; v: string | null; clean: boolean } | null = null;
+  /** what the last stored load gave `then`: an unchanged response is the same response */
+  let last: unknown;
   l.res.subscribe(() => { changes++; });
+  const done = l.done;
+  l.done = (v) => done(v === UNCHANGED ? last : (last = v));
   l.get = async (req, signal, lo) => {
     const at = changes, g = await l.got(req, signal, lo), v = g.res.ok || g.res.status == 304 ? versionOf(g.res) : null;
     if (version && version.req == req && version.at == changes && (g.res.status == 304 || v == version.v)) return UNCHANGED;

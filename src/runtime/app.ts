@@ -18,7 +18,7 @@ const gotOf = (res: Response): Got => {
   let b: Promise<unknown> | null = null;
   return { res, body: () => (b ??= readBody(res)) };
 };
-/** what `get` returns for a response that is the data the store already holds: nothing is stored */
+/** what `get` returns for a response that is the data the store already holds: nothing is stored, and `done` gets it as `$result` */
 export const UNCHANGED = Symbol('unchanged');
 
 export interface Feature {
@@ -1378,10 +1378,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
             ? await invoke(def.call.run, args, { signal: ctl.signal, request: (u: string, i?: SendInit) => app.req.send(u, i), el: null })
             : await l.get(req, ctl.signal, def.lo);
           if (n != seq) return;
-          if (body !== UNCHANGED) {
-            v = store(body, req, m);
-            loaded = true;
-          }
+          // UNCHANGED (the versions module): nothing to store; `then` still runs, with what that data's load stored
+          loaded = body !== UNCHANGED;
+          v = loaded ? store(body, req, m) : body;
           ok = true;
           r.meta.error = null;
           r.meta.loadedAt = env.now();
@@ -1395,8 +1394,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
           if (n == seq) { c = null; loading(false); }
         }
         if (ok && quiet) r.onDirty('meta');
-        // after the store and `$meta` have the response, so `then` sees them; an unchanged response stores nothing, so no `then`
-        if (loaded) l.done(v);
+        // after the store and `$meta` have the response, so `then` sees them
+        if (ok) l.done(v);
         if (ok) settle(true);
       },
     };

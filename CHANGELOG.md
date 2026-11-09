@@ -14,17 +14,13 @@ Attribute names, function names and diagnostic codes are public API. Before
   page is hidden (a refresh that fell due runs when it is shown) or while `when` is falsy; failures back off
   up to 30 s and are reported once until a load succeeds. At least `1s`, else `SN401`.
 - Unchanged reloads: a reload whose response carries the `ETag` (else `Last-Modified`) of the response the
-  data was last replaced with, while nothing has changed the data since, is not parsed or stored, nothing
-  re-renders and `then` does not run (`loadedAt` still moves). For every reload of a `src` resource on pages
+  data was last replaced with, while nothing has changed the data since, is not parsed or stored and nothing
+  re-renders; `then` runs with the `$result` of the load that stored the data, and `loadedAt` moves, as for
+  any load. For every reload of a `src` resource on pages
   with `refresh` or `<sn-sync>`, where the compiler adds `@tiaforge-ui/sinter/versions`; a `304` that reaches
   the page counts the same. The browser's HTTP cache does the
   revalidation when the server sends `Cache-Control: no-cache`.
 - `@tiaforge-ui/sinter/testing`: `visibility('hidden' | 'visible')` on a rendered page.
-
-### Changed
-
-- `then` on `<sn-resource>` no longer runs for a reload answered with the version of the data already shown,
-  on pages with `refresh` or `<sn-sync>` (see above).
 
 ## 0.12.0 (2026-11-09)
 
