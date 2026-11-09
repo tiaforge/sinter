@@ -9,18 +9,16 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 - Server errors on a form: a mutation without `data-sn-catch` on a form, or on a button or control inside one
   (a `type="button"` Publish), that fails with a 4xx and `{ errors: { email: "…" } }` (or `email: ["…", "…"]`)
-  puts the server's messages in place. A name of a control: `aria-invalid="true"` on it and the message in the
-  element its `aria-errormessage` names, else in a `<small data-sn-error data-tone="danger">` inserted after
-  it; the first such field gets focus. `data-sn-errors` (new) on an element inside the form, or naming its
-  id, shows the rest: unknown names, `""`, or the error itself when it has no field errors (a 5xx: its
-  `detail`); a `<ul>`/`<ol>` gets an `<li>` each. Editing a field clears its error, sending again clears
-  all. When every message found its place the error counts as handled (no `sn-error`, no `onError`).
-  `data-sn-catch` opts out: the app handles the error, sinter shows nothing. Other
-  formats: `configure({ fieldErrors: (error, { url, method }) => ({ name: messages }) | null })`, reading the server's
-  messages from `error.body` (or mapping error codes to `m.key()`), with the default exported as
-  `fieldErrors` from `@tiaforge-ui/sinter`. A feature module (`fields`, about 1.2 KB gzip), loaded
-  only by pages with such an action. Recipe: `docs/recipes/field-errors.html`. The create template's task
-  forms use it.
+  marks the control with that `name`: `aria-invalid="true"` and the message in the element its
+  `aria-errormessage` names, else in a `<small data-sn-error data-tone="danger">` inserted after it; the first
+  such field gets focus; editing a field clears its error, sending again clears all. Inside the form,
+  `$error` is its last failed send (or `null`), for any binding: a summary or a 5xx's `detail` is plain
+  markup. Shown (no `sn-error`, no `onError`) when every message marked a field or the form reads `$error`.
+  `data-sn-catch` opts out. Other formats: `configure({ fieldErrors: (error, { url, method }) => ({ name:
+  messages }) | null })`, reading the server's messages from `error.body` (or mapping error codes to
+  `m.key()`), with the default exported as `fieldErrors` from `@tiaforge-ui/sinter`. A feature module
+  (`fields`, 1.2 KB gzip), loaded only by pages with such an action or a form that reads `$error`. Recipe: `docs/recipes/field-errors.html`.
+  The create template's task forms use it.
 - `refresh="30s"` on `<sn-resource>` (`@tiaforge-ui/sinter/refresh`): the resource is reloaded in the
   background once its last load is that old, counted from every load (first load, `refresh()`, a
   `refetch` event, a reconnect, a `src` change), so next to a stream it is a check that fills in only when

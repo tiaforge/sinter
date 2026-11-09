@@ -24,7 +24,7 @@
         <template data-sn-if="user && (!$url.slug || article)">
           <form data-sn-on-submit="$event.preventDefault()"
                 data-sn-state="{ d: article ? {title: article.title, description: article.description, body: article.body, tagList: [...article.tagList]} : {title: '', description: '', body: '', tagList: []}, tag: '' }">
-            <ul class="error-messages" data-sn-errors hidden></ul>
+            <sn-include src="./partials/form-errors.html"></sn-include>
             <fieldset>
               <fieldset class="form-group"><input type="text" class="form-control form-control-lg" name="title" placeholder="Article Title" data-sn-model="d.title"></fieldset>
               <fieldset class="form-group"><input type="text" class="form-control" name="description" placeholder="What's this article about?" data-sn-model="d.description"></fieldset>

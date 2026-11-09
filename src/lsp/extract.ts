@@ -432,7 +432,8 @@ function takenNames(ctx: ExtractContext, modules: Module[]): Set<string> {
     for (const f of unit.frames) {
       if (f.kind === 'state') for (const n of f.names) taken.add(n);
       else if (f.kind === 'loop') { taken.add(f.item); if (f.index) taken.add(f.index); }
-      else taken.add(f.name);
+      else if (f.kind === 'let') taken.add(f.name);
+      else taken.add('$error');
     }
   }
   for (const m of modules) for (const n of m.bound) taken.add(n);
@@ -489,7 +490,8 @@ export function plans(ctx: ExtractContext, range: Range, o: { whole?: boolean } 
     const f = unit.frames[i]!;
     if (f.kind === 'state') for (const n of f.names) scopeNames.add(n);
     else if (f.kind === 'loop') { scopeNames.add(f.item); if (f.index) scopeNames.add(f.index); }
-    else scopeNames.add(f.name);
+    else if (f.kind === 'let') scopeNames.add(f.name);
+    else scopeNames.add('$error');
   }
   const { helpers, actions } = ctx.project;
   const helperish = (n: string) => helpers.names.includes(n) || !!helpers.namespaces[n] || BUILTIN_HELPERS.includes(n);

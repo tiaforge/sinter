@@ -23,11 +23,11 @@ test('shows the server\'s field errors on the fields', async () => {
   expect(email!.hasAttribute('aria-invalid')).toBe(false);
 });
 
-test('shows what no field takes in data-sn-errors', async () => {
+test('shows a failure that is not about a field through $error', async () => {
   const requests = mockRequests({ 'POST /api/signup': { status: 503, body: { message: 'Sign-ups are paused.' } } });
   const { root, settle } = await render(page, { requests });
   for (const input of root.querySelectorAll('input')) input.value = 'ada@example.com';
   root.querySelector('form')!.requestSubmit();
   await settle();
-  expect(root.querySelector('[data-sn-errors]')!.textContent).toBe('Sign-ups are paused.');
+  expect(root.querySelector('p')!.textContent).toBe('Sign-ups are paused.');
 });

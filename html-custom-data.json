@@ -191,10 +191,6 @@
       "description": "on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox] around the input), Enter or Tab clicks it, Escape fires `dismiss` (id of the suggestion list, or empty)"
     },
     {
-      "name": "data-sn-errors",
-      "description": "where a failed form action without `data-sn-catch` shows what no field took (form-level errors, or the error itself): inside the form (empty) or naming its id; a `<ul>`/`<ol>` gets an `<li>` per message (id of a form, or empty)"
-    },
-    {
       "name": "data-sn-persist",
       "description": "persists the model or state in localStorage under sn: (storage key)"
     },
@@ -248,7 +244,7 @@
     },
     {
       "name": "data-sn-catch",
-      "description": "runs after an error; $error = {status, body, message, detail}. A form without it shows a 4xx `{errors: {name: message}}` on its fields (aria-invalid and the message) (handler expression)"
+      "description": "runs after an error; $error = {status, body, message, detail}. A form without it shows a 4xx `{errors: {name: message}}` on its fields (aria-invalid and the message); its markup reads the failure as `$error` (handler expression)"
     },
     {
       "name": "data-sn-confirm",

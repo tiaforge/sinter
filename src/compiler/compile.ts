@@ -786,15 +786,35 @@ class Compiler {
       }
     }
 
+    // a form whose markup reads `$error`: the form's last failed send, as a state field of the form
+    // (merged into its own `data-sn-state`); the runtime sets it when the send fails, null when sent again
+    if (el.tagName === 'form' && readsFormError(el)) {
+      this.features.add('fields');
+      let entry = node.state !== undefined ? scope.states.at(-1)! : null;
+      if (entry) {
+        const init = this.fns[node.state!]!;
+        node.state = this.fn(`($) => Object.assign((${init})($), { $error: null })`);
+        entry.names.add('$error');
+        this.stateInits.find((x) => x.sid === entry!.sid)!.fields.push({ key: '$error', code: '($) => (null)', deps: [] });
+      } else {
+        const sid = this.nextSid++;
+        node.state = this.fn('($) => ({ $error: null })');
+        node.sid = sid;
+        entry = { sid, names: new Set(['$error']) };
+        scope = { ...scope, states: [...scope.states, entry] };
+        this.stateInits.push({ sid, fields: [{ key: '$error', code: '($) => (null)', deps: [] }], persist: null });
+      }
+      if (this.check) {
+        // its own frame, inside the state's: typed as the error or null
+        const e2 = { sid: entry.sid, names: new Set(['$error']) };
+        this.frameOf.set(e2, this.check.frames.length);
+        this.check.frames.push({ kind: 'formError' });
+        scope = { ...scope, states: [...scope.states, e2] };
+      }
+    }
+
     // derived names: the element and its subtree read them like state
     if (has('let')) scope = this.lets(el, scope);
-
-    // form-level errors (src/fields.ts): the attribute stays in the output for the runtime to find
-    if (has('errors')) {
-      const f = get('errors')!.trim();
-      if (f && !/^[A-Za-z][\w-]*$/.test(f)) this.report(el, 'data-sn-errors', 'SN401', '`data-sn-errors` takes the literal `id` of a form, or nothing inside the form', 0);
-      else if (!f && !inForm) this.report(el, 'data-sn-errors', 'SN102', '`data-sn-errors` without a value belongs inside a `<form>`; outside one, name the form: `data-sn-errors="signup"` with `<form id="signup">`', 0);
-    }
 
     // a text field with suggestions: the listbox feature handles the keys (see src/listbox.ts)
     if (has('listbox')) {
@@ -2154,9 +2174,16 @@ function setAttr(el: P5Element, name: string, value: string) {
   if (a) a.value = value; else el.attrs.push({ name, value });
 }
 
-/** `data-sn-errors` stays: the fields feature finds a form's error slot by it */
 function stripSn(el: P5Element) {
-  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-') || (a.name === 'data-sn-errors' && (a.value = a.value.trim(), true)));
+  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-'));
+}
+
+/** Whether a form's markup reads `$error` (outside `data-sn-catch`, where `$error` is the action's own). */
+function readsFormError(el: P5Element): boolean {
+  const reads = (e: P5Element): boolean =>
+    e.attrs.some((a) => a.name.startsWith('data-sn-') && a.name !== 'data-sn-catch' && /\$error\b/.test(a.value))
+    || (e.tagName === 'template' ? (e as P5Template).content.childNodes : e.childNodes).some((c) => isElement(c) && reads(c));
+  return reads(el);
 }
 
 function hasSnDeep(parent: P5Parent): boolean {

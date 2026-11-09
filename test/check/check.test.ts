@@ -69,6 +69,11 @@ describe('sinter check', () => {
       /Property 'nmae' does not exist on type 'Contact'. \(TS2339\)/, 'nmae');
   });
 
+  test('a form\'s $error is typed as the error or null, beside its own state', () => {
+    one(page(`<form data-sn-post="/api/x" data-sn-state="{ n: 0 }"><p data-sn-text="$error ? $error.stauts : n"></p></form>`),
+      /Property 'stauts' does not exist/, 'stauts');
+  });
+
   test('state typed by a JSDoc cast; a handler assigns a wrong value', () => {
     one(page(`<div data-sn-state="{ editing: /** @type {Contact|null} */ (null) }">
   <button data-sn-on-click="editing = contacts[0]">ok</button>

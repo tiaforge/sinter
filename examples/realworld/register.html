@@ -22,7 +22,7 @@
         <p class="text-xs-center"><a href="/login">Have an account?</a></p>
         <form data-sn-post="https://api.realworld.show/api/users" data-sn-body="{user: {username, email, password}}"
               data-sn-then="emit('signed-in', {user: $result.user})">
-          <ul class="error-messages" data-sn-errors hidden></ul>
+          <sn-include src="./partials/form-errors.html"></sn-include>
           <fieldset>
             <fieldset class="form-group"><input class="form-control form-control-lg" type="text" name="username" placeholder="Username" data-sn-model="username"></fieldset>
             <fieldset class="form-group"><input class="form-control form-control-lg" type="email" name="email" placeholder="Email" data-sn-model="email"></fieldset>

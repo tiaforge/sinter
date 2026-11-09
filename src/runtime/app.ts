@@ -154,7 +154,8 @@ export interface App {
     /** write-through: a mutation's 2xx response, applied to the resources it is about (before `then`) */
     apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
     /** server validation errors on a form's fields: `show` returns whether every error found its field */
-    fields?: { clear(form: HTMLFormElement): void; show(form: HTMLFormElement, error: SinterError, request: { url: string; method: string }): boolean };
+    /** an action is sent: the form's marks and `$error` are cleared; the function reports a failure, true when the form shows it */
+    fields?: { sent(el: Element, a: ActionDef): ((error: SinterError, request: { url: string; method: string }) => boolean) | undefined };
   };
   readonly beforeFlush: Array<(dirty: string[][]) => void>;
   readonly afterFlush: Array<(dirty: string[][]) => void>;
@@ -290,9 +291,11 @@ const after = (el: Element) => {
 };
 const ET = EventTarget.prototype;
 /** Per-element registries, kept on the element (cheaper than WeakMaps on the row creation path). */
-const HANDLERS = Symbol('sinter.on'), MODEL = Symbol('sinter.model'), STATE = Symbol('sinter.state');
+const HANDLERS = Symbol('sinter.on'), MODEL = Symbol('sinter.model');
+/** an element's own `data-sn-state`: `[sid, state object]` (for feature modules: a form's `$error`) */
+export const STATE = Symbol('sinter.state');
 /** HANDLERS: one handler binding, or an array when the element has several */
-type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
+export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
 const indexReaders = new WeakMap<TemplateDef, boolean>();
 const others = new WeakMap<TemplateDef, Dep[]>(), selOf = new WeakMap<TemplateDef, Binding[]>();
 /** row templates: whether each holds one element (see oneElement()) */
@@ -1219,9 +1222,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const up: Element[] = [];
     for (let x = el.parentElement; x; x = x.parentElement) up.push(x);
     st.n++;
-    // the form whose fields an error is about: the action's own, or the one a control (a button) belongs to
-    const form = a.catch == null && !a.call && app.ext.fields ? (a.form ? el : ((el as Element as HTMLButtonElement).form ?? null)) : null;
-    if (form) app.ext.fields!.clear(form);
+    // server errors on the form (fields.ts): its marks cleared and its `$error` null while it is sent again
+    const fs = app.ext.fields?.sent(el, a);
     el.setAttribute('aria-busy', 'true');
     if (a.form && a.concurrency == 'block' && !c && !st.off) {
       st.off = ([...el.elements] as HTMLInputElement[]).filter((x) => !x.disabled);
@@ -1241,7 +1243,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       drop();
       if (isAbort(err) || (c && st.c != c)) return;
       const error = a.call ? callError(err) : toError(err);
-      if (form && app.ext.fields!.show(form, error, { url, method: a.method })) return;
+      // shown on the form (every message on its field, or its markup reads `$error`): handled
+      if (fs?.(error, { url, method: a.method }) && a.catch == null) return;
       a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null);
     } finally {
       if (c && st.c == c) st.c = null;

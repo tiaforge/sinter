@@ -1,7 +1,6 @@
 // App configuration: the API origin, the JWT from localStorage on API requests, and the
 // islands (browser work the pages' expressions cannot do).
 import { configure } from '@tiaforge-ui/sinter';
-import { errors } from './sinter.helpers.js';
 import { API, json, token } from './session.js';
 import './islands.js';
 
@@ -29,6 +28,6 @@ async function auth(req, next) {
 configure({
   request: [auth],
   onError: () => {},
-  // every server error into the form's `.error-messages` list (`data-sn-errors`), no field marked
-  fieldErrors: (error) => ({ '': errors(error) }),
+  // the forms show the server's errors in their `.error-messages` list (`$error`), no field marked
+  fieldErrors: () => null,
 });
