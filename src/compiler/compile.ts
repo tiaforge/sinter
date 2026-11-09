@@ -17,6 +17,8 @@ import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef
 import { matchOperation, matchResource, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
+import { withParams } from '../runtime/url.js';
+import { firstParams } from '../paginate.js';
 
 type P5Node = DefaultTreeAdapterMap['node'];
 type P5Element = DefaultTreeAdapterMap['element'];
@@ -1913,11 +1915,12 @@ class Compiler {
     const roots = list(this.roots);
     while (templates.length && templates[templates.length - 1] === null) templates.pop();
     // the resources the early file requests: `src` and `when` read only what is known early
-    // (state, persisted values, `$url`, `$now`, helpers); not `call`, `each`, embedded data or pages
+    // (state, persisted values, `$url`, `$now`, helpers); not `call`, `each` or embedded data; a
+    // paginated one: its first page, with the query parameters the pager sends for it
     const res: NonNullable<EarlyIR['res']> = [];
     let url = false;
     for (const def of this.resources) {
-      if (def.call || def.each || def.data != null || def.paginate || !def.src.length || !knownReq(def.deps)) continue;
+      if (def.call || def.each || def.data != null || !def.src.length || !knownReq(def.deps)) continue;
       // a URL fixed at build time is preloaded from the HTML (see injectScript), earlier than this file runs
       if (fixedRequest(def) || this.noEarly.has(def.name)) continue;
       // another origin only when listed in `origins` (the runtime's allowlist, known at build time)
@@ -1928,7 +1931,7 @@ class Compiler {
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
       reads.push(...def.deps);
       url ||= codes.some((c) => c.includes('$url'));
-      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}) });
+      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}) });
     }
     if (!roots.some((n) => n.b.length) && !res.length) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
@@ -2257,14 +2260,14 @@ export function makeCode(nodes: NodeDef[], fns: string[]): string | null {
 
 // ---- first paint
 
-/** A resource whose request is fixed at build time: a literal `src`, no `when`, not paginated, `each`, `call` or embedded. */
-const fixedRequest = (r: ResourceDef) => !r.call && !r.each && r.data == null && !r.paginate && r.when == null && r.src.length > 0 && r.src.every((p) => typeof p === 'string');
+/** A resource whose request is fixed at build time: a literal `src`, no `when`, not `each`, `call` or embedded (a paginated one: its first page). */
+const fixedRequest = (r: ResourceDef) => !r.call && !r.each && r.data == null && r.when == null && r.src.length > 0 && r.src.every((p) => typeof p === 'string');
 
 /** URLs of the resources whose request is fixed at build time (callers pass only those it may request early: same-origin or a listed origin): the page preloads them from its HTML (low priority when every resource of that URL is `lo`). */
 export function preloads(resources: ResourceDef[]): Array<{ url: string; lo: boolean }> {
   const urls = new Map<string, boolean>();
   for (const r of resources.filter(fixedRequest)) {
-    const u = (r.src as string[]).join('').replace(/[?&](?=#|$)/, '');
+    const u = withParams((r.src as string[]).join('').replace(/[?&](?=#|$)/, ''), r.paginate ? firstParams(r.paginate) : null);
     if (/^\/(?!\/)/.test(u) || /^https?:\/\/[^/?#]+\//i.test(u)) urls.set(u, (urls.get(u) ?? true) && !!r.lo);
   }
   return [...urls].map(([url, lo]) => ({ url, lo }));

@@ -28,6 +28,7 @@ const api = http((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Content-Type', 'application/json');
   if (req.url!.startsWith('/items')) return res.end(JSON.stringify({ items: [{ id: 1, name: 'from the api' }] }));
+  if (req.url!.startsWith('/pages')) return res.end(JSON.stringify({ items: [{ id: 1 }, { id: 2 }], total: 3 }));
   if (req.url === '/tags') return res.end(JSON.stringify({ tags: ['a'] }));
   if (req.url === '/me') return res.end(JSON.stringify({ me: { name: 'me' } }));
   res.statusCode = 404; res.end('{}');
@@ -44,10 +45,12 @@ beforeAll(async () => {
 <body>
   <sn-resource name="items" src="${apiOrigin}/items?q={$url.q}" items="items" key="id" type="any"></sn-resource>
   <sn-resource name="tags" src="${apiOrigin}/tags" items="tags" type="any"></sn-resource>
+  <sn-resource name="pages" src="${apiOrigin}/pages?q={$url.q}" items="items" total="total" key="id" type="any" paginate="keyset" page-size="2" cursor="{after: id}" direction-values="{first: 'down'}"></sn-resource>
   <sn-resource name="me" src="${apiOrigin}/me" items="me" type="any" early="off"></sn-resource>
   <sn-resource name="other" src="https://other.example/x" type="any" when="false"></sn-resource>
   <ul><template data-sn-for="i in items"><li data-sn-text="i.name"></li></template></ul>
   <p id="tags" data-sn-text="tags ? tags.length : ''"></p>
+  <p id="pages" data-sn-text="[pages.length, $meta.pages.total, $meta.pages.hasNext].join()"></p>
   <p id="me" data-sn-text="me ? me.name : ''"></p>
   <p id="other" data-sn-text="other ? 'x' : ''"></p>
 </body>
@@ -71,6 +74,9 @@ test('a listed origin is preloaded and requested early; early="off" and an unlis
   const early = /src="\/assets\/(index-early-[\w-]+\.js)" async>/.exec(html)![1]!;
   const code = readFileSync(join(out, 'assets', early), 'utf8');
   expect(code).toContain(`${apiOrigin}/items?q=`);
+  // a paginated resource: its first page
+  expect(code).toContain(`${apiOrigin}/pages?q=`);
+  expect(code).toMatch(/"q": \{\s*"limit": "2",\s*"direction": "down"\s*\}/);
   expect(code).not.toContain('other.example');
   // the build names the origin it could have requested early
   expect(logs.find((l) => l.includes('https://other.example'))).toMatch(/requested when the page module runs; list the origin in sinter\(\{ origins/);
@@ -92,7 +98,7 @@ test('a page with early requests: the early file async before the stylesheets, a
   expect(readFileSync(join(out, 'assets', asyncTag[1]!), 'utf8')).toMatch(/export\s*\{[^}]*\brender\b/);
 });
 
-test.runIf(!!chromium)('in Chromium: the requests leave while a slow stylesheet loads, once each, and the page renders their data', async () => {
+test.runIf(!!chromium)('in Chromium: the requests leave while a slow stylesheet loads (a paginated resource\'s first page too), once each, and the page renders their data', async () => {
   let cssDone = 0;
   const site = http((req, res) => {
     const path = (req.url ?? '/').split('?')[0]!;
@@ -120,6 +126,11 @@ test.runIf(!!chromium)('in Chromium: the requests leave while a slow stylesheet 
     expect(items.map((l) => l.path)).toEqual(['/items?q=x']);   // once: the runtime took the early response
     expect(items[0]!.at).toBeLessThan(cssDone);                  // before the stylesheet had arrived
     expect(log.filter((l) => l.path === '/tags')).toHaveLength(1);
+    // the first page of a paginated resource, early and once
+    const pages = log.filter((l) => l.path.startsWith('/pages'));
+    expect(pages.map((l) => l.path)).toEqual(['/pages?q=x&limit=2&direction=down']);
+    expect(pages[0]!.at).toBeLessThan(cssDone);
+    await tab.waitForFunction(() => document.querySelector('#pages')!.textContent === '2,3,true');
     expect(log.filter((l) => l.path === '/me')).toHaveLength(1);   // early="off": only the page module's request
     expect(await tab.textContent('#tags')).toBe('1');
     expect(errors).toEqual([]);

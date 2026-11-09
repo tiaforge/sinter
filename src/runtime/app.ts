@@ -7,7 +7,9 @@ import { envOf, type Env } from './env.js';
 import { prefetched } from './handoff.js';
 import { createRequestLayer, isAbort, toError, type RequestLayer, type SendInit } from './request.js';
 import { BAD_KEY, schemesOf, STYLE_BAD, urlAllowed } from './security.js';
-import { expand, readUrl as readFrom } from './url.js';
+import { expand, readUrl as readFrom, withParams } from './url.js';
+
+export { withParams };
 import { clean, createResource, type Resource } from './store.js';
 
 export interface Feature {
@@ -1394,13 +1396,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
       entry.p.then((v) => done || (leave(), ok(v)), (err) => done || (leave(), no(err)));
     });
   }
-}
-
-export function withParams(url: string, params: Record<string, string> | null): string {
-  if (!params) return url;
-  const [path, hash] = url.split('#'), i = path!.indexOf('?'), base = i < 0 ? path! : path!.slice(0, i), q = new URLSearchParams(i < 0 ? '' : path!.slice(i + 1));
-  for (const k in params) q.set(k, params[k]!);
-  return `${base}?${q}${hash ? '#' + hash : ''}`;
 }
 
 /** Indexes (into `seq`) of a longest increasing subsequence, ignoring -1 entries. */

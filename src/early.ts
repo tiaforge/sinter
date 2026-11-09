@@ -10,7 +10,7 @@ import { config } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
-import { expand, readUrl } from './runtime/url.js';
+import { expand, readUrl, type withParams } from './runtime/url.js';
 import type { Binding, EarlyIR, NodeDef } from './ir.js';
 
 /** What the early file needs from the outside world: `configure({ env })` from the app's early module, else the browser. */
@@ -21,6 +21,8 @@ const envOf = (): EarlyEnv => {
 };
 
 export { $k } from './runtime/security.js';
+/** for a page whose early requests include a paginated resource's first page (the compiler passes it to `requests`) */
+export { withParams } from './runtime/url.js';
 
 /** On a `data-sn-if` template the early chunk rendered: the branch, its nodes and end marker, for the runtime to adopt. */
 export const EARLY = Symbol.for('sinter.early');
@@ -80,7 +82,8 @@ export interface EarlyRequests {
   send(ir: EarlyIR, scopes: any[], base: any, fns: Fn[], env: EarlyEnv): void;
 }
 
-export function requests(): EarlyRequests {
+/** `params`: adds a paginated resource's first-page parameters (`withParams`, imported only by a page that has one) */
+export function requests(params?: typeof withParams): EarlyRequests {
   let url: Record<string, string> | null = null, now: Date | null = null;
   return {
     read(k, env, path) {
@@ -88,14 +91,14 @@ export function requests(): EarlyRequests {
       if (k == '$url') return (url ??= readUrl(env.href(), path));
       throw Error('sinter: not available early');
     },
-    /** the resources whose URL is known now: `when` holds and every value is there */
+    /** the resources whose URL is known now: `when` holds and every value is there (a paginated one: its first page) */
     send(ir, scopes, base, fns, env) {
       const here = env.href();
       for (const r of ir.res ?? []) {
         try {
           const s = r.scope < 0 ? base : scopes[r.scope];
           if (r.when != null && !fns[r.when]!(s)) continue;
-          const u = new URL(expand(r.src, s, fns), here);
+          const t = expand(r.src, s, fns), u = new URL(r.q ? params!(t, r.q) : t, here);
           // another origin only when the build found it in `sinter({ origins })` (`xo`)
           if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env))).add(u.href, r.lo);
         } catch { /* not known early: the page module requests it */ }

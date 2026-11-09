@@ -46,8 +46,8 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
   if (!early && !app) return null;
   const lines: string[] = [];
   if (app) lines.push(`import ${JSON.stringify(app)};`);
-  const req = !!early?.ir.res?.length;
-  lines.push(`import { ${split ? 'prime' : 'start'}${early ? ', $k' : ''}${req ? ', requests' : ''} } from '${PACKAGE}/early';`);
+  const req = !!early?.ir.res?.length, pages = !!early?.ir.res?.some((r) => r.q);
+  lines.push(`import { ${split ? 'prime' : 'start'}${early ? ', $k' : ''}${req ? ', requests' : ''}${pages ? ', withParams' : ''} } from '${PACKAGE}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
   if (early) {
@@ -78,7 +78,7 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
     for (const f of early.fns) lines.push(`    ${f},`);
     lines.push('  ];', '  return { ir, fns };', '};');
   }
-  const args = `${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? ', requests()' : ''}`;
+  const args = `${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? `, requests(${pages ? 'withParams' : ''})` : ''}`;
   // split: the requests start when the file runs (`async`, before the stylesheets); the stub calls `render` after the parse
   lines.push(split ? `export const render = prime(${args});` : `start(${args});`);
   return lines.join('\n') + '\n';

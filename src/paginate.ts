@@ -14,6 +14,21 @@ interface Move {
   to: number | null;
 }
 
+function base(cfg: Paginate, dir: Dir | null, size = cfg.size): Record<string, string> {
+  const p: Record<string, string> = { [cfg.sizeParam]: String(size) };
+  if (dir) p[cfg.directionParam] = cfg.directionValues?.[dir] ?? dir;
+  return p;
+}
+
+/**
+ * The query parameters of the first page, as the pager sends them on the first load (and after a
+ * `src` change): the compiler builds the early file's request (and the preload) for a paginated
+ * resource from these, so the runtime takes that response for its first load.
+ */
+export function firstParams(cfg: Paginate): Record<string, string> {
+  return cfg.mode === 'offset' ? { [cfg.pageParam]: '1', ...base(cfg, null) } : base(cfg, 'first');
+}
+
 class PagerImpl implements Pager {
   private move: Move;
   private readonly cfg: Paginate;
@@ -26,15 +41,8 @@ class PagerImpl implements Pager {
     Object.assign(m, { pages: null, from: null, to: null, hasPrev: false, hasNext: false });
   }
 
-  private base(dir: Dir | null, size = this.cfg.size): Record<string, string> {
-    const p: Record<string, string> = { [this.cfg.sizeParam]: String(size) };
-    if (dir) p[this.cfg.directionParam] = this.cfg.directionValues?.[dir] ?? dir;
-    return p;
-  }
-
   private first(): Move {
-    if (this.cfg.mode === 'offset') return { dir: 'page', page: 1, params: { [this.cfg.pageParam]: '1', ...this.base(null) }, from: null, to: null };
-    return { dir: 'first', page: 1, params: this.base('first'), from: null, to: null };
+    return { dir: this.cfg.mode === 'offset' ? 'page' : 'first', page: 1, params: firstParams(this.cfg), from: null, to: null };
   }
 
   reset(): void {
@@ -45,7 +53,7 @@ class PagerImpl implements Pager {
     if (this.cfg.mode === 'append' && this.move.dir !== 'first') {
       // refetch reloads everything loaded so far in one request
       const n = Math.max(this.cfg.size, this.loader.res.all().length);
-      return { dir: 'all', page: 1, params: this.base('first', n), from: null, to: null } satisfies Move;
+      return { dir: 'all', page: 1, params: base(this.cfg, 'first', n), from: null, to: null } satisfies Move;
     }
     return this.move;
   }
@@ -96,20 +104,20 @@ class PagerImpl implements Pager {
         n = meta.pages;
       }
       n = Math.max(1, Math.floor(n));
-      move = { dir: 'page', page: n, params: { [this.cfg.pageParam]: String(n), ...this.base(null) }, from, to };
+      move = { dir: 'page', page: n, params: { [this.cfg.pageParam]: String(n), ...base(this.cfg, null) }, from, to };
     } else {
       if (typeof target === 'number') {
         // the server skips (n - 1) pages; prev/next continue by cursor from there
         let n = Math.max(1, Math.floor(target));
         if (meta.pages != null) n = Math.min(n, meta.pages);
-        move = { dir: 'page', page: n, params: { [this.cfg.offsetParam!]: String((n - 1) * this.cfg.size), ...this.base('first') }, from, to };
+        move = { dir: 'page', page: n, params: { [this.cfg.offsetParam!]: String((n - 1) * this.cfg.size), ...base(this.cfg, 'first') }, from, to };
         void this.loader.load(move);
         return;
       }
       if (this.cfg.mode === 'append' && target !== 'next') return;
       const dir = target as Dir;
       const c = dir === 'next' ? cursor(items[items.length - 1]) : dir === 'prev' ? cursor(items[0]) : {};
-      move = { dir, page: 1, params: { ...c, ...this.base(dir) }, from, to };
+      move = { dir, page: 1, params: { ...c, ...base(this.cfg, dir) }, from, to };
     }
     void this.loader.load(move);
   }

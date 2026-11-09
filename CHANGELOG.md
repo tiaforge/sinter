@@ -14,6 +14,16 @@ Attribute names, function names and diagnostic codes are public API. Before
   a `CustomEvent` out), next-page data and a page transition, and `typecheck: true` with temper's Vite
   plugin; its README lists typos that fail the build. `npm run release` bumps its version and the sinter
   version new apps get; its test builds the template with temper (a devDependency).
+- Early requests of paginated resources (`paginate="keyset"`, `"offset"`, `"append"`): a resource whose
+  `src` and `when` qualify for an early request (they read only state that needs no data, persisted
+  values, `$now`, `$url` and helpers) is requested by the early file at its first page, with exactly the
+  query parameters the pager sends for it (`size-param`=`page-size` and `direction-param`=the `first` value
+  of `direction-values`, or `page-param`=1 in offset mode; no cursor), and the runtime's first load takes
+  that response, as for other early requests (a request that differs is sent by the runtime). `$meta`
+  (`total`, `hasNext`, `from`/`to`, …) is as after any first load; with `cache` the cached page shows at
+  once and the early response revalidates it. A paginated resource with a literal `src` and no `when` is
+  preloaded from the HTML at its first page. Only a page with such a request carries the parameter code in
+  its early file. `each` and `call` resources stay out.
 
 ### Removed
 

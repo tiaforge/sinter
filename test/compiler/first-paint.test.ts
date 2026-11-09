@@ -95,12 +95,12 @@ test('early requests: resources whose URL reads only what is known early (state,
       <sn-resource name="days" src="/api/days?start={week}&q={q}" when="view === 'week'"></sn-resource>
       <sn-resource name="detail" src="/api/x/{sel.id}" when="sel"></sn-resource>
       <sn-resource name="dep" src="/api/y?u={user.id}"></sn-resource>
-      <sn-resource name="pg" src="/api/p" paginate="offset" page-size="10" key="id"></sn-resource>
+      <sn-resource name="pg" src="/api/p?u={user.id}" paginate="offset" page-size="10" key="id"></sn-resource>
       <sn-resource name="fmt" src="/api/z?d={date($now)}"></sn-resource>
       <p data-sn-text="dep.x"></p>
     </body></html>`, {}, ['monday']);
   const ir = JSON.parse(/const ir = (.*);/.exec(early!)![1]!);
-  // not: one that reads another resource, a paginated one, one that calls a built-in formatter
+  // not: one that reads another resource (paginated or not), one that calls a built-in formatter
   expect(ir.res.map((r: { name: string }) => r.name)).toEqual(['days', 'detail']);
   // `user` is fixed at build time: a preload link in the head, first, and not requested again by the early file
   expect(html).toMatch(/<head><link rel="preload" as="fetch" crossorigin="" href="\/api\/user"><script/);
@@ -113,6 +113,35 @@ test('early requests: resources whose URL reads only what is known early (state,
   // the request machinery only on a page with early requests
   expect(early).toContain("import { start, $k, requests } from '@tiaforge-ui/sinter/early';");
   expect(early!.endsWith('start(page, null, requests());\n')).toBe(true);
+});
+
+test('early requests, paginated: the first page, with the query parameters the pager sends for it (page size, the `first` direction value, the page number in offset mode, no cursor); a literal `src` is preloaded at its first page', () => {
+  const { early, html } = build(`<!doctype html><html data-sn-state="{ box: 'inbox' }" data-sn-persist="box"><head></head>
+    <body>
+      <sn-resource name="user" src="/api/user"></sn-resource>
+      <sn-resource name="mail" src="/api/mail?box={box}" key="id" paginate="keyset" page-size="50" size-param="limit" offset-param="offset" cursor="{after: id}" direction-param="dir" direction-values="{first: 'forward', prev: 'backward', next: 'forward', last: 'last'}" cache></sn-resource>
+      <sn-resource name="pages" src="/api/pages?box={box}" key="id" paginate="offset" page-size="20" page-param="p" size-param="n"></sn-resource>
+      <sn-resource name="more" src="/api/more?box={box}#x" key="id" paginate="append" page-size="5" cursor="{after: id}"></sn-resource>
+      <sn-resource name="lit" src="/api/lit?a=1" key="id" paginate="keyset" page-size="10" cursor="{after: id}"></sn-resource>
+      <sn-resource name="dep" src="/api/dep?u={user.id}" key="id" paginate="keyset" page-size="10" cursor="{after: id}"></sn-resource>
+      <ul><template data-sn-for="x in mail"><li data-sn-text="x.id"></li></template></ul>
+      <ul><template data-sn-for="x in pages"><li data-sn-text="x.id"></li></template></ul>
+      <ul><template data-sn-for="x in more"><li data-sn-text="x.id"></li></template></ul>
+      <ul><template data-sn-for="x in lit"><li data-sn-text="x.id"></li></template></ul>
+      <ul><template data-sn-for="x in dep"><li data-sn-text="x.id"></li></template></ul>
+    </body></html>`);
+  const ir = JSON.parse(/const ir = (.*);/.exec(early!)![1]!);
+  // not `dep` (it reads another resource), not `lit` (preloaded from the HTML)
+  expect(ir.res.map((r: { name: string; q: unknown }) => [r.name, r.q])).toEqual([
+    ['mail', { limit: '50', dir: 'forward' }],
+    ['pages', { p: '1', n: '20' }],
+    ['more', { limit: '5', direction: 'first' }],
+  ]);
+  expect(html).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/lit?a=1&amp;limit=10&amp;direction=first">');
+  expect(html.match(/rel="preload"/g)).toHaveLength(2);
+  // the parameters are added as the runtime adds them; only a page with such a request imports that
+  expect(early).toContain("import { start, $k, requests, withParams } from '@tiaforge-ui/sinter/early';");
+  expect(early!.endsWith('start(page, null, requests(withParams));\n')).toBe(true);
 });
 
 test('preconnect: every origin a literal resource or stream `src` names gets one `<link rel="preconnect" crossorigin>` (anonymous, as the runtime connects), before the preloads; such a `src` is no preload', () => {

@@ -34,6 +34,14 @@ export function expand(tpl: UrlTemplate, s: any, fns: Array<(s: any) => any>): s
   return out.replace(/[?&](?=#|$)/, '');
 }
 
+/** A URL with query parameters set (a paginated resource's page): the runtime's request and the early file's are the same string. */
+export function withParams(url: string, params: Record<string, string> | null): string {
+  if (!params) return url;
+  const [path, hash] = url.split('#'), i = path!.indexOf('?'), base = i < 0 ? path! : path!.slice(0, i), q = new URLSearchParams(i < 0 ? '' : path!.slice(i + 1));
+  for (const k in params) q.set(k, params[k]!);
+  return `${base}?${q}${hash ? '#' + hash : ''}`;
+}
+
 /** `$url`: the query parameters, and the `:name` segments of the first path pattern that matches. */
 export function readUrl(href: string, patterns: string[] = []): Record<string, string> {
   const out = Object.create(null), u = new URL(href);
