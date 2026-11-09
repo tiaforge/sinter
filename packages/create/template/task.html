@@ -23,7 +23,7 @@
   <sn-include src="./partials/header.html"></sn-include>
 
   <main data-layout="center" data-gap="lg" data-pad="lg" style="--tm-measure: 48rem">
-    <a href="/" data-icon="arrow-left" data-layout="row" data-gap="xs" data-self="start">All tasks</a>
+    <a href="/" data-icon="arrow-left" data-self="start">All tasks</a>
     <!-- The same transition name as the link on the list: the title morphs into this heading. -->
     <h1 data-sn-transition="'task-' + $url.id" data-sn-text="task ? task.title : ''"></h1>
 

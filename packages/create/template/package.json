@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@tiaforge-ui/sinter": "^0.11.0",
-    "@tiaforge-ui/temper": "^0.1.7"
+    "@tiaforge-ui/temper": "^0.1.8"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
