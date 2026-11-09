@@ -150,6 +150,19 @@ test('a CSP the page declares in a <meta> gets the inline rules\' hash', async (
   }
 });
 
+test('a CSP header with a nonce: Vite\'s html.cspNonce puts it on the inline rules, in build and dev', async () => {
+  const dir = join(out, 'csp-nonce');
+  await build({ root, logLevel: 'silent', resolve: { alias }, html: { cspNonce: 'NONCE' }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+  expect(readFileSync(join(dir, 'index.html'), 'utf8')).toMatch(/<script type="speculationrules" nonce="NONCE">/);
+  const server = await createServer({ root, logLevel: 'silent', resolve: { alias }, html: { cspNonce: 'NONCE' }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', plugins: [sinter()] });
+  try {
+    const html = await server.transformIndexHtml('/index.html', readFileSync(join(root, 'index.html'), 'utf8'));
+    expect(html).toMatch(/<script type="speculationrules" nonce="NONCE">/);
+  } finally {
+    await server.close();
+  }
+});
+
 test('compile errors fail the build with the diagnostic', async () => {
   const page = join(root, 'index.html');
   const original = readFileSync(page, 'utf8');

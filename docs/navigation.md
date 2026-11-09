@@ -21,6 +21,7 @@ instant, and none needs code in the pages:
 | --- | --- |
 | No CSP | nothing |
 | CSP in the page (`<meta http-equiv="Content-Security-Policy">`) | nothing: the build adds the rules' hash to it |
+| CSP header with a nonce, through Vite's `html.cspNonce` | nothing: Vite puts the nonce on the rules script, in build and dev |
 | CSP sent as a response header | add `'inline-speculation-rules'` to its `script-src` (or the hash the build prints), or deliver the rules by header (below) |
 
 `'inline-speculation-rules'` allows speculation rules only, no other inline script. The hash
