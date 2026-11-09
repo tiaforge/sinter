@@ -189,7 +189,7 @@ test('typecheck: type errors fail `vite build` with SN208', async () => {
   }
 });
 
-test('first paint: one early file per page, render-blocking before the page module, sharing a chunk with the page bundle', async () => {
+test('first paint: one early file per page, render-blocking before the page module', async () => {
   const dir = join(out, 'first-paint');
   const logs: string[] = [];
   await build({
@@ -204,18 +204,13 @@ test('first paint: one early file per page, render-blocking before the page modu
   expect(page).not.toBeNull();
   expect(html.indexOf(early![0])).toBeLessThan(html.indexOf(page![0]));
   const code = readFileSync(join(dir, 'assets', early![1]!), 'utf8');
-  // one file: the app's early module, the early runtime, the message the early binding calls; its one import is
-  // the chunk it shares with the page bundle (URL checks and expansion), which the page requests before it
-  const imports = [...code.matchAll(/^\s*import\b[^;]*?from\s*["']\.\/([\w.-]+)["']/gm)].map((m) => m[1]);
-  expect(imports).toHaveLength(1);
+  // one file: the app's early module, the compiled early bindings, the message one calls; nothing to import, as no
+  // early binding checks a URL or a style and the page has no early request: the first paint waits for no other file
+  expect(code).not.toMatch(/^\s*import\s/m);
   expect(code).not.toMatch(/\bimport\(/);
   expect(code).not.toContain('function urlAllowed');
-  const preload = html.indexOf(`<link rel="modulepreload" crossorigin href="/assets/${imports[0]}">`);
-  expect(preload).toBeGreaterThanOrEqual(0);
-  expect(preload).toBeLessThan(html.indexOf(early![0]));
-  expect(readFileSync(join(dir, 'assets', imports[0]!), 'utf8')).toContain('function urlAllowed');
-  // the page bundle imports the same chunk: one copy of it on the page
-  expect(readFileSync(join(dir, 'assets', page![1]!), 'utf8')).not.toContain('function urlAllowed');
+  // nothing is requested for it ahead of its tag (the page bundle's own preloads come after)
+  expect(html.slice(0, html.indexOf(early![0]))).not.toContain('rel="modulepreload"');
   expect(code).toMatch(/dataset\.early = ["']yes["']/);
   expect(code).toContain('People');
   expect(code).toContain('not available early');
@@ -231,6 +226,28 @@ test('first paint: one early file per page, render-blocking before the page modu
   const off = readFileSync(join(dir, 'off', 'index.html'), 'utf8');
   expect(off).not.toContain('early');
   expect(off).not.toContain('blocking');
+});
+
+test('first paint: an early file that checks a URL imports the chunk it shares with the page bundle, which the page requests before it', async () => {
+  const file = join(root, 'shared.html');
+  writeFileSync(file, '<!doctype html><html><head><title>x</title></head><body data-sn-state="{ to: \'/a\' }" data-sn-persist="nav"><a data-sn-attr="{href: to}">a</a><sn-resource name="people" src="/api/people" key="id"></sn-resource><p data-sn-text="people.length"></p></body></html>');
+  const dir = join(out, 'early-shared');
+  try {
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false, rollupOptions: { input: file } }, plugins: [sinter()] });
+  } finally { rmSync(file, { force: true }); }
+  const html = readFileSync(join(dir, 'shared.html'), 'utf8');
+  const early = /<script type="module" crossorigin src="\/assets\/(shared-early-[\w-]+\.js)" blocking="render"><\/script>/.exec(html)!;
+  const code = readFileSync(join(dir, 'assets', early[1]!), 'utf8');
+  const imports = [...code.matchAll(/^\s*import\b[^;]*?from\s*["']\.\/([\w.-]+)["']/gm)].map((m) => m[1]);
+  expect(imports).toHaveLength(1);
+  expect(code).not.toContain('function urlAllowed');
+  const preload = html.indexOf(`<link rel="modulepreload" crossorigin href="/assets/${imports[0]}">`);
+  expect(preload).toBeGreaterThanOrEqual(0);
+  expect(preload).toBeLessThan(html.indexOf(early[0]));
+  expect(readFileSync(join(dir, 'assets', imports[0]!), 'utf8')).toContain('function urlAllowed');
+  // the page bundle imports the same chunk: one copy of it on the page
+  const page = /<script type="module" crossorigin src="\/assets\/(shared-[\w]+\.js)" async>/.exec(html)!;
+  expect(readFileSync(join(dir, 'assets', page[1]!), 'utf8')).not.toContain('function urlAllowed');
 });
 
 test('first paint: an early module\'s dynamic import is inlined, without a deprecated-option warning', async () => {
@@ -257,9 +274,9 @@ test('first paint: an early module\'s dynamic import is inlined, without a depre
   const file = /src="\/assets\/(index-early-[\w-]+\.js)" blocking="render"/.exec(html)![1]!;
   const code = readFileSync(join(dir, 'assets', file), 'utf8');
   expect(code).toContain('lazy-early-module');            // in the early file itself
-  // which loads nothing at run time (Vite's preload helper reads import.meta); its one static import is the shared chunk
+  // which loads nothing (Vite's preload helper reads import.meta): no dynamic import, and here no static one either
   expect(code).not.toMatch(/\bimport\(/);
-  expect([...code.matchAll(/^\s*import\s/gm)]).toHaveLength(1);
+  expect(code).not.toMatch(/^\s*import\s/m);
   expect(said.join('\n')).not.toMatch(/inlineDynamicImports|codeSplitting/);
 });
 

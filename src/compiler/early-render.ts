@@ -29,7 +29,7 @@ export function earlyRender(ir: EarlyIR): EarlyRender {
     const out = ['const s = [];'];
     defs.forEach((nd, i) => {
       const p = (nd.p ?? -1) >= 0 ? `s[${nd.p}]` : base;
-      out.push(`s[${i}] = ${nd.state != null ? `${use('st')}(${p}, f[${nd.state}], ${nd.sid}${nd.persist ? `, ${str(nd.persist)}` : ''})` : p};`);
+      out.push(`s[${i}] = ${nd.state == null ? p : nd.persist ? `${use('sp')}(${p}, f[${nd.state}], ${nd.sid}, ${str(nd.persist)})` : `${use('st')}(${p}, f[${nd.state}], ${nd.sid})`};`);
       for (const b of nd.b) if (b.k == 'model' && b.p != null) out.push(`${use('pm')}(s[${i}], ${str(b.p)}, f[${b.a}]);`);
     });
     return out;

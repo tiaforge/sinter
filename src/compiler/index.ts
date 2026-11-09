@@ -66,7 +66,9 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
 export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   const r = earlyRender(early.ir);
   const ir = { ...(early.ir.res ? { res: early.ir.res } : {}), ...(early.ir.path ? { path: early.ir.path } : {}) };
-  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render} }`, uses: r.uses };
+  // `$locale` read early: the page passes the configured locale source (else the early file carries no config)
+  const lc = early.fns.some((x) => /\$\.\$locale\b/.test(x));
+  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${lc ? ', locale' : ''} }`, uses: lc ? [...r.uses, 'locale'].sort() : r.uses };
 }
 
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early'>, split: boolean): MappedLines | null {

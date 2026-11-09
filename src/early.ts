@@ -4,7 +4,7 @@
 // (persisted values read from storage) and helpers, and the branch of each such `data-sn-if`.
 // No reactivity: the page module mounts later and takes the rendered DOM over (an early branch is
 // adopted, not rendered again). The early file and the page bundle are bundled apart (they share
-// one chunk, `runtime/security`, `url` and `handoff`, and hold copies of the rest), so what they
+// one chunk, `runtime/security` and `url`, and hold copies of the rest), so what they
 // share goes through a global: `start` (early file) and `rendered` (page module, from the core) meet there.
 import { config } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
@@ -35,7 +35,10 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[]): void };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[]): void; locale?: typeof locale };
+
+/** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
+export const locale = () => config.locale;
 
 /**
  * The early file's entry: renders the page's early part once the dictionary (if any) is there.
@@ -82,29 +85,31 @@ const fail = (e: unknown) => { setTimeout(() => { throw e; }); };
  * only requests may read (`$now`, `$url`); `send`: starts the requests whose URL is known.
  */
 export interface EarlyRequests {
-  read(key: PropertyKey, env: EarlyEnv, path: string[] | undefined): unknown;
-  send(ir: Pick<EarlyIR, 'res'>, scopes: any[], base: any, fns: Fn[], env: EarlyEnv): void;
+  read(key: PropertyKey, path: string[] | undefined): unknown;
+  send(ir: Pick<EarlyIR, 'res'>, scopes: any[], base: any, fns: Fn[]): void;
 }
 
 /** `params`: adds a paginated resource's first-page parameters (`withParams`, imported only by a page that has one) */
 export function requests(params?: typeof withParams): EarlyRequests {
-  let url: Record<string, string> | null = null, now: Date | null = null;
+  let url: Record<string, string> | null = null, now: Date | null = null, e: EarlyEnv | null = null;
+  // the environment only requests read (the clock, the location, fetch): read when first needed, after the app's early module ran
+  const env = () => (e ??= envOf());
   return {
-    read(k, env, path) {
-      if (k == '$now') return (now ??= new Date(env.now()));
-      if (k == '$url') return (url ??= readUrl(env.href(), path));
+    read(k, path) {
+      if (k == '$now') return (now ??= new Date(env().now()));
+      if (k == '$url') return (url ??= readUrl(env().href(), path));
       throw Error('sinter: not available early');
     },
     /** the resources whose URL is known now: `when` holds and every value is there (a paginated one: its first page) */
-    send(ir, scopes, base, fns, env) {
-      const here = env.href();
+    send(ir, scopes, base, fns) {
+      const here = env().href();
       for (const r of ir.res ?? []) {
         try {
           const s = r.scope < 0 ? base : scopes[r.scope];
           if (r.when != null && !fns[r.when]!(s)) continue;
           const t = expand(r.src, s, fns), u = new URL(r.q ? params!(t, r.q) : t, here);
           // another origin only when the build found it in `sinter({ origins })` (`xo`)
-          if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env))).add(u.href, r.lo);
+          if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env()))).add(u.href, r.lo);
         } catch { /* not known early: the page module requests it */ }
       }
     },
@@ -149,19 +154,21 @@ export function early(doc: Document, page: ReturnType<EarlyPage>): void {
 }
 
 function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
-  const { ir, fns } = o, env = envOf();
+  const { ir, fns } = o;
   // what is not available before data throws, and the binding (or request) is left to the page module
   const base = new Proxy(Object.create(null), {
     get(_, k) {
-      if (k == '$locale' && config.locale) return config.locale.get();
+      // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
+      const l = k == '$locale' ? o.locale?.() : null;
+      if (l) return l.get();
       // for requests only: no early binding reads the clock or the URL
-      if (req) return req.read(k, env, ir.path);
+      if (req) return req.read(k, ir.path);
       throw Error('sinter: not available early');
     },
   });
   const roots = o.scopes(base);
   return {
-    fetch() { req?.send(ir, roots, base, fns, env); },
+    fetch() { req?.send(ir, roots, base, fns); },
     render(doc: Document) { o.render(doc, roots); },
   };
 }
@@ -171,18 +178,24 @@ function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
 /** a persisted value (`sn:<key>`), parsed; undefined when there is none or it cannot be read */
 const read = (key: string): unknown => {
   try {
-    const v = envOf().storage()?.getItem('sn:' + key);
+    const v = (config.env?.storage ? config.env.storage() : globalThis.localStorage)?.getItem('sn:' + key);
     return v == null ? undefined : JSON.parse(v);
   } catch { return undefined; }
 };
 
-/** a state scope over `s`: the state's fields, persisted values applied (as the persist feature does at mount) */
-export function st(s: any, init: Fn, sid: number, persist?: string): any {
+/** a state scope over `s`: the state's fields */
+export function st(s: any, init: Fn, sid: number, obj?: any): any {
+  if (!obj) try { obj = init(s); } catch { obj = {}; /* a field that throws: none known */ }
+  return Object.assign(Object.create(s), { ['$s' + sid]: obj });
+}
+
+/** a persisted state's scope: its fields, the stored values applied (as the persist feature does at mount) */
+export function sp(s: any, init: Fn, sid: number, persist: string): any {
   let obj: any = {};
   try { obj = init(s); } catch { /* a field that throws: none known */ }
-  const v = persist ? read(persist) : undefined;
+  const v = read(persist);
   if (v && typeof v == 'object') for (const k of Object.keys(obj)) if (Object.hasOwn(v, k)) obj[k] = (v as any)[k];
-  return Object.assign(Object.create(s), { ['$s' + sid]: obj });
+  return st(s, init, sid, obj);
 }
 
 /** a persisted model's stored value, set through its setter before anything is written */

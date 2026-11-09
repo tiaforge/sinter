@@ -150,3 +150,15 @@ test('an early file that failed to load does not hold the page module: it mounts
   await tick();
   expect(mounted).toBe(true);
 });
+
+test('first paint: an early binding reads `$locale` from `configure({ locale })` in the app\'s early module; without it, the binding waits', async () => {
+  const { configure } = await import('@tiaforge-ui/sinter');
+  const html = '<!doctype html><html><head></head><body data-sn-state="{ n: 1 }" data-sn-persist="p"><p id="l" data-sn-text="$locale + n"></p></body></html>';
+  try {
+    await firstPaint(html, { storage: memoryStorage(), early: () => configure({ locale: { get: () => 'de', set: () => {} } }) });
+    expect(document.getElementById('l')!.textContent).toBe('de1');
+    configure({ locale: null });
+    await firstPaint(html, { storage: memoryStorage() });
+    expect(document.getElementById('l')!.textContent).toBe('');
+  } finally { configure({ locale: null }); }
+});

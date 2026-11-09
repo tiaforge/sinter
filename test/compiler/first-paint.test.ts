@@ -79,9 +79,9 @@ test('early state: fields that need no data, persisted values, and the branch of
   expect(ir.templates[2].nodes).toEqual([]);
   expect(early).not.toContain('monday');
   // compiled: the persisted state, the branch with its one text binding, no renderer for the empty else branch
-  expect(early).toContain('s[0] = st($, f[2], 0, "view");');
+  expect(early).toContain('s[0] = sp($, f[2], 0, "view");');
   expect(early).toMatch(/w\(n\[2\], f\[0\], s\[2\], \(t, v\) => iff\(t, v, n\[3\], \(ns, b\) => \{ const n = \[at\(ns, \[0\], "div"\)\];.*w\(n\[0\], f\[1\], s\[0\], text\); \}, 0, s\[2\]\)\);/);
-  expect(early).toContain("import { start, $k, at, byId, iff, st, text, w } from '@tiaforge-ui/sinter/early';");
+  expect(early).toContain("import { start, $k, at, byId, iff, sp, st, text, w } from '@tiaforge-ui/sinter/early';");
 });
 
 test('no early module when nothing runs early and the app has no early module', () => {
@@ -117,7 +117,7 @@ test('early requests: resources whose URL reads only what is known early (state,
   expect(early).toContain('"q": ($.$url.q)');
   expect(early).toContain('import { monday } from "/h.js";');
   // the request machinery only on a page with early requests
-  expect(early).toContain("import { start, $k, st, requests } from '@tiaforge-ui/sinter/early';");
+  expect(early).toContain("import { start, $k, sp, st, requests } from '@tiaforge-ui/sinter/early';");
   // the requests read the root scopes the compiled `scopes` makes; there is nothing to render
   expect(early).toContain('render: () => {}');
   expect(early).toContain('ir: {"res":[');
@@ -148,7 +148,7 @@ test('early requests, paginated: the first page, with the query parameters the p
   expect(html).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/lit?a=1&amp;limit=10&amp;direction=first">');
   expect(html.match(/rel="preload"/g)).toHaveLength(2);
   // the parameters are added as the runtime adds them; only a page with such a request imports that
-  expect(early).toContain("import { start, $k, st, requests, withParams } from '@tiaforge-ui/sinter/early';");
+  expect(early).toContain("import { start, $k, sp, requests, withParams } from '@tiaforge-ui/sinter/early';");
   expect(early!.endsWith('start(page, null, requests(withParams));\n')).toBe(true);
 });
 

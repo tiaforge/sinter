@@ -26,8 +26,9 @@ Attribute names, function names and diagnostic codes are public API. Before
     (~600 B gzip) into every page: the other pages −814 B each, the article +214 B (the helper is in its
     own chunk now). The article requests the renderer when the module runs, alongside its data, instead
     of once the data has arrived.
-  - Early files no longer carry their own copy of the URL checks, URL expansion and handoff: the build
-    emits them as one chunk the early files and the page bundle import, preloaded with the early file.
+  - Early files no longer carry their own copy of the URL checks and URL expansion: the build emits
+    them as one chunk the early files and the page bundle import, preloaded with the early file that
+    uses it (one with no early request, attribute or style binding imports nothing).
     Each RealWorld early file is 0.3–0.8 KB smaller (also when following a link to another page); per
     page, the article, index, profile and editor about −380 B, login, register and settings about
     +110 B (their early files used little of that code). Lighthouse (mobile, fixed API): no change in
@@ -35,9 +36,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   - The early file's bindings are compiled (`src/compiler/early-render.ts`): instead of the early IR and
     the runtime that interpreted it, the early module holds the page's renderer as straight-line calls
     of small writers and helpers that `@tiaforge-ui/sinter/early` exports, so each early file bundles
-    only the writers its bindings use. RealWorld's early files 1.3–2.1 KB gzip (were 2.0–2.7 KB), each
-    page about 600 B smaller (login 22,364 → 21,748 B, the article 26,578 → 25,966 B). The early
-    page object is `{ ir: { res, path }, fns, scopes, render }`; `early(doc, page)` (tests) takes it,
+    only the writers its bindings use, and the clock, location, fetch, storage and `config` only when
+    its requests, persisted state or `$locale` need them. RealWorld's early files 1.1–2.0 KB gzip (were
+    2.0–3.4 KB); login, register and settings import nothing. Each page about 700 B smaller (login
+    22,364 → 21,457 B, the article 26,578 → 25,883 B). The early page object is
+    `{ ir: { res, path }, fns, scopes, render, locale? }`; `early(doc, page)` (tests) takes it,
     and `earlyPage(parts)` from the compiler writes its source. `compactEarly` is gone.
   - The page module imports feature modules as `sn$<name>`, so a helper named like a feature (`keys`,
     `form`, …) no longer collides with its import.
