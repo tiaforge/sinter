@@ -16,16 +16,20 @@ logic at all. So nothing is negotiated per request.
 | Source | Handled by | Step |
 | --- | --- | --- |
 | `<img src="./photo.jpg">` in a page or a partial | the compiler's HTML rewrite | 1 |
-| an image import bound in markup: `<img data-sn-attr="{src: photo}">` | the compiler expands the binding | 2 |
-| `import photo from './photo.jpg?img'` in plain JS | `{ src, srcset, sources, width, height }` | 2 |
+| image URLs from the API (avatars, uploads): `<img data-sn-attr="{src: c.avatar}">` | a loader: dev middleware, production adapters | 2 |
 | CSS `url(./hero.jpg)` | `image-set()` with `type()`, 1x and 2x | 3 |
-| image URLs from the API (avatars, uploads) | a loader: dev middleware, production adapters | 5 |
+
+Not planned: expanding a local image import bound in markup (`data-sn-attr="{src: photo}"`).
+A page that switches between a few local images writes each as a static `<img>` under
+`data-sn-if` or `data-sn-show`, so each one is optimized. Nor a `?img` import for JS: islands that
+load local images are rare, have no markup or CSS to size them from, and `vite-imagetools` works
+next to sinter.
 
 A plain `import photo from './photo.jpg'` stays a URL string, as in Vite.
 
 Left alone: remote URLs, `data:` and `blob:` URLs, SVG and GIF, an `<img>` that already has a
 `srcset`, an `<img>` inside an author's `<picture>` (art direction stays hand-written), an `<img>`
-with any `data-sn-*` attribute (step 2), and `og:image`, favicons and touch icons (crawlers and
+with any `data-sn-*` attribute (API images: step 2), and `og:image`, favicons and touch icons (crawlers and
 operating systems do not read AVIF).
 
 ## Formats
