@@ -281,8 +281,8 @@ built, what deviates, and what is left.
   loaded `async` before the stylesheets (starts the requests), rendered by a ~60-byte render-blocking stub that imports it (one
   module per URL), instead of the prototype's second, near-duplicate requests file (3.2 kB gzip a page); one script cannot do
   both (an async render-blocking module that awaits the parse does not hold the paint, see Messages). (2) Other origins
-  requested early only when listed in `sinter({ origins })` (the build's copy of `configure({ origins })`), on by default for
-  those. (3) `<sn-resource early="off">` for a resource a middleware answers or changes (RealWorld's `user` logged a 401 from
+  requested early only when listed in `sinter({ origins })`, on by default for those; the page module adds that list to the
+  runtime's allowlist (`$origins()`), so apps list API origins once (RealWorld's config no longer does). (3) `<sn-resource early="off">` for a resource a middleware answers or changes (RealWorld's `user` logged a 401 from
   its preload). (4) Google Fonts inlined by default (the Angular CLI does; its RealWorld demo has the preconnect), cached in
   `node_modules/.cache/sinter/fonts`. Not done: other third-party CSS (the app's call), `font-display` (a visual choice),
   non-blocking CSS (the build cannot know what affects layout). The RealWorld article page's budget: 26 KB (its early file

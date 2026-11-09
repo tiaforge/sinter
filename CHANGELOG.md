@@ -7,10 +7,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
-- Early requests to other origins: resources whose `src` names an origin listed in the new
-  `sinter({ origins: [...] })` (the build's copy of `configure({ origins })`) are preloaded or
-  requested before the page module like same-origin ones, without credentials. The build names the
-  origins it left to the page module.
+- `sinter({ origins: [...] })`: every page adds these origins to the runtime's allowlist (list API
+  origins once, here, instead of in `configure({ origins })`), and resources whose `src` names one
+  are preloaded or requested before the page module like same-origin ones, without credentials.
+  The build names origins it left to the page module.
 - A page with early requests loads its early file `async` before the stylesheets, so its requests
   leave while they load, and renders it from a small render-blocking stub
   (`assets/<page>-render-<hash>.js`). Pages without early requests and `vite dev` are unchanged.

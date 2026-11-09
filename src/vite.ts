@@ -67,11 +67,13 @@ export interface SinterOptions extends ProjectOptions {
    */
   prefetch?: boolean;
   /**
-   * Other origins the app's resources may load from, as `configure({ origins })` lists them for the
-   * runtime: their resources with a literal `src` are preloaded or requested before the page module,
-   * like same-origin ones (without credentials, as the request layer sends them). A resource on an
-   * origin not listed waits for the page module; the build names them. `<sn-resource early="off">`
-   * keeps one resource out (one a request middleware answers or adds a header to).
+   * Other origins the app's resources, actions and streams may use: every page adds them to the
+   * runtime's allowlist (as `configure({ origins })` would; list them here only), and their resources
+   * with a literal `src` are preloaded or requested before the page module, like same-origin ones
+   * (without credentials, as the request layer sends them). A resource on an origin listed only in
+   * `configure({ origins })` waits for the page module; the build names those origins.
+   * `<sn-resource early="off">` keeps one resource out (one a request middleware answers or adds a
+   * header to).
    */
   origins?: string[];
   /**
@@ -273,7 +275,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
-      ...(firstPaint && options.origins?.length ? { origins: options.origins } : {}),
+      ...(options.origins?.length ? { origins: options.origins } : {}),
       ...(firstPaint && !dev ? { splitEarly: true } : {}),
     });
     if (out.early) modules.set(`${EARLY}${rel}.js`, out.early);
@@ -418,7 +420,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }
         earlyFiles.set(rel, { fileName, code: chunk.code!, modules: chunk.modules ?? {}, ...(stub ? { stub } : {}) });
       }
-      if (unlisted.size) resolved?.logger.info(`sinter: resources on ${[...unlisted].join(', ')} are requested when the page module runs; list ${unlisted.size > 1 ? 'these origins' : 'the origin'} in sinter({ origins: [...] }) (as in configure({ origins })) to request them before it`);
+      if (unlisted.size) resolved?.logger.info(`sinter: resources on ${[...unlisted].join(', ')} are requested when the page module runs; list ${unlisted.size > 1 ? 'these origins' : 'the origin'} in sinter({ origins: [...] }) (instead of configure({ origins }): every page adds them) to request them before it`);
       // Speculation Rules for a response header: one file at the site root, under a fixed name
       const rules = spec()?.delivery === 'header' ? rulesJson() : null;
       rulesWritten = !!rules;

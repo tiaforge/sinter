@@ -53,7 +53,8 @@ beforeAll(async () => {
 </body>
 </html>
 `);
-  writeFileSync(join(root, 'src', 'sinter.config.js'), `import { configure } from '@tiaforge-ui/sinter';\nconfigure({ origins: ['${apiOrigin}'] });\n`);
+  // no configure({ origins }): the build's list is the runtime's too (the browser test's `me` request needs it)
+  writeFileSync(join(root, 'src', 'sinter.config.js'), `import { configure } from '@tiaforge-ui/sinter';\nconfigure({ onError: () => {} });\n`);
   await build({
     root, resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false },
     customLogger: { info: (m: string) => { logs.push(m); }, warn: (m: string) => { logs.push(m); }, warnOnce: () => {}, error: () => {}, clearScreen: () => {}, hasErrorLogged: () => false, hasWarned: false } as never,
@@ -73,6 +74,9 @@ test('a listed origin is preloaded and requested early; early="off" and an unlis
   expect(code).not.toContain('other.example');
   // the build names the origin it could have requested early
   expect(logs.find((l) => l.includes('https://other.example'))).toMatch(/requested when the page module runs; list the origin in sinter\(\{ origins/);
+  // the page module adds the build's origins to the runtime's allowlist, after the app's config module
+  const page = /src="\/assets\/(index-[\w-]+\.js)" async>/.exec(html.replace(/index-early-[\w-]+\.js/g, ''))![1]!;
+  expect(readFileSync(join(out, 'assets', page), 'utf8')).toContain(`$origins(["${apiOrigin}"])`);
 });
 
 test('a page with early requests: the early file async before the stylesheets, a render-blocking stub after them', () => {

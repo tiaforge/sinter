@@ -31,6 +31,15 @@ export function configure(options: Partial<Omit<Config, 'env'>> & { env?: Partia
   if (env) config.env = { ...config.env, ...env };
 }
 
+/**
+ * Adds origins to the allowlist (`configure({ origins })` replaces it): the page module calls this
+ * with the build's `sinter({ origins })` after the app's config module has run, so an app lists its
+ * API origins once, in the Vite config.
+ */
+export function $origins(list: string[]): void {
+  config.origins = [...new Set([...config.origins, ...list])];
+}
+
 /** `$error`: a non-2xx response, a network error (status 0), a refused request, or a failed action call (status null). */
 export class SinterError extends Error {
   /**

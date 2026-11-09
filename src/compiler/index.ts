@@ -84,7 +84,7 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
   return lines.join('\n') + '\n';
 }
 
-export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch'>): string {
+export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins'>): string {
   const lines: string[] = [];
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
@@ -123,6 +123,8 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
     }
   }
   if (options.config) lines.push(`import ${JSON.stringify(options.config)};`);
+  // the build's origins join the runtime's allowlist, after the app's config module (imports run first): listed once
+  if (options.origins?.length) lines.push(`import { $origins } from '${PACKAGE}';`, `$origins(${JSON.stringify(options.origins)});`);
   // images from the API: the resizing service's URLs (docs/images.md, step 2)
   if (parts.remote) lines.push(`import { remote } from '${PACKAGE}/remote';`);
   lines.push('');
