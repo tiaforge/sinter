@@ -1,6 +1,8 @@
 // The backend for the navigation e2e test: the built pages (with the app's rewrites: `/` and
 // `/item/:id`), and a JSON API on the same origin, so the browser needs no request interception
-// (which turns prerendering off). Every request is logged with its `Sec-Purpose` header.
+// (which turns prerendering off). Every request is logged with its `Sec-Purpose` header. Pages go
+// out as a strict deployment would send them: `Content-Security-Policy: script-src 'self'` and the
+// `Speculation-Rules` header for the build's rules file, served as application/speculationrules+json.
 //
 // Control API for the runner:
 //   POST /control/delay?ms=…   later API answers wait that long
@@ -34,12 +36,21 @@ export async function start({ port = 0 } = {}) {
       // a new title on every answer: the runner tells a prefetched one from a fresh one
       return item ? json(200, { item: { ...item, title: `${item.title} (answer ${++answers})` } }) : json(404, { message: 'not found' });
     }
+    if (path === '/speculation-rules.json') {
+      const rules = await readFile(join(here, 'dist', 'speculation-rules.json')).catch(() => null);
+      if (!rules) return json(404, {});
+      res.writeHead(200, { 'Content-Type': 'application/speculationrules+json' });
+      return res.end(rules);
+    }
     const page = path === '/' ? 'index.html' : /^\/item\/\d+$/.test(path) ? 'item.html' : null;
     const file = normalize(join(here, 'dist', page ?? path));
     if (!file.startsWith(join(here, 'dist'))) return json(403, {});
     try {
       const body = await readFile(file);
-      res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': page ? 'no-cache' : 'max-age=3600' });
+      res.writeHead(200, {
+        'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': page ? 'no-cache' : 'max-age=3600',
+        ...(page ? { 'Content-Security-Policy': "script-src 'self'", 'Speculation-Rules': '"/speculation-rules.json"' } : {}),
+      });
       res.end(body);
     } catch { json(404, {}); }
   });

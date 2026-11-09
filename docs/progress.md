@@ -261,6 +261,12 @@ built, what deviates, and what is left.
   HTML prefetched; first paint with the prefetched title; morph forward and back. Its first run found that the back morph
   had passed by timing: the hold script waits for the mount, not for responses, so the list needs `cache` (it has it now,
   and the step slows the API to 1.5 s). Building with `prefetch: false` fails steps 2 to 5.
+- 2026-11-09: touch presses wait like a hover (pointercancel ends it); the pending morph name carries its time (10 s).
+  CI runs `e2e/navigation` (green on GitHub's Chrome, 13 s). CSP: tried in Chromium under `script-src 'self'`: inline rules
+  blocked, rules from a `Speculation-Rules` header served as `application/speculationrules+json` work, as `application/json`
+  rejected. So `speculation: { delivery: 'header' }` (a fixed-name `speculation-rules.json`; dev and preview send the header
+  and type) and `docs/navigation.md` with the CSP part near the top; the README no longer mentions CSP. `e2e/navigation` now
+  runs under that policy, and a step fails on any violation.
 
 ## Decisions and deviations
 

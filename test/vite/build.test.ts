@@ -2,7 +2,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { build, createServer } from 'vite';
+import { build, createServer, preview } from 'vite';
 import { afterAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
 
@@ -61,6 +61,24 @@ test('`<html data-sn-prefetch="off">`: the page is in neither the next-page modu
     expect(html).not.toContain('data-sn-prefetch');
   } finally {
     writeFileSync(page, original);
+  }
+});
+
+test('`speculation: { delivery: \'header\' }`: a rules file at the site root, no inline script; `vite preview` sends the header and its type', async () => {
+  const dir = join(out, 'header');
+  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: { mode: 'prefetch', delivery: 'header' } })] };
+  await build(config);
+  expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
+  expect(JSON.parse(readFileSync(join(dir, 'speculation-rules.json'), 'utf8')).prefetch[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
+  const server = await preview({ ...config, preview: { port: 0, host: '127.0.0.1' } });
+  try {
+    const url = server.resolvedUrls!.local[0]!;
+    const page = await fetch(url, { headers: { Accept: 'text/html' } });
+    expect(page.headers.get('speculation-rules')).toBe('"/speculation-rules.json"');
+    const rules = await fetch(new URL('speculation-rules.json', url));
+    expect(rules.headers.get('content-type')).toBe('application/speculationrules+json');
+  } finally {
+    await server.close();
   }
 });
 

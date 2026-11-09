@@ -26,6 +26,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   `'inline-speculation-rules'` or the hash the build prints in `script-src`. A prerendered page
   connects its streams once it is shown and refetches its resources then (`app.shown()` for features).
 
+- `speculation: { mode, delivery: 'header' }`: Speculation Rules without an inline script, for a strict CSP.
+  The build writes `speculation-rules.json` at the site root; the server sends
+  `Speculation-Rules: "/speculation-rules.json"` with every page and the file as
+  `application/speculationrules+json` (`vite dev` and `vite preview` do both). Guide: `docs/navigation.md`.
+  `e2e/navigation` runs under `script-src 'self'` with it.
 - `<html data-sn-prefetch="off">`: no other page prefetches this page's data or HTML, or prerenders it
   (for pages that do something when they load). Build time only: the attribute is stripped; anywhere but
   `<html>` it is `SN102`.

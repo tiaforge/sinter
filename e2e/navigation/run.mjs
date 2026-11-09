@@ -28,7 +28,12 @@ async function until(what, fn, ms = 10_000) {
 
 // recorded on every page before its own scripts: when the page is first shown, whether it was
 // prefetched, and the view-transition groups once the transition is ready
-const PROBE = `addEventListener('pagereveal', (e) => {
+const PROBE = `addEventListener('securitypolicyviolation', (e) => {
+  const v = JSON.parse(sessionStorage.getItem('csp') ?? '[]');
+  v.push(location.pathname + ': ' + e.violatedDirective + ' ' + (e.blockedURI || 'inline'));
+  sessionStorage.setItem('csp', JSON.stringify(v));
+});
+addEventListener('pagereveal', (e) => {
   const nav = performance.getEntriesByType('navigation')[0];
   const out = { title: document.getElementById('title')?.textContent ?? null, delivery: nav?.deliveryType ?? null, transition: !!e.viewTransition, groups: [] };
   sessionStorage.setItem('probe:' + location.pathname, JSON.stringify(out));
@@ -109,8 +114,11 @@ try {
     await step('the item\'s title morphed from the list row', async () => {
       const p = await until('the transition', async () => { const v = await probe(s, '/item/2'); return { ok: v?.groups?.length > 0, value: v }; });
       if (!p.groups.some((g) => /\(sn-\w+\)/.test(g))) throw new Error(`no morph, groups: ${p.groups.join(', ')}`);
-      const named = await js(s, `[...document.querySelectorAll('[data-sn-vt]')].filter((el) => el.style.viewTransitionName).length`);
-      if (named !== 0) throw new Error(`${named} element(s) still named after the transition`);
+      // the names go once the transition has finished
+      await until('no element still named after the transition', async () => {
+        const named = await js(s, `[...document.querySelectorAll('[data-sn-vt]')].filter((el) => el.style.viewTransitionName).length`);
+        return { ok: named === 0, value: named };
+      }, 3000);
     });
 
     await step('going back morphs the title into its row again (the list is reloaded; with `cache`, its rows are there at its first paint, however slow the API)', async () => {
@@ -120,6 +128,11 @@ try {
       await at(s, '/');
       const p = await until('the transition', async () => { const v = await probe(s, '/'); return { ok: v?.groups?.length > 0, value: v }; });
       if (!p.groups.some((g) => /\(sn-\w+\)/.test(g))) throw new Error(`no morph, groups: ${p.groups.join(', ')}`);
+    });
+
+    await step('under script-src \'self\', nothing was blocked on either page (no inline script, rules from the header)', async () => {
+      const v = await js(s, `JSON.parse(sessionStorage.getItem('csp') ?? '[]')`);
+      if (v.length) throw new Error(v.join('; '));
     });
   });
 } finally {

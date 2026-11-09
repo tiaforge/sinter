@@ -28,11 +28,14 @@ export interface SinterOptions extends ProjectOptions {
   /**
    * Speculation Rules for links to the app's pages (Chromium): `'prefetch'` (default) fetches the
    * next page's HTML while the pointer rests on a link; `'prerender'` loads and runs the whole page
-   * (data included, streams connect once it is shown); `false`: none. The rules are an inline
-   * script: a page with a CSP needs `'inline-speculation-rules'` (or the hash the build prints) in
-   * `script-src`, else the browser ignores them.
+   * (data included, streams connect once it is shown); `false`: none. By default the rules are an
+   * inline script, which a CSP blocks unless `script-src` has `'inline-speculation-rules'` (or the
+   * hash the build prints). `{ mode, delivery: 'header' }` instead writes `speculation-rules.json`
+   * at the site root for a `Speculation-Rules` response header, which needs no CSP change: the
+   * server sends the header with every page and the file as `application/speculationrules+json`
+   * (`vite dev` and `vite preview` do both). See docs/navigation.md.
    */
-  speculation?: 'prefetch' | 'prerender' | false;
+  speculation?: 'prefetch' | 'prerender' | false | { mode: 'prefetch' | 'prerender'; delivery?: 'inline' | 'header' };
   /**
    * next-page data (default true): when a link to another page of the app is about to be followed,
    * that page's data is requested, and the page shows it at once (then revalidates). `false`: off.
@@ -45,6 +48,8 @@ type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin];
 const PREFIX = '/@sinter/';
 const EARLY = `${PREFIX}early/`;
 const PREFETCH = `${PREFIX}prefetch.js`;
+/** `speculation: { delivery: 'header' }`: the rules file, at the site root */
+const RULES_FILE = 'speculation-rules.json';
 
 export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let root = process.cwd();
@@ -71,7 +76,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let messages: MessagesProject | null = null;
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
   const described = new Map<string, { parts: PrefetchParts | null; path: string[]; off: boolean }>();
-  let speculationHash: string | null = null;
+  let speculationHash: string | null = null, rulesWritten = false;
   const seen = new Set<string>();
   let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null }> | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -127,14 +132,34 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return (pagesCache = out);
   };
   const prefetchPages = () => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts } => !!x.parts);
-  /** the Speculation Rules tag for links to the app's pages, or '' */
+  /** how the Speculation Rules are delivered, or null for none */
+  const spec = () => {
+    const o = options.speculation ?? 'prefetch';
+    return o === false ? null : typeof o === 'string' ? { mode: o, delivery: 'inline' as const } : { mode: o.mode, delivery: o.delivery ?? 'inline' };
+  };
+  /** the rules' JSON for links to the app's pages, or null */
+  const rulesJson = () => { const s = spec(); return s ? speculationRules(s.mode, appPages().flatMap((x) => x.paths)) : null; };
+  /** where `delivery: 'header'` serves the rules: a fixed name, as the server's header names it */
+  const rulesUrl = () => `${resolved?.base ?? '/'}${RULES_FILE}`;
+  /** the Speculation Rules tag for links to the app's pages, or '' (none, or delivered by a header) */
   const speculationTag = () => {
-    const mode = options.speculation ?? 'prefetch';
-    if (!mode) return '';
-    const json = speculationRules(mode, appPages().flatMap((x) => x.paths));
+    if (spec()?.delivery !== 'inline') return '';
+    const json = rulesJson();
     if (!json) return '';
     speculationHash = `sha256-${createHash('sha256').update(json).digest('base64')}`;
     return `<script type="speculationrules">${json}</script>`;
+  };
+  /** dev and preview, `delivery: 'header'`: the header on pages and the rules file with its content type */
+  const rulesMiddleware = (read: () => string | null) => (req: { url?: string; headers: Record<string, string | string[] | undefined> }, res: { setHeader(k: string, v: string): void; end(b: string): void; statusCode: number }, next: () => void) => {
+    if (spec()?.delivery !== 'header') return next();
+    if (req.url?.split('?')[0] === rulesUrl()) {
+      const json = read();
+      if (json == null) return next();
+      res.setHeader('Content-Type', 'application/speculationrules+json');
+      return res.end(json);
+    }
+    if (String(req.headers.accept ?? '').includes('text/html')) res.setHeader('Speculation-Rules', `"${rulesUrl()}"`);
+    next();
   };
 
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
@@ -173,6 +198,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     configureServer(s) {
       server = s;
+      s.middlewares.use(rulesMiddleware(rulesJson));
       // an HTML, partial or helpers change triggers a full reload in v0.1
       s.watcher.on('change', (file) => {
         // a page's resources may have changed: the next-page module is described again
@@ -251,6 +277,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         this.emitFile({ type: 'asset', fileName, source: chunk.code! });
         earlyFiles.set(rel, { fileName, code: chunk.code!, modules: chunk.modules ?? {} });
       }
+      // Speculation Rules for a response header: one file at the site root, under a fixed name
+      const rules = spec()?.delivery === 'header' ? rulesJson() : null;
+      rulesWritten = !!rules;
+      if (rules) this.emitFile({ type: 'asset', fileName: RULES_FILE, source: rules });
       // a morph pending: the first paint waits for the page module (pages that use data-sn-transition)
       holdFile = `${r.build.assetsDir}/sinter-hold-${createHash('sha256').update(HOLD_SCRIPT).digest('base64url').slice(0, 8)}.js`;
       if (holdPages.size) this.emitFile({ type: 'asset', fileName: holdFile, source: HOLD_SCRIPT });
@@ -312,9 +342,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return code;
     },
 
+    configurePreviewServer(s) {
+      s.middlewares.use(rulesMiddleware(() => { try { return readFileSync(resolve(root, resolved!.build.outDir, RULES_FILE), 'utf8'); } catch { return null; } }));
+    },
+
     closeBundle() {
-      // the rules are an inline script: name what a CSP must allow, once per build
-      if (!dev && speculationHash) resolved?.logger.info(`sinter: Speculation Rules in every page; with a CSP, allow them in script-src: 'inline-speculation-rules' or '${speculationHash}'`);
+      if (dev) return;
+      // inline rules: name what a CSP must allow; header: what the server must send. Once per build
+      if (speculationHash) resolved?.logger.info(`sinter: Speculation Rules in every page; with a CSP, allow them in script-src: 'inline-speculation-rules' or '${speculationHash}' (or use speculation: { delivery: 'header' }, docs/navigation.md)`);
+      if (rulesWritten) resolved?.logger.info(`sinter: Speculation Rules in ${RULES_FILE}: send \`Speculation-Rules: "${rulesUrl()}"\` with every page and serve the file as application/speculationrules+json (docs/navigation.md)`);
     },
 
     async buildEnd(error) {
