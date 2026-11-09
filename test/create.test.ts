@@ -30,6 +30,8 @@ test('the template asks for the version of sinter this repo is at', () => {
   const pkg = (p: string) => JSON.parse(readFileSync(join(repo, p), 'utf8'));
   const { version } = pkg('package.json');
   expect(pkg('packages/create/package.json').version).toBe(version);
+  // a scoped package is published private unless it says otherwise
+  expect(pkg('packages/create/package.json').publishConfig).toEqual({ access: 'public' });
   expect(pkg('packages/create/template/package.json').dependencies['@tiaforge-ui/sinter']).toBe(`^${version}`);
 });
 
