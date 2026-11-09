@@ -31,11 +31,12 @@ import fields from '../fields.js';
 import form from '../form.js';
 import select from '../select.js';
 import location from '../location.js';
+import call from '../call.js';
 import sse from '../sse.js';
 import { prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, transition };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, call, transition };
 
 // ---- requests
 

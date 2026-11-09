@@ -158,6 +158,8 @@ export interface App {
     /** write-through: a mutation's 2xx response, applied to the resources it is about (before `then`) */
     apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
     /** an action is sent: the form's marks and `$error` are cleared; the function reports a failure, true when the form shows it */
+    /** action functions (call.ts): runs one with its context (an action's signal aborts on pagehide); what one throws as an `$error` */
+    call?: { run(f: number, args: unknown, el: Element | null, signal?: AbortSignal): Promise<unknown>; error(e: unknown): SinterError };
     /** `$url` was written: the query string follows (location.ts) */
     location?: () => void;
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
@@ -407,19 +409,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const marked = new Set<unknown>();
   /** debounced handlers' pending timers */
   const timers = new WeakMap<RB, unknown>();
-  /** action calls' signal: aborts when the page is hidden */
-  let hide = new AbortController();
-  /** runs an action function; it counts as busy (for the testing module's settle) while it runs */
-  async function invoke(run: number, args: unknown, ctx: CallContext): Promise<unknown> {
-    app.busy++;
-    try { return await fns[run]!(args, ctx); } finally { app.busy--; }
-  }
-  /** a failed call: SinterErrors as they are, anything else with status null */
-  const callError = (e: unknown) => {
-    if (e instanceof SinterError) return e;
-    const detail = (e instanceof Error ? e.message : typeof e == 'string' ? e : '') || null;
-    return new SinterError(null, e, detail ?? String(e), detail);
-  };
   /** Per flush round: how dirty paths reach a template's rows (0 not, 1 only marked elements, 2 any row). */
   let rowHits = new Map<TemplateDef, number>();
   /** Per flush round: the rows of a template the round's changes select by their index (null: any row). */
@@ -665,10 +654,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
   for (const id of bad) { found.delete(id); warn(1, id); }
   for (const def of ir.resources) createLoader(def);
-  // action calls see the page leave through ctx.signal
-  if (ir.actions.some((x) => x.call) || ir.resources.some((x) => x.call)) {
-    app.addCleanup(env.listen('pagehide', () => { hide.abort(); hide = new AbortController(); }));
-  }
   // back from the bfcache, or online again: the data may have changed meanwhile. Resources a stream
   // feeds are refetched by the stream module when it reconnects.
   const fed = new Set((ir.syncs ?? []).flatMap((s) => s.events.map((e) => e.resource)));
@@ -1264,7 +1249,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     try {
       const result = a.call
-        ? await invoke(a.call.run, body, { signal: hide.signal, request: (u: string, i?: SendInit) => req.send(u, i), el })
+        ? await app.ext.call!.run(a.call.run, body, el)
         : await req.send(url, { method: a.method, body, signal: c?.signal, ...(a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : {}) });
       // a superseded GET's change is rolled back; a success keeps it, under what `then` writes
       if (c && st.c != c) return drop();
@@ -1275,7 +1260,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     } catch (err) {
       drop();
       if (isAbort(err) || (c && st.c != c)) return;
-      const error = a.call ? callError(err) : toError(err);
+      const error = a.call ? app.ext.call!.error(err) : toError(err);
       // shown on the form (every message on its field, or its markup reads `$error`): handled
       if (fs?.(error, { url, method: a.method }) && a.catch == null) return;
       a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null);
@@ -1421,7 +1406,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         try {
           const req = withParams(url, m ? l.pager!.params(m) : null);
           const body = def.call
-            ? await invoke(def.call.run, args, { signal: ctl.signal, request: (u: string, i?: SendInit) => app.req.send(u, i), el: null })
+            ? await app.ext.call!.run(def.call.run, args, null, ctl.signal)
             : await l.get(req, ctl.signal, (def.lo ?? 0) | (quiet ? 2 : 0));
           if (n != seq) return;
           // UNCHANGED (the versions module): nothing to store; `then` still runs, with what that data's load stored
@@ -1432,7 +1417,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           r.meta.loadedAt = env.now();
         } catch (e) {
           if (n != seq || isAbort(e)) return;
-          fail(def.call ? callError(e) : e, quiet);
+          fail(def.call ? app.ext.call!.error(e) : e, quiet);
           l.settle(false);
         } finally {
           // writes made while this load ran win over its (older) response
