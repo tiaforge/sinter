@@ -29,8 +29,6 @@ async function auth(req, next) {
 configure({
   request: [auth],
   onError: () => {},
-  // Forms show the server's errors without a catch, as the reference markup does: all of them, as
-  // `<field> <message>` (the lines `errors()` writes for the buttons' lists too), in the form's
-  // `.error-messages` list (`data-sn-errors`). Only `''`: no field is marked.
+  // every server error into the form's `.error-messages` list (`data-sn-errors`), no field marked
   fieldErrors: (error) => ({ '': errors(error) }),
 });
