@@ -25,6 +25,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   `'inline-speculation-rules'` or the hash the build prints in `script-src`. A prerendered page
   connects its streams once it is shown and refetches its resources then (`app.shown()` for features).
 
+- `<html data-sn-prefetch="off">`: no other page prefetches this page's data or HTML, or prerenders it
+  (for pages that do something when they load). Build time only: the attribute is stripped; anywhere but
+  `<html>` it is `SN102`.
 - `data-sn-transition` (value expression, a name): the same thing on two pages. Following a link from a
   list row to a page with an element of the same name morphs one into the other (cross-document view
   transitions; back from a page with one named element too). Only that pair gets a

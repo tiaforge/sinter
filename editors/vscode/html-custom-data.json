@@ -149,6 +149,10 @@
       "description": "toggles the hidden attribute (value expression)"
     },
     {
+      "name": "data-sn-prefetch",
+      "description": "on <html>: no other page prefetches this one's data or the page itself (Speculation Rules), and none prerenders it; for pages that do something when they load (off)"
+    },
+    {
       "name": "data-sn-transition",
       "description": "the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too) (value expression (a name))"
     },

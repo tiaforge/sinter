@@ -67,7 +67,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const languageFiles = new Map<string, Record<string, { fileName: string; code: string }>>();
   let messages: MessagesProject | null = null;
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
-  const described = new Map<string, { parts: PrefetchParts | null; path: string[] }>();
+  const described = new Map<string, { parts: PrefetchParts | null; path: string[]; off: boolean }>();
   let speculationHash: string | null = null;
   const seen = new Set<string>();
   let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null }> | null = null;
@@ -113,10 +113,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (!described.has(file)) {
         try {
           const r = compile(readFileSync(file, 'utf8'), { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile });
-          described.set(file, { parts: r.prefetch, path: r.path });
-        } catch { described.set(file, { parts: null, path: [] }); }
+          described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
+        } catch { described.set(file, { parts: null, path: [], off: false }); }
       }
       const d = described.get(file)!;
+      // `<html data-sn-prefetch="off">`: neither described nor in the rules
+      if (d.off) continue;
       out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', d.path), parts: d.parts });
     }
     return (pagesCache = out);

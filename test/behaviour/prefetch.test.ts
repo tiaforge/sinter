@@ -179,3 +179,14 @@ test('a page without data-sn-path answers at its file\'s paths', () => {
   expect(pagePaths('index.html', '/', [])).toEqual(['/', '/index.html']);
   expect(pagePaths('a.html', '/', ['/x/:id'])).toEqual(['/x/:id']);
 });
+
+test('`<html data-sn-prefetch="off">`: the page is never described; anywhere else it is an error', () => {
+  const off = ARTICLE.replace('<html data-sn-path', '<html data-sn-prefetch="off" data-sn-path');
+  const opts = { file: '/t/a.html', root: '/t', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} } };
+  const parts = compileParts(off, opts);
+  expect(parts.prefetch).toBeNull();
+  expect(parts.prefetchOff).toBe(true);
+  expect(parts.html).not.toContain('data-sn-prefetch');
+  expect(compileParts('<a href="/x" data-sn-prefetch="off">x</a>', opts).diagnostics.map((d) => d.code)).toContain('SN102');
+  expect(compileParts('<html data-sn-prefetch="no"><body></body></html>', opts).diagnostics.map((d) => d.code)).toContain('SN401');
+});

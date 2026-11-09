@@ -78,6 +78,8 @@ export interface CompileResult {
   prefetch: PrefetchParts | null;
   /** the page's `data-sn-path` patterns */
   path: string[];
+  /** `<html data-sn-prefetch="off">`: no other page prefetches or prerenders this one */
+  prefetchOff?: true;
 }
 
 /** What the early chunk runs: the bindings that can render before data, and what they import. */
@@ -121,6 +123,8 @@ export interface CompiledParts {
   early?: EarlyParts | null;
   /** what another page needs to request this page's data ahead; null when no request is decided by the URL alone */
   prefetch: PrefetchParts | null;
+  /** `<html data-sn-prefetch="off">` */
+  prefetchOff?: true;
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
@@ -194,6 +198,8 @@ class Compiler {
   /** first paint: page-level nodes with bindings, and every state scope's fields */
   readonly paints: Array<{ el: P5Element; node: NodeDef }> = [];
   readonly stateInits: Array<{ sid: number; fields: Array<{ key: string; code: string; deps: string[] }>; persist: string | null }> = [];
+  /** `<html data-sn-prefetch="off">`: other pages do not prefetch or prerender this one */
+  prefetchOff = false;
   /** `data-sn-path` patterns (for `$url` in the early file's requests) */
   pathList: string[] = [];
   /** `$s<sid>.<name>` paths a persisted model writes at mount */
@@ -264,7 +270,8 @@ class Compiler {
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
-      prefetch: this.prefetchParts(),
+      prefetch: this.prefetchOff ? null : this.prefetchParts(),
+      ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
     };
   }
 
@@ -647,6 +654,11 @@ class Compiler {
     }
 
     if (has('path') && el.tagName !== 'html') this.report(el, 'data-sn-path', 'SN102', '`data-sn-path` belongs on `<html>`', 0);
+    if (has('prefetch')) {
+      if (el.tagName !== 'html') this.report(el, 'data-sn-prefetch', 'SN102', '`data-sn-prefetch` belongs on `<html>`: it keeps other pages from prefetching or prerendering this one', 0);
+      else if (get('prefetch')!.trim() !== 'off') this.report(el, 'data-sn-prefetch', 'SN401', '`data-sn-prefetch` takes `off`; prefetching is on without the attribute', 0);
+      else this.prefetchOff = true;
+    }
 
     // embedded data
     if (has('data')) {

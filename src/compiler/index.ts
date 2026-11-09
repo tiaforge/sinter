@@ -17,7 +17,7 @@ export const MESSAGES = `${PACKAGE}/messages`;
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
   const parts = compileParts(html, options);
-  const out: CompileResult = { html: parts.html, module: pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files, prefetch: parts.prefetch, path: parts.ir.path ?? [] };
+  const out: CompileResult = { html: parts.html, module: pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files, prefetch: parts.prefetch, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}) };
   if (parts.check) out.check = parts.check;
   if (parts.early !== undefined) out.early = earlyModule(parts.early, options);
   const ns = Object.entries(options.helpers.namespaces).find(([, v]) => v.module === MESSAGES)?.[0];

@@ -49,6 +49,21 @@ test('next-page data: every page shares one module describing the pages; `prefet
   expect(js(dir)).not.toContain('pointerover');
 });
 
+test('`<html data-sn-prefetch="off">`: the page is in neither the next-page module nor the rules', async () => {
+  const page = join(root, 'index.html');
+  const original = readFileSync(page, 'utf8');
+  writeFileSync(page, original.replace(/<html([^>]*)>/, '<html$1 data-sn-prefetch="off">'));
+  try {
+    const dir = join(out, 'off');
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+    const html = readFileSync(join(dir, 'index.html'), 'utf8');
+    expect(html).not.toContain('speculationrules');
+    expect(html).not.toContain('data-sn-prefetch');
+  } finally {
+    writeFileSync(page, original);
+  }
+});
+
 test('Speculation Rules: every page gets them for the app\'s paths; `speculation: false` leaves them out', async () => {
   await run(out);
   const html = readFileSync(join(out, 'index.html'), 'utf8');
