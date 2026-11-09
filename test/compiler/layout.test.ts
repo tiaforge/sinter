@@ -57,6 +57,10 @@ const CASES: Array<[string, string, string, [number, number | null] | 'fluid' | 
   ['height fixed', 'img { width: 100px; height: 50px }', '<img id="t" src="a.png" alt="">', [100, 50]],
   ['height % of a fluid parent', 'img { width: 100px; height: 50% }', '<div><img id="t" src="a.png" alt=""></div>', 'fluid'],
   ['flex with siblings', 'div { display: flex; width: 400px } img { width: 100% }', '<div><img id="t" src="a.png" alt=""><p>x</p></div>', 'fluid'],
+  [':host never matches in the page', ':root, :host { --s: 30px } img { width: var(--s) }', '<img id="t" src="a.png" alt="">', [30, null]],
+  ['escaped class names', '.w-\\[72px\\] { width: 72px } .md\\:x { width: 1px }', '<img id="t" class="w-[72px]" src="a.png" alt="">', [72, null]],
+  ['a reset\'s zero padding and border on the parent', '* { padding: 0; border: 0 solid } div { width: 300px } img { width: 50% }', '<div><img id="t" src="a.png" alt=""></div>', [150, null]],
+  ['a border on the parent', '* { padding: 0; border: 0 solid } div { width: 300px; border: 1px solid } img { width: 50% }', '<div><img id="t" src="a.png" alt=""></div>', 'fluid'],
   ['grid with tracks', 'div { display: grid; grid-template-columns: 1fr 1fr; width: 400px } img { width: 100% }', '<div><img id="t" src="a.png" alt=""></div>', 'fluid'],
 ];
 

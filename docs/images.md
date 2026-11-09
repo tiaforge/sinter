@@ -91,9 +91,25 @@ media. A stylesheet that does not compile (a `.scss` file without `sass` install
 with a warning, and the build reports the error itself. Compiled stylesheets are cached until
 they, or a file they read, change.
 
-Not covered: CSS that another Vite plugin generates or changes in its `transform` hook, such as
-Tailwind's Vite plugin (`@tailwindcss/vite`) or UnoCSS. Tailwind through PostCSS
-(`@tailwindcss/postcss`) is covered.
+**Utility-CSS engines** (`src/engines.ts`). Some CSS does not exist yet at that point: a Vite
+plugin generates it from the class names it finds, after the HTML. Replaying those plugins does
+not work in general (UnoCSS's build writes a placeholder and fills it in after bundling), but
+every such engine has a compiler that turns class names into CSS, and sinter has the page's
+markup (with its partials). So each engine has a small adapter that asks the project's own engine,
+with its installed version, config and theme, for the CSS of the classes this page uses. That is
+all the cascade needs: a utility no element of the page uses matches nothing.
+
+| Vite plugin | Stylesheet | Adapter |
+| --- | --- | --- |
+| Tailwind (`@tailwindcss/vite`) | a CSS file with Tailwind directives (`@import "tailwindcss"`, `@apply`, `@theme`, …) | `@tailwindcss/node`'s `compile()`, then `build()` with the page's class names |
+| UnoCSS (`unocss/vite`) | `virtual:uno.css`, `uno.css`, `uno-<layer>.css` | `@unocss/config`'s `loadConfig()` and `@unocss/core`'s `generate()` with the page's markup |
+
+The adapters are chosen by the plugins in the Vite config and load the engine from the project.
+Engines that run through PostCSS (`@tailwindcss/postcss`, Tailwind 3, `@unocss/postcss`, Panda)
+need none: `preprocessCSS` runs them. temper's own plugin only appends optional CSS and prunes
+unused rules, which changes no size. Another engine needs an adapter of the same shape: which
+stylesheet it owns, and its CSS for a page's markup. Responsive variants (`md:size-20`) are
+`@media` rules, so an image with one stays fluid.
 
 **The cascade.** Selectors (type, class, id, attribute selectors with every operator and `i`,
 `:where`, `:is`, `:not`, `:root`, the structural pseudo-classes, all four combinators), nesting

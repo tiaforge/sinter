@@ -394,8 +394,8 @@ export class Layout {
     const parent = this.parentOf(el);
     if (!parent) return null;
     const pd = this.declsOf(parent);
-    // padding or borders on the parent: not resolved here
-    for (const prop of pd.keys()) if (BOX_EDGE.test(prop)) return null;
+    // padding or borders on the parent: not resolved here, unless every rule that could set them sets 0 (a reset's `padding: 0; border: 0 solid`)
+    for (const [prop, list] of pd) if (BOX_EDGE.test(prop) && list.some((d) => !zeroEdge(d.value))) return null;
     const display = this.cascaded(parent, ['display']);
     if (display.ambiguous) return null;
     const d = (display.value ?? (BLOCK.has(parent.tagName) ? 'block' : 'inline')).toLowerCase().trim();
@@ -457,12 +457,12 @@ export class Layout {
   private simple(n: csstree.CssNode, el: P5Element): Match {
     switch (n.type) {
       case 'TypeSelector': return n.name === '*' || n.name.toLowerCase() === el.tagName ? 'yes' : 'no';
-      case 'IdSelector': return attrOf(el, 'id') === n.name ? 'yes' : dynamic(el, 'attr') ? 'maybe' : 'no';
-      case 'ClassSelector': return (attrOf(el, 'class') ?? '').split(/\s+/).includes(n.name) ? 'yes' : dynamic(el, 'class') || dynamic(el, 'attr') ? 'maybe' : 'no';
+      case 'IdSelector': return attrOf(el, 'id') === unescape(n.name) ? 'yes' : dynamic(el, 'attr') ? 'maybe' : 'no';
+      case 'ClassSelector': return (attrOf(el, 'class') ?? '').split(/\s+/).includes(unescape(n.name)) ? 'yes' : dynamic(el, 'class') || dynamic(el, 'attr') ? 'maybe' : 'no';
       case 'AttributeSelector': {
-        const name = n.name.name.toLowerCase();
+        const name = unescape(n.name.name).toLowerCase();
         const v = attrOf(el, name);
-        const want = n.value ? (n.value.type === 'String' ? n.value.value : n.value.name) : null;
+        const want = n.value ? (n.value.type === 'String' ? n.value.value : unescape(n.value.name)) : null;
         let ok: boolean;
         if (v === undefined) ok = false;
         else if (want === null || !n.matcher) ok = true;
@@ -497,6 +497,9 @@ export class Layout {
         if (name === 'root') return el === this.root ? 'yes' : 'no';
         if (STRUCTURAL.has(name)) return this.inTemplate(el) ? 'maybe' : this.structural(name, n, el);
         if (name === 'defined') return 'yes';
+        // these match only in a shadow tree, never in the page's own stylesheets (Tailwind's theme is on `:root, :host`)
+        if (name === 'host' || name === 'host-context') return 'no';
+        if (name === 'scope') return el === this.root ? 'yes' : 'no';
         return 'maybe';
       }
       default: return 'maybe';
@@ -541,6 +544,17 @@ function segments(text: string): Array<{ head: string; body: string | null }> {
   const rest = text.slice(start).trim();
   if (rest && open < 0) out.push({ head: rest, body: null });
   return out;
+}
+
+/** A CSS identifier with its escapes resolved: `w-\\[72px\\]` is the class `w-[72px]`. */
+function unescape(s: string): string {
+  return s.includes('\\') ? s.replace(/\\([0-9a-fA-F]{1,6}\s?|[^\n])/g, (_, e: string) => (/^[0-9a-fA-F]/.test(e) && /^[0-9a-fA-F]{1,6}\s?$/.test(e) ? String.fromCodePoint(parseInt(e, 16)) : e)) : s;
+}
+
+/** a padding or border value that adds nothing: every length in it is 0 */
+function zeroEdge(v: string): boolean {
+  if (/var\(|calc\(|min\(|max\(|clamp\(|thin|medium|thick/i.test(v)) return false;
+  return (v.match(/-?\d*\.?\d+[a-z%]*/gi) ?? []).every((n) => parseFloat(n) === 0);
 }
 
 function topComma(s: string): number {

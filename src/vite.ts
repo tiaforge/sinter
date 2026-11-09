@@ -13,6 +13,7 @@ import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i
 import { PAINT_SCRIPT } from './paint-build.js';
 import { loadImages, MIME, type Images } from './images.js';
 import { pageStyles } from './styles.js';
+import { detectEngines, type StyleEngine } from './engines.js';
 import { IMAGE_CHECK } from './image-check.js';
 import type { ImageHost, ImageVariant, StyleSheet } from './compiler/index.js';
 
@@ -69,6 +70,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const variants = new Map<string, ImageVariant>();
   const imageCss = new Map<string, string>();
   let resolveId: ((id: string, importer?: string) => Promise<string | undefined>) | null = null;
+  let engines: StyleEngine[] | null = null;
+  const warned = new Set<string>();
+  const warnOnce = (m: string) => { if (!warned.has(m)) { warned.add(m); resolved!.logger.warn(m); } };
   /** a stylesheet as Vite compiles it: Sass, Less, Stylus, the project's PostCSS, `@import` */
   const failedCss = new Set<string>();
   const compileCss = async (code: string, file: string) => {
@@ -87,7 +91,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     resolveId ??= resolved!.createResolver({ tryIndex: true });
     const r = resolveId;
     const modules = [p.config, p.early, p.helpersFile, p.actionsFile].filter((m): m is string => !!m);
-    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss });
+    engines ??= detectEngines(root, resolved!.plugins.map((x) => x.name));
+    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss, engines, warn: warnOnce });
   };
   const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {
     if (!images) return undefined;

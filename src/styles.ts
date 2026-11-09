@@ -11,6 +11,7 @@ import { dirname, resolve } from 'node:path';
 import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import type { StyleSheet } from './compiler/layout.js';
+import type { StyleEngine } from './engines.js';
 
 type P5Element = DefaultTreeAdapterMap['element'];
 type P5Parent = DefaultTreeAdapterMap['parentNode'];
@@ -24,6 +25,10 @@ export interface StyleContext {
   modules: string[];
   /** a stylesheet as the bundler outputs it, with the files it read; null when it cannot be compiled */
   compile?: (code: string, file: string) => Promise<{ code: string; deps: string[] } | null>;
+  /** utility-CSS engines (engines.ts): their stylesheets are generated from the page's markup */
+  engines?: StyleEngine[];
+  /** an engine that failed, reported once by the adapter */
+  warn?: (message: string) => void;
 }
 
 const SCRIPT = /\.[cm]?[jt]sx?$/;
@@ -58,10 +63,23 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
   const seenModules = new Set<string>();
   const seenCss = new Set<string>();
   const doc = parse5.parse(html);
+  const engines = ctx.engines ?? [];
+  let markup: string | null = null;
+  const used = new Set<StyleEngine>();
+  /** an engine's stylesheet for this page (once per engine: UnoCSS's layer entries are one stylesheet) */
+  const fromEngine = async (engine: StyleEngine, id: string, code: string | null, media: string | null) => {
+    if (used.has(engine)) return;
+    used.add(engine);
+    markup ??= markupOf(html, file, ctx.root);
+    const out = await engine.css(id, code, markup).catch((e: Error) => { ctx.warn?.(`sinter: image sizes from ${engine.name} are not read: ${e.message.split('\n')[0]}`); return null; });
+    if (out) sheets.push({ file: id, css: wrap(out.code, media) });
+  };
 
   const addCss = async (path: string, media: string | null) => {
     if (seenCss.has(path)) return;
     seenCss.add(path);
+    const engine = engines.length ? engines.find((e) => e.owns(path, read(path))) : undefined;
+    if (engine) return fromEngine(engine, path, read(path), media);
     const css = ctx.compile ? await compileFile(path, ctx.compile) : await inline(path, ctx, new Set([path]));
     if (css !== null) sheets.push({ file: path, css: wrap(css, media) });
   };
@@ -69,6 +87,9 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
     let target: string | null | undefined = code === undefined ? null : importer;
     if (code === undefined) {
       if (REMOTE.test(id) || id.includes('?')) return;
+      // a virtual stylesheet an engine generates (`import 'virtual:uno.css'`)
+      const engine = engines.find((e) => e.owns(id, null));
+      if (engine) return fromEngine(engine, id, null, null);
       target = await ctx.resolve(id, importer).catch(() => null);
       if (!target) return;
       target = target.replace(/[?#].*$/, '');
@@ -128,6 +149,19 @@ async function compileFile(path: string, compile: NonNullable<StyleContext['comp
   const files = [path, ...(out?.deps ?? [])];
   compiled.set(path, { stamps: files.map((f) => [f, mtime(f)]), code: out?.code ?? null });
   return out?.code ?? null;
+}
+
+/** The page's markup with its partials (`<sn-include>`, recursively): where its class names are. */
+function markupOf(html: string, file: string, root: string, seen = new Set<string>()): string {
+  let out = html;
+  for (const m of html.matchAll(/<sn-include\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) {
+    const path = resolve(m[1]!.startsWith('/') ? root : dirname(file), m[1]!.startsWith('/') ? '.' + m[1] : m[1]!);
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const text = read(path);
+    if (text !== null) out += '\n' + markupOf(text, path, root, seen);
+  }
+  return out;
 }
 
 const wrap = (css: string, media: string | null) => (media && !/^(all|screen)$/i.test(media) ? `@media ${media} {\n${css}\n}` : css);

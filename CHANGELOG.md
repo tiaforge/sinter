@@ -28,6 +28,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   a fixed parent); anything that depends on layout, a media query, a state or a binding leaves the
   image fluid. Checked against Chromium's layout in the tests. Each stylesheet is read as Vite
   outputs it (`preprocessCSS` with the project's config): Sass, Less, Stylus, PostCSS plugins.
+  Tailwind's Vite plugin and UnoCSS, whose CSS is generated after the HTML, through adapters that
+  ask the project's own engine for the CSS of the page's classes (`size-12` is a 48 px box).
 - Dev: a console warning for every image shown with fewer pixels than the screen has, naming the
   cause (a small source, or a `sizes` smaller than the image is shown).
 
