@@ -3,9 +3,8 @@
 // pages expect; the template builds with both checkers on and fails on the typos its README names.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { build, createServer, type ViteDevServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import sinter from '../src/vite.js';
@@ -88,7 +87,7 @@ describe('the demo API', () => {
 });
 
 // temper is a devDependency of the repo, for this build
-const temperDir = dirname(createRequire(join(repo, 'package.json')).resolve('@tiaforge-ui/temper/package.json'));
+const temperDir = join(repo, 'node_modules/@tiaforge-ui/temper');
 
 describe('the template builds', () => {
   const dir = join(tmp, 'built');
