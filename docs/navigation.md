@@ -24,7 +24,7 @@ instant, and none needs code in the pages:
 | CSP sent as a response header | add `'inline-speculation-rules'` to its `script-src` (or the hash the build prints), or deliver the rules by header (below) |
 
 `'inline-speculation-rules'` allows speculation rules only, no other inline script. The hash
-(`sha256-…`, printed by every build) allows exactly these rules, and changes when the app's pages
+(`sha256-…`, printed by the build when a page has no CSP `<meta>`) allows exactly these rules, and changes when the app's pages
 change. A policy that already allows inline scripts (`'unsafe-inline'`) needs nothing; the build
 leaves such a `<meta>` as it is, since a hash would turn `'unsafe-inline'` off for other inline
 scripts.

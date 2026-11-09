@@ -10,6 +10,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 - Next-page data: resources of the next page that read different parts of one response (same
   `src`, different `items`, such as a contacts list and its addressbooks) share one request, as they
   do on the page itself. Before, each sent its own.
+- The build's Speculation Rules hint said the default delivery is by a response header; it is
+  inline. The hint now says that nothing is needed without a CSP and that a CSP sent as a response
+  header needs `'inline-speculation-rules'`, and it is left out when every page has a CSP
+  `<meta>` (the build adds the hash there).
 
 ## 0.10.0 (2026-11-09)
 

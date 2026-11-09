@@ -19,7 +19,7 @@ import { rewriteCssImages, type CssImageHost } from './css-images.js';
 import { resolveRemote, type RemoteImages } from './remote.js';
 import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { ImageHost, ImageVariant, PrefetchParts, StyleSheet } from './compiler/index.js';
-import { pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
+import { hasCspMeta, pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { fontDownloader, inlineFonts } from './fonts-build.js';
 
 export interface SinterOptions extends ProjectOptions {
@@ -176,6 +176,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
   const described = new Map<string, { parts: PrefetchParts | null; path: string[]; off: boolean }>();
   let speculationHash: string | null = null, rulesWritten = false;
+  /** build: the pages with inline rules and no CSP <meta>, whose CSP (if any) comes from a response header */
+  let unhashedPages = 0;
   const seen = new Set<string>();
   let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null }> | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -330,6 +332,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     /** build: the pages that have something to run early (bundled into one file each in generateBundle) */
     buildStart(input) {
+      unhashedPages = 0;
       earlyPages.clear();
       splitPages.clear();
       unlisted.clear();
@@ -495,7 +498,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     closeBundle() {
       if (dev) return;
       // inline rules: name what a CSP must allow; header: what the server must send. Once per build
-      if (speculationHash) resolved?.logger.info(`sinter: Speculation Rules in every page; with a CSP, allow them in script-src: 'inline-speculation-rules' or '${speculationHash}' (the default delivery, by a response header, needs no CSP change: docs/navigation.md)`);
+      // pages with a CSP <meta> got the hash: nothing to say. The rest may have a CSP header the build cannot see
+      if (speculationHash && unhashedPages) resolved?.logger.info(`sinter: Speculation Rules are inline in the pages: nothing to do without a CSP; a CSP sent as a response header must allow them: add 'inline-speculation-rules' to its script-src (or '${speculationHash}', which changes with the pages). docs/navigation.md`);
       if (rulesWritten) resolved?.logger.info(`sinter: Speculation Rules in ${RULES_FILE}: send \`Speculation-Rules: "${rulesUrl()}"\` with every page and serve the file as application/speculationrules+json (docs/navigation.md)`);
     },
 
@@ -553,6 +557,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const checked = dev && images ? out.html.replace('</body>', `<script type="module" src="${base}${PREFIX.slice(1)}img-check.js"></script></body>`) : out.html;
         // Speculation Rules for links to the app's pages: the browser fetches (or prerenders) the next page
         const rules = speculationTag(), page = rules ? withRulesHash(checked.replace('</head>', `  ${rules}\n</head>`), speculationHash!) : checked;
+        if (rules && !dev && !hasCspMeta(checked)) unhashedPages++;
         if (dev && out.messages && messages) {
           for (const f of Object.values(messages.files)) watch(f);
           const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])), early);

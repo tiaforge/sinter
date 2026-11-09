@@ -32,6 +32,13 @@ export function speculationRules(mode: 'prefetch' | 'prerender', paths: string[]
   });
 }
 
+const CSP_META = /\bhttp-equiv\s*=\s*["']?content-security-policy["'\s>]/i;
+
+/** whether the page declares a CSP in a `<meta>` (which then gets the rules' hash) */
+export function hasCspMeta(html: string): boolean {
+  return (html.match(/<meta\b[^>]*>/gi) ?? []).some((tag) => CSP_META.test(tag));
+}
+
 /**
  * A CSP the page declares itself (`<meta http-equiv="Content-Security-Policy">`) gets the inline
  * rules' hash, so it allows them and nothing else: in `script-src-elem` and `script-src` where
@@ -42,7 +49,7 @@ export function speculationRules(mode: 'prefetch' | 'prerender', paths: string[]
  */
 export function withRulesHash(html: string, hash: string): string {
   return html.replace(/<meta\b[^>]*>/gi, (tag) => {
-    if (!/\bhttp-equiv\s*=\s*["']?content-security-policy["'\s>]/i.test(tag)) return tag;
+    if (!CSP_META.test(tag)) return tag;
     return tag.replace(/(\bcontent\s*=\s*")([^"]*)(")/i, (_, a: string, value: string, z: string) => a + addHash(value, hash) + z);
   });
 }

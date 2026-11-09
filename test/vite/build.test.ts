@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { build, createServer, preview } from 'vite';
+import { build, createLogger, createServer, preview } from 'vite';
 import { afterAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
 
@@ -116,13 +116,31 @@ test('by default every page carries inline rules for the app\'s paths; `speculat
   expect(readdirSync(dir)).not.toContain('speculation-rules.json');
 });
 
+/** a logger that keeps the info lines, for the build's hints */
+function infoLogger() {
+  const lines: string[] = [], logger = createLogger('silent');
+  logger.info = (m: string) => { lines.push(m); };
+  return { lines, logger };
+}
+
+test('the build names the CSP keyword only for pages without a CSP <meta>', async () => {
+  const { lines, logger } = infoLogger();
+  await build({ root, customLogger: logger, resolve: { alias }, build: { outDir: join(out, 'hint'), emptyOutDir: true, minify: false }, plugins: [sinter()] });
+  const hint = lines.find((l) => l.includes('Speculation Rules'));
+  expect(hint).toMatch(/nothing to do without a CSP; a CSP sent as a response header must allow them: add 'inline-speculation-rules'/);
+  expect(hint).not.toMatch(/by a response header, needs no CSP change/);
+});
+
 test('a CSP the page declares in a <meta> gets the inline rules\' hash', async () => {
   const page = join(root, 'index.html');
   const original = readFileSync(page, 'utf8');
   writeFileSync(page, original.replace(/<head>/, `<head>\n  <meta http-equiv="Content-Security-Policy" content="script-src 'self'">`));
   try {
     const dir = join(out, 'csp-meta');
-    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+    const { lines, logger } = infoLogger();
+    await build({ root, customLogger: logger, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+    // the hash is in the page: nothing for anyone to add
+    expect(lines.some((l) => l.includes('Speculation Rules'))).toBe(false);
     const html = readFileSync(join(dir, 'index.html'), 'utf8');
     const json = /<script type="speculationrules">(.*?)<\/script>/.exec(html)![1]!;
     const hash = `sha256-${createHash('sha256').update(json).digest('base64')}`;
