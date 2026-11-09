@@ -1,0 +1,16 @@
+{
+  "name": "sinter-e2e-navigation",
+  "private": true,
+  "type": "module",
+  "description": "sinter across page loads in headless Chrome: next-page data, Speculation Rules, data-sn-transition morphs",
+  "scripts": {
+    "build": "vite build --logLevel warn",
+    "test": "node run.mjs"
+  },
+  "dependencies": {
+    "@tiaforge-ui/sinter": "file:../.."
+  },
+  "devDependencies": {
+    "vite": "8.3.5"
+  }
+}

@@ -25,3 +25,20 @@ jobs:
       # size budgets: the minimal page and the RealWorld example's pages (its own dependencies first)
       - run: npm ci --prefix examples/realworld
       - run: npm run size -- --check
+
+  # sinter across page loads in a real browser: next-page data, Speculation Rules, morphs
+  # (e2e/navigation/README.md); the runner's Chrome
+  e2e-navigation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm ci --prefix e2e/navigation
+      - run: node e2e/navigation/run.mjs
+        env:
+          CHROME: google-chrome

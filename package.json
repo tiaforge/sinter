@@ -42,6 +42,8 @@
     "./keys": "./dist/keys.js",
     "./apply": "./dist/apply.js",
     "./cache": "./dist/cache.js",
+    "./prefetch": "./dist/prefetch.js",
+    "./transition": "./dist/transition.js",
     "./early": "./dist/early.js",
     "./messages": "./dist/messages.js",
     "./compiler": "./dist/compiler/index.js",

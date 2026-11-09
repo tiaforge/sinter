@@ -223,6 +223,57 @@ built, what deviates, and what is left.
   (rules 1–4, unchanged fields skipped because a base write drops a waiting layer's changes to the item: the
   overlapping-actions test caught that), one hook in `send()`. The RealWorld check test doubles as the acceptance:
   12 handlers removed.
+- 2026-11-09: next-page data (pitch item: "Astro for dynamic content", prefetch). Compiler: `prefetchParts()`
+  (`CompiledParts.prefetch`, `CompileResult.prefetch`): `data-sn-path` patterns and the resources whose `src`/`when`
+  read only `$url`, constants and helpers. `src/prefetch-build.ts`: `pagePaths()` (a file's served paths) and
+  `prefetchModule()`; the Vite plugin describes every HTML entry once (`/@sinter/prefetch.js`, invalidated on HTML
+  changes in dev) and passes `prefetch` to `compile()`, whose page module adds the feature. Runtime: `src/prefetch.ts`
+  (delegated pointer/focus/touch listeners, 65 ms rest, handover of this page's own data, sessionStorage `sn:p:`),
+  `ext.prefetch.take()` in the loader's start before the cache, `writes`/`writing` on the request layer (a mutation
+  clears entries; an overlapping prefetch is dropped), the `x-sinter-prefetch` mark (removed before fetch; errors
+  reject there; `onUnauthorized` skips it). Chosen over "use the prefetched response instead of a request": the next
+  page revalidates, so the preload links and early requests are still taken (no unused preloads) and nothing older
+  than one round trip stays on screen. The document itself is not prefetched (a `<link rel=prefetch>` cost 90 B gzip
+  for a request a CDN usually answers fast; Speculation Rules would need `inline-speculation-rules` in the CSP or a
+  response header). Real browser (RealWorld build, Chromium, API mocked at 1.5 s): hover → article and comments
+  requested, the user handed over; the article showed 215 ms after the click, the fresh data at 1,591 ms. Size: feature
+  1,366 B gzip; core +153 B; RealWorld article 19,971 → 21,306 B gzip, budget raised from 20 to 22 KB.
+- 2026-11-09: Speculation Rules (`speculationRules()` in `prefetch-build.ts`, written by the plugin into every page; CSP hash
+  logged in `closeBundle`) and prerender awareness (`app.shown()`; the SSE module connects through it; activation refetches
+  every loader). `CompileResult.path` carries `data-sn-path` so pages without prefetchable data still get rules. Chromium,
+  RealWorld build: `/article/post-1` fetched on hover with `Sec-Purpose: prefetch`, the navigation used it; with
+  `'prerender'` the browser asked for `prefetch;prerender` but reported `PrerenderingDisabledByDevTools` (Playwright, also
+  without request interception), so activation is covered by `test/behaviour/speculation.test.ts` only. Default stays
+  `'prefetch'`: prerender runs pages nobody may see (requests, islands' side effects).
+- 2026-11-09: `data-sn-transition` (`src/transition.ts`; compiled to an attribute binding writing `data-sn-vt`). Names are
+  given at `pageswap`/`pagereveal` only, to the followed row's element and its match. A row is the nearest ancestor of the
+  link holding named elements without links elsewhere (the first version climbed to `<body>`: a link to `/about` named the
+  first row's image; the behaviour test caught it). Chromium, RealWorld: list → article morphs
+  (`::view-transition-group(sn-1k2g1wp)` beside `root`, only the clicked title named); back to the list fades only: Playwright's
+  Chromium reloads it (no bfcache) and the rows render after the first paint, which is when the browser captures.
+  temper: `@view-transition { navigation: auto; }` in `core.css` (on by default, off with `navigation: none` in the app's CSS).
+- 2026-11-09: holding the first paint while a morph is pending (`HOLD_SCRIPT`: a MutationObserver makes the async page
+  module deferred and render-blocking before the parser prepares it). Tried first on a bare page with the module delayed
+  400 ms: first paint 35 ms without the element, 420 ms with it. RealWorld back to a reloaded list: morphs, 3 of 3.
+  `view-transition-class: sn-transition` on the named pair. Per-link prefetch opt-out dropped: the browser's rules can
+  only skip a link by a marker in the page; `<html data-sn-prefetch="off">` is build-time and stripped.
+- 2026-11-09: `e2e/navigation` (headless Chrome over `bench/swap/cdp.mjs`, which takes `CHROME_ARGS` now): hover → data and
+  HTML prefetched; first paint with the prefetched title; morph forward and back. Its first run found that the back morph
+  had passed by timing: the hold script waits for the mount, not for responses, so the list needs `cache` (it has it now,
+  and the step slows the API to 1.5 s). Building with `prefetch: false` fails steps 2 to 5.
+- 2026-11-09: touch presses wait like a hover (pointercancel ends it); the pending morph name carries its time (10 s).
+  CI runs `e2e/navigation` (green on GitHub's Chrome, 13 s). CSP: tried in Chromium under `script-src 'self'`: inline rules
+  blocked, rules from a `Speculation-Rules` header served as `application/speculationrules+json` work, as `application/json`
+  rejected. So `speculation: { delivery: 'header' }` (a fixed-name `speculation-rules.json`; dev and preview send the header
+  and type) and `docs/navigation.md` with the CSP part near the top; the README no longer mentions CSP. `e2e/navigation` now
+  runs under that policy, and a step fails on any violation.
+- 2026-11-09: Speculation Rules delivery, decided after testing each option in Chromium (not committed in between: header by
+  default, then a `<link rel="prefetch">` default). No in-page file form exists (`<script src>`: "External speculation rules
+  are not yet supported"; `<meta http-equiv>`, `<link rel=speculationrules>`: ignored). A `<link rel="prefetch">` is reused for
+  the navigation only for cacheable HTML (`max-age=60` yes; none, `no-cache`, `max-age=0`, `no-store` no). So: inline by
+  default (no server setup), the build adds the hash to a CSP `<meta>` (works, tested), a header CSP needs
+  `'inline-speculation-rules'`; dev warns (code 22, buffered `ReportingObserver`: tested, it gets the report from before mount).
+  `delivery: 'header'` stays the opt-in that no CSP blocks. `e2e/navigation` runs under a `script-src 'self'` `<meta>`.
 
 ## Decisions and deviations
 

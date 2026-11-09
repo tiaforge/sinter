@@ -1,4 +1,7 @@
 /* Conduit theme from https://github.com/gothinkster/realworld (assets/theme/styles.css, MIT). */
+
+/* sinter's example: navigations cross-fade, and an article's title morphs from the list (data-sn-transition) */
+@media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } }
 /*
  * ============================================================================
  * Conduit Minimal CSS v4

@@ -1,7 +1,7 @@
 // The request layer: every request (resources, actions, the session probe,
 // islands) goes through one middleware chain, then fetch with a timeout and
 // one retry for idempotent requests on network errors.
-import { clearCached, config, SinterError, type Middleware } from './config.js';
+import { clearCached, clearPrefetched, config, PREFETCH_MARK, SinterError, type Middleware } from './config.js';
 import type { Env } from './env.js';
 import { prefetched } from './handoff.js';
 
@@ -24,6 +24,9 @@ export interface RequestLayer {
   raw(url: string, init?: SendInit): Promise<Response>;
   /** Requests in flight. */
   readonly inflight: number;
+  /** mutations (not GET/HEAD) settled so far, and in flight: a prefetch that overlapped one is dropped */
+  readonly writes: number;
+  readonly writing: number;
 }
 
 export const isAbort = (e: unknown) => (e as Error)?.name == 'AbortError';
@@ -31,7 +34,7 @@ export const isAbort = (e: unknown) => (e as Error)?.name == 'AbortError';
 export const toError = (e: unknown) => (e instanceof SinterError ? e : new SinterError(0, null, (e as Error)?.message || 'network error'));
 
 export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer {
-  let inflight = 0;
+  let inflight = 0, writes = 0, writing = 0;
 
   const terminal = async (req: Request): Promise<Response> => {
     const signal = req.signal, idempotent = /^(GET|HEAD|OPTIONS|PUT|DELETE)$/.test(req.method);
@@ -40,10 +43,14 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
       signal.aborted ? abort() : signal.addEventListener('abort', abort);
       const timer = env.setTimeout(() => c.abort(), TIMEOUT, 'timeout');
       try {
+        const ahead = req.headers.has(PREFETCH_MARK);
+        let out = idempotent ? req.clone() : req;
+        if (ahead) { const h = new Headers(out.headers); h.delete(PREFETCH_MARK); out = new Request(out, { headers: h }); }
         // the response the early file already requested for exactly this request, else a fetch
-        const res = await ((!retried && prefetched()?.take(req, c.signal)) || env.fetch(new Request(idempotent ? req.clone() : req, { signal: c.signal })));
+        const res = await ((!retried && !ahead && prefetched()?.take(req, c.signal)) || env.fetch(new Request(out, { signal: c.signal })));
         // the session is gone: cached data must not outlive it, whatever the app does next
         if (res.status == 401) clearCached(env);
+        if (ahead && !res.ok) throw new SinterError(res.status, null, 'prefetch failed');
         return res;
       } catch (e) {
         if (signal.aborted) throw signal.reason ?? e;
@@ -78,6 +85,8 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     // (keepalive bodies are limited to 64 KiB; larger ones and uploads go without it)
     const keepalive = method != 'GET' && method != 'HEAD' && (body == null || (typeof body == 'string' && bytes(body) < 60_000));
     inflight++;
+    const write = method != 'GET' && method != 'HEAD';
+    if (write) writing++;
     try {
       const res = await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null, keepalive, ...(init.priority ? { priority: init.priority } : {}) } as RequestInit));
       // also a 401 that middleware answered itself (fetch above clears before onUnauthorized runs)
@@ -87,6 +96,8 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
       throw isAbort(e) ? e : toError(e);
     } finally {
       inflight--;
+      // what a mutation changed is not what was prefetched before it
+      if (write) { writing--; writes++; clearPrefetched(env); }
     }
   }
 
@@ -100,7 +111,7 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     return body;
   }
 
-  return { send, raw, get inflight() { return inflight; } };
+  return { send, raw, get inflight() { return inflight; }, get writes() { return writes; }, get writing() { return writing; } };
 }
 
 /** UTF-8 size of a string; a short one cannot reach the limit (at most 3 bytes per UTF-16 unit). */
