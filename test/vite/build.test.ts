@@ -49,6 +49,16 @@ test('next-page data: every page shares one module describing the pages; `prefet
   expect(js(dir)).not.toContain('pointerover');
 });
 
+test('Speculation Rules: every page gets them for the app\'s paths; `speculation: false` leaves them out', async () => {
+  await run(out);
+  const html = readFileSync(join(out, 'index.html'), 'utf8');
+  const rules = JSON.parse(/<script type="speculationrules">(.*?)<\/script>/.exec(html)![1]!);
+  expect(rules.prefetch[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
+  const dir = join(out, 'no-speculation');
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: false })] });
+  expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
+});
+
 test('compile errors fail the build with the diagnostic', async () => {
   const page = join(root, 'index.html');
   const original = readFileSync(page, 'utf8');

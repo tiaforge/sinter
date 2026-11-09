@@ -238,6 +238,13 @@ built, what deviates, and what is left.
   response header). Real browser (RealWorld build, Chromium, API mocked at 1.5 s): hover → article and comments
   requested, the user handed over; the article showed 215 ms after the click, the fresh data at 1,591 ms. Size: feature
   1,366 B gzip; core +153 B; RealWorld article 19,971 → 21,306 B gzip, budget raised from 20 to 22 KB.
+- 2026-11-09: Speculation Rules (`speculationRules()` in `prefetch-build.ts`, written by the plugin into every page; CSP hash
+  logged in `closeBundle`) and prerender awareness (`app.shown()`; the SSE module connects through it; activation refetches
+  every loader). `CompileResult.path` carries `data-sn-path` so pages without prefetchable data still get rules. Chromium,
+  RealWorld build: `/article/post-1` fetched on hover with `Sec-Purpose: prefetch`, the navigation used it; with
+  `'prerender'` the browser asked for `prefetch;prerender` but reported `PrerenderingDisabledByDevTools` (Playwright, also
+  without request interception), so activation is covered by `test/behaviour/speculation.test.ts` only. Default stays
+  `'prefetch'`: prerender runs pages nobody may see (requests, islands' side effects).
 
 ## Decisions and deviations
 

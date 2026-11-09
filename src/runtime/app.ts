@@ -165,6 +165,8 @@ export interface App {
   /** runs handler `f` in `scope` and invalidates the paths it writes */
   exec(f: number, scope: any, writes?: string[]): void;
   addCleanup(fn: () => void): void;
+  /** runs `fn` now, or, on a page the browser prerenders (Speculation Rules), once it is shown */
+  shown(fn: () => void): void;
 }
 
 /** Runtime binding: the bound binding plus last value and list/conditional state. */
@@ -432,6 +434,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return k;
   };
 
+  const doc = (root.ownerDocument ?? root) as Document & { prerendering?: boolean };
+  /** work that waits until a prerendered page is shown; null once it is (or when it never was prerendered) */
+  let waiting: Array<() => void> | null = doc.prerendering ? [] : null;
   const app: App = {
     ir, fns, env, req, root, transport: o.transport ?? (() => undefined), ext: {},
     beforeFlush: [], afterFlush: [], onListen: [], states: [], busy: 0,
@@ -548,6 +553,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     },
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),
+    shown: (fn) => void (waiting ? waiting.push(fn) : fn()),
   };
   app.page.$f = app.storeFns(null);
   instances.set(root, app);
@@ -572,6 +578,20 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const again = () => { for (const l of loaders) if (!fed.has(l.def.name)) void l.refetch(); };
   app.addCleanup(env.listen('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) again(); }));
   app.addCleanup(env.listen('online', again));
+  // prerendered (Speculation Rules): the page loaded while nobody saw it, maybe minutes ago, and
+  // streams wait (app.shown). Shown: everything is refetched, then the waiting work runs
+  if (waiting) {
+    const on = () => {
+      if (doc.prerendering) return;
+      doc.removeEventListener('prerenderingchange', on);
+      const w = waiting!;
+      waiting = null;
+      for (const l of loaders) void l.refetch();
+      for (const fn of w) fn();
+    };
+    doc.addEventListener('prerenderingchange', on);
+    app.addCleanup(() => doc.removeEventListener('prerenderingchange', on));
+  }
   // listeners for every event type the page binds, rows included
   listen('toggle');
   for (const nd of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) for (const b of nd.b) {

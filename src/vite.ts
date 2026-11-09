@@ -11,7 +11,7 @@ import { compile, formatDiagnostic, type CheckUnit, type CompileResult } from '.
 import { project, type ProjectOptions } from './project.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { PAINT_SCRIPT } from './paint-build.js';
-import { pagePaths, prefetchModule } from './prefetch-build.js';
+import { pagePaths, prefetchModule, speculationRules } from './prefetch-build.js';
 import type { PrefetchParts } from './compiler/index.js';
 
 export interface SinterOptions extends ProjectOptions {
@@ -25,6 +25,14 @@ export interface SinterOptions extends ProjectOptions {
   firstPaint?: boolean;
   /** an early file above this many bytes gzip is a build warning (default 10000) */
   earlyBudget?: number;
+  /**
+   * Speculation Rules for links to the app's pages (Chromium): `'prefetch'` (default) fetches the
+   * next page's HTML while the pointer rests on a link; `'prerender'` loads and runs the whole page
+   * (data included, streams connect once it is shown); `false`: none. The rules are an inline
+   * script: a page with a CSP needs `'inline-speculation-rules'` (or the hash the build prints) in
+   * `script-src`, else the browser ignores them.
+   */
+  speculation?: 'prefetch' | 'prerender' | false;
   /**
    * next-page data (default true): when a link to another page of the app is about to be followed,
    * that page's data is requested, and the page shows it at once (then revalidates). `false`: off.
@@ -59,9 +67,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const languageFiles = new Map<string, Record<string, { fileName: string; code: string }>>();
   let messages: MessagesProject | null = null;
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
-  const described = new Map<string, PrefetchParts | null>();
+  const described = new Map<string, { parts: PrefetchParts | null; path: string[] }>();
+  let speculationHash: string | null = null;
   const seen = new Set<string>();
-  let pagesCache: Array<{ paths: string[]; parts: PrefetchParts }> | null = null;
+  let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null }> | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
   /**
    * the picker script's tag: it picks the locale and adds the page's language file before the first paint;
@@ -96,20 +105,31 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!files.length && existsSync(resolve(root, 'index.html'))) files.push(resolve(root, 'index.html'));
     return [...new Set([...files, ...seen])].sort();
   };
-  /** every page that has data another page can request ahead, with the paths it answers at */
-  const prefetchPages = () => {
+  /** every page with the paths it answers at, and what another page can request ahead for it */
+  const appPages = () => {
     if (pagesCache) return pagesCache;
-    const p = project(root, options), out: Array<{ paths: string[]; parts: PrefetchParts }> = [];
+    const p = project(root, options), out: Array<{ paths: string[]; parts: PrefetchParts | null }> = [];
     for (const file of entries()) {
       if (!described.has(file)) {
         try {
-          described.set(file, compile(readFileSync(file, 'utf8'), { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile }).prefetch);
-        } catch { described.set(file, null); }
+          const r = compile(readFileSync(file, 'utf8'), { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile });
+          described.set(file, { parts: r.prefetch, path: r.path });
+        } catch { described.set(file, { parts: null, path: [] }); }
       }
-      const parts = described.get(file);
-      if (parts) out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', parts.path), parts });
+      const d = described.get(file)!;
+      out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', d.path), parts: d.parts });
     }
     return (pagesCache = out);
+  };
+  const prefetchPages = () => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts } => !!x.parts);
+  /** the Speculation Rules tag for links to the app's pages, or '' */
+  const speculationTag = () => {
+    const mode = options.speculation ?? 'prefetch';
+    if (!mode) return '';
+    const json = speculationRules(mode, appPages().flatMap((x) => x.paths));
+    if (!json) return '';
+    speculationHash = `sha256-${createHash('sha256').update(json).digest('base64')}`;
+    return `<script type="speculationrules">${json}</script>`;
   };
 
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
@@ -283,6 +303,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return code;
     },
 
+    closeBundle() {
+      // the rules are an inline script: name what a CSP must allow, once per build
+      if (!dev && speculationHash) resolved?.logger.info(`sinter: Speculation Rules in every page; with a CSP, allow them in script-src: 'inline-speculation-rules' or '${speculationHash}'`);
+    },
+
     async buildEnd(error) {
       if (error || !options.typecheck || dev || !units.size) return;
       const { check } = await import('./check/index.js');
@@ -317,13 +342,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // dev: the picker first in the head, with every language's whole dictionary (else, with an early
         // file, the paint script); a build adds them after bundling
         const base = resolved?.base ?? '/', early = out.early != null;
+        // Speculation Rules for links to the app's pages: the browser fetches (or prerenders) the next page
+        const rules = speculationTag(), page = rules ? out.html.replace('</head>', `  ${rules}\n</head>`) : out.html;
         if (dev && out.messages && messages) {
           for (const f of Object.values(messages.files)) watch(f);
           const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])), early);
-          return out.html.replace(/<head[^>]*>/, (h) => h + tag);
+          return page.replace(/<head[^>]*>/, (h) => h + tag);
         }
-        if (dev && early) return out.html.replace(/<head[^>]*>/, (h) => h + paintTag(`${base}${PREFIX.slice(1)}paint.js`));
-        return out.html;
+        if (dev && early) return page.replace(/<head[^>]*>/, (h) => h + paintTag(`${base}${PREFIX.slice(1)}paint.js`));
+        return page;
       },
     },
   };

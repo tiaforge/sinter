@@ -19,6 +19,12 @@ Attribute names, function names and diagnostic codes are public API. Before
   RealWorld in Chromium with a 1.5 s API: the article shows 215 ms after the click instead of after
   the API answers.
 
+- Speculation Rules: every page gets `<script type="speculationrules">` for links to the app's
+  pages (their `data-sn-path` patterns or file paths, eagerness `moderate`). `sinter({ speculation })`:
+  `'prefetch'` (default, the next page's HTML), `'prerender'`, or `false`. Under a CSP they need
+  `'inline-speculation-rules'` or the hash the build prints in `script-src`. A prerendered page
+  connects its streams once it is shown and refetches its resources then (`app.shown()` for features).
+
 ### Changed
 
 - The RealWorld article page's size budget is 22 KB (was 20 KB): next-page data adds 1.3 KB gzip to

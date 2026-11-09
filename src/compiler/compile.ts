@@ -76,6 +76,8 @@ export interface CompileResult {
   messages?: string[];
   /** what another page needs to request this page's data ahead (null: nothing) */
   prefetch: PrefetchParts | null;
+  /** the page's `data-sn-path` patterns */
+  path: string[];
 }
 
 /** What the early chunk runs: the bindings that can render before data, and what they import. */

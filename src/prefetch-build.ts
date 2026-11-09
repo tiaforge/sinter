@@ -15,6 +15,23 @@ export function pagePaths(rel: string, base: string, patterns: string[]): string
   return [b + rel, b + rel.replace(/\.html?$/, '')];
 }
 
+/**
+ * Speculation Rules (JSON) for same-origin links to the app's pages: `href_matches` takes URL
+ * patterns, so `data-sn-path` patterns (`/article/:slug`) are used as they are, with any query and
+ * fragment. Links that download or open elsewhere are left out. Eagerness `moderate`: the pointer
+ * rests on the link (200 ms) or a press starts. Null when the app has no paths.
+ */
+export function speculationRules(mode: 'prefetch' | 'prerender', paths: string[]): string | null {
+  const patterns = [...new Set(paths)].map((p) => p.split('/').map((s) => (s[0] === ':' && /^:\w+$/.test(s) ? s : s.replace(/[*?+(){}:\\]/g, '\\$&'))).join('/') + '\\?*#*');
+  if (!patterns.length) return null;
+  return JSON.stringify({
+    [mode]: [{
+      where: { and: [{ href_matches: patterns }, { not: { selector_matches: '[download], [target]:not([target="_self"]), [rel~="nofollow"]' } }] },
+      eagerness: 'moderate',
+    }],
+  });
+}
+
 /** The module: helpers imported as the page modules import them, then `prefetch([...pages])` as its default export. */
 export function prefetchModule(pages: Array<{ paths: string[]; parts: PrefetchParts }>, helpers: HelperManifest): string {
   const user = new Set<string>(), ns = new Map<string, Set<string>>();
