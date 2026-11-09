@@ -36,6 +36,7 @@
     "./ws": "./dist/ws.js",
     "./optimistic": "./dist/optimistic.js",
     "./paginate": "./dist/paginate.js",
+    "./remote": "./dist/remote.js",
     "./each": "./dist/each.js",
     "./persist": "./dist/persist.js",
     "./listbox": "./dist/listbox.js",
@@ -75,14 +76,22 @@
     "@sveltejs/acorn-typescript": "^1.0.13",
     "acorn": "^8.19.0",
     "acorn-walk": "^8.3.5",
+    "css-tree": "^3.2.1",
     "parse5": "^8.1.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@tailwindcss/node": "^4.3.5",
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/css-tree": "^3.2.0",
     "@types/node": "^26.6.6",
     "happy-dom": "^21.0.4",
     "jsdom": "^30.1.3",
+    "playwright": "^1.63.0",
+    "sass": "^1.108.1",
+    "tailwindcss": "^4.3.5",
     "typescript": "^7.0.2",
+    "unocss": "^66.12.0",
     "vite": "^8.3.5",
     "vitest": "^5.1.0"
   },
@@ -99,5 +108,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "optionalDependencies": {
+    "sharp": "^0.35.5"
   }
 }

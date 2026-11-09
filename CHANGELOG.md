@@ -7,6 +7,55 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Static images (docs/images.md): every `<img src>` of a local JPEG, PNG, WebP or AVIF in a page or
+  partial becomes a `<picture>` with nothing written for it. Photos get AVIF with a JPEG fallback,
+  PNG graphics lossless WebP with a PNG fallback (a PNG that is really a photo gets AVIF), sources
+  under 4 KB stay as they are. Fluid images get widths 480 to 2560 up to the source's; `width`/
+  `height` smaller than the source are a box, with files of exactly 1x, 2x and (boxes up to
+  300 × 300) 3x its width. Inline `object-fit: cover` crops the file at `object-position` and the
+  style is removed; `contain` makes the fitted size. Every image gets `width`/`height`,
+  `decoding="async"` and, except the page's first, `loading="lazy"`; a generated stylesheet in the
+  page's CSS gives it `height: auto` and its dominant color as background until it loads. Dev
+  encodes a variant on its first request, builds emit them to `assets/`; both cache by content
+  hash in `node_modules/.cache/sinter/images`. Warnings `SN511 image-too-small` (a box the source
+  cannot fill at 2x) and `SN512 image-stretched`. sharp is an optional dependency;
+  `sinter({ images: false })` turns it off, `images: { widths }` sets the fluid widths.
+- Image sizes from the page's stylesheets: an image the CSS gives a fixed width (and height or
+  `aspect-ratio`) is a box with exact files, cropped when the CSS says `object-fit: cover`, with no
+  attributes and no knowledge of the CSS framework: an `<img>` in temper's `[data-avatar]` gets
+  40/80/120 px squares. A cascade over the page's `<link>`, `<style>` and imported CSS (layers,
+  specificity, `!important`, nesting, custom properties, `calc`/`min`/`max`/`clamp`, px, rem, % of
+  a fixed parent); anything that depends on layout, a media query, a state or a binding leaves the
+  image fluid. Checked against Chromium's layout in the tests. Each stylesheet is read as Vite
+  outputs it (`preprocessCSS` with the project's config): Sass, Less, Stylus, PostCSS plugins.
+  Tailwind's Vite plugin and UnoCSS, whose CSS is generated after the HTML, through adapters that
+  ask the project's own engine for the CSS of the page's classes (`size-12` is a 48 px box).
+- Images from the API: with `sinter({ images: { remote: { url, cover, origins } } })`, an `<img>`
+  whose `src` is bound to data (`data-sn-attr="{src: c.avatar}"`, rows included) gets a `srcset`
+  of a resizing service's URLs, with widths from the box the stylesheets give it (a 40 px avatar:
+  40, 80, 120, cropped with `cover`), and `sizes`, dimensions and loading attributes. `url` is a
+  template (`{url}`, `{url:raw}`, `{w}`, `{h}`, `{q}`) or a preset: `cloudflare`, `vercel`,
+  `netlify`, `imgproxy:<base URL>`. Only images from `origins` (`'self'` and listed origins) go
+  through it; any other URL is written as it is. The service picks the format from `Accept`. In
+  dev the dev server resizes (`/@sinter/remote`, sharp, the same origin rules). New module
+  `@tiaforge-ui/sinter/remote` (0.5 KB gzip, only in pages that use it); testing:
+  `render(html, { remoteImages, css })`. A build with the `vercel` preset prints the widths for
+  `vercel.json`.
+- Fluid images in a column: `sizes` from the narrowest container with a fixed width or an absolute
+  `max-width` the image cannot overflow (`main { max-width: 800px }`, Tailwind's `max-w-3xl`,
+  temper's `data-layout="center"`): `(max-width: 800px) 100vw, 800px`, files up to 3x of it.
+  Static and API images. Only the attributes a binding writes are uncertain in the cascade now
+  (`data-sn-attr`'s keys), not every attribute of the element.
+- CSS backgrounds: `background` and `background-image` with `url()` of a local image get
+  `image-set()` with AVIF (photos) or lossless WebP (graphics) and a JPEG/PNG fallback, after the
+  original declaration. A rule that sizes the background (`cover`, `contain`, lengths) gets 1x and
+  2x files, the source counting as 2x; one that does not keeps its intrinsic size (1x only). Dev
+  rewrites the compiled CSS, builds the finished stylesheets, so Sass partials work.
+- Warning `SN513 bound-local-image`: an `<img>` whose `src` is bound to local image paths (a literal,
+  or a choice between literals) is not optimized; write each as a static `<img>` under
+  `data-sn-if`/`data-sn-show`.
+- Dev: a console warning for every image shown with fewer pixels than the screen has, naming the
+  cause (a small source, or a `sizes` smaller than the image is shown).
 - Next-page data: when a link to another page of the app is about to be followed (the pointer rests
   on it for 65 ms, it has focus, a mouse press starts on it, or a touch stays on it for 65 ms without
   becoming a scroll), the resources of that page whose
@@ -52,6 +101,13 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 - The RealWorld article page's size budget is 22 KB (was 20 KB): next-page data adds 1.3 KB gzip to
   every page.
+
+### Fixed
+
+- A relative Vite `base` (`./`): the early file, the render-blocking paint script, the language
+  picker and its files, and the page bundle's `async` were written as `./assets/…` on every page,
+  so a page in a subfolder (`blog/post.html`) could not load them; they are relative to the page
+  now, as Vite writes its own URLs.
 
 ## 0.9.0 (2026-11-08)
 

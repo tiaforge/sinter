@@ -4,15 +4,22 @@
 // render-blocking before the page module, that renders what needs no data.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { relative, resolve, sep } from 'node:path';
+import { posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult } from './compiler/index.js';
 import { project, type ProjectOptions } from './project.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT, PAINT_SCRIPT } from './paint-build.js';
+import { loadImages, MIME, type Images } from './images.js';
+import { pageStyles } from './styles.js';
+import { detectEngines, type StyleEngine } from './engines.js';
+import { IMAGE_CHECK } from './image-check.js';
+import { rewriteCssImages, type CssImageHost } from './css-images.js';
+import { resolveRemote, type RemoteImages } from './remote.js';
+import { devRemote, remoteMiddleware } from './remote-dev.js';
+import type { ImageHost, ImageVariant, PrefetchParts, StyleSheet } from './compiler/index.js';
 import { pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
-import type { PrefetchParts } from './compiler/index.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -25,6 +32,22 @@ export interface SinterOptions extends ProjectOptions {
   firstPaint?: boolean;
   /** an early file above this many bytes gzip is a build warning (default 10000) */
   earlyBudget?: number;
+  /**
+   * static images (default on, needs sharp): every `<img src>` of a local JPEG, PNG, WebP or AVIF
+   * becomes a `<picture>` with AVIF or lossless WebP, widths for each screen, dimensions and lazy
+   * loading (docs/images.md). `false`: images stay as written; `widths`: the widths of fluid images
+   */
+  images?: false | {
+    widths?: number[];
+    /**
+     * images from the API (docs/images.md, step 2): an `<img>` whose `src` is bound to data gets a
+     * `srcset` of a resizing service's URLs. `url`: a template (`{url}`, `{url:raw}`, `{w}`, `{q}`)
+     * or a preset (`cloudflare`, `vercel`, `netlify`, `imgproxy:<base URL>`); `cover`: a template
+     * with `{h}` for boxes cropped by `object-fit: cover`; `origins`: the only image origins sent
+     * through it (`'self'` and origins). In dev the dev server resizes instead.
+     */
+    remote?: RemoteImages;
+  };
   /**
    * Speculation Rules for links to the app's pages (Chromium): `'prefetch'` (default) fetches the
    * next page's HTML while the pointer rests on a link; `'prerender'` loads and runs the whole page
@@ -44,10 +67,19 @@ export interface SinterOptions extends ProjectOptions {
   prefetch?: boolean;
 }
 
-type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin];
+type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin];
+
+/** a base Vite resolves per file (`./`, ''): its URLs are relative to the page or stylesheet */
+const relativeBase = (base: string) => base === '' || base.startsWith('.');
+/** the base for URLs in the page at `rel` (root-relative): a relative base becomes the way up to the root */
+const pageBase = (base: string, rel: string) => (relativeBase(base) ? '../'.repeat(rel.split('/').length - 1) || './' : base);
 
 const PREFIX = '/@sinter/';
 const EARLY = `${PREFIX}early/`;
+/** the page's image rules (a CSS module the page module imports) */
+const IMG_CSS = `${PREFIX}img-css/`;
+/** dev: where the image variants are served */
+const IMG = `${PREFIX}img/`;
 const PREFETCH = `${PREFIX}prefetch.js`;
 /** `speculation: { delivery: 'header' }`: the rules file, at the site root */
 const RULES_FILE = 'speculation-rules.json';
@@ -75,6 +107,47 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const markupMessages = new Map<string, string[]>();
   const languageFiles = new Map<string, Record<string, { fileName: string; code: string }>>();
   let messages: MessagesProject | null = null;
+  let images: Images | null = null;
+  // a template or origin that cannot work fails before Vite starts
+  const remoteConfig = options.images && options.images.remote ? resolveRemote(options.images.remote) : null;
+  /** build: the widths the pages ask the resizing service for (Vercel accepts only the ones it is told) */
+  const remoteWidths = new Set<number>();
+  /** image variants by file name, and each page's image rules */
+  const variants = new Map<string, ImageVariant>();
+  const imageCss = new Map<string, string>();
+  let resolveId: ((id: string, importer?: string) => Promise<string | undefined>) | null = null;
+  let engines: StyleEngine[] | null = null;
+  const warned = new Set<string>();
+  const warnOnce = (m: string) => { if (!warned.has(m)) { warned.add(m); resolved!.logger.warn(m); } };
+  /** a stylesheet as Vite compiles it: Sass, Less, Stylus, the project's PostCSS, `@import` */
+  const failedCss = new Set<string>();
+  const compileCss = async (code: string, file: string) => {
+    const { preprocessCSS } = await import('vite');
+    try {
+      const out = await preprocessCSS(code, file, resolved!);
+      return { code: out.code, deps: [...(out.deps ?? [])] };
+    } catch (e) {
+      // e.g. a .scss file without sass installed: the build reports it; here its sizes are unknown
+      if (!failedCss.has(file)) { failedCss.add(file); resolved!.logger.warn(`sinter: image sizes from ${relOf(file)} are not read: ${(e as Error).message.split('\n')[0]}`); }
+      return null;
+    }
+  };
+  /** the stylesheets the page loads, for the boxes they give its images */
+  const stylesOf = async (html: string, file: string, p: ReturnType<typeof project>): Promise<StyleSheet[]> => {
+    resolveId ??= resolved!.createResolver({ tryIndex: true });
+    const r = resolveId;
+    const modules = [p.config, p.early, p.helpersFile, p.actionsFile].filter((m): m is string => !!m);
+    engines ??= detectEngines(root, resolved!.plugins.map((x) => x.name));
+    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss, engines, warn: warnOnce });
+  };
+  const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {
+    if (!images) return undefined;
+    const img = images, base = resolved?.base ?? '/';
+    // a relative base (`./`, ''): URLs relative to the page, as Vite writes its own (`../assets/…` from `blog/post.html`)
+    const prefix = dev ? `${base}${IMG.slice(1)}` : `${pageBase(base, rel)}${resolved!.build.assetsDir}/`;
+    const widths = options.images ? options.images.widths : undefined;
+    return { info: (f) => img.info(f), url: (v) => prefix + img.fileName(v), ignore: true, stylesheet: `${IMG_CSS}${rel}.css`, ...(widths ? { widths } : {}), ...(styles?.length ? { styles } : {}) };
+  };
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
   const described = new Map<string, { parts: PrefetchParts | null; path: string[]; off: boolean }>();
   let speculationHash: string | null = null, rulesWritten = false;
@@ -165,7 +238,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
 
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
-  const build = (html: string, file: string, earlySrc: string | null): { out: CompileResult; p: ReturnType<typeof project> } => {
+  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[]): { out: CompileResult; p: ReturnType<typeof project> } => {
     const rel = relOf(file);
     const p = project(root, options);
     if (p.diagnostics.length) throw new Error(`sinter: ${p.diagnostics.map(formatDiagnostic).join('\n')}`);
@@ -174,6 +247,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const out = compile(html, {
       file, root, dev, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
       check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles,
+      ...(images ? { images: imageHost(rel, styles)! } : {}),
+      ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
     });
     if (out.early) modules.set(`${EARLY}${rel}.js`, out.early);
@@ -192,14 +267,31 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     enforce: 'pre',
     api: { options },
 
-    configResolved(config) {
+    async configResolved(config) {
       root = config.root;
       dev = config.command === 'serve';
       resolved = config;
+      if (options.images !== false) {
+        images = await loadImages(resolve(root, 'node_modules/.cache/sinter/images'), dev);
+        if (!images) config.logger.warn('sinter: images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this');
+      }
     },
 
     configureServer(s) {
       server = s;
+      // dev: an image variant is encoded the first time it is requested (and cached)
+      if (remoteConfig) s.middlewares.use(remoteMiddleware(remoteConfig, (m) => s.config.logger.warn(m)));
+      s.middlewares.use((req, res, next) => {
+        const url = req.url?.split('?')[0] ?? '';
+        const at = url.indexOf(IMG);
+        const v = at >= 0 && images ? variants.get(decodeURIComponent(url.slice(at + IMG.length))) : undefined;
+        if (!v) return next();
+        images!.encode(v).then((buf) => {
+          res.setHeader('Content-Type', MIME[url.slice(url.lastIndexOf('.') + 1)] ?? 'application/octet-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.end(buf);
+        }, next);
+      });
       s.middlewares.use(rulesMiddleware(rulesJson));
       // an HTML, partial or helpers change triggers a full reload in v0.1
       s.watcher.on('change', (file) => {
@@ -246,6 +338,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      */
     async generateBundle(_, bundle) {
       const r = resolved!, ENTRY = `${PREFIX}early-entry.js`;
+      if (remoteConfig?.url.startsWith('/_vercel/image') && remoteWidths.size) {
+        r.logger.info(`sinter: images from the API use these widths; Vercel resizes only the ones in vercel.json: "images": { "sizes": [${[...remoteWidths].sort((a, b) => a - b).join(', ')}], "remotePatterns": [...] }`);
+      }
+      if (images && variants.size) {
+        const img = images;
+        await Promise.all([...variants].map(async ([name, v]) => {
+          this.emitFile({ type: 'asset', fileName: `${r.build.assetsDir}/${name}`, source: await img.encode(v) });
+        }));
+      }
       const earlyKeys = new Map<string, Set<string>>();
       const vite = earlyPages.size ? await import('vite') : null;
       const rolldown = !!vite && 'rolldownVersion' in vite;
@@ -332,9 +433,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     load(id) {
+      if (id.startsWith(`\0${IMG_CSS}`)) return imageCss.get(id.slice(IMG_CSS.length + 1, -4)) ?? '';
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
       if (id === `\0${PREFIX}paint.js`) return PAINT_SCRIPT;
+      if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;
       if (id === `\0${PREFETCH}`) return prefetchModule(prefetchPages(), project(root, options).helpers);
       const lang = id.startsWith(`\0${PREFIX}messages/`) && messages ? id.slice(`\0${PREFIX}messages/`.length, -3) : null;
       if (lang && messages?.dicts[lang]) return languageFile(lang, { ...messages.dicts[messages.base], ...messages.dicts[lang] });
@@ -366,12 +469,28 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     transformIndexHtml: {
       order: 'pre',
-      handler(html, ctx) {
+      async handler(html, ctx) {
         const file = ctx.filename;
         const rel = relOf(file);
         const moduleSrc = `${PREFIX}${rel}.js`;
         // dev: the tag goes in with the page; a build adds it after bundling (see the post plugin)
-        const { out, p } = build(html, file, dev ? `${resolved?.base ?? '/'}${EARLY.slice(1)}${rel}.js` : null);
+        const earlySrc = dev ? `${resolved?.base ?? '/'}${EARLY.slice(1)}${rel}.js` : null;
+        const styles = images && /<img\b|<sn-include\b/i.test(html) ? await stylesOf(html, file, project(root, options)) : undefined;
+        let { out, p } = build(html, file, earlySrc, styles);
+        // images the compiler did not know yet: analysed, then the page is compiled again with them
+        if (images && out.images?.pending.length) {
+          await images.analyze(out.images.pending);
+          ({ out, p } = build(html, file, earlySrc, styles));
+        }
+        for (const w of out.remoteWidths ?? []) remoteWidths.add(w);
+        if (out.images) {
+          for (const v of out.images.variants) variants.set(images!.fileName(v), v);
+          if (imageCss.get(rel) !== out.images.css) {
+            imageCss.set(rel, out.images.css);
+            invalidate(`${IMG_CSS}${rel}.css`);
+          }
+          for (const f of [...out.images.variants.map((v) => v.file), ...out.images.pending]) watch(f);
+        }
         if (out.check) units.set(file, out.check);
         for (const f of out.files) watch(f);
         for (const f of [p.helpersFile, p.actionsFile]) if (f) watch(f);
@@ -389,8 +508,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // dev: the picker first in the head, with every language's whole dictionary (else, with an early
         // file, the paint script); a build adds them after bundling
         const base = resolved?.base ?? '/', early = out.early != null;
+        // dev: the console warns about images shown with too few pixels
+        const checked = dev && images ? out.html.replace('</body>', `<script type="module" src="${base}${PREFIX.slice(1)}img-check.js"></script></body>`) : out.html;
         // Speculation Rules for links to the app's pages: the browser fetches (or prerenders) the next page
-        const rules = speculationTag(), page = rules ? withRulesHash(out.html.replace('</head>', `  ${rules}\n</head>`), speculationHash!) : out.html;
+        const rules = speculationTag(), page = rules ? withRulesHash(checked.replace('</head>', `  ${rules}\n</head>`), speculationHash!) : checked;
         if (dev && out.messages && messages) {
           for (const f of Object.values(messages.files)) watch(f);
           const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])), early);
@@ -404,15 +525,84 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
   // After bundling: the early file's tag (render-blocking, before the page module, where Vite's
   // HTML processing cannot merge it into the page entry) and its size.
+  // CSS backgrounds (docs/images.md, step 3). Dev: a normal-order plugin sees each stylesheet after
+  // Vite's CSS compiler (Sass, PostCSS, url() rebased to root paths) and before its post-processing.
+  const STYLE_ID = /\.(css|scss|sass|less|styl|stylus|pcss|postcss|sss)(\?|$)/;
+  const cssImages: Plugin = {
+    name: 'sinter:css-images',
+    apply: 'serve',
+    async transform(code, id) {
+      if (!images || !STYLE_ID.test(id) || /[?&](inline|url|raw)\b/.test(id) || id.includes('/node_modules/')) return null;
+      const base = resolved?.base ?? '/', img = images;
+      const host: CssImageHost = {
+        source: (url) => {
+          if (/^[a-z][a-z\d+.-]*:|^\/\/|[?#]/i.test(url) || !/\.(jpe?g|png|webp|avif)$/i.test(url)) return null;
+          const path = url.startsWith(base) ? '/' + url.slice(base.length) : url;
+          if (!path.startsWith('/')) return null;
+          const file = path.startsWith('/@fs/') ? path.slice(4) : resolve(root, '.' + decodeURI(path));
+          return img.info(file) === null ? null : file;
+        },
+        info: (f) => img.info(f), analyze: (f) => img.analyze(f),
+        url: (v) => `${base}${IMG.slice(1)}${img.fileName(v)}`,
+      };
+      const out = await rewriteCssImages(code, host);
+      if (!out) return null;
+      for (const v of out.variants) variants.set(images.fileName(v), v);
+      return { code: out.css, map: null };
+    },
+  };
+
   const post: Plugin = {
     name: 'sinter:early',
     enforce: 'post',
     apply: 'build',
+    /** builds: the finished stylesheets, whose url()s name the build's copies of the images (their `originalFileNames` the sources) */
+    async generateBundle(_, bundle) {
+      if (!images) return;
+      const img = images, r = resolved!;
+      const byName = new Map<string, string>();
+      for (const a of Object.values(bundle)) {
+        if (a.type !== 'asset' || !/\.(jpe?g|png|webp|avif)$/i.test(a.fileName)) continue;
+        const orig = (a as { originalFileNames?: string[] }).originalFileNames?.[0];
+        if (orig) byName.set(a.fileName.slice(a.fileName.lastIndexOf('/') + 1), resolve(root, orig));
+      }
+      if (!byName.size) return;
+      const emitted = new Set(variants.keys());
+      for (const a of Object.values(bundle)) {
+        if (a.type !== 'asset' || !a.fileName.endsWith('.css')) continue;
+        // a relative base: URLs relative to the stylesheet, as Vite writes its own
+        const from = posix.dirname(a.fileName);
+        const host: CssImageHost = {
+          source: (url) => {
+            if (/^data:/i.test(url)) return null;
+            const path = url.replace(/[?#].*$/, '');
+            return byName.get(path.slice(path.lastIndexOf('/') + 1)) ?? null;
+          },
+          info: (f) => img.info(f), analyze: (f) => img.analyze(f),
+          url: (v) => {
+            const file = `${r.build.assetsDir}/${img.fileName(v)}`;
+            if (!relativeBase(r.base)) return r.base + file;
+            const relPath = posix.relative(from, file);
+            return relPath.startsWith('.') ? relPath : `./${relPath}`;
+          },
+        };
+        const out = await rewriteCssImages(String(a.source), host);
+        if (!out) continue;
+        a.source = out.css;
+        await Promise.all(out.variants.map(async (v) => {
+          const name = img.fileName(v);
+          if (emitted.has(name)) return;
+          emitted.add(name);
+          this.emitFile({ type: 'asset', fileName: `${r.build.assetsDir}/${name}`, source: await img.encode(v) });
+        }));
+      }
+    },
     transformIndexHtml: {
       order: 'post',
       handler(html, ctx) {
         const rel = relOf(ctx.filename), early = earlyFiles.get(rel), langs = languageFiles.get(rel);
-        const base = resolved?.base ?? '/';
+        // a relative base: URLs relative to the page, as Vite writes its own (`../assets/…` from `blog/post.html`)
+        const base = pageBase(resolved?.base ?? '/', rel);
         // the page bundle is `async`: it does not wait for the stylesheets as a deferred module does,
         // and mounts once the document is parsed and the early file has rendered (see the page module)
         if (ctx.chunk) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');
@@ -448,5 +638,5 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (logger) logger.warn(msg); else console.warn(msg);
   }
 
-  return [main, post];
+  return [main, post, cssImages];
 }

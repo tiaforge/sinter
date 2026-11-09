@@ -47,6 +47,9 @@ export const CODES = {
   SN507: 'complex-expression',
   SN509: 'run-cycle',
   SN510: 'redundant-write',
+  SN511: 'image-too-small',
+  SN512: 'image-stretched',
+  SN513: 'bound-local-image',
 } as const;
 
 export type Code = keyof typeof CODES;

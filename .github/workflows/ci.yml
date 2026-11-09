@@ -21,6 +21,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      # Chromium for the tests that compare with a real browser (layout, the dev image check, built pages)
+      - run: npx playwright install --with-deps chromium
       - run: npm test
       # size budgets: the minimal page and the RealWorld example's pages (its own dependencies first)
       - run: npm ci --prefix examples/realworld

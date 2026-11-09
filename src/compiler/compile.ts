@@ -1,5 +1,9 @@
 // The compiler: one pure, deterministic function from annotated HTML to a
 // rewritten page plus its IR and function table.
+import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
+import { Layout } from './layout.js';
+import type { RemoteConfig } from '../remote.js';
+import { FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
@@ -59,6 +63,10 @@ export interface CompileOptions {
    * entry from, injected before the page module (the Vite plugin injects it itself in builds)
    */
   early?: { module: string | null; src?: string | null };
+  /** static `<img>` become `<picture>` with optimized variants (docs/images.md); the adapter encodes them */
+  images?: ImageHost;
+  /** images from the API: an `<img>` whose `src` is bound to data gets a `srcset` of the resizing service's URLs (docs/images.md, step 2) */
+  remoteImages?: RemoteConfig;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
 }
@@ -74,6 +82,10 @@ export interface CompileResult {
   early?: string | null;
   /** the built-in message keys the page calls (markup only; modules are collected by the adapter); absent without built-in messages */
   messages?: string[];
+  /** with `images` */
+  images?: ImageResult;
+  /** every width the page asks the resizing service for (`remoteImages`) */
+  remoteWidths?: number[];
   /** what another page needs to request this page's data ahead (null: nothing) */
   prefetch: PrefetchParts | null;
   /** the page's `data-sn-path` patterns */
@@ -121,6 +133,12 @@ export interface CompiledParts {
   check?: CheckUnit;
   /** with `early`: the early chunk's bindings, or null when none can run early */
   early?: EarlyParts | null;
+  /** with `images` */
+  images?: ImageResult;
+  /** the resizing service's config, when a bound image uses it (the page module creates `$ri` from it) */
+  remote?: RemoteConfig;
+  /** every width the page asks the service for */
+  remoteWidths?: number[];
   /** what another page needs to request this page's data ahead; null when no request is decided by the URL alone */
   prefetch: PrefetchParts | null;
   /** `<html data-sn-prefetch="off">` */
@@ -206,6 +224,11 @@ class Compiler {
   readonly persisted = new Set<string>();
   /** bindings `prerender()` wrote into the HTML as constants: the early chunk leaves them out */
   readonly painted = new Set<Binding>();
+  /** the page's stylesheets as a cascade (images: boxes of static and bound images) */
+  layout: Layout | null = null;
+  /** a bound `<img src>` goes through the resizing service (`remoteImages`), with these widths */
+  remoteUsed = false;
+  readonly remoteWidths = new Set<number>();
 
   constructor(readonly opts: CompileOptions) {
     this.check = opts.check ? { file: opts.file, resources: [], frames: [], exprs: [] } : null;
@@ -222,6 +245,13 @@ class Compiler {
     const doc = parse5.parse(html, { sourceCodeLocationInfo: true });
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     this.expandIncludes(doc, [this.opts.file]);
+    const layout = this.layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
+    const images = this.opts.images ? rewriteImages(doc, {
+      host: this.opts.images, root: this.opts.root,
+      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el) } : {}),
+      fileOf: (el) => this.origins.get(el)?.file ?? this.opts.file,
+      warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
+    }) : undefined;
     this.declare(doc);
     const paths = this.pathPatterns(doc);
     this.pathList = paths;
@@ -270,6 +300,8 @@ class Compiler {
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
+      ...(images ? { images } : {}),
+      ...(this.remoteUsed ? { remote: this.opts.remoteImages!, remoteWidths: [...this.remoteWidths].sort((a, b) => a - b) } : {}),
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
     };
@@ -1078,8 +1110,55 @@ class Compiler {
       if ((key === 'id' || key === 'name') && !e.literal) {
         this.report(el, 'data-sn-attr', 'SN503', `\`${key}\` bound from data can shadow globals other scripts read (DOM clobbering)`, e.offset);
       }
-      if (r.ok) node.b.push(binding({ k: 'attr', n: e.key, f: this.fn(e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
+      if (!r.ok) continue;
+      if (key === 'src' && el.tagName === 'img') {
+        const files = localImages(entryValue(r, e));
+        if (files) this.report(el, 'data-sn-attr', 'SN513', `\`src\` is bound to ${files.length > 1 ? 'local images' : 'a local image'} (${files.map((f) => `\`${f}\``).join(', ')}), which ${files.length > 1 ? 'are' : 'is'} not optimized`, e.offset,
+          `write each image as a static \`<img src>\` (optimized at build time) and choose with \`data-sn-if\` or \`data-sn-show\`: \`<img src="${files[0]}" data-sn-show="…">\``);
+      }
+      const remote = key === 'src' ? this.remoteImage(el, e, r.entries.some((x) => x.key.toLowerCase() === 'srcset'), scope) : null;
+      node.b.push(binding({ k: 'attr', n: e.key, f: this.fn(remote ? remote.src : e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
+      if (remote) node.b.push(binding({ k: 'attr', n: 'srcset', f: this.fn(remote.srcset), d: e.deps, ...usesEl(r) }));
     }
+  }
+
+  /**
+   * An `<img>` whose `src` is bound to data (not to constants or state alone), with a resizing
+   * service configured: `src` and a `srcset` through it, with widths from the box the stylesheets
+   * give the image, and its `sizes`, dimensions and loading attributes (docs/images.md, step 2).
+   */
+  remoteImage(el: P5Element, e: { code: string; deps: string[] }, srcset: boolean, scope: Scope): { src: string; srcset: string } | null {
+    if (!this.opts.remoteImages || el.tagName !== 'img' || srcset || attr(el, 'srcset') !== undefined || (el.parentNode as P5Element | null)?.tagName === 'picture') return null;
+    // data: a resource (or what reads one), or a row of a list (rows never render early, so `$ri` is in scope)
+    const data = scope.loops.length > 0 || e.deps.some((d) => !/^\$(s\d+|locale|now|url)(\.|$)/.test(d));
+    if (!data || !e.code.startsWith('($) => (')) return null;
+    const box = this.layout?.box(el) ?? null;
+    let widths: number[], at: number, r = 0, sizes: string;
+    if (box && box !== 'fluid') {
+      const w = Math.round(box.width);
+      const small = w * (box.height ?? w) <= 300 * 300;
+      widths = [w, 2 * w, ...(small ? [3 * w] : [])];
+      at = w;
+      if (box.height !== null && box.fit === 'cover' && this.opts.remoteImages.cover) r = Math.round(box.height) / w;
+      sizes = `(max-width: ${w}px) 100vw, ${w}px`;
+      if (attr(el, 'width') === undefined) setAttr(el, 'width', String(w));
+      if (box.height !== null && attr(el, 'height') === undefined) setAttr(el, 'height', String(Math.round(box.height)));
+    } else {
+      // no wider than its containers allow (layout.ts): at most 3x of that
+      const bound = this.layout?.maxWidth(el) ?? null;
+      const ladder = this.opts.images?.widths ?? FLUID_WIDTHS;
+      widths = bound === null ? [...ladder] : [...ladder.filter((w) => w < 3 * bound * 0.9), 3 * bound];
+      at = bound === null ? 1280 : Math.min(1280, bound);
+      sizes = bound === null ? 'auto, 100vw' : `auto, (max-width: ${bound}px) 100vw, ${bound}px`;
+    }
+    if (attr(el, 'sizes') === undefined) setAttr(el, 'sizes', sizes);
+    // rows load as they scroll in; an image outside a template may be the page's largest, so it is not deferred
+    if (attr(el, 'loading') === undefined && (scope.loops.length || sizes.startsWith('auto'))) setAttr(el, 'loading', 'lazy');
+    if (attr(el, 'decoding') === undefined) setAttr(el, 'decoding', 'async');
+    this.remoteUsed = true;
+    for (const w of widths) this.remoteWidths.add(w);
+    const value = e.code.slice('($) => '.length);
+    return { src: `($) => $ri.src(${value}, ${at}, ${r})`, srcset: `($) => $ri.set(${value}, ${JSON.stringify(widths)}, ${r})` };
   }
 
   objectBinding(el: P5Element, node: NodeDef, scope: Scope, k: 'class' | 'style' | 'prop') {
@@ -1949,6 +2028,27 @@ const entryValue = (r: ExprResult, e: { offset: number }): Node | undefined => {
   const p = props?.find((x) => x.start === e.offset);
   return p && p.type === 'Property' ? (p.value as Node) : undefined;
 };
+/**
+ * The local image files an expression can only evaluate to (a literal path, or a choice between
+ * literals: `dark ? './logo-dark.png' : './logo.png'`), or null when it can be anything else.
+ */
+function localImages(n: Node | undefined): string[] | null {
+  const out: string[] = [];
+  const visit = (x: unknown): boolean => {
+    const v = x as { type: string; value?: unknown; consequent?: unknown; alternate?: unknown; quasis?: Array<{ value: { cooked: string } }>; expressions?: unknown[] };
+    if (v.type === 'Literal') {
+      if (v.value === null || v.value === false) return true;
+      if (typeof v.value !== 'string' || /^[a-z][a-z\d+.-]*:|^\/\/|[?#]/i.test(v.value) || !/\.(jpe?g|png|webp|avif)$/i.test(v.value)) return false;
+      out.push(v.value);
+      return true;
+    }
+    if (v.type === 'TemplateLiteral' && !v.expressions?.length) return visit({ type: 'Literal', value: v.quasis![0]!.value.cooked });
+    if (v.type === 'ConditionalExpression') return visit(v.consequent) && visit(v.alternate);
+    return false;
+  };
+  return n && visit(n) && out.length ? [...new Set(out)] : null;
+}
+
 /** Whether an expression names one of `names` (object keys of literals count, conservatively). */
 function mentions(n: unknown, names: Set<string>): boolean {
   if (!n || typeof n !== 'object') return false;

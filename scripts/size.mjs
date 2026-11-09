@@ -1,7 +1,8 @@
 // Size budgets, per page (decided for 0.2, raised to 15 KB and 20 KB on 2026-11-07, the article to 22 KB on 2026-11-09 for next-page data): min+gzip
 // of a minimal page (one resource, one text binding) and of what each RealWorld page loads; the core
 // and each feature module are reported for reference. `--check` fails on an overrun (CI runs it).
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -11,6 +12,13 @@ import { compile } from '../dist/compiler/index.js';
 const dist = resolve(import.meta.dirname, '../dist');
 const realworld = resolve(import.meta.dirname, '../examples/realworld');
 const dir = mkdtempSync(join(tmpdir(), 'sinter-size-'));
+
+// the RealWorld build needs the example's own dependencies (its config imports sinter through
+// `file:../..`, its helpers marked and dompurify): installed here when they are missing, as CI does
+if (!existsSync(join(realworld, 'node_modules/@tiaforge-ui/sinter/package.json'))) {
+  console.log('size: installing the RealWorld example\'s dependencies (npm ci --prefix examples/realworld)');
+  execFileSync('npm', ['ci', '--prefix', realworld, '--no-audit', '--no-fund'], { stdio: ['ignore', 'ignore', 'inherit'] });
+}
 
 /** The page module the compiler emits for a minimal page, its imports pointed at dist/. */
 const minimal = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', {
@@ -31,6 +39,7 @@ const entries = {
   apply: `export { default } from '${dist}/apply.js';`,
   prefetch: `export { prefetch } from '${dist}/prefetch.js';`,
   transition: `export { default } from '${dist}/transition.js';`,
+  remote: `export { remote } from '${dist}/remote.js';`,
   dev: `export { default } from '${dist}/dev.js';`,
   // what the contacts example loads: core + sse + optimistic + persist
   page: `export { mount, $k } from '${dist}/index.js'; export { default as a } from '${dist}/sse.js'; export { default as b } from '${dist}/optimistic.js'; export { default as c } from '${dist}/persist.js';`,

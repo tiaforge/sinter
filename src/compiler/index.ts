@@ -5,6 +5,9 @@ import { compileParts, type CompileOptions, type CompileResult, type CompiledPar
 export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, HelperManifest, HelperOrigin, PrefetchParts };
 export type { Diagnostic } from './diagnostics.js';
 export type { CheckUnit } from './check-unit.js';
+export type { ImageFormat, ImageHost, ImageInfo, ImageKind, ImageResult, ImageVariant } from './images.js';
+export { FLUID_WIDTHS, TINY_BYTES } from './images.js';
+export { Layout, evaluate, type FixedBox, type StyleSheet } from './layout.js';
 export { formatDiagnostic, docsUrl, CODES } from './diagnostics.js';
 export { DIAGNOSTIC_DOCS, type DiagnosticDoc } from './diagnostic-docs.js';
 export { compileParts };
@@ -17,8 +20,12 @@ export const MESSAGES = `${PACKAGE}/messages`;
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
   const parts = compileParts(html, options);
-  const out: CompileResult = { html: parts.html, module: pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files, prefetch: parts.prefetch, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}) };
+  // the images' rules: imported, so the bundler puts them in the page's stylesheet (no request, no inline style)
+  const css = parts.images?.css && options.images?.stylesheet ? `import ${JSON.stringify(options.images.stylesheet)};\n` : '';
+  const out: CompileResult = { html: parts.html, module: css + pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files, prefetch: parts.prefetch, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}) };
   if (parts.check) out.check = parts.check;
+  if (parts.images) out.images = parts.images;
+  if (parts.remoteWidths) out.remoteWidths = parts.remoteWidths;
   if (parts.early !== undefined) out.early = earlyModule(parts.early, options);
   const ns = Object.entries(options.helpers.namespaces).find(([, v]) => v.module === MESSAGES)?.[0];
   if (ns) out.messages = parts.namespaces[ns] ?? [];
@@ -111,7 +118,10 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
     }
   }
   if (options.config) lines.push(`import ${JSON.stringify(options.config)};`);
+  // images from the API: the resizing service's URLs (docs/images.md, step 2)
+  if (parts.remote) lines.push(`import { remote } from '${PACKAGE}/remote';`);
   lines.push('');
+  if (parts.remote) lines.push(`const $ri = remote(${JSON.stringify(parts.remote)});`);
   lines.push(`const ir = ${JSON.stringify(parts.ir)};`);
   lines.push('const fns = [');
   for (const f of parts.fns) lines.push(`  ${f},`);
