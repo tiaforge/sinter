@@ -164,6 +164,8 @@ export interface App {
     debounce?: (key: object, ms: number, run: () => void) => void;
     /** `data-sn-confirm` (confirm.ts): runs `go` once the user agrees to `question` (at once when it is falsy) */
     confirm?: (question: unknown, go: () => void) => void;
+    /** models of controls other than text fields (models.ts) */
+    models?: (inner: ModelInner) => Models;
     /** `$url` was written: the query string follows (location.ts) */
     location?: () => void;
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
@@ -222,6 +224,10 @@ export interface App {
   /** runs `fn` now, or, on a page the browser prerenders (Speculation Rules), once it is shown */
   shown(fn: () => void): void;
 }
+
+/** The renderer's internals the models of controls other than text fields (models.ts) use. */
+export interface ModelInner { evaluate(rb: any): any; deferred: Set<any> }
+export interface Models { write(rb: any, v: unknown): void; read(rb: any): unknown; bound(rb: any): void; forget(rb: any): void; sync(): void }
 
 /** The renderer's internals the selection index (select.ts) uses. */
 export interface Inner {
@@ -354,7 +360,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const acts = new WeakMap<Element, ActState>();
   /** props set on custom elements not defined yet, by element: the latest value of each */
   const early = new WeakMap<Element, Map<string, unknown>>();
-  const types = new Set<string>(), selects = new Set<RB>(), deferred = new Set<RB>();
+  const types = new Set<string>(), deferred = new Set<RB>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<Got> }>();
   /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id; `run(id)`: any element */
@@ -643,6 +649,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   app.page.$f = app.storeFns(null);
   instances.set(root, app);
   for (const f of o.features ?? []) f.install(app);
+  /** controls other than text fields (models.ts), on pages with such a model */
+  const models = app.ext.models?.({ evaluate, deferred });
   /** the selection index (select.ts), on pages with selection bindings */
   const sel = app.ext.select?.({ hit, isSimple, walkSimple, process });
 
@@ -755,7 +763,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (b.k == 'else') continue;
         if (b.k == 'model') {
           el[MODEL] = rb;
-          if (el.localName == 'select') selects.add(rb);
+          models?.bound(rb);
           if (b.p != null) app.ext.persist?.model(rb, (v) => setModel(rb, v));
         }
         if (b.k == 'for') { rb.rows = []; rb.t = ir.templates[b.x!]; }
@@ -880,39 +888,20 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
   }
 
-  /** Sets each select's value again, as its options may have changed; one in a closed dialog waits, as in process(). */
-  function syncSelects() {
-    for (const rb of selects) {
-      if (rb.c && rb.el.closest('dialog:not([open])')) deferred.add(rb);
-      else writeModel(rb, evaluate(rb));
-    }
-  }
+  /** Sets each select's value again, as its options may have changed (models.ts). */
+  function syncSelects() { models?.sync(); }
 
-  // ---- models
+  // ---- models: text fields here, other controls in models.ts
 
   function writeModel(rb: RB, v: any) {
-    const el = rb.el as HTMLInputElement & HTMLSelectElement, k = rb.b.n;
-    const has = (x: string) => Array.isArray(v) && v.map(String).includes(x);
-    if (k == 'checkbox') el.checked = Array.isArray(v) ? has(el.value) : !!v;
-    else if (k == 'radio') el.checked = v != null && '' + v == el.value;
-    else if (k == 'multi') for (const opt of el.options) opt.selected = has(opt.value);
-    // loose comparison: '1.0' == 1 keeps a number input's text as typed
+    const el = rb.el as HTMLInputElement;
+    if (rb.b.n != 'text') models!.write(rb, v);
     else if (el.value != (v ?? '')) el.value = v ?? '';
   }
 
-  /** The control's value for its model; undefined for an unchecked radio. */
+  /** The control's value for its model. */
   function readModel(rb: RB): unknown {
-    const el = rb.el as HTMLInputElement & HTMLSelectElement, k = rb.b.n;
-    if (k == 'number') return el.value === '' ? null : +el.value;
-    if (k == 'radio') return el.checked ? el.value : undefined;
-    if (k == 'multi') return [...el.selectedOptions].map((x) => x.value);
-    if (k != 'checkbox') return el.value;
-    const cur = evaluate(rb);
-    if (!Array.isArray(cur)) return el.checked;
-    const i = cur.map(String).indexOf(el.value);
-    if (el.checked && i < 0) cur.push(el.value);
-    if (!el.checked && i >= 0) cur.splice(i, 1);
-    return cur;
+    return rb.b.n != 'text' ? models!.read(rb) : (rb.el as HTMLInputElement).value;
   }
 
   /** `typing`: a keystroke in a text field (`input` on an `<input>`/`<textarea>`), not a paste-like whole change */
@@ -987,7 +976,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (parent.firstChild == tpl && parent.lastChild == end) parent.replaceChildren(tpl, end);
       else while (tpl.nextSibling != end) tpl.nextSibling!.remove();
     } else for (const node of gone.flatMap(nodesOf)) (node as ChildNode).remove();
-    if (deferred.size || selects.size) for (const o of gone) if (old[o]!.rbs) forget(old[o]!.rbs!);
+    if (deferred.size || models) for (const o of gone) if (old[o]!.rbs) forget(old[o]!.rbs!);
     const ref = ne < n ? rows[ne]!.first ?? end : end;
     if (!seq.some((o) => o >= 0)) {
       // only new rows in the middle: insert each straight before the reference (going through a
@@ -1117,7 +1106,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   function forget(rbs: RB[]) {
     for (const rb of rbs) {
       deferred.delete(rb);
-      selects.delete(rb);
+      models?.forget(rb);
       for (const r of rb.rows ?? []) if (r.rbs) forget(r.rbs);
     }
   }

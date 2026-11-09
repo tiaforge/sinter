@@ -49,6 +49,7 @@ Server data enters through the request layer (loads) and the sync adapter (event
 | `@tiaforge-ui/sinter/call` | action functions (`data-sn-call`, `<sn-resource call>`): their context and errors |
 | `@tiaforge-ui/sinter/debounce` | `data-sn-debounce`, `data-sn-debounce-<event>` |
 | `@tiaforge-ui/sinter/confirm` | `data-sn-confirm` |
+| `@tiaforge-ui/sinter/models` | `data-sn-model` on checkboxes, radio buttons, `<select>`, number and range inputs |
 | `@tiaforge-ui/sinter/compiler` | `compile()` |
 | `@tiaforge-ui/sinter/vite` | Vite plugin |
 | `@tiaforge-ui/sinter/testing` | `render`, `mockRequests`, `mockStream` |

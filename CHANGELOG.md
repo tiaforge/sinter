@@ -28,6 +28,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   - `data-sn-confirm` moved into `@tiaforge-ui/sinter/confirm` (0.2 KB gzip), imported only by pages with
     one: core −38 B. `config.confirm` is `null` unless configured (the browser's `confirm()` is used
     then, as before).
+  - Models of controls other than text fields (checkbox, radio, `<select>`, number and range) and the
+    `<select>` value set again after each render moved into `@tiaforge-ui/sinter/models` (0.5 KB gzip),
+    imported only by pages with one: core −168 B. Text fields and textareas stay in the core.
   - The dev warning for duplicate `data-sn-for` keys moved into the dev module: core −43 B.
   - The Vite plugin turns off Vite's modulepreload polyfill unless the app sets `build.modulePreload`'s
     `polyfill` (or `modulePreload: false`): every browser sinter's pages need preloads modules natively.

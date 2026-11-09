@@ -12,9 +12,10 @@ import location from '../../src/location.js';
 import call from '../../src/call.js';
 import debounce from '../../src/debounce.js';
 import confirm from '../../src/confirm.js';
+import models from '../../src/models.js';
 
 /** features that are only parts of the renderer, split off the core for size: what the page would load */
-const FEATURES: Record<string, typeof select> = { form, select, location, call, debounce, confirm };
+const FEATURES: Record<string, typeof select> = { form, select, location, call, debounce, confirm, models };
 
 const none = { module: null, names: [], namespaces: {} };
 let current: App | null = null;
