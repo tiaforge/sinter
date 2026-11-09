@@ -24,19 +24,20 @@ export interface ResourceDef {
   name: string;
   src: UrlTemplate;
   /** key fields; null for a single-object resource */
-  key: string[] | null;
-  items: string | null;
-  total: string | null;
+  // absent fields (in the page module: `compactIR`) take their default: null, `deps` [], `scope` -1
+  key?: string[] | null;
+  items?: string | null;
+  total?: string | null;
   /** field, `-field` for descending */
-  order: string | null;
-  when: number | null;
-  paginate: Paginate | null;
+  order?: string | null;
+  when?: number | null;
+  paginate?: Paginate | null;
   /** state and `$url` paths that `src` and `when` read */
-  deps: string[];
+  deps?: string[];
   /** index of the node (in `roots`) whose scope src/when are evaluated in, -1 for page scope */
-  scope: number;
+  scope?: number;
   /** `data-sn` id of an embedded `<script type="application/json">`, or null */
-  data: number | null;
+  data?: number | null;
   /** `cache`: the oldest cached data to show, in ms (0: any age); absent when not cached */
   cache?: number;
   /** `refresh`: reload when this many ms have passed since the last load (whatever caused it) */
@@ -56,13 +57,14 @@ export interface ResourceDef {
 
 export interface EventDef {
   name: string;
+  // absent fields (in the page module: `compactIR`) are null
   /** null for an event that only runs `then` */
-  resource: string | null;
-  op: 'upsert' | 'patch' | 'remove' | 'refetch' | null;
-  item: number | null;
-  set: number | null;
-  when: number | null;
-  fallback: 'refetch' | null;
+  resource?: string | null;
+  op?: 'upsert' | 'patch' | 'remove' | 'refetch' | null;
+  item?: number | null;
+  set?: number | null;
+  when?: number | null;
+  fallback?: 'refetch' | null;
   /** `then`: handler run after the change is applied; `w`: the state paths it writes */
   then?: number;
   w?: string[];
@@ -181,17 +183,18 @@ export interface ActionDef {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'CALL';
   url: UrlTemplate;
   call?: CallDef;
-  body: number | null;
-  trigger: string;
-  debounce: number;
+  // absent fields take their default (the compiler writes only what differs): no body, trigger and
+  // so on; the event that triggers it is its `on` binding's
+  body?: number | null;
+  debounce?: number;
   concurrency: 'block' | 'queue' | 'latest';
-  optimistic: number | null;
-  then: number | null;
-  catch: number | null;
+  optimistic?: number | null;
+  then?: number | null;
+  catch?: number | null;
   /** paths `then` and `catch` may change */
-  w: string[];
+  w?: string[];
   /** element is a form (serialize, disable in block mode) */
-  form: boolean;
+  form?: boolean;
   /** `data-sn-confirm`: the question asked before the action runs (none when it is falsy) */
   confirm?: number;
   /** `data-sn-encoding="form"`: the body goes as application/x-www-form-urlencoded */
@@ -268,7 +271,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     s.events.forEach((e, j) => {
       const at = `syncs[${i}].events[${j}]`;
       // without a resource and op, the event only runs `then`
-      if (e.resource === null && e.op === null) { if (e.then === undefined) errs.push(`${at}: needs a resource or then`); }
+      if (e.resource == null && e.op == null) { if (e.then === undefined) errs.push(`${at}: needs a resource or then`); }
       else {
         if (!names.has(e.resource!)) errs.push(`${at}: unknown resource ${e.resource}`);
         if (!['upsert', 'patch', 'remove', 'refetch'].includes(e.op!)) errs.push(`${at}: bad op`);
@@ -324,4 +327,22 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     for (const k of ['body', 'optimistic', 'then', 'catch'] as const) fn(a[k], `${at}.${k}`);
   });
   return errs;
+}
+
+const NULLS = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null));
+
+/**
+ * The IR as a page module carries it: resources and stream events without the fields that hold their
+ * default (null, `deps` [], `scope` -1), as actions are built (an attribute the page does not write
+ * costs no bytes). The runtime reads an absent field as its default; the compiler keeps the full objects.
+ */
+export function compactIR(ir: IR): IR {
+  return {
+    ...ir,
+    resources: ir.resources.map((r) => {
+      const { deps, scope, ...rest } = r;
+      return { ...NULLS(rest), ...(deps?.length ? { deps } : {}), ...(scope != null && scope >= 0 ? { scope } : {}) } as ResourceDef;
+    }),
+    syncs: ir.syncs.map((s) => ({ ...s, events: s.events.map((e) => NULLS(e) as EventDef) })),
+  };
 }

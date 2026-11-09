@@ -1417,6 +1417,12 @@ footer > .container {
   padding: 0;
 }
 
+/* sinter's example: the comment form shows its errors inside the card, padded like the textarea */
+.article-page .comment-form .error-messages {
+  margin: 0;
+  padding-top: 1.25rem;
+}
+
 .article-page .comment-form .card-block textarea {
   border: 0;
   padding: 1.25rem;

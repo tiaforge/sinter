@@ -27,8 +27,8 @@ export const HOVER = 65;
 /** entries larger than this (serialized) are not written */
 const MAX_ENTRY = 256 * 1024;
 
-const keyOf = (url: string, items: string | null, total: string | null) => PREFETCH_PREFIX + JSON.stringify([url, items, total]);
-const pick = (path: string | null, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
+const keyOf = (url: string, items?: string | null, total?: string | null) => PREFETCH_PREFIX + JSON.stringify([url, items, total]);
+const pick = (path: string | null | undefined, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
 const segments = (p: string) => p.split('/').filter(Boolean);
 const matches = (pattern: string, segs: string[]) => {
   const want = segments(pattern);

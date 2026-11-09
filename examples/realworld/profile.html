@@ -11,7 +11,8 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<div data-sn-state="{ nav: 'profile:' + $url.username, error: null, guest: signedOut() }">
+<div data-sn-state="{ nav: 'profile:' + $url.username, error: null, guest: signedOut() }"
+     data-sn-on-sn-error="$event.detail.error.status == 401 ? emit('navigate', '/login') : error = $event.detail.error; $event.preventDefault()">
 <sn-include src="./partials/header.html"></sn-include>
 <sn-resource cache name="profile" src="https://api.realworld.show/api/profiles/{$url.username}" items="profile"></sn-resource>
 <sn-resource cache name="articles" key="slug" items="articles" total="articlesCount"
@@ -37,16 +38,12 @@
             </template>
             <template data-sn-else>
               <template data-sn-if="profile.following">
-                <button class="btn btn-sm btn-secondary action-btn" data-sn-delete="https://api.realworld.show/api/profiles/{profile.username}/follow"
-                       
-                        data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
+                <button class="btn btn-sm btn-secondary action-btn" data-sn-delete="https://api.realworld.show/api/profiles/{profile.username}/follow">
                   <i class="ion-plus-round"></i> <span data-sn-text="'Unfollow ' + profile.username"></span>
                 </button>
               </template>
               <template data-sn-else>
-                <button class="btn btn-sm btn-outline-secondary action-btn" data-sn-post="https://api.realworld.show/api/profiles/{profile.username}/follow"
-                       
-                        data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
+                <button class="btn btn-sm btn-outline-secondary action-btn" data-sn-post="https://api.realworld.show/api/profiles/{profile.username}/follow">
                   <i class="ion-plus-round"></i> <span data-sn-text="'Follow ' + profile.username"></span>
                 </button>
               </template>
@@ -72,15 +69,13 @@
               <div class="article-meta">
                 <template data-sn-if="a.favorited">
                   <button class="btn btn-primary btn-sm pull-xs-right" data-sn-delete="https://api.realworld.show/api/articles/{a.slug}/favorite"
-                          data-sn-optimistic="patch('articles', a, {favorited: false, favoritesCount: a.favoritesCount - 1})"
-                          data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
+                          data-sn-optimistic="patch('articles', a, {favorited: false, favoritesCount: a.favoritesCount - 1})">
                     <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
                   </button>
                 </template>
                 <template data-sn-else>
                   <button class="btn btn-outline-primary btn-sm pull-xs-right" data-sn-post="https://api.realworld.show/api/articles/{a.slug}/favorite"
-                          data-sn-optimistic="patch('articles', a, {favorited: true, favoritesCount: a.favoritesCount + 1})"
-                          data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
+                          data-sn-optimistic="patch('articles', a, {favorited: true, favoritesCount: a.favoritesCount + 1})">
                     <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
                   </button>
                 </template>

@@ -3,6 +3,7 @@
 // No test-runner imports: works with Vitest or anything else, on jsdom or happy-dom.
 import { compileParts } from '../compiler/compile.js';
 import { formatDiagnostic } from '../compiler/diagnostics.js';
+import { compactIR } from '../ir.js';
 import type { CompiledParts, HelperManifest } from '../compiler/compile.js';
 import { early as runEarly } from '../early.js';
 import { t as message, use as useMessages } from '../messages.js';
@@ -435,7 +436,8 @@ export async function render(html: string, options: RenderOptions = {}): Promise
 
   const requests = options.requests;
   const app = mount(doc, {
-    ir: parts.ir, fns, env,
+    // the IR as the page module carries it
+    ir: compactIR(parts.ir), fns, env,
     // as in a build, where every page has the app's prefetch feature
     features: [...parts.features.map((f) => FEATURES[f]!), prefetch(ahead)],
     request: [...config.request, ...(requests ? [requests] : [])],

@@ -1360,9 +1360,18 @@ class Compiler {
     // server validation errors shown on the fields (fields.ts): forms that send a mutation and leave errors to sinter
     // (a form's own action, or a control's inside one, as the editor's Publish button in RealWorld)
     if ((isForm || (inForm && (tag === 'button' || FORM_CONTROLS.has(tag)))) && method !== 'call' && method !== 'get' && get('catch') === undefined) this.features.add('fields');
+    // only what differs from the defaults: an attribute the page does not write costs no bytes
+    // (the event is the `on` binding's; the runtime reads absent fields as null, 0, false, [])
+    const w = [...new Set([...then.w, ...catch_.w])].sort();
     const def: ActionDef = {
-      method: method.toUpperCase() as ActionDef['method'], url, body: body.f, trigger, debounce, concurrency,
-      optimistic: optimistic.f, then: then.f, catch: catch_.f, w: [...new Set([...then.w, ...catch_.w])].sort(), form: isForm,
+      method: method.toUpperCase() as ActionDef['method'], url, concurrency,
+      ...(body.f !== null ? { body: body.f } : {}),
+      ...(debounce ? { debounce } : {}),
+      ...(optimistic.f !== null ? { optimistic: optimistic.f } : {}),
+      ...(then.f !== null ? { then: then.f } : {}),
+      ...(catch_.f !== null ? { catch: catch_.f } : {}),
+      ...(w.length ? { w } : {}),
+      ...(isForm ? { form: true } : {}),
       ...(call ? { call: { args: call.args, run: call.run } } : {}),
       ...(confirm.f !== null ? { confirm: confirm.f } : {}),
       ...(encoding === 'form' ? { enc: 'form' as const } : {}),
@@ -1969,16 +1978,16 @@ class Compiler {
     const res: NonNullable<EarlyIR['res']> = [];
     let url = false;
     for (const def of this.resources) {
-      if (def.call || def.each || def.data != null || !def.src.length || !knownReq(def.deps)) continue;
+      if (def.call || def.each || def.data != null || !def.src.length || !knownReq(def.deps ?? [])) continue;
       // a URL fixed at build time is preloaded from the HTML (see injectScript), earlier than this file runs
       if (fixedRequest(def) || this.noEarly.has(def.name)) continue;
       // another origin only when listed in `origins` (the runtime's allowlist, known at build time)
       const where = this.earlyOrigin(def.src);
       if (!where) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
-      const scope = def.scope < 0 ? -1 : rootKeep.get(def.scope);
+      const scope = (def.scope ?? -1) < 0 ? -1 : rootKeep.get(def.scope!);
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
-      reads.push(...def.deps);
+      reads.push(...(def.deps ?? []));
       url ||= codes.some((c) => c.includes('$url'));
       res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}) });
     }
@@ -2037,13 +2046,13 @@ class Compiler {
     const res: PrefetchParts['res'] = [];
     for (const def of this.resources) {
       if (def.call || def.each || def.data != null || def.paginate || !def.src.length) continue;
-      if (!def.deps.every((d) => d === '$url' || d.startsWith('$url.'))) continue;
+      if (!(def.deps ?? []).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
       if (codes.some((c) => /\$\.\$(?!url\b)/.test(c) || builtin(c) || messages.some((m) => c.includes(`${m}$`)))) continue;
       res.push({
         s: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)),
         ...(def.when != null ? { w: fn(this.fns[def.when]!) } : {}),
-        i: def.items, t: def.total, ...(def.key ? { k: 1 as const } : {}),
+        i: def.items ?? null, t: def.total ?? null, ...(def.key ? { k: 1 as const } : {}),
       });
     }
     if (!res.length) return null;
