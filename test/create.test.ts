@@ -2,7 +2,7 @@
 // packages/create: `npm create @tiaforge-ui` copies the template; its demo API answers as the
 // pages expect; the template builds with both checkers on and fails on the typos its README names.
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -87,17 +87,10 @@ describe('the demo API', () => {
   });
 });
 
-// The full build needs temper: as a dependency of the repo, or a checkout next to it.
-const temperDir = (() => {
-  try {
-    return dirname(createRequire(join(repo, 'package.json')).resolve('@tiaforge-ui/temper/package.json'));
-  } catch {
-    const sibling = resolve(repo, '../temper');
-    return existsSync(join(sibling, 'lib/vite.js')) ? sibling : null;
-  }
-})();
+// temper is a devDependency of the repo, for this build
+const temperDir = dirname(createRequire(join(repo, 'package.json')).resolve('@tiaforge-ui/temper/package.json'));
 
-describe.skipIf(!temperDir)('the template builds', () => {
+describe('the template builds', () => {
   const dir = join(tmp, 'built');
   const src = resolve(repo, 'src');
   const alias = [
@@ -109,7 +102,7 @@ describe.skipIf(!temperDir)('the template builds', () => {
     create('built');
     const modules = join(dir, 'node_modules');
     mkdirSync(join(modules, '@tiaforge-ui'), { recursive: true });
-    symlinkSync(temperDir!, join(modules, '@tiaforge-ui/temper'));
+    symlinkSync(temperDir, join(modules, '@tiaforge-ui/temper'));
     symlinkSync(repo, join(modules, '@tiaforge-ui/sinter'));
     symlinkSync(join(repo, 'node_modules/typescript'), join(modules, 'typescript'));
   });
@@ -122,7 +115,7 @@ describe.skipIf(!temperDir)('the template builds', () => {
       writeFileSync(page, original.replace(edit[0], edit[1]));
     }
     try {
-      const { default: temper } = await import(join(temperDir!, 'lib/vite.js'));
+      const { default: temper } = await import(join(temperDir, 'lib/vite.js'));
       const { default: api } = await import(join(dir, 'server/api.js'));
       const input = { index: join(dir, 'index.html'), task: join(dir, 'task.html') };
       await build({

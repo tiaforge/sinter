@@ -13,7 +13,7 @@ Attribute names, function names and diagnostic codes are public API. Before
   refuse one), a form dialog, a key filter, `data-sn-persist`, an island (a canvas chart: `data-sn-prop` in,
   a `CustomEvent` out), next-page data and a page transition, and `typecheck: true` with temper's Vite
   plugin; its README lists typos that fail the build. `npm run release` bumps its version and the sinter
-  version new apps get.
+  version new apps get; its test builds the template with temper (a devDependency).
 
 ### Removed
 
