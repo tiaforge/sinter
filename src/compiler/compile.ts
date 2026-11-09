@@ -2,6 +2,8 @@
 // rewritten page plus its IR and function table.
 import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
 import { Layout } from './layout.js';
+import type { RemoteConfig } from '../remote.js';
+import { FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
@@ -63,6 +65,8 @@ export interface CompileOptions {
   early?: { module: string | null; src?: string | null };
   /** static `<img>` become `<picture>` with optimized variants (docs/images.md); the adapter encodes them */
   images?: ImageHost;
+  /** images from the API: an `<img>` whose `src` is bound to data gets a `srcset` of the resizing service's URLs (docs/images.md, step 2) */
+  remoteImages?: RemoteConfig;
 }
 
 export interface CompileResult {
@@ -78,6 +82,8 @@ export interface CompileResult {
   messages?: string[];
   /** with `images` */
   images?: ImageResult;
+  /** every width the page asks the resizing service for (`remoteImages`) */
+  remoteWidths?: number[];
 }
 
 /** What the early chunk runs: the bindings that can render before data, and what they import. */
@@ -107,6 +113,10 @@ export interface CompiledParts {
   early?: EarlyParts | null;
   /** with `images` */
   images?: ImageResult;
+  /** the resizing service's config, when a bound image uses it (the page module creates `$ri` from it) */
+  remote?: RemoteConfig;
+  /** every width the page asks the service for */
+  remoteWidths?: number[];
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
@@ -186,6 +196,11 @@ class Compiler {
   readonly persisted = new Set<string>();
   /** bindings `prerender()` wrote into the HTML as constants: the early chunk leaves them out */
   readonly painted = new Set<Binding>();
+  /** the page's stylesheets as a cascade (images: boxes of static and bound images) */
+  layout: Layout | null = null;
+  /** a bound `<img src>` goes through the resizing service (`remoteImages`), with these widths */
+  remoteUsed = false;
+  readonly remoteWidths = new Set<number>();
 
   constructor(readonly opts: CompileOptions) {
     this.check = opts.check ? { file: opts.file, resources: [], frames: [], exprs: [] } : null;
@@ -202,7 +217,7 @@ class Compiler {
     const doc = parse5.parse(html, { sourceCodeLocationInfo: true });
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     this.expandIncludes(doc, [this.opts.file]);
-    const layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
+    const layout = this.layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
     const images = this.opts.images ? rewriteImages(doc, {
       host: this.opts.images, root: this.opts.root,
       ...(layout ? { layout: (el: P5Element) => layout.box(el) } : {}),
@@ -258,6 +273,7 @@ class Compiler {
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
       ...(images ? { images } : {}),
+      ...(this.remoteUsed ? { remote: this.opts.remoteImages!, remoteWidths: [...this.remoteWidths].sort((a, b) => a - b) } : {}),
     };
   }
 
@@ -1054,8 +1070,47 @@ class Compiler {
       if ((key === 'id' || key === 'name') && !e.literal) {
         this.report(el, 'data-sn-attr', 'SN503', `\`${key}\` bound from data can shadow globals other scripts read (DOM clobbering)`, e.offset);
       }
-      if (r.ok) node.b.push(binding({ k: 'attr', n: e.key, f: this.fn(e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
+      if (!r.ok) continue;
+      const remote = key === 'src' ? this.remoteImage(el, e, r.entries.some((x) => x.key.toLowerCase() === 'srcset'), scope) : null;
+      node.b.push(binding({ k: 'attr', n: e.key, f: this.fn(remote ? remote.src : e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
+      if (remote) node.b.push(binding({ k: 'attr', n: 'srcset', f: this.fn(remote.srcset), d: e.deps, ...usesEl(r) }));
     }
+  }
+
+  /**
+   * An `<img>` whose `src` is bound to data (not to constants or state alone), with a resizing
+   * service configured: `src` and a `srcset` through it, with widths from the box the stylesheets
+   * give the image, and its `sizes`, dimensions and loading attributes (docs/images.md, step 2).
+   */
+  remoteImage(el: P5Element, e: { code: string; deps: string[] }, srcset: boolean, scope: Scope): { src: string; srcset: string } | null {
+    if (!this.opts.remoteImages || el.tagName !== 'img' || srcset || attr(el, 'srcset') !== undefined || (el.parentNode as P5Element | null)?.tagName === 'picture') return null;
+    // data: a resource (or what reads one), or a row of a list (rows never render early, so `$ri` is in scope)
+    const data = scope.loops.length > 0 || e.deps.some((d) => !/^\$(s\d+|locale|now|url)(\.|$)/.test(d));
+    if (!data || !e.code.startsWith('($) => (')) return null;
+    const box = this.layout?.box(el) ?? null;
+    let widths: number[], at: number, r = 0, sizes: string;
+    if (box && box !== 'fluid') {
+      const w = Math.round(box.width);
+      const small = w * (box.height ?? w) <= 300 * 300;
+      widths = [w, 2 * w, ...(small ? [3 * w] : [])];
+      at = w;
+      if (box.height !== null && box.fit === 'cover' && this.opts.remoteImages.cover) r = Math.round(box.height) / w;
+      sizes = `(max-width: ${w}px) 100vw, ${w}px`;
+      if (attr(el, 'width') === undefined) setAttr(el, 'width', String(w));
+      if (box.height !== null && attr(el, 'height') === undefined) setAttr(el, 'height', String(Math.round(box.height)));
+    } else {
+      widths = [...(this.opts.images?.widths ?? FLUID_WIDTHS)];
+      at = 1280;
+      sizes = 'auto, 100vw';
+    }
+    if (attr(el, 'sizes') === undefined) setAttr(el, 'sizes', sizes);
+    // rows load as they scroll in; an image outside a template may be the page's largest, so it is not deferred
+    if (attr(el, 'loading') === undefined && (scope.loops.length || sizes.startsWith('auto'))) setAttr(el, 'loading', 'lazy');
+    if (attr(el, 'decoding') === undefined) setAttr(el, 'decoding', 'async');
+    this.remoteUsed = true;
+    for (const w of widths) this.remoteWidths.add(w);
+    const value = e.code.slice('($) => '.length);
+    return { src: `($) => $ri.src(${value}, ${at}, ${r})`, srcset: `($) => $ri.set(${value}, ${JSON.stringify(widths)}, ${r})` };
   }
 
   objectBinding(el: P5Element, node: NodeDef, scope: Scope, k: 'class' | 'style' | 'prop') {

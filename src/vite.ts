@@ -15,6 +15,8 @@ import { loadImages, MIME, type Images } from './images.js';
 import { pageStyles } from './styles.js';
 import { detectEngines, type StyleEngine } from './engines.js';
 import { IMAGE_CHECK } from './image-check.js';
+import { resolveRemote, type RemoteImages } from './remote.js';
+import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { ImageHost, ImageVariant, StyleSheet } from './compiler/index.js';
 
 export interface SinterOptions extends ProjectOptions {
@@ -33,7 +35,17 @@ export interface SinterOptions extends ProjectOptions {
    * becomes a `<picture>` with AVIF or lossless WebP, widths for each screen, dimensions and lazy
    * loading (docs/images.md). `false`: images stay as written; `widths`: the widths of fluid images
    */
-  images?: false | { widths?: number[] };
+  images?: false | {
+    widths?: number[];
+    /**
+     * images from the API (docs/images.md, step 2): an `<img>` whose `src` is bound to data gets a
+     * `srcset` of a resizing service's URLs. `url`: a template (`{url}`, `{url:raw}`, `{w}`, `{q}`)
+     * or a preset (`cloudflare`, `vercel`, `netlify`, `imgproxy:<base URL>`); `cover`: a template
+     * with `{h}` for boxes cropped by `object-fit: cover`; `origins`: the only image origins sent
+     * through it (`'self'` and origins). In dev the dev server resizes instead.
+     */
+    remote?: RemoteImages;
+  };
 }
 
 type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin];
@@ -66,6 +78,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const languageFiles = new Map<string, Record<string, { fileName: string; code: string }>>();
   let messages: MessagesProject | null = null;
   let images: Images | null = null;
+  // a template or origin that cannot work fails before Vite starts
+  const remoteConfig = options.images && options.images.remote ? resolveRemote(options.images.remote) : null;
+  /** build: the widths the pages ask the resizing service for (Vercel accepts only the ones it is told) */
+  const remoteWidths = new Set<number>();
   /** image variants by file name, and each page's image rules */
   const variants = new Map<string, ImageVariant>();
   const imageCss = new Map<string, string>();
@@ -135,6 +151,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       file, root, dev, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile,
       check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles,
       ...(images ? { images: imageHost(rel, styles)! } : {}),
+      ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
     });
     if (out.early) modules.set(`${EARLY}${rel}.js`, out.early);
@@ -165,6 +182,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     configureServer(s) {
       server = s;
       // dev: an image variant is encoded the first time it is requested (and cached)
+      if (remoteConfig) s.middlewares.use(remoteMiddleware(remoteConfig, (m) => s.config.logger.warn(m)));
       s.middlewares.use((req, res, next) => {
         const url = req.url?.split('?')[0] ?? '';
         const at = url.indexOf(IMG);
@@ -217,6 +235,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      */
     async generateBundle(_, bundle) {
       const r = resolved!, ENTRY = `${PREFIX}early-entry.js`;
+      if (remoteConfig?.url.startsWith('/_vercel/image') && remoteWidths.size) {
+        r.logger.info(`sinter: images from the API use these widths; Vercel resizes only the ones in vercel.json: "images": { "sizes": [${[...remoteWidths].sort((a, b) => a - b).join(', ')}], "remotePatterns": [...] }`);
+      }
       if (images && variants.size) {
         const img = images;
         await Promise.all([...variants].map(async ([name, v]) => {
@@ -339,6 +360,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           await images.analyze(out.images.pending);
           ({ out, p } = build(html, file, earlySrc, styles));
         }
+        for (const w of out.remoteWidths ?? []) remoteWidths.add(w);
         if (out.images) {
           for (const v of out.images.variants) variants.set(images!.fileName(v), v);
           if (imageCss.get(rel) !== out.images.css) {

@@ -30,6 +30,17 @@ Attribute names, function names and diagnostic codes are public API. Before
   outputs it (`preprocessCSS` with the project's config): Sass, Less, Stylus, PostCSS plugins.
   Tailwind's Vite plugin and UnoCSS, whose CSS is generated after the HTML, through adapters that
   ask the project's own engine for the CSS of the page's classes (`size-12` is a 48 px box).
+- Images from the API: with `sinter({ images: { remote: { url, cover, origins } } })`, an `<img>`
+  whose `src` is bound to data (`data-sn-attr="{src: c.avatar}"`, rows included) gets a `srcset`
+  of a resizing service's URLs, with widths from the box the stylesheets give it (a 40 px avatar:
+  40, 80, 120, cropped with `cover`), and `sizes`, dimensions and loading attributes. `url` is a
+  template (`{url}`, `{url:raw}`, `{w}`, `{h}`, `{q}`) or a preset: `cloudflare`, `vercel`,
+  `netlify`, `imgproxy:<base URL>`. Only images from `origins` (`'self'` and listed origins) go
+  through it; any other URL is written as it is. The service picks the format from `Accept`. In
+  dev the dev server resizes (`/@sinter/remote`, sharp, the same origin rules). New module
+  `@tiaforge-ui/sinter/remote` (0.5 KB gzip, only in pages that use it); testing:
+  `render(html, { remoteImages, css })`. A build with the `vercel` preset prints the widths for
+  `vercel.json`.
 - Dev: a console warning for every image shown with fewer pixels than the screen has, naming the
   cause (a small source, or a `sizes` smaller than the image is shown).
 

@@ -11,6 +11,7 @@ import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
 import { $k } from '../runtime/security.js';
 import * as builtins from '../runtime/helpers.js';
+import { remote, resolveRemote, type RemoteImages } from '../remote.js';
 import cache from '../cache.js';
 import dev from '../dev.js';
 import optimistic from '../optimistic.js';
@@ -205,6 +206,10 @@ export interface RenderOptions {
   firstPaint?: true | FirstPaintTestOptions;
   /** an OpenAPI 3 document (parsed), as `sinter({ openapi })` gives the compiler: types resources and actions, and write-through knows the entities */
   openapi?: unknown;
+  /** images from the API, as `sinter({ images: { remote } })`: a bound `<img src>` gets the service's `srcset` */
+  remoteImages?: RemoteImages;
+  /** the page's stylesheets, for the boxes of its images (as the Vite plugin reads them from the page) */
+  css?: string;
 }
 
 export interface FirstPaintTestOptions {
@@ -309,6 +314,9 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
     },
     ...(options.firstPaint ? { prerender: true, early: { module: null } } : {}),
     ...(options.openapi ? { openapi: [{ file: 'openapi.yml', doc: options.openapi }] } : {}),
+    ...(options.remoteImages ? { remoteImages: resolveRemote(options.remoteImages) } : {}),
+    // static images stay as written in tests (no files to encode); the stylesheets size bound ones
+    ...(options.css ? { images: { info: () => null, url: () => '', styles: [{ file: 'test.css', css: options.css }] } } : {}),
   });
   const errors = parts.diagnostics.filter((d) => d.severity === 'error');
   if (errors.length) throw new Error(`sinter: build failed\n${errors.map(formatDiagnostic).join('\n')}`);
@@ -349,6 +357,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     names.push(`$a$${c.replace('.', '$')}`);
     values.push(b === undefined ? actions[a] : (actions[a] as Record<string, unknown>)[b]);
   }
+  if (parts.remote) { names.push('$ri'); values.push(remote(parts.remote)); }
   // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
   const fns = new Function(...names, `"use strict"; return [\n${parts.fns.join(',\n')}\n];`)(...values);
 

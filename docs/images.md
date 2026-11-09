@@ -1,6 +1,6 @@
 # Images
 
-Status: 2026-11-09. Step 1 (static `<img>` in HTML) and 1b (sizes from the page's stylesheets) are implemented, step 2 (images from the API) is in progress; step 3 is planned.
+Status: 2026-11-09. Step 1 (static `<img>` in HTML), 1b (sizes from the page's stylesheets) and 2 (images from the API) are implemented; step 3 is planned.
 
 sinter optimizes the images a page uses without any markup of its own: it writes the variants at
 build time and markup that lets the browser pick one. The browser knows the screen's pixel density,
@@ -193,15 +193,21 @@ so a same-origin path needs its `IMGPROXY_BASE_URL`.
 
 **What the compiler writes.** An `<img>` whose `data-sn-attr` binds `src` to data (a resource, an
 item of one, a helper reading them; not a constant or state) gets a `srcset` binding next to the
-`src` binding, both from the same value, through `@tiaforge-ui/sinter/remote` (a few hundred bytes,
-only in pages that have such images). Its box is the one the stylesheets give it (step 1b):
+`src` binding, both from the same value, through `@tiaforge-ui/sinter/remote` (about 0.5 KB gzip,
+only in pages that have such images). Every row of a `data-sn-for` counts as data. Its box is the one the stylesheets give it (step 1b):
 
 - a fixed box: 1x, 2x and (up to 300 × 300) 3x of its width, `sizes` of the box, `width`/`height`;
   cropped with `cover` when the stylesheets say `object-fit: cover` and `cover` is set (else
   resized to the width only: the dev check warns if that leaves too few rows);
 - otherwise fluid: the fluid widths, `sizes="auto, 100vw"`.
 
-`src` is the 1x file (fluid: 1280 px). `loading="lazy"` and `decoding="async"` as for static images.
+`src` is the 1x file (fluid: 1280 px). `decoding="async"`; `loading="lazy"` in rows and on fluid
+images (their `sizes="auto"` needs it), not on a fixed box outside a template, which may be the
+page's largest image. An author's `sizes`, `loading`, `width` or `height` wins. A bound `srcset`,
+an `<img>` in a `<picture>` or a static `srcset` is left alone.
+
+**Vercel** resizes only the widths listed in `vercel.json` (`images.sizes`); a build with the
+`vercel` preset prints the widths its pages use.
 
 **At runtime**, a URL whose origin is not in `origins`, that is not http(s), or that ends in `.svg`
 or `.gif`, is written as it is, with no `srcset`: no other origin is ever sent through the
