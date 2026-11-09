@@ -105,6 +105,12 @@ changed): mobile 92, desktop 80, accessibility 85, SEO 91 before.
   now the author's name).
 
 The sinter rows are from a run after these changes, the others from the run before (same setup).
+
+Later the same day sinter itself changed (the library, not the example): resources on the API's origin,
+listed in `sinter({ origins })`, are requested before the stylesheets have loaded, and the Google Fonts
+stylesheet is bundled as the app's own CSS (Angular's CLI does the same by default). Re-measured with
+the same setup: mobile 98 (97–98), LCP 2.30 s, FCP 1.54 s; desktop 98 (98–99), LCP 1.08 s; CLS 0.001
+and 0. The tables above keep the earlier sinter rows; see docs/progress.md (2026-11-09) for the A/B.
 Demos change under their URLs. Lighthouse replays every page on the same simulated network, but
 each server's response time counts as measured that day.
 

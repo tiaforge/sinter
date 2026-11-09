@@ -21,9 +21,9 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `settings.html` | user settings, logout | `/settings` |
 | `login.html`, `register.html` | auth | `/login`, `/register` |
 | `partials/` | header (declares the `user` resource), footer, article meta, preview, errors | |
-| `src/sinter.config.js` | origin allowlist, JWT middleware (`localStorage.jwtToken`), current-user error handling | |
+| `src/sinter.config.js` | JWT middleware (`localStorage.jwtToken`), current-user error handling | |
 | `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `<conduit-markdown>` (marked + DOMPurify), `window.__conduit_debug__` | |
-| `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ openapi })` | |
+| `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ openapi, origins })` (the API's origin: allowed on every page, its requests start before the stylesheets) | |
 | `openapi.yml` | the Conduit API spec ([realworld-apps/realworld](https://github.com/realworld-apps/realworld), MIT), which types every resource for `npx sinter check` | |
 
 Everything the pages' expressions cannot do (storage, navigation, HTML rendering) lives in the
@@ -34,7 +34,22 @@ Signing in or out calls `clearPersisted()`, since the cached data belongs to the
 Run alongside the e2e suite, this found that cached data must not set `$meta.<name>.loadedAt`
 (the login-redirect guards read it); sinter now leaves it null until the server answers.
 
-## e2e status (2026-11-08, local backend)
+## e2e status (2026-11-09, local backend)
+
+2026-11-09, `spa`, after early requests to the API's origin, the split early file and Google Fonts
+inlining: 135 passed, 5 failed, 5.6 minutes (Chromium 153 in a cloud container). The four Settings
+failures below, and one more: **Null/Empty Image and Bio Handling, "author avatars should render on
+other user articles in feed"** reads the author of every `.article-preview`, and the home page's
+"Loading articles..." line is one too: reloading into the cached feed (`cache`) shows 10 articles and
+that line while it revalidates, so the test counts 11 and times out on the 11th. It failed 10 of 10
+alone on this commit, 10 of 10 on the merged `main` before it and 5 of 5 on 35f2c9c (before the
+Lighthouse and image work): not from these changes; it needs a backend with 10 or more articles,
+which the suite leaves behind. The backend: realworld-django-ninja on SQLite with `psycopg2-binary`
+(`psycopg2` does not build without PostgreSQL headers; the code imports it), and an exception
+handler that answers jwt_ninja's `APIError` with its 401 (unhandled, it was a 500).
+`e2e-local.sh` now also points `sinter({ origins })` in the copy's `vite.config.js` at `$API`'s origin.
+
+### 2026-11-08
 
 Against [realworld-django-ninja](https://github.com/c4ffein/realworld-django-ninja) on SQLite
 (see below), with its invalid-token responses fixed to 401 (upstream answers them with a 500):

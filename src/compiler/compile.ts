@@ -67,6 +67,14 @@ export interface CompileOptions {
   images?: ImageHost;
   /** images from the API: an `<img>` whose `src` is bound to data gets a `srcset` of the resizing service's URLs (docs/images.md, step 2) */
   remoteImages?: RemoteConfig;
+  /**
+   * other origins whose resources (a literal `https://` origin in `src`) are preloaded or requested
+   * early like same-origin ones, as `configure({ origins })` allows them at runtime; without
+   * credentials, as the request layer sends cross-origin requests
+   */
+  origins?: string[];
+  /** builds: a page with early requests gets a split early file (`earlySplit`): see `prime` in `@tiaforge-ui/sinter/early` */
+  splitEarly?: boolean;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
 }
@@ -80,6 +88,8 @@ export interface CompileResult {
   check?: CheckUnit;
   /** with `early`: the page's early module, or null when the page has nothing to run early */
   early?: string | null;
+  /** with `splitEarly`: the early file exports `render`, and the page loads it `async` first and renders it from a stub */
+  earlySplit?: true;
   /** the built-in message keys the page calls (markup only; modules are collected by the adapter); absent without built-in messages */
   messages?: string[];
   /** with `images` */
@@ -91,6 +101,8 @@ export interface CompileResult {
   /** the page's `data-sn-path` patterns */
   path: string[];
   /** `<html data-sn-prefetch="off">`: no other page prefetches or prerenders this one */
+  /** origins of resources that could be requested early but are not in `origins` */
+  unlistedOrigins?: string[];
   prefetchOff?: true;
 }
 
@@ -143,6 +155,8 @@ export interface CompiledParts {
   prefetch: PrefetchParts | null;
   /** `<html data-sn-prefetch="off">` */
   prefetchOff?: true;
+  /** origins of resources that could be requested early but are not in `origins` */
+  unlistedOrigins?: string[];
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
@@ -186,6 +200,21 @@ class Compiler {
   readonly lineStarts = new Map<string, number[]>();
   readonly page: PageInfo;
   readonly resources: ResourceDef[] = [];
+  /** resources with `early="off"`: no preload, no early request (one a request middleware answers or adds a header to) */
+  private readonly noEarly = new Set<string>();
+  /** origins of resources that could be requested early but are not listed in `origins` */
+  readonly unlisted = new Set<string>();
+  /** whether a resource's literal `src` may be requested before the page module: same-origin, or a listed origin */
+  private earlyOrigin(src: ResourceDef['src']): 'same' | 'listed' | null {
+    const head = typeof src[0] === 'string' ? src[0] : '';
+    if (/^\/(?!\/)/.test(head)) return 'same';
+    const m = /^https?:\/\/[^/?#]+/i.exec(head);
+    if (!m) return null;
+    const origin = new URL(m[0]).origin;
+    if ((this.opts.origins ?? []).some((o) => { try { return new URL(o).origin === origin; } catch { return false; } })) return 'listed';
+    this.unlisted.add(origin);
+    return null;
+  }
   readonly resourceEls = new Map<string, P5Element>();
   readonly syncs: SyncDef[] = [];
   /** templates inside a `<dialog>`, at any depth: nothing in them is painted before that dialog opens */
@@ -304,6 +333,7 @@ class Compiler {
       ...(this.remoteUsed ? { remote: this.opts.remoteImages!, remoteWidths: [...this.remoteWidths].sort((a, b) => a - b) } : {}),
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
+      ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
     };
   }
 
@@ -1481,6 +1511,9 @@ class Compiler {
     for (const a of el.attrs) {
       if (!RESOURCE_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
+    const earlyAttr = attr(el, 'early');
+    if (earlyAttr != null && earlyAttr !== 'off') this.report(el, 'early', 'SN401', '`early` takes only `off`', 0);
+    if (earlyAttr === 'off') this.noEarly.add(name);
     const info = this.page.resources.get(name)!;
     const hasCall = attr(el, 'call') != null;
     if (hasCall && attr(el, 'src') != null) this.report(el, 'call', 'SN102', 'a resource loads from `src` or from `call`, not both', 0);
@@ -1886,15 +1919,16 @@ class Compiler {
     for (const def of this.resources) {
       if (def.call || def.each || def.data != null || def.paginate || !def.src.length || !knownReq(def.deps)) continue;
       // a URL fixed at build time is preloaded from the HTML (see injectScript), earlier than this file runs
-      if (fixedRequest(def)) continue;
-      // a src that names an origin (`https://…`, `//…`) is not same-origin: the early file would not send it
-      if (typeof def.src[0] === 'string' && /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(def.src[0])) continue;
+      if (fixedRequest(def) || this.noEarly.has(def.name)) continue;
+      // another origin only when listed in `origins` (the runtime's allowlist, known at build time)
+      const where = this.earlyOrigin(def.src);
+      if (!where) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
       const scope = def.scope < 0 ? -1 : rootKeep.get(def.scope);
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
       reads.push(...def.deps);
       url ||= codes.some((c) => c.includes('$url'));
-      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.lo ? { lo: 1 as const } : {}) });
+      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}) });
     }
     if (!roots.some((n) => n.b.length) && !res.length) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
@@ -2001,7 +2035,7 @@ class Compiler {
     if (this.opts.early) {
       // another origin named in a `src`: its connection (DNS, TCP, TLS) is made while the page bundle downloads,
       // instead of when the first request leaves the runtime; anonymous, as the request layer and EventSource connect
-      const links = [...preconnects(this.resources, this.syncs).map((o) => `<link rel="preconnect" href="${esc(o)}" crossorigin>`), ...preloads(this.resources).map(({ url, lo }) => `<link rel="preload" as="fetch" crossorigin href="${esc(url)}"${lo ? ' fetchpriority="low"' : ''}>`)]
+      const links = [...preconnects(this.resources, this.syncs).map((o) => `<link rel="preconnect" href="${esc(o)}" crossorigin>`), ...preloads(this.resources.filter((r) => !this.noEarly.has(r.name) && fixedRequest(r) && this.earlyOrigin(r.src))).map(({ url, lo }) => `<link rel="preload" as="fetch" crossorigin href="${esc(url)}"${lo ? ' fetchpriority="low"' : ''}>`)]
         .map((t) => parse5.parseFragment(t).childNodes[0] as P5Element);
       for (const l of links) l.parentNode = head;
       // after the leading <meta>s (charset first), before stylesheets and scripts
@@ -2226,12 +2260,12 @@ export function makeCode(nodes: NodeDef[], fns: string[]): string | null {
 /** A resource whose request is fixed at build time: a literal `src`, no `when`, not paginated, `each`, `call` or embedded. */
 const fixedRequest = (r: ResourceDef) => !r.call && !r.each && r.data == null && !r.paginate && r.when == null && r.src.length > 0 && r.src.every((p) => typeof p === 'string');
 
-/** Same-origin URLs of the resources whose request is fixed at build time: the page preloads them from its HTML (low priority when every resource of that URL is `lo`). */
+/** URLs of the resources whose request is fixed at build time (callers pass only those it may request early: same-origin or a listed origin): the page preloads them from its HTML (low priority when every resource of that URL is `lo`). */
 export function preloads(resources: ResourceDef[]): Array<{ url: string; lo: boolean }> {
   const urls = new Map<string, boolean>();
   for (const r of resources.filter(fixedRequest)) {
     const u = (r.src as string[]).join('').replace(/[?&](?=#|$)/, '');
-    if (/^\/(?!\/)/.test(u)) urls.set(u, (urls.get(u) ?? true) && !!r.lo);
+    if (/^\/(?!\/)/.test(u) || /^https?:\/\/[^/?#]+\//i.test(u)) urls.set(u, (urls.get(u) ?? true) && !!r.lo);
   }
   return [...urls].map(([url, lo]) => ({ url, lo }));
 }

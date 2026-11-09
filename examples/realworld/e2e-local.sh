@@ -18,6 +18,10 @@ ln -s "$here/node_modules" "$work/node_modules"
 # The spec's `servers` URL moves with the pages: resources and mutations are matched to operations under it.
 grep -rl 'https://api.realworld.show/api' "$work" --include='*.html' --include='*.js' --include='openapi.yml' | grep -v '/e2e/' \
   | xargs sed -i "s#https://api.realworld.show/api#$API#g"
+# The API's origin in sinter({ origins }) (allowed on every page, requested early): the local one.
+origin=$(node -p "new URL(process.argv[1]).origin" "$API")
+sed -i "s#'https://api.realworld.show'#'$origin'#g" "$work/vite.config.js"
+grep -q "'$origin'" "$work/vite.config.js" || { echo "vite.config.js: no origins entry for $origin"; exit 1; }
 # Two specs (and the health check) hardcode the public API for their route mocks; point the copy at $API.
 sed -i "s#https://api.realworld.show/api#$API#g" "$work"/e2e/{error-handling,user-fetch-errors,health}.spec.ts
 cd "$work"

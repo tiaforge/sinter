@@ -142,7 +142,7 @@ export interface EarlyIR {
   /** by template id; null for templates the early chunk does not render */
   templates: Array<{ nodes: NodeDef[] } | null>;
   /** resources the early file requests: URL template and `when` (function indexes into the early table), scope by index into `roots`, -1 for the page */
-  res?: Array<{ name: string; src: UrlTemplate; when: number | null; scope: number; lo?: 1 }>;
+  res?: Array<{ name: string; src: UrlTemplate; when: number | null; scope: number; lo?: 1; xo?: 1 }>;
   /** `data-sn-path` patterns, when a request reads `$url` */
   path?: string[];
 }

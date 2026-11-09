@@ -28,7 +28,8 @@ function rewrite(req, _res, next) {
 export default defineConfig({
   appType: 'mpa',
   plugins: [
-    sinter({ openapi: 'openapi.yml' }),
+    // the API's origin: every page allows it (no configure({ origins }) needed), and its resources are requested before the page module
+    sinter({ openapi: 'openapi.yml', origins: ['https://api.realworld.show'] }),
     {
       name: 'conduit-routes',
       configureServer: (server) => () => server.middlewares.use(rewrite),

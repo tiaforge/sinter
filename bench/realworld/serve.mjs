@@ -2,13 +2,14 @@
 // serve theirs: the page for each path (the app's `data-sn-path` patterns, as in its vite.config.js),
 // brotli for text, immutable caching for hashed assets. HTTP/1.1; the demos' CDNs speak HTTP/2.
 //   node serve.mjs [port]      (build first: npm run build --prefix examples/realworld)
+//   REALWORLD_DIST=dist-x …    serves another build of the app (A/B: one outDir per variant)
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { brotliCompressSync } from 'node:zlib';
 
-const dist = resolve(import.meta.dirname, '../../examples/realworld/dist');
+const dist = resolve(import.meta.dirname, '../../examples/realworld', process.env.REALWORLD_DIST ?? 'dist');
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon',
