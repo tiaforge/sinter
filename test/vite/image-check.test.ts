@@ -1,20 +1,10 @@
 // @vitest-environment node
 // The dev server's image check (src/image-check.ts), in Chromium when Playwright is installed.
-import { createRequire } from 'node:module';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { IMAGE_CHECK } from '../../src/image-check.js';
+import { chromium } from '../browser.js';
 
-let chromium: { launch(): Promise<{ newPage(): Promise<Tab>; close(): Promise<void> }> } | null = null;
-interface Tab {
-  on(e: 'console', f: (m: { type(): string; text(): string }) => void): void;
-  setContent(html: string, o?: { waitUntil: 'load' }): Promise<void>;
-  route(url: string, f: (r: { request(): { url(): string }; fulfill(o: { body: string | Buffer; contentType: string }): Promise<void> }) => void): Promise<void>;
-  goto(url: string, o?: { waitUntil: 'load' }): Promise<unknown>;
-  addScriptTag(o: { content: string; type: string }): Promise<unknown>;
-  waitForTimeout(ms: number): Promise<void>;
-}
-try { chromium = createRequire(import.meta.url)('playwright').chromium; } catch { /* skipped */ }
 
 const png = async (w: number) => `data:image/png;base64,${(await sharp({ create: { width: w, height: w, channels: 3, background: '#c03' } }).png().toBuffer()).toString('base64')}`;
 

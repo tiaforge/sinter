@@ -2,11 +2,12 @@
 // The fixed size of an <img> from the page's stylesheets (src/compiler/layout.ts). Each case states
 // what the cascade derives; with Playwright installed, the same pages are also laid out in
 // Chromium, and every size the cascade claims must be the one the browser renders.
-import { createRequire } from 'node:module';
 import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Layout, evaluate } from '../../src/compiler/layout.js';
+import { chromium } from '../browser.js';
+import type { Page } from 'playwright';
 
 type El = DefaultTreeAdapterMap['element'];
 
@@ -119,13 +120,10 @@ describe('the cascade', () => {
 
 // ---- the same cases, laid out by Chromium
 
-let chromium: { launch(): Promise<{ newPage(o?: object): Promise<BrowserPage>; close(): Promise<void> }> } | null = null;
-interface BrowserPage { setContent(html: string): Promise<void>; setViewportSize(s: { width: number; height: number }): Promise<void>; evaluate<T>(fn: () => T): Promise<T> }
-try { chromium = createRequire(import.meta.url)('playwright').chromium; } catch { /* not installed: the browser check is skipped */ }
 
 describe.skipIf(!chromium)('the browser renders what the cascade claims', () => {
   let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
-  let tab: BrowserPage;
+  let tab: Page;
   beforeAll(async () => { browser = await chromium!.launch(); tab = await browser.newPage(); }, 30_000);
   afterAll(async () => { await browser?.close(); });
 
@@ -174,7 +172,7 @@ describe('the bound of a fluid image', () => {
 
 describe.skipIf(!chromium)('the browser never renders a fluid image wider than its bound', () => {
   let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
-  let tab: BrowserPage;
+  let tab: Page;
   beforeAll(async () => { browser = await chromium!.launch(); tab = await browser.newPage(); }, 30_000);
   afterAll(async () => { await browser?.close(); });
   const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';

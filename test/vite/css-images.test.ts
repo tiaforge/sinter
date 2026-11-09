@@ -2,7 +2,6 @@
 // CSS backgrounds through the Vite plugin (docs/images.md, step 3): a build rewrites the finished
 // stylesheets (Sass included), the dev server its compiled CSS; Chromium loads the 1x or 2x file.
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer as http } from 'node:http';
@@ -10,6 +9,7 @@ import sharp from 'sharp';
 import { build, createServer } from 'vite';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
+import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
 const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
@@ -89,5 +89,3 @@ test('dev: the compiled stylesheet names the dev server\'s variants, which it se
   }
 }, 30_000);
 
-let chromium: { launch(): Promise<{ newPage(o: object): Promise<{ goto(u: string): Promise<unknown>; waitForTimeout(ms: number): Promise<void>; evaluate<T>(f: () => T): Promise<T> }>; close(): Promise<void> }> } | null = null;
-try { chromium = createRequire(import.meta.url)('playwright').chromium; } catch { /* skipped */ }

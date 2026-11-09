@@ -3,7 +3,6 @@
 // each in a real build of a small project. With Playwright installed, the built pages are also
 // opened in Chromium: each image must render at the size its files were made for.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -13,6 +12,7 @@ import UnoCSS from 'unocss/vite';
 import { build, type PluginOption } from 'vite';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
+import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
 const alias = [{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }];
@@ -47,8 +47,6 @@ const sizeOf = (html: string, alt: string) => {
   return { width: Number(/width="(\d+)"/.exec(m)?.[1]), height: Number(/height="(\d+)"/.exec(m)?.[1]), sizes: /sizes="([^"]*)"/.exec(m)?.[1] };
 };
 
-let chromium: { launch(): Promise<{ newPage(o: object): Promise<{ goto(u: string): Promise<unknown>; evaluate<T>(f: () => T): Promise<T> }>; close(): Promise<void> }> } | null = null;
-try { chromium = createRequire(import.meta.url)('playwright').chromium; } catch { /* skipped */ }
 test('Tailwind (Vite plugin): utilities the page uses size its images; responsive ones leave them fluid', async () => {
   const { html, out } = await project({
     'src/main.js': "import './app.css';\n",

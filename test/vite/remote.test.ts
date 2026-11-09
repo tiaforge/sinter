@@ -9,6 +9,7 @@ import sharp from 'sharp';
 import { build, createLogger, createServer } from 'vite';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
+import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
 const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
@@ -82,8 +83,6 @@ test('a config that cannot work fails at once', () => {
   expect(() => sinter({ images: { remote: { url: 'https://img.example.com/{url}', origins: ['self'] } } })).toThrow(/needs \{url\} \(or \{url:raw\}\) and \{w\}/);
 });
 
-let chromium: { launch(): Promise<{ newPage(o: object): Promise<{ goto(u: string): Promise<unknown>; waitForFunction(f: () => unknown): Promise<unknown>; evaluate<T>(f: () => T): Promise<T> }>; close(): Promise<void> }> } | null = null;
-try { chromium = (await import('node:module')).createRequire(import.meta.url)('playwright').chromium; } catch { /* skipped */ }
 
 test.skipIf(!chromium)('in Chromium at 2x: the rows load the 80 px file of the dev service', async () => {
   const api = { name: 'api', configureServer(s: { middlewares: { use(f: (req: { url?: string }, res: { setHeader(k: string, v: string): void; end(b: string): void }, next: () => void) => void): void } }) {
