@@ -107,7 +107,9 @@ try {
       await at(s, '/item/2');
       const p = await until('a probe', async () => { const v = await probe(s, '/item/2'); return { ok: !!v, value: v }; });
       if (p.title !== 'Item 2 (answer 1)') throw new Error(`first paint showed ${JSON.stringify(p.title)}, not the prefetched title`);
-      if (p.delivery !== 'navigational-prefetch') throw new Error(`the navigation did not use the prefetched HTML (${p.delivery})`);
+      // the HTML came from the link hint's prefetch: the navigation did not request it again
+      const docs = (await ctl('log')).filter((l) => l.path === '/item/2');
+      if (docs.length !== 1 || !/prefetch/.test(docs[0].purpose ?? '')) throw new Error(`the navigation did not use the prefetched HTML: ${JSON.stringify(docs)}`);
       await until('the revalidated title', async () => { const v = await js(s, `document.getElementById('title').textContent`); return { ok: v === 'Item 2 (answer 2)', value: v }; }, 5000);
     });
 
@@ -130,7 +132,7 @@ try {
       if (!p.groups.some((g) => /\(sn-\w+\)/.test(g))) throw new Error(`no morph, groups: ${p.groups.join(', ')}`);
     });
 
-    await step('under script-src \'self\', nothing was blocked on either page (no inline script, rules from the header)', async () => {
+    await step('under script-src \'self\' (a CSP <meta>), nothing was blocked on either page: the build added the rules\' hash', async () => {
       const v = await js(s, `JSON.parse(sessionStorage.getItem('csp') ?? '[]')`);
       if (v.length) throw new Error(v.join('; '));
     });

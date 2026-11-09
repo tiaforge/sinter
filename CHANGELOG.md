@@ -20,17 +20,18 @@ Attribute names, function names and diagnostic codes are public API. Before
   RealWorld in Chromium with a 1.5 s API: the article shows 215 ms after the click instead of after
   the API answers.
 
-- Speculation Rules: every page gets `<script type="speculationrules">` for links to the app's
-  pages (their `data-sn-path` patterns or file paths, eagerness `moderate`). `sinter({ speculation })`:
-  `'prefetch'` (default, the next page's HTML), `'prerender'`, or `false`. Under a CSP they need
-  `'inline-speculation-rules'` or the hash the build prints in `script-src`. A prerendered page
+- Speculation Rules for links to the app's pages (their `data-sn-path` patterns or file paths,
+  eagerness `moderate`). `sinter({ speculation })`: `'prefetch'` (default, the next page's HTML),
+  `'prerender'`, or `false`. They are an inline `<script type="speculationrules">` in every page (no
+  server setup). A CSP declared in the page (`<meta http-equiv="Content-Security-Policy">`) gets their
+  hash from the build; a CSP sent as a response header needs `'inline-speculation-rules'` in
+  `script-src`, and dev builds warn when it blocks them. `{ mode, delivery: 'header' }` writes
+  `speculation-rules.json` at the site root for a `Speculation-Rules: "/speculation-rules.json"`
+  response header instead, which no CSP blocks (the server sends the header and serves the file as
+  `application/speculationrules+json`; `vite dev` and `vite preview` do both). Guide: `docs/navigation.md`. A prerendered page
   connects its streams once it is shown and refetches its resources then (`app.shown()` for features).
 
-- `speculation: { mode, delivery: 'header' }`: Speculation Rules without an inline script, for a strict CSP.
-  The build writes `speculation-rules.json` at the site root; the server sends
-  `Speculation-Rules: "/speculation-rules.json"` with every page and the file as
-  `application/speculationrules+json` (`vite dev` and `vite preview` do both). Guide: `docs/navigation.md`.
-  `e2e/navigation` runs under `script-src 'self'` with it.
+  `e2e/navigation` runs the default under `script-src 'self'`.
 - `<html data-sn-prefetch="off">`: no other page prefetches this page's data or HTML, or prerenders it
   (for pages that do something when they load). Build time only: the attribute is stripped; anywhere but
   `<html>` it is `SN102`.

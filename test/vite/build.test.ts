@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -58,18 +59,20 @@ test('`<html data-sn-prefetch="off">`: the page is in neither the next-page modu
     await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
     const html = readFileSync(join(dir, 'index.html'), 'utf8');
     expect(html).not.toContain('speculationrules');
+    // the app's only page is left out: no page to describe, no next-page module
+    expect(readdirSync(join(dir, 'assets')).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n')).not.toContain('"/index.html"');
     expect(html).not.toContain('data-sn-prefetch');
   } finally {
     writeFileSync(page, original);
   }
 });
 
-test('`speculation: { delivery: \'header\' }`: a rules file at the site root, no inline script; `vite preview` sends the header and its type', async () => {
+test('`delivery: \'header\'`: a rules file at the site root, no inline script; `vite preview` sends the header and its type', async () => {
   const dir = join(out, 'header');
-  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: { mode: 'prefetch', delivery: 'header' } })] };
+  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: { mode: 'prerender', delivery: 'header' } })] };
   await build(config);
   expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
-  expect(JSON.parse(readFileSync(join(dir, 'speculation-rules.json'), 'utf8')).prefetch[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
+  expect(JSON.parse(readFileSync(join(dir, 'speculation-rules.json'), 'utf8')).prerender[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
   const server = await preview({ ...config, preview: { port: 0, host: '127.0.0.1' } });
   try {
     const url = server.resolvedUrls!.local[0]!;
@@ -101,14 +104,32 @@ test('a page that uses data-sn-transition gets the hold script before its page m
   }
 });
 
-test('Speculation Rules: every page gets them for the app\'s paths; `speculation: false` leaves them out', async () => {
+test('by default every page carries inline rules for the app\'s paths; `speculation: false`: neither rules nor file', async () => {
   await run(out);
   const html = readFileSync(join(out, 'index.html'), 'utf8');
   const rules = JSON.parse(/<script type="speculationrules">(.*?)<\/script>/.exec(html)![1]!);
   expect(rules.prefetch[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
+  expect(readdirSync(out)).not.toContain('speculation-rules.json');
   const dir = join(out, 'no-speculation');
   await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: false })] });
   expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
+  expect(readdirSync(dir)).not.toContain('speculation-rules.json');
+});
+
+test('a CSP the page declares in a <meta> gets the inline rules\' hash', async () => {
+  const page = join(root, 'index.html');
+  const original = readFileSync(page, 'utf8');
+  writeFileSync(page, original.replace(/<head>/, `<head>\n  <meta http-equiv="Content-Security-Policy" content="script-src 'self'">`));
+  try {
+    const dir = join(out, 'csp-meta');
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+    const html = readFileSync(join(dir, 'index.html'), 'utf8');
+    const json = /<script type="speculationrules">(.*?)<\/script>/.exec(html)![1]!;
+    const hash = `sha256-${createHash('sha256').update(json).digest('base64')}`;
+    expect(/http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html)![1]).toBe(`script-src 'self' '${hash}'`);
+  } finally {
+    writeFileSync(page, original);
+  }
 });
 
 test('compile errors fail the build with the diagnostic', async () => {

@@ -11,7 +11,7 @@ import { compile, formatDiagnostic, type CheckUnit, type CompileResult } from '.
 import { project, type ProjectOptions } from './project.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT, PAINT_SCRIPT } from './paint-build.js';
-import { pagePaths, prefetchModule, speculationRules } from './prefetch-build.js';
+import { pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import type { PrefetchParts } from './compiler/index.js';
 
 export interface SinterOptions extends ProjectOptions {
@@ -28,12 +28,13 @@ export interface SinterOptions extends ProjectOptions {
   /**
    * Speculation Rules for links to the app's pages (Chromium): `'prefetch'` (default) fetches the
    * next page's HTML while the pointer rests on a link; `'prerender'` loads and runs the whole page
-   * (data included, streams connect once it is shown); `false`: none. By default the rules are an
-   * inline script, which a CSP blocks unless `script-src` has `'inline-speculation-rules'` (or the
-   * hash the build prints). `{ mode, delivery: 'header' }` instead writes `speculation-rules.json`
-   * at the site root for a `Speculation-Rules` response header, which needs no CSP change: the
-   * server sends the header with every page and the file as `application/speculationrules+json`
-   * (`vite dev` and `vite preview` do both). See docs/navigation.md.
+   * (data included, streams connect once it is shown); `false`: none. The rules are an inline
+   * script in every page, so they need no server setup; a CSP the page declares in a `<meta>` gets
+   * their hash from the build, a CSP sent as a response header needs `'inline-speculation-rules'`
+   * in `script-src` (dev builds warn when it blocks them). `{ mode, delivery: 'header' }` writes
+   * `speculation-rules.json` at the site root for a `Speculation-Rules` response header instead,
+   * which no CSP blocks: the server sends the header with every page and the file as
+   * `application/speculationrules+json` (`vite dev` and `vite preview` do both). See docs/navigation.md.
    */
   speculation?: 'prefetch' | 'prerender' | false | { mode: 'prefetch' | 'prerender'; delivery?: 'inline' | 'header' };
   /**
@@ -134,6 +135,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const prefetchPages = () => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts } => !!x.parts);
   /** how the Speculation Rules are delivered, or null for none */
   const spec = () => {
+    // inline by default: it works with no server setup (a CSP in the page gets the rules' hash, see withRulesHash)
     const o = options.speculation ?? 'prefetch';
     return o === false ? null : typeof o === 'string' ? { mode: o, delivery: 'inline' as const } : { mode: o.mode, delivery: o.delivery ?? 'inline' };
   };
@@ -349,7 +351,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     closeBundle() {
       if (dev) return;
       // inline rules: name what a CSP must allow; header: what the server must send. Once per build
-      if (speculationHash) resolved?.logger.info(`sinter: Speculation Rules in every page; with a CSP, allow them in script-src: 'inline-speculation-rules' or '${speculationHash}' (or use speculation: { delivery: 'header' }, docs/navigation.md)`);
+      if (speculationHash) resolved?.logger.info(`sinter: Speculation Rules in every page; with a CSP, allow them in script-src: 'inline-speculation-rules' or '${speculationHash}' (the default delivery, by a response header, needs no CSP change: docs/navigation.md)`);
       if (rulesWritten) resolved?.logger.info(`sinter: Speculation Rules in ${RULES_FILE}: send \`Speculation-Rules: "${rulesUrl()}"\` with every page and serve the file as application/speculationrules+json (docs/navigation.md)`);
     },
 
@@ -388,7 +390,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // file, the paint script); a build adds them after bundling
         const base = resolved?.base ?? '/', early = out.early != null;
         // Speculation Rules for links to the app's pages: the browser fetches (or prerenders) the next page
-        const rules = speculationTag(), page = rules ? out.html.replace('</head>', `  ${rules}\n</head>`) : out.html;
+        const rules = speculationTag(), page = rules ? withRulesHash(out.html.replace('</head>', `  ${rules}\n</head>`), speculationHash!) : out.html;
         if (dev && out.messages && messages) {
           for (const f of Object.values(messages.files)) watch(f);
           const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])), early);

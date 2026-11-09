@@ -1,7 +1,7 @@
 // Speculation Rules: the rules the build writes, and a page the browser prerenders (streams wait
 // until it is shown, then everything is refetched).
-import { afterEach, expect, test } from 'vitest';
-import { speculationRules } from '../../src/prefetch-build.js';
+import { afterEach, expect, test, vi } from 'vitest';
+import { speculationRules, withRulesHash } from '../../src/prefetch-build.js';
 import { mockRequests, mockStream, render } from '../../src/testing/index.js';
 
 const doc = document as Document & { prerendering?: boolean };
@@ -48,4 +48,41 @@ test('a page that is not prerendered connects at once and loads once', async () 
   await r.settle();
   expect(stream.connected).toBe(true);
   expect(requests.calls).toHaveLength(1);
+});
+
+test('a CSP in the page gets the inline rules\' hash, where it needs it and nowhere else', () => {
+  const page = (csp: string) => `<html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"></head><body></body></html>`;
+  const csp = (csp: string) => /content="([^"]*)"/.exec(withRulesHash(page(csp), 'sha256-abc'))![1];
+  expect(csp("script-src 'self'")).toBe("script-src 'self' 'sha256-abc'");
+  expect(csp("default-src 'self'; script-src-elem 'self'; script-src 'self'")).toBe("default-src 'self'; script-src-elem 'self' 'sha256-abc'; script-src 'self' 'sha256-abc'");
+  // no script directive: scripts follow default-src, so a script-src copied from it
+  expect(csp("default-src 'self' https://cdn.example; img-src *")).toBe("default-src 'self' https://cdn.example; img-src *; script-src 'self' https://cdn.example 'sha256-abc'");
+  expect(csp("script-src 'none'")).toBe("script-src 'sha256-abc'");
+  // already allowed: unchanged (a hash would turn 'unsafe-inline' off for other inline scripts)
+  expect(csp("script-src 'self' 'unsafe-inline'")).toBe("script-src 'self' 'unsafe-inline'");
+  expect(csp("script-src 'self' 'inline-speculation-rules'")).toBe("script-src 'self' 'inline-speculation-rules'");
+  // with a nonce, 'unsafe-inline' is ignored by browsers: the hash is needed
+  expect(csp("script-src 'nonce-x' 'unsafe-inline'")).toBe("script-src 'nonce-x' 'unsafe-inline' 'sha256-abc'");
+  // no script restriction at all, and no CSP: nothing to do
+  expect(csp('img-src *')).toBe('img-src *');
+  expect(withRulesHash('<html><head><meta name="x" content="y"></head></html>', 'sha256-abc')).toBe('<html><head><meta name="x" content="y"></head></html>');
+});
+
+test('dev builds warn when the CSP blocked the inline rules (a report from before mount)', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  let deliver: ((r: unknown[]) => void) | null = null;
+  vi.stubGlobal('ReportingObserver', class {
+    constructor(cb: (r: unknown[]) => void, o: { buffered?: boolean }) { if (o.buffered) deliver = cb; }
+    observe() { deliver?.([{ type: 'csp-violation', body: { blockedURL: 'inline', effectiveDirective: 'script-src-elem' } }]); }
+    disconnect() {}
+  });
+  try {
+    await render(`<html><head><script type="speculationrules">{}</script></head><body><p data-sn-text="1"></p></body></html>`);
+    const msgs = warn.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('Speculation Rules'));
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toContain("'inline-speculation-rules'");
+  } finally {
+    vi.unstubAllGlobals();
+    warn.mockRestore();
+  }
 });

@@ -32,6 +32,41 @@ export function speculationRules(mode: 'prefetch' | 'prerender', paths: string[]
   });
 }
 
+/**
+ * A CSP the page declares itself (`<meta http-equiv="Content-Security-Policy">`) gets the inline
+ * rules' hash, so it allows them and nothing else: in `script-src-elem` and `script-src` where
+ * the page has them, else in a `script-src` copied from `default-src`. A directive that already
+ * allows the rules (`'unsafe-inline'` without a hash or nonce, or `'inline-speculation-rules'`) is
+ * left as it is: a hash would turn `'unsafe-inline'` off for the page's other inline scripts. A
+ * CSP sent as a response header is out of the build's reach.
+ */
+export function withRulesHash(html: string, hash: string): string {
+  return html.replace(/<meta\b[^>]*>/gi, (tag) => {
+    if (!/\bhttp-equiv\s*=\s*["']?content-security-policy["'\s>]/i.test(tag)) return tag;
+    return tag.replace(/(\bcontent\s*=\s*")([^"]*)(")/i, (_, a: string, value: string, z: string) => a + addHash(value, hash) + z);
+  });
+}
+
+function addHash(policy: string, hash: string): string {
+  const token = `'${hash}'`;
+  const dirs = policy.split(';').map((d) => d.trim()).filter(Boolean).map((d) => d.split(/\s+/));
+  const allows = (sources: string[]) => sources.includes("'inline-speculation-rules'") || sources.includes(token)
+    || (sources.includes("'unsafe-inline'") && !sources.some((s) => /^'(sha(256|384|512)-|nonce-)/.test(s)));
+  const targets = dirs.filter((d) => d[0]!.toLowerCase() === 'script-src-elem' || d[0]!.toLowerCase() === 'script-src');
+  if (!targets.length) {
+    const fallback = dirs.find((d) => d[0]!.toLowerCase() === 'default-src');
+    if (!fallback || allows(fallback.slice(1))) return policy;
+    dirs.push(['script-src', ...fallback.slice(1).filter((s) => s !== "'none'"), token]);
+  }
+  for (const d of targets) {
+    if (allows(d.slice(1))) continue;
+    // `'none'` allows nothing and cannot stand beside a source: the hash takes its place
+    if (d[1] === "'none'") d.splice(1, 1);
+    d.push(token);
+  }
+  return dirs.map((d) => d.join(' ')).join('; ');
+}
+
 /** The module: helpers imported as the page modules import them, then `prefetch([...pages])` as its default export. */
 export function prefetchModule(pages: Array<{ paths: string[]; parts: PrefetchParts }>, helpers: HelperManifest): string {
   const user = new Set<string>(), ns = new Map<string, Set<string>>();

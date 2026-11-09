@@ -6,7 +6,7 @@ const pages = ['index', 'item'];
 
 export default defineConfig({
   appType: 'mpa',
-  // the strict setup: rules from a response header, so the pages run under script-src 'self' (server.mjs)
-  plugins: [sinter({ speculation: { mode: 'prefetch', delivery: 'header' } })],
+  // the defaults: inline Speculation Rules, allowed by the hash the build adds to the pages' CSP <meta>
+  plugins: [sinter()],
   build: { rollupOptions: { input: Object.fromEntries(pages.map((p) => [p, resolve(import.meta.dirname, `${p}.html`)])) } },
 });

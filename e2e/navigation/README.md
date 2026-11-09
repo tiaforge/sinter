@@ -6,10 +6,9 @@ sinter across page loads in headless Chrome: what only a real browser shows, bes
 Two pages: a list ([`index.html`](index.html), served at `/`) and an item page
 ([`item.html`](item.html), `/item/:id`). [`server.mjs`](server.mjs) serves the build and a JSON API
 on the same origin (no request interception: that turns prerendering off), logs every request with
-its `Sec-Purpose` header, and can slow the API down. It sends the pages as a strict deployment
-would: `Content-Security-Policy: script-src 'self'`, and the Speculation Rules by the
-`Speculation-Rules` header (the build uses `speculation: { delivery: 'header' }`, see
-[docs/navigation.md](../../docs/navigation.md)).
+its `Sec-Purpose` header, and can slow the API down. The pages declare a strict policy,
+`<meta http-equiv="Content-Security-Policy" content="script-src 'self'">`; the build adds the inline
+Speculation Rules' hash to it (see [docs/navigation.md](../../docs/navigation.md)).
 
 The steps:
 
@@ -25,8 +24,9 @@ The steps:
 5. **Morph back:** `history.back()` reloads the list (no back/forward cache under DevTools); with
    the API slowed again, its rows (from `cache`) are there at its first paint, held by the hold
    script, so the title morphs into its row.
-6. **CSP:** no `securitypolicyviolation` on either page. With the default inline rules this step
-   fails (and step 2 misses the HTML prefetch), checked 2026-11-09.
+6. **CSP:** no `securitypolicyviolation` on either page. Without the hash (the same policy sent
+   as a response header, which the build cannot see) this step fails and step 2 misses the HTML
+   prefetch, checked 2026-11-09.
 
 Not covered: prerendering (`sinter({ speculation: 'prerender' })`). Chrome does not prerender while
 DevTools drives it (`PrerenderingDisabledByDevTools`); `test/behaviour/speculation.test.ts` covers

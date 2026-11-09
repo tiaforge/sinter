@@ -1,8 +1,8 @@
 // The backend for the navigation e2e test: the built pages (with the app's rewrites: `/` and
 // `/item/:id`), and a JSON API on the same origin, so the browser needs no request interception
-// (which turns prerendering off). Every request is logged with its `Sec-Purpose` header. Pages go
-// out as a strict deployment would send them: `Content-Security-Policy: script-src 'self'` and the
-// `Speculation-Rules` header for the build's rules file, served as application/speculationrules+json.
+// (which turns prerendering off). Every request is logged with its `Sec-Purpose` header. The pages
+// declare `script-src 'self'` in a <meta>; a build with `delivery: 'header'` also gets the
+// `Speculation-Rules` header and its file, served as application/speculationrules+json.
 //
 // Control API for the runner:
 //   POST /control/delay?ms=…   later API answers wait that long
@@ -47,9 +47,11 @@ export async function start({ port = 0 } = {}) {
     if (!file.startsWith(join(here, 'dist'))) return json(403, {});
     try {
       const body = await readFile(file);
+      const rules = page && await readFile(join(here, 'dist', 'speculation-rules.json')).then(() => true, () => false);
       res.writeHead(200, {
         'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': page ? 'no-cache' : 'max-age=3600',
-        ...(page ? { 'Content-Security-Policy': "script-src 'self'", 'Speculation-Rules': '"/speculation-rules.json"' } : {}),
+        // the pages declare their CSP themselves (a <meta>); the header only when the build wrote a rules file (delivery: 'header')
+        ...(rules ? { 'Speculation-Rules': '"/speculation-rules.json"' } : {}),
       });
       res.end(body);
     } catch { json(404, {}); }

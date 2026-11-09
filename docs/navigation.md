@@ -6,34 +6,44 @@ instant, and none needs code in the pages:
 | | What it does | Browsers |
 | --- | --- | --- |
 | [Next-page data](#next-page-data) | requests the next page's data while the pointer rests on its link; the page shows it at its first paint | all |
-| [Speculation Rules](#speculation-rules) | the browser fetches the next page's HTML (or prerenders the whole page) | Chromium |
+| [Speculation Rules](#speculation-rules) | the browser fetches the next page's HTML (or prerenders the whole page); with a CSP header, [one keyword](#speculation-rules-and-a-content-security-policy) | Chromium |
 | [Page transitions](#page-transitions) | pages cross-fade; `data-sn-transition` morphs a list row into its detail page | Chromium, Safari 18.2+ |
 
-## Content Security Policy
+## Speculation Rules and a Content Security Policy
 
-> **With a CSP, Speculation Rules need a decision.** By default sinter writes them into every page
-> as an inline `<script type="speculationrules">`, and a policy like `script-src 'self'` blocks
-> it: the browser logs a violation and prefetches nothing. Everything else on this page works
-> under `script-src 'self'` as it is.
+> **With a CSP sent as a response header, add `'inline-speculation-rules'` to its `script-src`.**
+> sinter writes the Speculation Rules into every page as an inline
+> `<script type="speculationrules">`, which needs no server setup, but a policy like
+> `script-src 'self'` blocks it: the browser logs a violation and prefetches nothing (sinter's own
+> next-page data still works). Dev builds warn in the console when that happens.
 
-Two ways out, checked in Chromium (2026-11-09):
+| Your setup | What to do |
+| --- | --- |
+| No CSP | nothing |
+| CSP in the page (`<meta http-equiv="Content-Security-Policy">`) | nothing: the build adds the rules' hash to it |
+| CSP sent as a response header | add `'inline-speculation-rules'` to its `script-src` (or the hash the build prints), or deliver the rules by header (below) |
 
-**1. Deliver the rules with a response header (no CSP change).** Recommended for a strict CSP:
+`'inline-speculation-rules'` allows speculation rules only, no other inline script. The hash
+(`sha256-…`, printed by every build) allows exactly these rules, and changes when the app's pages
+change. A policy that already allows inline scripts (`'unsafe-inline'`) needs nothing; the build
+leaves such a `<meta>` as it is, since a hash would turn `'unsafe-inline'` off for other inline
+scripts.
+
+**Delivering the rules by a response header instead,** which no CSP blocks:
 
 ```js
-// vite.config.js
-sinter({ speculation: { mode: 'prefetch', delivery: 'header' } })
+sinter({ speculation: { mode: 'prefetch', delivery: 'header' } })   // or mode: 'prerender'
 ```
 
-The build writes `speculation-rules.json` at the site root and no inline script. Your server
-then has to do two things:
+The build then writes `speculation-rules.json` at the site root and no inline script, and the
+server has to:
 
 - send `Speculation-Rules: "/speculation-rules.json"` with every page (under Vite's `base`:
   `"/app/speculation-rules.json"`; the build log prints the exact value);
 - serve that file as `Content-Type: application/speculationrules+json`. A file served as
   `application/json` (what most static hosts do for `.json`) is rejected.
 
-`vite dev` and `vite preview` do both for you. For a host, for example:
+`vite dev` and `vite preview` do both. For a host, for example:
 
 ```nginx
 # nginx
@@ -49,15 +59,18 @@ add_header Speculation-Rules '"/speculation-rules.json"';
   Content-Type: application/speculationrules+json
 ```
 
-**2. Allow the inline rules.** Add `'inline-speculation-rules'` to `script-src`, or the hash the
-build prints (`sha256-…`; it changes when the app's pages change). This keyword allows
-speculation rules only, no other inline script.
+There is no other way: browsers load Speculation Rules only as inline JSON (also when a script adds
+them, which counts as inline) or from that header. `<script type="speculationrules" src>` is not
+supported, and a `<link>` or `<meta http-equiv>` for them does not exist. A `<link rel="prefetch">`
+hint is no substitute: Chromium reuses its response for the navigation only when the page is
+served cacheable (`max-age` above 0), which most hosts do not do for HTML.
 
-A server-rendered page, or one injected by JavaScript, is no way around it: rules added from
-script are still inline and still blocked.
-
-What `e2e/navigation` checks: pages sent with `script-src 'self'` and the header, no violation on
-either page, and the HTML prefetched.
+Checked in Chromium (2026-11-09): inline rules under a `script-src 'self'` header blocked, and the
+dev warning shown; the same policy in a `<meta>` with the hash the build added allows them; the
+header with `application/speculationrules+json` works, with `application/json` rejected.
+`e2e/navigation` runs the default setup under a `script-src 'self'` `<meta>` and fails on any
+violation. Everything else on this page (next-page data, the morph and the script that holds the
+first paint) works under `script-src 'self'` as it is.
 
 ## Next-page data
 
@@ -91,7 +104,7 @@ on a link, or a press starts). Links that download, open elsewhere (`target`) or
 sinter({ speculation: 'prefetch' })    // default: the next page's HTML
 sinter({ speculation: 'prerender' })   // the whole page, data included, before the click
 sinter({ speculation: false })         // none
-sinter({ speculation: { mode: 'prefetch', delivery: 'header' } })   // see Content Security Policy
+sinter({ speculation: { mode: 'prefetch', delivery: 'header' } })   // by a response header; see the CSP section
 ```
 
 `'prerender'` runs the next page before anyone sees it: its requests go out, its islands start.

@@ -267,6 +267,13 @@ built, what deviates, and what is left.
   rejected. So `speculation: { delivery: 'header' }` (a fixed-name `speculation-rules.json`; dev and preview send the header
   and type) and `docs/navigation.md` with the CSP part near the top; the README no longer mentions CSP. `e2e/navigation` now
   runs under that policy, and a step fails on any violation.
+- 2026-11-09: Speculation Rules delivery, decided after testing each option in Chromium (not committed in between: header by
+  default, then a `<link rel="prefetch">` default). No in-page file form exists (`<script src>`: "External speculation rules
+  are not yet supported"; `<meta http-equiv>`, `<link rel=speculationrules>`: ignored). A `<link rel="prefetch">` is reused for
+  the navigation only for cacheable HTML (`max-age=60` yes; none, `no-cache`, `max-age=0`, `no-store` no). So: inline by
+  default (no server setup), the build adds the hash to a CSP `<meta>` (works, tested), a header CSP needs
+  `'inline-speculation-rules'`; dev warns (code 22, buffered `ReportingObserver`: tested, it gets the report from before mount).
+  `delivery: 'header'` stays the opt-in that no CSP blocks. `e2e/navigation` runs under a `script-src 'self'` `<meta>`.
 
 ## Decisions and deviations
 
