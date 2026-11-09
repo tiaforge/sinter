@@ -36,11 +36,11 @@ Run alongside the e2e suite, this found that cached data must not set `$meta.<na
 
 ## Form errors
 
-Login, register, settings and the editor have no `data-sn-catch`: the server's errors go next to each
-field (`aria-invalid`) and, all of them, into the form's `<ul class="error-messages" data-sn-errors="…">`,
-through one `fieldErrors` hook in `src/sinter.config.js` that reuses the `errors()` helper's lines. The
+Login, register, settings and the editor have no `data-sn-catch`: one `fieldErrors` hook in
+`src/sinter.config.js` puts every server error, as the `errors()` helper writes it, into the form's
+`<ul class="error-messages" data-sn-errors="…">`, and marks no field, as the reference markup does. The
 buttons (favorite, follow, delete) keep their catches (a 401 goes to the login page), and so does the
-comment form, until the article page's size budget has room for the fields module (0.5 KB short).
+comment form, until the article page's size budget has room for the fields module (0.4 KB short).
 With the mocked API (no backend), 2026-11-09: `error-handling` and `user-fetch-errors` 44 passed,
 1 failed ("should handle 403 when deleting another users comment": the trash icon is not visible; it
 fails the same way on `main`, probably the ionicons stylesheet, which a container without access to

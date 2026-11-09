@@ -14,7 +14,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   it; the first such field gets focus. `data-sn-errors` (new) on an element inside the form, or naming its
   id, shows the rest: unknown names, `""`, or the error itself when it has no field errors (a 5xx: its
   `detail`); a `<ul>`/`<ol>` gets an `<li>` each. Editing a field clears its error, sending again clears
-  all. When every message found its place the error counts as handled (no `sn-error`, no `onError`). Other
+  all. When every message found its place the error counts as handled (no `sn-error`, no `onError`).
+  `data-sn-catch` opts out: the app handles the error, sinter shows nothing. Other
   formats: `configure({ fieldErrors: (error, form) => ({ name: messages }) | null })`, reading the server's
   messages from `error.body` (or mapping error codes to `m.key()`), with the default exported as
   `fieldErrors` from `@tiaforge-ui/sinter`. A feature module (`fields`, about 1.2 KB gzip), loaded
