@@ -7,6 +7,7 @@ export type { Diagnostic } from './diagnostics.js';
 export type { CheckUnit } from './check-unit.js';
 export type { ImageFormat, ImageHost, ImageInfo, ImageKind, ImageResult, ImageVariant } from './images.js';
 export { FLUID_WIDTHS, TINY_BYTES } from './images.js';
+export { Layout, evaluate, type FixedBox, type StyleSheet } from './layout.js';
 export { formatDiagnostic, docsUrl, CODES } from './diagnostics.js';
 export { DIAGNOSTIC_DOCS, type DiagnosticDoc } from './diagnostic-docs.js';
 export { compileParts };

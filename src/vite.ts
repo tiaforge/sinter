@@ -12,7 +12,9 @@ import { project, type ProjectOptions } from './project.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { PAINT_SCRIPT } from './paint-build.js';
 import { loadImages, MIME, type Images } from './images.js';
-import type { ImageHost, ImageVariant } from './compiler/index.js';
+import { pageStyles } from './styles.js';
+import { IMAGE_CHECK } from './image-check.js';
+import type { ImageHost, ImageVariant, StyleSheet } from './compiler/index.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -66,12 +68,20 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** image variants by file name, and each page's image rules */
   const variants = new Map<string, ImageVariant>();
   const imageCss = new Map<string, string>();
-  const imageHost = (rel: string): ImageHost | undefined => {
+  let resolveId: ((id: string, importer?: string) => Promise<string | undefined>) | null = null;
+  /** the stylesheets the page loads, for the boxes they give its images */
+  const stylesOf = async (html: string, file: string, p: ReturnType<typeof project>): Promise<StyleSheet[]> => {
+    resolveId ??= resolved!.createResolver({ tryIndex: true });
+    const r = resolveId;
+    const modules = [p.config, p.early, p.helpersFile, p.actionsFile].filter((m): m is string => !!m);
+    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer) });
+  };
+  const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {
     if (!images) return undefined;
     const img = images, base = resolved?.base ?? '/';
     const prefix = dev ? `${base}${IMG.slice(1)}` : `${base}${resolved!.build.assetsDir}/`;
     const widths = options.images ? options.images.widths : undefined;
-    return { info: (f) => img.info(f), url: (v) => prefix + img.fileName(v), ignore: true, stylesheet: `${IMG_CSS}${rel}.css`, ...(widths ? { widths } : {}) };
+    return { info: (f) => img.info(f), url: (v) => prefix + img.fileName(v), ignore: true, stylesheet: `${IMG_CSS}${rel}.css`, ...(widths ? { widths } : {}), ...(styles?.length ? { styles } : {}) };
   };
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
   /**
@@ -99,14 +109,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const relOf = (file: string) => relative(root, file).split(sep).join('/');
 
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
-  const build = (html: string, file: string, earlySrc: string | null): { out: CompileResult; p: ReturnType<typeof project> } => {
+  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[]): { out: CompileResult; p: ReturnType<typeof project> } => {
     const rel = relOf(file);
     const p = project(root, options);
     if (p.diagnostics.length) throw new Error(`sinter: ${p.diagnostics.map(formatDiagnostic).join('\n')}`);
     const out = compile(html, {
       file, root, dev, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile,
       check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles,
-      ...(images ? { images: imageHost(rel)! } : {}),
+      ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
     });
     if (out.early) modules.set(`${EARLY}${rel}.js`, out.early);
@@ -278,6 +288,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
       if (id === `\0${PREFIX}paint.js`) return PAINT_SCRIPT;
+      if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;
       const lang = id.startsWith(`\0${PREFIX}messages/`) && messages ? id.slice(`\0${PREFIX}messages/`.length, -3) : null;
       if (lang && messages?.dicts[lang]) return languageFile(lang, { ...messages.dicts[messages.base], ...messages.dicts[lang] });
       if (!id.startsWith('\0' + PREFIX)) return null;
@@ -303,11 +314,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const moduleSrc = `${PREFIX}${rel}.js`;
         // dev: the tag goes in with the page; a build adds it after bundling (see the post plugin)
         const earlySrc = dev ? `${resolved?.base ?? '/'}${EARLY.slice(1)}${rel}.js` : null;
-        let { out, p } = build(html, file, earlySrc);
+        const styles = images && /<img\b|<sn-include\b/i.test(html) ? await stylesOf(html, file, project(root, options)) : undefined;
+        let { out, p } = build(html, file, earlySrc, styles);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
         if (images && out.images?.pending.length) {
           await images.analyze(out.images.pending);
-          ({ out, p } = build(html, file, earlySrc));
+          ({ out, p } = build(html, file, earlySrc, styles));
         }
         if (out.images) {
           for (const v of out.images.variants) variants.set(images!.fileName(v), v);
@@ -334,13 +346,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // dev: the picker first in the head, with every language's whole dictionary (else, with an early
         // file, the paint script); a build adds them after bundling
         const base = resolved?.base ?? '/', early = out.early != null;
+        // dev: the console warns about images shown with too few pixels
+        const page = dev && images ? out.html.replace('</body>', `<script type="module" src="${base}${PREFIX.slice(1)}img-check.js"></script></body>`) : out.html;
         if (dev && out.messages && messages) {
           for (const f of Object.values(messages.files)) watch(f);
           const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])), early);
-          return out.html.replace(/<head[^>]*>/, (h) => h + tag);
+          return page.replace(/<head[^>]*>/, (h) => h + tag);
         }
-        if (dev && early) return out.html.replace(/<head[^>]*>/, (h) => h + paintTag(`${base}${PREFIX.slice(1)}paint.js`));
-        return out.html;
+        if (dev && early) return page.replace(/<head[^>]*>/, (h) => h + paintTag(`${base}${PREFIX.slice(1)}paint.js`));
+        return page;
       },
     },
   };

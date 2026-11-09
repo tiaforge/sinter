@@ -1,6 +1,7 @@
 // The compiler: one pure, deterministic function from annotated HTML to a
 // rewritten page plus its IR and function table.
 import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
+import { Layout } from './layout.js';
 import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
@@ -201,8 +202,10 @@ class Compiler {
     const doc = parse5.parse(html, { sourceCodeLocationInfo: true });
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     this.expandIncludes(doc, [this.opts.file]);
+    const layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
     const images = this.opts.images ? rewriteImages(doc, {
       host: this.opts.images, root: this.opts.root,
+      ...(layout ? { layout: (el: P5Element) => layout.box(el) } : {}),
       fileOf: (el) => this.origins.get(el)?.file ?? this.opts.file,
       warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
     }) : undefined;

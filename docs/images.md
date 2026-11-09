@@ -1,6 +1,6 @@
 # Images
 
-Status: 2026-11-09. Step 1 (static `<img>` in HTML) is implemented; the later steps are planned.
+Status: 2026-11-09. Step 1 (static `<img>` in HTML) and 1b (sizes from the page's stylesheets) are implemented; the later steps are planned.
 
 sinter optimizes the images a page uses without any markup of its own: it writes the variants at
 build time and markup that lets the browser pick one. The browser knows the screen's pixel density,
@@ -70,8 +70,50 @@ density only, and a box shrunk on a DPR-3 phone would fetch the largest file.
 
 Only `width` or only `height`: the other follows from the source's ratio.
 
-**Planned sources of exact sizes:** temper components with a known size (avatar sizes from
-temper's `vocab.json`), fixed px/rem widths in CSS, and slot widths measured by `temper-inspect`.
+## Sizes from the stylesheets (step 1b)
+
+An image whose stylesheets give it a fixed width is a fixed box too, whatever its attributes say:
+temper's avatar (`inline-size: 100%` of a `[data-avatar]` that is `calc(var(--tm-avatar-size,
+2.5rem) * var(--_size, 1))` wide) is 40 px, 32 px with `data-size="sm"`, and cropped square by its
+`object-fit: cover`. Nothing in the markup or in temper describes this: sinter reads the CSS the
+page loads, with no knowledge of any framework (`src/compiler/layout.ts`).
+
+**Which stylesheets.** The page's `<link rel="stylesheet">` and `<style>` elements (a `media`
+attribute makes them conditional), and the CSS its module scripts import, following the project
+modules they import and sinter's config, early, helpers and actions modules. `@import` is inlined
+with its `layer()` and media. Left out: remote stylesheets, Sass/Less files, CSS modules and
+`?inline`/`?url` imports.
+
+**The cascade.** Selectors (type, class, id, attribute selectors with every operator and `i`,
+`:where`, `:is`, `:not`, `:root`, the structural pseudo-classes, all four combinators), nesting
+(with and without `&`), `@layer` order and nesting, specificity, source order, `!important`
+(reversed across layers) and inline style. Values: custom properties (inherited, with fallbacks),
+`calc()`, `min()`, `max()`, `clamp()`, `px`, `rem` (from the root's font size), `%` of a parent
+whose width is fixed, `min-`/`max-` sizes and `aspect-ratio`. An image in a `<template>` has the
+template's parent as its parent.
+
+**Giving up.** A wrong size makes the image blurry; no size only costs bytes. So the image stays
+fluid when its width depends on layout or might change:
+
+- `%` of a fluid parent, `vw`, `em`, keywords such as `auto` or `fit-content`;
+- the parent is inline or `display: contents`, a flex container with other children, a grid with
+  explicit tracks, or has padding or borders;
+- a rule that could win sits in `@media`, `@supports` or `@container`, or depends on a state
+  (`:hover`, `:has()`, `:checked`) or a selector it does not know;
+- a structural selector inside a `<template>` (rows repeat);
+- a binding can change what the selectors read: `data-sn-class`, `data-sn-attr` or `data-sn-model`
+  (classes and attributes), `data-sn-style` (any property, custom properties included).
+
+When the stylesheets set the width but not to a fixed size (`width: 100%`), the image is fluid
+even with smaller `width`/`height` attributes: CSS decides its size, not the attributes.
+
+A `max-width` in `%` (`max-inline-size: 100%`) only shrinks the box on narrow screens, which the
+`sizes` of a box allows for; an absolute one is applied.
+
+**Checked against Chromium.** `test/compiler/layout.test.ts` lays out every case the cascade
+claims a size for, at 1600 and 390 px wide, and compares.
+
+**Planned:** slot widths measured in the dev server or by `temper-inspect`, for fluid images.
 
 ## Cropping
 
@@ -86,15 +128,17 @@ sizes, and removes `object-fit` and `object-position` from `style`, since the fi
 box's ratio; an empty `style` is removed. The output has no `style`, so a strict
 Content-Security-Policy holds.
 
-| `object-fit` (inline) | Build |
+| `object-fit` | Build |
 | --- | --- |
 | `cover` | crops |
 | `contain` | no crop; exact sizes of the area the image takes inside the box |
 | none or `fill`, ratio differs | warning `SN512`: the image is stretched |
 | `none`, `scale-down` | left alone |
 
-`object-fit` from a stylesheet is not read: the compiler cannot tell which rules reach an element.
-A crop whose ratio changes with a media query needs `<picture>` with `media`, written by hand.
+`object-fit` and `object-position` come from the cascade: the inline style, or a stylesheet rule
+when the box comes from the stylesheets (step 1b), as with temper's avatar. Only an inline style is
+removed; a stylesheet's `cover` does nothing on a file that has the box's ratio. A crop whose ratio
+changes with a media query needs `<picture>` with `media`, written by hand.
 
 ## Loading and layout
 
@@ -113,13 +157,19 @@ A crop whose ratio changes with a media query needs `<picture>` with `media`, wr
 
 - `SN511 image-too-small`: a fixed box needs more pixels than the source has at 2x. The source is
   used as the largest file; the fix is a larger source.
-- `SN512 image-stretched`: `width`/`height` have another ratio than the source and no inline
-  `object-fit`. Add `object-fit: cover` to crop, or fix the attributes.
+- `SN512 image-stretched`: the box (`width`/`height`, or the stylesheets) has another ratio than
+  the source and no `object-fit`. Add `object-fit: cover` to crop, or fix the attributes.
 
-**Planned in `temper-inspect`:** a pass at device scale factor 2 that compares, for every
-`<img>`, `naturalWidth` of its `currentSrc` with `clientWidth × 2`, and for backgrounds the image's
-size with the rendered `background-size`: a file that is too small for the slot, or a `sizes`
-that made the browser pick one that is too small.
+**In the browser, in dev.** The dev server adds a script to every page (`src/image-check.ts`;
+builds never include it). When an image has loaded, and after a resize, it compares the pixels of
+the file the browser chose with the device pixels the image covers (with `object-fit: cover`, the
+larger side), and warns in the console when the file has less than 90% of them: either the
+source is too small, or a larger file exists and `sizes` is smaller than the image is shown. It
+checks every `<img>`, rewritten or not, at the screen it runs on: open the dev server on an iPad to
+check an iPad.
+
+**Planned in `temper-inspect`:** the same comparison at device scale factor 2 for pages without
+sinter, and for CSS backgrounds.
 
 ## Build and dev
 

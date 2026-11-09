@@ -4,6 +4,7 @@
 // from the adapter's `ImageHost`, which analyses files with sharp and encodes the variants this
 // returns. See docs/images.md.
 import type { DefaultTreeAdapterMap } from 'parse5';
+import type { FixedBox, StyleSheet } from './layout.js';
 
 type P5Element = DefaultTreeAdapterMap['element'];
 type P5Node = DefaultTreeAdapterMap['node'];
@@ -52,6 +53,8 @@ export interface ImageHost {
   ignore?: boolean;
   /** what the page module imports for the images' rules (`ImageResult.css`), which the adapter serves */
   stylesheet?: string;
+  /** the stylesheets the page loads, in order: fixed sizes in them are boxes (layout.ts) */
+  styles?: StyleSheet[];
 }
 
 export interface ImageResult {
@@ -76,6 +79,8 @@ export interface RewriteContext {
   /** the file an element came from (a partial's for included markup) */
   fileOf(el: P5Element): string;
   warn(el: P5Element, attr: string, code: 'SN511' | 'SN512', message: string, hint: string): void;
+  /** the box the page's stylesheets give the element (layout.ts), when the adapter passed them */
+  layout?: (el: P5Element) => FixedBox | 'fluid' | null;
 }
 
 /** Rewrites every static `<img>` under `doc` in place; returns what the adapter encodes and the page's rules. */
@@ -184,15 +189,19 @@ function rewriteOne(el: P5Element, eager: boolean, ctx: RewriteContext): 'pendin
   const aw = dims(attrOf(el, 'width')), ah = dims(attrOf(el, 'height'));
   if (Number.isNaN(aw) || Number.isNaN(ah) || aw === 0 || ah === 0) return null;
   const style = parseStyle(attrOf(el, 'style'));
-  const fit = styleValue(style, 'object-fit') ?? 'fill';
+  // the stylesheets' box (with the inline style in their cascade), else the attributes and the inline style
+  const css = ctx.layout?.(el) ?? null;
+  const box = css === 'fluid' ? null : css;
+  const fit = (box ? box.fit : styleValue(style, 'object-fit')) ?? 'fill';
+  const objectPosition = box ? box.position ?? undefined : styleValue(style, 'object-position');
   if (fit === 'none' || fit === 'scale-down') return null;
   const name = attrOf(el, 'src')!.trim();
 
   const ratio = info.width / info.height;
-  // the box: both attributes, or one and the source's ratio, or the source's size
-  const bw = aw ?? (ah !== null ? Math.round(ah * ratio) : info.width);
-  const bh = ah ?? (aw !== null ? Math.round(aw / ratio) : info.height);
-  const mismatch = aw !== null && ah !== null && Math.abs(bw / bh - ratio) / ratio > 0.01;
+  // the box: the stylesheets', or both attributes, or one and the source's ratio, or the source's size
+  const bw = box ? Math.round(box.width) : aw ?? (ah !== null ? Math.round(ah * ratio) : info.width);
+  const bh = box ? Math.round(box.height ?? box.width / ratio) : ah ?? (aw !== null ? Math.round(aw / ratio) : info.height);
+  const mismatch = (box ? box.height !== null : aw !== null && ah !== null) && Math.abs(bw / bh - ratio) / ratio > 0.01;
   let crop: ImageVariant['crop'];
   /** the image's width inside the box, in CSS pixels; null: fluid */
   let display: number | null = null;
@@ -201,7 +210,7 @@ function rewriteOne(el: P5Element, eager: boolean, ctx: RewriteContext): 'pendin
   let w0 = info.width, h0 = info.height;
   if (mismatch && fit === 'cover') {
     const r = bw / bh;
-    const [px, py] = position(styleValue(style, 'object-position'));
+    const [px, py] = position(objectPosition);
     if (ratio > r) {
       const cw = Math.round(info.height * r);
       crop = { left: Math.round((info.width - cw) * px / 100), top: 0, width: cw, height: info.height };
@@ -212,19 +221,26 @@ function rewriteOne(el: P5Element, eager: boolean, ctx: RewriteContext): 'pendin
     w0 = crop.width; h0 = crop.height;
     display = bw;
     // the file now has the box's ratio: the fit and position do nothing, and need no inline style
-    style.decls = style.decls.filter(([p]) => p !== 'object-fit' && p !== 'object-position');
-    const text = style.decls.map(([p, v]) => (v ? `${p}: ${v}` : p)).join('; ');
-    if (text) setAttr(el, 'style', text); else removeAttr(el, 'style');
+    if (!box || box.inlineFit) {
+      style.decls = style.decls.filter(([p]) => p !== 'object-fit' && p !== 'object-position');
+      const text = style.decls.map(([p, v]) => (v ? `${p}: ${v}` : p)).join('; ');
+      if (text) setAttr(el, 'style', text); else removeAttr(el, 'style');
+    }
   } else if (mismatch && fit === 'contain') {
     display = Math.min(bw, Math.round(bh * ratio));
     keepsRatio = false;
   } else {
     if (mismatch) {
-      ctx.warn(el, 'width', 'SN512', `\`width="${bw}" height="${bh}"\` has another ratio than \`${name}\` (${info.width} × ${info.height}), so the image is stretched`,
+      if (box) ctx.warn(el, 'src', 'SN512', `the stylesheets show \`${name}\` at ${bw} × ${bh}, another ratio than the file (${info.width} × ${info.height}), so it is stretched`,
+        'add `object-fit: cover` to the rule that sizes it (the build makes the cropped file)');
+      else ctx.warn(el, 'width', 'SN512', `\`width="${bw}" height="${bh}"\` has another ratio than \`${name}\` (${info.width} × ${info.height}), so the image is stretched`,
         'add `style="object-fit: cover"` to crop it to the box (the build makes the cropped file), or fix the attributes');
       keepsRatio = false;
     }
-    if (aw !== null || ah !== null) display = bw < info.width ? bw : null;
+    // a box from the stylesheets is fixed; one from the attributes only when smaller than the source
+    // (attributes equal to the source are its ratio), and not when the stylesheets size the image
+    if (box) display = bw;
+    else if (css !== 'fluid' && (aw !== null || ah !== null)) display = bw < info.width ? bw : null;
   }
 
   // widths of the files

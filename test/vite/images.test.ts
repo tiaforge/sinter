@@ -30,8 +30,15 @@ beforeAll(async () => {
   // a "screenshot": many flat colored bars, larger than a tiny file
   const bars = Array.from({ length: 60 }, (_, i) => `<rect x="${(i * 37) % 760}" y="${i * 10}" width="${40 + (i * 53) % 300}" height="8" fill="hsl(${i * 47} 70% 50%)"/>`).join('');
   await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="#fff"/>${bars}</svg>`)).png().toFile(join(root, 'img/ui.png'));
+  // the app's CSS: a module script imports it, and it imports the avatar rules into a layer
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src/main.js'), "import './app.css';\n");
+  writeFileSync(join(root, 'src/app.css'), "@import './avatar.css' layer(ui);\n.hero img { width: 100% }\n");
+  writeFileSync(join(root, 'src/avatar.css'), ':where([data-avatar]) { --_av: calc(var(--avatar-size, 2.5rem)); display: inline-grid; inline-size: var(--_av); block-size: var(--_av); overflow: hidden; }\n:where([data-avatar]) > :where(img) { inline-size: 100%; block-size: 100%; object-fit: cover; }\n');
   writeFileSync(join(root, 'partials/card.html'), '<img src="../img/photo.jpg" width="120" height="120" style="object-fit: cover" alt="Card">');
-  writeFileSync(join(root, 'index.html'), `<!doctype html><html><head><title>Images</title></head><body>
+  writeFileSync(join(root, 'index.html'), `<!doctype html><html><head><title>Images</title><script type="module" src="/src/main.js"></script></head><body>
+<span data-avatar><img src="img/photo.jpg" alt="Avatar"></span>
+<div class="hero"><img src="img/photo.jpg" width="300" alt="Fluid by CSS"></div>
 <img src="./img/photo.jpg" alt="Hero">
 <img src="img/logo.png" width="200" alt="Logo">
 <img src="img/ui.png" alt="UI">
@@ -44,12 +51,16 @@ test('a build: <picture> with AVIF and lossless WebP, the variants in assets/, t
   await build({ root, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false } });
   const html = readFileSync(join(out, 'index.html'), 'utf8');
   expect(html).not.toContain('vite-ignore');
-  expect(html).toMatch(/<picture><source type="image\/avif" srcset="\/assets\/photo-480-[\w-]+\.avif 480w, \/assets\/photo-1000-[\w-]+\.avif 1000w" sizes="100vw"\s?><img src="\/assets\/photo-1000-[\w-]+\.jpg" alt="Hero"/);
+  expect(html).toMatch(/<picture><source type="image\/avif" srcset="\/assets\/photo-480-[\w-]+\.avif 480w, \/assets\/photo-1000-[\w-]+\.avif 1000w" sizes="auto, 100vw"\s?><img src="\/assets\/photo-1000-[\w-]+\.jpg" alt="Hero"/);
   // a tiny PNG is the original file, with dimensions; a larger one is lossless WebP with a PNG fallback
   expect(html).toMatch(/<img src="\/assets\/logo-400-[\w-]+\.png" width="200" alt="Logo" height="50" loading="lazy" decoding="async"\s?>/);
   expect(html).toMatch(/<source type="image\/webp" srcset="\/assets\/ui-480-[\w-]+\.webp 480w, \/assets\/ui-800-[\w-]+\.webp 800w"[^>]*><img src="\/assets\/ui-800-[\w-]+\.png"/);
   expect(html).toMatch(/<img src="\/assets\/photo-120-[\w-]+\.jpg" width="120" height="120" alt="Card"[^>]* loading="lazy" decoding="async"/);
   expect(html).not.toContain('object-fit');
+  // the stylesheets size the avatar (40 px, cropped square by their object-fit); the hero's CSS width wins over its attribute
+  expect(html).toMatch(/srcset="\/assets\/photo-40-[\w-]+\.avif 40w, \/assets\/photo-80-[\w-]+\.avif 80w, \/assets\/photo-120-[\w-]+\.avif 120w" sizes="\(max-width: 40px\) 100vw, 40px"/);
+  expect(html).toMatch(/<img src="\/assets\/photo-40-[\w-]+\.jpg" alt="Avatar"[^>]* width="40" height="40" decoding="async"/);
+  expect(html).toMatch(/<img src="[^"]+" width="300" alt="Fluid by CSS"[^>]* sizes="auto, 100vw"/);
   // every URL in the page is a file of the build, with the format and size it claims
   const urls = [...html.matchAll(/\/assets\/([\w-]+\.(?:avif|webp|jpg|png))/g)].map((m) => m[1]!);
   expect(urls.length).toBeGreaterThan(8);
@@ -59,7 +70,7 @@ test('a build: <picture> with AVIF and lossless WebP, the variants in assets/, t
     expect(meta.width).toBe(Number(width));
     expect({ avif: 'heif', webp: 'webp', jpg: 'jpeg', png: 'png' }[ext!]).toBe(meta.format);
     // the crop is square
-    if (name.startsWith('photo-120') || name.startsWith('photo-240') || name.startsWith('photo-360')) expect(meta.height).toBe(meta.width);
+    if (/^photo-(40|80|120|240|360)-/.test(name)) expect(meta.height).toBe(meta.width);
   }
   const css = readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.css')).map((f) => readFileSync(join(out, 'assets', f), 'utf8')).join('');
   expect(css).toMatch(/:where\(img\[src="\/assets\/photo-1000-[\w-]+\.jpg"\]\)\s*\{\s*height:\s*auto;\s*background-color:\s*#[0-9a-f]{6}/);

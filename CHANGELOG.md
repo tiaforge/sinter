@@ -20,6 +20,15 @@ Attribute names, function names and diagnostic codes are public API. Before
   hash in `node_modules/.cache/sinter/images`. Warnings `SN511 image-too-small` (a box the source
   cannot fill at 2x) and `SN512 image-stretched`. sharp is an optional dependency;
   `sinter({ images: false })` turns it off, `images: { widths }` sets the fluid widths.
+- Image sizes from the page's stylesheets: an image the CSS gives a fixed width (and height or
+  `aspect-ratio`) is a box with exact files, cropped when the CSS says `object-fit: cover`, with no
+  attributes and no knowledge of the CSS framework: an `<img>` in temper's `[data-avatar]` gets
+  40/80/120 px squares. A cascade over the page's `<link>`, `<style>` and imported CSS (layers,
+  specificity, `!important`, nesting, custom properties, `calc`/`min`/`max`/`clamp`, px, rem, % of
+  a fixed parent); anything that depends on layout, a media query, a state or a binding leaves the
+  image fluid. Checked against Chromium's layout in the tests.
+- Dev: a console warning for every image shown with fewer pixels than the screen has, naming the
+  cause (a small source, or a `sizes` smaller than the image is shown).
 
 ## 0.9.0 (2026-11-08)
 
