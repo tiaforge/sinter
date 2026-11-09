@@ -5,6 +5,16 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- Chunks of multi-page builds (Vite 8): shared chunks below 10000 bytes of code are copied into the
+  pages that import them, so a page loads fewer files (Caley's mail page 20 → 11 files, 300 ms
+  earlier at a 300 ms round trip); sinter's runtime and what every page loads are one
+  `assets/sinter-<hash>.js`; large shared chunks stay shared and lazy chunks lazy. The build runs
+  module bodies in source order (`strictExecutionOrder`, a little code per module) and builds the
+  helpers and actions modules as side-effect free. `sinter({ chunks: { minSize, runtime } })`,
+  `chunks: false` for Vite's chunks.
+
 ### Fixed
 
 - Next-page data: resources of the next page that read different parts of one response (same
