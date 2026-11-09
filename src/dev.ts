@@ -2,6 +2,7 @@
 // "state changed outside sinter" detector. The compiler adds this module to
 // the page in dev mode only, so none of it ships to production.
 import type { App, Feature } from './runtime/app.js';
+import { config } from './runtime/config.js';
 
 /** Messages for the core's warning codes; `%` takes the next argument. */
 const MESSAGES: Record<number, string> = {
@@ -26,6 +27,7 @@ const MESSAGES: Record<number, string> = {
   19: 'resource `%`: % KB of data is over the page-load cache limit of 256 KB per entry; not cached',
   20: "`run('%')`: no element with that id and an action is on the page (a `data-sn-if` branch that is not rendered?); nothing ran",
   21: 'write-through after `%`: %',
+  23: '`data-sn-retry="%"`: no such retry policy in `configure({ retry })`; the action fails when triggered',
   22: "the page's Content-Security-Policy blocked an inline script (%): sinter's Speculation Rules are one, so the next page's HTML is not prefetched. If the policy comes from a response header, add 'inline-speculation-rules' to its script-src (a CSP in a <meta> gets their hash from the build), or set sinter({ speculation: { mode: 'prefetch', delivery: 'header' } }). See docs/navigation.md",
 };
 
@@ -69,6 +71,9 @@ const dev: Feature = {
       (code == 16 ? console.error : console.warn)(msg, ...args.slice(i));
     };
     app.prep = deepFreeze;
+    // retries: each failed try, each resend and the outcome
+    app.req.log = (m) => console.info(`sinter: retry ${m}`);
+    for (const a of app.ir.actions) if (a.retry && !config.retry?.has(a.retry)) app.warn(23, a.retry);
     // the Speculation Rules are inline: a CSP from a response header (the build cannot see it) blocks
     // them while the page is parsed, before this runs; a buffered observer still gets that report
     const doc = app.root && (app.root.ownerDocument ?? (app.root as Document)), RO = (globalThis as any).ReportingObserver;

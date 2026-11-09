@@ -1,0 +1,22 @@
+<!-- src/sinter.config.js:
+  import { configure } from '@tiaforge-ui/sinter';
+  import { retry } from '@tiaforge-ui/sinter/retry';
+  configure({ sessionProbe: '/api/user', retry: retry({ policies: { drafts: { backoff: ['1s', '30s'] } } }) });
+-->
+<sn-resource name="note" src="/api/notes/7"></sn-resource>
+
+<main data-sn-state="{ draft: { title: '', body: '' } }">
+  <!-- latest: after reconnecting only the newest draft is sent; the form stays editable -->
+  <form data-sn-put="/api/notes/7" data-sn-retry="drafts" data-sn-concurrency="latest"
+        data-sn-trigger="input" data-sn-debounce="500"
+        data-sn-optimistic="patch('note', note, draft)">
+    <input name="title" data-sn-model="draft.title">
+    <textarea name="body" data-sn-model="draft.body"></textarea>
+  </form>
+  <p class="unsaved">Not saved yet: it is sent again once the connection is back.</p>
+</main>
+
+<style>
+  .unsaved { display: none; }
+  body:has(form[aria-busy]) .unsaved { display: block; }
+</style>

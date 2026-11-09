@@ -42,7 +42,8 @@ function fanOut(l: ResourceLoader, app: App) {
     let loaded = false, failed = false, items: any[] = [];
     if (!quiet) { pending++; l.loading(true); }
     try {
-      const body = await l.get(u, ctl.signal);
+      // 2: a background load, which `retry.get` leaves to `refresh`
+      const body = await l.get(u, ctl.signal, quiet ? 2 : 0);
       if (n != s.seq || sources.get(u) != s) return;
       items = l.items(body);
       swap(u, s, items);

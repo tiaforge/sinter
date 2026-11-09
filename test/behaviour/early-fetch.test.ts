@@ -6,6 +6,7 @@ import { requests, start } from '../../src/early.js';
 import { configure, header, onUnauthorized } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
 import { createRequestLayer } from '../../src/runtime/request.js';
+import { retry } from '../../src/retry.js';
 import type { EarlyIR } from '../../src/ir.js';
 
 const sent: Request[] = [];
@@ -17,7 +18,7 @@ const KEYS = ['sinter.prefetched', 'sinter.early.page'];
 afterEach(() => {
   sent.length = 0;
   for (const k of KEYS) delete (globalThis as any)[Symbol.for(k)];
-  configure({ env: defaultEnv });
+  configure({ env: defaultEnv, retry: null });
 });
 
 /** The early file of a page whose state is `{ week }` and whose resources are given as URL templates over it. */
@@ -63,4 +64,28 @@ test('what no resource took is aborted after mount (sweep)', async () => {
   expect(signal.aborted).toBe(false);
   (globalThis as any)[Symbol.for('sinter.prefetched')].sweep();
   expect(signal.aborted).toBe(true);
+});
+
+test('a failed early request fails its load; a retry policy\'s next try fetches for real', async () => {
+  let down = true;
+  const flaky = async (r: Request) => { sent.push(r); if (down) throw new TypeError('Failed to fetch'); return Response.json({ ok: 1 }); };
+  configure({ env: { ...defaultEnv, fetch: flaky } });
+  earlyFile([['days', ['/api/days'], null], ['weeks', ['/api/weeks'], null]], []);
+  expect(sent).toHaveLength(2);
+  down = false;
+  const req = createRequestLayer({ ...defaultEnv, fetch: flaky }, []);
+  // no policy: not sent again
+  await expect(req.send('/api/days')).rejects.toMatchObject({ status: 0, message: 'Failed to fetch' });
+  expect(sent).toHaveLength(2);
+  // with `retry.get`: the early response is taken once, the next try is a fetch
+  const waits: Array<() => void> = [];
+  // the request timeout never fires here; the wait between tries is run by hand
+  const env = { ...defaultEnv, fetch: flaky, random: () => 0.5, setTimeout: (fn: () => void, _ms: number, kind?: string) => (kind == 'backoff' && waits.push(fn), 0), clearTimeout: () => {} };
+  configure({ retry: retry({ policies: { network: { backoff: ['1s', '1s'], retries: 1 } }, get: 'network' }) });
+  const withPolicy = createRequestLayer(env, []);
+  const p = withPolicy.send('/api/weeks');
+  while (!waits.length) await new Promise((r) => setTimeout(r, 0));
+  waits[0]!();
+  expect(await p).toEqual({ ok: 1 });
+  expect(sent.map((r) => new URL(r.url).pathname)).toEqual(['/api/days', '/api/weeks', '/api/weeks']);
 });

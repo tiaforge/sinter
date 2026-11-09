@@ -2,6 +2,7 @@
 // comes only from configure() in JavaScript, never from the DOM.
 import { envOf, type Env } from './env.js';
 import type { Transport } from './app.js';
+import type { Retry } from './request.js';
 
 export type Middleware = (request: Request, next: (request: Request) => Promise<Response>) => Promise<Response>;
 
@@ -22,12 +23,14 @@ export interface Config {
    * (fields.ts: a 4xx whose JSON body has an `errors` object)
    */
   fieldErrors?: ((error: SinterError, request: { url: string; method: string }) => Record<string, unknown> | null | undefined) | null;
+  /** retry policies: `retry({ policies, get })` from `@tiaforge-ui/sinter/retry`; null: nothing is sent again */
+  retry: Retry | null;
   /** what `configure({ env })` overrides of the default environment (see `envOf`); the testing module sets a whole one */
   env: Partial<Env> | null;
 }
 
 export const config: Config = {
-  request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], transport: null,
+  request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], transport: null, retry: null,
   confirm: (question) => globalThis.confirm(question), env: null,
 };
 

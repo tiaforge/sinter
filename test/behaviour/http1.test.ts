@@ -15,7 +15,7 @@ const http1 = () => warn.mock.calls.filter((c: unknown[]) => String(c[0]).includ
 
 /** the dev feature installed on the parts of an app it uses */
 function devApp(): App {
-  const app = { beforeFlush: [], afterFlush: [], states: [], env: { href: () => 'http://localhost/inbox' } } as unknown as App;
+  const app = { beforeFlush: [], afterFlush: [], states: [], req: {}, ir: { actions: [] }, env: { href: () => 'http://localhost/inbox' } } as unknown as App;
   dev.install(app);
   return app;
 }

@@ -201,6 +201,8 @@ export interface ActionDef {
   enc?: 'form';
   /** write-through of the response (absent with `data-sn-apply="off"`, for GET and `call`) */
   ap?: ApplyDef;
+  /** `data-sn-retry`: the retry policy of a mutation */
+  retry?: string;
 }
 
 /** What a mutation is about and what its response holds, for the `apply` feature (write-through). */
@@ -320,6 +322,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     const at = `actions[${i}]`;
     if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'CALL'].includes(a.method)) errs.push(`${at}: bad method`);
     if (!['block', 'queue', 'latest'].includes(a.concurrency)) errs.push(`${at}: bad concurrency`);
+    if (a.retry !== undefined && (typeof a.retry !== 'string' || !a.retry || a.method === 'GET' || a.method === 'CALL')) errs.push(`${at}: retry is a policy name, on a mutation`);
     if (a.method === 'CALL') {
       if (!a.call) errs.push(`${at}: CALL needs call`);
       else { fn(a.call.args, `${at}.call.args`, false); fn(a.call.run, `${at}.call.run`, false); }

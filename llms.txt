@@ -38,6 +38,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-catch` (handler expression): runs after an error; $error = {status, body, message, detail}. A form without it shows a 4xx `{errors: {name: message}}` on its fields (aria-invalid and the message); its markup reads the failure as `$error`
 - `data-sn-confirm` (value expression): asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy
 - `data-sn-encoding` (json | form): form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded
+- `data-sn-retry` (retry policy name): mutations only: sends the request again as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once
 - `data-sn-apply` (off): turns write-through off for this mutation: its response is not applied to the resources it is about
 - `data-sn-path` (URL patterns /a/:b …): on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url
 - `data-sn-data` (resource name): on <script type="application/json"> in <head>: initial data for a resource
@@ -88,6 +89,10 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 ## Write-through
 
 A mutation's 2xx response is applied to the store by itself, before `then` runs (the `apply` module, loaded when a page has something to apply). With an OpenAPI spec: an object of a named schema in the response (`{article: Article}`) patches the same-key item in every list of that schema and what the URL named (`{article.slug}` names the single `article`; `{article.author.username}` also names `article.author`, a Profile); a POST to exactly a list's current URL inserts the created item (the response's, else body + returned key, else a refetch; a filtered or paginated list is never inserted into); a PUT/PATCH body patches the entity the URL named. Without a spec: a DELETE of a row's URL (the list's URL plus one segment, from `c.id` with `c in comments`) removes the row, and a PUT/PATCH body patches the row when its keys are fields of the row. Patches merge and skip unchanged fields; `then` writes land on top. So `data-sn-then="patch('articles', a, $result.article)"`, `upsert('comments', $result.comment)` and `remove('comments', c)` are not written (SN510 says so); `data-sn-optimistic` is still how a change shows before the answer. `data-sn-apply="off"` turns it off for one element.
+
+## Retries
+
+Nothing is sent again unless a retry policy says so. Policies are named in the config module: `import { retry } from '@tiaforge-ui/sinter/retry'; configure({ sessionProbe: '/api/user', retry: retry({ policies: { drafts: { backoff: ['1s', '30s'] }, network: { backoff: ['1s', '10s'], retries: 3 } }, get: 'network' }) })` (fields: `backoff: [first, longest]`, `retries`, `maxAge`, `key`: the header, default `Idempotency-Key`, or `false`). A write opts in on its element: `data-sn-retry="drafts"` (mutations only; writes have no default). `get` is the policy of every GET except background refreshes. A network error waits, then the session probe decides (2xx: send again, 401: lost to the login redirect); a 5xx is a failed try; a 429 or 503 waits for `Retry-After` and fails at once when that is after the policy's last try; a retried DELETE that gets 404 succeeded; other 4xx fail at once. Each trigger sends one idempotency key on every try. A server that ignores the key may create a duplicate from a retried POST: create with a client id (`PUT /api/notes/{uuid}`). While a write waits, its element keeps `aria-busy` (show "not saved" with `body:has(form[aria-busy])`), its optimistic change stays, `latest` replaces it with a newer trigger (use it for drafts: `block` keeps a form disabled), and leaving the page asks first (not on iOS).
 
 ## Diagnostics
 
@@ -359,6 +364,73 @@ test('keeps the flag when the server accepts it', async () => {
   star.click();
   await settle();
   expect(star.getAttribute('aria-pressed')).toBe('true');   // committed: no flip back
+});
+```
+
+### Offline drafts: sent again once the connection is back
+
+```html
+<!-- src/sinter.config.js:
+  import { configure } from '@tiaforge-ui/sinter';
+  import { retry } from '@tiaforge-ui/sinter/retry';
+  configure({ sessionProbe: '/api/user', retry: retry({ policies: { drafts: { backoff: ['1s', '30s'] } } }) });
+-->
+<sn-resource name="note" src="/api/notes/7"></sn-resource>
+
+<main data-sn-state="{ draft: { title: '', body: '' } }">
+  <!-- latest: after reconnecting only the newest draft is sent; the form stays editable -->
+  <form data-sn-put="/api/notes/7" data-sn-retry="drafts" data-sn-concurrency="latest"
+        data-sn-trigger="input" data-sn-debounce="500"
+        data-sn-optimistic="patch('note', note, draft)">
+    <input name="title" data-sn-model="draft.title">
+    <textarea name="body" data-sn-model="draft.body"></textarea>
+  </form>
+  <p class="unsaved">Not saved yet: it is sent again once the connection is back.</p>
+</main>
+
+<style>
+  .unsaved { display: none; }
+  body:has(form[aria-busy]) .unsaved { display: block; }
+</style>
+```
+
+```ts
+import { afterEach, expect, test } from 'vitest';
+import { configure } from '@tiaforge-ui/sinter';
+import { retry } from '@tiaforge-ui/sinter/retry';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
+import page from './offline-draft.html?raw';
+
+afterEach(() => configure({ sessionProbe: null, retry: null }));
+
+test('a draft typed while offline is sent once the connection is back, with one key', async () => {
+  configure({ sessionProbe: '/api/user', retry: retry({ policies: { drafts: { backoff: ['1s', '30s'] } } }) });
+  let online = false;
+  const requests = mockRequests({
+    'GET /api/notes/7': { id: 7, title: 'Plan', body: '' },
+    'GET /api/user': () => (online ? { name: 'me' } : { status: 503 }),
+    'PUT /api/notes/7': (c) => { if (!online) throw new TypeError('Failed to fetch'); return c.body; },
+  });
+  const { root, settle, advance } = await render(page, { requests });
+  await settle();
+  const form = root.querySelector('form')!, title = root.querySelector('input')!;
+
+  title.value = 'Plan for Monday';
+  title.dispatchEvent(new Event('input', { bubbles: true }));
+  await advance(500);    // the debounce
+  await settle();
+  expect(form.getAttribute('aria-busy')).toBe('true');   // waiting: "Not saved yet" shows
+
+  await advance(1000);   // the probe fails (offline): wait longer
+  await settle();
+  online = true;
+  await advance(2000);   // the probe answers: sent again
+  await settle();
+  const puts = requests.calls.filter((c) => c.method === 'PUT');
+  expect(puts).toHaveLength(2);
+  expect(puts[1]!.body).toEqual({ title: 'Plan for Monday', body: '' });
+  expect(puts[1]!.headers['idempotency-key']).toBe(puts[0]!.headers['idempotency-key']);
+  expect(form.hasAttribute('aria-busy')).toBe(false);
 });
 ```
 

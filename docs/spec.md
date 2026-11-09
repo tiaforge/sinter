@@ -147,7 +147,7 @@ The runtime owns every binding: on mount it computes the same values, and its wr
 - A resource whose request is fixed at build time (a literal same-origin `src`, no `when`, not `each`, `call` or embedded data; a paginated one at its first page) gets `<link rel="preload" as="fetch" crossorigin href="…">` in the head, after the leading `<meta>`s: the request starts while the head is parsed, before any script. The runtime's `fetch()` takes the preloaded response (Chrome matches it by URL and credentials mode, `crossorigin` being same-origin credentials; the differing `Accept` header does not keep it from matching, measured 2026-11-08), so there is one request.
 - A resource whose URL reads only what the early file knows (state fields whose initial value needs no data, persisted values, `$now`, `$url`, helpers, not other resources, `$meta` or the built-in formatters) is requested by the early file when it starts, if its `when` holds: as the request layer sends a GET with no middleware (`Accept: application/json`, `credentials: 'same-origin'`, so none to another origin). The early file and the page bundle are bundled apart, so the responses are handed over through a global (`Symbol.for('sinter.prefetched')`). A paginated resource is requested at its first page: the compiler adds the query parameters the pager sends for it (`firstParams` in `paginate.ts`: `size-param`=`page-size` and `direction-param`=the `first` value of `direction-values`, or `page-param`=1 and the size in offset mode; no cursor, no `offset-param`) as the runtime adds them (`withParams`, shared by both), so the runtime's first load (and its revalidation of a `cache`d page) takes the response; any other page, or a request whose `src` changed meanwhile, is the runtime's own. Not `each`, `call` or embedded resources.
 
-How middleware applies (`configure({ request })` is the page bundle's): the runtime sends its request through the whole chain as always; at the end of the chain, instead of fetching, it takes the early response for that URL if the request is exactly the one the early file sent (GET, same URL, same-origin credentials, `Accept: application/json` as its only header). So response middleware (`onUnauthorized`, the 401 cache clearing, the timeout, the retry: a failed early request is retried with a real one) runs on the early response as on any other; a request middleware that changes the request (adds a header, changes credentials) gets a request of its own, and the early one is aborted after mount, as is any early request no resource took (its URL changed in between, or a middleware waited before calling `next`). Each early response is taken once: a refetch goes to the server. A preloaded response is taken by the browser, not by sinter: an app whose middleware adds headers the server needs on a GET (an `Authorization` header) should turn first paint off or not declare such resources with a literal `src`, since the preload is sent without them.
+How middleware applies (`configure({ request })` is the page bundle's): the runtime sends its request through the whole chain as always; at the end of the chain, instead of fetching, it takes the early response for that URL if the request is exactly the one the early file sent (GET, same URL, same-origin credentials, `Accept: application/json` as its only header). So response middleware (`onUnauthorized`, the 401 cache clearing, the timeout, a retry policy) runs on the early response as on any other; a request middleware that changes the request (adds a header, changes credentials) gets a request of its own, and the early one is aborted after mount, as is any early request no resource took (its URL changed in between, or a middleware waited before calling `next`). Each early response is taken once: a refetch goes to the server. An early request that failed (a network error) fails the load that took it, as its own request would have; with `retry.get`, the policy's next try is a real request (changed 2026-11-09: the request layer's automatic resend used to send it again at once). A preloaded response is taken by the browser, not by sinter: an app whose middleware adds headers the server needs on a GET (an `Authorization` header) should turn first paint off or not declare such resources with a literal `src`, since the preload is sent without them.
 
 **The early file renders from a deferred script.** It renders the body, so it has to run after the parse, and before the first paint. A deferred render-blocking module script is the one that does both: an `async` one runs whenever it arrives, during the parse, and a render-blocking module that then waits (for the parse) with `await` does not hold the paint (see Messages). Waiting for the stylesheets costs the rendering nothing: the first paint waits for them anyway. It costs the early requests the stylesheets' load time, though (a deferred script runs only once every stylesheet has loaded; in RealWorld the API requests left at 450 ms, behind two third-party stylesheets, on Lighthouse's mobile profile).
 
@@ -780,8 +780,61 @@ configure({
 - A middleware is `(request, next) => Promise<Response>`, so retries, timeouts or logging are plain functions.
 - `loginRedirect` stores the return URL (same-origin, allowlisted prefixes only), navigates to login, and never resolves, so `then` and `catch` do not run.
 - Non-2xx responses reject with `$error = {status, body, message, detail}`. Network errors give `status: 0`; a failed action call gives `status: null`. `detail` is the error in words when there are any: a short text body, a JSON body's `message` or `error`, or a thrown error's message; otherwise `null` and `message` falls back to the HTTP status, so `error = $error.detail ?? m.save_failed()` shows the server's reason or the app's own text.
-- Defaults: 30 s timeout; one automatic retry for idempotent requests on network errors only.
+- Defaults: 30 s timeout. Nothing is sent again unless a retry policy says so (see Retry policies; changed 2026-11-09: until then GET, HEAD, OPTIONS, PUT and DELETE were sent once more after a network error).
 Response bodies. 204 or an empty body → `null`. A JSON content type → parsed; invalid JSON is an error with the response's status and the message `invalid JSON`. Any other content type → text. Error bodies are parsed the same way into `$error.body`.
+
+### Retry policies (`data-sn-retry`)
+A write made while the connection is down is sent again when its element names a retry policy; without one it is sent once and fails as any request does (added 2026-11-09, for drafts, notes and events in a groupware app; the guide is [`docs/retry.md`](retry.md)):
+```js
+// src/sinter.config.js
+import { configure } from '@tiaforge-ui/sinter';
+import { retry } from '@tiaforge-ui/sinter/retry';
+
+configure({
+  sessionProbe: '/api/user',
+  retry: retry({
+    policies: {
+      drafts:  { backoff: ['1s', '30s'] },                 // until it succeeds or the page is closed
+      network: { backoff: ['1s', '10s'], retries: 3 },
+    },
+    get: 'network',                                         // default policy for every GET; absent: GETs are sent once
+  }),
+});
+```
+```html
+<form data-sn-put="/api/notes/{note.id}" data-sn-retry="drafts" data-sn-concurrency="latest"
+      data-sn-optimistic="patch('notes', note, {title, body})">
+```
+
+| Policy field | Default | Meaning |
+| --- | --- | --- |
+| `backoff` | `['1s', '30s']` | the first and the longest wait between tries; each failure doubles the wait, ±25 % (the stream's rule). `['5m', '5m']` is a fixed interval |
+| `retries` | no limit | how many times the request is sent again after the first try |
+| `maxAge` | no limit | no new try once this long has passed since the first |
+| `key` | `'Idempotency-Key'` | the header carrying a write's idempotency key; `false` sends none |
+
+Durations are written as in `refresh` and `cache` (`30s`, `5m`, `1h`, `1d`); `retry()` throws on a value it cannot read, and when `get` names no policy. Without `retries` and `maxAge`, a policy retries for as long as the page is open.
+
+- **Where.** `data-sn-retry` takes a policy name, on actions with `data-sn-post`, `-put`, `-patch` or `-delete`. No value is `SN401`; on a GET action, on `data-sn-call` (a call may send several requests) or on an element without an action it is `SN102`. Writes have no default policy: whether a write may be sent twice depends on what its endpoint does, which only its element can say. GETs (resource loads, `each` sources, pages, GET actions) use `retry.get`, except background refreshes (`refresh`, which retries by itself), the session probe, next-page data and the early file's requests. A name `retry()` does not define fails the action with `$error.message` "unknown retry policy `x`"; with no `retry` configured at all, the write is sent once, as without the attribute (the check lives in the retry module, not in core). Dev builds warn at mount about both. The compiler does not read the config module, so the name is checked when the page runs.
+- **What is sent again:**
+
+| Response | Effect |
+| --- | --- |
+| network error or timeout (`status: 0`) | wait out the backoff, then the session probe decides, as for streams: 2xx sends again; 401 ends the write (the login redirect; the write is lost); anything else waits longer. Without `sessionProbe`, it sends again after the backoff |
+| 5xx | a failed try: wait out the backoff, send again (no probe: the server answered) |
+| 429, or 503 with `Retry-After` | wait for the longer of the backoff and `Retry-After` (seconds or an HTTP date); if that is after the policy's last allowed try (its `maxAge` deadline, or what its remaining tries take at the longest wait), fail at once with this response. A 429 without `Retry-After` is a failed try |
+| 404 on a `DELETE` that is being sent again | success: an earlier try deleted it. `$result` is `null`, write-through rule 4 removes the row. A 404 on the first try is an error |
+| other 4xx | fail at once (a 422 marks the form's fields at once) |
+
+- **Giving up.** The action fails as one without a policy does, with the last response or network error as `$error`: the optimistic layer is rolled back, then `data-sn-catch`, or the form's field errors and `$error`, or `sn-error` and `onError`. A try that will be sent again is not a failure: nothing is reported and the form's `$error` and field marks stay as they were.
+- **Idempotency keys.** Each trigger gets one key (`crypto.randomUUID()`, else 16 random bytes in hex), sent on its first try and on every try after, set before the middleware chain (which runs on every try, so a CSRF header or a refreshed token is current). A server that honours it remembers each key with its response for as long as the longest policy retries, answers a repeated key with that response, `409` while the first request with the key still runs and `422` when the key comes with another body. A server that ignores the header: `PUT` of the full target state, `DELETE` and a `PATCH` that sets fields are safe to send again; a `PATCH` that increments or appends is not; **a `POST` that creates is not: a lost response and a resend make a duplicate.** Create with a client-generated id instead (`PUT /api/notes/{uuid}`), which is idempotent on any server. The browser cannot tell "never reached the server" from "applied, but the response was lost".
+- **While a write waits.** It counts as running for its element: `aria-busy` stays, and the element's concurrency policy applies. `latest` drops the waiting write when a newer trigger comes (no further try; a running try is never aborted), so after reconnecting only the newest draft goes: the policy for autosave. `queue` keeps later triggers behind it, in order. `block` (forms by default) keeps the form disabled until it settles, so a draft form says `data-sn-concurrency="latest"`. Writes of different elements are not ordered with each other; a page that must not run two writes to one item disables the second while the first is pending (`$meta.<name>.pending` for actions with an optimistic layer). `then` runs when the write finally succeeds, possibly minutes later, against the page's state then. `online` ends the current wait.
+- **Leaving the page.** While a write waits for a retry, the page has a `beforeunload` listener, so the browser asks before a link, a reload or closing the tab (in its own words; a custom message is ignored); it is removed once nothing waits, so it does not keep the page out of the back/forward cache otherwise. Nothing is sent on `pagehide`. iOS Safari never asks, and a tab closed from the app switcher fires nothing usable: there, closing the page loses waiting writes without warning. The page-wide signal is markup: `body:has(form[aria-busy]) .unsaved { display: block }`.
+- **Reads.** A GET waiting for a retry is aborted like a running one (a `src` change, `when` turning falsy, a newer GET trigger). `$meta.<name>.loading` stays true while an ordinary load waits; `error` is set only when the policy gives up. Concurrent loads of one URL share one request and so one retry. Unchanged reloads (`versions`) look at the response that finally arrives.
+- **Dev builds** log each failed try and its outcome (`console.info`): `sinter: retry (drafts): PUT /api/notes/7 try 1 failed (Failed to fetch); next in 1 s`, `… succeeded on try 2`, `… try 4 failed (502): gave up`.
+- Not covered: writes that survive a navigation or a closed tab (a stored outbox), retrying `data-sn-call`, policies written as functions. The testing module drives the waits with `advance(ms)`; `settle()` does not wait for them.
+- Cost: the `retry` module, in the config module's bundle only in apps that call `retry()`; core grew 39 B gzip (14,203 to 14,242) for the hook.
+- Recipe: "Offline drafts".
 
 ### Local actions (`data-sn-call`)
 Work that is not one request (crypto, MIME, WebAuthn, other browser APIs) runs in app functions that pages call like requests (added 2026-11-05; decided in the local actions proposal).
@@ -874,7 +927,7 @@ This is why rollback is "drop the layer", not "restore a snapshot": with two ove
 - `optimistic` may only call `patch`, `upsert` and `remove`. Anything else is a build error, because local state and side effects cannot be rolled back.
 - A layer's `patch` on an item that the base no longer has is ignored; a `remove` of an absent item is a no-op.
 - An optimistic `remove` on a paginated resource also decrements `$meta.<name>.total` inside the same layer; its commit keeps the total down.
-- A layer lives until its request settles, including the 30 s timeout; then it is committed or dropped.
+- A layer lives until its request settles, including the 30 s timeout and, with `data-sn-retry`, every try its policy makes; then it is committed or dropped.
 - Bulk actions put all their changes into one layer, so they roll back together.
 - Pending layers are visible in dev tools through `$meta.<name>.pending` (count of layers whose request has not settled).
 

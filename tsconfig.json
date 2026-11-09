@@ -18,7 +18,8 @@
       "@tiaforge-ui/sinter/testing": ["./src/testing/index.ts"],
       "@tiaforge-ui/sinter/check": ["./src/check/index.ts"],
       "@tiaforge-ui/sinter/messages": ["./src/messages.ts"],
-      "@tiaforge-ui/sinter/early": ["./src/early.ts"]
+      "@tiaforge-ui/sinter/early": ["./src/early.ts"],
+      "@tiaforge-ui/sinter/retry": ["./src/retry.ts"]
     }
   },
   "include": ["src", "test"]

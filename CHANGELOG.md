@@ -32,6 +32,26 @@ Attribute names, function names and diagnostic codes are public API. Before
   the page counts the same. The browser's HTTP cache does the
   revalidation when the server sends `Cache-Control: no-cache`.
 - `@tiaforge-ui/sinter/testing`: `visibility('hidden' | 'visible')` on a rendered page.
+- Retry policies (`@tiaforge-ui/sinter/retry`): `configure({ retry: retry({ policies, get }) })` names
+  policies (`backoff: [first, longest]`, `retries`, `maxAge`, `key`), and `data-sn-retry="drafts"` on a
+  mutation sends it again as that policy says: after a network error once the session probe answers 2xx (a
+  401 ends it), after a 5xx, after a 429 or 503 not before `Retry-After` (at once a failure when that is
+  after the policy's last try); a retried `DELETE` that gets 404 succeeded. Each trigger sends one
+  `Idempotency-Key` on every try. While it waits the element stays `aria-busy`, its optimistic change stays,
+  `latest` replaces it with a newer trigger, and leaving the page asks first (`beforeunload`). `get` is the
+  policy of every GET except background refreshes. Bare `data-sn-retry` is `SN401`; on a GET, a
+  `data-sn-call` or an element without an action, `SN102`. The module is 1.7 KB gzip, in the config
+  module's bundle only; core +39 B. Guide: `docs/retry.md`; recipe: `docs/recipes/offline-draft.html`.
+- `@tiaforge-ui/sinter/testing`: `window('beforeunload', props)`; `settle()` does not wait for a request
+  waiting between retries (`advance(ms)` moves to its next try).
+
+### Changed
+
+- **Nothing is sent again unless a retry policy says so.** The request layer sent GET, HEAD, OPTIONS, PUT
+  and DELETE once more after a network error; without `retry.get` a failed load now sets
+  `$meta.<name>.error` at once, and recovers on `online`, a stream reconnect, a refresh or `refresh()`.
+  Stream reconnects, the session probe and those reloads are unchanged. An early request that failed (a
+  network error) now fails its load as well; with `retry.get` the policy's next try is a real request.
 
 ### Changed
 
