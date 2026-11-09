@@ -21,7 +21,7 @@ function fanOut(l: ResourceLoader, app: App) {
   const each = def.each!;
   const sources = new Map<string, Source>();
   const queued = new Set<string>();
-  let pending = 0, again: Promise<void> | null = null;
+  let pending = 0, again: Promise<void> | null = null, loud = false;
 
   const urlOf = (item: unknown) => {
     if (!item || typeof item != 'object') return null;
@@ -33,14 +33,14 @@ function fanOut(l: ResourceLoader, app: App) {
     r.replace([...(r.base().items as any[]).filter((x) => !mine(x)), ...items]);
   };
 
-  async function load(u: string) {
+  /** `quiet`: a background reload (`refresh`): `$meta.loading` stays false */
+  async function load(u: string, quiet?: boolean) {
     const s = sources.get(u);
     if (!s) return;
     s.c?.abort();
     const ctl = (s.c = new AbortController()), n = ++s.seq, mark = r.startLoad();
-    let loaded = false, items: any[] = [];
-    pending++;
-    l.loading(true);
+    let loaded = false, failed = false, items: any[] = [];
+    if (!quiet) { pending++; l.loading(true); }
     try {
       const body = await l.get(u, ctl.signal);
       if (n != s.seq || sources.get(u) != s) return;
@@ -53,15 +53,17 @@ function fanOut(l: ResourceLoader, app: App) {
       if ([...sources.values()].every((x) => x.answered)) r.meta.loadedAt = app.env.now();
     } catch (e) {
       if (n != s.seq || isAbort(e)) return;
-      s.answered = true;
-      l.failed(e);
+      s.answered = failed = true;
+      l.failed(e, quiet);
     } finally {
       r.endLoad(mark, loaded);
       if (n == s.seq) s.c = null;
-      l.loading(--pending > 0);
+      if (!quiet) l.loading(--pending > 0);
+      else if (loaded) r.onDirty('meta');
     }
     // once per source that answered: `$result` is its items
     if (loaded) l.done(items);
+    if (loaded || failed) for (const f of l.settled) f(loaded);
   }
 
   l.changed = () => {
@@ -95,19 +97,22 @@ function fanOut(l: ResourceLoader, app: App) {
     l.loading(pending > 0);
   };
   l.start = () => l.changed();
-  l.load = () => Promise.all([...sources.keys()].map(load)).then(() => {});
+  l.load = () => Promise.all([...sources.keys()].map((u) => load(u))).then(() => {});
   // a hint (an event's payload) that resolves to one source's URL reloads only that source;
   // several refetches in one task share one round of requests
-  l.refetch = (hint?: object) => {
+  l.refetch = (hint?: object, quiet?: boolean) => {
     const u = hint ? urlOf(hint) : null;
     queued.add(u != null && sources.has(u) ? u : '*');
+    if (!quiet) loud = true;
     return (again ??= Promise.resolve().then(() => {
       again = null;
-      const urls = queued.has('*') ? [...sources.keys()] : [...queued];
+      const urls = queued.has('*') ? [...sources.keys()] : [...queued], q = !loud;
       queued.clear();
-      return Promise.all(urls.map(load)).then(() => {});
+      loud = false;
+      return Promise.all(urls.map((x) => load(x, q))).then(() => {});
     }));
   };
+  l.inflight = () => [...sources.values()].some((s) => s.c != null);
 }
 
 const each: Feature = {

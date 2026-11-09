@@ -3,6 +3,28 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Added
+
+- `refresh="30s"` on `<sn-resource>` (`@tiaforge-ui/sinter/refresh`): the resource is reloaded in the
+  background once its last load is that old, counted from every load (first load, `refresh()`, a
+  `refetch` event, a reconnect, a `src` change), so next to a stream it is a check that fills in only when
+  the stream has gone quiet. `$meta.loading` stays false during a refresh; nothing is reloaded while the
+  page is hidden (a refresh that fell due runs when it is shown) or while `when` is falsy; failures back off
+  up to 30 s and are reported once until a load succeeds. At least `1s`, else `SN401`.
+- Unchanged reloads: a reload whose response carries the `ETag` (else `Last-Modified`) of the response the
+  data was last replaced with, while nothing has changed the data since, is not parsed or stored, nothing
+  re-renders and `then` does not run (`loadedAt` still moves). For every reload of a `src` resource, not
+  only refreshes; a `304` that reaches the page counts the same. The browser's HTTP cache does the
+  revalidation when the server sends `Cache-Control: no-cache`.
+- `@tiaforge-ui/sinter/testing`: `visibility('hidden' | 'visible')` on a rendered page.
+
+### Changed
+
+- `then` on `<sn-resource>` no longer runs for a reload answered with the version of the data already shown
+  (see above).
+
 ## 0.12.0 (2026-11-09)
 
 ### Added

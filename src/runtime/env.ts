@@ -16,8 +16,10 @@ export interface Env {
   href(): string;
   replaceState(url: string): void;
   random(): number;
-  /** add a window-level listener (pagehide, pageshow, popstate); returns the remover */
+  /** add a window-level listener (pagehide, pageshow, popstate, visibilitychange); returns the remover */
   listen(type: string, fn: (e: Event) => void): () => void;
+  /** whether the page is hidden (a background tab, a prerendered page); absent: never */
+  hidden?(): boolean;
 }
 
 const g = globalThis as typeof globalThis & Window;
@@ -39,6 +41,8 @@ export const defaultEnv: Env = {
   replaceState: (url) => g.history.replaceState(g.history.state, '', url),
   random: Math.random,
   listen: (type, fn) => (g.addEventListener(type, fn), () => g.removeEventListener(type, fn)),
+  // visibilitychange fires at the document and bubbles to the window
+  hidden: () => g.document?.visibilityState == 'hidden',
 };
 
 /**

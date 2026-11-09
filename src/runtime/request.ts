@@ -102,13 +102,7 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
   }
 
   async function send(url: string, init?: SendInit): Promise<unknown> {
-    const res = await raw(url, init), body = await parseBody(res);
-    if (!res.ok) {
-      const b = body as any, m = typeof body == 'string' ? body.length < 200 && body.trim() : b?.message ?? b?.error;
-      const detail = typeof m == 'string' && m ? m : null;
-      throw new SinterError(res.status, body, detail ?? `${res.status} ${res.statusText}`.trim(), detail);
-    }
-    return body;
+    return readBody(await raw(url, init));
   }
 
   return { send, raw, get inflight() { return inflight; }, get writes() { return writes; }, get writing() { return writing; } };
@@ -116,6 +110,23 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
 
 /** UTF-8 size of a string; a short one cannot reach the limit (at most 3 bytes per UTF-16 unit). */
 const bytes = (s: string) => (s.length < 20_000 ? s.length : new TextEncoder().encode(s).length);
+
+/** The parsed body of a response; rejects with SinterError unless it is 2xx. */
+export async function readBody(res: Response): Promise<unknown> {
+  const body = await parseBody(res);
+  if (!res.ok) {
+    const b = body as any, m = typeof body == 'string' ? body.length < 200 && body.trim() : b?.message ?? b?.error;
+    const detail = typeof m == 'string' && m ? m : null;
+    throw new SinterError(res.status, body, detail ?? `${res.status} ${res.statusText}`.trim(), detail);
+  }
+  return body;
+}
+
+/**
+ * What identifies a response's content: its `ETag`, else its `Last-Modified`; null without either.
+ * A 304 carries the validator of the content it confirms.
+ */
+export const versionOf = (res: Response): string | null => (res.ok || res.status == 304 ? res.headers.get('ETag') ?? res.headers.get('Last-Modified') : null);
 
 /** 204 or empty → null; JSON content type → parsed; anything else → text. */
 export async function parseBody(res: Response): Promise<unknown> {
