@@ -1,15 +1,9 @@
 // Runtime checks for the DOM sinks that cannot be closed at build time.
 
-/** Keys that could reach prototypes; dropped from input and refused in computed access. */
-export const BAD_KEY = /^(constructor|__proto__|prototype)$/;
+export { BAD_KEY, $k } from './keys.js';
 
-/** Guard for computed member access in expressions: `obj[k]` compiles to `obj[$k(k)]`. */
-export const $k = <K>(key: K): K => {
-  if (BAD_KEY.test(key as string)) throw TypeError(`sinter: [${String(key)}] is not allowed`);
-  return key;
-};
-
-const URL_ATTR = /^(href|src|action|formaction|poster|cite|data|ping|xlink:href)$/;
+/** Attributes whose value is a URL (and `…srcset`): the ones `urlAllowed` checks; the compiler skips the check for the rest. */
+export const URL_ATTR = /^(href|src|action|formaction|poster|cite|data|ping|xlink:href)$/;
 
 /** Allowed schemes: http(s), mailto, tel and configured extras; javascript:, vbscript: and data: never. */
 export const schemesOf = (extra: string[]) => new Set(['http:', 'https:', 'mailto:', 'tel:', ...extra
@@ -32,5 +26,3 @@ export function urlAllowed(el: Element, name: string, value: string, base: strin
 /** Style values that could load URLs. */
 export const STYLE_BAD = /url\(|image(-set)?\(|\\/i;
 
-/** Encodes one interpolated URL value. */
-export const encodeSegment = (v: unknown): string => encodeURIComponent(String(v ?? '')).replace(/^\.\.?$/, (d) => d.replace(/\./g, '%2E'));

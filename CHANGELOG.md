@@ -26,9 +26,11 @@ Attribute names, function names and diagnostic codes are public API. Before
     (~600 B gzip) into every page: the other pages −814 B each, the article +214 B (the helper is in its
     own chunk now). The article requests the renderer when the module runs, alongside its data, instead
     of once the data has arrived.
-  - Early files no longer carry their own copy of the URL checks and URL expansion: the build emits
-    them as one chunk the early files and the page bundle import, preloaded with the early file that
-    uses it (one with no early request, attribute or style binding imports nothing).
+  - Early files no longer carry their own copy of URL expansion (and, where an early binding needs
+    them, the URL checks): the build emits what some early file uses as one chunk the early files and
+    the page bundle import, preloaded with each early file that uses it; an early file with no early
+    request and no checked attribute or style imports nothing. `BAD_KEY` and `$k` moved to
+    `runtime/keys.ts`, `encodeSegment` to `runtime/url.ts` (`security.ts` re-exports the first two).
     Each RealWorld early file is 0.3–0.8 KB smaller (also when following a link to another page); per
     page, the article, index, profile and editor about −380 B, login, register and settings about
     +110 B (their early files used little of that code). Lighthouse (mobile, fixed API): no change in
@@ -37,9 +39,12 @@ Attribute names, function names and diagnostic codes are public API. Before
     the runtime that interpreted it, the early module holds the page's renderer as straight-line calls
     of small writers and helpers that `@tiaforge-ui/sinter/early` exports, so each early file bundles
     only the writers its bindings use, and the clock, location, fetch, storage and `config` only when
-    its requests, persisted state or `$locale` need them. RealWorld's early files 1.1–2.0 KB gzip (were
-    2.0–3.4 KB); login, register and settings import nothing. Each page about 700 B smaller (login
-    22,364 → 21,457 B, the article 26,578 → 25,883 B). The early page object is
+    its requests, persisted state or `$locale` need them. An attribute that is no URL attribute, or a
+    URL whose expression fixes its scheme (`'/article/' + slug`, `` `#${id}` ``, `x ? '/a' : null`), is
+    written without the browser's URL check. A page with nothing to wait for (no early request, no
+    messages) renders in one step (`run(page)`). RealWorld's early files 1.0–2.0 KB gzip (were
+    2.0–3.4 KB); login, register and settings import nothing. Each page 700–900 B smaller (login
+    22,364 → 21,254 B, the article 26,578 → 25,810 B). The early page object is
     `{ ir: { res, path }, fns, scopes, render, locale? }`; `early(doc, page)` (tests) takes it,
     and `earlyPage(parts)` from the compiler writes its source. `compactEarly` is gone.
   - The page module imports feature modules as `sn$<name>`, so a helper named like a feature (`keys`,

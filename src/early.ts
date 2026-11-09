@@ -20,7 +20,7 @@ const envOf = (): EarlyEnv => {
   return { now: e?.now ?? Date.now, href: e?.href ?? (() => g.location.href), storage: e?.storage ?? (() => { try { return g.localStorage; } catch { return null; } }), fetch: e?.fetch ?? ((r) => fetch(r)) };
 };
 
-export { $k } from './runtime/security.js';
+export { $k } from './runtime/keys.js';
 /** for a page whose early requests include a paginated resource's first page (the compiler passes it to `requests`) */
 export { withParams } from './runtime/url.js';
 
@@ -35,7 +35,7 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[]): void; locale?: typeof locale };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale };
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
@@ -77,7 +77,33 @@ export function prime(page: EarlyPage | null, messages: { use(): void; ready(): 
   };
 }
 
+/**
+ * The early file's entry for a page without early requests or messages: renders at once (the early
+ * file is a deferred module, run after the parse and before the first paint), and tells the page module.
+ */
+export function run(page: EarlyPage, doc: Document = document): void {
+  const m = meeting();
+  m.started = true;
+  // a failure is reported, and the page module mounts all the same
+  try { const p = page(), $ = scope(p, null); p.render(doc, p.scopes($), $); } catch (e) { fail(e); }
+  m.finish();
+}
+
 const fail = (e: unknown) => { setTimeout(() => { throw e; }); };
+
+/** The base scope: what is not available before data throws, and the binding (or request) is left to the page module. */
+function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
+  return new Proxy(Object.create(null), {
+    get(_, k) {
+      // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
+      const l = k == '$locale' ? o.locale?.() : null;
+      if (l) return l.get();
+      // for requests only: no early binding reads the clock or the URL
+      if (req) return req.read(k, o.ir.path);
+      throw Error('sinter: not available early');
+    },
+  });
+}
 
 /**
  * The early requests: the compiler has the early file import this only when the page has resources
@@ -154,22 +180,10 @@ export function early(doc: Document, page: ReturnType<EarlyPage>): void {
 }
 
 function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
-  const { ir, fns } = o;
-  // what is not available before data throws, and the binding (or request) is left to the page module
-  const base = new Proxy(Object.create(null), {
-    get(_, k) {
-      // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
-      const l = k == '$locale' ? o.locale?.() : null;
-      if (l) return l.get();
-      // for requests only: no early binding reads the clock or the URL
-      if (req) return req.read(k, ir.path);
-      throw Error('sinter: not available early');
-    },
-  });
-  const roots = o.scopes(base);
+  const { ir, fns } = o, base = scope(o, req), roots = o.scopes(base);
   return {
     fetch() { req?.send(ir, roots, base, fns); },
-    render(doc: Document) { o.render(doc, roots); },
+    render(doc: Document) { o.render(doc, roots, base); },
   };
 }
 
@@ -252,10 +266,15 @@ export const show = (el: HTMLElement, v: any) => { el.hidden = !v; };
 export const cls = (el: HTMLElement, v: any, n: string) => { if (v || el.hasAttribute('class')) el.classList.toggle(n, !!v); };
 /** a class binding without a name: `[name, on]` */
 export const pair = (el: HTMLElement, v: any) => { if (v?.[0]) el.classList.toggle(v[0], !!v[1]); };
-export const attr = (el: HTMLElement, v: any, n: string) => {
+/** an attribute the compiler found needs no URL check: not a URL attribute, or a value whose scheme is fixed (`'/a/' + x`) */
+export const set = (el: HTMLElement, v: any, n: string) => {
   if (/^(checked|selected|indeterminate|value)$/.test(n) && n in el) (el as any)[n] = n == 'value' ? (v == null || v === false || v === true ? '' : v) : v != null && v !== false;
   if (v == null || v === false) el.removeAttribute(n);
-  else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), el.baseURI, schemesOf(config.urlSchemes))) el.setAttribute(n, v);
+  else el.setAttribute(n, v === true ? '' : '' + v);
+};
+/** a URL attribute whose value may have any scheme: written only if the scheme is allowed */
+export const attr = (el: HTMLElement, v: any, n: string) => {
+  if (v == null || v === false || urlAllowed(el, n, v === true ? '' : '' + v, el.baseURI, schemesOf(config.urlSchemes))) set(el, v, n);
 };
 export const style = (el: HTMLElement, v: any, n: string) => {
   if (v == null || v === false) el.style.removeProperty(n);

@@ -51,13 +51,15 @@ test('the early module: the app\'s early module first, then the bindings that ne
       <span data-sn-text="fmt(here)"></span>
     </nav>`), { m: ['nav', 'mail', 'hello', 'unused'] }, ['fmt', 'other'], { module: '/src/sinter.early.ts', src: '/@sinter/early/index.html.js' });
   // the early runtime's parts the compiled renderer calls: the writers of the kinds it has, nothing else
-  expect(early).toMatch(/^import "\/src\/sinter\.early\.ts";\nimport \{ start, \$k, attr, byId, model, pm, st, text, w \} from '@tiaforge-ui\/sinter\/early';\nimport \{ fmt \} from "\/h\.js";\nimport \{ nav as m\$nav, mail as m\$mail \} from "\/m\.js";\n/);
+  // (`aria-label` is no URL attribute: written without the browser's URL check)
+  expect(early).toMatch(/^import "\/src\/sinter\.early\.ts";\nimport \{ run, \$k, byId, model, pm, set, st, text, w \} from '@tiaforge-ui\/sinter\/early';\nimport \{ fmt \} from "\/h\.js";\nimport \{ nav as m\$nav, mail as m\$mail \} from "\/m\.js";\n/);
   expect(early).not.toContain('hello');
   expect(early).not.toContain('user.name');
   expect(early).not.toContain('date(');
   // started by the early runtime: it renders once the document is parsed, and tells the page module
   expect(early).toContain('const page = () => {');
-  expect(early!.endsWith('start(page, null);\n')).toBe(true);
+  // nothing to wait for (no early request, no messages): rendered in one step
+  expect(early!.endsWith('run(page);\n')).toBe(true);
   // the early chunk loads render-blocking before the page module
   expect(html).toContain('<script type="module" src="/@sinter/early/index.html.js" blocking="render"></script><script type="module" src="/page.js"></script>');
 });
@@ -80,8 +82,10 @@ test('early state: fields that need no data, persisted values, and the branch of
   expect(early).not.toContain('monday');
   // compiled: the persisted state, the branch with its one text binding, no renderer for the empty else branch
   expect(early).toContain('s[0] = sp($, f[2], 0, "view");');
-  expect(early).toMatch(/w\(n\[2\], f\[0\], s\[2\], \(t, v\) => iff\(t, v, n\[3\], \(ns, b\) => \{ const n = \[at\(ns, \[0\], "div"\)\];.*w\(n\[0\], f\[1\], s\[0\], text\); \}, 0, s\[2\]\)\);/);
-  expect(early).toContain("import { start, $k, at, byId, iff, sp, st, text, w } from '@tiaforge-ui/sinter/early';");
+  // a node that opens no state has its ancestor's scope (no slot of its own): the template reads `$s1`'s
+  expect(early).toContain('s[1] = st(s[0], f[3], 1); return s;');
+  expect(early).toContain('w(n[2], f[0], s[1], (t, v) => iff(t, v, n[3], (ns, b) => { const n = [at(ns, [0], "div")]; w(n[0], f[1], b, text); }, 0, s[1]));');
+  expect(early).toContain("import { run, $k, at, byId, iff, sp, st, text, w } from '@tiaforge-ui/sinter/early';");
 });
 
 test('no early module when nothing runs early and the app has no early module', () => {
@@ -168,4 +172,17 @@ test('preconnect: every origin a literal resource or stream `src` names gets one
   // off with first paint
   const plain = compile(page('<sn-resource name="u" src="https://api.example.com/u"></sn-resource>'), { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} } });
   expect(plain.html).not.toContain('preconnect');
+});
+
+test('early attributes: the URL check only where the expression does not fix the scheme', async () => {
+  const { fixedScheme } = await import('../../src/compiler/early-render.js');
+  for (const ok of [`($) => ('/article/' + $.a.slug)`, '($) => (`/p/${$.u}`)', `($) => ($.x ? '#top' : null)`, `($) => ($.on && '?q=' + $.q)`, `($) => ('https://cdn.example/' + $.f)`, `($) => ('./x' + $.y || '/home')`])
+    expect(fixedScheme(ok), ok).toBe(true);
+  for (const no of [`($) => ($.a.url)`, `($) => (avatar($.a.image))`, `($) => ('' + $.u)`, '($) => (`${$.u}/x`)', `($) => ($.x ? '/a' : $.y)`, `($) => ('java' + 'script:x')`, `($) => ($.u + '/x')`])
+    expect(fixedScheme(no), no).toBe(false);
+  // persisted state: rendered early, not written into the HTML at build time
+  const { early } = build(`<!doctype html><html><head></head><body data-sn-state="{ to: 'a' }" data-sn-persist="nav"><a data-sn-attr="{href: '/x/' + to, title: to}">a</a><img data-sn-attr="{src: to}" alt=""></body></html>`);
+  expect(early).toContain('set, "href"');
+  expect(early).toContain('set, "title"');
+  expect(early).toContain('attr, "src"');
 });

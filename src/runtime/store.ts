@@ -1,7 +1,7 @@
 // The store: one keyed (or single-object) cache per resource. It knows nothing
 // about the DOM, fetch or SSE. Each resource holds a base (what the server last
 // confirmed) and ordered optimistic layers; readers see base + layers.
-import { BAD_KEY } from './security.js';
+import { BAD_KEY } from './keys.js';
 
 export type Change<T = any> =
   | { resource: string; op: 'upsert'; item: T }

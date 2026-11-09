@@ -2,7 +2,7 @@
 // and `data-sn-encoding="form"` (application/x-www-form-urlencoded). Loaded only by pages with a
 // form action without `data-sn-body`, or with an action that encodes as a form.
 import type { App, Feature } from './runtime/app.js';
-import { BAD_KEY } from './runtime/security.js';
+import { BAD_KEY } from './runtime/keys.js';
 
 /**
  * A body as form fields (`data-sn-encoding="form"`): a form's own fields, or an object's keys with

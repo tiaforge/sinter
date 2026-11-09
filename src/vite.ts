@@ -105,7 +105,11 @@ const EARLY = `${PREFIX}early/`;
  * handoff (a few lines over globals): an early file that needs nothing else imports nothing, so
  * its first paint waits for no other file.
  */
-const SHARED_MODULES = ['security', 'url'];
+const SHARED_MODULES: Record<string, string[]> = {
+  // by module, the exports of `@tiaforge-ui/sinter/early` that use it: shared only when some early file calls one
+  security: ['attr', 'style'],
+  url: ['requests'],
+};
 /** the emitted entry that makes the shared chunk; it re-exports every export of the modules */
 const SHARED = '\0sinter:shared';
 const SHARED_MAP = '\0sinter:shared-map';
@@ -451,11 +455,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // what the early files share with the page bundle: one chunk, which both import (see generateBundle)
       const early = earlyPages.size ? await this.resolve('@tiaforge-ui/sinter/early', resolve(root, 'index.html')) : null;
       if (early && !early.external) {
-        for (const m of SHARED_MODULES) {
+        // what the early modules import from the early runtime (the compiler names each writer it calls)
+        const used = new Set([...earlyPages.values()].flatMap((code) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/early'/.exec(code)?.[1]!.split(',').map((x) => x.trim()) ?? []));
+        const want = Object.entries(SHARED_MODULES).filter(([, uses]) => uses.some((u) => used.has(u))).map(([m]) => m);
+        for (const m of want) {
           const r = await this.resolve(`./runtime/${m}.js`, early.id);
           if (r && !r.external) sharedIds.add(r.id);
         }
-        if (sharedIds.size == SHARED_MODULES.length) sharedRef = this.emitFile({ type: 'chunk', id: SHARED, name: 'sinter-shared', preserveSignature: 'strict' });
+        if (want.length && sharedIds.size == want.length) sharedRef = this.emitFile({ type: 'chunk', id: SHARED, name: 'sinter-shared', preserveSignature: 'strict' });
       }
     },
 
