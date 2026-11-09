@@ -65,6 +65,8 @@ Durations are written as in `refresh` and `cache` (`30s`, `5m`, `1h`). Without `
 - GET actions and resources use `retry.get`; they take no `data-sn-retry`.
 - An unknown policy name is found at runtime, since the compiler does not read the config module:
   dev builds warn at mount, and the action fails with `$error.message` "unknown retry policy".
+  With no `retry()` configured at all, the write is sent once (decided at review: the check would
+  cost core 50 B for a mistake the dev warning already reports).
 
 ## What is retried
 
@@ -177,9 +179,12 @@ Today the request layer sends a GET, HEAD, OPTIONS, PUT or DELETE once more afte
   recovers on the next `online`, stream reconnect, refresh or `refresh()`.
 - **Kept, because they are their own documented rules, not a resend of a failed request:** stream
   reconnects and their probe; the reloads on `online`, back/forward-cache restore and after a
-  reconnect; `refresh`; `cache` revalidation; and the early file: when the early response for a
-  request failed, the runtime sends its own request instead (it would have sent it anyway). That
-  last one is in the loop being removed, so it moves out as its own rule.
+  reconnect; `refresh`; `cache` revalidation.
+- **The early file's failed requests are not sent again either** (decided at review; first proposed
+  as a rule of its own). The loop being removed sent the same request once more when the early
+  response failed with a network error. That second request is identical (URL, headers, credentials,
+  CORS, CSP), so it is a blind resend: the load now fails, and `retry.get` covers it (an early
+  response is taken once, so the policy's next try fetches).
 
 The CHANGELOG lists it under Changed.
 

@@ -41,7 +41,7 @@ Attribute names, function names and diagnostic codes are public API. Before
   `latest` replaces it with a newer trigger, and leaving the page asks first (`beforeunload`). `get` is the
   policy of every GET except background refreshes. Bare `data-sn-retry` is `SN401`; on a GET, a
   `data-sn-call` or an element without an action, `SN102`. The module is 1.9 KB gzip, in the config
-  module's bundle only; core +118 B. Recipe: `docs/recipes/offline-draft.html`.
+  module's bundle only; core +39 B. Recipe: `docs/recipes/offline-draft.html`.
 - `@tiaforge-ui/sinter/testing`: `window('beforeunload', props)`; `settle()` does not wait for a request
   waiting between retries (`advance(ms)` moves to its next try).
 
@@ -50,8 +50,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 - **Nothing is sent again unless a retry policy says so.** The request layer sent GET, HEAD, OPTIONS, PUT
   and DELETE once more after a network error; without `retry.get` a failed load now sets
   `$meta.<name>.error` at once, and recovers on `online`, a stream reconnect, a refresh or `refresh()`.
-  Stream reconnects, the session probe and those reloads are unchanged. An early request that failed is
-  still replaced by the runtime's own request.
+  Stream reconnects, the session probe and those reloads are unchanged. An early request that failed (a
+  network error) now fails its load as well; with `retry.get` the policy's next try is a real request.
 
 ### Changed
 

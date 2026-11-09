@@ -63,13 +63,11 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     const timer = env.setTimeout(() => c.abort(), TIMEOUT, 'timeout');
     try {
       const ahead = req.headers.has(PREFETCH_MARK);
-      let out = req, res: Response | undefined;
+      let out = req;
       if (ahead) { const h = new Headers(out.headers); h.delete(PREFETCH_MARK); out = new Request(out, { headers: h }); }
-      // the response the early file already requested for exactly this request; when that one
-      // failed, the runtime's own request (it would have sent it anyway), not a retry
-      const early = !ahead && prefetched()?.take(req, c.signal);
-      if (early) try { res = await early; } catch (e) { if (signal.aborted || c.signal.aborted || isAbort(e)) throw e; }
-      res ??= await env.fetch(new Request(out, { signal: c.signal }));
+      // the response the early file already requested for exactly this request, else a fetch; a
+      // failed early request fails this one (a retry policy's next try fetches: it is taken once)
+      const res = await ((!ahead && prefetched()?.take(req, c.signal)) || env.fetch(new Request(out, { signal: c.signal })));
       // the session is gone: cached data must not outlive it, whatever the app does next
       if (res.status == 401) clearCached(env);
       if (ahead && !res.ok) throw new SinterError(res.status, null, 'prefetch failed');
@@ -105,9 +103,9 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     // mutations outlive the page: a navigation right after a click must not cancel the write
     // (keepalive bodies are limited to 64 KiB; larger ones and uploads go without it)
     const keepalive = method != 'GET' && method != 'HEAD' && (body == null || (typeof body == 'string' && bytes(body) < 60_000));
-    const write = method != 'GET' && method != 'HEAD', name = init.retry;
-    // a policy the element names must exist: with no retry module configured, none does
-    const retry = name === false ? null : config.retry ? config.retry.wrap(method, url, init, headers, layer, env) : name ? unknown(name) : null;
+    const write = method != 'GET' && method != 'HEAD';
+    // no retry module configured: sent once (dev builds warn about a `data-sn-retry` naming no policy)
+    const retry = init.retry === false ? null : config.retry?.wrap(method, url, init, headers, layer, env);
     const once = async () => {
       const res = await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null, keepalive, ...(init.priority ? { priority: init.priority } : {}) } as RequestInit));
       // also a 401 that middleware answered itself (fetch above clears before onUnauthorized runs)
@@ -134,8 +132,6 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
   const layer: RequestLayer = { send, raw, get inflight() { return inflight; }, get writes() { return writes; }, get writing() { return writing; } };
   return layer;
 }
-
-const unknown = (name: string): never => { throw new SinterError(null, null, `unknown retry policy \`${name}\``); };
 
 /** UTF-8 size of a string; a short one cannot reach the limit (at most 3 bytes per UTF-16 unit). */
 const bytes = (s: string) => (s.length < 20_000 ? s.length : new TextEncoder().encode(s).length);

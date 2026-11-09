@@ -214,7 +214,7 @@ test('maxAge: no new try once it has passed', async () => {
   expect(r.root.querySelector('s')!.textContent).toBe('Failed to fetch');
 });
 
-test('an unknown policy fails the action', async () => {
+test('an unknown policy fails the action; with no retry policies configured, the write is sent once', async () => {
   const p = await page({ id: 1 }, 'data-sn-retry="nope"');
   await p.click();
   expect(p.sent()).toHaveLength(0);
@@ -222,7 +222,9 @@ test('an unknown policy fails the action', async () => {
   configure({ retry: null });
   p.button().click();
   await p.settle();
-  expect(p.text('s')).toBe('unknown retry policy `nope`');
+  expect(p.sent()).toHaveLength(1);
+  expect(p.sent()[0]!.headers['idempotency-key']).toBeUndefined();
+  expect(p.text('b')).toBe('1');
 });
 
 test('retry() checks its policies', () => {
