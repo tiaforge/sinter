@@ -3,7 +3,7 @@
 // first paint on, each page also gets an early chunk: a second entry, loaded
 // render-blocking before the page module, that renders what needs no data.
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
@@ -11,6 +11,8 @@ import { compile, formatDiagnostic, type CheckUnit, type CompileResult } from '.
 import { project, type ProjectOptions } from './project.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { PAINT_SCRIPT } from './paint-build.js';
+import { pagePaths, prefetchModule } from './prefetch-build.js';
+import type { PrefetchParts } from './compiler/index.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -23,12 +25,18 @@ export interface SinterOptions extends ProjectOptions {
   firstPaint?: boolean;
   /** an early file above this many bytes gzip is a build warning (default 10000) */
   earlyBudget?: number;
+  /**
+   * next-page data (default true): when a link to another page of the app is about to be followed,
+   * that page's data is requested, and the page shows it at once (then revalidates). `false`: off.
+   */
+  prefetch?: boolean;
 }
 
 type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin];
 
 const PREFIX = '/@sinter/';
 const EARLY = `${PREFIX}early/`;
+const PREFETCH = `${PREFIX}prefetch.js`;
 
 export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let root = process.cwd();
@@ -50,6 +58,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const markupMessages = new Map<string, string[]>();
   const languageFiles = new Map<string, Record<string, { fileName: string; code: string }>>();
   let messages: MessagesProject | null = null;
+  /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
+  const described = new Map<string, PrefetchParts | null>();
+  const seen = new Set<string>();
+  let pagesCache: Array<{ paths: string[]; parts: PrefetchParts }> | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
   /**
    * the picker script's tag: it picks the locale and adds the page's language file before the first paint;
@@ -75,13 +87,40 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   const relOf = (file: string) => relative(root, file).split(sep).join('/');
 
+  /** the app's HTML entries: the build input, else `index.html`, and every page compiled so far */
+  const entries = () => {
+    const b = resolved?.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } } | undefined;
+    const input = b?.rolldownOptions?.input ?? b?.rollupOptions?.input;
+    const list = typeof input === 'string' ? [input] : Array.isArray(input) ? input : input && typeof input === 'object' ? Object.values(input) : [];
+    const files = (list as unknown[]).filter((f): f is string => typeof f === 'string' && f.endsWith('.html')).map((f) => resolve(root, f));
+    if (!files.length && existsSync(resolve(root, 'index.html'))) files.push(resolve(root, 'index.html'));
+    return [...new Set([...files, ...seen])].sort();
+  };
+  /** every page that has data another page can request ahead, with the paths it answers at */
+  const prefetchPages = () => {
+    if (pagesCache) return pagesCache;
+    const p = project(root, options), out: Array<{ paths: string[]; parts: PrefetchParts }> = [];
+    for (const file of entries()) {
+      if (!described.has(file)) {
+        try {
+          described.set(file, compile(readFileSync(file, 'utf8'), { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile }).prefetch);
+        } catch { described.set(file, null); }
+      }
+      const parts = described.get(file);
+      if (parts) out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', parts.path), parts });
+    }
+    return (pagesCache = out);
+  };
+
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
   const build = (html: string, file: string, earlySrc: string | null): { out: CompileResult; p: ReturnType<typeof project> } => {
     const rel = relOf(file);
     const p = project(root, options);
     if (p.diagnostics.length) throw new Error(`sinter: ${p.diagnostics.map(formatDiagnostic).join('\n')}`);
+    if (!seen.has(file)) { seen.add(file); pagesCache = null; }
+    const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
-      file, root, dev, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile,
+      file, root, dev, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
       check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles,
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
     });
@@ -110,6 +149,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       server = s;
       // an HTML, partial or helpers change triggers a full reload in v0.1
       s.watcher.on('change', (file) => {
+        // a page's resources may have changed: the next-page module is described again
+        if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); }
         if (watched.has(file)) s.ws.send({ type: 'full-reload' });
       });
     },
@@ -119,6 +160,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       earlyPages.clear();
       earlyFiles.clear();
       languageFiles.clear();
+      described.clear();
+      pagesCache = null;
       if (dev) return;
       const p = project(root, options);
       messages = p.messages;
@@ -231,6 +274,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
       if (id === `\0${PREFIX}paint.js`) return PAINT_SCRIPT;
+      if (id === `\0${PREFETCH}`) return prefetchModule(prefetchPages(), project(root, options).helpers);
       const lang = id.startsWith(`\0${PREFIX}messages/`) && messages ? id.slice(`\0${PREFIX}messages/`.length, -3) : null;
       if (lang && messages?.dicts[lang]) return languageFile(lang, { ...messages.dicts[messages.base], ...messages.dicts[lang] });
       if (!id.startsWith('\0' + PREFIX)) return null;

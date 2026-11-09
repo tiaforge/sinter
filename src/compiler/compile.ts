@@ -59,6 +59,8 @@ export interface CompileOptions {
    * entry from, injected before the page module (the Vite plugin injects it itself in builds)
    */
   early?: { module: string | null; src?: string | null };
+  /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
+  prefetch?: string | null;
 }
 
 export interface CompileResult {
@@ -72,6 +74,8 @@ export interface CompileResult {
   early?: string | null;
   /** the built-in message keys the page calls (markup only; modules are collected by the adapter); absent without built-in messages */
   messages?: string[];
+  /** what another page needs to request this page's data ahead (null: nothing) */
+  prefetch: PrefetchParts | null;
 }
 
 /** What the early chunk runs: the bindings that can render before data, and what they import. */
@@ -79,6 +83,20 @@ export interface EarlyParts {
   ir: EarlyIR;
   fns: string[];
   /** helper names and namespace members the early bindings call */
+  helpers: string[];
+  namespaces: Record<string, string[]>;
+}
+
+/**
+ * What another page needs to request this page's data ahead (the `prefetch` feature): its
+ * `data-sn-path` patterns and the resources whose request only `$url` decides. Function indexes
+ * point into `fns`.
+ */
+export interface PrefetchParts {
+  path: string[];
+  res: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1 }>;
+  fns: string[];
+  /** helper names and namespace members the functions call */
   helpers: string[];
   namespaces: Record<string, string[]>;
 }
@@ -99,6 +117,8 @@ export interface CompiledParts {
   check?: CheckUnit;
   /** with `early`: the early chunk's bindings, or null when none can run early */
   early?: EarlyParts | null;
+  /** what another page needs to request this page's data ahead; null when no request is decided by the URL alone */
+  prefetch: PrefetchParts | null;
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
@@ -242,6 +262,7 @@ class Compiler {
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
+      prefetch: this.prefetchParts(),
     };
   }
 
@@ -1812,6 +1833,41 @@ class Compiler {
     if (res.length) ir.res = res;
     if (url && this.pathList.length) ir.path = this.pathList;
     return { ir, fns, helpers, namespaces };
+  }
+
+  /**
+   * The resources another page can request for this one before it is opened: a `src` and `when`
+   * that read only `$url`, constants and the app's helpers (no state, resources, clock, formatters
+   * or messages); not paginated, `each`, `call` or embedded data.
+   */
+  prefetchParts(): PrefetchParts | null {
+    const userHelpers = new Set(this.opts.helpers.names);
+    const BUILTIN = /(?<![\w$.])(date|time|datetime|relative|number|bytes)\(/g;
+    const builtin = (code: string) => [...code.matchAll(BUILTIN)].some((m) => !userHelpers.has(m[1]!));
+    const messages = Object.entries(this.opts.helpers.namespaces).filter(([, v]) => v.module === '@tiaforge-ui/sinter/messages').map(([k]) => k);
+    const fns: string[] = [], index = new Map<string, number>();
+    const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
+    const res: PrefetchParts['res'] = [];
+    for (const def of this.resources) {
+      if (def.call || def.each || def.data != null || def.paginate || !def.src.length) continue;
+      if (!def.deps.every((d) => d === '$url' || d.startsWith('$url.'))) continue;
+      const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
+      if (codes.some((c) => /\$\.\$(?!url\b)/.test(c) || builtin(c) || messages.some((m) => c.includes(`${m}$`)))) continue;
+      res.push({
+        s: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)),
+        ...(def.when != null ? { w: fn(this.fns[def.when]!) } : {}),
+        i: def.items, t: def.total, ...(def.key ? { k: 1 as const } : {}),
+      });
+    }
+    if (!res.length) return null;
+    const all = fns.join('\n');
+    const calls = (name: string) => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(all);
+    const namespaces: Record<string, string[]> = {};
+    for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) {
+      const used = members.filter((m) => calls(`${ns}$${m}`));
+      if (used.length) namespaces[ns] = used;
+    }
+    return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces };
   }
 
   /**

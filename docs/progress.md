@@ -223,6 +223,21 @@ built, what deviates, and what is left.
   (rules 1–4, unchanged fields skipped because a base write drops a waiting layer's changes to the item: the
   overlapping-actions test caught that), one hook in `send()`. The RealWorld check test doubles as the acceptance:
   12 handlers removed.
+- 2026-11-09: next-page data (pitch item: "Astro for dynamic content", prefetch). Compiler: `prefetchParts()`
+  (`CompiledParts.prefetch`, `CompileResult.prefetch`): `data-sn-path` patterns and the resources whose `src`/`when`
+  read only `$url`, constants and helpers. `src/prefetch-build.ts`: `pagePaths()` (a file's served paths) and
+  `prefetchModule()`; the Vite plugin describes every HTML entry once (`/@sinter/prefetch.js`, invalidated on HTML
+  changes in dev) and passes `prefetch` to `compile()`, whose page module adds the feature. Runtime: `src/prefetch.ts`
+  (delegated pointer/focus/touch listeners, 65 ms rest, handover of this page's own data, sessionStorage `sn:p:`),
+  `ext.prefetch.take()` in the loader's start before the cache, `writes`/`writing` on the request layer (a mutation
+  clears entries; an overlapping prefetch is dropped), the `x-sinter-prefetch` mark (removed before fetch; errors
+  reject there; `onUnauthorized` skips it). Chosen over "use the prefetched response instead of a request": the next
+  page revalidates, so the preload links and early requests are still taken (no unused preloads) and nothing older
+  than one round trip stays on screen. The document itself is not prefetched (a `<link rel=prefetch>` cost 90 B gzip
+  for a request a CDN usually answers fast; Speculation Rules would need `inline-speculation-rules` in the CSP or a
+  response header). Real browser (RealWorld build, Chromium, API mocked at 1.5 s): hover → article and comments
+  requested, the user handed over; the article showed 215 ms after the click, the fresh data at 1,591 ms. Size: feature
+  1,366 B gzip; core +153 B; RealWorld article 19,971 → 21,306 B gzip, budget raised from 20 to 22 KB.
 
 ## Decisions and deviations
 

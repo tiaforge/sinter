@@ -47,6 +47,15 @@ const PERSIST_PREFIX = 'sn:';
 const RETURN_KEY = 'sn:return';
 /** page-load cache entries (`cache` on `<sn-resource>`), in sessionStorage */
 export const CACHE_PREFIX = 'sn:c:';
+/** next-page data (the `prefetch` feature): requested when a link to another page is about to be followed, in sessionStorage */
+export const PREFETCH_PREFIX = 'sn:p:';
+/**
+ * Marks a next-page prefetch on its way through the middleware chain (a header survives
+ * `new Request(req, { headers })`, which middleware uses to add its own). Removed before the
+ * request is sent; a prefetch answered with an error rejects there, and `onUnauthorized` passes
+ * a marked request by, so no login redirect starts from a request the user did not make.
+ */
+export const PREFETCH_MARK = 'x-sinter-prefetch';
 
 function removeKeys(s: Storage | null, prefix: string) {
   if (!s) return;
@@ -60,9 +69,15 @@ function removeKeys(s: Storage | null, prefix: string) {
   } catch { /* storage failures are ignored */ }
 }
 
-/** Removes the page-load cache; sinter calls it on every 401. */
+/** Removes the page-load cache and the next-page data; sinter calls it on every 401. */
 export function clearCached(env: Env = envOf(config)): void {
   removeKeys(env.session(), CACHE_PREFIX);
+  clearPrefetched(env);
+}
+
+/** Removes the next-page data; sinter calls it after every mutation, which may have changed it. */
+export function clearPrefetched(env: Env): void {
+  removeKeys(env.session(), PREFETCH_PREFIX);
 }
 
 /** Removes every persisted value (`sn:` keys) and the page-load cache, e.g. on logout. */
@@ -92,7 +107,7 @@ export function header(name: string, value: string, options: { origin?: string }
 export function onUnauthorized(handler: (request: Request, response: Response) => Promise<Response>): Middleware {
   return async (req, next) => {
     const res = await next(req);
-    return res.status === 401 ? handler(req, res) : res;
+    return res.status === 401 && !req.headers.has(PREFETCH_MARK) ? handler(req, res) : res;
   };
 }
 

@@ -3,6 +3,27 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Added
+
+- Next-page data: when a link to another page of the app is about to be followed (the pointer rests
+  on it for 65 ms, it has focus, or a press or touch starts on it), the resources of that page whose
+  request only the URL decides are requested, and the next page shows them at once, then
+  revalidates (`$meta.loadedAt` stays null until the server answers, as with `cache`). Data the
+  current page already loaded from the same request is handed over without one. Requests go
+  through the middleware chain with low priority; a failed one never starts a login redirect; a
+  mutation drops what was prefetched. Nothing to declare: the compiler describes each page, the Vite
+  plugin shares one module of every page's description, `sinter({ prefetch: false })` turns it off.
+  New module `@tiaforge-ui/sinter/prefetch`. Testing: `render(html, { pages: { 'article.html': … } })`.
+  RealWorld in Chromium with a 1.5 s API: the article shows 215 ms after the click instead of after
+  the API answers.
+
+### Changed
+
+- The RealWorld article page's size budget is 22 KB (was 20 KB): next-page data adds 1.3 KB gzip to
+  every page.
+
 ## 0.9.0 (2026-11-08)
 
 ### Added

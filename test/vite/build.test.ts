@@ -11,7 +11,7 @@ const src = resolve(__dirname, '../../src');
 const out = mkdtempSync(join(tmpdir(), 'sinter-vite-'));
 afterAll(() => rmSync(out, { recursive: true, force: true }));
 
-const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early']
+const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch']
   .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
   .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
 
@@ -36,6 +36,17 @@ test('builds a page: rewritten HTML, page module, helpers, namespace members and
   expect(js).not.toContain('never called');
   expect(js).not.toContain('tree-shaken');
   expect(js).not.toMatch(/(^|[^.\w$])eval\(|new Function\(/);
+});
+
+test('next-page data: every page shares one module describing the pages; `prefetch: false` leaves it out', async () => {
+  const js = (dir: string) => readdirSync(join(dir, 'assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n');
+  await run(out);
+  // the fixture's index page: its people request needs nothing but the URL
+  expect(js(out).replace(/\s+/g, '')).toContain(`prefetch([{m:["/","/index.html"],r:[{"s":["/api/people"],"i":null,"t":null,"k":1}]`);
+  const dir = join(out, 'no-prefetch');
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: false })] });
+  expect(js(dir)).not.toContain('"/index.html"');
+  expect(js(dir)).not.toContain('pointerover');
 });
 
 test('compile errors fail the build with the diagnostic', async () => {
