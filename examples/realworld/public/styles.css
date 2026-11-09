@@ -1528,3 +1528,14 @@ footer > .container {
   margin-right: 5px;
   cursor: pointer;
 }
+
+/* ============================================================================
+ * SINTER: NO LAYOUT SHIFT WHILE DATA LOADS
+ * The page content fills the viewport below the navbar, so the footer starts
+ * below the fold and lists filling in after the first paint move nothing that
+ * is shown.
+ * ============================================================================ */
+
+main {
+  min-height: calc(100vh - 56px);
+}

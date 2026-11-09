@@ -1,0 +1,13 @@
+{
+  "name": "sinter-bench-realworld",
+  "private": true,
+  "type": "module",
+  "description": "RealWorld implementations compared: Lighthouse (lighthouse.mjs), download size (weight.mjs), source lines (loc.mjs)",
+  "scripts": {
+    "lighthouse": "node lighthouse.mjs"
+  },
+  "devDependencies": {
+    "chrome-launcher": "1.2.3",
+    "lighthouse": "13.6.0"
+  }
+}

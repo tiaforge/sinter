@@ -1,6 +1,6 @@
 <!-- Author, date and the follow/favorite or edit/delete actions of `article`. -->
 <div class="article-meta">
-  <a data-sn-attr="{href: '/profile/' + encodeURIComponent(article.author.username)}"><img alt="" data-sn-attr="{src: avatar(article.author.image)}"></a>
+  <a data-sn-attr="{href: '/profile/' + encodeURIComponent(article.author.username)}"><img data-sn-attr="{src: avatar(article.author.image), alt: article.author.username}"></a>
   <div class="info">
     <a class="author" data-sn-attr="{href: '/profile/' + encodeURIComponent(article.author.username)}" data-sn-text="article.author.username"></a>
     <span class="date" data-sn-text="date(article.createdAt, 'long')"></span>

@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Home — Conduit</title>
+  <meta name="description" content="Conduit, a place to share your knowledge: the global feed, your feed and popular tags.">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Titillium+Web:700|Source+Serif+Pro:400,700|Merriweather+Sans:400,700|Source+Sans+Pro:400,300,600,700,300italic,400italic,600italic,700italic">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<div data-sn-state="{ nav: 'home', error: null }">
+<div data-sn-state="{ nav: 'home', error: null, guest: signedOut() }">
 <sn-include src="./partials/header.html"></sn-include>
 
 <sn-resource cache name="articles" key="slug" items="articles" total="articlesCount" when="$url.feed != 'following'"
@@ -20,8 +21,8 @@
 <sn-resource cache name="tags" src="https://api.realworld.show/api/tags" items="tags"></sn-resource>
 <template data-sn-if="$url.feed == 'following' && $meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 
-<div class="home-page">
-  <template data-sn-if="!user">
+<main class="home-page">
+  <template data-sn-if="guest">
     <div class="banner"><div class="container"><h1 class="logo-font">conduit</h1><p>A place to share your knowledge.</p></div></div>
   </template>
   <div class="container page">
@@ -100,7 +101,7 @@
       </div>
     </div>
   </div>
-</div>
+</main>
 
 <sn-include src="./partials/footer.html"></sn-include>
 </div>
