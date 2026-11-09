@@ -16,12 +16,18 @@ export interface Config {
   transport: ((url: string) => Transport | undefined) | null;
   /** `data-sn-confirm`: asks the question; the action runs on true (window.confirm by default) */
   confirm: (question: string) => boolean | Promise<boolean>;
+  /**
+   * server validation errors of a failed form action: `{ <control name>: message | message[] }`, or
+   * null when the error is not about fields; default (fields.ts `fieldErrors`): a 4xx whose JSON body
+   * has an `errors` object
+   */
+  fieldErrors: ((error: SinterError, form: HTMLFormElement) => Record<string, unknown> | null | undefined) | null;
   /** what `configure({ env })` overrides of the default environment (see `envOf`); the testing module sets a whole one */
   env: Partial<Env> | null;
 }
 
 export const config: Config = {
-  request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], transport: null,
+  request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], transport: null, fieldErrors: null,
   confirm: (question) => globalThis.confirm(question), env: null,
 };
 

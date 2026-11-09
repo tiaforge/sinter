@@ -12,7 +12,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   the control with that `name` and shows the message next to it: in the element its `aria-errormessage`
   names, else in a `<small data-sn-error data-tone="danger">` inserted after it. The first such field gets
   focus; editing a field clears its error, sending again clears all. When every key named a field, the
-  error counts as handled (no `sn-error`, no `onError`). A feature module (`fields`, 961 B gzip), loaded only
+  error counts as handled (no `sn-error`, no `onError`). Actions of buttons and controls inside a form (a
+  `type="button"` Publish) report on that form. Other error formats: `configure({ fieldErrors: (error, form) =>
+  ({ name: message }) | null })`, falling back to the default `fieldErrors` from `@tiaforge-ui/sinter/fields`. A feature module (`fields`, 1 KB gzip), loaded only
   by pages with such a form. Recipe: `docs/recipes/field-errors.html`. The create template's task forms use it.
 
 ### Fixed

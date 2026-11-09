@@ -185,6 +185,8 @@ interface Ctx {
   stateIdx: number;
   /** inside a `<dialog>` of the same block (page or template) */
   dialog?: boolean;
+  /** inside a `<form>` (template content included): a control's action there reports field errors on it */
+  form?: boolean;
 }
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
@@ -753,6 +755,7 @@ class Compiler {
     const node: NodeDef = { tag: el.tagName, p: ctx.stateIdx, b: [] };
     const inDialog = ctx.dialog || el.tagName === 'dialog';
     if (inDialog) node.dl = 1;
+    const inForm = ctx.form || el.tagName === 'form';
     const nodeIdx = ctx.list.length;
     let scope = ctx.scope;
     let result: { node: NodeDef; binding: Binding } | null = null;
@@ -860,7 +863,7 @@ class Compiler {
 
     if (methods.length > 1) this.report(el, `data-sn-${methods[1]}`, 'SN102', 'an element can have only one method attribute', 0);
     if (methods.length && isCall) this.report(el, 'data-sn-call', 'SN102', 'an element has one action: a method attribute or `data-sn-call`, not both', 0);
-    if (methods.length) this.action(el, node, scope, methods[0]!, get);
+    if (methods.length) this.action(el, node, scope, methods[0]!, get, !!ctx.form || el.attrs.some((x) => x.name === 'form'));
     else if (isCall) this.action(el, node, scope, 'call', get);
     else for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs a method attribute (\`data-sn-get\`, \`-post\`, …) on the same element`, 0);
 
@@ -898,14 +901,14 @@ class Compiler {
     if (content) {
       if (inDialog || this.dlTemplates.has(ctx.tid)) this.dlTemplates.add(content.tid);
       const t = this.templates[content.tid]!;
-      this.walkChildren((el as P5Template).content, { scope: content.scope, list: t.nodes, tid: content.tid, path: [], stateIdx: -1 });
+      this.walkChildren((el as P5Template).content, { scope: content.scope, list: t.nodes, tid: content.tid, path: [], stateIdx: -1, form: inForm });
     } else if (isTemplate) {
       if (hasSnDeep((el as P5Template).content)) {
         this.report(el, null, 'SN102', 'directives inside a `<template>` need `data-sn-for` or `data-sn-if` on it', 0);
       }
     } else {
       this.walkChildren(el, {
-        ...ctx, scope, dialog: inDialog,
+        ...ctx, scope, dialog: inDialog, form: inForm,
         stateIdx: node.state !== undefined && hasDirectives ? nodeIdx : ctx.stateIdx,
         path: ctx.tid >= 0 ? [...ctx.path, index] : ctx.path,
       });
@@ -1278,7 +1281,7 @@ class Compiler {
     node.b.push(b);
   }
 
-  action(el: P5Element, node: NodeDef, scope: Scope, method: typeof METHODS[number] | 'call', get: (n: string) => string | undefined) {
+  action(el: P5Element, node: NodeDef, scope: Scope, method: typeof METHODS[number] | 'call', get: (n: string) => string | undefined, inForm = false) {
     // arguments and body are taken when the trigger fires, so they see its event
     const call = method === 'call' ? this.callExpr(el, 'data-sn-call', scope, undefined, ['$event']) : null;
     if (method === 'call' && get('body') !== undefined) this.report(el, 'data-sn-body', 'SN102', '`data-sn-body` belongs to a method attribute; a call takes its arguments in `data-sn-call`', 0);
@@ -1326,7 +1329,8 @@ class Compiler {
       if (then.r?.ast) this.redundantWrites(el, then.r, ap, url, method, typed?.path ?? null);
     }
     // server validation errors shown on the fields (fields.ts): forms that send a mutation and leave errors to sinter
-    if (isForm && method !== 'call' && method !== 'get' && catch_.f === null && get('catch') === undefined) this.features.add('fields');
+    // (a form's own action, or a control's inside one, as the editor's Publish button in RealWorld)
+    if ((isForm || (inForm && (tag === 'button' || FORM_CONTROLS.has(tag)))) && method !== 'call' && method !== 'get' && get('catch') === undefined) this.features.add('fields');
     const def: ActionDef = {
       method: method.toUpperCase() as ActionDef['method'], url, body: body.f, trigger, debounce, concurrency,
       optimistic: optimistic.f, then: then.f, catch: catch_.f, w: [...new Set([...then.w, ...catch_.w])].sort(), form: isForm,

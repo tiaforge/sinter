@@ -1197,8 +1197,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const up: Element[] = [];
     for (let x = el.parentElement; x; x = x.parentElement) up.push(x);
     st.n++;
-    const fields = a.form && a.catch == null && !a.call ? app.ext.fields : undefined;
-    fields?.clear(el);
+    // the form whose fields an error is about: the action's own, or the one a control (a button) belongs to
+    const form = a.catch == null && !a.call && app.ext.fields ? (a.form ? el : ((el as Element as HTMLButtonElement).form ?? null)) : null;
+    if (form) app.ext.fields!.clear(form);
     el.setAttribute('aria-busy', 'true');
     if (a.form && a.concurrency == 'block' && !c && !st.off) {
       st.off = ([...el.elements] as HTMLInputElement[]).filter((x) => !x.disabled);
@@ -1218,7 +1219,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       drop();
       if (isAbort(err) || (c && st.c != c)) return;
       const error = a.call ? callError(err) : toError(err);
-      if (fields?.show(el, error)) return;
+      if (form && app.ext.fields!.show(form, error)) return;
       a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null);
     } finally {
       if (c && st.c == c) st.c = null;

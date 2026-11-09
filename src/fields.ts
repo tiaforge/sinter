@@ -1,12 +1,13 @@
-// Server validation errors on the fields: a form action without `data-sn-catch` whose request fails
-// with a 4xx and a JSON body `{ errors: { <field>: message | message[] } }` marks each named control
+// Server validation errors on the fields: a form action (or the action of a control inside a form)
+// without `data-sn-catch` whose request fails with what `configure({ fieldErrors })` reads as field
+// errors (by default a 4xx whose JSON body has `{ errors: { <field>: message | message[] } }`) marks each named control
 // `aria-invalid="true"` and shows its message next to it: in the element the control's
 // `aria-errormessage` names, else in a `<small data-sn-error>` inserted after the control (named by
 // `aria-errormessage` and `aria-describedby`). The first such control gets focus. Editing a control
 // clears its error; sending the form again clears them all. When every key named a control, the
 // error is handled: no `sn-error`, no `onError`.
 import type { App, Feature } from './runtime/app.js';
-import type { SinterError } from './runtime/config.js';
+import { config, type SinterError } from './runtime/config.js';
 
 type Shown = { c: Element[]; m: Element; made: boolean; hid: boolean; d: string | null; off: () => void };
 const shown = new WeakMap<HTMLFormElement, Map<string, Shown>>();
@@ -14,17 +15,24 @@ let ids = 0;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v == 'object' && !Array.isArray(v);
 
-/** The form's error entries for `error`, or null when it is not a field-error response. */
-export function fieldErrors(error: SinterError): Array<[string, string]> | null {
-  const e = (error.body as any)?.errors;
-  const st = error.status ?? 0;
-  if (st < 400 || st > 499 || !isObj(e)) return null;
+/**
+ * The default reading of a field-error response: a 4xx whose JSON body has an `errors` object of
+ * `name: message | message[]` (Rails, Laravel, RealWorld, ASP.NET's ValidationProblemDetails); else null.
+ * Exported so that a `configure({ fieldErrors })` can fall back to it.
+ */
+export function fieldErrors(error: SinterError): Record<string, unknown> | null {
+  const st = error.status ?? 0, e = (error.body as any)?.errors;
+  return st >= 400 && st < 500 && isObj(e) ? e : null;
+}
+
+/** `[name, text]` per field with a message: an array's messages joined with `; `. */
+function entries(map: Record<string, unknown> | null | undefined): Array<[string, string]> {
   const out: Array<[string, string]> = [];
-  for (const [k, v] of Object.entries(e)) {
+  for (const [k, v] of Object.entries(isObj(map) ? map : {})) {
     const text = (Array.isArray(v) ? v : [v]).filter((x) => x != null && x !== '').map(String).join('; ');
     if (text) out.push([k, text]);
   }
-  return out.length ? out : null;
+  return out;
 }
 
 function clearOne(form: HTMLFormElement, name: string) {
@@ -52,8 +60,9 @@ const fields: Feature = {
         for (const name of [...(shown.get(form)?.keys() ?? [])]) clearOne(form, name);
       },
       show(form, error) {
-        const errs = fieldErrors(error);
-        if (!errs || !form.isConnected) return false;
+        if (!form.isConnected) return false;
+        const errs = entries((config.fieldErrors ?? fieldErrors)(error, form));
+        if (!errs.length) return false;
         const all = shown.get(form) ?? new Map<string, Shown>();
         shown.set(form, all);
         let every = true, first: HTMLElement | null = null;

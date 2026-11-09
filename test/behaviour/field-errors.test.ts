@@ -90,3 +90,45 @@ test('a form with data-sn-catch handles its errors itself', async () => {
   expect(root.querySelector('[aria-invalid]')).toBeNull();
   expect(root.querySelector('output')!.textContent).toBe('422');
 });
+
+test('a button\'s action inside a form shows the errors on that form\'s fields, from inside a template too', async () => {
+  const requests = mockRequests({ 'POST /api/articles': { status: 400, body: { errors: { title: ["can't be blank"] } } } });
+  const { root, settle } = await render(`
+    <form data-sn-on-submit="$event.preventDefault()" data-sn-state="{ d: { title: '' }, editing: false }">
+      <input name="title" data-sn-model="d.title">
+      <template data-sn-if="!editing"><button type="button" data-sn-post="/api/articles" data-sn-body="{article: d}">Publish</button></template>
+    </form>`, { requests });
+  root.querySelector('button')!.click();
+  await settle();
+  const title = root.querySelector('[name=title]')!;
+  expect(title.getAttribute('aria-invalid')).toBe('true');
+  expect(title.nextElementSibling!.textContent).toBe("can't be blank");
+});
+
+test('configure({ fieldErrors }) reads another error format; null leaves the error to the unhandled path', async () => {
+  configure({
+    onError: (e) => reported.push(e.message),
+    // RFC 9457's `invalid-params`, as some APIs send them
+    fieldErrors: (e) => {
+      const p = (e.body as any)?.['invalid-params'];
+      return Array.isArray(p) ? Object.fromEntries(p.map((x: any) => [x.name, x.reason])) : null;
+    },
+  });
+  let res: unknown = { status: 400, body: { type: 'about:blank', title: 'Your request is not valid.', 'invalid-params': [{ name: 'email', reason: 'must be an email address' }] } };
+  const requests = mockRequests({ 'POST /api/users': () => res });
+  try {
+    const { root, settle } = await render(form(), { requests });
+    root.querySelector('form')!.requestSubmit();
+    await settle();
+    expect(root.querySelector('[name=email]')!.nextElementSibling!.textContent).toBe('must be an email address');
+    expect(reported).toEqual([]);
+
+    res = { status: 422, body: { errors: { email: 'is invalid' } } };    // not the configured format
+    root.querySelector('form')!.requestSubmit();
+    await settle();
+    expect(root.querySelector('[aria-invalid]')).toBeNull();
+    expect(reported).toHaveLength(1);
+  } finally {
+    configure({ fieldErrors: null });
+  }
+});
