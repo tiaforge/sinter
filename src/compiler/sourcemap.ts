@@ -1,4 +1,4 @@
-import type { FnSource, FnSources } from './compile.js';
+import type { FnSource, FnSources, SourcePos } from './compile.js';
 
 /** A version 3 source map (https://tc39.es/ecma426/). */
 export interface SourceMap {
@@ -24,23 +24,38 @@ function vlq(n: number): string {
 
 /**
  * Builds a module's text line by line and maps the lines that hold a compiled function to where
- * the function was written. A function maps as a whole: each of its lines points at the start of
- * its expression, so an error inside it is reported at the attribute it came from.
+ * the function was written. A function maps to the start of its expression, so an error inside it
+ * is reported at the attribute it came from; one the compiler wrote maps to its element, and each
+ * expression inlined into it to that expression.
  */
 export class MappedLines {
   readonly lines: string[] = [];
-  private readonly marks: Array<{ line: number; col: number; src: FnSource }> = [];
+  private readonly marks: Array<{ line: number; col: number; src: SourcePos }> = [];
   private line = 0;
 
   push(...lines: string[]) {
     for (const l of lines) { this.lines.push(l); this.line += 1 + count(l); }
   }
 
-  /** one line holding a function: `indent`, the code, then `after` */
+  /**
+   * One line holding a function: `indent`, the code, then `after`. The function maps to its source;
+   * an expression inlined into it (`src.parts`) maps to its own, back to the function's after it.
+   */
   fn(indent: string, code: string, after: string, src: FnSource | null | undefined) {
     if (src) {
-      const n = count(code);
-      for (let k = 0; k <= n; k++) this.marks.push({ line: this.line + k, col: k ? 0 : indent.length, src });
+      const { parts, ...whole } = src;
+      // offsets in the code where the source changes, and at each line start
+      const at = new Map<number, SourcePos>([[0, whole]]);
+      for (let i = code.indexOf('\n'); i >= 0; i = code.indexOf('\n', i + 1)) at.set(i + 1, whole);
+      for (const { at: k, len, ...pos } of parts ?? []) {
+        for (const [o] of at) if (o > k && o < k + len) at.set(o, pos);
+        at.set(k, pos);
+        if (!at.has(k + len) && k + len < code.length) at.set(k + len, whole);
+      }
+      for (const [o, pos] of [...at].sort((a, b) => a[0] - b[0])) {
+        const nl = o ? code.lastIndexOf('\n', o - 1) : -1;
+        this.marks.push({ line: this.line + count(code.slice(0, o)), col: nl < 0 ? indent.length + o : o - nl - 1, src: pos });
+      }
     }
     this.push(indent + code + after);
   }

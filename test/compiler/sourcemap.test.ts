@@ -22,13 +22,13 @@ const PAGE = [
   '</div>',
 ].join('\n');
 
-/** where the function holding `needle` in the module maps to (1-based line and column) */
-function origin(module: string, map: NonNullable<ReturnType<typeof compile>['map']>, needle: string) {
+/** where `needle` in the module's function table maps to (1-based line and column); `after`: the needle on the first line holding this too */
+function origin(module: string, map: NonNullable<ReturnType<typeof compile>['map']>, needle: string, after = needle) {
   const lines = module.split('\n');
   const table = lines.findIndex((l) => l.trimStart().startsWith('const fns = ['));
-  const line = lines.findIndex((l, i) => i > table && l.includes(needle));
+  const line = lines.findIndex((l, i) => i > table && l.includes(after) && l.includes(needle));
   expect(line, `\`${needle}\` in the module`).toBeGreaterThanOrEqual(0);
-  const e = new NodeSourceMap({ file: "", sourceRoot: "", ...map }).findEntry(line, lines[line]!.indexOf(needle)) as { originalSource?: string; originalLine?: number; originalColumn?: number };
+  const e = new NodeSourceMap({ file: "", sourceRoot: "", ...map }).findEntry(line, lines[line]!.indexOf(needle, lines[line]!.indexOf(after))) as { originalSource?: string; originalLine?: number; originalColumn?: number };
   return { file: e.originalSource, line: e.originalLine! + 1, col: e.originalColumn! + 1 };
 }
 
@@ -61,11 +61,39 @@ describe('source maps', () => {
     expect(compile(PAGE, opts()).map).toEqual(out.map);
   });
 
+  test('functions the compiler writes map to the markup: row lookups, and each expression inlined into them', () => {
+    const page = [
+      '<sn-resource name="people" src="/api/people" key="id"></sn-resource>',
+      '<ul>',
+      '  <template data-sn-for="p in people">',
+      '    <li><b data-sn-text="p.name"></b> <i data-sn-text="p.age + 1"></i></li>',
+      '  </template>',
+      '</ul>',
+    ].join('\n');
+    const r = compile(page, opts());
+    // find: the template; make: each binding's expression where it is inlined, the rest at the template
+    expect(origin(r.module, r.map!, '(c) =>')).toEqual({ file: '/p/page.html', line: 3, col: 26 });
+    expect(origin(r.module, r.map!, '(c, $, w) =>')).toEqual({ file: '/p/page.html', line: 3, col: 26 });
+    expect(origin(r.module, r.map!, '$.p.name', '(c, $, w) =>')).toEqual({ file: '/p/page.html', line: 4, col: 26 });
+    expect(origin(r.module, r.map!, '$.p.age + 1', '(c, $, w) =>')).toEqual({ file: '/p/page.html', line: 4, col: 56 });
+    expect(origin(r.module, r.map!, 'w.t(', '(c, $, w) =>')).toEqual({ file: '/p/page.html', line: 3, col: 26 });
+  });
+
+  test('a form\'s `$error` state maps to its `data-sn-state`, the state inside it to its own place', () => {
+    const page = '<form data-sn-state="{ a: 1 }">\n  <p data-sn-text="$error"></p></form>\n<form>\n  <p data-sn-text="$error"></p></form>';
+    const r = compile(page, opts());
+    expect(origin(r.module, r.map!, 'Object.assign')).toEqual({ file: '/p/page.html', line: 1, col: 22 });
+    expect(origin(r.module, r.map!, 'a: 1', 'Object.assign')).toEqual({ file: '/p/page.html', line: 1, col: 22 });
+    expect(origin(r.module, r.map!, '({ $error: null })')).toEqual({ file: '/p/page.html', line: 3, col: 1 });
+  });
+
   test('the early module gets a map too', () => {
     // a helper keeps the binding out of the prerendered HTML: the early module renders it
     const page = '<div data-sn-state="{ n: 2 }">\n  <p data-sn-text="twice(n)"></p></div>';
     const early = compile(page, opts({ prerender: true, early: { module: null, src: '/early.js' }, helpers: { module: '/h.js', names: ['twice'], namespaces: {} } }));
     expect(early.early).toContain('twice(');
     expect(origin(early.early!, early.earlyMap!, 'twice(')).toEqual({ file: '/p/page.html', line: 2, col: 20 });
+    // the early module writes its own state function: each field maps to its place in `data-sn-state`
+    expect(origin(early.early!, early.earlyMap!, '"n": (', '"n": (')).toEqual({ file: '/p/page.html', line: 1, col: 23 });
   });
 });
