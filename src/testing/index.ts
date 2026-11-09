@@ -20,11 +20,12 @@ import persist from '../persist.js';
 import listbox from '../listbox.js';
 import keys from '../keys.js';
 import apply from '../apply.js';
+import transition from '../transition.js';
 import sse from '../sse.js';
 import { prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each, listbox, keys, apply };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, each, listbox, keys, apply, transition };
 
 // ---- requests
 
@@ -234,8 +235,8 @@ export interface Rendered {
   navigations: string[];
   /** current page URL (after `$url` writes) */
   url(): string;
-  /** dispatches pagehide/pageshow/popstate to sinter */
-  window(type: 'pagehide' | 'pageshow' | 'popstate' | 'online'): Promise<void>;
+  /** dispatches a window event to sinter; `props` are set on the event (`pageswap`/`pagereveal`: `viewTransition`, `activation`) */
+  window(type: 'pagehide' | 'pageshow' | 'popstate' | 'online' | 'pageswap' | 'pagereveal', props?: Record<string, unknown>): Promise<void>;
 }
 
 interface Timer { id: number; at: number; fn: () => void; kind: string }
@@ -488,9 +489,10 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   return {
     root: doc.body, app, flush, settle, advance, navigations,
     url: () => href,
-    window: async (type) => {
+    window: async (type, props) => {
       const e = new Event(type);
       if (type === 'pageshow') Object.defineProperty(e, 'persisted', { value: true });
+      for (const [k, v] of Object.entries(props ?? {})) Object.defineProperty(e, k, { value: v });
       for (const fn of winListeners.get(type) ?? []) fn(e);
       await flush();
     },

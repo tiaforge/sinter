@@ -25,6 +25,13 @@ Attribute names, function names and diagnostic codes are public API. Before
   `'inline-speculation-rules'` or the hash the build prints in `script-src`. A prerendered page
   connects its streams once it is shown and refetches its resources then (`app.shown()` for features).
 
+- `data-sn-transition` (value expression, a name): the same thing on two pages. Following a link from a
+  list row to a page with an element of the same name morphs one into the other (cross-document view
+  transitions; back from a page with one named element too). Only that pair gets a
+  `view-transition-name`, during the transition. New module `@tiaforge-ui/sinter/transition`, added to
+  pages that use the attribute. Testing: `r.window('pageswap' | 'pagereveal', { viewTransition, activation })`.
+  RealWorld: an article's title morphs from the list.
+
 ### Changed
 
 - The RealWorld article page's size budget is 22 KB (was 20 KB): next-page data adds 1.3 KB gzip to

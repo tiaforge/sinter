@@ -149,6 +149,10 @@
       "description": "toggles the hidden attribute (value expression)"
     },
     {
+      "name": "data-sn-transition",
+      "description": "the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too) (value expression (a name))"
+    },
+    {
       "name": "data-sn-prop",
       "description": "sets JS properties; custom elements only (one defined later gets them again through its setters) (object literal)"
     },

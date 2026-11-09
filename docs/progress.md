@@ -245,6 +245,13 @@ built, what deviates, and what is left.
   `'prerender'` the browser asked for `prefetch;prerender` but reported `PrerenderingDisabledByDevTools` (Playwright, also
   without request interception), so activation is covered by `test/behaviour/speculation.test.ts` only. Default stays
   `'prefetch'`: prerender runs pages nobody may see (requests, islands' side effects).
+- 2026-11-09: `data-sn-transition` (`src/transition.ts`; compiled to an attribute binding writing `data-sn-vt`). Names are
+  given at `pageswap`/`pagereveal` only, to the followed row's element and its match. A row is the nearest ancestor of the
+  link holding named elements without links elsewhere (the first version climbed to `<body>`: a link to `/about` named the
+  first row's image; the behaviour test caught it). Chromium, RealWorld: list → article morphs
+  (`::view-transition-group(sn-1k2g1wp)` beside `root`, only the clicked title named); back to the list fades only: Playwright's
+  Chromium reloads it (no bfcache) and the rows render after the first paint, which is when the browser captures.
+  temper: `@view-transition { navigation: auto; }` in `core.css` (on by default, off with `navigation: none` in the app's CSS).
 
 ## Decisions and deviations
 

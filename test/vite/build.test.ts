@@ -11,7 +11,7 @@ const src = resolve(__dirname, '../../src');
 const out = mkdtempSync(join(tmpdir(), 'sinter-vite-'));
 afterAll(() => rmSync(out, { recursive: true, force: true }));
 
-const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch']
+const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 'transition']
   .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
   .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
 

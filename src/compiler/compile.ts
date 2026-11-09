@@ -259,7 +259,7 @@ class Compiler {
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'each', 'listbox', 'keys', 'apply'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'each', 'listbox', 'keys', 'apply', 'transition'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -734,6 +734,11 @@ class Compiler {
 
     if (has('text')) valueB('text', 'data-sn-text');
     if (has('show')) valueB('show', 'data-sn-show');
+    // the morph across a navigation: the name is kept on the element, the transition feature uses it
+    if (has('transition')) {
+      const r = this.expr(el, 'data-sn-transition', scope, { mode: 'value' });
+      if (r.ok) { node.b.push(binding({ k: 'attr', n: 'data-sn-vt', f: this.fn(r.code), d: r.deps, ...usesEl(r) })); this.features.add('transition'); }
+    }
     if (has('attr')) this.attrBinding(el, node, scope);
     if (has('class')) this.objectBinding(el, node, scope, 'class');
     if (has('style')) this.objectBinding(el, node, scope, 'style');

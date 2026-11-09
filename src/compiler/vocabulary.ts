@@ -11,6 +11,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'class', value: 'object literal {unread: …}', doc: 'toggles each class' },
   { name: 'style', value: "object literal {'--color': …}", doc: 'sets each property with style.setProperty' },
   { name: 'show', value: 'value expression', doc: 'toggles the hidden attribute' },
+  { name: 'transition', value: 'value expression (a name)', doc: 'the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too)' },
   { name: 'prop', value: 'object literal', doc: 'sets JS properties; custom elements only (one defined later gets them again through its setters)' },
   { name: 'model', value: 'state path', doc: 'two-way binding for form controls' },
   { name: 'for', value: 'item in list | (item, i) in list', doc: 'repeats a <template> per item' },

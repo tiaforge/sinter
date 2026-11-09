@@ -30,6 +30,7 @@ const entries = {
   keys: `export { default } from '${dist}/keys.js';`,
   apply: `export { default } from '${dist}/apply.js';`,
   prefetch: `export { prefetch } from '${dist}/prefetch.js';`,
+  transition: `export { default } from '${dist}/transition.js';`,
   dev: `export { default } from '${dist}/dev.js';`,
   // what the contacts example loads: core + sse + optimistic + persist
   page: `export { mount, $k } from '${dist}/index.js'; export { default as a } from '${dist}/sse.js'; export { default as b } from '${dist}/optimistic.js'; export { default as c } from '${dist}/persist.js';`,

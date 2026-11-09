@@ -289,6 +289,7 @@ The whole vocabulary is the tables below; any other `data-sn-*` name is a build 
 | `data-sn-class` | object literal `{unread: !m.is_read}` | toggles each class |
 | `data-sn-style` | object literal `{'--color': cal.color, width: pct + '%'}` | sets each property with `style.setProperty` |
 | `data-sn-show` | value expression | toggles the `hidden` attribute |
+| `data-sn-transition` | value expression (a name) | the same thing on two pages; see Page transitions (added 2026-11-09) |
 | `data-sn-prop` | object literal | sets JS properties; custom elements only |
 | `data-sn-model` | state path | two-way binding for form controls (see below) |
 | `data-sn-for` | `item in list` or `(item, i) in list` | on `<template>` only |
@@ -908,6 +909,15 @@ For keyset, `hasNext` is true when the page came back full; `hasPrev` is false a
 - `append` with infinite scroll stops sending requests at the end: after a short page `hasNext` is false.
 - A live list that wants the items added after a short keyset page uses `refresh()` or a server event's `refetch`: a refetch repeats the current page and recomputes `hasNext`.
 - Before the first load has come back both flags are false, so `prev` and `next` do nothing then.
+
+### Page transitions (`data-sn-transition`)
+
+The page fade is CSS (`@view-transition { navigation: auto; }`; temper has it on by default). `data-sn-transition="'article-' + a.slug"` on an element in a list row and `data-sn-transition="'article-' + $url.slug"` on the detail page say they are the same thing: following the row's link morphs one into the other.
+- The value is a value expression; the runtime keeps it on the element as `data-sn-vt` (an attribute binding). Pages that use the attribute get the `transition` feature (`@tiaforge-ui/sinter/transition`).
+- Old page (`pageswap` with a view transition): when a click on a link started the navigation (the activation URL is the link's), the named element is the one the link is in or holds, else the one of its row: the nearest ancestor of the link that holds named elements, if it holds exactly one and no link to another URL. A back or forward navigation (`traverse`) on a page with exactly one named element uses that one. Its name goes to sessionStorage (`sn:vt`).
+- New page (`pagereveal` with a view transition): the first element whose name is the stored one.
+- Both get `view-transition-name: sn-<hash of the name>` (a valid ident for any name, the same on both pages) until the transition finishes, so only the pair is captured, never a whole list, and two equal names on one page cannot end the transition.
+- The new page's element must exist at its first paint, which is when the browser captures it. Measured 2026-11-09 in Chromium (RealWorld, list → article): the article's title morphed (prefetched data, the page module mounted before the first paint). Back to a reloaded list did not: the rows came after the first paint, so it fades; a list restored from the back/forward cache has its rows. Not yet: holding the first paint until the page module has rendered when a morph is pending.
 
 ## Rendering and scheduler
 sinter updates the DOM fine-grained, without a virtual DOM: every binding knows its node, and only bindings whose inputs changed are re-evaluated and written.

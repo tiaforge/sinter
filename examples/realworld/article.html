@@ -25,7 +25,7 @@
   <template data-sn-if="article">
     <div class="banner">
       <div class="container">
-        <h1 data-sn-text="article.title"></h1>
+        <h1 data-sn-text="article.title" data-sn-transition="'article-' + $url.slug"></h1>
         <sn-include src="./partials/article-meta.html"></sn-include>
       </div>
     </div>
