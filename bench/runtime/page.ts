@@ -2,6 +2,7 @@
 // feature, no freezing), the document's own environment. Like `render()` from the testing
 // module, minus its fake clock and dev checks, which would distort the timings.
 import { compileParts } from '../../src/compiler/compile.js';
+import { compactIR } from '../../src/ir.js';
 import { mount, type App } from '../../src/runtime/app.js';
 import { $k } from '../../src/runtime/security.js';
 import * as builtins from '../../src/runtime/helpers.js';
@@ -24,7 +25,7 @@ export function page(html: string): App {
   const fns = new Function(...names, `"use strict"; return [\n${parts.fns.join(',\n')}\n];`)(...values);
   const inner = /<html[^>]*>([\s\S]*)<\/html>/i.exec(parts.html)?.[1] ?? parts.html;
   document.documentElement.innerHTML = inner.replace(/<script type="module" src="about:blank"><\/script>/, '');
-  current = mount(document, { ir: parts.ir, fns, request: [] });
+  current = mount(document, { ir: compactIR(parts.ir), fns, request: [] });
   return current;
 }
 

@@ -16,10 +16,13 @@ import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { matchOperation, matchResource, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
-import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
+import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { withParams } from '../runtime/url.js';
 import { firstParams } from '../paginate.js';
+
+/** the compiler's IR holds paths as strings (the page module's holds node ids) */
+const strs = (x: PathRef[] | undefined) => (x ?? []) as string[];
 
 type P5Node = DefaultTreeAdapterMap['node'];
 type P5Element = DefaultTreeAdapterMap['element'];
@@ -364,7 +367,7 @@ class Compiler {
       if (make) t.make = this.fn(make, at && { ...at, parts });
     }
 
-    const ir: IR = { v: 1, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
+    const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;
     if (paths.length) ir.path = paths;
     const builtin: string[] = [];
@@ -2001,8 +2004,8 @@ class Compiler {
     }
     const schemes = schemesOf([]);
     for (const c of cands) {
-      own = c.b.k === 'model' && c.b.p !== undefined ? c.b.w![0]!.split('.').slice(0, 2).join('.') : null;
-      const v = known(c.b.d ?? []) ? run(this.fns[c.f]!) : FAIL;
+      own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
+      const v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
       const w = v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes);
       if (w === FAIL) continue;
       writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
@@ -2060,7 +2063,7 @@ class Compiler {
     const fns: string[] = [], index = new Map<string, number>();
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const templates: EarlyIR['templates'] = this.templates.map(() => null);
-    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if'].includes(b.k) && !b.e && b.f !== undefined && known(b.d ?? []) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
+    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if'].includes(b.k) && !b.e && b.f !== undefined && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
       const bs = defs.map((nd) => (nd.dl ? [] : nd.b.filter(eligible)));
@@ -2079,7 +2082,7 @@ class Compiler {
           if (nd.persist) o.persist = nd.persist;
         }
         for (const b of bs[i]!) {
-          reads.push(...(b.d ?? []), ...(b.w ?? []));
+          reads.push(...strs(b.d), ...strs(b.w));
           const nb: Binding = { k: b.k, f: fn(this.fns[b.f!]!) };
           if (b.n !== undefined) nb.n = b.n;
           if (b.k === 'model') { nb.a = fn(this.fns[b.a!]!); if (b.p !== undefined) nb.p = b.p; }
@@ -2105,7 +2108,7 @@ class Compiler {
     const res: NonNullable<EarlyIR['res']> = [];
     let url = false;
     for (const def of this.resources) {
-      if (def.call || def.each || def.data != null || !def.src.length || !knownReq(def.deps ?? [])) continue;
+      if (def.call || def.each || def.data != null || !def.src.length || !knownReq(strs(def.deps))) continue;
       // a URL fixed at build time is preloaded from the HTML (see injectScript), earlier than this file runs
       if (fixedRequest(def) || this.noEarly.has(def.name)) continue;
       // another origin only when listed in `origins` (the runtime's allowlist, known at build time)
@@ -2114,7 +2117,7 @@ class Compiler {
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
       const scope = (def.scope ?? -1) < 0 ? -1 : rootKeep.get(def.scope!);
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
-      reads.push(...(def.deps ?? []));
+      reads.push(...strs(def.deps));
       url ||= codes.some((c) => c.includes('$url'));
       res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}) });
     }
@@ -2177,7 +2180,7 @@ class Compiler {
     const res: PrefetchParts['res'] = [];
     for (const def of this.resources) {
       if (def.call || def.each || def.data != null || def.paginate || !def.src.length) continue;
-      if (!(def.deps ?? []).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
+      if (!strs(def.deps).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
       if (codes.some((c) => /\$\.\$(?!url\b)/.test(c) || builtin(c) || messages.some((m) => c.includes(`${m}$`)))) continue;
       res.push({

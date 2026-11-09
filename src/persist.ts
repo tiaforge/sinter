@@ -21,9 +21,8 @@ const persist: Feature = {
         const key = rb.b.p!;
         const v = read(key);
         if (v !== undefined) set(v);
-        const paths = (rb.b.w ?? []).map((w) => w.split('.').map((s) => (s[0] === '{' ? '*' : s)));
         app.afterFlush.push((dirty) => {
-          if (!dirty.some((d) => paths.some((p) => overlaps(p, d)))) return;
+          if (!app.reaches(rb.b.w ?? [], dirty)) return;
           try { write(key, app.fns[rb.b.f!]!(rb.s)); } catch { /* unreadable: skip */ }
         });
       },
@@ -36,14 +35,5 @@ const persist: Feature = {
     };
   },
 };
-
-function overlaps(a: string[], b: string[]): boolean {
-  const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) {
-    if (b[i] === '**') return true;
-    if (a[i] !== b[i] && a[i] !== '*' && b[i] !== '*') return false;
-  }
-  return true;
-}
 
 export default persist;

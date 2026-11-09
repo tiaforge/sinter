@@ -113,7 +113,7 @@ const dev: Feature = {
     const json = (o: unknown) => { try { return JSON.stringify(o); } catch { return ''; } };
     let last: string[] = [];
     app.beforeFlush.push((dirty) => app.states.forEach(([sid, obj], i) => {
-      if (json(obj) != last[i] && !dirty.some((p) => p[0] == '$s' + sid)) app.warn(15, Object.keys(obj).join('`, `'));
+      if (json(obj) != last[i] && !dirty.some((p) => app.inState(p, sid))) app.warn(15, Object.keys(obj).join('`, `'));
     }));
     app.afterFlush.push(() => { last = app.states.map(([, obj]) => json(obj)); });
   },

@@ -1,7 +1,8 @@
 // The runtime: mounts a compiled page, owns the store, the scheduler, the
 // renderer, delegated events, actions and resource loading. Written as one
 // closure so private state minifies to short local names.
-import type { ActionDef, Binding, Fn, IR, NodeDef, ResourceDef, TemplateDef, UrlTemplate } from '../ir.js';
+import type { ActionDef, Binding, Fn, IR, NodeDef, PathRef, ResourceDef, TemplateDef, UrlTemplate } from '../ir.js';
+import { decode, level as reachLevel, passes, type Reach } from '../paths.js';
 import { config, SinterError, type Middleware } from './config.js';
 import { envOf, type Env } from './env.js';
 import { prefetched } from './handoff.js';
@@ -160,8 +161,8 @@ export interface App {
     /** an action is sent: the form's marks and `$error` are cleared; the function reports a failure, true when the form shows it */
     fields?: { sent(el: Element, a: ActionDef): ((error: SinterError, request: { url: string; method: string }) => boolean) | undefined };
   };
-  readonly beforeFlush: Array<(dirty: string[][]) => void>;
-  readonly afterFlush: Array<(dirty: string[][]) => void>;
+  readonly beforeFlush: Array<(dirty: Dirty[]) => void>;
+  readonly afterFlush: Array<(dirty: Dirty[]) => void>;
   readonly onListen: Array<(event: string) => void>;
   /** root state scopes: [sid, state object] */
   readonly states: Array<[number, any]>;
@@ -186,15 +187,23 @@ export interface App {
   url(tpl: UrlTemplate, scope: any): string;
   /** the scope of root node `i` (its state), or the page scope for -1 */
   scopeOf(i: number): any;
-  /** `typing`: the change is a keystroke in a text field, so a resource URL it changes waits for a pause */
-  mark(path: string, scope?: any, typing?: boolean): void;
+  /**
+   * `path`: a node of the page's path table, or one of the paths the runtime marks itself by name
+   * (`$locale`, `$r.<name>`, `$s<sid>.$error`, …: the table's `x`). `typing`: the change is a keystroke
+   * in a text field, so a resource URL it changes waits for a pause
+   */
+  mark(path: number | string, scope?: any, typing?: boolean): void;
+  /** whether one of `dirty` reaches one of `nodes` (any scope) */
+  reaches(nodes: PathRef[], dirty: Dirty[]): boolean;
+  /** whether `d` is a change inside state scope `sid` */
+  inState(d: Dirty, sid: number): boolean;
   flush(): void;
   /** records `change` as optimistic layers; the returned function settles them: committed when `ok`, else rolled back */
   record(change: () => void): (ok?: boolean) => void;
   storeFns(el: Element | null): Record<string, (...a: any[]) => unknown>;
   serverEvent(name: string, payload: unknown): void;
   /** runs handler `f` in `scope` and invalidates the paths it writes; `o`: the binding it runs for (dev builds name its place) */
-  exec(f: number, scope: any, writes?: string[], o?: { at?: Record<number, string> }): void;
+  exec(f: number, scope: any, writes?: PathRef[], o?: { at?: Record<number, string> }): void;
   addCleanup(fn: () => void): void;
   /** runs `fn` now, or, on a page the browser prerenders (Speculation Rules), once it is shown */
   shown(fn: () => void): void;
@@ -207,8 +216,6 @@ interface RB extends BoundBinding {
   e?: any;
   /** may be inside a closed dialog of its block */
   c?: boolean;
-  /** the binding's dependencies (shared by every row of a template), looked up on the first flush that tests them */
-  d?: Dep[] | undefined;
   /** for: rows; if: the rendered branch (0 or 1 entries) */
   rows?: Inst[];
   t?: TemplateDef;
@@ -217,6 +224,8 @@ interface RB extends BoundBinding {
   /** for: rows by key, built on demand (null: keys are explicit or not unique), and the round of the last reconcile */
   keys?: Map<unknown, Inst> | null;
   rr?: number;
+  /** for: some rows wait for a re-evaluation (`Inst.f`) since the last walk over all of them */
+  pf?: boolean;
   /** for: selection indexes of its rows (by binding), built on demand, dropped when the rows are rendered */
   sx?: Map<Binding, Sel>;
   /** if: rendered branch (0 none, 1 if, 2 else), and the else anchor with its template */
@@ -265,25 +274,17 @@ interface ActState {
 }
 
 const instances = new WeakMap<object, App>();
-const paths = new Map<string, string[]>();
-const split = (p: string) => paths.get(p) ?? (paths.set(p, p.split('.')), paths.get(p)!);
 /**
- * A dependency path: segments, scope names of `{name}` segments, and the position and
- * template of the row's own element `{$i<tid>}` (-1 if none).
+ * A marked path: a node of the page's path table (-1: one nothing reads) and the values its `{name}`
+ * segments took from the writer's scope, in order.
  */
-interface Dep { p: string[]; n: Array<string | undefined>; a: number; t: number }
-const compiled = new WeakMap<object, Dep[]>();
-const toDeps = (list: string[]) => list.map((d) => {
-  const p = d.split('.'), a = p.findIndex((x) => x.startsWith('{$'));
-  return { p, n: p.map((x) => (x[0] == '{' ? x.slice(1, -1) : undefined)), a, t: a < 0 ? -1 : +p[a]!.slice(3, -1) };
-});
+export interface Dirty { w: number; v: string[] }
+/** node lists in the IR (numbered by the compiler) */
+const ids = (x: PathRef[] | undefined) => (x ?? []) as number[];
 /** How long a URL change from typing waits for the next keystroke before the resource is requested. */
 const TYPING = 250;
-const depsOf = (key: object, list: string[] = []) => compiled.get(key) ?? (compiled.set(key, toDeps(list)), compiled.get(key)!);
 /** Sentinel for "not written yet". */
 const UNSET = {};
-/** Fills `{name}` segments from a scope. */
-const fill = (p: string, s?: any) => (s && p.includes('{') ? split(p).map((x) => (x[0] == '{' ? '' + s[x.slice(1, -1)] : x)) : split(p));
 const range = (a: Node | null, stop: Node | null) => {
   const out: Node[] = [];
   for (let n = a; n && n != stop; n = n.nextSibling) out.push(n);
@@ -303,7 +304,7 @@ export const STATE = Symbol('sinter.state');
 /** HANDLERS: one handler binding, or an array when the element has several */
 export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
 const indexReaders = new WeakMap<TemplateDef, boolean>();
-const others = new WeakMap<TemplateDef, Dep[]>(), selOf = new WeakMap<TemplateDef, Binding[]>();
+const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>(), selOf = new WeakMap<TemplateDef, Binding[]>();
 /** row templates: whether each holds one element (see oneElement()) */
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
 /** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
@@ -324,7 +325,7 @@ export function instance(root: Document | Element): App {
 export function mount(root: Document | Element, o: MountOptions): App {
   if (instances.has(root)) throw Error('sinter: already mounted');
   const { ir, fns } = o;
-  if (ir?.v != 1) throw Error('sinter: unsupported IR');
+  if (ir?.v != 2 || !ir.ps) throw Error('sinter: unsupported IR');
   const env = o.env ?? envOf(config);
   const req = createRequestLayer(env, o.request ?? config.request);
   const schemes = schemesOf(config.urlSchemes);
@@ -339,9 +340,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const byId = (id: string, s = '[id]') => [...root.querySelectorAll(s)].find((d) => d.id === id);
   const dialog = (id: string) => byId(id, 'dialog') as HTMLDialogElement | undefined;
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element>();
-  let dirty: string[][] = [], cur: string[][] = [], scheduled = false, flushing = false, round = 0, destroyed = false;
+  let dirty: Dirty[] = [], cur: Dirty[] = [], scheduled = false, flushing = false, round = 0, destroyed = false;
   /** dirty paths of this round that keystrokes in text fields produced */
-  const typed = new Set<string[]>();
+  const typed = new Set<Dirty>();
 
   const res = (name: string): Resource => {
     const r = resources.get(name);
@@ -405,69 +406,100 @@ export function mount(root: Document | Element, o: MountOptions): App {
   };
   /** Per flush round: how dirty paths reach a template's rows (0 not, 1 only marked elements, 2 any row). */
   let rowHits = new Map<TemplateDef, number>();
+  /** Per flush round: the rows of a template the round's changes select by their index (null: any row). */
+  let rowSel = new Map<TemplateDef, Set<number> | null>();
+
+  // ---- dependency paths: the compiler numbered them and decided which written path reaches which
+  // dependency (`paths.ts`); what is left here are the checks against runtime values
+
+  const ps = ir.ps!, par = ps.p, kinds = ps.k ?? {};
+  const slotsOf: string[][] = [], entriesOf: Reach[][] = [];
+  /** a node's path, top-down */
+  const up = (n: number) => { const a: number[] = []; for (; n >= 0; n = par[n]!) a.unshift(n); return a; };
+  /** the scope names of a written node's `{name}` segments, top-down */
+  const slots = (w: number) => slotsOf[w] ??= up(w).flatMap((n) => (kinds[n]?.[0] == '{' ? [kinds[n]!.slice(1, -1)] : []));
+  /** the dependency nodes a written node can reach */
+  const entries = (w: number) => entriesOf[w] ??= (ps.r[w] || []).map(decode);
+  /** the template whose row element a dependency node reads (its first `{$i<tid>}` segment), -1 for none */
+  const ownOf = (n: number) => { const k = up(n).map((x) => kinds[x]).find((k) => k?.startsWith('{$')); return k ? +k.slice(3, -1) : -1; };
+  /**
+   * Per flush round: by dependency node, the dirty paths that may reach it with their entries, as
+   * pairs (the checks that need no scope passed). The lists are kept and stamped with the round (read
+   * only in a flush, whose rounds start at 1).
+   */
+  const tR = new Int32Array(par.length), tL: Array<Array<Dirty | Reach>> = [], NO: Array<Dirty | Reach> = [];
+  function index(list: Dirty[]) {
+    for (const d of list) if (d.w >= 0) for (const e of entries(d.w)) {
+      if (!passes(e, d.v)) continue;
+      const n = e.d, l = tR[n] == round ? tL[n]! : (tL[n] ??= []);
+      if (tR[n] != round) { tR[n] = round; l.length = 0; }
+      l.push(d, e);
+    }
+  }
+  /** the round's dirty paths that may reach dependency node `n`, with their entries: `[dirty, entry, …]` */
+  const touched = (n: number) => (tR[n] == round ? tL[n]! : NO);
 
   /**
-   * Whether a dependency (its `{name}` segments read from scope `s`, or any scope when `s` is
-   * absent) and dirty path `d` are prefixes of each other; `*` matches any segment. A change
-   * that ends above a row's own element, or only changes the list structure (`#`), does not
-   * reach it: reconcile re-evaluates rows whose item or index changed. `~` reaches only rows
-   * whose element was marked. A path ending in `**` (an island's `update()`) reaches everything
-   * under its prefix, at any depth.
+   * How dirty path `d` reaches a dependency through entry `e`, its `{name}` segments read from scope
+   * `s` (any scope when absent): 0 not, 1 only through a marked element (`~`) of the row, 2 it does.
+   * A change that ends above a row's own element, or only changes the list structure (`#`), does not
+   * reach it (the compiler left no entry): reconcile re-evaluates rows whose item or index changed.
    */
-  const overlaps = (dep: Dep, d: string[], s?: any) => reach(dep, d, s) > 0;
-
-  /** 0: no overlap; 1: only through a marked element (`~`) of the row; 2: overlap. */
-  function reach({ p, n, a, t }: Dep, d: string[], s?: any): number {
-    if (a >= 0 && d.length <= a && d[d.length - 1] != '**') return 0;
-    let via = 2;
-    for (let i = 0, len = Math.min(p.length, d.length); i < len; i++) {
-      const y = d[i]!;
-      if (y == '**') return 2;
-      // a list's structure dependency: reached by changes to the list itself or a whole element, not element fields
-      if (p[i] == '#') return d.length <= i + 1 ? 2 : 0;
-      if (y == '#' || y == '~') {
-        if (i != a) continue;
-        if (y == '#' || (s && !marked.has(s[ir.templates[t]!.item!]))) return 0;
-        via = 1;
-        continue;
-      }
-      if (y == '*' || (n[i] !== undefined && !s)) continue;
-      if (n[i] !== undefined ? s[n[i]!] != y : p[i] != y && p[i] != '*') return 0;
-    }
-    return s ? 2 : via;
-  }
+  const isMarked = (t: number, s: any) => marked.has(s[ir.templates[t]!.item!]);
+  const level = (e: any, d: any, s?: any) => (e.conds.length ? reachLevel(e, d.v, s, isMarked) : 2);
 
   /** Whether a binding in a template's rows (nested templates included) reads a loop index. */
   const readsIndex = (t: TemplateDef): boolean => indexReaders.get(t) ?? (indexReaders.set(t, t.nodes.some((nd) => nd.b.some((b) =>
     b.i || ((b.k == 'for' || b.k == 'if' || b.k == 'else') && readsIndex(ir.templates[b.x!]!))))), indexReaders.get(t)!);
 
   /** Dependencies of every binding in a template's rows, nested templates included. */
-  const templateDeps = (t: TemplateDef): Dep[] => compiled.get(t) ?? (compiled.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
-    ...depsOf(b, b.d),
+  const templateDeps = (t: TemplateDef): number[] => allDeps.get(t) ?? (allDeps.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
+    ...ids(b.d),
     ...(b.k == 'for' || b.k == 'if' || b.k == 'else' ? templateDeps(ir.templates[b.x!]!) : []),
-  ]))), compiled.get(t)!);
+  ]))), allDeps.get(t)!);
 
   /**
    * The template's dependencies without the outer sides of its selection bindings: what reaches a row
    * for any other reason. The selection bindings of the template's own nodes.
    */
-  const otherDeps = (t: TemplateDef): Dep[] => others.get(t) ?? (others.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
-    ...(b.s ? toDeps((b.d ?? []).filter((d) => !b.s!.d.includes(d))) : depsOf(b, b.d)),
+  const otherDeps = (t: TemplateDef): number[] => others.get(t) ?? (others.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
+    ...(b.s ? ids(b.d).filter((d) => !b.s!.d.includes(d)) : ids(b.d)),
     ...(b.k == 'for' || b.k == 'if' || b.k == 'else' ? templateDeps(ir.templates[b.x!]!) : []),
   ]))), others.get(t)!);
   const sels = (t: TemplateDef): Binding[] => selOf.get(t) ?? (selOf.set(t, t.nodes.flatMap((nd) => nd.b.filter((b) => b.s))), selOf.get(t)!);
 
-  /** Whether any of `deps` overlaps a dirty path of the current flush. */
-  const hit = (deps: Dep[], s?: any) => {
-    for (const dep of deps) for (const d of cur) if (overlaps(dep, d, s)) return true;
+  /** Whether a dirty path of the current flush reaches one of `deps`. */
+  const hit = (deps: PathRef[] | undefined, s?: any) => {
+    for (const n of ids(deps)) for (let l = touched(n), j = 0; j < l.length; j += 2) if (level(l[j + 1], l[j], s)) return true;
     return false;
   };
   /** 0: no dirty path reaches `deps`; 1: only keystrokes do; 2: some other change does. */
-  const hits = (deps: Dep[]) => {
+  const hits = (deps: PathRef[] | undefined) => {
     let k = 0;
-    for (const d of cur) if (deps.some((dep) => overlaps(dep, d))) k = typed.has(d) ? k || 1 : 2;
+    for (const n of ids(deps)) for (let l = touched(n), j = 0; j < l.length; j += 2) k = typed.has(l[j] as Dirty) ? k || 1 : 2;
     return k;
   };
+
+  /**
+   * The rows of `t` that the round's changes reach, by index: a change written through the row's own
+   * element (`rows[i].done = …`, a `{$i<tid>}` segment) reaches the row at that index only. Null when
+   * some change may reach any row (a write through another list indexed by the row's index included).
+   */
+  function rowsOf(t: TemplateDef): Set<number> | null {
+    if (rowSel.has(t)) return rowSel.get(t)!;
+    const out = new Set<number>();
+    let all = false;
+    for (const n of otherDeps(t)) for (let l = touched(n), j = 0; j < l.length; j += 2) {
+      const d = l[j] as Dirty, c = (l[j + 1] as Reach).conds.find((c) => (c[0] == 1 || c[0] == 2) && c[1] == t.ii);
+      if (!c) { all = true; break; }
+      // the index loosely equals the value (as `s[name] != value` compares it): the value as a number
+      const i = Number(c[0] == 1 ? d.v[c[2]] : c[2]);
+      if (Number.isInteger(i) && i >= 0) out.add(i);
+    }
+    const r = all ? null : out;
+    rowSel.set(t, r);
+    return r;
+  }
 
   const doc = (root.ownerDocument ?? root) as Document & { prerendering?: boolean };
   /** work that waits until a prerendered page is shown; null once it is (or when it never was prerendered) */
@@ -518,7 +550,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     url: (tpl, s) => expand(tpl, s, fns),
     mark(path, s, typing) {
-      const d = fill(path, s);
+      const w = typeof path == 'number' ? path : ps.x[path] ?? -1;
+      // the written path's `{name}` segments, as the writer's scope has them
+      const d: Dirty = { w, v: w < 0 ? [] : slots(w).map((n) => (s ? '' + s[n] : '{' + n + '}')) };
       dirty.push(d);
       if (typing) typed.add(d);
       if (!scheduled && !flushing) { scheduled = true; env.queueMicrotask(app.flush); }
@@ -534,7 +568,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
           for (const h of app.beforeFlush) h(cur);
           round++;
           rowHits = new Map();
-          for (const l of loaders) { const k = hits(depsOf(l.def, l.def.deps)); if (k) l.changed(k == 1); }
+          rowSel = new Map();
+          index(cur);
+          for (const l of loaders) { const k = hits(l.def.deps); if (k) l.changed(k == 1); }
           walk(rootRbs, 0);
           syncSelects();
           for (const h of app.afterFlush) h(cur);
@@ -584,8 +620,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     exec(f, s, writes, o) {
       try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); }
       for (const w of writes ?? []) app.mark(w, s);
-      if (writes?.some((w) => w.startsWith('$url'))) writeUrl();
+      if (writes?.some((w) => up(w as number)[0] == ps.x.$url)) writeUrl();
     },
+    reaches: (nodes, list) => list.some((d) => d.w >= 0 && entries(d.w).some((e) => nodes.includes(e.d) && passes(e, d.v))),
+    inState: (d, sid) => d.w >= 0 && up(d.w)[0] == par[ps.x[`$s${sid}.**`]!],
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),
     shown: (fn) => void (waiting ? waiting.push(fn) : fn()),
@@ -700,7 +738,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (rbs == rootRbs) app.states.push([sid, obj]);
         if (key) {
           app.ext.persist?.state(key, obj);
-          app.afterFlush.push((d) => d.some((p) => p[0] == '$s' + sid) && app.ext.persist?.saveState(key, obj));
+          app.afterFlush.push((d) => d.some((p) => app.inState(p, sid)) && app.ext.persist?.saveState(key, obj));
         }
       }
       if (s !== base) (scopes ??= [])[i] = s;
@@ -736,14 +774,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (r == null) {
         r = 0;
         // a mark counts as "only marked rows" for dependencies on this list's own element; others (outer rows) reach any row
-        for (const dep of otherDeps(t!)) for (const d of cur) { const x = reach(dep, d); r = Math.max(r, x == 1 && dep.t != t!.id ? 2 : x); }
+        for (const n of otherDeps(t!)) for (let l = touched(n), j = 0; j < l.length; j += 2) { const x = level(l[j + 1], l[j]); r = Math.max(r, x == 1 && ownOf(n) != t!.id ? 2 : x); }
         rowHits.set(t!, r);
       }
       // only a selection's outer side changed: the rows it concerns, through the index; rows that were
       // just reconciled (some re-rendered, the index stale) or wait in a closed dialog render as usual
       if (!r) {
         const ss = sels(t!);
-        if (ss.some((b) => hit(depsOf(b.s!, b.s!.d), rb.s))) {
+        if (ss.some((b) => hit(b.s!.d, rb.s))) {
           if (rb.rr != round && !deferred.size) { for (const b of ss) select(rb, b); continue; }
           r = 2;
         }
@@ -760,8 +798,18 @@ export function mount(root: Document | Element, o: MountOptions): App {
           continue;
         }
       }
+      // changes written through a row index (`rows[i].v = …`) reach the rows at those indexes only, when
+      // no row waits for a re-evaluation (the list was not reconciled since the last full walk)
+      if (t && r == 2 && !force && !rb.pf && rb.rr != round) {
+        const at = rowsOf(t!);
+        if (at) {
+          for (const i of at) { const x = rb.rows[i]; if (x && x.r != round) walkRow(x, t!, 0); }
+          continue;
+        }
+      }
       // otherwise skip rows no dirty path can reach (unless they moved or changed), and rows created in this round
       for (const x of rb.rows) if (x.r != round && (r || x.f)) { walkRow(x, t!, Math.max(force, x.f)); x.f = 0; }
+      rb.pf = false;
     }
   }
 
@@ -778,7 +826,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const els: Array<Element | null> = fns[t.find!]!(x.first), vals = meta.vals, v = x.v!;
     for (let j = only < 0 ? 0 : only; j < vals.length; j++) {
       const [k, b] = vals[j]!, el = els[k], prev = v[j];
-      if (el && (force == 2 || (force == 1 && b.i) || (b.d && hit(depsOf(b, b.d), x.s)))) {
+      if (el && (force == 2 || (force == 1 && b.i) || (b.d && hit(b.d, x.s)))) {
         const val = evalB(b, x.s, el, null);
         if (!Object.is(val, prev)) { write(b, el, val, prev == UNSET ? undefined : prev, prev == UNSET); v[j] = val; }
       }
@@ -789,7 +837,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** Evaluates and writes one binding if needed; false while it waits in a closed dialog. */
   function process(rb: RB, level: number): boolean {
     const force = level == 2 || (level == 1 && !!rb.b.i);
-    if (!force && !(deferred.size && deferred.has(rb)) && !(rb.b.d && hit(rb.d ??= depsOf(rb.b, rb.b.d), rb.s))) return true;
+    if (!force && !(deferred.size && deferred.has(rb)) && !(rb.b.d && hit(rb.b.d, rb.s))) return true;
     if (rb.c && rb.el.closest('dialog:not([open])')) { deferred.add(rb); return false; }
     if (deferred.size) deferred.delete(rb);
     const v = evaluate(rb), k = rb.b.k;
@@ -807,7 +855,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
    */
   function select(rb: RB, b: Binding) {
     const s = b.s!, f = s.x ? 0 : 1, t = rb.t!, meta = isSimple(t), j = meta ? meta.vals.findIndex((y) => y[1] == b) : -1;
-    if (!hit(depsOf(s, s.d), rb.s)) return;
+    if (!hit(s.d, rb.s)) return;
     // the binding's current value in a row (undefined when its element is missing), and its re-evaluation
     const cur = (x: Inst) => (meta ? x.v![j] : x.rbs!.find((y) => y.b == b)?.v);
     const run = (x: Inst) => { if (meta) walkSimple(x, t, meta, 2, j); else { const y = x.rbs!.find((y) => y.b == b); if (y) process(y, 2); } };
@@ -992,6 +1040,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     rb.rows = rows;
     rb.rr = round;
+    rb.pf = true;
     rb.keys = undefined;
     rb.sx = undefined;
   }
@@ -1151,7 +1200,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   /** Runs a handler expression and invalidates what it may have changed. */
-  function handle(rb: RB, f: number, e: Event | null, writes: string[] | undefined, extra?: object) {
+  function handle(rb: RB, f: number, e: Event | null, writes: PathRef[] | undefined, extra?: object) {
     app.exec(f, child(rb.s, { $el: rb.el, $event: e, $f: app.storeFns(rb.el), ...extra }), writes, rb.b);
   }
 

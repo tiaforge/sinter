@@ -235,7 +235,8 @@ test('an app destroyed before its streams connect opens none', async () => {
   host.innerHTML = /<body>([\s\S]*)<\/body>/i.exec(parts.html)![1]!;
   let open = 0;
   const env = { ...defaultEnv, href: () => 'http://localhost/', fetch: async () => new Response('{"contacts":[]}', { headers: { 'Content-Type': 'application/json' } }) };
-  const app = mount(host, { ir: parts.ir, fns, env, features: [sse], transport: () => ({ connect() { open++; }, close() { open--; } }) });
+  const { compactIR } = await import('../../src/ir.js');
+  const app = mount(host, { ir: compactIR(parts.ir), fns, env, features: [sse], transport: () => ({ connect() { open++; }, close() { open--; } }) });
   app.destroy();
   await new Promise((r) => setTimeout(r, 10));
   expect(open).toBe(0);

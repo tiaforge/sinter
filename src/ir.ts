@@ -1,7 +1,31 @@
-// IR v1: the only contract between compiler and runtime. Plain JSON; every
+// IR v2: the only contract between compiler and runtime. Plain JSON; every
 // expression is an index into the page module's function table.
+import { fixedPaths, numberPaths, type Entry } from './paths.js';
 
-export const IR_VERSION = 1;
+export const IR_VERSION = 2;
+
+/**
+ * A dependency or written path. The compiler's IR holds strings (dot-separated, `*` any segment,
+ * `{name}` a scope value, `#` a list's structure, `~` marked rows, `**` everything below); the page
+ * module's IR (`compactIR`) holds node ids into its path table (`ps`).
+ */
+export type PathRef = string | number;
+
+/**
+ * The page's paths as one trie (IR v2, `ps`): node ids in pre-order, children sorted by name, so
+ * every node's subtree follows it. No segment names except special ones; what a written path reaches
+ * was decided by the compiler.
+ */
+export interface PathTable {
+  /** parent of each node, -1 for a top-level segment */
+  p: number[];
+  /** special segments by node: `*`, `#`, `~`, `**`, `{name}` (absent: a plain name) */
+  k?: Record<number, string>;
+  /** by written node: the dependency nodes it can reach (`paths.ts`, `Entry`); 0 for none, absent at the end */
+  r: Array<Entry[] | 0>;
+  /** the paths the runtime marks itself (`$locale`, `$url`, `$now`, `$r.<name>`, `$meta.<name>`, `$s<sid>.**`, `$s<sid>.$error`), by name */
+  x: Record<string, number>;
+}
 
 /** Literal string parts and function indexes, joined with encodeURIComponent. */
 export type UrlTemplate = Array<string | number>;
@@ -35,7 +59,7 @@ export interface ResourceDef {
   when?: number | null;
   paginate?: Paginate | null;
   /** state and `$url` paths that `src` and `when` read */
-  deps?: string[];
+  deps?: PathRef[];
   /** index of the node (in `roots`) whose scope src/when are evaluated in, -1 for page scope */
   scope?: number;
   /** `data-sn` id of an embedded `<script type="application/json">`, or null */
@@ -50,7 +74,7 @@ export interface ResourceDef {
   each?: { item: string; list: number; of?: string };
   /** `then`: handler run after each successful load, with `$result`; `w`: the state paths it writes */
   then?: number;
-  w?: string[];
+  w?: PathRef[];
   /** only elements inside `<dialog>`s read it: requested with low priority */
   lo?: 1;
   /** the named OpenAPI schema of its items (`Article`): write-through matches response objects by it */
@@ -71,7 +95,7 @@ export interface EventDef {
   fallback?: 'refetch' | null;
   /** `then`: handler run after the change is applied; `w`: the state paths it writes */
   then?: number;
-  w?: string[];
+  w?: PathRef[];
 }
 
 export interface SyncDef {
@@ -92,7 +116,7 @@ export interface Binding {
   /** value / handler function index */
   f?: number;
   /** dependency paths: dot-separated, `*` any segment, `{name}` scope value */
-  d?: string[];
+  d?: PathRef[];
   /** event name (`on`), control kind (`model`) */
   n?: string;
   /** action index (`on`), template id (`for`, `if`, `else`) */
@@ -102,7 +126,7 @@ export interface Binding {
   /** if: node index of the paired else template */
   y?: number;
   /** handler: paths it may change */
-  w?: string[];
+  w?: PathRef[];
   /** model: persist key */
   p?: string;
   /** the expression reads `$el` */
@@ -120,7 +144,7 @@ export interface Binding {
    * the sides' functions, `d` the outer side's dependencies the row side does not read. When only those change,
    * the runtime re-evaluates the binding on the rows the comparison matched and matches, not on every row.
    */
-  s?: { r: number; o: number; d: string[]; x?: 1 };
+  s?: { r: number; o: number; d: PathRef[]; x?: 1 };
 }
 
 export interface NodeDef {
@@ -200,7 +224,7 @@ export interface ActionDef {
   then?: number | null;
   catch?: number | null;
   /** paths `then` and `catch` may change */
-  w?: string[];
+  w?: PathRef[];
   /** element is a form (serialize, disable in block mode) */
   form?: boolean;
   /** `data-sn-confirm`: the question asked before the action runs (none when it is falsy) */
@@ -231,7 +255,7 @@ export interface ApplyDef {
 }
 
 export interface IR {
-  v: 1;
+  v: 2;
   resources: ResourceDef[];
   /** absent in a page module without streams */
   syncs?: SyncDef[];
@@ -242,11 +266,13 @@ export interface IR {
   now?: boolean;
   /** `data-sn-path` patterns; `:name` segments of the first match join `$url` */
   path?: string[];
+  /** the path table (page module only); without it, paths are strings */
+  ps?: PathTable;
 }
 
 export type Fn = (scope: any, value?: any) => any;
 
-/** Structural check of an IR against v1; returns problems (empty when valid). */
+/** Structural check of an IR against v2; returns problems (empty when valid). */
 export function validateIR(ir: unknown, fnCount: number): string[] {
   const errs: string[] = [];
   const o = ir as IR;
@@ -259,7 +285,15 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     if (!Array.isArray(u) || !u.length || typeof u[0] !== 'string') { errs.push(`${at}: URL template must start with a literal`); return; }
     u.forEach((p, i) => (typeof p === 'string' ? undefined : fn(p, `${at}[${i}]`, false)));
   };
-  if (!o || o.v !== 1) return ['v must be 1'];
+  if (!o || o.v !== 2) return ['v must be 2'];
+  // paths: strings in the compiler's IR, node ids of the table in the page module's
+  const count = o.ps?.p.length ?? -1;
+  const bad = (d: unknown) => (count < 0 ? typeof d !== 'string' || !d : !Number.isInteger(d) || (d as number) < 0 || (d as number) >= count);
+  if (o.ps) {
+    if (!Array.isArray(o.ps.p) || o.ps.p.some((x, i) => !Number.isInteger(x) || x < -1 || x >= i)) errs.push('ps.p: parents must come first');
+    if (!Array.isArray(o.ps.r) || o.ps.r.length > count) errs.push('ps.r: one entry per node at most');
+    if (fixedPaths(o).some((p) => bad(o.ps!.x?.[p]))) errs.push('ps.x: a node for each fixed path');
+  }
   for (const k of ['resources', 'syncs', 'roots', 'templates', 'actions'] as const) if (!Array.isArray(o[k])) errs.push(`${k} must be an array`);
   if (errs.length) return errs;
   const names = new Set<string>();
@@ -271,7 +305,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     if (r.call) { fn(r.call.args, `${at}.call.args`, false); fn(r.call.run, `${at}.call.run`, false); if (r.src.length) errs.push(`${at}: a call resource has no src`); }
     else url(r.src, `${at}.src`);
     fn(r.when, `${at}.when`); fn(r.then, `${at}.then`);
-    for (const d of r.w ?? []) if (typeof d !== 'string' || !d) errs.push(`${at}: bad path`);
+    for (const d of [...(r.w ?? []), ...(r.deps ?? [])]) if (bad(d)) errs.push(`${at}: bad path`);
     if (r.paginate) {
       if (!['keyset', 'offset', 'append'].includes(r.paginate.mode)) errs.push(`${at}: bad paginate mode`);
       fn(r.paginate.cursor, `${at}.paginate.cursor`);
@@ -288,7 +322,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
         if (!['upsert', 'patch', 'remove', 'refetch'].includes(e.op!)) errs.push(`${at}: bad op`);
       }
       fn(e.item, `${at}.item`); fn(e.set, `${at}.set`); fn(e.when, `${at}.when`); fn(e.then, `${at}.then`);
-      for (const d of e.w ?? []) if (typeof d !== 'string' || !d) errs.push(`${at}: bad path`);
+      for (const d of e.w ?? []) if (bad(d)) errs.push(`${at}: bad path`);
     });
   });
   const kinds = new Set(['text', 'attr', 'class', 'style', 'show', 'model', 'prop', 'for', 'if', 'else', 'on']);
@@ -315,7 +349,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
         if (!['text', 'attr', 'class', 'style', 'show', 'prop'].includes(b.k) || !inTemplate) errs.push(`${ba}: s belongs to a value binding in a template`);
         else { fn(b.s.r, `${ba}.s.r`, false); fn(b.s.o, `${ba}.s.o`, false); if (!Array.isArray(b.s.d) || !b.s.d.length) errs.push(`${ba}: s needs outer paths`); }
       }
-      for (const d of [...(b.d ?? []), ...(b.w ?? []), ...(b.s?.d ?? [])]) if (typeof d !== 'string' || !d) errs.push(`${ba}: bad path`);
+      for (const d of [...(b.d ?? []), ...(b.w ?? []), ...(b.s?.d ?? [])]) if (bad(d)) errs.push(`${ba}: bad path`);
     });
   });
   nodes(o.roots, 'roots', false);
@@ -337,6 +371,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
       if (a.url.length) errs.push(`${at}: a call action has no url`);
     } else url(a.url, `${at}.url`);
     for (const k of ['body', 'optimistic', 'then', 'catch'] as const) fn(a[k], `${at}.${k}`);
+    for (const d of a.w ?? []) if (bad(d)) errs.push(`${at}: bad path`);
   });
   return errs;
 }
@@ -347,8 +382,10 @@ const NULLS = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v])
  * The IR as a page module carries it: resources and stream events without the fields that hold their
  * default (null, `deps` [], `scope` -1), as actions are built (an attribute the page does not write
  * costs no bytes). The runtime reads an absent field as its default; the compiler keeps the full objects.
+ * Paths become node ids of the page's path table (`ps`, see `paths.ts`).
  */
-export function compactIR(ir: IR): IR {
+export function compactIR(full: IR): IR {
+  const ir = structuredClone(full), ps = numberPaths(ir);
   const { syncs, ...rest } = ir;
   return {
     ...rest,
@@ -360,6 +397,7 @@ export function compactIR(ir: IR): IR {
     roots: ir.roots.map(compactNode),
     // a template's absent `index`, `key` and `keyFields` are null
     templates: ir.templates.map((t) => ({ ...NULLS(t), nodes: t.nodes.map(compactNode) }) as TemplateDef),
+    ps,
   };
 }
 
