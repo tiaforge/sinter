@@ -20,6 +20,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   `(max-width: 479.98px) calc(100vw - 48px), (max-width: 767.98px) calc(50vw - 32px), calc(33.33vw - 26.67px)`
   instead of `100vw`; an image 40 px on phones and 64 px above gets exactly those files. Checked
   against Chromium at 17 viewport widths. Static and API images; the upper bound stays the fallback.
+  An unbounded `auto-fill` grid is split until its tracks vary by at most 15%, then one width.
+- Warning `SN514 auto-fit-rows`: an image in the rows of a `data-sn-for` in a `repeat(auto-fit, …)`
+  grid, whose width depends on the number of rows; `auto-fill` gives it exact sizes.
 - Dev: the console warning for images that look soft also checks CSS backgrounds: the file the
   browser uses (`url()`, or the `image-set()` option it picks), drawn at the width
   `background-size` gives it (`cover`, `contain`, lengths, `%`, `auto`), also for elements added

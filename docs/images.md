@@ -85,8 +85,11 @@ fluid image is rendered, as a function of the viewport width, and writes it as `
   crossing: `(max-width: 1199.98px) calc(100vw - 32px), 1168px`.
 - **Grids.** Equal tracks (`repeat(3, 1fr)`, `1fr 1fr`, `minmax(0, 1fr)`, `repeat(4, 200px)`)
   with a `gap`, an item spanning `span N` or `1 / -1`; `repeat(auto-fill, minmax(200px, 1fr))`,
-  split at every viewport width where one more column fits (`auto-fit` when the items are in the
-  markup, since empty tracks collapse). Unequal tracks and named areas are not resolved.
+  split at every viewport width where one more column fits, until a track varies by at most 15%
+  (with n columns it is between its minimum and minimum + (minimum + gap) / n wide): from there one
+  width, the widest, so `sizes` stays short. `auto-fit` only when the items are in the markup,
+  since empty tracks collapse and a short list stretches; with the rows of a `data-sn-for` the
+  image is `SN514` and gets the upper bound. Unequal tracks and named areas are not resolved.
 - **Flex rows.** Equal columns (every item `flex: 1` from a basis of 0, their number known: not
   rows of a `data-sn-for`), and wrapped items (`flex-wrap: wrap`) with a basis or width; a flex
   column stretches its items like a block.
@@ -350,6 +353,10 @@ sinter.
 - `SN513 bound-local-image`: an `<img>` binds `src` to a local image path, or chooses between a
   few (`dark ? './logo-dark.png' : './logo.png'`), which the build cannot optimize. Write each as a
   static `<img>` under `data-sn-if` or `data-sn-show`.
+
+- `SN514 auto-fit-rows`: an image in the rows of a `data-sn-for` inside a `repeat(auto-fit, …)`
+  grid. Its width depends on how many rows there are, known only at runtime, so it gets the upper
+  bound. Use `auto-fill` (the same columns, without stretching a short list), or write `sizes`.
 
 ## Build and dev
 

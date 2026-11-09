@@ -234,6 +234,8 @@ export class Layout {
   /** a viewport width: `@media` width conditions are decided for it (`at()`); undefined: they may or may not apply */
   private viewport: number | undefined;
   private readonly views = new Map<number, Layout>();
+  /** why the last `fluidSizes()` gave up, when it is something the author can change (shared by `at()` views) */
+  private readonly notes: { autoFitRows: P5Element | null } = { autoFitRows: null };
 
   constructor(sheets: StyleSheet[], doc: P5Parent) {
     let order = 0;
@@ -262,7 +264,7 @@ export class Layout {
     if (l) return l;
     l = Object.create(Layout.prototype) as Layout;
     Object.assign(l, {
-      rules: this.rules, hosts: this.hosts, root: this.root, viewport: width, views: this.views,
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: width, views: this.views, notes: this.notes,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(),
     });
     this.views.set(width, l);
@@ -619,6 +621,7 @@ export class Layout {
    * else is null (the caller falls back to `maxWidth()`). Checked against Chromium at many widths.
    */
   fluidSizes(img: P5Element, intrinsic?: number): FluidSizes | null {
+    this.notes.autoFitRows = null;
     if (this.empty || this.viewport !== undefined) return null;
     const cuts = this.breakpoints().filter((b) => b > MIN_VIEWPORT && b < MAX_VIEWPORT);
     const queue: Array<[number, number]> = [];
@@ -628,7 +631,7 @@ export class Layout {
     queue.push([lo, Infinity]);
     const pieces: FluidPiece[] = [];
     for (let guard = 0; queue.length; guard++) {
-      if (guard > 64) return null;
+      if (guard > 200) return null;
       const seg = queue.shift()!;
       const mid = Number.isFinite(seg[1]) ? (seg[0] + seg[1]) / 2 : seg[0] + 1000;
       let w: Lin | null;
@@ -661,6 +664,9 @@ export class Layout {
     const constant = merged.every((p) => Math.abs(p.k) < 1e-9) ? [...new Set(merged.map((p) => Math.round(p.c)))] : null;
     return { sizes, pieces: merged, max: max === null ? null : Math.ceil(max), constant };
   }
+
+  /** The `auto-fit` grid whose rows from a template made the last `fluidSizes()` give up, if that was why. */
+  get autoFitRows(): P5Element | null { return this.notes.autoFitRows; }
 
   /** an image's rendered width in this viewport range: its own width, else its `width` attribute, within min/max */
   private imgWidth(img: P5Element, seg: [number, number], intrinsic?: number): Lin | null {
@@ -841,15 +847,19 @@ export class Layout {
       if (step <= 0) return null;
       const count = (v: number) => Math.max(1, Math.floor((W.k * v + W.c + gap.c) / step + 1e-9));
       const n0 = count(seg[0] + 0.01);
-      // the viewport width at which one more column fits (a container of fixed width: never)
+      // with n columns a track is between its minimum and minimum + step / n wide: once that is within
+      // 15%, the rest is one width, the widest (`sizes` stays short; it overestimates by at most 15%)
+      if (W.k > 1e-9 && auto[1] === 'auto-fill' && n0 >= 2 && step / n0 <= 0.15 * min.c) return area(lin(min.c + step / n0), n0);
+      // the viewport width at which one more column fits (a container of fixed width: never); past the
+      // widest screen the count stays, which only overestimates the image there
       if (W.k > 1e-9) {
         const next = ((n0 + 1) * step - gap.c - W.c) / W.k;
-        if (next < seg[1]) throw new Split(next);
+        if (next < Math.min(seg[1], MAX_VIEWPORT)) throw new Split(next);
       }
       let n = n0;
       if (auto[1] === 'auto-fit') {
-        // empty tracks collapse: the number of items matters
-        if (parent.childNodes.some((c) => isEl(c) && c.tagName === 'template')) return null;
+        // empty tracks collapse: the number of items matters, and the rows of a template are known only at runtime
+        if (parent.childNodes.some((c) => isEl(c) && c.tagName === 'template')) { this.notes.autoFitRows = parent; return null; }
         n = Math.min(n, parent.childNodes.filter((c) => isEl(c)).length);
       }
       return area({ k: (W.k - 0) / n, c: (W.c - (n - 1) * gap.c) / n }, n);

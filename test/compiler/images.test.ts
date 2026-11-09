@@ -136,3 +136,13 @@ test('SN513: only for a src that can only be local image paths', () => {
   // not an <img>
   expect(codes('<div data-sn-state="{ s: 1 }"><source data-sn-attr="{src: \'./a.png\'}"></div>')).toEqual([]);
 });
+
+test('SN514: a static image in the rows of an auto-fit grid', () => {
+  const styles = [{ file: 'app.css', css: '.g { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) } img { width: 100% }' }];
+  const out = run('<div class="g" data-sn-state="{ xs: [1, 2] }"><template data-sn-for="x in xs" data-sn-key="x"><div><img src="img/photo.jpg" alt=""></div></template></div>', { ...host, styles });
+  expect(out.diagnostics.map((d) => d.code)).toEqual(['SN514']);
+  // the same grid with its items in the markup: their number is known, exact sizes
+  const items = run('<div class="g"><div><img src="img/photo.jpg" alt=""></div><div></div></div>', { ...host, styles });
+  expect(items.diagnostics).toEqual([]);
+  expect(body(items.html)).toMatch(/sizes="\(max-width: 375\.98px\) calc\(100vw - 16px\), calc\(50vw - 8px\)"/);
+});

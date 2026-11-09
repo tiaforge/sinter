@@ -3,7 +3,7 @@
 import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
 import { Layout } from './layout.js';
 import type { RemoteConfig } from '../remote.js';
-import { FLUID_WIDTHS } from './images.js';
+import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
@@ -248,7 +248,7 @@ class Compiler {
     const layout = this.layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
     const images = this.opts.images ? rewriteImages(doc, {
       host: this.opts.images, root: this.opts.root,
-      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w) } : {}),
+      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows } : {}),
       fileOf: (el) => this.origins.get(el)?.file ?? this.opts.file,
       warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
     }) : undefined;
@@ -1146,6 +1146,7 @@ class Compiler {
     } else {
       // its width at every viewport width (layout.ts), else no wider than its containers allow: at most 3x of that
       const fluid = this.layout?.fluidSizes(el) ?? null;
+      if (!fluid && attr(el, 'sizes') === undefined && this.layout?.autoFitRows) this.report(el, 'data-sn-attr', 'SN514', AUTO_FIT_ROWS, 0, AUTO_FIT_HINT);
       const bound = fluid ? fluid.max : this.layout?.maxWidth(el) ?? null;
       const ladder = this.opts.images?.widths ?? FLUID_WIDTHS;
       widths = fluid?.constant ? [...new Set(fluid.constant.flatMap((w) => [w, 2 * w, 3 * w]))].sort((a, b) => a - b)

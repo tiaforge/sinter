@@ -252,3 +252,27 @@ describe.skipIf(!chromium)('the browser renders a fluid image as wide as its siz
     });
   }
 });
+
+describe.skipIf(!chromium)('an unbounded auto-fill grid: exact while columns are few, then within 15% and never narrower than it is', () => {
+  let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
+  let tab: Page;
+  beforeAll(async () => { browser = await chromium!.launch(); tab = await browser.newPage(); }, 30_000);
+  afterAll(async () => { await browser?.close(); });
+  const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  test('repeat(auto-fill, minmax(200px, 1fr)), gap 16px', async () => {
+    const css = 'body { margin: 0 } .g { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px } img { width: 100% }';
+    const body = '<div class="g"><div><img id="t" src="a.png" alt=""></div></div>';
+    const doc = parse5.parse(page('', body));
+    const f = new Layout([{ file: 'test.css', css }], doc).fluidSizes(find(doc, 't'))!;
+    expect(f.pieces.length).toBeLessThan(10);
+    for (const v of [320, 415, 416, 631, 632, 900, 1280, 1500, 1711, 1712, 1920, 2200, 2560, 3000]) {
+      const p = f.pieces.find((x) => v >= x.from && v < x.to) ?? f.pieces[0]!;
+      await tab.setViewportSize({ width: v, height: 600 });
+      await tab.setContent(page(css, body.replace('src="a.png"', `src="${IMG}"`)));
+      const w = await tab.evaluate(() => document.getElementById('t')!.getBoundingClientRect().width);
+      const said = p.k * v + p.c;
+      if (v < 1712) expect(w, `at ${v} px`).toBeCloseTo(said, 0);
+      else { expect(w, `at ${v} px`).toBeLessThanOrEqual(said + 0.5); expect(said / w, `at ${v} px`).toBeLessThanOrEqual(1.15); }
+    }
+  });
+});
