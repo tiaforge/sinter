@@ -124,3 +124,14 @@ test('a fluid image in a max-width container: sizes from the bound, files up to 
   const lazy = run('<main><img src="img/photo.jpg" alt=""><img src="img/photo.jpg" alt=""></main>', { ...host, styles });
   expect(body(lazy.html)).toContain('sizes="auto, (max-width: 300px) 100vw, 300px"');
 });
+
+test('SN513: only for a src that can only be local image paths', () => {
+  const codes = (html: string) => run(html).diagnostics.map((d) => d.code);
+  expect(codes('<div data-sn-state="{ s: 1 }"><img alt="" data-sn-attr="{src: \'/img/a.png\'}"></div>')).toEqual(['SN513']);
+  expect(codes('<div data-sn-state="{ s: 1 }"><img alt="" data-sn-attr="{src: s ? `./a.jpg` : null}"></div>')).toEqual(['SN513']);
+  for (const v of ["'https://x.test/a.png'", "'./a.svg'", "s ? './a.png' : s", "'./img/' + s + '.png'"]) {
+    expect(codes(`<div data-sn-state="{ s: 1 }"><img alt="" data-sn-attr="{src: ${v}}"></div>`)).toEqual([]);
+  }
+  // not an <img>
+  expect(codes('<div data-sn-state="{ s: 1 }"><source data-sn-attr="{src: \'./a.png\'}"></div>')).toEqual([]);
+});

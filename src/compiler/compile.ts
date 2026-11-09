@@ -1071,6 +1071,11 @@ class Compiler {
         this.report(el, 'data-sn-attr', 'SN503', `\`${key}\` bound from data can shadow globals other scripts read (DOM clobbering)`, e.offset);
       }
       if (!r.ok) continue;
+      if (key === 'src' && el.tagName === 'img') {
+        const files = localImages(entryValue(r, e));
+        if (files) this.report(el, 'data-sn-attr', 'SN513', `\`src\` is bound to ${files.length > 1 ? 'local images' : 'a local image'} (${files.map((f) => `\`${f}\``).join(', ')}), which ${files.length > 1 ? 'are' : 'is'} not optimized`, e.offset,
+          `write each image as a static \`<img src>\` (optimized at build time) and choose with \`data-sn-if\` or \`data-sn-show\`: \`<img src="${files[0]}" data-sn-show="…">\``);
+      }
       const remote = key === 'src' ? this.remoteImage(el, e, r.entries.some((x) => x.key.toLowerCase() === 'srcset'), scope) : null;
       node.b.push(binding({ k: 'attr', n: e.key, f: this.fn(remote ? remote.src : e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
       if (remote) node.b.push(binding({ k: 'attr', n: 'srcset', f: this.fn(remote.srcset), d: e.deps, ...usesEl(r) }));
@@ -1948,6 +1953,27 @@ const entryValue = (r: ExprResult, e: { offset: number }): Node | undefined => {
   const p = props?.find((x) => x.start === e.offset);
   return p && p.type === 'Property' ? (p.value as Node) : undefined;
 };
+/**
+ * The local image files an expression can only evaluate to (a literal path, or a choice between
+ * literals: `dark ? './logo-dark.png' : './logo.png'`), or null when it can be anything else.
+ */
+function localImages(n: Node | undefined): string[] | null {
+  const out: string[] = [];
+  const visit = (x: unknown): boolean => {
+    const v = x as { type: string; value?: unknown; consequent?: unknown; alternate?: unknown; quasis?: Array<{ value: { cooked: string } }>; expressions?: unknown[] };
+    if (v.type === 'Literal') {
+      if (v.value === null || v.value === false) return true;
+      if (typeof v.value !== 'string' || /^[a-z][a-z\d+.-]*:|^\/\/|[?#]/i.test(v.value) || !/\.(jpe?g|png|webp|avif)$/i.test(v.value)) return false;
+      out.push(v.value);
+      return true;
+    }
+    if (v.type === 'TemplateLiteral' && !v.expressions?.length) return visit({ type: 'Literal', value: v.quasis![0]!.value.cooked });
+    if (v.type === 'ConditionalExpression') return visit(v.consequent) && visit(v.alternate);
+    return false;
+  };
+  return n && visit(n) && out.length ? [...new Set(out)] : null;
+}
+
 /** Whether an expression names one of `names` (object keys of literals count, conservatively). */
 function mentions(n: unknown, names: Set<string>): boolean {
   if (!n || typeof n !== 'object') return false;

@@ -51,6 +51,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   original declaration. A rule that sizes the background (`cover`, `contain`, lengths) gets 1x and
   2x files, the source counting as 2x; one that does not keeps its intrinsic size (1x only). Dev
   rewrites the compiled CSS, builds the finished stylesheets, so Sass partials work.
+- Warning `SN513 bound-local-image`: an `<img>` whose `src` is bound to local image paths (a literal,
+  or a choice between literals) is not optimized; write each as a static `<img>` under
+  `data-sn-if`/`data-sn-show`.
 - Dev: a console warning for every image shown with fewer pixels than the screen has, naming the
   cause (a small source, or a `sizes` smaller than the image is shown).
 

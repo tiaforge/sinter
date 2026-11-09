@@ -192,4 +192,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'The `width` and `height` of an `<img>` have another ratio than its file, and it has no inline `object-fit`, so the browser stretches the image to fill the box.',
     fix: 'To crop to the box, add `style="object-fit: cover"` (and `object-position` for the part to keep): the build makes the cropped file and removes the style. To show the whole image, fix `width`/`height` to the file\'s ratio, or set only one of them.',
   },
+  SN513: {
+    example: '`src` is bound to local images (`./logo-dark.png`, `./logo.png`), which are not optimized',
+    means: 'An `<img>` binds `src` to a local image path, or chooses between a few of them. The build optimizes static `<img src>` (formats, widths, dimensions) but cannot follow a path computed at runtime, so the bound image is served as the original file.',
+    fix: 'Write each image as a static `<img>` and choose with `data-sn-if` or `data-sn-show`: `<img src="./logo-dark.png" alt="" data-sn-show="dark"><img src="./logo.png" alt="" data-sn-show="!dark">`. Images from the API are a different case: see `images.remote`.',
+  },
 };

@@ -21,7 +21,8 @@ logic at all. So nothing is negotiated per request.
 
 Not planned: expanding a local image import bound in markup (`data-sn-attr="{src: photo}"`).
 A page that switches between a few local images writes each as a static `<img>` under
-`data-sn-if` or `data-sn-show`, so each one is optimized. Nor a `?img` import for JS: islands that
+`data-sn-if` or `data-sn-show`, so each one is optimized; a `src` bound to local image paths is
+warning `SN513` saying so. Nor a `?img` import for JS: islands that
 load local images are rare, have no markup or CSS to size them from, and `vite-imagetools` works
 next to sinter.
 
@@ -313,6 +314,10 @@ check an iPad.
 
 **Planned in `temper-inspect`:** the same comparison at device scale factor 2 for pages without
 sinter, and for CSS backgrounds.
+
+- `SN513 bound-local-image`: an `<img>` binds `src` to a local image path, or chooses between a
+  few (`dark ? './logo-dark.png' : './logo.png'`), which the build cannot optimize. Write each as a
+  static `<img>` under `data-sn-if` or `data-sn-show`.
 
 ## Build and dev
 
