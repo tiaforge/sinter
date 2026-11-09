@@ -250,6 +250,26 @@ test('`retry.get`: loads are retried, background refreshes are not', async () =>
   expect(r.root.querySelector('p')!.textContent).toBe('1 error');
 });
 
+test('`retry.get` leaves background refreshes of an `each` resource to `refresh` too', async () => {
+  configure({ retry: retry({ policies, get: 'three' }) });
+  const requests = mockRequests({
+    'GET /api/accounts': [{ id: 1 }],
+    'GET /api/boxes': seq([{ id: 'a', account: 1 }], offline(), [{ id: 'b', account: 1 }]),
+  });
+  const r = await render(`<sn-resource name="accounts" src="/api/accounts" key="id"></sn-resource>
+    <sn-resource name="boxes" each="a in accounts" src="/api/boxes?account={a.id}" key="id" refresh="10s"></sn-resource>
+    <p data-sn-text="boxes.map((b) => b.id).join() + ($meta.boxes.error ? ' error' : '')"></p>`, { requests });
+  await r.settle();
+  expect(r.root.querySelector('p')!.textContent).toBe('a');
+  await r.advance(10_000);
+  await r.settle();
+  // the refresh failed: no try of the policy after it
+  await r.advance(1000);
+  await r.settle();
+  expect(requests.calls.filter((c) => c.path == '/api/boxes')).toHaveLength(2);
+  expect(r.root.querySelector('p')!.textContent).toBe('a error');
+});
+
 test('the compiler: a policy name on a mutation only', () => {
   const opts = { file: '/x/i.html', root: '/x', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '' };
   const errors = (html: string) => compile(html, opts).diagnostics.map((d) => `${d.code} ${d.message}`);
