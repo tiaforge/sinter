@@ -1,4 +1,4 @@
-// Islands: browser work that sinter expressions cannot do (storage, navigation, HTML rendering).
+// Islands: browser work that sinter expressions cannot do (storage, navigation); Markdown is src/markdown.js.
 import { clearPersisted, instance } from '@tiaforge-ui/sinter';
 import { token } from './session.js';
 
@@ -19,30 +19,6 @@ document.addEventListener('navigate', (e) => location.assign(e.detail));
 /** `<conduit-redirect to="/login">`: replaces the location once rendered (e.g. inside a `data-sn-if`). */
 customElements.define('conduit-redirect', class extends HTMLElement {
   connectedCallback() { location.replace(this.getAttribute('to') ?? '/'); }
-});
-
-/**
- * `<conduit-markdown>` with a `source` property: renders sanitized Markdown. The renderer is
- * loaded on first use, so pages without articles do not download it.
- */
-const renderer = () => Promise.all([import('marked'), import('dompurify')]).then(([{ marked }, { default: DOMPurify }]) =>
-  (md) => DOMPurify.sanitize(marked.parse(md ?? '', { async: false })));
-let render;
-customElements.define('conduit-markdown', class extends HTMLElement {
-  #md = '';
-  constructor() {
-    super();
-    // rows are cloned from inert templates, so `source` may have been set before the upgrade
-    if (Object.hasOwn(this, 'source')) {
-      const md = this.source;
-      delete this.source;
-      this.source = md;
-    }
-  }
-  set source(md) {
-    this.#md = md;
-    (render ??= renderer()).then((html) => { if (this.#md === md) this.innerHTML = html(md); });
-  }
 });
 
 /** The debug interface the RealWorld e2e suite reads. */

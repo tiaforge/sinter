@@ -8,7 +8,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 ### Changed
 
 - Smaller builds, the same code paths: the core is 14,606 → 13,959 B gzip, the minimal page 14,787 → 14,137 B,
-  RealWorld's pages about 880 B smaller each (the article 27,627 → 26,747 B of its 27,648 B budget).
+  RealWorld's pages about 1.7 KB smaller each, the article 666 B (27,627 → 26,961 B of its 27,648 B budget).
   - Form serialization and `data-sn-encoding="form"` moved from the core into a feature module
     (`@tiaforge-ui/sinter/form`, 0.8 KB gzip), imported only by pages with a form action without
     `data-sn-body` (not GET or DELETE) or with form encoding: core −390 B. `serialize` and `formBody` are
@@ -21,6 +21,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   - The Vite plugin turns off Vite's modulepreload polyfill unless the app sets `build.modulePreload`'s
     `polyfill` (or `modulePreload: false`): every browser sinter's pages need preloads modules natively.
     RealWorld's pages −212 B each.
+  - RealWorld: `<conduit-markdown>` moved from the islands every page loads into `src/markdown.js`, loaded
+    by the article page only. Its dynamic imports of marked and DOMPurify brought Vite's preload helper
+    (~600 B gzip) into every page: the other pages −814 B each, the article +214 B (the helper is in its
+    own chunk now). The article requests the renderer when the module runs, alongside its data, instead
+    of once the data has arrived.
   - The page module imports feature modules as `sn$<name>`, so a helper named like a feature (`keys`,
     `form`, …) no longer collides with its import.
 
