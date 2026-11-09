@@ -1,7 +1,7 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
 import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type HelperManifest, type HelperOrigin, type PrefetchParts } from './compile.js';
-import { compactIR } from '../ir.js';
+import { compactEarly, compactIR } from '../ir.js';
 
 export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, HelperManifest, HelperOrigin, PrefetchParts };
 export type { Diagnostic } from './diagnostics.js';
@@ -75,7 +75,7 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
   if (messages) lines.push(messages);
   lines.push('');
   if (early) {
-    lines.push('const page = () => {', `  const ir = ${JSON.stringify(early.ir)};`, '  const fns = [');
+    lines.push('const page = () => {', `  const ir = ${JSON.stringify(compactEarly(early.ir))};`, '  const fns = [');
     for (const f of early.fns) lines.push(`    ${f},`);
     lines.push('  ];', '  return { ir, fns };', '};');
   }

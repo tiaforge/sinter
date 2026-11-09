@@ -165,7 +165,7 @@ function prepare(o: { ir: EarlyIR; fns: Fn[] }, req: EarlyRequests | null) {
   const scopesOf = (defs: NodeDef[], s0: any): any[] => {
     const scopes: any[] = [];
     defs.forEach((nd, i) => {
-      let s = nd.p >= 0 ? scopes[nd.p] ?? s0 : s0;
+      let s = (nd.p ?? -1) >= 0 ? scopes[nd.p!] ?? s0 : s0;
       if (nd.state != null) {
         let obj: any = {};
         try { obj = fns[nd.state]!(s); } catch { /* a field that throws: none known */ }

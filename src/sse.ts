@@ -185,7 +185,7 @@ const sse: Feature = {
       if (!alive) return;
       // one connection per resolved stream URL, however many <sn-sync> elements use it
       const conns = new Map<string, Connection>();
-      for (const def of app.ir.syncs) {
+      for (const def of app.ir.syncs ?? []) {
         const base = app.scopeOf(def.scope ?? -1);
         const url = app.url(def.src, base);
         let c = conns.get(url);

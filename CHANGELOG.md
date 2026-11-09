@@ -38,9 +38,11 @@ Attribute names, function names and diagnostic codes are public API. Before
 - The IR in a page module carries only what the page sets. Actions leave out `body`, `debounce`,
   `optimistic`, `then`, `catch`, their write paths and `form` when absent, and `trigger` is gone (the `on`
   binding has the event); resources leave out null fields, empty `deps` and `scope: -1`; stream events
-  leave out null fields (`compactIR`, also what `render()` mounts). An attribute the page does not write
-  costs no bytes: the minimal page is 33 B gzip smaller, RealWorld's pages 20–57 B. IR with every field
-  spelled out still runs (still `v: 1`).
+  leave out null fields; nodes leave out `p: -1` (no enclosing state scope), in the early file's IR too;
+  templates leave out a null `index`, `key` and `keyFields`; a page without streams has no `syncs`
+  (`compactIR` and `compactEarly`, also what `render()` and `firstPaint()` run). An attribute the page does
+  not write costs no bytes: the minimal page is 39 B gzip smaller, RealWorld's pages 41–83 B. IR with every
+  field spelled out still runs (still `v: 1`).
 
 ### Fixed
 

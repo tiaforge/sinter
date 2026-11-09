@@ -123,8 +123,8 @@ export interface NodeDef {
   /** child indexes from the template content root (template nodes) */
   path?: number[];
   tag: string;
-  /** index of the nearest enclosing node in the same list that opens a state scope, -1 for none */
-  p: number;
+  /** index of the nearest enclosing node in the same list that opens a state scope, -1 (or absent) for none */
+  p?: number;
   /** state scope: initial value function and scope id (`$s<sid>`) */
   state?: number;
   sid?: number;
@@ -223,7 +223,8 @@ export interface ApplyDef {
 export interface IR {
   v: 1;
   resources: ResourceDef[];
-  syncs: SyncDef[];
+  /** absent in a page module without streams */
+  syncs?: SyncDef[];
   roots: NodeDef[];
   templates: TemplateDef[];
   actions: ActionDef[];
@@ -266,7 +267,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
       fn(r.paginate.cursor, `${at}.paginate.cursor`);
     }
   });
-  o.syncs.forEach((s, i) => {
+  (o.syncs ?? []).forEach((s, i) => {
     url(s.src, `syncs[${i}].src`);
     s.events.forEach((e, j) => {
       const at = `syncs[${i}].events[${j}]`;
@@ -284,7 +285,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
   const nodes = (list: NodeDef[], at: string, inTemplate: boolean) => list.forEach((n, i) => {
     const a = `${at}[${i}]`;
     if (inTemplate ? !Array.isArray(n.path) : !Number.isInteger(n.id)) errs.push(`${a}: needs ${inTemplate ? 'path' : 'id'}`);
-    if (n.p >= i) errs.push(`${a}: parent scope must come first`);
+    if ((n.p ?? -1) >= i) errs.push(`${a}: parent scope must come first`);
     if (n.state !== undefined) { fn(n.state, `${a}.state`, false); if (!Number.isInteger(n.sid)) errs.push(`${a}: state needs sid`); }
     n.b.forEach((b, j) => {
       const ba = `${a}.b[${j}]`;
@@ -337,12 +338,28 @@ const NULLS = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v])
  * costs no bytes). The runtime reads an absent field as its default; the compiler keeps the full objects.
  */
 export function compactIR(ir: IR): IR {
+  const { syncs, ...rest } = ir;
   return {
-    ...ir,
+    ...rest,
     resources: ir.resources.map((r) => {
       const { deps, scope, ...rest } = r;
       return { ...NULLS(rest), ...(deps?.length ? { deps } : {}), ...(scope != null && scope >= 0 ? { scope } : {}) } as ResourceDef;
     }),
-    syncs: ir.syncs.map((s) => ({ ...s, events: s.events.map((e) => NULLS(e) as EventDef) })),
+    ...(syncs?.length ? { syncs: syncs.map((s) => ({ ...s, events: s.events.map((e) => NULLS(e) as EventDef) })) } : {}),
+    roots: ir.roots.map(compactNode),
+    // a template's absent `index`, `key` and `keyFields` are null
+    templates: ir.templates.map((t) => ({ ...NULLS(t), nodes: t.nodes.map(compactNode) }) as TemplateDef),
   };
+}
+
+/** A node without `p: -1` (no enclosing state scope: absent reads the same). */
+const compactNode = (n: NodeDef): NodeDef => {
+  if (n.p !== -1) return n;
+  const { p: _, ...rest } = n;
+  return rest;
+};
+
+/** The early file's IR, its nodes compacted as the page module's are. */
+export function compactEarly(e: EarlyIR): EarlyIR {
+  return { ...e, roots: e.roots.map(compactNode), templates: e.templates.map((t) => (t ? { ...t, nodes: t.nodes.map(compactNode) } : t)) };
 }
