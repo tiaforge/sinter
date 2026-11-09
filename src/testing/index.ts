@@ -485,7 +485,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
       const debounce = timers.filter((t) => t.kind === 'debounce').sort((a, b) => a.at - b.at)[0];
       if (debounce) { runDue(debounce.at, new Set(['debounce'])); continue; }
       // a request waiting between retries runs again only when the clock moves (advance)
-      if (app.req.inflight > app.req.waiting || app.busy > 0 || app.isDirty) continue;
+      if (app.req.inflight > (app.req.waiting ?? 0) || app.busy > 0 || app.isDirty) continue;
       await flush();
       return;
     }

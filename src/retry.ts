@@ -97,13 +97,13 @@ export function retry(options: RetryOptions): Retry {
   if (options.get != null && !policies.has(options.get)) throw Error(`sinter: retry get names no policy: \`${options.get}\``);
   return {
     has: (name) => policies.has(name),
-    wrap(method, name, headers, layer, env) {
-      const write = method != 'GET' && method != 'HEAD', n = write ? name : name ?? options.get;
+    wrap(method, url, init, headers, layer, env) {
+      const write = method != 'GET' && method != 'HEAD', name = init.retry || undefined, n = write ? name : name ?? options.get;
       if (n == null) return null;
       const p = policies.get(n);
       if (!p) throw new SinterError(null, null, `unknown retry policy \`${n}\``);
       if (write && p.key && !headers.has(p.key)) headers.set(p.key, newKey());
-      return (once, what, signal, stop) => send(p, write, once, what, signal, stop, layer, env);
+      return (once) => send(p, write, once, `${method} ${url}`, init.signal ?? null, init.stop ?? null, layer, env);
     },
   };
 }
@@ -117,7 +117,7 @@ async function send(p: Policy, write: boolean, once: () => Promise<Response>, wh
   /** the time of the policy's last allowed try, from now: its deadline, or what its remaining tries take at the longest wait */
   const last = () => Math.min(deadline, p.retries == Infinity ? Infinity : env.now() + (p.retries - tries + 1) * p.max * 1.25);
   const pause = async (ms: number) => {
-    layer.waiting++;
+    layer.waiting = (layer.waiting ?? 0) + 1;
     try { await sleep(env, ms, [signal, stop]); } finally { layer.waiting--; }
   };
   try {

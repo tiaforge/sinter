@@ -41,7 +41,7 @@ Attribute names, function names and diagnostic codes are public API. Before
   `latest` replaces it with a newer trigger, and leaving the page asks first (`beforeunload`). `get` is the
   policy of every GET except background refreshes. Bare `data-sn-retry` is `SN401`; on a GET, a
   `data-sn-call` or an element without an action, `SN102`. The module is 1.9 KB gzip, in the config
-  module's bundle only; core +137 B. Recipe: `docs/recipes/offline-draft.html`.
+  module's bundle only; core +118 B. Recipe: `docs/recipes/offline-draft.html`.
 - `@tiaforge-ui/sinter/testing`: `window('beforeunload', props)`; `settle()` does not wait for a request
   waiting between retries (`advance(ms)` moves to its next try).
 

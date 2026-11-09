@@ -30,7 +30,7 @@ export interface SendInit {
  * policy applies; for a write it adds the idempotency key to `headers`.
  */
 export interface Retry {
-  wrap(method: string, name: string | undefined, headers: Headers, layer: RequestLayer, env: Env): ((once: () => Promise<Response>, url: string, signal: AbortSignal | null, stop: AbortSignal | null) => Promise<Response>) | null;
+  wrap(method: string, url: string, init: SendInit, headers: Headers, layer: RequestLayer, env: Env): ((once: () => Promise<Response>) => Promise<Response>) | null;
   has(name: string): boolean;
 }
 
@@ -44,8 +44,8 @@ export interface RequestLayer {
   /** mutations (not GET/HEAD) settled so far, and in flight: a prefetch that overlapped one is dropped */
   readonly writes: number;
   readonly writing: number;
-  /** requests in flight that wait between retries (no try is running), for the testing module's settle; the retry module counts it */
-  waiting: number;
+  /** requests in flight that wait between retries (no try is running), for the testing module's settle; set by the retry module */
+  waiting?: number;
   /** dev builds: retries are logged here */
   log?: ((message: string) => void) | undefined;
 }
@@ -107,7 +107,7 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     const keepalive = method != 'GET' && method != 'HEAD' && (body == null || (typeof body == 'string' && bytes(body) < 60_000));
     const write = method != 'GET' && method != 'HEAD', name = init.retry;
     // a policy the element names must exist: with no retry module configured, none does
-    const retry = name === false ? null : config.retry ? config.retry.wrap(method, name, headers, layer, env) : name ? unknown(name) : null;
+    const retry = name === false ? null : config.retry ? config.retry.wrap(method, url, init, headers, layer, env) : name ? unknown(name) : null;
     const once = async () => {
       const res = await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null, keepalive, ...(init.priority ? { priority: init.priority } : {}) } as RequestInit));
       // also a 401 that middleware answered itself (fetch above clears before onUnauthorized runs)
@@ -117,7 +117,7 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     inflight++;
     if (write) writing++;
     try {
-      return await (retry ? retry(once, method + ' ' + url, init.signal ?? null, init.stop ?? null) : once());
+      return await (retry ? retry(once) : once());
     } catch (e) {
       throw isAbort(e) ? e : toError(e);
     } finally {
@@ -131,7 +131,7 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     return readBody(await raw(url, init));
   }
 
-  const layer: RequestLayer = { send, raw, waiting: 0, get inflight() { return inflight; }, get writes() { return writes; }, get writing() { return writing; } };
+  const layer: RequestLayer = { send, raw, get inflight() { return inflight; }, get writes() { return writes; }, get writing() { return writing; } };
   return layer;
 }
 
