@@ -97,7 +97,7 @@ Measurements and sources: [`docs/realworld-comparison.md`](docs/realworld-compar
   islands, which are plain custom elements.
 - You can't have a build step.
 - Your backend renders HTML, not JSON.
-- You need stability guarantees. sinter is at v0.9.
+- You need stability guarantees. sinter is at v0.10.
 
 ## Setup
 
