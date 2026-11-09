@@ -5,12 +5,21 @@ import type { ActionDef, Binding, Fn, IR, NodeDef, ResourceDef, TemplateDef, Url
 import { config, SinterError, type Middleware } from './config.js';
 import { envOf, type Env } from './env.js';
 import { prefetched } from './handoff.js';
-import { createRequestLayer, isAbort, toError, type RequestLayer, type SendInit } from './request.js';
+import { createRequestLayer, isAbort, readBody, toError, type RequestLayer, type SendInit } from './request.js';
 import { BAD_KEY, schemesOf, STYLE_BAD, urlAllowed } from './security.js';
 import { expand, readUrl as readFrom, withParams } from './url.js';
 
 export { withParams };
 import { clean, createResource, type Resource } from './store.js';
+
+/** A shared GET's response, and its body, parsed on first read (a non-2xx status rejects there). */
+export interface Got { res: Response; body(): Promise<unknown> }
+const gotOf = (res: Response): Got => {
+  let b: Promise<unknown> | null = null;
+  return { res, body: () => (b ??= readBody(res)) };
+};
+/** what `get` returns for a response that is the data the store already holds: nothing is stored, and `done` gets it as `$result` */
+export const UNCHANGED = Symbol('unchanged');
 
 export interface Feature {
   name: string;
@@ -83,16 +92,25 @@ export interface ResourceLoader {
   changed(typing?: boolean): void;
   /** the resolved URL of the current load (null: `when` is false, or not resolved yet) */
   url(): string | null;
-  load(move?: unknown): Promise<void>;
-  refetch(hint?: object): Promise<void>;
+  /** `quiet`: a background reload (`refresh`): `$meta.loading` stays false, and a failure while already failing is not reported again */
+  load(move?: unknown, quiet?: boolean): Promise<void>;
+  refetch(hint?: object, quiet?: boolean): Promise<void>;
+  /** whether a load is in flight */
+  inflight(): boolean;
+  /** called after each load settles (true: it succeeded, its content changed or not); feature modules add to it */
+  readonly settled: Array<(ok: boolean) => void>;
+  /** a load settled: calls `settled` (for feature modules that load themselves, as `each`) */
+  settle(ok: boolean): void;
   /** for feature modules: the scope `src` and `when` are evaluated in */
   scope(): any;
-  /** for feature modules: a shared GET (concurrent loads of one URL share one request) */
-  get(url: string, signal: AbortSignal): Promise<unknown>;
+  /** a shared GET's body (concurrent loads of one URL share one request); a feature module may replace it, and return UNCHANGED */
+  get(url: string, signal: AbortSignal, lo?: 1): Promise<unknown>;
+  /** for feature modules: the shared GET's response, before its body is read */
+  got(url: string, signal: AbortSignal, lo?: 1): Promise<Got>;
   /** for feature modules: the collection items of a response body (`items` path, checked, cleaned) */
   items(body: unknown): any[];
-  /** for feature modules: a failed load: `$meta.error`, then the unhandled-error path */
-  failed(e: unknown): void;
+  /** for feature modules: a failed load: `$meta.error`, then the unhandled-error path (`quiet`: only if it was not failing already) */
+  failed(e: unknown, quiet?: boolean): void;
   loading(on: boolean): void;
   /** for feature modules: a load stored `result` (what `items` selects): runs `then` */
   done(result: unknown): void;
@@ -125,6 +143,10 @@ export interface App {
       /** the resource was emptied (`when` is false): nothing to write until the next load */
       cleared(def: ResourceDef): void;
     };
+    /** `refresh` on a resource: reloads it when its last load is that old */
+    refresh?: { watch(loader: ResourceLoader): void };
+    /** unchanged reloads (`ETag`, `Last-Modified`): a reload with the version of the data shown stores nothing */
+    versions?: { watch(loader: ResourceLoader): void };
     /** next-page data the previous page requested for this request (taken once), if any and recent */
     prefetch?: { take(def: ResourceDef, url: string): { t: number; items: unknown; total: number | null } | null };
     /** a key filter's handler (`b.q`): whether this key event is for it (a match prevents its default) */
@@ -303,7 +325,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const early = new WeakMap<Element, Map<string, unknown>>();
   const types = new Set<string>(), selects = new Set<RB>(), deferred = new Set<RB>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
-  const shared = new Map<string, { n: number; c: AbortController; p: Promise<unknown> }>();
+  const shared = new Map<string, { n: number; c: AbortController; p: Promise<Got> }>();
   /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id; `run(id)`: any element */
   const byId = (id: string, s = '[id]') => [...root.querySelectorAll(s)].find((d) => d.id === id);
   const dialog = (id: string) => byId(id, 'dialog') as HTMLDialogElement | undefined;
@@ -1251,7 +1273,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     resources.set(def.name, r);
     Object.defineProperty(app.page.$r, def.name, { get: r.value, enumerable: true });
     app.page.$meta[def.name] = r.meta;
-    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, typing: unknown = null;
+    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, typing: unknown = null, loud = false;
 
     const scope = () => app.scopeOf(def.scope);
     /** `call`: the arguments of the current load; the identity of a load is its arguments' JSON */
@@ -1287,15 +1309,18 @@ export function mount(root: Document | Element, o: MountOptions): App {
     /** the request URL for the current page of `u` */
     const request = (u: string, m = l.pager?.current()) => withParams(u, m ? l.pager!.params(m) : null);
 
-    const fail = (e: unknown) => {
-      const error = toError(e);
+    const fail = (e: unknown, quiet?: boolean) => {
+      // a background reload that fails while the resource is failing already reports nothing new
+      const known = quiet && r.meta.error != null, error = toError(e);
       r.meta.error = error;
       r.onDirty('meta');
-      unhandled(error, null, def.name);
+      if (!known) unhandled(error, null, def.name);
     };
     const l: ResourceLoader = {
-      def, res: r, app, pager: null as Pager | null,
-      scope, get: loadShared, failed: fail, loading, url: () => url,
+      def, res: r, app, pager: null as Pager | null, settled: [],
+      settle(ok) { for (const f of l.settled) f(ok); },
+      scope, got: loadShared, get: (u, signal, lo) => loadShared(u, signal, lo).then((g) => g.body()), failed: fail, loading, url: () => url,
+      inflight: () => c != null,
       done: (v) => def.then != null && app.exec(def.then, child(scope(), { $result: v }), def.w),
       items(body) {
         let items = pick(def.items, body);
@@ -1328,6 +1353,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         const v = store(data!.v, request(url));
         r.meta.loadedAt = env.now();
         l.done(v);
+        l.settle(true);
       },
       /** `src` or `when` may have changed: reload from the first page if the URL differs. From typing: once the typing pauses. */
       changed(soft?: boolean) {
@@ -1343,48 +1369,63 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (def.cache != null) app.ext.cache?.cleared(def);
         loading(false);
       },
-      /** Repeats the current request; several calls in one task share one request. */
-      refetch: () => (again ??= Promise.resolve().then(() => { again = null; return l.load(); })),
-      async load(move?: unknown) {
+      /** Repeats the current request; several calls in one task share one request (quiet only if every call was). */
+      refetch: (_hint, quiet) => {
+        if (!quiet) loud = true;
+        return (again ??= Promise.resolve().then(() => { again = null; const q = !loud; loud = false; return l.load(undefined, q); }));
+      },
+      async load(move?: unknown, quiet?: boolean) {
         if (url == null) return;
         c?.abort();
         const ctl = (c = new AbortController()), n = ++seq, m = l.pager && (move ?? l.pager.current());
         const mark = r.startLoad();
-        let loaded = false, v;
-        loading(true);
+        let loaded = false, ok = false, v;
+        if (!quiet) loading(true);
         try {
           const req = withParams(url, m ? l.pager!.params(m) : null);
           const body = def.call
             ? await invoke(def.call.run, args, { signal: ctl.signal, request: (u: string, i?: SendInit) => app.req.send(u, i), el: null })
-            : await loadShared(req, ctl.signal, def.lo);
+            : await l.get(req, ctl.signal, def.lo);
           if (n != seq) return;
-          v = store(body, req, m);
-          loaded = true;
+          // UNCHANGED (the versions module): nothing to store; `then` still runs, with what that data's load stored
+          loaded = body !== UNCHANGED;
+          v = loaded ? store(body, req, m) : body;
+          ok = true;
           r.meta.error = null;
           r.meta.loadedAt = env.now();
         } catch (e) {
           if (n != seq || isAbort(e)) return;
-          fail(def.call ? callError(e) : e);
+          fail(def.call ? callError(e) : e, quiet);
+          l.settle(false);
         } finally {
           // writes made while this load ran win over its (older) response
           r.endLoad(mark, loaded);
           if (n == seq) { c = null; loading(false); }
         }
+        if (!ok) return;
+        if (quiet) r.onDirty('meta');
         // after the store and `$meta` have the response, so `then` sees them
-        if (loaded) l.done(v);
+        l.done(v);
+        l.settle(true);
       },
     };
     if (def.each) app.ext.each!.fanOut(l);
     if (def.paginate) l.pager = app.ext.paginate!.pager(l);
+    app.ext.versions?.watch(l);
+    app.ext.refresh?.watch(l);
     r.loader = l;
     loaders.push(l);
   }
 
-  /** GETs `url`; concurrent loads of one URL share one request, aborted when no one waits. `lo`: low priority (a resource only dialogs read). */
-  function loadShared(url: string, signal: AbortSignal, lo?: 1): Promise<unknown> {
+  /**
+   * GETs `url`; concurrent loads of one URL share one request, aborted when no one waits. `lo`: low
+   * priority (a resource only dialogs read). Each waiter sees the response and reads the body only
+   * if it needs it (parsed once; a non-2xx status rejects there).
+   */
+  function loadShared(url: string, signal: AbortSignal, lo?: 1): Promise<Got> {
     let e = shared.get(url);
     if (!e) {
-      const c = new AbortController(), entry = { n: 0, c, p: req.send(url, { signal: c.signal, ...(lo ? { priority: 'low' as const } : {}) }) };
+      const c = new AbortController(), entry = { n: 0, c, p: req.raw(url, { signal: c.signal, ...(lo ? { priority: 'low' as const } : {}) }).then(gotOf) };
       entry.p.catch(() => {}).finally(() => shared.get(url) == entry && shared.delete(url));
       shared.set(url, (e = entry));
     }

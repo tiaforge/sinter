@@ -39,6 +39,8 @@ export interface ResourceDef {
   data: number | null;
   /** `cache`: the oldest cached data to show, in ms (0: any age); absent when not cached */
   cache?: number;
+  /** `refresh`: reload when this many ms have passed since the last load (whatever caused it) */
+  refresh?: number;
   /** `call="ns.fn(args)"`: loaded from an action function instead of `src` (then empty) */
   call?: CallDef;
   /** `each="a in accounts"`: one request per list item (src evaluated with `item` in scope), merged into one collection */

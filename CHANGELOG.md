@@ -21,6 +21,20 @@ Attribute names, function names and diagnostic codes are public API. Before
   `fieldErrors` from `@tiaforge-ui/sinter`. A feature module (`fields`, about 1.2 KB gzip), loaded
   only by pages with such an action. Recipe: `docs/recipes/field-errors.html`. The create template's task
   forms use it.
+- `refresh="30s"` on `<sn-resource>` (`@tiaforge-ui/sinter/refresh`): the resource is reloaded in the
+  background once its last load is that old, counted from every load (first load, `refresh()`, a
+  `refetch` event, a reconnect, a `src` change), so next to a stream it is a check that fills in only when
+  the stream has gone quiet. `$meta.loading` stays false during a refresh; nothing is reloaded while the
+  page is hidden (a refresh that fell due runs when it is shown) or while `when` is falsy; failures back off
+  up to 30 s and are reported once until a load succeeds. At least `1s`, else `SN401`.
+- Unchanged reloads: a reload whose response carries the `ETag` (else `Last-Modified`) of the response the
+  data was last replaced with, while nothing has changed the data since, is not parsed or stored and nothing
+  re-renders; `then` runs with the `$result` of the load that stored the data, and `loadedAt` moves, as for
+  any load. For every reload of a `src` resource on pages
+  with `refresh` or `<sn-sync>`, where the compiler adds `@tiaforge-ui/sinter/versions`; a `304` that reaches
+  the page counts the same. The browser's HTTP cache does the
+  revalidation when the server sends `Cache-Control: no-cache`.
+- `@tiaforge-ui/sinter/testing`: `visibility('hidden' | 'visible')` on a rendered page.
 
 ### Fixed
 

@@ -325,10 +325,12 @@ class Compiler {
     for (const h of [...this.page.usedHelpers].sort()) (this.page.helpers.has(h) ? user : builtin).push(h);
     const namespaces: Record<string, string[]> = {};
     for (const [k, v] of [...this.page.usedNs].sort(([a], [b]) => a.localeCompare(b))) namespaces[k] = [...v].sort();
+    // unchanged reloads skipped by version, where reloads are routine: refreshes, refetch events and reconnects
+    if (this.features.has('refresh') || this.features.has('sse')) this.features.add('versions');
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'each', 'listbox', 'keys', 'apply', 'fields', 'transition'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'transition'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -1624,6 +1626,19 @@ class Compiler {
         this.features.add('cache');
       }
     }
+    // `refresh="30s"`: reloaded once this long has passed since its last load, of any cause
+    let refresh: number | undefined;
+    const refreshAttr = attr(el, 'refresh');
+    if (refreshAttr != null) {
+      const m = /^\s*(\d+)\s*(s|m|h)\s*$/.exec(refreshAttr);
+      const ms = m ? Number(m[1]) * { s: 1e3, m: 6e4, h: 36e5 }[m[2] as 's' | 'm' | 'h'] : 0;
+      if (!m) this.report(el, 'refresh', 'SN401', '`refresh` takes the longest time between loads, such as `30s`, `5m` or `1h`', 0);
+      else if (ms < 1000) this.report(el, 'refresh', 'SN401', '`refresh` must be at least `1s`', 0);
+      else {
+        refresh = ms;
+        this.features.add('refresh');
+      }
+    }
     // `then`: a handler run after each successful load, with what it loaded as `$result`
     let then: { f: number; w: string[] } | null = null;
     if (attr(el, 'then') != null) {
@@ -1656,6 +1671,7 @@ class Compiler {
       name, src, key: info.key, items: attr(el, 'items') ?? null, total: attr(el, 'total') ?? null,
       order: order ? order.trim() : null, when, paginate, deps: [...deps].sort(), scope: ctx.stateIdx, data: null,
       ...(cache !== undefined ? { cache } : {}),
+      ...(refresh !== undefined ? { refresh } : {}),
       ...(each ? { each } : {}),
       ...(call ? { call: { args: call.args, run: call.run } } : {}),
       ...(then ? { then: then.f, ...(then.w.length ? { w: then.w } : {}) } : {}),
