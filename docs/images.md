@@ -79,10 +79,21 @@ temper's avatar (`inline-size: 100%` of a `[data-avatar]` that is `calc(var(--tm
 page loads, with no knowledge of any framework (`src/compiler/layout.ts`).
 
 **Which stylesheets.** The page's `<link rel="stylesheet">` and `<style>` elements (a `media`
-attribute makes them conditional), and the CSS its module scripts import, following the project
-modules they import and sinter's config, early, helpers and actions modules. `@import` is inlined
-with its `layer()` and media. Left out: remote stylesheets, Sass/Less files, CSS modules and
-`?inline`/`?url` imports.
+attribute makes them conditional), and the stylesheets its module scripts import, following the
+project modules they import and sinter's config, early, helpers and actions modules. Left out:
+remote stylesheets, CSS modules and `?inline`/`?url` imports.
+
+**As Vite outputs them, not their sources.** Sinter reads the stylesheets while it transforms the
+HTML, before Vite has processed any CSS, so it compiles each one itself with Vite's
+`preprocessCSS` and the project's config: Sass, Less and Stylus (with the preprocessor options),
+the project's PostCSS plugins, Lightning CSS when configured, and `@import` with its `layer()` and
+media. A stylesheet that does not compile (a `.scss` file without `sass` installed) is left out,
+with a warning, and the build reports the error itself. Compiled stylesheets are cached until
+they, or a file they read, change.
+
+Not covered: CSS that another Vite plugin generates or changes in its `transform` hook, such as
+Tailwind's Vite plugin (`@tailwindcss/vite`) or UnoCSS. Tailwind through PostCSS
+(`@tailwindcss/postcss`) is covered.
 
 **The cascade.** Selectors (type, class, id, attribute selectors with every operator and `i`,
 `:where`, `:is`, `:not`, `:root`, the structural pseudo-classes, all four combinators), nesting

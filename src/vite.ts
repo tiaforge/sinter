@@ -69,12 +69,25 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const variants = new Map<string, ImageVariant>();
   const imageCss = new Map<string, string>();
   let resolveId: ((id: string, importer?: string) => Promise<string | undefined>) | null = null;
+  /** a stylesheet as Vite compiles it: Sass, Less, Stylus, the project's PostCSS, `@import` */
+  const failedCss = new Set<string>();
+  const compileCss = async (code: string, file: string) => {
+    const { preprocessCSS } = await import('vite');
+    try {
+      const out = await preprocessCSS(code, file, resolved!);
+      return { code: out.code, deps: [...(out.deps ?? [])] };
+    } catch (e) {
+      // e.g. a .scss file without sass installed: the build reports it; here its sizes are unknown
+      if (!failedCss.has(file)) { failedCss.add(file); resolved!.logger.warn(`sinter: image sizes from ${relOf(file)} are not read: ${(e as Error).message.split('\n')[0]}`); }
+      return null;
+    }
+  };
   /** the stylesheets the page loads, for the boxes they give its images */
   const stylesOf = async (html: string, file: string, p: ReturnType<typeof project>): Promise<StyleSheet[]> => {
     resolveId ??= resolved!.createResolver({ tryIndex: true });
     const r = resolveId;
     const modules = [p.config, p.early, p.helpersFile, p.actionsFile].filter((m): m is string => !!m);
-    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer) });
+    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss });
   };
   const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {
     if (!images) return undefined;

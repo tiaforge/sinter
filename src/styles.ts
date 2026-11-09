@@ -1,8 +1,11 @@
 // The stylesheets a page loads, in order, for the cascade in compiler/layout.ts: its
 // `<link rel="stylesheet">` and `<style>` elements, and the CSS its module scripts import (with
-// the project modules they import, and sinter's own modules: config, helpers, actions). `@import`
-// is inlined, with its `layer()` and media. Left out: remote stylesheets, preprocessor files,
-// CSS modules and `?inline`/`?url` imports (none of them style the markup as written).
+// the project modules they import, and sinter's own modules: config, helpers, actions).
+// Each one is what the bundler makes of it (`StyleContext.compile`: in Vite, its `preprocessCSS`,
+// so Sass, Less, Stylus, the project's PostCSS plugins and `@import` with its `layer()` and media
+// are applied as in the build), not its source. Without `compile`, plain CSS only, with `@import`
+// inlined here. Left out: remote stylesheets, CSS modules and `?inline`/`?url` imports (none of
+// them style the markup as written).
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import * as parse5 from 'parse5';
@@ -19,6 +22,8 @@ export interface StyleContext {
   resolve(id: string, importer: string): Promise<string | null | undefined>;
   /** modules the page module imports (sinter's config, helpers, actions, early module) */
   modules: string[];
+  /** a stylesheet as the bundler outputs it, with the files it read; null when it cannot be compiled */
+  compile?: (code: string, file: string) => Promise<{ code: string; deps: string[] } | null>;
 }
 
 const SCRIPT = /\.[cm]?[jt]sx?$/;
@@ -41,9 +46,15 @@ function read(file: string): string | null {
 }
 
 const plainCss = (file: string) => /\.css$/i.test(file) && !/\.module\.css$/i.test(file);
+const STYLE = /\.(css|scss|sass|less|styl|stylus|pcss|postcss|sss)$/i;
+
+/** compiled stylesheets, valid while the file and every file it read are unchanged */
+const compiled = new Map<string, { stamps: Array<[string, number]>; code: string | null }>();
+const mtime = (f: string) => { try { return statSync(f).mtimeMs; } catch { return -1; } };
 
 export async function pageStyles(html: string, file: string, ctx: StyleContext): Promise<StyleSheet[]> {
   const sheets: StyleSheet[] = [];
+  const isStyle = (f: string) => (ctx.compile ? STYLE.test(f) && !/\.module\.\w+$/i.test(f) : plainCss(f));
   const seenModules = new Set<string>();
   const seenCss = new Set<string>();
   const doc = parse5.parse(html);
@@ -51,7 +62,7 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
   const addCss = async (path: string, media: string | null) => {
     if (seenCss.has(path)) return;
     seenCss.add(path);
-    const css = await inline(path, ctx, new Set([path]));
+    const css = ctx.compile ? await compileFile(path, ctx.compile) : await inline(path, ctx, new Set([path]));
     if (css !== null) sheets.push({ file: path, css: wrap(css, media) });
   };
   const scan = async (id: string, importer: string, code?: string) => {
@@ -61,7 +72,7 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
       target = await ctx.resolve(id, importer).catch(() => null);
       if (!target) return;
       target = target.replace(/[?#].*$/, '');
-      if (plainCss(target)) return addCss(target, null);
+      if (isStyle(target)) return addCss(target, null);
       if (!SCRIPT.test(target) || target.includes('/node_modules/') || seenModules.has(target)) return;
       seenModules.add(target);
       code = read(target) ?? '';
@@ -92,10 +103,12 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
     const media = attr(el, 'media')?.trim() || null;
     if (el.tagName === 'link' && /(^|\s)stylesheet(\s|$)/i.test(attr(el, 'rel') ?? '') && !/(^|\s)alternate(\s|$)/i.test(attr(el, 'rel') ?? '')) {
       const path = local(attr(el, 'href') ?? '', file);
-      if (path && plainCss(path)) await addCss(path, media);
+      if (path && isStyle(path)) await addCss(path, media);
     } else if (el.tagName === 'style') {
       const text = el.childNodes.map((c) => ('value' in c ? (c as { value: string }).value : '')).join('');
-      sheets.push({ file, css: wrap(await inlineText(text, file, ctx, new Set()), media) });
+      // compiled as a stylesheet next to the page, so its imports resolve from there
+      const css = ctx.compile ? (await ctx.compile(text, `${file}.style.css`).catch(() => null))?.code ?? null : await inlineText(text, file, ctx, new Set());
+      if (css !== null) sheets.push({ file, css: wrap(css, media) });
     } else if (el.tagName === 'script' && attr(el, 'type') === 'module') {
       const src = attr(el, 'src');
       if (src) { const path = local(src, file); if (path) await scan(path, file); }
@@ -104,6 +117,17 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
   }
   for (const m of ctx.modules) await scan(m, file);
   return sheets;
+}
+
+async function compileFile(path: string, compile: NonNullable<StyleContext['compile']>): Promise<string | null> {
+  const c = compiled.get(path);
+  if (c && c.stamps.every(([f, m]) => mtime(f) === m)) return c.code;
+  const text = read(path);
+  if (text === null) return null;
+  const out = await compile(text, path).catch(() => null);
+  const files = [path, ...(out?.deps ?? [])];
+  compiled.set(path, { stamps: files.map((f) => [f, mtime(f)]), code: out?.code ?? null });
+  return out?.code ?? null;
 }
 
 const wrap = (css: string, media: string | null) => (media && !/^(all|screen)$/i.test(media) ? `@media ${media} {\n${css}\n}` : css);
