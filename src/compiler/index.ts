@@ -1,6 +1,7 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
 import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type HelperManifest, type HelperOrigin, type PrefetchParts } from './compile.js';
+import { compactIR } from '../ir.js';
 
 export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, HelperManifest, HelperOrigin, PrefetchParts };
 export type { Diagnostic } from './diagnostics.js';
@@ -129,7 +130,7 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
   if (parts.remote) lines.push(`import { remote } from '${PACKAGE}/remote';`);
   lines.push('');
   if (parts.remote) lines.push(`const $ri = remote(${JSON.stringify(parts.remote)});`);
-  lines.push(`const ir = ${JSON.stringify(parts.ir)};`);
+  lines.push(`const ir = ${JSON.stringify(compactIR(parts.ir))};`);
   lines.push('const fns = [');
   for (const f of parts.fns) lines.push(`  ${f},`);
   lines.push('];');

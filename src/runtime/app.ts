@@ -1271,14 +1271,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
   // ---- resources
 
   function createLoader(def: ResourceDef) {
-    const r = createResource(def.name, { key: def.key, order: def.order, locale: () => config.locale?.get(), warn, prep: (x) => (app.prep ? app.prep(x) : x), freeze: app.dev });
+    const r = createResource(def.name, { key: def.key ?? null, order: def.order ?? null, locale: () => config.locale?.get(), warn, prep: (x) => (app.prep ? app.prep(x) : x), freeze: app.dev });
     r.onDirty = (what) => app.mark((what == 'data' ? '$r.' : '$meta.') + def.name);
     resources.set(def.name, r);
     Object.defineProperty(app.page.$r, def.name, { get: r.value, enumerable: true });
     app.page.$meta[def.name] = r.meta;
     let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, typing: unknown = null, loud = false;
 
-    const scope = () => app.scopeOf(def.scope);
+    const scope = () => app.scopeOf(def.scope ?? -1);
     /** `call`: the arguments of the current load; the identity of a load is its arguments' JSON */
     let args: unknown[] = [], calls = 0;
     const resolve = () => {
@@ -1293,7 +1293,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       try { return def.when != null && !fns[def.when]!(s) ? null : app.url(def.src, s); } catch (e) { warn(17, def.name, (e as Error).message); return null; }
     };
     const loading = (on: boolean) => { if (r.meta.loading != on) { r.meta.loading = on; r.onDirty('meta'); } };
-    const pick = (path: string | null, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
+    const pick = (path: string | null | undefined, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
     const fill = (items: any, total: number | null, m: unknown) => {
       l.pager?.appends(m) && r.isCollection ? items.forEach(r.upsert) : r.replace(items);
       r.setTotal(total);
