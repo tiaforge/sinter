@@ -72,10 +72,12 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
 
 /** Codes that do not come from compile(): `sinter check` runs TypeScript (SN208), loading a spec fails (SN307). Fixtures in test/check. */
 const CHECK_ONLY = ['SN208', 'SN307'];
+/** Codes that need an image host (the adapter's file analysis). Fixtures in test/compiler/images.test.ts. */
+const IMAGES_ONLY = ['SN511', 'SN512'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
-    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY])).toEqual(new Set(Object.keys(CODES)));
+    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY])).toEqual(new Set(Object.keys(CODES)));
   });
   for (const [code, html, message, check] of cases) {
     test(code, () => {

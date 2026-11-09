@@ -1,5 +1,6 @@
 // The compiler: one pure, deterministic function from annotated HTML to a
 // rewritten page plus its IR and function table.
+import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
 import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
@@ -59,6 +60,8 @@ export interface CompileOptions {
    * entry from, injected before the page module (the Vite plugin injects it itself in builds)
    */
   early?: { module: string | null; src?: string | null };
+  /** static `<img>` become `<picture>` with optimized variants (docs/images.md); the adapter encodes them */
+  images?: ImageHost;
 }
 
 export interface CompileResult {
@@ -72,6 +75,8 @@ export interface CompileResult {
   early?: string | null;
   /** the built-in message keys the page calls (markup only; modules are collected by the adapter); absent without built-in messages */
   messages?: string[];
+  /** with `images` */
+  images?: ImageResult;
 }
 
 /** What the early chunk runs: the bindings that can render before data, and what they import. */
@@ -99,6 +104,8 @@ export interface CompiledParts {
   check?: CheckUnit;
   /** with `early`: the early chunk's bindings, or null when none can run early */
   early?: EarlyParts | null;
+  /** with `images` */
+  images?: ImageResult;
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
@@ -194,6 +201,11 @@ class Compiler {
     const doc = parse5.parse(html, { sourceCodeLocationInfo: true });
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     this.expandIncludes(doc, [this.opts.file]);
+    const images = this.opts.images ? rewriteImages(doc, {
+      host: this.opts.images, root: this.opts.root,
+      fileOf: (el) => this.origins.get(el)?.file ?? this.opts.file,
+      warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
+    }) : undefined;
     this.declare(doc);
     const paths = this.pathPatterns(doc);
     this.pathList = paths;
@@ -242,6 +254,7 @@ class Compiler {
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
+      ...(images ? { images } : {}),
     };
   }
 

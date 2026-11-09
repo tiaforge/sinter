@@ -1,6 +1,6 @@
 # Images
 
-Status: design, 2026-11-09. Nothing is implemented yet; step 1 is static `<img>` in HTML.
+Status: 2026-11-09. Step 1 (static `<img>` in HTML) is implemented; the later steps are planned.
 
 sinter optimizes the images a page uses without any markup of its own: it writes the variants at
 build time and markup that lets the browser pick one. The browser knows the screen's pixel density,

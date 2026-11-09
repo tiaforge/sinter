@@ -120,6 +120,15 @@ The built page shows its chrome before the page module has run; the page bundle 
 - Keep page chrome outside data templates: \`<template data-sn-if="user">\` around the navigation hides it until the user has loaded.
 - \`sinter({ firstPaint: false })\` turns it off. Test with \`firstPaint(html, { helpers, storage, early })\` from the testing module (\`early\` stands for \`src/sinter.early.ts\`), and \`render(html, { firstPaint: { early, afterEarly } })\` for the takeover.
 `);
+  out.push(`## Images
+
+Write plain \`<img src="./photo.jpg" alt="…">\` (a local JPEG, PNG, WebP or AVIF, relative to the page or partial): the build makes it a \`<picture>\` with AVIF (photos) or lossless WebP (PNG graphics), widths for every screen, \`width\`/\`height\`, \`decoding="async"\` and \`loading="lazy"\` (not on the page's first image), and the image's dominant color as background until it loads. Needs sharp (an optional dependency); \`sinter({ images: false })\` turns it off. See docs/images.md.
+
+- No \`width\`/\`height\`, or the source's own: fluid, \`sizes\` defaults to the full width; write \`sizes\` when the image is narrower than the page.
+- \`width\`/\`height\` smaller than the source: a box of that size in CSS px, with 1x/2x(/3x) files of exactly that width. A source with too few pixels for 2x is SN511.
+- To crop: \`width\` and \`height\` of the box plus \`style="object-fit: cover"\` (and \`object-position\` for the part to keep); the build makes the cropped file and removes the style. Another ratio without \`object-fit\` is SN512 (stretched).
+- Left as written: remote URLs, SVG, GIF, an \`<img>\` with \`srcset\`, inside your own \`<picture>\`, or with \`data-sn-*\` bindings.
+`);
   out.push(`## Messages
 
 - With an inlang project (\`project.inlang/settings.json\`, message files \`messages/{locale}.json\` of plain \`"key": "text with {param}"\`), \`m.key()\` / \`m.key({ param })\` in markup are sinter's built-in messages. App code: \`import { m } from '@tiaforge-ui/sinter/messages'\`, typed by the generated \`src/sinter.messages.d.ts\`. Unknown keys are SN206, wrong or missing params SN208 (\`sinter check\`). Only \`m.key\`: \`m[key]\` or passing \`m\` on fails the build; a dynamic choice is a switch.

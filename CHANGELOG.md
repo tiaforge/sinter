@@ -3,6 +3,24 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Added
+
+- Static images (docs/images.md): every `<img src>` of a local JPEG, PNG, WebP or AVIF in a page or
+  partial becomes a `<picture>` with nothing written for it. Photos get AVIF with a JPEG fallback,
+  PNG graphics lossless WebP with a PNG fallback (a PNG that is really a photo gets AVIF), sources
+  under 4 KB stay as they are. Fluid images get widths 480 to 2560 up to the source's; `width`/
+  `height` smaller than the source are a box, with files of exactly 1x, 2x and (boxes up to
+  300 × 300) 3x its width. Inline `object-fit: cover` crops the file at `object-position` and the
+  style is removed; `contain` makes the fitted size. Every image gets `width`/`height`,
+  `decoding="async"` and, except the page's first, `loading="lazy"`; a generated stylesheet in the
+  page's CSS gives it `height: auto` and its dominant color as background until it loads. Dev
+  encodes a variant on its first request, builds emit them to `assets/`; both cache by content
+  hash in `node_modules/.cache/sinter/images`. Warnings `SN511 image-too-small` (a box the source
+  cannot fill at 2x) and `SN512 image-stretched`. sharp is an optional dependency;
+  `sinter({ images: false })` turns it off, `images: { widths }` sets the fluid widths.
+
 ## 0.9.0 (2026-11-08)
 
 ### Added

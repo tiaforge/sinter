@@ -341,3 +341,23 @@ Warning, for example:
 A `then` handler writes to the store what write-through writes by itself after the response: an object of a resource's schema is patched into the item with its key (and into what the URL named), a POST to a list's URL inserts the created item, a DELETE of a row's URL removes the row. The handler's write lands on top and changes nothing.
 
 **Fix:** Remove the write from the handler (keep its other statements). To keep the explicit write, turn write-through off for that element with `data-sn-apply="off"`.
+
+## SN511 image-too-small
+
+Warning, for example:
+
+> `hero.jpg` is 600 px wide; the 400 px box needs 800 px to be sharp on 2x screens
+
+An `<img>` with `width`/`height` smaller than its source is a box of that size, and gets files for 1x and 2x screens (phones, tablets and most laptops are 2x or more). The source has fewer pixels than the 2x file needs, so it is used as the largest file and looks soft on those screens. With a crop (`object-fit: cover`), the width counts after cropping.
+
+**Fix:** Use a larger source, at least the width the message names. A smaller box works too.
+
+## SN512 image-stretched
+
+Warning, for example:
+
+> `width="200" height="200"` has another ratio than `photo.jpg` (1600 × 1067), so the image is stretched
+
+The `width` and `height` of an `<img>` have another ratio than its file, and it has no inline `object-fit`, so the browser stretches the image to fill the box.
+
+**Fix:** To crop to the box, add `style="object-fit: cover"` (and `object-position` for the part to keep): the build makes the cropped file and removes the style. To show the whole image, fix `width`/`height` to the file's ratio, or set only one of them.

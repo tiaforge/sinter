@@ -11,6 +11,8 @@ import { compile, formatDiagnostic, type CheckUnit, type CompileResult } from '.
 import { project, type ProjectOptions } from './project.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { PAINT_SCRIPT } from './paint-build.js';
+import { loadImages, MIME, type Images } from './images.js';
+import type { ImageHost, ImageVariant } from './compiler/index.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -23,12 +25,22 @@ export interface SinterOptions extends ProjectOptions {
   firstPaint?: boolean;
   /** an early file above this many bytes gzip is a build warning (default 10000) */
   earlyBudget?: number;
+  /**
+   * static images (default on, needs sharp): every `<img src>` of a local JPEG, PNG, WebP or AVIF
+   * becomes a `<picture>` with AVIF or lossless WebP, widths for each screen, dimensions and lazy
+   * loading (docs/images.md). `false`: images stay as written; `widths`: the widths of fluid images
+   */
+  images?: false | { widths?: number[] };
 }
 
 type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin];
 
 const PREFIX = '/@sinter/';
 const EARLY = `${PREFIX}early/`;
+/** the page's image rules (a CSS module the page module imports) */
+const IMG_CSS = `${PREFIX}img-css/`;
+/** dev: where the image variants are served */
+const IMG = `${PREFIX}img/`;
 
 export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let root = process.cwd();
@@ -50,6 +62,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const markupMessages = new Map<string, string[]>();
   const languageFiles = new Map<string, Record<string, { fileName: string; code: string }>>();
   let messages: MessagesProject | null = null;
+  let images: Images | null = null;
+  /** image variants by file name, and each page's image rules */
+  const variants = new Map<string, ImageVariant>();
+  const imageCss = new Map<string, string>();
+  const imageHost = (rel: string): ImageHost | undefined => {
+    if (!images) return undefined;
+    const img = images, base = resolved?.base ?? '/';
+    const prefix = dev ? `${base}${IMG.slice(1)}` : `${base}${resolved!.build.assetsDir}/`;
+    const widths = options.images ? options.images.widths : undefined;
+    return { info: (f) => img.info(f), url: (v) => prefix + img.fileName(v), ignore: true, stylesheet: `${IMG_CSS}${rel}.css`, ...(widths ? { widths } : {}) };
+  };
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
   /**
    * the picker script's tag: it picks the locale and adds the page's language file before the first paint;
@@ -83,6 +106,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const out = compile(html, {
       file, root, dev, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile,
       check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles,
+      ...(images ? { images: imageHost(rel)! } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
     });
     if (out.early) modules.set(`${EARLY}${rel}.js`, out.early);
@@ -100,14 +124,30 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     enforce: 'pre',
     api: { options },
 
-    configResolved(config) {
+    async configResolved(config) {
       root = config.root;
       dev = config.command === 'serve';
       resolved = config;
+      if (options.images !== false) {
+        images = await loadImages(resolve(root, 'node_modules/.cache/sinter/images'), dev);
+        if (!images) config.logger.warn('sinter: images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this');
+      }
     },
 
     configureServer(s) {
       server = s;
+      // dev: an image variant is encoded the first time it is requested (and cached)
+      s.middlewares.use((req, res, next) => {
+        const url = req.url?.split('?')[0] ?? '';
+        const at = url.indexOf(IMG);
+        const v = at >= 0 && images ? variants.get(decodeURIComponent(url.slice(at + IMG.length))) : undefined;
+        if (!v) return next();
+        images!.encode(v).then((buf) => {
+          res.setHeader('Content-Type', MIME[url.slice(url.lastIndexOf('.') + 1)] ?? 'application/octet-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.end(buf);
+        }, next);
+      });
       // an HTML, partial or helpers change triggers a full reload in v0.1
       s.watcher.on('change', (file) => {
         if (watched.has(file)) s.ws.send({ type: 'full-reload' });
@@ -149,6 +189,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      */
     async generateBundle(_, bundle) {
       const r = resolved!, ENTRY = `${PREFIX}early-entry.js`;
+      if (images && variants.size) {
+        const img = images;
+        await Promise.all([...variants].map(async ([name, v]) => {
+          this.emitFile({ type: 'asset', fileName: `${r.build.assetsDir}/${name}`, source: await img.encode(v) });
+        }));
+      }
       const earlyKeys = new Map<string, Set<string>>();
       const vite = earlyPages.size ? await import('vite') : null;
       const rolldown = !!vite && 'rolldownVersion' in vite;
@@ -228,6 +274,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     load(id) {
+      if (id.startsWith(`\0${IMG_CSS}`)) return imageCss.get(id.slice(IMG_CSS.length + 1, -4)) ?? '';
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
       if (id === `\0${PREFIX}paint.js`) return PAINT_SCRIPT;
@@ -250,12 +297,26 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     transformIndexHtml: {
       order: 'pre',
-      handler(html, ctx) {
+      async handler(html, ctx) {
         const file = ctx.filename;
         const rel = relOf(file);
         const moduleSrc = `${PREFIX}${rel}.js`;
         // dev: the tag goes in with the page; a build adds it after bundling (see the post plugin)
-        const { out, p } = build(html, file, dev ? `${resolved?.base ?? '/'}${EARLY.slice(1)}${rel}.js` : null);
+        const earlySrc = dev ? `${resolved?.base ?? '/'}${EARLY.slice(1)}${rel}.js` : null;
+        let { out, p } = build(html, file, earlySrc);
+        // images the compiler did not know yet: analysed, then the page is compiled again with them
+        if (images && out.images?.pending.length) {
+          await images.analyze(out.images.pending);
+          ({ out, p } = build(html, file, earlySrc));
+        }
+        if (out.images) {
+          for (const v of out.images.variants) variants.set(images!.fileName(v), v);
+          if (imageCss.get(rel) !== out.images.css) {
+            imageCss.set(rel, out.images.css);
+            invalidate(`${IMG_CSS}${rel}.css`);
+          }
+          for (const f of [...out.images.variants.map((v) => v.file), ...out.images.pending]) watch(f);
+        }
         if (out.check) units.set(file, out.check);
         for (const f of out.files) watch(f);
         for (const f of [p.helpersFile, p.actionsFile]) if (f) watch(f);
