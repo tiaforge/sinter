@@ -7,6 +7,23 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- Smaller builds, the same code paths: the core is 14,606 → 13,959 B gzip, the minimal page 14,787 → 14,137 B,
+  RealWorld's pages about 880 B smaller each (the article 27,627 → 26,747 B of its 27,648 B budget).
+  - Form serialization and `data-sn-encoding="form"` moved from the core into a feature module
+    (`@tiaforge-ui/sinter/form`, 0.8 KB gzip), imported only by pages with a form action without
+    `data-sn-body` (not GET or DELETE) or with form encoding: core −390 B. `serialize` and `formBody` are
+    exported from `src/form.ts` instead of `src/runtime/app.ts`.
+  - The selection index (`{active: row.id === selected}` in a row: only the rows that were and become
+    selected re-render) moved into `@tiaforge-ui/sinter/select` (0.5 KB gzip), imported only by pages with
+    such a binding: core −214 B. Selecting a row in a 5,000-row list is unchanged (0.009 ms, happy-dom; the
+    runtime benchmark has the case now).
+  - The dev warning for duplicate `data-sn-for` keys moved into the dev module: core −43 B.
+  - The Vite plugin turns off Vite's modulepreload polyfill unless the app sets `build.modulePreload`'s
+    `polyfill` (or `modulePreload: false`): every browser sinter's pages need preloads modules natively.
+    RealWorld's pages −212 B each.
+  - The page module imports feature modules as `sn$<name>`, so a helper named like a feature (`keys`,
+    `form`, …) no longer collides with its import.
+
 - IR v2: the page module's dependency and written paths are node ids of one trie per page, with a path table
   (`ps`) in place of the strings; the compiler decides which written path reaches which binding and leaves the
   runtime only the checks against scope values (`src/paths.ts`). The runtime refuses IR v1. The compiler's IR

@@ -302,6 +302,18 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     enforce: 'pre',
     api: { options },
 
+    /**
+     * No modulepreload polyfill unless the app asks for one: every browser sinter's pages rely on
+     * (`commandfor`, Speculation Rules, `blocking="render"`) preloads modules natively, and the
+     * polyfill is ~400 B gzip in every page's bundle. Without it an older browser loads the same
+     * modules, one import after the other.
+     */
+    config(user) {
+      const mp = user.build?.modulePreload;
+      if (mp === false || (typeof mp === 'object' && mp.polyfill !== undefined)) return;
+      return { build: { modulePreload: { polyfill: false } } };
+    },
+
     async configResolved(config) {
       root = config.root;
       dev = config.command === 'serve';

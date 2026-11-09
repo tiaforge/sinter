@@ -110,9 +110,10 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
   lines.push(`import { ${core.join(', ')} } from '${PACKAGE}';`);
-  for (const f of parts.features) lines.push(`import ${f} from '${PACKAGE}/${f}';`);
+  // prefixed: a helper may be named as a feature (`keys`, `form`, …)
+  for (const f of parts.features) lines.push(`import sn$${f} from '${PACKAGE}/${f}';`);
   // next-page data: the app's pages, described in one module every page shares
-  const features = options.prefetch ? [...parts.features, '$prefetch'] : parts.features;
+  const features = [...parts.features.map((f) => `sn$${f}`), ...(options.prefetch ? ['$prefetch'] : [])];
   if (options.prefetch) lines.push(`import $prefetch from ${JSON.stringify(options.prefetch)};`);
   if (parts.helpers.user.length && options.helpers.module) {
     lines.push(`import { ${parts.helpers.user.join(', ')} } from ${JSON.stringify(options.helpers.module)};`);

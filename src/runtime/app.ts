@@ -7,7 +7,7 @@ import { config, SinterError, type Middleware } from './config.js';
 import { envOf, type Env } from './env.js';
 import { prefetched } from './handoff.js';
 import { createRequestLayer, isAbort, readBody, toError, type RequestLayer, type SendInit } from './request.js';
-import { BAD_KEY, schemesOf, STYLE_BAD, urlAllowed } from './security.js';
+import { schemesOf, STYLE_BAD, urlAllowed } from './security.js';
 import { expand, readUrl as readFrom, withParams } from './url.js';
 
 export { withParams };
@@ -157,8 +157,16 @@ export interface App {
     keys?: (rb: BoundBinding, e: KeyboardEvent) => boolean;
     /** write-through: a mutation's 2xx response, applied to the resources it is about (before `then`) */
     apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
-    /** server validation errors on a form's fields: `show` returns whether every error found its field */
     /** an action is sent: the form's marks and `$error` are cleared; the function reports a failure, true when the form shows it */
+    /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
+    form?: (el: Element, a: ActionDef, body: unknown) => unknown;
+    /**
+     * selection bindings (select.ts): given the renderer's internals, the check for a list whose rows
+     * no other change reaches. `free`: the index may be used (no row was reconciled this round, none
+     * waits in a closed dialog). 0: no selection's outer side changed; 1: the rows concerned were
+     * rendered; 2: every row renders
+     */
+    select?: (inner: Inner) => (rb: BoundBinding, free: boolean) => number;
     fields?: { sent(el: Element, a: ActionDef): ((error: SinterError, request: { url: string; method: string }) => boolean) | undefined };
   };
   readonly beforeFlush: Array<(dirty: Dirty[]) => void>;
@@ -174,6 +182,8 @@ export interface App {
   /** dev builds: returns true for a handler's error (code 24) it reported; the core logs it otherwise */
   warn(code: number | string, ...args: unknown[]): unknown;
   prep?: <T>(item: T) => T;
+  /** dev: a list's row keys, checked for duplicates */
+  dupes?: (keys: unknown[]) => void;
   /** dev: an EventSource stream opened (its connection counts against HTTP/1.1's 6 per origin) */
   streamOpened?: (url: string) => void;
 
@@ -203,6 +213,14 @@ export interface App {
   addCleanup(fn: () => void): void;
   /** runs `fn` now, or, on a page the browser prerenders (Speculation Rules), once it is shown */
   shown(fn: () => void): void;
+}
+
+/** The renderer's internals the selection index (select.ts) uses. */
+export interface Inner {
+  hit(deps: PathRef[] | undefined, s?: any): boolean;
+  isSimple(t: TemplateDef): { vals: Array<[number, Binding]> } | null;
+  walkSimple(x: any, t: TemplateDef, meta: any, force: number, only?: number): void;
+  process(rb: any, level: number): boolean;
 }
 
 /** Runtime binding: the bound binding plus last value and list/conditional state. */
@@ -300,7 +318,7 @@ export const STATE = Symbol('sinter.state');
 /** HANDLERS: one handler binding, or an array when the element has several */
 export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
 const indexReaders = new WeakMap<TemplateDef, boolean>();
-const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>(), selOf = new WeakMap<TemplateDef, Binding[]>();
+const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
 /** row templates: whether each holds one element (see oneElement()) */
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
 /** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
@@ -470,7 +488,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     ...(b.s ? ids(b.d).filter((d) => !b.s!.d.includes(d)) : ids(b.d)),
     ...(b.k == 'for' || b.k == 'if' || b.k == 'else' ? templateDeps(ir.templates[b.x!]!) : []),
   ]))), others.get(t)!);
-  const sels = (t: TemplateDef): Binding[] => selOf.get(t) ?? (selOf.set(t, t.nodes.flatMap((nd) => nd.b.filter((b) => b.s))), selOf.get(t)!);
 
   /** Whether a dirty path of the current flush reaches one of `deps`. */
   const hit = (deps: PathRef[] | undefined, s?: any) => {
@@ -633,6 +650,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   app.page.$f = app.storeFns(null);
   instances.set(root, app);
   for (const f of o.features ?? []) f.install(app);
+  /** the selection index (select.ts), on pages with selection bindings */
+  const sel = app.ext.select?.({ hit, isSimple, walkSimple, process });
 
   // ---- mount: one querySelectorAll, ids checked against the IR's tags
   const qsa = (root instanceof Document ? Document : Element).prototype.querySelectorAll;
@@ -780,13 +799,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       // only a selection's outer side changed: the rows it concerns, through the index; rows that were
       // just reconciled (some re-rendered, the index stale) or wait in a closed dialog render as usual
-      if (!r) {
-        const ss = sels(t!);
-        if (ss.some((b) => hit(b.s!.d, rb.s))) {
-          if (rb.rr != round && !deferred.size) { for (const b of ss) select(rb, b); continue; }
-          r = 2;
-        }
-      }
+      if (!r && sel && (r = sel(rb, rb.rr != round && !deferred.size)) == 1) continue;
       rb.sx = undefined;
       // only marked elements changed and the list did not move: visit their rows directly
       if (r == 1 && rb.rr != round) {
@@ -847,34 +860,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     else if (k == 'model') writeModel(rb, v);
     else if (!Object.is(v, rb.v)) { write(rb.b, rb.el, v, rb.v == UNSET ? undefined : rb.v, rb.v == UNSET); rb.v = v; }
     return true;
-  }
-
-  /**
-   * A selection binding (`row.id === selected`) whose outer side may have changed: re-evaluates it on
-   * the rows it held for and the rows whose row side equals the new outer value; the others keep their
-   * value. The index is built from the rows on first use and kept while no row is rendered.
-   */
-  function select(rb: RB, b: Binding) {
-    const s = b.s!, f = s.x ? 0 : 1, t = rb.t!, meta = isSimple(t), j = meta ? meta.vals.findIndex((y) => y[1] == b) : -1;
-    if (!hit(s.d, rb.s)) return;
-    // the binding's current value in a row (undefined when its element is missing), and its re-evaluation
-    const cur = (x: Inst) => (meta ? x.v![j] : x.rbs!.find((y) => y.b == b)?.v);
-    const run = (x: Inst) => { if (meta) walkSimple(x, t, meta, 2, j); else { const y = x.rbs!.find((y) => y.b == b); if (y) process(y, 2); } };
-    const safe = (i: number, sc: any) => { try { return fns[i]!(sc); } catch { return undefined; } };
-    let e = rb.sx?.get(b);
-    if (!e) {
-      const m = new Map<unknown, Inst[]>(), on = new Set<Inst>();
-      for (const x of rb.rows!) {
-        const k = safe(s.r, x.s), a = m.get(k);
-        a ? a.push(x) : m.set(k, [x]);
-        if (+!!cur(x) == f) on.add(x);
-      }
-      (rb.sx ??= new Map()).set(b, (e = { m, on }));
-    }
-    for (const x of [...e.on, ...(e.m.get(safe(s.o, rb.s)) ?? [])]) {
-      run(x);
-      if (+!!cur(x) == f) e.on.add(x); else e.on.delete(x);
-    }
   }
 
   /**
@@ -988,10 +973,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
     const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
-    if (app.dev && new Set(keys).size < n) {
-      const k = keys.find((k, i) => keys.indexOf(k) != i);
-      warn(11, typeof k == 'string' ? k.slice(1) : 'the same object twice');
-    }
+    app.dupes?.(keys);
     const reuse = (x: Inst, i: number) => {
       const item = items[i];
       if (x.item !== item) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = 2; }
@@ -1243,10 +1225,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (a.call) body = fns[a.call.args]!(s);
       else {
         url = app.url(a.url, s);
-        const fields = a.form && !get && a.method != 'DELETE';
-        // form encoding: the fields as the browser would submit them (FormData), then as one of its bodies
-        body = a.body != null ? fns[a.body]!(s) : fields ? (a.enc == 'form' ? new FormData(rb.el as HTMLFormElement) : serialize(rb.el as HTMLFormElement)) : undefined;
-        if (a.enc == 'form') body = formBody(body);
+        if (a.body != null) body = fns[a.body]!(s);
+        // a form's own fields, and form encoding (form.ts): on pages that have such an action
+        if (app.ext.form) body = app.ext.form(rb.el, a, body);
       }
     } catch (err) {
       return unhandled(toError(err), rb.el);
@@ -1519,48 +1500,4 @@ export function lis(seq: number[]): Set<number> {
   const keep = new Set<number>();
   for (let k = tails.at(-1); k != null; k = prev[k]) keep.add(k);
   return keep;
-}
-
-/** Serializes a form's named controls to nested JSON, or FormData if it has a file input. */
-/**
- * A body as form fields (`data-sn-encoding="form"`): a form's own fields, or an object's keys with
- * arrays as repeated keys; null and undefined values are left out. Files stay multipart.
- */
-export function formBody(body: unknown): URLSearchParams | FormData | null {
-  if (body == null) return null;
-  if (body instanceof FormData) {
-    const out = new URLSearchParams();
-    for (const [k, v] of body) {
-      if (typeof v != 'string') return body;
-      out.append(k, v);
-    }
-    return out;
-  }
-  if (body instanceof URLSearchParams) return body;
-  const out = new URLSearchParams();
-  for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
-    for (const x of Array.isArray(v) ? v : [v]) if (x != null) out.append(k, typeof x == 'object' ? JSON.stringify(x) : String(x));
-  }
-  return out;
-}
-
-export function serialize(form: HTMLFormElement): unknown {
-  const controls = [...form.elements] as Array<HTMLInputElement & { selectedOptions: HTMLCollectionOf<HTMLOptionElement> }>;
-  if (controls.some((c) => c.type == 'file')) return new FormData(form);
-  const out = Object.create(null), boxes: Record<string, number> = {};
-  for (const c of controls) if (c.type == 'checkbox') boxes[c.name] = (boxes[c.name] ?? 0) + 1;
-  for (const c of controls) {
-    const { name, type } = c, segs = name?.match(/[^.[\]]+/g);
-    if (!segs || c.disabled || /^(submit|button|reset|image|fieldset|output)$/.test(type) || (type == 'radio' && !c.checked) || segs.some((s) => BAD_KEY.test(s))) continue;
-    const k = segs.pop()!;
-    let o = out;
-    // a container at each step; a scalar written there earlier (`a`, then `a.b`) is replaced
-    segs.forEach((s, i) => (o = typeof o[s] == 'object' && o[s] ? o[s] : (o[s] = /^\d+$/.test(segs[i + 1] ?? k) ? [] : Object.create(null))));
-    if (type == 'checkbox' && boxes[name]! > 1) (o[k] ??= []).push(...(c.checked ? [c.value] : []));
-    else o[k] = type == 'checkbox' ? c.checked
-      : /^(number|range)$/.test(type) ? (c.value === '' ? null : +c.value)
-      : type == 'select-multiple' ? [...c.selectedOptions].map((x) => x.value)
-      : c.value;
-  }
-  return out;
 }

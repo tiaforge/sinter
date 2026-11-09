@@ -26,11 +26,13 @@ import keys from '../keys.js';
 import apply from '../apply.js';
 import transition from '../transition.js';
 import fields from '../fields.js';
+import form from '../form.js';
+import select from '../select.js';
 import sse from '../sse.js';
 import { prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, transition };
+const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, transition };
 
 // ---- requests
 

@@ -169,7 +169,7 @@ test('the compiler checks `cache` and adds the feature only where it is used', (
   const opts = { file: '/x/i.html', root: '/x', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '' };
   const ok = compile(LIST('cache="2h"'), opts);
   expect(ok.diagnostics).toEqual([]);
-  expect(ok.module).toContain("import cache from '@tiaforge-ui/sinter/cache'");
+  expect(ok.module).toContain("import sn$cache from '@tiaforge-ui/sinter/cache'");
   expect(ok.module).toContain('"cache":7200000');
   expect(compile(LIST(''), opts).module).not.toContain('sinter/cache');
   const bad = compile(LIST('cache="soon"'), opts);

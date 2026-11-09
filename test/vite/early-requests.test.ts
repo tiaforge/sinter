@@ -13,7 +13,7 @@ import sinter from '../../src/vite.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 'transition', 'cache', 'apply']
+const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 'transition', 'cache', 'apply', 'form', 'select']
   .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
   .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
 

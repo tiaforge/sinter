@@ -43,6 +43,8 @@ Server data enters through the request layer (loads) and the sync adapter (event
 | `@tiaforge-ui/sinter/paginate` | keyset, offset, append |
 | `@tiaforge-ui/sinter/each` | fan-out resources (`each="a in accounts"`) |
 | `@tiaforge-ui/sinter/persist` | `data-sn-persist` |
+| `@tiaforge-ui/sinter/form` | form bodies: a form's fields without `data-sn-body`, `data-sn-encoding="form"` |
+| `@tiaforge-ui/sinter/select` | the selection index (`{active: row.id === selected}` in a row) |
 | `@tiaforge-ui/sinter/compiler` | `compile()` |
 | `@tiaforge-ui/sinter/vite` | Vite plugin |
 | `@tiaforge-ui/sinter/testing` | `render`, `mockRequests`, `mockStream` |
@@ -667,6 +669,7 @@ An action is an element with one method attribute; it sends a request when its t
 - A form containing `<input type="file">` is sent as `multipart/form-data` instead.
 - `GET` and `DELETE` without `data-sn-body` send no body.
 - With `data-sn-encoding="form"` the body goes as `application/x-www-form-urlencoded`: a form's fields as a browser submits them (repeated names stay repeated), or the keys of `data-sn-body`, an array as a repeated key; `null` and `undefined` values are left out, objects are sent as JSON text. Action functions get the same with a `URLSearchParams` body in `ctx.request`.
+- Serializing a form and form encoding are the `form` feature module (0.8 KB gzip), imported only by pages with a form action without `data-sn-body` (not `GET` or `DELETE`) or with `data-sn-encoding="form"`.
 
 ### Confirmation
 `data-sn-confirm="m.delete_confirm({name: c.fn_name})"` asks before the action runs: no optimistic change, no request when the answer is no. The value is evaluated when the action triggers; when it is falsy nothing is asked, so a question can depend on state: `data-sn-confirm="inTrash ? m.delete_forever() : null"`. `configure({ confirm })` replaces `window.confirm`, for example with a dialog of the app's own (it may return a promise).

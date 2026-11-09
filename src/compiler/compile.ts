@@ -381,7 +381,7 @@ class Compiler {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'transition'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'transition'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -1390,6 +1390,8 @@ class Compiler {
     if (!ro.ok || !oo.ok || oo.usesIndex || oo.usesEl || ro.usesEl) return undefined;
     const d = oo.deps.filter((x) => !ro.deps.includes(x));
     if (!d.length) return undefined;
+    // the runtime's selection index (select.ts)
+    this.features.add('select');
     return { r: this.fn(ro.code), o: this.fn(oo.code), d, ...(bin.operator === '!==' ? { x: 1 as const } : {}) };
   }
 
@@ -1486,6 +1488,8 @@ class Compiler {
     // server validation errors shown on the fields (fields.ts): forms that send a mutation and leave errors to sinter
     // (a form's own action, or a control's inside one, as the editor's Publish button in RealWorld)
     if ((isForm || (inForm && (tag === 'button' || FORM_CONTROLS.has(tag)))) && method !== 'call' && method !== 'get' && get('catch') === undefined) this.features.add('fields');
+    // a form's own fields as the body, or form encoding: the form module (form.ts)
+    if ((isForm && body.f === null && method !== 'call' && method !== 'get' && method !== 'delete') || (encoding === 'form' && method !== 'call')) this.features.add('form');
     // only what differs from the defaults: an attribute the page does not write costs no bytes
     // (the event is the `on` binding's; the runtime reads absent fields as null, 0, false, [])
     const w = [...new Set([...then.w, ...catch_.w])].sort();
