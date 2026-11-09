@@ -166,6 +166,25 @@ test('a 401 on a prefetch does not start the login redirect', async () => {
   expect(r.navigations).toEqual([]);
 });
 
+test('resources of the next page that read different parts of one response share one request', async () => {
+  const session = memoryStorage();
+  const book = `<html data-sn-path="/book"><head></head><body>
+    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
+    <sn-resource name="books" src="/api/contacts" items="books" key="id"></sn-resource>
+    <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>
+    <ol><template data-sn-for="b in books"><li data-sn-text="b.name"></li></template></ol>
+  </body></html>`;
+  const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }], books: [{ id: 2, name: 'Work' }] } });
+  const r = await render('<a href="/book">book</a>', { session, requests, pages: { 'book.html': book } });
+  await r.settle();
+  fire(r.root.querySelector('a')!, 'pointerdown');
+  await r.settle();
+  expect(paths(requests)).toEqual(['GET /api/contacts']);
+  const page = await render(book, { session, url: '/book', requests: mockRequests({ 'GET /api/contacts': { contacts: [], books: [] } }) });
+  expect(page.root.querySelector('ul li')!.textContent).toBe('Ada');
+  expect(page.root.querySelector('ol li')!.textContent).toBe('Work');
+});
+
 test('data this page has from the same request is handed over without a request', async () => {
   const session = memoryStorage();
   const user = `<sn-resource name="user" src="/api/user" items="user"></sn-resource><b data-sn-text="user?.name"></b>`;

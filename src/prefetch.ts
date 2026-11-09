@@ -84,6 +84,8 @@ export function prefetch(pages: PrefetchPage[]): Feature {
         const segs = segments(u.pathname), page = pages.find((p) => p.m.some((m) => matches(m, segs)));
         if (!page) return;
         const scope = { $url: readUrl(u.href, page.m) };
+        // resources that read different parts of one response (`items`) share its request, as on the page
+        const sent = new Map<string, Promise<unknown>>();
         for (const r of page.r) {
           let url: string;
           try {
@@ -97,7 +99,9 @@ export function prefetch(pages: PrefetchPage[]): Feature {
           if (own) { const b = app.resource(own.name).base(); write(key, b.items, b.total); continue; }
           busy.add(key);
           const w = app.req.writes;
-          app.req.send(url, { priority: 'low', headers: { [PREFETCH_MARK]: '1' } }).then((body) => {
+          let req = sent.get(url);
+          if (!req) sent.set(url, req = app.req.send(url, { priority: 'low', headers: { [PREFETCH_MARK]: '1' } }));
+          req.then((body) => {
             // a mutation ran meanwhile: the response may predate it
             if (app.req.writing || app.req.writes != w) return;
             let items = pick(r.i, body);

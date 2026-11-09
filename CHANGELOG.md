@@ -3,6 +3,14 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Fixed
+
+- Next-page data: resources of the next page that read different parts of one response (same
+  `src`, different `items`, such as a contacts list and its addressbooks) share one request, as they
+  do on the page itself. Before, each sent its own.
+
 ## 0.10.0 (2026-11-09)
 
 ### Added
