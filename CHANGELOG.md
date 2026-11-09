@@ -46,6 +46,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   temper's `data-layout="center"`): `(max-width: 800px) 100vw, 800px`, files up to 3x of it.
   Static and API images. Only the attributes a binding writes are uncertain in the cascade now
   (`data-sn-attr`'s keys), not every attribute of the element.
+- CSS backgrounds: `background` and `background-image` with `url()` of a local image get
+  `image-set()` with AVIF (photos) or lossless WebP (graphics) and a JPEG/PNG fallback, after the
+  original declaration. A rule that sizes the background (`cover`, `contain`, lengths) gets 1x and
+  2x files, the source counting as 2x; one that does not keeps its intrinsic size (1x only). Dev
+  rewrites the compiled CSS, builds the finished stylesheets, so Sass partials work.
 - Dev: a console warning for every image shown with fewer pixels than the screen has, naming the
   cause (a small source, or a `sizes` smaller than the image is shown).
 

@@ -1,6 +1,6 @@
 # Images
 
-Status: 2026-11-09. Step 1 (static `<img>` in HTML), 1b (sizes from the page's stylesheets) and 2 (images from the API) are implemented; step 3 is planned.
+Status: 2026-11-09. Steps 1 (static `<img>` in HTML), 1b (sizes from the page's stylesheets), 2 (images from the API) and 3 (CSS backgrounds) are implemented.
 
 sinter optimizes the images a page uses without any markup of its own: it writes the variants at
 build time and markup that lets the browser pick one. The browser knows the screen's pixel density,
@@ -230,6 +230,33 @@ service. A `null` value removes both, as before.
 server itself for `'self'`, through its proxy), resizes it with sharp, picks AVIF, WebP or JPEG/PNG
 from `Accept`, and keeps it in memory. Without `remote`, API images are left as written, in dev and
 in builds alike, so dev does not hide what production does.
+
+## CSS backgrounds (step 3)
+
+`background` and `background-image` with `url()` of a local JPEG, PNG, WebP or AVIF get
+`image-set()`, as a second declaration after the original, which stays for browsers without
+`image-set()` types:
+
+```css
+.hero { background: url(/assets/hero-….jpg) 50%/cover;
+        background: image-set(url("…hero-800….avif") type("image/avif") 1x, url("…hero-1600….avif") type("image/avif") 2x,
+                              url("…hero-800….jpg") type("image/jpeg") 1x, url("…hero-1600….jpg") type("image/jpeg") 2x) 50%/cover }
+```
+
+- **Formats** as for `<img>`: AVIF for photos, lossless WebP for graphics, JPEG or PNG as the fallback;
+  files under 4 KB are left alone (Vite inlines them anyway).
+- **The source counts as 2x** when the rule sizes the background (`background-size` other than
+  `auto`, or a size in the shorthand: `center / cover`): a 1600 px source gives 800 px for 1x
+  screens and 1600 px for 2x. A rule that does not size it gets one file per format at 1x: a 2x
+  file would halve the image's intrinsic size, and so the size of a tile or of an unscaled image.
+- **Where**: dev rewrites each stylesheet after Vite's CSS compiler (Sass, Less, Stylus and PostCSS
+  have run, `url()`s point at their files); builds rewrite the finished stylesheets, whose `url()`s
+  name the build's copies of the images. So `url()`s in Sass partials work too.
+- **Left alone**: other properties (`mask`, `border-image`, `content`, `@font-face`), remote and
+  `data:` URLs, files in `public/`, declarations that already use `image-set()`, `?inline` and
+  `?url` imports, inline `style` attributes, and CSS a utility engine generates.
+- A background whose element is larger at 1x than half the source is soft on 1x screens: use a
+  source twice the largest width it is shown at.
 
 ## Cropping
 

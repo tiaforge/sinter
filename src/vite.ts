@@ -15,6 +15,7 @@ import { loadImages, MIME, type Images } from './images.js';
 import { pageStyles } from './styles.js';
 import { detectEngines, type StyleEngine } from './engines.js';
 import { IMAGE_CHECK } from './image-check.js';
+import { rewriteCssImages, type CssImageHost } from './css-images.js';
 import { resolveRemote, type RemoteImages } from './remote.js';
 import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { ImageHost, ImageVariant, StyleSheet } from './compiler/index.js';
@@ -48,7 +49,7 @@ export interface SinterOptions extends ProjectOptions {
   };
 }
 
-type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin];
+type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin];
 
 const PREFIX = '/@sinter/';
 const EARLY = `${PREFIX}early/`;
@@ -401,10 +402,71 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
   // After bundling: the early file's tag (render-blocking, before the page module, where Vite's
   // HTML processing cannot merge it into the page entry) and its size.
+  // CSS backgrounds (docs/images.md, step 3). Dev: a normal-order plugin sees each stylesheet after
+  // Vite's CSS compiler (Sass, PostCSS, url() rebased to root paths) and before its post-processing.
+  const STYLE_ID = /\.(css|scss|sass|less|styl|stylus|pcss|postcss|sss)(\?|$)/;
+  const cssImages: Plugin = {
+    name: 'sinter:css-images',
+    apply: 'serve',
+    async transform(code, id) {
+      if (!images || !STYLE_ID.test(id) || /[?&](inline|url|raw)\b/.test(id) || id.includes('/node_modules/')) return null;
+      const base = resolved?.base ?? '/', img = images;
+      const host: CssImageHost = {
+        source: (url) => {
+          if (/^[a-z][a-z\d+.-]*:|^\/\/|[?#]/i.test(url) || !/\.(jpe?g|png|webp|avif)$/i.test(url)) return null;
+          const path = url.startsWith(base) ? '/' + url.slice(base.length) : url;
+          if (!path.startsWith('/')) return null;
+          const file = path.startsWith('/@fs/') ? path.slice(4) : resolve(root, '.' + decodeURI(path));
+          return img.info(file) === null ? null : file;
+        },
+        info: (f) => img.info(f), analyze: (f) => img.analyze(f),
+        url: (v) => `${base}${IMG.slice(1)}${img.fileName(v)}`,
+      };
+      const out = await rewriteCssImages(code, host);
+      if (!out) return null;
+      for (const v of out.variants) variants.set(images.fileName(v), v);
+      return { code: out.css, map: null };
+    },
+  };
+
   const post: Plugin = {
     name: 'sinter:early',
     enforce: 'post',
     apply: 'build',
+    /** builds: the finished stylesheets, whose url()s name the build's copies of the images (their `originalFileNames` the sources) */
+    async generateBundle(_, bundle) {
+      if (!images) return;
+      const img = images, r = resolved!;
+      const byName = new Map<string, string>();
+      for (const a of Object.values(bundle)) {
+        if (a.type !== 'asset' || !/\.(jpe?g|png|webp|avif)$/i.test(a.fileName)) continue;
+        const orig = (a as { originalFileNames?: string[] }).originalFileNames?.[0];
+        if (orig) byName.set(a.fileName.slice(a.fileName.lastIndexOf('/') + 1), resolve(root, orig));
+      }
+      if (!byName.size) return;
+      const host: CssImageHost = {
+        source: (url) => {
+          if (/^data:/i.test(url)) return null;
+          const path = url.replace(/[?#].*$/, '');
+          return byName.get(path.slice(path.lastIndexOf('/') + 1)) ?? null;
+        },
+        info: (f) => img.info(f), analyze: (f) => img.analyze(f),
+        url: (v) => `${r.base}${r.build.assetsDir}/${img.fileName(v)}`,
+      };
+      const emitted = new Set(variants.keys());
+      for (const a of Object.values(bundle)) {
+        if (a.type !== 'asset' || !a.fileName.endsWith('.css')) continue;
+        const out = await rewriteCssImages(String(a.source), host);
+        if (!out) continue;
+        a.source = out.css;
+        await Promise.all(out.variants.map(async (v) => {
+          const name = img.fileName(v);
+          if (emitted.has(name)) return;
+          emitted.add(name);
+          this.emitFile({ type: 'asset', fileName: `${r.build.assetsDir}/${name}`, source: await img.encode(v) });
+        }));
+      }
+    },
     transformIndexHtml: {
       order: 'post',
       handler(html, ctx) {
@@ -442,5 +504,5 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (logger) logger.warn(msg); else console.warn(msg);
   }
 
-  return [main, post];
+  return [main, post, cssImages];
 }
