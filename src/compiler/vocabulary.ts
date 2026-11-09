@@ -20,6 +20,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'if', value: 'value expression', doc: 'renders a <template> while truthy' },
   { name: 'else', value: '', doc: 'on a <template> directly after an if template' },
   { name: 'listbox', value: 'id of the suggestion list, or empty', doc: 'on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox] around the input), Enter or Tab clicks it, Escape fires `dismiss`' },
+  { name: 'errors', value: 'id of a form, or empty', doc: 'where a failed form action without `data-sn-catch` shows what no field took (form-level errors, or the error itself): inside the form (empty) or naming its id; a `<ul>`/`<ol>` gets an `<li>` per message' },
   { name: 'persist', value: 'storage key', doc: 'persists the model or state in localStorage under sn:' },
   { name: 'get', value: 'URL template', doc: 'GET action; latest wins' },
   { name: 'post', value: 'URL template', doc: 'POST action' },

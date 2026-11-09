@@ -132,3 +132,40 @@ test('configure({ fieldErrors }) reads another error format; null leaves the err
     configure({ fieldErrors: null });
   }
 });
+
+test('data-sn-errors shows what no field took: unknown names, the "" key, or the error itself', async () => {
+  configure({ onError: (e) => reported.push(e.message) });
+  let res: unknown = { status: 400, body: { errors: { 'email or password': ['is invalid'], '': ['Try again later'], email: 'is unknown' } } };
+  const requests = mockRequests({ 'POST /api/login': () => res });
+  const { root, settle } = await render(`
+    <ul data-sn-errors="login" hidden></ul>
+    <form id="login" data-sn-post="/api/login"><input name="email"><p data-sn-errors>Oops:</p><button>Sign in</button></form>`, { requests });
+  root.querySelector('form')!.requestSubmit();
+  await settle();
+  // the slot inside the form wins over the one naming it
+  const inner = root.querySelector('p')!, outer = root.querySelector('ul')!;
+  expect(inner.textContent).toBe('Oops:is invalid; Try again later');
+  expect(outer.children).toHaveLength(0);
+  expect(root.querySelector('[name=email]')!.getAttribute('aria-invalid')).toBe('true');
+  expect(reported).toEqual([]);
+
+  // a failure that is not about fields: its detail goes there; sending again clears the last ones
+  inner.remove();
+  res = { status: 503, body: { message: 'The server is down for maintenance.' } };
+  root.querySelector('form')!.requestSubmit();
+  await settle();
+  expect(root.querySelector('[aria-invalid]')).toBeNull();
+  expect([...outer.children].map((li) => li.textContent)).toEqual(['The server is down for maintenance.']);
+  expect(outer.hasAttribute('hidden')).toBe(false);
+  expect(reported).toEqual([]);
+
+  res = { id: 1 };
+  root.querySelector('form')!.requestSubmit();
+  await settle();
+  expect(outer.children).toHaveLength(0);
+  expect(outer.hasAttribute('hidden')).toBe(true);
+});
+
+test('data-sn-errors without a value outside a form is a build error', async () => {
+  await expect(render(`<p data-sn-errors></p><form data-sn-post="/api/x"></form>`)).rejects.toThrow(/SN102.*belongs inside a `<form>`/s);
+});

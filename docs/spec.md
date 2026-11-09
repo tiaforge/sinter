@@ -697,16 +697,34 @@ When an action fails and has no `data-sn-catch`:
 - Dev builds log every unhandled error to the console.
 Resource load failures set `$meta.<name>.error` and then take the same path, with `detail.resource` set and the mount root as element. A 401 never reaches this path; the login redirect handles it.
 
-### Server validation errors on the fields
-A mutation (`data-sn-post`, `-put`, `-patch`, `-delete`) without `data-sn-catch` on a form, or on a control inside one (a `type="button"` Publish button; `form="id"` counts), shows the server's field errors on that form without any code (the `fields` feature module, loaded by pages with such an action; added 2026-11-09):
-- When: `configure({ fieldErrors })` reads the error as field errors. It is `(error, form) => ({ <name>: message | [message, …] }) | null`, called for every failure of such an action. The default (`fieldErrors` from `@tiaforge-ui/sinter/fields`, for falling back to) takes a 4xx whose JSON body's `errors` is such an object: Rails, Laravel, RealWorld, ASP.NET's `ValidationProblemDetails` (whose keys are PascalCase: map them to the names in the hook). Other formats (RFC 9457 `invalid-params`, JSON:API `errors[].source.pointer`, Django REST Framework's top-level fields) need a hook. An array's messages are joined with `; `.
-- Each key names a control of the form, as `form.elements` does: its `name`, else its `id`. Every control of that name (radio buttons) gets `aria-invalid="true"`, which temper (and Pico) already style.
-- The message goes into the element the control's `aria-errormessage` names, shown if it was `hidden`; without one, into a `<small data-sn-error="<name>" data-tone="danger">` inserted after the control, which `aria-errormessage` and `aria-describedby` then name (an existing `aria-describedby` keeps its ids).
-- The first such control in document order gets focus, once the form's controls are enabled again.
-- Editing a control (`input` or `change`) clears its error; sending the form again clears them all, and everything sinter added is removed (attributes restored, an `aria-errormessage` element emptied and hidden again).
-- When every key named a control, the error is handled: no `sn-error`, no `onError`. A key that names none, or any other failure (a 5xx, a network error, a body without `errors`), takes the unhandled path as usual, so a toast reports what the fields do not show.
-- With `data-sn-catch` the app handles errors itself: nothing is marked. `GET` actions and `data-sn-call` are left out.
-- Tested against RealWorld's own error bodies (its e2e suite, 2026-11-09): register (`{errors: {email: [...], username: [...]}}`) and the editor's Publish button (`title`, `body`) mark their fields. Login's `{errors: {"email or password": ["is invalid"]}}` names no field, so it takes the unhandled path; so does the comment form's `body`, whose textarea has no `name`. RealWorld keeps its `data-sn-catch`es: its markup requires an `.error-messages` list of every error above the form, which field errors do not replace.
+### Server validation errors on the form
+A mutation (`data-sn-post`, `-put`, `-patch`, `-delete`) without `data-sn-catch` on a form, or on a control inside one (a `type="button"` Publish button; `form="id"` counts), shows the server's errors on that form without any code (the `fields` feature module, loaded by pages with such an action; added 2026-11-09). The messages are the server's: sinter only puts them in place.
+```html
+<form data-sn-post="/api/signup">
+  <ul data-sn-errors role="alert" hidden></ul>        <!-- what no field takes -->
+  <label>Email <input type="email" name="email"></label>  <!-- `errors.email` goes next to it -->
+  <button>Sign up</button>
+</form>
+```
+- Reading: by default, a 4xx whose JSON body's `errors` is an object of `<name>: message` or `<name>: [message, …]`: Rails, Laravel, RealWorld, ASP.NET's `ValidationProblemDetails`.
+- Each name that is a control of the form (as `form.elements` finds it: its `name`, else its `id`) marks that control: every control of the name (radio buttons) gets `aria-invalid="true"`, which temper (and Pico) already style, and its messages (joined with `; `) go into the element the control's `aria-errormessage` names, shown if it was `hidden`, or else into a `<small data-sn-error="<name>" data-tone="danger">` inserted after the control, which `aria-errormessage` and `aria-describedby` then name (an existing `aria-describedby` keeps its ids). The first such control in document order gets focus, once the form's controls are enabled again.
+- Everything else is about the form: the messages of a name no control has (`"email or password"`), of the empty name `""` (ASP.NET's model-level errors), and, when nothing was read as field errors (a 5xx, a network error, a body without `errors`), the error itself: its `detail`, else its `message` (see Request layer). They go into the form's `data-sn-errors` element: one inside the form (no value), else one that names the form's `id` (`data-sn-errors="signup"`, for a list above the form). A `<ul>` or `<ol>` gets an `<li>` per message, any other element the messages as text after what it holds; `hidden` is removed. Give it `role="alert"` so that it is announced. `data-sn-errors` without a value outside a form is `SN102`.
+- Handled: when every message found its place, no `sn-error`, no `onError`. A message that found none (no `data-sn-errors` element) takes the unhandled path as usual, so a toast reports what the form does not show.
+- Clearing: editing a control (`input` or `change`) clears its error; sending the form again clears everything, and what sinter added is removed (attributes restored, an `aria-errormessage` element emptied and hidden again, the `data-sn-errors` element's additions removed and its `hidden` back).
+- With `data-sn-catch` the app handles errors itself: nothing is shown. `GET` actions and `data-sn-call` are left out.
+- Other formats: `configure({ fieldErrors(error, form) })` returns `{ <name>: message | [message, …] }`, or null when the error has no field errors. It is called for every failure of such an action and reads the server's messages out of `error.body` (the `$error` of Request layer); `''` is the form. The default is exported as `fieldErrors` from `@tiaforge-ui/sinter/fields`, to fall back to:
+  ```js
+  import { fieldErrors } from '@tiaforge-ui/sinter/fields';
+  configure({
+    fieldErrors: (error) => {
+      const p = error.body?.['invalid-params'];          // RFC 9457
+      return Array.isArray(p) ? Object.fromEntries(p.map((x) => [x.name, x.reason])) : fieldErrors(error);
+    },
+  });
+  ```
+  JSON:API (`errors[].source.pointer` → the name, `detail` → the message), Django REST Framework (top-level names, `non_field_errors` → `''`) and ASP.NET's PascalCase names (`Email` → `email`) are a few lines each the same way.
+- Translation: when the server sends codes instead of text (`{email: ['taken']}`), the hook maps them to the app's messages (Messages): `m.key` is allowed in `src/sinter.config.js` as in any module of the page bundle, so the page's language file holds them, and a map of functions keeps them literal: `const text = { taken: () => m.error_taken(), too_short: () => m.error_too_short() }`, then `msgs.map((c) => text[c]?.() ?? c)`. A message the server words in the user's language (`Accept-Language`) needs nothing.
+- Tested against RealWorld's own error bodies (its e2e suite, 2026-11-09): register (`{errors: {email: [...], username: [...]}}`) and the editor's Publish button (`title`, `body`) mark their fields; login's `{errors: {"email or password": ["is invalid"]}}` names no field and goes to `data-sn-errors`; the comment form's `body` does too while its textarea has no `name`. RealWorld keeps its `data-sn-catch`es so far: its `.error-messages` list shows every error, field errors included, as `<name> <message>` ("email has already been taken").
 
 ### Pending state and concurrency
 - While a request is pending, the element gets `aria-busy="true"`. Pico CSS already styles `aria-busy`. Forms in `block` mode are also disabled.

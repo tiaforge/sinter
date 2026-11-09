@@ -787,6 +787,13 @@ class Compiler {
     // derived names: the element and its subtree read them like state
     if (has('let')) scope = this.lets(el, scope);
 
+    // form-level errors (src/fields.ts): the attribute stays in the output for the runtime to find
+    if (has('errors')) {
+      const f = get('errors')!.trim();
+      if (f && !/^[A-Za-z][\w-]*$/.test(f)) this.report(el, 'data-sn-errors', 'SN401', '`data-sn-errors` takes the literal `id` of a form, or nothing inside the form', 0);
+      else if (!f && !inForm) this.report(el, 'data-sn-errors', 'SN102', '`data-sn-errors` without a value belongs inside a `<form>`; outside one, name the form: `data-sn-errors="signup"` with `<form id="signup">`', 0);
+    }
+
     // a text field with suggestions: the listbox feature handles the keys (see src/listbox.ts)
     if (has('listbox')) {
       const list = get('listbox')!;
@@ -2131,8 +2138,9 @@ function setAttr(el: P5Element, name: string, value: string) {
   if (a) a.value = value; else el.attrs.push({ name, value });
 }
 
+/** `data-sn-errors` stays: the fields feature finds a form's error slot by it */
 function stripSn(el: P5Element) {
-  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-'));
+  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-') || (a.name === 'data-sn-errors' && (a.value = a.value.trim(), true)));
 }
 
 function hasSnDeep(parent: P5Parent): boolean {

@@ -1,16 +1,22 @@
-// Server validation errors on the fields: a form action (or the action of a control inside a form)
-// without `data-sn-catch` whose request fails with what `configure({ fieldErrors })` reads as field
-// errors (by default a 4xx whose JSON body has `{ errors: { <field>: message | message[] } }`) marks each named control
-// `aria-invalid="true"` and shows its message next to it: in the element the control's
-// `aria-errormessage` names, else in a `<small data-sn-error>` inserted after the control (named by
-// `aria-errormessage` and `aria-describedby`). The first such control gets focus. Editing a control
-// clears its error; sending the form again clears them all. When every key named a control, the
-// error is handled: no `sn-error`, no `onError`.
+// Server validation errors on the form: a form action (or the action of a control inside a form)
+// without `data-sn-catch` fails. `configure({ fieldErrors })` reads the server's errors as
+// `{ <name>: message | message[] }` (default: a 4xx whose JSON body has such an `errors` object).
+// - A name that is a control of the form: the control gets `aria-invalid="true"` and its message,
+//   in the element its `aria-errormessage` names, else in a `<small data-sn-error>` inserted after
+//   it (named by `aria-errormessage` and `aria-describedby`). The first such control gets focus.
+// - Everything else is about the form: messages under a name no control has, under `''`, or, when
+//   nothing was read as field errors, the error's `detail` (else its `message`). They go into the
+//   form's `data-sn-errors` element (inside the form, or naming the form's id): a `<ul>`/`<ol>` gets
+//   an `<li>` per message, any other element the messages as text.
+// Editing a control clears its error; sending the form again clears everything. The error is handled
+// (no `sn-error`, no `onError`) when every message found its place.
 import type { App, Feature } from './runtime/app.js';
 import { config, type SinterError } from './runtime/config.js';
 
 type Shown = { c: Element[]; m: Element; made: boolean; hid: boolean; d: string | null; off: () => void };
 const shown = new WeakMap<HTMLFormElement, Map<string, Shown>>();
+/** the form-level messages shown: the slot, what was added to it, whether it was hidden */
+const slots = new WeakMap<HTMLFormElement, { el: Element; added: Node[]; hid: boolean }>();
 let ids = 0;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v == 'object' && !Array.isArray(v);
@@ -25,14 +31,20 @@ export function fieldErrors(error: SinterError): Record<string, unknown> | null 
   return st >= 400 && st < 500 && isObj(e) ? e : null;
 }
 
-/** `[name, text]` per field with a message: an array's messages joined with `; `. */
-function entries(map: Record<string, unknown> | null | undefined): Array<[string, string]> {
-  const out: Array<[string, string]> = [];
+/** `[name, messages]` per name with any message. */
+function entries(map: Record<string, unknown> | null | undefined): Array<[string, string[]]> {
+  const out: Array<[string, string[]]> = [];
   for (const [k, v] of Object.entries(isObj(map) ? map : {})) {
-    const text = (Array.isArray(v) ? v : [v]).filter((x) => x != null && x !== '').map(String).join('; ');
-    if (text) out.push([k, text]);
+    const msgs = (Array.isArray(v) ? v : [v]).filter((x) => x != null && x !== '').map(String);
+    if (msgs.length) out.push([k, msgs]);
   }
   return out;
+}
+
+/** The form's `data-sn-errors` element: inside it, or one that names its id. */
+function slotOf(form: HTMLFormElement): Element | null {
+  return form.querySelector('[data-sn-errors=""]')
+    ?? (form.id ? form.ownerDocument.querySelector(`[data-sn-errors="${CSS.escape(form.id)}"]`) : null);
 }
 
 function clearOne(form: HTMLFormElement, name: string) {
@@ -52,24 +64,34 @@ function clearOne(form: HTMLFormElement, name: string) {
   }
 }
 
+function clearSlot(form: HTMLFormElement) {
+  const s = slots.get(form);
+  if (!s) return;
+  slots.delete(form);
+  for (const n of s.added) (n as ChildNode).remove();
+  if (s.hid) s.el.setAttribute('hidden', '');
+}
+
 const fields: Feature = {
   name: 'fields',
   install(app: App) {
     app.ext.fields = {
       clear(form) {
         for (const name of [...(shown.get(form)?.keys() ?? [])]) clearOne(form, name);
+        clearSlot(form);
       },
       show(form, error) {
         if (!form.isConnected) return false;
         const errs = entries((config.fieldErrors ?? fieldErrors)(error, form));
-        if (!errs.length) return false;
         const all = shown.get(form) ?? new Map<string, Shown>();
         shown.set(form, all);
-        let every = true, first: HTMLElement | null = null;
-        for (const [name, text] of errs) {
-          const item = form.elements.namedItem(name);
+        // what no control takes is about the form; nothing read as field errors: the error itself
+        const rest: string[] = errs.length ? [] : [error.detail ?? error.message];
+        let first: HTMLElement | null = null;
+        for (const [name, msgs] of errs) {
+          const item = name ? form.elements.namedItem(name) : null;
           const c = (item instanceof Element ? [item] : item ? [...item] : []) as HTMLElement[];
-          if (!c.length) { every = false; continue; }
+          if (!c.length) { rest.push(...msgs); continue; }
           clearOne(form, name);
           const doc = form.ownerDocument, ref = c[0]!.getAttribute('aria-errormessage');
           let m = ref ? doc.getElementById(ref) : null;
@@ -85,7 +107,7 @@ const fields: Feature = {
           }
           const hid = !made && m.hasAttribute('hidden');
           m.removeAttribute('hidden');
-          m.textContent = text;
+          m.textContent = msgs.join('; ');
           for (const x of c) x.setAttribute('aria-invalid', 'true');
           const edit = () => clearOne(form, name);
           for (const x of c) { x.addEventListener('input', edit); x.addEventListener('change', edit); }
@@ -94,7 +116,18 @@ const fields: Feature = {
         }
         // after the request's end has enabled the form's controls again
         if (first) queueMicrotask(() => first!.focus());
-        return every;
+        if (!rest.length) return true;
+        const el = slotOf(form);
+        if (!el) return false;
+        clearSlot(form);
+        const doc = form.ownerDocument, list = el.localName == 'ul' || el.localName == 'ol';
+        const added = list
+          ? rest.map((t) => { const li = doc.createElement('li'); li.textContent = t; return li; })
+          : [doc.createTextNode(rest.join('; '))];
+        el.append(...added);
+        slots.set(form, { el, added, hid: el.hasAttribute('hidden') });
+        el.removeAttribute('hidden');
+        return true;
       },
     };
   },

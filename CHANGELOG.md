@@ -7,15 +7,19 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
-- Server validation errors on the fields: a form with a mutating method and no `data-sn-catch` whose request
-  fails with a 4xx and `{ errors: { email: "…" } }` (or `email: ["…", "…"]`) sets `aria-invalid="true"` on
-  the control with that `name` and shows the message next to it: in the element its `aria-errormessage`
-  names, else in a `<small data-sn-error data-tone="danger">` inserted after it. The first such field gets
-  focus; editing a field clears its error, sending again clears all. When every key named a field, the
-  error counts as handled (no `sn-error`, no `onError`). Actions of buttons and controls inside a form (a
-  `type="button"` Publish) report on that form. Other error formats: `configure({ fieldErrors: (error, form) =>
-  ({ name: message }) | null })`, falling back to the default `fieldErrors` from `@tiaforge-ui/sinter/fields`. A feature module (`fields`, 1 KB gzip), loaded only
-  by pages with such a form. Recipe: `docs/recipes/field-errors.html`. The create template's task forms use it.
+- Server errors on a form: a mutation without `data-sn-catch` on a form, or on a button or control inside one
+  (a `type="button"` Publish), that fails with a 4xx and `{ errors: { email: "…" } }` (or `email: ["…", "…"]`)
+  puts the server's messages in place. A name of a control: `aria-invalid="true"` on it and the message in the
+  element its `aria-errormessage` names, else in a `<small data-sn-error data-tone="danger">` inserted after
+  it; the first such field gets focus. `data-sn-errors` (new) on an element inside the form, or naming its
+  id, shows the rest: unknown names, `""`, or the error itself when it has no field errors (a 5xx: its
+  `detail`); a `<ul>`/`<ol>` gets an `<li>` each. Editing a field clears its error, sending again clears
+  all. When every message found its place the error counts as handled (no `sn-error`, no `onError`). Other
+  formats: `configure({ fieldErrors: (error, form) => ({ name: messages }) | null })`, reading the server's
+  messages from `error.body` (or mapping error codes to `m.key()`), with the default exported as
+  `fieldErrors` from `@tiaforge-ui/sinter/fields`. A feature module (`fields`, about 1.2 KB gzip), loaded
+  only by pages with such an action. Recipe: `docs/recipes/field-errors.html`. The create template's task
+  forms use it.
 
 ### Fixed
 
