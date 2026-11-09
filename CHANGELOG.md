@@ -32,6 +32,13 @@ Attribute names, function names and diagnostic codes are public API. Before
     page, the article, index, profile and editor about −380 B, login, register and settings about
     +110 B (their early files used little of that code). Lighthouse (mobile, fixed API): no change in
     FCP or LCP. The early file's size report and budget include the shared chunk.
+  - The early file's bindings are compiled (`src/compiler/early-render.ts`): instead of the early IR and
+    the runtime that interpreted it, the early module holds the page's renderer as straight-line calls
+    of small writers and helpers that `@tiaforge-ui/sinter/early` exports, so each early file bundles
+    only the writers its bindings use. RealWorld's early files 1.3–2.1 KB gzip (were 2.0–2.7 KB), each
+    page about 600 B smaller (login 22,364 → 21,748 B, the article 26,578 → 25,966 B). The early
+    page object is `{ ir: { res, path }, fns, scopes, render }`; `early(doc, page)` (tests) takes it,
+    and `earlyPage(parts)` from the compiler writes its source. `compactEarly` is gone.
   - The page module imports feature modules as `sn$<name>`, so a helper named like a feature (`keys`,
     `form`, …) no longer collides with its import.
 

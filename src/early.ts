@@ -11,7 +11,7 @@ import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
 import { expand, readUrl, type withParams } from './runtime/url.js';
-import type { Binding, EarlyIR, NodeDef } from './ir.js';
+import type { EarlyIR } from './ir.js';
 
 /** What the early file needs from the outside world: `configure({ env })` from the app's early module, else the browser. */
 type EarlyEnv = Pick<Env, 'now' | 'href' | 'storage' | 'fetch'>;
@@ -30,8 +30,12 @@ export interface EarlyBranch { br: number; nodes: Node[]; end: Comment }
 
 type Fn = (...a: any[]) => any;
 
-/** The page's early part, built when the early file starts. */
-export type EarlyPage = () => { ir: EarlyIR; fns: Fn[] };
+/**
+ * The page's early part, built when the early file starts: the early requests (`ir.res`), the
+ * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
+ * scope, then `render` with them.
+ */
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[]): void };
 
 /**
  * The early file's entry: renders the page's early part once the dictionary (if any) is there.
@@ -79,7 +83,7 @@ const fail = (e: unknown) => { setTimeout(() => { throw e; }); };
  */
 export interface EarlyRequests {
   read(key: PropertyKey, env: EarlyEnv, path: string[] | undefined): unknown;
-  send(ir: EarlyIR, scopes: any[], base: any, fns: Fn[], env: EarlyEnv): void;
+  send(ir: Pick<EarlyIR, 'res'>, scopes: any[], base: any, fns: Fn[], env: EarlyEnv): void;
 }
 
 /** `params`: adds a paginated resource's first-page parameters (`withParams`, imported only by a page that has one) */
@@ -140,12 +144,12 @@ function pending(env: EarlyEnv): Prefetched {
 const own = (s: Prefetched) => (setPrefetched(s), s);
 
 /** Renders a page's early part (tests; the early file goes through `start`). */
-export function early(doc: Document, o: { ir: EarlyIR; fns: Fn[] }): void {
-  prepare(o, requests()).render(doc);
+export function early(doc: Document, page: ReturnType<EarlyPage>): void {
+  prepare(page, requests()).render(doc);
 }
 
-function prepare(o: { ir: EarlyIR; fns: Fn[] }, req: EarlyRequests | null) {
-  const { ir, fns } = o, env = envOf(), schemes = schemesOf(config.urlSchemes);
+function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
+  const { ir, fns } = o, env = envOf();
   // what is not available before data throws, and the binding (or request) is left to the page module
   const base = new Proxy(Object.create(null), {
     get(_, k) {
@@ -155,110 +159,99 @@ function prepare(o: { ir: EarlyIR; fns: Fn[] }, req: EarlyRequests | null) {
       throw Error('sinter: not available early');
     },
   });
-  const read = (key: string): unknown => {
-    try {
-      const v = env.storage()?.getItem('sn:' + key);
-      return v == null ? undefined : JSON.parse(v);
-    } catch { return undefined; }
-  };
-  /** each node's scope: its state (persisted values applied, as the persist feature does at mount) */
-  const scopesOf = (defs: NodeDef[], s0: any): any[] => {
-    const scopes: any[] = [];
-    defs.forEach((nd, i) => {
-      let s = (nd.p ?? -1) >= 0 ? scopes[nd.p!] ?? s0 : s0;
-      if (nd.state != null) {
-        let obj: any = {};
-        try { obj = fns[nd.state]!(s); } catch { /* a field that throws: none known */ }
-        const v = nd.persist ? read(nd.persist) : undefined;
-        if (v && typeof v == 'object') for (const k of Object.keys(obj)) if (Object.hasOwn(v, k)) obj[k] = (v as any)[k];
-        s = Object.assign(Object.create(s), { ['$s' + nd.sid]: obj });
-      }
-      scopes[i] = s;
-      for (const b of nd.b) if (b.k == 'model' && b.p != null) {
-        const v = read(b.p);
-        if (v !== undefined) try { fns[b.a!]!(s, v); } catch { /* ignored */ }
-      }
-    });
-    return scopes;
-  };
-  const roots = scopesOf(ir.roots, base);
+  const roots = o.scopes(base);
   return {
     fetch() { req?.send(ir, roots, base, fns, env); },
-    render(doc: Document) {
-      const byId = new Map<number, Element>();
-      for (const el of doc.querySelectorAll('[data-sn]')) byId.set(+el.getAttribute('data-sn')!, el);
-      bind(ir.roots, ir.roots.map((n) => byId.get(n.id!) ?? null), base, roots);
-    },
+    render(doc: Document) { o.render(doc, roots); },
   };
-
-  function bind(defs: NodeDef[], els: Array<Element | null>, s0: any, scopes = scopesOf(defs, s0)) {
-    const todo: Array<[Binding, Element, any]> = [];
-    defs.forEach((nd, i) => {
-      const el = els[i];
-      if (el) for (const b of nd.b) todo.push([b, el, scopes[i]]);
-    });
-    // persisted values are in place before anything is written, as at mount
-    for (const [b, el, s] of todo) {
-      if (b.k == 'else') continue;
-      let v: any;
-      try { v = fns[b.f!]!(s); } catch { continue; }
-      if (b.k == 'if') branch(el as HTMLTemplateElement, b, v, s, defs, els);
-      else write(el as never, b, v);
-    }
-  }
-
-  function branch(tpl: HTMLTemplateElement, b: Binding, v: unknown, s: any, defs: NodeDef[], els: Array<Element | null>) {
-    const other = b.y != null ? els[b.y] as HTMLTemplateElement | null : null;
-    const br = v ? 1 : other ? 2 : 0;
-    if (!br) return;
-    const [t, x] = br == 1 ? [tpl, b.x!] : [other!, defs[b.y!]!.b.find((e) => e.k == 'else')!.x!];
-    const def = ir.templates[x];
-    const content = t.content, one = content.firstChild == content.lastChild && content.firstChild?.nodeType == 1 && (content.firstChild as Element).localName != 'template';
-    const frag = content.cloneNode(true) as DocumentFragment, nodes = [...frag.childNodes];
-    const end = new Comment();
-    tpl.after(end);
-    end.before(...nodes);
-    (tpl as any)[EARLY] = { br, nodes, end } satisfies EarlyBranch;
-    if (!def) return;
-    // the runtime's path walk: path[0] is a child of the content, the rest descend
-    const found = def.nodes.map((nd) => {
-      const path = nd.path!;
-      let n: Node | null = one ? (path[0] == 0 ? nodes[0]! : null) : nodes[path[0]!] ?? null;
-      for (let k = 1; k < path.length && n; k++) {
-        n = n.firstChild;
-        for (let c = path[k]!; c-- && n;) n = n.nextSibling;
-      }
-      return n && (n as Element).localName == nd.tag ? n as Element : null;
-    });
-    bind(def.nodes, found, Object.create(s));
-  }
-
-  /** As the runtime's first write. */
-  function write(el: HTMLElement & HTMLInputElement & HTMLSelectElement, b: Binding, v: any) {
-    const n = b.n!;
-    switch (b.k) {
-      case 'text': el.textContent = '' + (v ?? ''); break;
-      case 'show': el.hidden = !v; break;
-      case 'class':
-        if (n) { if (v || el.hasAttribute('class')) el.classList.toggle(n, !!v); }
-        else if (v?.[0]) el.classList.toggle(v[0], !!v[1]);
-        break;
-      case 'attr':
-        if (/^(checked|selected|indeterminate|value)$/.test(n) && n in el) (el as any)[n] = n == 'value' ? (v == null || v === false || v === true ? '' : v) : v != null && v !== false;
-        if (v == null || v === false) el.removeAttribute(n);
-        else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), el.baseURI, schemes)) el.setAttribute(n, v);
-        break;
-      case 'style':
-        if (v == null || v === false) el.style.removeProperty(n);
-        else if (!STYLE_BAD.test(v)) el.style.setProperty(n, v);
-        break;
-      case 'model': {
-        const has = (x: string) => Array.isArray(v) && v.map(String).includes(x);
-        if (n == 'checkbox') el.checked = Array.isArray(v) ? has(el.value) : !!v;
-        else if (n == 'radio') el.checked = v != null && '' + v == el.value;
-        else if (n == 'multi') for (const opt of el.options) opt.selected = has(opt.value);
-        else if (el.value != (v ?? '')) el.value = v ?? '';
-      }
-    }
-  }
 }
+
+// ---- what the compiled renderer calls (compiler/early-render.ts); a page's early file bundles only those it uses
+
+/** a persisted value (`sn:<key>`), parsed; undefined when there is none or it cannot be read */
+const read = (key: string): unknown => {
+  try {
+    const v = envOf().storage()?.getItem('sn:' + key);
+    return v == null ? undefined : JSON.parse(v);
+  } catch { return undefined; }
+};
+
+/** a state scope over `s`: the state's fields, persisted values applied (as the persist feature does at mount) */
+export function st(s: any, init: Fn, sid: number, persist?: string): any {
+  let obj: any = {};
+  try { obj = init(s); } catch { /* a field that throws: none known */ }
+  const v = persist ? read(persist) : undefined;
+  if (v && typeof v == 'object') for (const k of Object.keys(obj)) if (Object.hasOwn(v, k)) obj[k] = (v as any)[k];
+  return Object.assign(Object.create(s), { ['$s' + sid]: obj });
+}
+
+/** a persisted model's stored value, set through its setter before anything is written */
+export function pm(s: any, key: string, set: Fn): void {
+  const v = read(key);
+  if (v !== undefined) try { set(s, v); } catch { /* ignored */ }
+}
+
+/** the root elements by `data-sn` id, in the order given */
+export function byId(doc: Document, ids: Array<number | undefined>): Array<Element | null> {
+  const m = new Map<number, Element>();
+  for (const el of doc.querySelectorAll('[data-sn]')) m.set(+el.getAttribute('data-sn')!, el);
+  return ids.map((i) => m.get(i!) ?? null);
+}
+
+/** a branch's element: the runtime's path walk (path[0] a node of the clone, the rest descend), checked against its tag */
+export function at(nodes: Node[], path: number[], tag: string): Element | null {
+  let n: Node | null = nodes[path[0]!] ?? null;
+  for (let k = 1; k < path.length && n; k++) {
+    n = n.firstChild;
+    for (let c = path[k]!; c-- && n;) n = n.nextSibling;
+  }
+  return n && (n as Element).localName == tag ? n as Element : null;
+}
+
+/** one binding's first write: its value in `s` (one that throws is the page module's), written by `wr` */
+export function w(el: Element | null, f: Fn, s: any, wr: (el: any, v: any, n: string) => void, n = ''): void {
+  if (!el) return;
+  let v: any;
+  try { v = f(s); } catch { return; }
+  wr(el, v, n);
+}
+
+/**
+ * A `data-sn-if`: the branch to show (1 its own, 2 the `data-sn-else` template `other`), cloned after
+ * the template and left on it for the runtime to adopt; `a`/`b` render the branch's bindings over its nodes.
+ */
+export function iff(tpl: HTMLTemplateElement, v: unknown, other: HTMLTemplateElement | null, a: Branch | 0, b: Branch | 0, s: any): void {
+  const br = v ? 1 : other ? 2 : 0;
+  if (!br) return;
+  const frag = (br == 1 ? tpl : other!).content.cloneNode(true) as DocumentFragment, nodes = [...frag.childNodes];
+  const end = new Comment();
+  tpl.after(end);
+  end.before(...nodes);
+  (tpl as any)[EARLY] = { br, nodes, end } satisfies EarlyBranch;
+  const r = br == 1 ? a : b;
+  if (r) r(nodes, Object.create(s));
+}
+type Branch = (nodes: Node[], s: any) => void;
+
+// the writers, as the runtime's first write
+export const text = (el: HTMLElement, v: any) => { el.textContent = '' + (v ?? ''); };
+export const show = (el: HTMLElement, v: any) => { el.hidden = !v; };
+export const cls = (el: HTMLElement, v: any, n: string) => { if (v || el.hasAttribute('class')) el.classList.toggle(n, !!v); };
+/** a class binding without a name: `[name, on]` */
+export const pair = (el: HTMLElement, v: any) => { if (v?.[0]) el.classList.toggle(v[0], !!v[1]); };
+export const attr = (el: HTMLElement, v: any, n: string) => {
+  if (/^(checked|selected|indeterminate|value)$/.test(n) && n in el) (el as any)[n] = n == 'value' ? (v == null || v === false || v === true ? '' : v) : v != null && v !== false;
+  if (v == null || v === false) el.removeAttribute(n);
+  else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), el.baseURI, schemesOf(config.urlSchemes))) el.setAttribute(n, v);
+};
+export const style = (el: HTMLElement, v: any, n: string) => {
+  if (v == null || v === false) el.style.removeProperty(n);
+  else if (!STYLE_BAD.test(v)) el.style.setProperty(n, v);
+};
+export const model = (el: HTMLInputElement & HTMLSelectElement, v: any, n: string) => {
+  const has = (x: string) => Array.isArray(v) && v.map(String).includes(x);
+  if (n == 'checkbox') el.checked = Array.isArray(v) ? has(el.value) : !!v;
+  else if (n == 'radio') el.checked = v != null && '' + v == el.value;
+  else if (n == 'multi') for (const opt of el.options) opt.selected = has(opt.value);
+  else if (el.value != (v ?? '')) el.value = v ?? '';
+};

@@ -2,7 +2,7 @@
 // data; the page module's request layer takes each response once, at the end of its middleware
 // chain, when the request is the one the early file sent. Everything else fetches as before.
 import { afterEach, expect, test } from 'vitest';
-import { requests, start } from '../../src/early.js';
+import { requests, st, start } from '../../src/early.js';
 import { configure, header, onUnauthorized } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
 import { createRequestLayer } from '../../src/runtime/request.js';
@@ -23,8 +23,9 @@ afterEach(() => {
 
 /** The early file of a page whose state is `{ week }` and whose resources are given as URL templates over it. */
 function earlyFile(res: Array<[string, Array<string | number>, number | null]>, fns: Array<(s: any) => unknown>) {
-  const ir: EarlyIR = { roots: [{ tag: 'body', p: -1, b: [], id: 0, sid: 0, state: 0 }], templates: [], res: res.map(([name, src, when]) => ({ name, src, when, scope: 0 })) };
-  start(() => ({ ir, fns: [() => ({ week: '2026-11-02', sel: null }), ...fns] }), null, requests());
+  const ir: Pick<EarlyIR, 'res'> = { res: res.map(([name, src, when]) => ({ name, src, when, scope: 0 })) };
+  const f = [() => ({ week: '2026-11-02', sel: null }), ...fns];
+  start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, requests());
 }
 
 test('a resource the early file requested is not requested again: the runtime takes its response', async () => {

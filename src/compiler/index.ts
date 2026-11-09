@@ -1,8 +1,9 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
 import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts } from './compile.js';
-import { compactEarly, compactIR } from '../ir.js';
+import { compactIR } from '../ir.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
+import { earlyRender } from './early-render.js';
 
 export type { SourceMap };
 export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, FnSource, FnSources, HelperManifest, HelperOrigin, PrefetchParts };
@@ -58,13 +59,24 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
   return earlyLines(early, options, split)?.text() ?? null;
 }
 
+/**
+ * The early page object's source, over the early table `f`: the early requests (`ir`), the table,
+ * and the compiled renderer (early-render.ts); `uses`: the early module's exports it calls.
+ */
+export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
+  const r = earlyRender(early.ir);
+  const ir = { ...(early.ir.res ? { res: early.ir.res } : {}), ...(early.ir.path ? { path: early.ir.path } : {}) };
+  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render} }`, uses: r.uses };
+}
+
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early'>, split: boolean): MappedLines | null {
   const app = options.early?.module ?? null;
   if (!early && !app) return null;
   const lines = new MappedLines();
   if (app) lines.push(`import ${JSON.stringify(app)};`);
   const req = !!early?.ir.res?.length, pages = !!early?.ir.res?.some((r) => r.q);
-  lines.push(`import { ${split ? 'prime' : 'start'}${early ? ', $k' : ''}${req ? ', requests' : ''}${pages ? ', withParams' : ''} } from '${PACKAGE}/early';`);
+  const page = early ? earlyPage(early) : null;
+  lines.push(`import { ${[split ? 'prime' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests'] : []), ...(pages ? ['withParams'] : [])].join(', ')} } from '${PACKAGE}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
   if (early) {
@@ -91,9 +103,9 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   if (messages) lines.push(messages);
   lines.push('');
   if (early) {
-    lines.push('const page = () => {', `  const ir = ${JSON.stringify(compactEarly(early.ir))};`, '  const fns = [');
+    lines.push('const page = () => {', '  const f = [');
     early.fns.forEach((f, i) => lines.fn('    ', f, ',', early.sources?.fns[i]));
-    lines.push('  ];', '  return { ir, fns };', '};');
+    lines.push('  ];', `  return ${page!.code};`, '};');
   }
   const args = `${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? `, requests(${pages ? 'withParams' : ''})` : ''}`;
   // split: the requests start when the file runs (`async`, before the stylesheets); the stub calls `render` after the parse

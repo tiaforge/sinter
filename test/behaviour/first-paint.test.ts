@@ -121,7 +121,7 @@ test('the async page module mounts after the parse and after the early file has 
   const { rendered } = await import('../../src/runtime/env.js');
   delete (globalThis as any)[Symbol.for('sinter.early.page')];
   const order: string[] = [];
-  const page = () => { order.push('early renders'); return { ir: { roots: [], templates: [] }, fns: [] }; };
+  const page = () => { order.push('early renders'); return { ir: {}, fns: [], scopes: () => [], render: () => {} }; };
   const { doc, interactive, contentLoaded } = loadingDoc();
   // the page module runs first, while the body is parsed
   void rendered(doc).then(() => order.push('page module mounts'));

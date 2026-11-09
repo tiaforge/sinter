@@ -2,9 +2,11 @@
 // into the test DOM, and drive requests, streams and time deterministically.
 // No test-runner imports: works with Vitest or anything else, on jsdom or happy-dom.
 import { compileParts } from '../compiler/compile.js';
+import { earlyPage } from '../compiler/index.js';
 import { formatDiagnostic } from '../compiler/diagnostics.js';
-import { compactEarly, compactIR } from '../ir.js';
+import { compactIR } from '../ir.js';
 import type { CompiledParts, HelperManifest } from '../compiler/compile.js';
+import * as earlyExports from '../early.js';
 import { early as runEarly } from '../early.js';
 import { t as message, use as useMessages } from '../messages.js';
 import { mount, type App, type Feature, type Transport } from '../runtime/app.js';
@@ -301,9 +303,12 @@ function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () 
   for (const [ns, members] of Object.entries(parts.early.namespaces)) {
     for (const m of members) { names.push(`${ns}$${m}`); values.push((helpers[ns] as Record<string, unknown>)[m]); }
   }
+  // the compiled renderer, as the early file has it, with the early module's exports it calls
+  const page = earlyPage(parts.early);
+  for (const u of page.uses) { names.push(u); values.push((earlyExports as Record<string, unknown>)[u]); }
   // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
-  const fns = new Function(...names, `"use strict"; return [\n${parts.early.fns.join(',\n')}\n];`)(...values);
-  runEarly(document, { ir: compactEarly(parts.early.ir), fns });
+  const made = new Function(...names, `"use strict"; const f = [\n${parts.early.fns.join(',\n')}\n]; return ${page.code};`)(...values);
+  runEarly(document, made);
 }
 
 function compilePage(html: string, options: RenderOptions): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown> } {

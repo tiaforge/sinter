@@ -3,7 +3,9 @@
 // first load takes that response. `$meta` ends up as after a normal first load, and paging goes on
 // from there. A request that is not the one the early file sent is sent by the runtime itself.
 import { afterEach, expect, test } from 'vitest';
-import { compile, type CompileOptions } from '../../src/compiler/index.js';
+import { compile, earlyPage, type CompileOptions } from '../../src/compiler/index.js';
+import { compileParts } from '../../src/compiler/compile.js';
+import * as earlyExports from '../../src/early.js';
 import { requests, start, withParams } from '../../src/early.js';
 import type { EarlyIR } from '../../src/ir.js';
 import { configure, type Middleware } from '../../src/runtime/config.js';
@@ -45,15 +47,17 @@ const KEYSET = `paginate="keyset" page-size="2" size-param="limit" offset-param=
 async function load(html: string, o: { storage?: Storage; session?: Storage; ir?: (ir: EarlyIR) => void; hold?: Promise<void> } = {}) {
   const opts: CompileOptions = { file: '/test/page.html', root: '/test', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null } };
   const out = compile(html, opts);
-  const ir = JSON.parse(/const ir = (.*);/.exec(out.early!)![1]!) as EarlyIR;
-  o.ir?.(ir);
-  // eslint-disable-next-line no-new-func -- the early file's function table
-  const fns = new Function('$k', `"use strict"; return [${/const fns = \[\n([\s\S]*?)\n  \];/.exec(out.early!)![1]}];`)((x: unknown) => x);
+  // the early file's page object, as the compiler writes it
+  const parts = compileParts(html, opts).early!;
+  o.ir?.(parts.ir);
+  const made = earlyPage(parts);
+  // eslint-disable-next-line no-new-func -- the early file's function table and renderer
+  const page = new Function('$k', ...made.uses, `"use strict"; const f = [${parts.fns.join(',\n')}]; return ${made.code};`)((x: unknown) => x, ...made.uses.map((u) => (earlyExports as Record<string, unknown>)[u]));
   const early: string[] = [];
   const storage = o.storage ?? memoryStorage();
   configure({ env: { ...defaultEnv, href: () => 'http://localhost/', storage: () => storage, fetch: async (r: Request) => { const u = new URL(r.url); early.push(u.pathname + u.search); await o.hold; return Response.json(server(r.url)); } } });
   expect(out.early).toContain(', requests(withParams)');
-  start(() => ({ ir, fns }), null, requests(withParams));
+  start(() => page, null, requests(withParams));
   const mock = mockRequests({ 'GET /api/mail': (c: RecordedCall) => server(c.url) });
   // the page module's requests: the early response if the request layer takes it, else the mock
   const net = ((req: Request, next: Parameters<Middleware>[1]) => next(req).catch((e: Error) => (/unexpected network request/.test(e.message) ? mock(req, next) : Promise.reject(e)))) as unknown as MockRequests;
