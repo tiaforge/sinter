@@ -154,7 +154,7 @@ export interface App {
     /** write-through: a mutation's 2xx response, applied to the resources it is about (before `then`) */
     apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
     /** server validation errors on a form's fields: `show` returns whether every error found its field */
-    fields?: { clear(form: HTMLFormElement): void; show(form: HTMLFormElement, error: SinterError): boolean };
+    fields?: { clear(form: HTMLFormElement): void; show(form: HTMLFormElement, error: SinterError, request: { url: string; method: string }): boolean };
   };
   readonly beforeFlush: Array<(dirty: string[][]) => void>;
   readonly afterFlush: Array<(dirty: string[][]) => void>;
@@ -1241,7 +1241,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       drop();
       if (isAbort(err) || (c && st.c != c)) return;
       const error = a.call ? callError(err) : toError(err);
-      if (form && app.ext.fields!.show(form, error)) return;
+      if (form && app.ext.fields!.show(form, error, { url, method: a.method })) return;
       a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null);
     } finally {
       if (c && st.c == c) st.c = null;

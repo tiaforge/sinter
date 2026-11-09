@@ -16,7 +16,7 @@ Attribute names, function names and diagnostic codes are public API. Before
   `detail`); a `<ul>`/`<ol>` gets an `<li>` each. Editing a field clears its error, sending again clears
   all. When every message found its place the error counts as handled (no `sn-error`, no `onError`).
   `data-sn-catch` opts out: the app handles the error, sinter shows nothing. Other
-  formats: `configure({ fieldErrors: (error, form) => ({ name: messages }) | null })`, reading the server's
+  formats: `configure({ fieldErrors: (error, { url, method }) => ({ name: messages }) | null })`, reading the server's
   messages from `error.body` (or mapping error codes to `m.key()`), with the default exported as
   `fieldErrors` from `@tiaforge-ui/sinter`. A feature module (`fields`, about 1.2 KB gzip), loaded
   only by pages with such an action. Recipe: `docs/recipes/field-errors.html`. The create template's task

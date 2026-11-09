@@ -106,10 +106,12 @@ test('a button\'s action inside a form shows the errors on that form\'s fields, 
 });
 
 test('configure({ fieldErrors }) reads another error format; null leaves the error to the unhandled path', async () => {
+  const seen: string[] = [];
   configure({
     onError: (e) => reported.push(e.message),
     // RFC 9457's `invalid-params`, as some APIs send them
-    fieldErrors: (e) => {
+    fieldErrors: (e, request) => {
+      seen.push(`${request.method} ${request.url}`);
       const p = (e.body as any)?.['invalid-params'];
       return Array.isArray(p) ? Object.fromEntries(p.map((x: any) => [x.name, x.reason])) : null;
     },
@@ -121,6 +123,7 @@ test('configure({ fieldErrors }) reads another error format; null leaves the err
     root.querySelector('form')!.requestSubmit();
     await settle();
     expect(root.querySelector('[name=email]')!.nextElementSibling!.textContent).toBe('must be an email address');
+    expect(seen).toEqual(['POST /api/users']);
     expect(reported).toEqual([]);
 
     res = { status: 422, body: { errors: { email: 'is invalid' } } };    // not the configured format

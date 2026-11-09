@@ -73,9 +73,9 @@ const fields: Feature = {
         for (const name of [...(shown.get(form)?.keys() ?? [])]) clearOne(form, name);
         clearSlot(form);
       },
-      show(form, error) {
+      show(form, error, request) {
         if (!form.isConnected) return false;
-        const errs = entries((config.fieldErrors ?? fieldErrors)(error, form));
+        const errs = entries((config.fieldErrors ?? fieldErrors)(error, request));
         const all = shown.get(form) ?? new Map<string, Shown>();
         shown.set(form, all);
         // what no control takes is about the form; nothing read as field errors: the error itself
