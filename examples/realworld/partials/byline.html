@@ -1,5 +1,5 @@
 <!-- Avatar, author and date of an article `a` in a list; goes inside the page's .article-meta, after its favorite button. -->
-<a data-sn-attr="{href: '/profile/' + encodeURIComponent(a.author.username)}"><img alt="" data-sn-attr="{src: avatar(a.author.image)}"></a>
+<a data-sn-attr="{href: '/profile/' + encodeURIComponent(a.author.username)}"><img data-sn-attr="{src: avatar(a.author.image), alt: a.author.username}"></a>
 <div class="info">
   <a class="author" data-sn-attr="{href: '/profile/' + encodeURIComponent(a.author.username)}" data-sn-text="a.author.username"></a>
   <span class="date" data-sn-text="date(a.createdAt, 'long')"></span>

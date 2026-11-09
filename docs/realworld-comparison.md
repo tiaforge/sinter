@@ -1,7 +1,8 @@
 # RealWorld: sinter compared with other implementations
 
 Measured 2026-11-04. Scripts: [`bench/realworld/loc.mjs`](../bench/realworld/loc.mjs) (source lines),
-[`bench/realworld/weight.mjs`](../bench/realworld/weight.mjs) (what the browser downloads).
+[`bench/realworld/weight.mjs`](../bench/realworld/weight.mjs) (what the browser downloads),
+[`bench/realworld/lighthouse.mjs`](../bench/realworld/lighthouse.mjs) (Lighthouse, measured 2026-11-09).
 
 | implementation | repo (commit) | architecture |
 | --- | --- | --- |
@@ -47,6 +48,65 @@ Every sinter page loads 14.0–15.7 KB of JS when opened (its page module plus t
 core, config, islands; `npm run size`, 2026-11-06). It was 12.5–14.2 KB when the table above was
 measured, before the page-load cache and local actions. As a multi-page app, each navigation is a page load; the shared chunk
 comes from the browser cache.
+
+## Lighthouse
+
+Measured 2026-11-09 with Lighthouse 13.6 in Chrome for Testing 153: the home page, each run in a new
+Chrome with an empty cache, five runs per implementation and form factor; the run with the median
+performance score is shown, with the range of the five. Mobile is Lighthouse's default (simulated
+slow 4G, 4x CPU slowdown). The others on their live demos; sinter's production build served by
+[`bench/realworld/serve.mjs`](../bench/realworld/serve.mjs) (brotli, immutable assets, HTTP/1.1).
+
+| implementation | demo |
+| --- | --- |
+| Angular | https://demo.realworld.show/ (the official demo) |
+| SvelteKit | https://realworld.svelte.dev/ |
+| Vue 3 | https://vue3-realworld-example-app-mutoe.vercel.app/ |
+| Solid | https://solid-realworld.netlify.app/ (its API, `api.realworld.io`, answers 530: an empty feed) |
+
+React + Redux has no demo online.
+
+Mobile:
+
+| implementation | perf (range) | a11y | best pr. | SEO | FCP | LCP | TBT | CLS | JS (KB) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **sinter** | **94** (93–95) | 94 | 100 | **100** | **1.57 s** | 2.95 s | 0 ms | 0 | **24.0** |
+| SvelteKit | 95 (94–95) | 95 | 100 | 92 | 1.76 s | 2.78 s | 0 ms | 0 | 48.7 |
+| Vue 3 | 85 (71–86) | 93 | 100 | 91 | 1.98 s | 3.20 s | 79 ms | 0.150 | 50.7 |
+| Angular | 77 (71–83) | 67 | 100 | 75 | 2.57 s | 3.86 s | 193 ms | 0.102 | 118.1 |
+| Solid (empty feed) | 97 (96–98) | 77 | 96 | 82 | 1.92 s | 2.22 s | 0 ms | 0 | 11.5 |
+
+Desktop:
+
+| implementation | perf (range) | a11y | best pr. | SEO | FCP | LCP | TBT | CLS | JS (KB) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **sinter** | **99** (98–99) | 94 | 100 | **100** | **544 ms** | 950 ms | 0 ms | 0 | **24.0** |
+| SvelteKit | 98 (98–99) | 95 | 100 | 92 | 635 ms | 951 ms | 0 ms | 0 | 48.6 |
+| Vue 3 | 74 (74–76) | 93 | 100 | 91 | 846 ms | 1.23 s | 0 ms | 0.513 | 50.6 |
+| Angular | 77 (70–79) | 67 | 100 | 75 | 1.34 s | 1.88 s | 23 ms | 0.168 | 118.1 |
+| Solid (empty feed) | 98 (97–99) | 77 | 96 | 82 | 870 ms | 870 ms | 0 ms | 0 | 11.4 |
+
+JS is what was transferred (the hosts' own compression). sinter paints first and ships the least
+JS of the implementations that show articles; SvelteKit, which renders the feed on the server,
+has its largest paint 0.2 s sooner on mobile. Every implementation loses accessibility points
+for the Conduit theme's text colors (`#bbb`, `#999` and the green on white, `color-contrast`);
+sinter's 94 is only that.
+
+What the first measurement found in sinter's example, and what changed it (the library was not
+changed): mobile 92, desktop 80, accessibility 85, SEO 91 before.
+
+- Layout shift (desktop CLS 0.30, mobile 0 to 0.14 by run). The home banner and the Sign in / Sign
+  up links waited for the `user` resource, so they appeared after the first paint and pushed the
+  page down. The pages now keep `guest: signedOut()` in their state: with no token stored, the
+  signed-out chrome renders before the first paint (the early chunk); with one, nothing shows
+  until the server answers; the `user` resource's `then` keeps `guest` current. Then the feed
+  filling in under "Loading articles…" moved the footer: `main` now fills the viewport.
+- No `<main>` landmark, no meta description, avatar links without a name (the image's `alt` is
+  now the author's name).
+
+The sinter rows are from a run after these changes, the others from the run before (same setup).
+Demos change under their URLs. Lighthouse replays every page on the same simulated network, but
+each server's response time counts as measured that day.
 
 ## htmx and Datastar
 

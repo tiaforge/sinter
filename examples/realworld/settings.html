@@ -4,17 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Settings — Conduit</title>
+  <meta name="description" content="Your Conduit settings: picture, name, bio, email and password.">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Titillium+Web:700|Source+Serif+Pro:400,700|Merriweather+Sans:400,700|Source+Sans+Pro:400,300,600,700,300italic,400italic,600italic,700italic">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<div data-sn-state="{ nav: 'settings', error: null }">
+<div data-sn-state="{ nav: 'settings', error: null, guest: signedOut() }">
 <sn-include src="./partials/header.html"></sn-include>
 <template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 
-<div class="settings-page">
+<main class="settings-page">
   <div class="container page">
     <div class="row">
       <div class="col-md-6 offset-md-3 col-xs-12">
@@ -42,7 +43,7 @@
       </div>
     </div>
   </div>
-</div>
+</main>
 
 <sn-include src="./partials/footer.html"></sn-include>
 </div>
