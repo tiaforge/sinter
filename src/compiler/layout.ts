@@ -36,7 +36,6 @@ interface Rule { selectors: Array<{ ast: csstree.Selector; spec: [number, number
 
 /** the properties this reads (and their aliases), and what a declaration of any of them on a parent means */
 const SIZE = { width: ['width', 'inline-size'], height: ['height', 'block-size'], 'min-width': ['min-width', 'min-inline-size'], 'max-width': ['max-width', 'max-inline-size'], 'min-height': ['min-height', 'min-block-size'], 'max-height': ['max-height', 'max-block-size'] } as const;
-const BOX_EDGE = /^(padding|border(-(left|right|inline|inline-start|inline-end))?(-width)?|border-width)$/;
 const GRID_TRACKS = /^(grid|grid-template(-columns|-areas)?|grid-auto-columns)$/;
 const TABLE = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption']);
 const BLOCK = new Set(['html', 'body', 'div', 'p', 'section', 'article', 'header', 'footer', 'main', 'nav', 'aside', 'figure', 'figcaption', 'li', 'ul', 'ol', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'dl', 'dd', 'dt', 'fieldset', 'details', 'summary', 'dialog', 'address', 'hgroup', 'menu', 'search', 'pre', 'hr']);
@@ -497,15 +496,67 @@ export class Layout {
     const parent = this.parentOf(el);
     if (!parent) return null;
     const pd = this.declsOf(parent);
-    // padding or borders on the parent: not resolved here, unless every rule that could set them sets 0 (a reset's `padding: 0; border: 0 solid`)
-    for (const [prop, list] of pd) if (BOX_EDGE.test(prop) && list.some((d) => !zeroEdge(d.value))) return null;
     const display = this.cascaded(parent, ['display']);
     if (display.ambiguous) return null;
     const d = (display.value ?? (BLOCK.has(parent.tagName) ? 'block' : 'inline')).toLowerCase().trim();
     if (d === 'inline' || d === 'contents' || d === 'none') return null;
     if (/flex/.test(d) && parent.childNodes.filter(isEl).length > 1) return null;
     if (/grid/.test(d)) for (const prop of pd.keys()) if (GRID_TRACKS.test(prop)) return null;
-    return this.size(parent, axis);
+    const size = this.size(parent, axis);
+    if (size === null) return null;
+    // a percentage refers to the content box: with border-box sizing, the width less its padding and borders
+    const bs = this.cascaded(parent, ['box-sizing']);
+    if (bs.ambiguous) return null;
+    if (!/^\s*border-box\s*$/i.test(bs.value ?? '')) return size;
+    const edges = this.edges(parent, axis);
+    return edges === null || edges >= size ? null : size - edges;
+  }
+
+  /** padding and border widths of `el` on both sides of `axis`, in px; null when one cannot be resolved */
+  private edges(el: P5Element, axis: 'width' | 'height'): number | null {
+    const rem = this.rootFont();
+    if (rem === null) return null;
+    let total = 0;
+    for (const side of axis === 'width' ? ['left', 'right'] as const : ['top', 'bottom'] as const) {
+      const pad = this.edge(el, 'padding', side, rem);
+      const style = this.edge(el, 'border-style', side, rem);
+      const width = this.edge(el, 'border-width', side, rem);
+      if (pad === null || style === null || width === null) return null;
+      total += (pad as number) + (/^(none|hidden)$/.test(style as string) ? 0 : (width as number));
+    }
+    return total;
+  }
+
+  /**
+   * One side's padding, border width or border style, from the declarations that set it (longhand,
+   * logical, shorthands) in cascade order; a horizontal, left-to-right writing mode.
+   */
+  private edge(el: P5Element, kind: 'padding' | 'border-width' | 'border-style', side: 'left' | 'right' | 'top' | 'bottom', rem: number): number | string | null {
+    const logical = { left: 'inline-start', right: 'inline-end', top: 'block-start', bottom: 'block-end' }[side];
+    const pair = side === 'left' || side === 'right' ? 'inline' : 'block';
+    /** position of the side in a 1–4 value box shorthand (top right bottom left) and a 1–2 value logical pair */
+    const box = { top: 0, right: 1, bottom: 2, left: 3 }[side], two = side === 'left' || side === 'top' ? 0 : 1;
+    const props: Array<[string, (v: string[]) => string | undefined]> = kind === 'padding'
+      ? [[`padding-${side}`, (v) => v[0]], [`padding-${logical}`, (v) => v[0]], [`padding-${pair}`, (v) => v[two] ?? v[0]], ['padding', (v) => boxValue(v, box)]]
+      : [[`border-${side}-${kind.slice(7)}`, (v) => v[0]], [`border-${logical}-${kind.slice(7)}`, (v) => v[0]], [`border-${pair}-${kind.slice(7)}`, (v) => v[two] ?? v[0]], [kind, (v) => boxValue(v, box)],
+        ...[`border-${side}`, `border-${logical}`, `border-${pair}`, 'border'].map((p): [string, (v: string[]) => string | undefined] => [p, (v) => borderPart(v, kind)])];
+    const c = this.cascaded(el, props.map((x) => x[0]));
+    if (c.ambiguous) return null;
+    const initial = kind === 'border-style' ? 'none' : kind === 'border-width' ? 'medium' : '0';
+    let raw = initial;
+    if (c.value !== null) {
+      // which property won: the declaration whose value it is (the cascade picked it among these)
+      const m = this.declsOf(el);
+      const winner = props.map((x) => x[0]).flatMap((p) => (m.get(p) ?? []).map((d) => ({ d, p }))).filter(({ d }) => !d.conditional).sort((a, b) => cascadeCmp(b.d, a.d))[0]!;
+      const value = this.subst(winner.d.value, el);
+      if (value === undefined) return null;
+      raw = props.find((x) => x[0] === winner.p)![1](splitTop(value)) ?? initial;
+    }
+    if (kind === 'border-style') return raw.toLowerCase();
+    const kw = { thin: 1, medium: 3, thick: 5 }[raw.toLowerCase() as 'thin'];
+    if (kw !== undefined) return kw;
+    if (/%/.test(raw)) return null;
+    return evaluate(raw, { rem, percent: 0 });
   }
 
   // ---- selectors
@@ -656,10 +707,31 @@ function unescape(s: string): string {
   return s.includes('\\') ? s.replace(/\\([0-9a-fA-F]{1,6}\s?|[^\n])/g, (_, e: string) => (/^[0-9a-fA-F]/.test(e) && /^[0-9a-fA-F]{1,6}\s?$/.test(e) ? String.fromCodePoint(parseInt(e, 16)) : e)) : s;
 }
 
-/** a padding or border value that adds nothing: every length in it is 0 */
-function zeroEdge(v: string): boolean {
-  if (/var\(|calc\(|min\(|max\(|clamp\(|thin|medium|thick/i.test(v)) return false;
-  return (v.match(/-?\d*\.?\d+[a-z%]*/gi) ?? []).every((n) => parseFloat(n) === 0);
+/** a side of a 1–4 value box shorthand: `a` / `a b` / `a b c` / `a b c d` (top right bottom left) */
+function boxValue(v: string[], i: number): string | undefined {
+  if (!v.length || v.length > 4) return undefined;
+  const [t, r = t, b = t, l = r] = v;
+  return [t, r, b, l][i];
+}
+
+const BORDER_STYLES = /^(none|hidden|dotted|dashed|solid|double|groove|ridge|inset|outset)$/i;
+/** the width or style in a `border` shorthand (`1px solid red`); a part left out is the initial value */
+function borderPart(v: string[], kind: 'border-width' | 'border-style'): string | undefined {
+  if (kind === 'border-style') return v.find((x) => BORDER_STYLES.test(x)) ?? 'none';
+  return v.find((x) => /^(thin|medium|thick)$/i.test(x) || /^-?[\d.]|^(calc|min|max|clamp)\(/i.test(x)) ?? 'medium';
+}
+
+/** a value's top-level space-separated parts (`calc(1px + 2px) solid` is two) */
+function splitTop(v: string): string[] {
+  const out: string[] = [];
+  let depth = 0, cur = '';
+  for (const ch of v.trim()) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if (/\s/.test(ch) && depth === 0) { if (cur) out.push(cur); cur = ''; } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
 }
 
 function topComma(s: string): number {

@@ -133,15 +133,17 @@ stylesheet it owns, and its CSS for a page's markup. Responsive variants (`md:si
 (with and without `&`), `@layer` order and nesting, specificity, source order, `!important`
 (reversed across layers) and inline style. Values: custom properties (inherited, with fallbacks),
 `calc()`, `min()`, `max()`, `clamp()`, `px`, `rem` (from the root's font size), `%` of a parent
-whose width is fixed, `min-`/`max-` sizes and `aspect-ratio`. An image in a `<template>` has the
+whose width is fixed (its content box: with `box-sizing: border-box`, less its padding and
+borders, from longhands, logical properties and shorthands; a border without a style draws
+nothing), `min-`/`max-` sizes and `aspect-ratio`. An image in a `<template>` has the
 template's parent as its parent.
 
 **Giving up.** A wrong size makes the image blurry; no size only costs bytes. So the image stays
 fluid when its width depends on layout or might change:
 
 - `%` of a fluid parent, `vw`, `em`, keywords such as `auto` or `fit-content`;
-- the parent is inline or `display: contents`, a flex container with other children, a grid with
-  explicit tracks, or has padding or borders;
+- the parent is inline or `display: contents`, a flex container with other children, or a grid with
+  explicit tracks; its padding or border is in `%`, depends on a media query, or cannot be resolved;
 - a rule that could win sits in `@media`, `@supports` or `@container`, or depends on a state
   (`:hover`, `:has()`, `:checked`) or a selector it does not know;
 - a structural selector inside a `<template>` (rows repeat);

@@ -7,6 +7,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Image sizes: a percentage of a parent with padding or borders resolves to its content box (with
+  `box-sizing: border-box`, the width less padding and borders), from longhands, logical
+  properties and shorthands: an `<img>` at `width: 100%` in a 300 px card with `padding: 16px` is a
+  268 px box. Before, any padding or border on the parent left the image fluid.
 - Static images (docs/images.md): every `<img src>` of a local JPEG, PNG, WebP or AVIF in a page or
   partial becomes a `<picture>` with nothing written for it. Photos get AVIF with a JPEG fallback,
   PNG graphics lossless WebP with a PNG fallback (a PNG that is really a photo gets AVIF), sources
