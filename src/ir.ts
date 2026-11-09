@@ -181,17 +181,18 @@ export interface ActionDef {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'CALL';
   url: UrlTemplate;
   call?: CallDef;
-  body: number | null;
-  trigger: string;
-  debounce: number;
+  // absent fields take their default (the compiler writes only what differs): no body, trigger and
+  // so on; the event that triggers it is its `on` binding's
+  body?: number | null;
+  debounce?: number;
   concurrency: 'block' | 'queue' | 'latest';
-  optimistic: number | null;
-  then: number | null;
-  catch: number | null;
+  optimistic?: number | null;
+  then?: number | null;
+  catch?: number | null;
   /** paths `then` and `catch` may change */
-  w: string[];
+  w?: string[];
   /** element is a form (serialize, disable in block mode) */
-  form: boolean;
+  form?: boolean;
   /** `data-sn-confirm`: the question asked before the action runs (none when it is falsy) */
   confirm?: number;
   /** `data-sn-encoding="form"`: the body goes as application/x-www-form-urlencoded */

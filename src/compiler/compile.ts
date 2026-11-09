@@ -1360,9 +1360,18 @@ class Compiler {
     // server validation errors shown on the fields (fields.ts): forms that send a mutation and leave errors to sinter
     // (a form's own action, or a control's inside one, as the editor's Publish button in RealWorld)
     if ((isForm || (inForm && (tag === 'button' || FORM_CONTROLS.has(tag)))) && method !== 'call' && method !== 'get' && get('catch') === undefined) this.features.add('fields');
+    // only what differs from the defaults: an attribute the page does not write costs no bytes
+    // (the event is the `on` binding's; the runtime reads absent fields as null, 0, false, [])
+    const w = [...new Set([...then.w, ...catch_.w])].sort();
     const def: ActionDef = {
-      method: method.toUpperCase() as ActionDef['method'], url, body: body.f, trigger, debounce, concurrency,
-      optimistic: optimistic.f, then: then.f, catch: catch_.f, w: [...new Set([...then.w, ...catch_.w])].sort(), form: isForm,
+      method: method.toUpperCase() as ActionDef['method'], url, concurrency,
+      ...(body.f !== null ? { body: body.f } : {}),
+      ...(debounce ? { debounce } : {}),
+      ...(optimistic.f !== null ? { optimistic: optimistic.f } : {}),
+      ...(then.f !== null ? { then: then.f } : {}),
+      ...(catch_.f !== null ? { catch: catch_.f } : {}),
+      ...(w.length ? { w } : {}),
+      ...(isForm ? { form: true } : {}),
       ...(call ? { call: { args: call.args, run: call.run } } : {}),
       ...(confirm.f !== null ? { confirm: confirm.f } : {}),
       ...(encoding === 'form' ? { enc: 'form' as const } : {}),

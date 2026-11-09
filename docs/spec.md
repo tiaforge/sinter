@@ -114,7 +114,7 @@ The IR is the only contract between compiler and runtime. It is plain JSON plus 
 | `syncs` | stream URL, event → change-message mappings |
 | `roots` | per `data-sn` id: its bindings and the scope it opens |
 | `templates` | per template: node paths, bindings, key expression |
-| `actions` | method, URL template, body source, trigger, debounce, concurrency, optimistic, then, catch |
+| `actions` | method, URL template, concurrency, and only where the page sets them: body source, debounce, optimistic, then, catch, the paths they write, form (the trigger event is the action's `on` binding) |
 | `bindings` | kind (`text`, `attr`, `class`, `style`, `show`, `model`, `prop`, `for`, `if`, `else`, `on`), target, function index, static dependency paths; for a key filter, the `key` to match and modifier bits |
 
 Dependencies are extracted at compile time: every binding lists the state and resource paths it reads (`q`, `contacts`, `c`). The runtime matches them against dirty paths (see Reactivity), so it needs no proxies and no read tracking.

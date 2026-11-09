@@ -33,6 +33,13 @@ Attribute names, function names and diagnostic codes are public API. Before
   revalidation when the server sends `Cache-Control: no-cache`.
 - `@tiaforge-ui/sinter/testing`: `visibility('hidden' | 'visible')` on a rendered page.
 
+### Changed
+
+- The IR's actions carry only what the page sets: `body`, `debounce`, `optimistic`, `then`, `catch`, their
+  write paths and `form` are left out when absent, and `trigger` is gone (the `on` binding has the event).
+  An attribute the page does not write costs no bytes: RealWorld's pages with actions are 30–40 B gzip
+  smaller. IR with every field spelled out still runs (still `v: 1`).
+
 ### Fixed
 
 - A failed form action without `data-sn-catch` threw instead of dispatching `sn-error` under happy-dom
