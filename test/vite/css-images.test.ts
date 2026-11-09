@@ -59,7 +59,8 @@ test('build: image-set() in the finished stylesheet, the variants beside it', as
     try {
       const tab = await browser.newPage({ viewport: { width: 800, height: 600 }, deviceScaleFactor: dpr });
       await tab.goto(`${at}/check.html`);
-      await tab.waitForTimeout(300);
+      // until an AVIF variant has loaded (a fixed wait was too short on a busy CI runner); which one is checked below
+      await tab.waitForFunction(() => performance.getEntriesByType('resource').some((e) => e.name.endsWith('.avif')), undefined, { timeout: 10_000 }).catch(() => {});
       const loaded = await tab.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name.slice(e.name.lastIndexOf('/') + 1)));
       expect(loaded.some((n) => n.startsWith(want) && n.endsWith('.avif')), `${dpr}x: ${loaded.join(', ')}`).toBe(true);
     } finally {
