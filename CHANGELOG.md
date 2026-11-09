@@ -41,7 +41,7 @@ Attribute names, function names and diagnostic codes are public API. Before
   leave out null fields; nodes leave out `p: -1` (no enclosing state scope), in the early file's IR too;
   templates leave out a null `index`, `key` and `keyFields`; a page without streams has no `syncs`
   (`compactIR` and `compactEarly`, also what `render()` and `firstPaint()` run). An attribute the page does
-  not write costs no bytes: the minimal page is 39 B gzip smaller, RealWorld's pages 41–83 B. IR with every
+  not write costs no bytes: the minimal page is 39 B gzip smaller, RealWorld's pages 71–97 B. IR with every
   field spelled out still runs (still `v: 1`).
 
 ### Fixed
