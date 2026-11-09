@@ -37,7 +37,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   `::view-transition-group(.sn-transition)` styles them all. When a morph is pending, the first paint of
   the next page waits for its page module (a small classic script in the head of pages that use the
   attribute), so data-rendered elements exist when the browser captures the page.
-  RealWorld: an article's title morphs from the list, and back.
+  RealWorld: an article's title morphs from the list, and back. For the morph back to a list, its rows
+  must render from what the page has at mount: give the list `cache`.
+- `e2e/navigation`: next-page data, Speculation Rules and morphs in headless Chrome.
 
 ### Changed
 

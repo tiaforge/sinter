@@ -257,6 +257,10 @@ built, what deviates, and what is left.
   400 ms: first paint 35 ms without the element, 420 ms with it. RealWorld back to a reloaded list: morphs, 3 of 3.
   `view-transition-class: sn-transition` on the named pair. Per-link prefetch opt-out dropped: the browser's rules can
   only skip a link by a marker in the page; `<html data-sn-prefetch="off">` is build-time and stripped.
+- 2026-11-09: `e2e/navigation` (headless Chrome over `bench/swap/cdp.mjs`, which takes `CHROME_ARGS` now): hover → data and
+  HTML prefetched; first paint with the prefetched title; morph forward and back. Its first run found that the back morph
+  had passed by timing: the hold script waits for the mount, not for responses, so the list needs `cache` (it has it now,
+  and the step slows the API to 1.5 s). Building with `prefetch: false` fails steps 2 to 5.
 
 ## Decisions and deviations
 

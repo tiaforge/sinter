@@ -11,7 +11,9 @@ export async function launch() {
   const proc = spawn(env('CHROME', 'google-chrome'), [
     '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run',
     '--no-default-browser-check', '--disable-extensions', '--disable-background-timer-throttling',
-    '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', 'about:blank',
+    '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
+    // e.g. CHROME_ARGS=--no-sandbox in a container that runs as root
+    ...env('CHROME_ARGS', '').split(' ').filter(Boolean), 'about:blank',
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
   const wsUrl = await new Promise((ok, fail) => {
     let err = '';
