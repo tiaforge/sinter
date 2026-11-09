@@ -3,7 +3,7 @@
 // No test-runner imports: works with Vitest or anything else, on jsdom or happy-dom.
 import { compileParts } from '../compiler/compile.js';
 import { formatDiagnostic } from '../compiler/diagnostics.js';
-import { compactIR } from '../ir.js';
+import { compactEarly, compactIR } from '../ir.js';
 import type { CompiledParts, HelperManifest } from '../compiler/compile.js';
 import { early as runEarly } from '../early.js';
 import { t as message, use as useMessages } from '../messages.js';
@@ -301,7 +301,7 @@ function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () 
   }
   // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
   const fns = new Function(...names, `"use strict"; return [\n${parts.early.fns.join(',\n')}\n];`)(...values);
-  runEarly(document, { ir: parts.early.ir, fns });
+  runEarly(document, { ir: compactEarly(parts.early.ir), fns });
 }
 
 function compilePage(html: string, options: RenderOptions): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown> } {

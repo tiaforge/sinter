@@ -111,9 +111,9 @@ The IR is the only contract between compiler and runtime. It is plain JSON plus 
 | Part | Holds |
 | --- | --- |
 | `resources` | name, URL template, key fields, items/total paths, order, pagination config (in the page module only the fields that are set: an absent one is null, `deps` [] and `scope` -1; the compiler keeps the full objects) |
-| `syncs` | stream URL, event → change-message mappings (absent event fields are null) |
-| `roots` | per `data-sn` id: its bindings and the scope it opens |
-| `templates` | per template: node paths, bindings, key expression |
+| `syncs` | stream URL, event → change-message mappings (absent event fields are null; absent on a page without streams) |
+| `roots` | per `data-sn` id: its bindings and the scope it opens (in the page module `p` is absent for a node outside any state scope) |
+| `templates` | per template: node paths, bindings, key expression (absent `index`, `key`, `keyFields` are null) |
 | `actions` | method, URL template, concurrency, and only where the page sets them: body source, debounce, optimistic, then, catch, the paths they write, form (the trigger event is the action's `on` binding) |
 | `bindings` | kind (`text`, `attr`, `class`, `style`, `show`, `model`, `prop`, `for`, `if`, `else`, `on`), target, function index, static dependency paths; for a key filter, the `key` to match and modifier bits |
 

@@ -1943,7 +1943,7 @@ class Compiler {
       if (defs === this.roots) rootKeep = keep;
       const out: NodeDef[] = [];
       for (const [i, j] of keep) {
-        const nd = defs[i]!, o: NodeDef = { tag: nd.tag, p: nd.p >= 0 ? keep.get(nd.p) ?? -1 : -1, b: [] };
+        const nd = defs[i]!, o: NodeDef = { tag: nd.tag, p: (nd.p ?? -1) >= 0 ? keep.get(nd.p!) ?? -1 : -1, b: [] };
         if (nd.id !== undefined) o.id = nd.id; else o.path = nd.path!;
         if (nd.state !== undefined) {
           // the init function once the fields the early bindings read are known (below)

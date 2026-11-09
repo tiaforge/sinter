@@ -603,7 +603,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
   // back from the bfcache, or online again: the data may have changed meanwhile. Resources a stream
   // feeds are refetched by the stream module when it reconnects.
-  const fed = new Set(ir.syncs.flatMap((s) => s.events.map((e) => e.resource)));
+  const fed = new Set((ir.syncs ?? []).flatMap((s) => s.events.map((e) => e.resource)));
   const again = () => { for (const l of loaders) if (!fed.has(l.def.name)) void l.refetch(); };
   app.addCleanup(env.listen('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) again(); }));
   app.addCleanup(env.listen('online', again));
@@ -686,7 +686,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     let scopes: any[] | null = null;
     for (let i = 0; i < defs.length; i++) {
       const nd = defs[i]!, el = els[i] as Tagged | null;
-      let s = scopes?.[nd.p] ?? base;
+      let s = scopes?.[nd.p ?? -1] ?? base;
       if (nd.state != null && el) {
         const obj = fns[nd.state]!(s), sid = nd.sid!, key = nd.persist;
         s = child(s, { ['$s' + sid]: obj });
