@@ -53,6 +53,7 @@
     "./location": "./dist/location.js",
     "./call": "./dist/call.js",
     "./debounce": "./dist/debounce.js",
+    "./confirm": "./dist/confirm.js",
     "./transition": "./dist/transition.js",
     "./early": "./dist/early.js",
     "./messages": "./dist/messages.js",

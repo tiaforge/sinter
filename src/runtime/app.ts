@@ -162,6 +162,8 @@ export interface App {
     call?: { run(f: number, args: unknown, el: Element | null, signal?: AbortSignal): Promise<unknown>; error(e: unknown): SinterError };
     /** debounced handlers and actions (debounce.ts): runs `run` once, `ms` after the last call for `key` */
     debounce?: (key: object, ms: number, run: () => void) => void;
+    /** `data-sn-confirm` (confirm.ts): runs `go` once the user agrees to `question` (at once when it is falsy) */
+    confirm?: (question: unknown, go: () => void) => void;
     /** `$url` was written: the query string follows (location.ts) */
     location?: () => void;
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
@@ -1200,14 +1202,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     } catch (err) {
       return unhandled(toError(err), rb.el);
     }
-    // a question first: the action runs only when the user agrees
-    const question = a.confirm != null ? fns[a.confirm]!(s) : null;
-    if (question) {
-      const yes = config.confirm(String(question));
-      if (yes instanceof Promise) return void yes.then((y) => y && go());
-      if (!yes) return;
-    }
-    go();
+    // a question first (confirm.ts): the action runs only when the user agrees
+    a.confirm != null ? app.ext.confirm!(fns[a.confirm]!(s), go) : go();
     function go() {
     const drop = a.optimistic != null ? app.ext.optimistic!.begin(a.optimistic, s) : () => {};
     if (get) {

@@ -16,7 +16,7 @@ export interface Config {
   /** the transport for a `<sn-sync>` stream URL; `undefined` (or no function) means EventSource */
   transport: ((url: string) => Transport | undefined) | null;
   /** `data-sn-confirm`: asks the question; the action runs on true (window.confirm by default) */
-  confirm: (question: string) => boolean | Promise<boolean>;
+  confirm: ((question: string) => boolean | Promise<boolean>) | null;
   /**
    * server validation errors of a failed form action (`request`: what was sent, to tell APIs apart):
    * `{ <control name>: message | message[] }`; null marks no field; undefined leaves it to the default
@@ -31,7 +31,7 @@ export interface Config {
 
 export const config: Config = {
   request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], transport: null, retry: null,
-  confirm: (question) => globalThis.confirm(question), env: null,
+  confirm: null, env: null,
 };
 
 export function configure(options: Partial<Omit<Config, 'env'>> & { env?: Partial<Env> }): void {
