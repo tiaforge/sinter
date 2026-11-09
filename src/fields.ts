@@ -11,7 +11,7 @@
 // Editing a control clears its error; sending the form again clears everything. The error is handled
 // (no `sn-error`, no `onError`) when every message found its place.
 import type { App, Feature } from './runtime/app.js';
-import { config, type SinterError } from './runtime/config.js';
+import { config, fieldErrors } from './runtime/config.js';
 
 type Shown = { c: Element[]; m: Element; made: boolean; hid: boolean; d: string | null; off: () => void };
 const shown = new WeakMap<HTMLFormElement, Map<string, Shown>>();
@@ -21,15 +21,8 @@ let ids = 0;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v == 'object' && !Array.isArray(v);
 
-/**
- * The default reading of a field-error response: a 4xx whose JSON body has an `errors` object of
- * `name: message | message[]` (Rails, Laravel, RealWorld, ASP.NET's ValidationProblemDetails); else null.
- * Exported so that a `configure({ fieldErrors })` can fall back to it.
- */
-export function fieldErrors(error: SinterError): Record<string, unknown> | null {
-  const st = error.status ?? 0, e = (error.body as any)?.errors;
-  return st >= 400 && st < 500 && isObj(e) ? e : null;
-}
+/** for apps that imported the default from here */
+export { fieldErrors };
 
 /** `[name, messages]` per name with any message. */
 function entries(map: Record<string, unknown> | null | undefined): Array<[string, string[]]> {

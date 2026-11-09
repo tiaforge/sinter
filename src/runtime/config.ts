@@ -18,7 +18,7 @@ export interface Config {
   confirm: (question: string) => boolean | Promise<boolean>;
   /**
    * server validation errors of a failed form action: `{ <control name>: message | message[] }`, or
-   * null when the error is not about fields; default (fields.ts `fieldErrors`): a 4xx whose JSON body
+   * null when the error is not about fields; default (`fieldErrors` below): a 4xx whose JSON body
    * has an `errors` object
    */
   fieldErrors: ((error: SinterError, form: HTMLFormElement) => Record<string, unknown> | null | undefined) | null;
@@ -168,4 +168,15 @@ export function takeReturnUrl(allow: string[]): string | null {
   const u = new URL(v, env.href());
   if (u.origin !== new URL(env.href()).origin) return null;
   return allow.some((p) => u.pathname.startsWith(p)) ? u.pathname + u.search + u.hash : null;
+}
+
+/**
+ * The default reading of a field-error response (`configure({ fieldErrors })`): a 4xx whose JSON body
+ * has an `errors` object of `name: message | message[]` (Rails, Laravel, RealWorld, ASP.NET's
+ * ValidationProblemDetails); else null. Exported here, not from the fields module, so that a config
+ * module can fall back to it without putting that module on every page.
+ */
+export function fieldErrors(error: SinterError): Record<string, unknown> | null {
+  const st = error.status ?? 0, e = (error.body as any)?.errors;
+  return st >= 400 && st < 500 && e && typeof e == 'object' && !Array.isArray(e) ? e : null;
 }

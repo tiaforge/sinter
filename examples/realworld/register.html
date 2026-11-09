@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<div data-sn-state="{ nav: 'register', error: null, guest: signedOut(), username: '', email: '', password: '' }">
+<div data-sn-state="{ nav: 'register', guest: signedOut(), username: '', email: '', password: '' }">
 <sn-include src="./partials/header.html"></sn-include>
 
 <main class="auth-page">
@@ -20,9 +20,9 @@
       <div class="col-md-6 offset-md-3 col-xs-12">
         <h1 class="text-xs-center">Sign up</h1>
         <p class="text-xs-center"><a href="/login">Have an account?</a></p>
-        <sn-include src="./partials/errors.html"></sn-include>
-        <form data-sn-post="https://api.realworld.show/api/users" data-sn-body="{user: {username, email, password}}"
-              data-sn-then="error = null; emit('signed-in', {user: $result.user})" data-sn-catch="error = $error">
+        <ul class="error-messages" role="alert" data-sn-errors="register-form" hidden></ul>
+        <form id="register-form" data-sn-post="https://api.realworld.show/api/users" data-sn-body="{user: {username, email, password}}"
+              data-sn-then="emit('signed-in', {user: $result.user})">
           <fieldset>
             <fieldset class="form-group"><input class="form-control form-control-lg" type="text" name="username" placeholder="Username" data-sn-model="username"></fieldset>
             <fieldset class="form-group"><input class="form-control form-control-lg" type="email" name="email" placeholder="Email" data-sn-model="email"></fieldset>

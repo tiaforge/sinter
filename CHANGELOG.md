@@ -17,7 +17,7 @@ Attribute names, function names and diagnostic codes are public API. Before
   all. When every message found its place the error counts as handled (no `sn-error`, no `onError`). Other
   formats: `configure({ fieldErrors: (error, form) => ({ name: messages }) | null })`, reading the server's
   messages from `error.body` (or mapping error codes to `m.key()`), with the default exported as
-  `fieldErrors` from `@tiaforge-ui/sinter/fields`. A feature module (`fields`, about 1.2 KB gzip), loaded
+  `fieldErrors` from `@tiaforge-ui/sinter`. A feature module (`fields`, about 1.2 KB gzip), loaded
   only by pages with such an action. Recipe: `docs/recipes/field-errors.html`. The create template's task
   forms use it.
 

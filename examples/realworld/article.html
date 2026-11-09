@@ -51,7 +51,7 @@
             <form class="card comment-form" data-sn-state="{ body: '' }"
                   data-sn-post="https://api.realworld.show/api/articles/{article.slug}/comments" data-sn-body="{comment: {body}}"
                   data-sn-then="body = ''; commentError = null" data-sn-catch="commentError = $error">
-              <div class="card-block"><textarea class="form-control" placeholder="Write a comment..." rows="3" data-sn-model="body"></textarea></div>
+              <div class="card-block"><textarea class="form-control" name="body" placeholder="Write a comment..." rows="3" data-sn-model="body"></textarea></div>
               <div class="card-footer">
                 <img class="comment-author-img" alt="" data-sn-attr="{src: avatar(user.image)}">
                 <button class="btn btn-sm btn-primary" type="submit">Post Comment</button>
