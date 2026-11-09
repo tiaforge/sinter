@@ -237,3 +237,50 @@ describe('data-sn-attr sets the live form state', () => {
     expect([text.value, text.hasAttribute('value'), opt.selected]).toEqual(['', false, true]);
   });
 });
+
+describe('rows of a list sinter cannot trace to a resource (a helper\'s result)', () => {
+  const page = `
+    <sn-resource name="tasks" src="/api/tasks" key="id"></sn-resource>
+    <main data-sn-state="{ failed: 0 }" data-sn-on-sn-error="failed++; $event.preventDefault()">
+      <p data-sn-text="failed"></p>
+      <ul>
+        <template data-sn-for="t in open(tasks)">
+          <li>
+            <input type="checkbox" data-sn-patch="/api/tasks/{t.id}" data-sn-body="{ done: !t.done }"
+                   data-sn-optimistic="patch('tasks', t, { done: !t.done })" data-sn-attr="{ checked: t.done }">
+            <button data-sn-delete="/api/tasks/{t.id}" data-sn-optimistic="remove('tasks', t)">Delete</button>
+          </li>
+        </template>
+      </ul>
+    </main>`;
+  const helpers = { open: (tasks: Array<{ hidden?: boolean }>) => tasks.filter((t) => !t.hidden) };
+  const tasks = [{ id: 1, done: false }, { id: 2, done: false }];
+
+  test('keep their elements through a patch: the resource key, not the replaced object', async () => {
+    const requests = mockRequests({ 'GET /api/tasks': tasks, 'PATCH /api/tasks/1': null });
+    const { root, flush, settle } = await render(page, { requests, helpers });
+    await settle();
+    const li = root.querySelector('li')!;
+    root.querySelector('input')!.click();
+    await flush();
+    expect(root.querySelector('li')).toBe(li);
+    expect(root.querySelector('input')!.checked).toBe(true);
+    await settle();
+    expect(root.querySelector('li')).toBe(li);
+  });
+
+  test('a failed change reaches the page\'s sn-error handler, also from a row the optimistic remove took away', async () => {
+    const requests = mockRequests({ 'GET /api/tasks': tasks, 'PATCH /api/tasks/1': { status: 503 }, 'DELETE /api/tasks/2': { status: 503 } });
+    const { root, flush, settle } = await render(page, { requests, helpers });
+    await settle();
+    root.querySelector('input')!.click();
+    await settle();
+    expect(root.querySelector('input')!.checked).toBe(false);
+    root.querySelectorAll('button')[1]!.click();
+    await flush();
+    expect(root.querySelectorAll('li')).toHaveLength(1);
+    await settle();
+    expect(root.querySelectorAll('li')).toHaveLength(2);
+    expect(root.querySelector('p')!.textContent).toBe('2');
+  });
+});

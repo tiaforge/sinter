@@ -880,11 +880,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return s;
   }
 
-  /** A row's identity: the explicit key, the resource key, or the item object itself. */
+  /**
+   * A row's identity: the explicit key, the resource key, or the item object itself. A list the
+   * compiler cannot trace to a resource (a helper's result: `t in visible(tasks, q)`) keys an item
+   * that is a keyed resource's current item by that resource's key, so a patch (a new object)
+   * keeps its row.
+   */
   function keyOf(t: TemplateDef, item: any, s: any): unknown {
     if (t.key != null) return 'k' + fns[t.key]!(s);
     if (t.keyFields && item) return 'r' + t.keyFields.map((f) => item[f]).join('\x1f');
-    if (Object(item) === item) return item;
+    if (Object(item) === item) {
+      for (const r of resources.values()) if (r.isCollection && r.get(item) === item) return 'o' + r.name + '\x1f' + r.keyOf(item);
+      return item;
+    }
     warn(10);
     return 'p' + typeof item + item;
   }
@@ -1181,6 +1189,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, c?: AbortController) {
     const el = rb.el as HTMLFormElement, s = rb.s;
+    // where the element is now: an optimistic remove may take its row away before an error reports
+    const up: Element[] = [];
+    for (let x = el.parentElement; x; x = x.parentElement) up.push(x);
     st.n++;
     el.setAttribute('aria-busy', 'true');
     if (a.form && a.concurrency == 'block' && !c && !st.off) {
@@ -1201,7 +1212,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       drop();
       if (isAbort(err) || (c && st.c != c)) return;
       const error = a.call ? callError(err) : toError(err);
-      a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el);
+      a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null);
     } finally {
       if (c && st.c == c) st.c = null;
       if (!--st.n) {

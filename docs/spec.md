@@ -275,7 +275,7 @@ Invalidation by path. After a handler runs, generated code marks the state paths
 Each binding lists the paths it reads. A binding re-runs when one of its paths and a dirty path are prefixes of each other. `data-sn-model` on a path invalidates that path the same way.
 Method classes. Known read-only methods (`includes`, `map`, `filter`, `slice`, `find`, `some`, …) invalidate nothing. Known mutators (`push`, `pop`, `splice`, `sort`, `reverse`, `shift`, `unshift`, `fill`; `add`, `delete`, `clear` on `Set` and `Map`) and unknown methods invalidate the receiver's path. Helpers and store functions only read their arguments.
 Rows. A row re-evaluates only if its item object was replaced or its own path is dirty. Only the whole-root fallback checks every row.
-Default keys. Without `data-sn-key`, a `for` over resource items keys by the resource's `key` fields, and a `for` over a state array of objects keys by object identity (an internal id per object via `WeakMap`), so `splice` never re-binds rows. Arrays of primitives need an explicit key.
+Default keys. Without `data-sn-key`, a `for` over resource items keys by the resource's `key` fields. A list the compiler cannot trace to a resource (a helper's result, `t in visible(tasks, q)`) keys each item that is a keyed resource's current item by that resource's key, at runtime, so a patch (which replaces the object) keeps the row. A `for` over a state array of objects keys by object identity (an internal id per object via `WeakMap`), so `splice` never re-binds rows. Arrays of primitives need an explicit key.
 Writes from outside handlers. Islands change state only through `app.state(el).update(s => { … })`, which invalidates the roots it touched. Dev builds snapshot each state root after every flush and warn when a root changed without invalidation ("state `draft` changed outside sinter: use `update()`").
 Resources are read-only in expressions. Assigning to, or calling a mutator on, a value rooted in a resource is error `SN205`, including loop variables over resources; the message shows the `patch()` equivalent. To edit resource data, copy it with `structuredClone(c)`, which returns unfrozen plain data.
 Why this is sound. Value expressions cannot mutate and handlers cannot declare variables, so state cannot escape into a reference the compiler does not see.
@@ -692,7 +692,7 @@ A mutation's 2xx response is applied to the resources it is about, by the `apply
 
 ### Unhandled errors
 When an action fails and has no `data-sn-catch`:
-- An `sn-error` `CustomEvent` bubbles from the element, `detail = {error, element}`, to every container with `data-sn-on-sn-error` (inner first). A handler that calls `$event.preventDefault()` handles it: the walk ends there, and `onError` does not run.
+- An `sn-error` `CustomEvent` bubbles from the element (from its nearest ancestor still in the page when the element left it meanwhile, e.g. with a row an optimistic `remove` took away), `detail = {error, element}`, to every container with `data-sn-on-sn-error` (inner first). A handler that calls `$event.preventDefault()` handles it: the walk ends there, and `onError` does not run.
 - If no listener prevented it, `configure({ onError(error, element) })` runs, e.g. to show a toast.
 - Dev builds log every unhandled error to the console.
 Resource load failures set `$meta.<name>.error` and then take the same path, with `detail.resource` set and the mount root as element. A 401 never reaches this path; the login redirect handles it.

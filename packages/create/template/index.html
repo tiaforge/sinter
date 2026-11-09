@@ -52,8 +52,7 @@
         <p data-muted data-sn-show="$meta.tasks.loadedAt && !shown.length">No tasks here.</p>
 
         <ul data-list data-sn-show="shown.length">
-          <!-- data-sn-key: `shown` comes from a helper, so sinter cannot know these are `tasks` rows -->
-          <template data-sn-for="t in shown" data-sn-key="t.id">
+          <template data-sn-for="t in shown">
             <li data-layout="row" data-gap="sm" data-wrap="none">
               <!-- Optimistic: ticks at once, rolls back if the server refuses. -->
               <input type="checkbox" aria-label="Done"

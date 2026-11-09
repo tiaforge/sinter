@@ -28,6 +28,16 @@ Attribute names, function names and diagnostic codes are public API. Before
   an experimental Rolldown option and a rewrite of the build output. `chunks` is no longer an option of
   `sinter({ … })`: TypeScript reports it, the build ignores it; remove it.
 
+### Fixed
+
+- A list sinter cannot trace to a resource (a helper's result: `t in visible(tasks, q)`) re-created a row
+  on every patch of its item: it keyed rows by object identity, and a patch replaces the object. Items that
+  are a keyed resource's current items now keep their rows by the resource's key, so focus stays and an
+  action's error reaches the page.
+- An action's `sn-error` from an element no longer in the page (its row went with an optimistic `remove`,
+  then the server refused) reached no `data-sn-on-sn-error` handler; it now bubbles from the element's
+  nearest ancestor still in the page.
+
 ## 0.11.0 (2026-11-09)
 
 ### Added
