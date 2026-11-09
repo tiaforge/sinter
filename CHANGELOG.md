@@ -57,6 +57,13 @@ Attribute names, function names and diagnostic codes are public API. Before
 - Dev: a console warning for every image shown with fewer pixels than the screen has, naming the
   cause (a small source, or a `sizes` smaller than the image is shown).
 
+### Fixed
+
+- A relative Vite `base` (`./`): the early file, the render-blocking paint script, the language
+  picker and its files, and the page bundle's `async` were written as `./assets/…` on every page,
+  so a page in a subfolder (`blog/post.html`) could not load them; they are relative to the page
+  now, as Vite writes its own URLs.
+
 ## 0.9.0 (2026-11-08)
 
 ### Added

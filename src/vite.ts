@@ -4,7 +4,7 @@
 // render-blocking before the page module, that renders what needs no data.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { relative, resolve, sep } from 'node:path';
+import { posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult } from './compiler/index.js';
@@ -50,6 +50,11 @@ export interface SinterOptions extends ProjectOptions {
 }
 
 type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin];
+
+/** a base Vite resolves per file (`./`, ''): its URLs are relative to the page or stylesheet */
+const relativeBase = (base: string) => base === '' || base.startsWith('.');
+/** the base for URLs in the page at `rel` (root-relative): a relative base becomes the way up to the root */
+const pageBase = (base: string, rel: string) => (relativeBase(base) ? '../'.repeat(rel.split('/').length - 1) || './' : base);
 
 const PREFIX = '/@sinter/';
 const EARLY = `${PREFIX}early/`;
@@ -114,7 +119,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {
     if (!images) return undefined;
     const img = images, base = resolved?.base ?? '/';
-    const prefix = dev ? `${base}${IMG.slice(1)}` : `${base}${resolved!.build.assetsDir}/`;
+    // a relative base (`./`, ''): URLs relative to the page, as Vite writes its own (`../assets/…` from `blog/post.html`)
+    const prefix = dev ? `${base}${IMG.slice(1)}` : `${pageBase(base, rel)}${resolved!.build.assetsDir}/`;
     const widths = options.images ? options.images.widths : undefined;
     return { info: (f) => img.info(f), url: (v) => prefix + img.fileName(v), ignore: true, stylesheet: `${IMG_CSS}${rel}.css`, ...(widths ? { widths } : {}), ...(styles?.length ? { styles } : {}) };
   };
@@ -444,18 +450,25 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (orig) byName.set(a.fileName.slice(a.fileName.lastIndexOf('/') + 1), resolve(root, orig));
       }
       if (!byName.size) return;
-      const host: CssImageHost = {
-        source: (url) => {
-          if (/^data:/i.test(url)) return null;
-          const path = url.replace(/[?#].*$/, '');
-          return byName.get(path.slice(path.lastIndexOf('/') + 1)) ?? null;
-        },
-        info: (f) => img.info(f), analyze: (f) => img.analyze(f),
-        url: (v) => `${r.base}${r.build.assetsDir}/${img.fileName(v)}`,
-      };
       const emitted = new Set(variants.keys());
       for (const a of Object.values(bundle)) {
         if (a.type !== 'asset' || !a.fileName.endsWith('.css')) continue;
+        // a relative base: URLs relative to the stylesheet, as Vite writes its own
+        const from = posix.dirname(a.fileName);
+        const host: CssImageHost = {
+          source: (url) => {
+            if (/^data:/i.test(url)) return null;
+            const path = url.replace(/[?#].*$/, '');
+            return byName.get(path.slice(path.lastIndexOf('/') + 1)) ?? null;
+          },
+          info: (f) => img.info(f), analyze: (f) => img.analyze(f),
+          url: (v) => {
+            const file = `${r.build.assetsDir}/${img.fileName(v)}`;
+            if (!relativeBase(r.base)) return r.base + file;
+            const relPath = posix.relative(from, file);
+            return relPath.startsWith('.') ? relPath : `./${relPath}`;
+          },
+        };
         const out = await rewriteCssImages(String(a.source), host);
         if (!out) continue;
         a.source = out.css;
@@ -471,7 +484,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       order: 'post',
       handler(html, ctx) {
         const rel = relOf(ctx.filename), early = earlyFiles.get(rel), langs = languageFiles.get(rel);
-        const base = resolved?.base ?? '/';
+        // a relative base: URLs relative to the page, as Vite writes its own (`../assets/…` from `blog/post.html`)
+        const base = pageBase(resolved?.base ?? '/', rel);
         // the page bundle is `async`: it does not wait for the stylesheets as a deferred module does,
         // and mounts once the document is parsed and the early file has rendered (see the page module)
         if (ctx.chunk) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');

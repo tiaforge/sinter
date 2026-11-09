@@ -325,7 +325,9 @@ sinter, and for CSS backgrounds.
   Cached by content hash in `node_modules/.cache/sinter/images`.
 - **Dev**: the page links `/@sinter/img/<file>`; the dev server encodes a variant the first time
   it is requested (AVIF at a lower effort) and caches it.
-- **Build**: the same names under `assets/`, encoded in parallel, reused from the cache.
+- **Build**: the same names under `assets/`, encoded in parallel, reused from the cache. With a
+  relative `base` (`./`), URLs are relative to the page (`../assets/…` from `blog/post.html`) and to
+  the stylesheet, as Vite writes its own.
 - sharp is an optional dependency: installed by default; without it, images are left as written
   and the build says so once.
 - `sinter({ images: false })` turns it off; `images: { widths: [...] }` sets the fluid widths.
