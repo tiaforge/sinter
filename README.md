@@ -140,6 +140,7 @@ Then write `data-sn-*` attributes in your HTML pages. Optional:
 - [`docs/spec.md`](docs/spec.md): the v0.1 specification.
 - [`docs/diagnostics.md`](docs/diagnostics.md): every `SN` error code and how to fix it.
 - [`docs/navigation.md`](docs/navigation.md): between pages: next-page data, Speculation Rules (and a Content Security Policy), page transitions.
+- [`docs/retry.md`](docs/retry.md): retry policies: writes that survive a dropped connection, idempotency keys, what the server needs.
 - [`examples/realworld`](examples/realworld): a complete multi-page app.
 - [`docs/progress.md`](docs/progress.md): implementation status and decisions.
 
