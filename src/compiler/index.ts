@@ -1,9 +1,11 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type HelperManifest, type HelperOrigin, type PrefetchParts } from './compile.js';
+import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts } from './compile.js';
 import { compactEarly, compactIR } from '../ir.js';
+import { MappedLines, type SourceMap } from './sourcemap.js';
 
-export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, HelperManifest, HelperOrigin, PrefetchParts };
+export type { SourceMap };
+export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, FnSource, FnSources, HelperManifest, HelperOrigin, PrefetchParts };
 export type { Diagnostic } from './diagnostics.js';
 export type { CheckUnit } from './check-unit.js';
 export type { ImageFormat, ImageHost, ImageInfo, ImageKind, ImageResult, ImageVariant } from './images.js';
@@ -23,17 +25,27 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   const parts = compileParts(html, options);
   // the images' rules: imported, so the bundler puts them in the page's stylesheet (no request, no inline style)
   const css = parts.images?.css && options.images?.stylesheet ? `import ${JSON.stringify(options.images.stylesheet)};\n` : '';
-  const out: CompileResult = { html: parts.html, module: css + pageModule(parts, options), diagnostics: parts.diagnostics, files: parts.files, prefetch: parts.prefetch, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}) };
+  const page = pageLines(parts, options);
+  const out: CompileResult = { html: parts.html, module: css + page.text(), diagnostics: parts.diagnostics, files: parts.files, prefetch: parts.prefetch, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}) };
   if (parts.check) out.check = parts.check;
+  const map = options.sourcemap ? page.map(parts.sources, css ? 1 : 0) : null;
+  if (map) out.map = map;
   if (parts.images) out.images = parts.images;
   if (parts.remoteWidths) out.remoteWidths = parts.remoteWidths;
-  if (parts.early !== undefined) out.early = earlyModule(parts.early, options);
+  if (parts.early !== undefined) setEarly(out, parts.early, options, false);
   if (parts.unlistedOrigins) out.unlistedOrigins = parts.unlistedOrigins;
   // a build splits the early file of a page with early requests: loaded `async` first, rendered by a stub (see `prime`)
-  if (options.splitEarly && out.early && parts.early?.ir.res?.length) { out.early = earlyModule(parts.early, options, true); out.earlySplit = true; }
+  if (options.splitEarly && out.early && parts.early?.ir.res?.length) { setEarly(out, parts.early, options, true); out.earlySplit = true; }
   const ns = Object.entries(options.helpers.namespaces).find(([, v]) => v.module === MESSAGES)?.[0];
   if (ns) out.messages = parts.namespaces[ns] ?? [];
   return out;
+}
+
+function setEarly(out: CompileResult, early: EarlyParts | null, options: CompileOptions, split: boolean) {
+  const lines = earlyLines(early, options, split);
+  out.early = lines && lines.text();
+  const map = lines && options.sourcemap ? lines.map(early?.sources) : null;
+  if (map) out.earlyMap = map; else delete out.earlyMap;
 }
 
 /**
@@ -43,9 +55,13 @@ export function compile(html: string, options: CompileOptions): CompileResult {
  * neither.
  */
 export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early'>, split = false): string | null {
+  return earlyLines(early, options, split)?.text() ?? null;
+}
+
+function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early'>, split: boolean): MappedLines | null {
   const app = options.early?.module ?? null;
   if (!early && !app) return null;
-  const lines: string[] = [];
+  const lines = new MappedLines();
   if (app) lines.push(`import ${JSON.stringify(app)};`);
   const req = !!early?.ir.res?.length, pages = !!early?.ir.res?.some((r) => r.q);
   lines.push(`import { ${split ? 'prime' : 'start'}${early ? ', $k' : ''}${req ? ', requests' : ''}${pages ? ', withParams' : ''} } from '${PACKAGE}/early';`);
@@ -76,17 +92,21 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
   lines.push('');
   if (early) {
     lines.push('const page = () => {', `  const ir = ${JSON.stringify(compactEarly(early.ir))};`, '  const fns = [');
-    for (const f of early.fns) lines.push(`    ${f},`);
+    early.fns.forEach((f, i) => lines.fn('    ', f, ',', early.sources?.fns[i]));
     lines.push('  ];', '  return { ir, fns };', '};');
   }
   const args = `${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? `, requests(${pages ? 'withParams' : ''})` : ''}`;
   // split: the requests start when the file runs (`async`, before the stylesheets); the stub calls `render` after the parse
   lines.push(split ? `export const render = prime(${args});` : `start(${args});`);
-  return lines.join('\n') + '\n';
+  return lines;
 }
 
 export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins'>): string {
-  const lines: string[] = [];
+  return pageLines(parts, options).text();
+}
+
+function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins'>): MappedLines {
+  const lines = new MappedLines();
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
   lines.push(`import { ${core.join(', ')} } from '${PACKAGE}';`);
@@ -132,7 +152,7 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
   if (parts.remote) lines.push(`const $ri = remote(${JSON.stringify(parts.remote)});`);
   lines.push(`const ir = ${JSON.stringify(compactIR(parts.ir))};`);
   lines.push('const fns = [');
-  for (const f of parts.fns) lines.push(`  ${f},`);
+  parts.fns.forEach((f, i) => lines.fn('  ', f, ',', parts.sources?.fns[i]));
   lines.push('];');
   lines.push('');
   // the early file renders part of this page: mount once it has (they meet through a global)
@@ -141,7 +161,7 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
     // sinter's messages are the locale source; the dictionary the early step loaded, once it is there
     lines.push('$use();', 'await $ready();', `$use(mount(document, { ir, fns, features: [${features.join(', ')}] }));`);
   } else lines.push(`mount(document, { ir, fns, features: [${features.join(', ')}] });`);
-  return lines.join('\n') + '\n';
+  return lines;
 }
 
 /** The built-in messages a module calls: `m.key` bound to the names compiled code uses (`m$key`). */

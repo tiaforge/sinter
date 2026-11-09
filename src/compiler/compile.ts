@@ -1,5 +1,6 @@
 // The compiler: one pure, deterministic function from annotated HTML to a
 // rewritten page plus its IR and function table.
+import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
 import { Layout } from './layout.js';
 import type { RemoteConfig } from '../remote.js';
@@ -79,11 +80,23 @@ export interface CompileOptions {
   splitEarly?: boolean;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
+  /** also return where each function in `fns` was written (`CompiledParts.sources`), for the page module's source map */
+  sourcemap?: boolean;
 }
+
+/** Where a compiled function was written: the start of the expression (or of its element) in `file`, 1-based. */
+export interface FnSource { file: string; line: number; col: number }
+
+/** With `sourcemap`: the source of each function in a table (null: generated, nothing in the markup), and the files' text. */
+export interface FnSources { fns: Array<FnSource | null>; content: Record<string, string> }
 
 export interface CompileResult {
   html: string;
   module: string;
+  /** with `sourcemap`: the page module's source map, from each function back to the markup (null-free; absent when nothing maps) */
+  map?: SourceMap;
+  /** with `sourcemap`: the early module's source map */
+  earlyMap?: SourceMap;
   diagnostics: Diagnostic[];
   files: string[];
   /** with `check: true` */
@@ -112,6 +125,8 @@ export interface CompileResult {
 export interface EarlyParts {
   ir: EarlyIR;
   fns: string[];
+  /** with `sourcemap` */
+  sources?: FnSources;
   /** helper names and namespace members the early bindings call */
   helpers: string[];
   namespaces: Record<string, string[]>;
@@ -135,6 +150,8 @@ export interface CompiledParts {
   html: string;
   ir: IR;
   fns: string[];
+  /** with `sourcemap` */
+  sources?: FnSources;
   features: string[];
   /** helper names imported from the helpers module or the core */
   helpers: { user: string[]; builtin: string[] };
@@ -175,6 +192,8 @@ const BAD_PARAM = /^(constructor|__proto__|prototype)$/;
 const SECRET_AUTOCOMPLETE = /^(cc-|one-time-code$|current-password$|new-password$)/;
 
 interface Origin { file: string; src: string; chain: string[] }
+/** an expression's place: the value of `attr` (null: the element's start tag), `shift` characters in */
+interface Site { el: P5Element; attr: string | null; shift: number }
 
 interface Ctx {
   scope: Scope;
@@ -198,6 +217,12 @@ class Compiler {
   readonly files = new Set<string>();
   readonly fns: string[] = [];
   readonly fnIndex = new Map<string, number>();
+  /** where each function in `fns` was first written: the expression that compiled to it, else the element being compiled */
+  readonly fnAt: Array<Site | null> = [];
+  /** the element or expression being compiled: the site of functions the compiler writes itself */
+  private at: Site | null = null;
+  /** each compiled expression's site, by its code: a function made from it maps to where it was written */
+  private readonly codeAt = new Map<string, Site>();
   readonly origins = new WeakMap<object, Origin>();
   /** attributes SN507 has measured, so an expression analysed twice is reported once */
   readonly measured = new WeakMap<P5Element, Set<string>>();
@@ -306,10 +331,12 @@ class Compiler {
     this.markLowPriority();
     if (this.opts.prerender) this.prerender();
     const early = this.opts.early ? this.earlyParts() : undefined;
+    if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns);
     this.injectScript(doc, early !== undefined && (early !== null || !!this.opts.early!.module) ? this.opts.early!.src ?? null : null);
     // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
     // toggle and use the generic path walk, which costs no code per template
     const rowTemplates = new Set([...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((n) => n.b.filter((b) => b.k === 'for').map((b) => b.x!)));
+    this.at = null;
     for (const t of this.templates) {
       if (!t.nodes.length || !rowTemplates.has(t.id)) continue;
       t.find = this.fn(findCode(t.nodes));
@@ -330,6 +357,7 @@ class Compiler {
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
+      ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'transition'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
@@ -701,6 +729,7 @@ class Compiler {
   }
 
   element(el: P5Element, ctx: Ctx, index: number, prevIf: { node: NodeDef; binding: Binding } | null): { node: NodeDef; binding: Binding } | null {
+    this.at = { el, attr: null, shift: 0 };
     switch (el.tagName) {
       case 'sn-resource': this.resource(el, ctx); return null;
       case 'sn-sync': this.sync(el, ctx); return null;
@@ -1026,13 +1055,31 @@ class Compiler {
   /** Index of a function in the page's table; identical code shares one entry (one compile in the engine). */
   fn(code: string): number {
     let i = this.fnIndex.get(code);
-    if (i === undefined) this.fnIndex.set(code, (i = this.fns.push(code) - 1));
+    if (i === undefined) {
+      this.fnIndex.set(code, (i = this.fns.push(code) - 1));
+      this.fnAt[i] = this.codeAt.get(code) ?? this.at;
+    }
     return i;
+  }
+
+  /** Where each function of a table (the page's, or one copied from it) was written, and the files' text. */
+  sourcesOf(fns: string[]): FnSources {
+    const content: Record<string, string> = {};
+    const at = (code: string): FnSource | null => {
+      const i = this.fnIndex.get(code), site = i === undefined ? null : this.fnAt[i];
+      const o = site && this.origins.get(site.el);
+      if (!site || !o || !site.el.sourceCodeLocation) return null;
+      content[o.file] ??= o.src;
+      return { file: o.file, ...this.lineCol(o.src, this.valueOffset(site.el, site.attr) + site.shift) };
+    };
+    return { fns: fns.map(at), content };
   }
 
   expr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, value?: string, shift = 0): ExprResult {
     const src = value ?? attr(el, attrName) ?? '';
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
+    this.at = { el, attr: attrName, shift };
+    if (r.ok && !this.codeAt.has(r.code)) this.codeAt.set(r.code, this.at);
     if (r.ok && r.ast) this.complexity(el, attrName, o, r.ast);
     if (r.runs || r.refreshes) this.flows.push({ el, attr: attrName, shift, runs: r.runs ?? [], refreshes: r.refreshes ?? [] });
     this.lastExpr = null;

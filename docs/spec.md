@@ -57,6 +57,7 @@ compile(html: string, options: CompileOptions): {
   module: string;          // generated page module (ESM)
   diagnostics: Diagnostic[];
   files: string[];         // partials read, for watch mode
+  map?: SourceMap;         // with `sourcemap`: the page module's source map (earlyMap: the early module's)
 }
 
 interface CompileOptions {
@@ -65,6 +66,7 @@ interface CompileOptions {
   readFile: (path: string) => string;  // supplied by the adapter, used for <sn-include>
   helpers: HelperManifest; // helper functions and namespace members, read from the helpers module by the adapter
   dev: boolean;            // dev runtime + source positions in the IR
+  sourcemap?: boolean;     // also return source maps for the page and early modules
 }
 ```
 Same input and options always give byte-identical output. Ids are assigned in document order.
@@ -104,6 +106,8 @@ const fns = [
 await parsed();   // the page module is `async`; on a page with an early file: `await rendered()` (see First paint)
 mount(document, { ir, fns, features: [sse, optimistic] });
 ```
+
+**Source maps.** With `sourcemap`, `compile` also returns a v3 source map for the page module (`map`) and the early module (`earlyMap`): each function in `fns` maps to where its expression starts in the markup (the attribute's value, `shift` characters in for a part such as a URL template's `{…}`), in the page or the partial it came from, with the files' text in `sourcesContent`. An error thrown in an expression then points at the HTML in the browser's devtools. A function maps as a whole: identifiers are rewritten (`q` becomes `$.$s0.q`), so every column inside it maps to the expression's start. A function shared by several attributes (identical code is one table entry) maps to the first; functions the compiler writes itself (setters for `data-sn-model`, the state of a `data-sn-state` with `$error`) map to the element's last expression or its start tag; the row-template lookups (`find`, `make`) are unmapped. The module text is the same with or without a map. The Vite plugin asks for maps in `vite dev` and in builds with `build.sourcemap`, and returns them from `load()`; in a build with maps, page modules get a plain id (`/@sinter/<page>.js`, not `\0/@sinter/…`), since Rolldown drops the map of a `\0` module.
 
 ### Intermediate format (IR v1)
 The IR is the only contract between compiler and runtime. It is plain JSON plus a function table, carries `v: 1`, and the runtime refuses a version it does not know.

@@ -7,6 +7,11 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Source maps for the page module: an error thrown in a markup expression points at its attribute in the HTML
+  (or the partial it came from) in the browser's devtools. `compile(html, { sourcemap: true })` returns `map`
+  for the page module and `earlyMap` for the early module, mapping each function in `fns` to where its
+  expression starts; the module text is unchanged. The Vite plugin uses them in `vite dev` and in builds with
+  `build.sourcemap`.
 - Server errors on a form: a mutation without `data-sn-catch` on a form, or on a button or control inside one
   (a `type="button"` Publish), that fails with a 4xx and `{ errors: { email: "…" } }` (or `email: ["…", "…"]`)
   marks the control with that `name`: `aria-invalid="true"` and the message in the element its

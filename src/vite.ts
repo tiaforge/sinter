@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
-import { compile, formatDiagnostic, type CheckUnit, type CompileResult } from './compiler/index.js';
+import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
 import { project, type ProjectOptions } from './project.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT, PAINT_SCRIPT } from './paint-build.js';
@@ -111,6 +111,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let server: ViteDevServer | null = null;
   let resolved: ResolvedConfig | null = null;
   const modules = new Map<string, string>();
+  /** each page and early module's source map: from the compiled expressions back to the markup */
+  const maps = new Map<string, SourceMap>();
+  const setModule = (id: string, code: string, map: SourceMap | undefined) => {
+    modules.set(id, code);
+    if (map) maps.set(id, map); else maps.delete(id);
+  };
   const watched = new Set<string>();
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
@@ -272,7 +278,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!seen.has(file)) { seen.add(file); pagesCache = null; }
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
-      file, root, dev, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
+      file, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
       check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles,
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
@@ -280,7 +286,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(options.origins?.length ? { origins: options.origins } : {}),
       ...(firstPaint && !dev ? { splitEarly: true } : {}),
     });
-    if (out.early) modules.set(`${EARLY}${rel}.js`, out.early);
+    if (out.early) setModule(`${EARLY}${rel}.js`, out.early, out.earlyMap);
     if (out.module.includes(`/transition';`)) holdPages.add(rel); else holdPages.delete(rel);
     messages = p.messages;
     if (out.messages) markupMessages.set(rel, out.messages);
@@ -472,6 +478,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     resolveId(id) {
+      // a build with source maps: page modules keep a plain id, as Rolldown drops the map of a `\0` module
+      if (id.startsWith(PREFIX) && !dev && maps.has(id)) return id;
       if (id.startsWith(PREFIX)) return '\0' + id;
       return null;
     },
@@ -485,10 +493,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (id === `\0${PREFETCH}`) return prefetchModule(prefetchPages(), project(root, options).helpers);
       const lang = id.startsWith(`\0${PREFIX}messages/`) && messages ? id.slice(`\0${PREFIX}messages/`.length, -3) : null;
       if (lang && messages?.dicts[lang]) return languageFile(lang, { ...messages.dicts[messages.base], ...messages.dicts[lang] });
-      if (!id.startsWith('\0' + PREFIX)) return null;
-      const code = modules.get(id.slice(1));
-      if (code === undefined) throw new Error(`sinter: page module ${id.slice(1)} requested before its HTML was compiled`);
-      return code;
+      const key = id.startsWith('\0' + PREFIX) ? id.slice(1) : !dev && maps.has(id) ? id : null;
+      if (key === null) return null;
+      const code = modules.get(key);
+      if (code === undefined) throw new Error(`sinter: page module ${key} requested before its HTML was compiled`);
+      const map = maps.get(key);
+      return map ? { code, map } : code;
     },
 
     configurePreviewServer(s) {
@@ -547,7 +557,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           err.loc = { file: errors[0]!.file, line: errors[0]!.line, column: errors[0]!.col };
           throw err;
         }
-        modules.set(moduleSrc, out.module);
+        setModule(moduleSrc, out.module, out.map);
         invalidate(moduleSrc);
         invalidate(`${EARLY}${rel}.js`);
         // dev: the picker first in the head, with every language's whole dictionary (else, with an early
