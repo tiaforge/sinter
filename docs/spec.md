@@ -469,7 +469,7 @@ For data that no stream keeps current, or as a check on one that may miss events
 - Failure: `error` is set as for any load, and the next try waits twice as long each time, up to 30 s (never sooner than `refresh`), back to `refresh` after a success. A failing refresh is reported (`sn-error`, `onError`) once, and again only after a load has succeeded: an outage gives one toast, not one per try. Offline, refreshes fail and back off; `online` reloads every resource no stream feeds, as before, which starts the clock again.
 - Values: a number and `s`, `m` or `h`, at least `1s`; anything else is `SN401`. The module (`@tiaforge-ui/sinter/refresh`, 0.4 KB gzip) is added only to pages that use `refresh`.
 - Servers: answer unchanged data with the same `ETag` (see Unchanged responses under Behaviour), and a refresh costs a `304` and no rendering.
-- Cost (2026-11-09): `refresh` is 374 B gzip and `versions` 438 B, each only on the pages that need it. Core grew from 13,960 to 14,153 B gzip for the hooks both use (background loads, the end-of-load callback, shared responses read lazily); the RealWorld article page (no stream, no `refresh`) from 25,721 to 25,915 B.
+- Cost (2026-11-09): `refresh` is 394 B gzip and `versions` 438 B, each only on the pages that need it (`refresh` shares the retry helper, `backoff.ts`, with the stream module). Core grew from 13,960 to 14,154 B gzip for the hooks both use (background loads, the end-of-load callback, shared responses read lazily); the RealWorld article page (no stream, no `refresh`) from 25,721 to 25,915 B.
 - The testing module's `render()` drives it: `advance(ms)` moves the clock, `visibility('hidden' | 'visible')` hides and shows the page.
 
 ### Fan-out resources (`each`)

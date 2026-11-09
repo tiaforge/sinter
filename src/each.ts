@@ -63,7 +63,7 @@ function fanOut(l: ResourceLoader, app: App) {
     }
     // once per source that answered: `$result` is its items
     if (loaded) l.done(items);
-    if (loaded || failed) for (const f of l.settled) f(loaded);
+    if (loaded || failed) l.settle(loaded);
   }
 
   l.changed = () => {

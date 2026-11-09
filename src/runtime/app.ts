@@ -99,6 +99,8 @@ export interface ResourceLoader {
   inflight(): boolean;
   /** called after each load settles (true: it succeeded, its content changed or not); feature modules add to it */
   readonly settled: Array<(ok: boolean) => void>;
+  /** a load settled: calls `settled` (for feature modules that load themselves, as `each`) */
+  settle(ok: boolean): void;
   /** for feature modules: the scope `src` and `when` are evaluated in */
   scope(): any;
   /** a shared GET's body (concurrent loads of one URL share one request); a feature module may replace it, and return UNCHANGED */
@@ -1307,9 +1309,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       r.onDirty('meta');
       if (!known) unhandled(error, null, def.name);
     };
-    const settle = (ok: boolean) => { for (const f of l.settled) f(ok); };
     const l: ResourceLoader = {
       def, res: r, app, pager: null as Pager | null, settled: [],
+      settle(ok) { for (const f of l.settled) f(ok); },
       scope, got: loadShared, get: (u, signal, lo) => loadShared(u, signal, lo).then((g) => g.body()), failed: fail, loading, url: () => url,
       inflight: () => c != null,
       done: (v) => def.then != null && app.exec(def.then, child(scope(), { $result: v }), def.w),
@@ -1344,7 +1346,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         const v = store(data!.v, request(url));
         r.meta.loadedAt = env.now();
         l.done(v);
-        settle(true);
+        l.settle(true);
       },
       /** `src` or `when` may have changed: reload from the first page if the URL differs. From typing: once the typing pauses. */
       changed(soft?: boolean) {
@@ -1387,16 +1389,17 @@ export function mount(root: Document | Element, o: MountOptions): App {
         } catch (e) {
           if (n != seq || isAbort(e)) return;
           fail(def.call ? callError(e) : e, quiet);
-          settle(false);
+          l.settle(false);
         } finally {
           // writes made while this load ran win over its (older) response
           r.endLoad(mark, loaded);
           if (n == seq) { c = null; loading(false); }
         }
-        if (ok && quiet) r.onDirty('meta');
+        if (!ok) return;
+        if (quiet) r.onDirty('meta');
         // after the store and `$meta` have the response, so `then` sees them
-        if (ok) l.done(v);
-        if (ok) settle(true);
+        l.done(v);
+        l.settle(true);
       },
     };
     if (def.each) app.ext.each!.fanOut(l);
