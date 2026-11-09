@@ -34,6 +34,18 @@ Signing in or out calls `clearPersisted()`, since the cached data belongs to the
 Run alongside the e2e suite, this found that cached data must not set `$meta.<name>.loadedAt`
 (the login-redirect guards read it); sinter now leaves it null until the server answers.
 
+## Form errors
+
+No form has a `data-sn-catch`: each includes `partials/form-errors.html`, its `.error-messages` list
+reading `$error` (the form's last failed send) with the `errors()` helper's lines, and
+`fieldErrors: () => null` in `src/sinter.config.js` marks no field, as the reference markup does. The
+buttons (favorite, follow, delete) keep their catches (a 401 goes to the login page). The pages with a
+form load the fields module (1.1 KB gzip).
+With the mocked API (no backend), 2026-11-09: `error-handling` and `user-fetch-errors` 44 passed,
+1 failed ("should handle 403 when deleting another users comment": the trash icon is not visible; it
+fails the same way on `main`, probably the ionicons stylesheet, which a container without access to
+`code.ionicframework.com` cannot load).
+
 ## e2e status (2026-11-09, local backend)
 
 2026-11-09, `spa`, after early requests to the API's origin, the split early file and Google Fonts

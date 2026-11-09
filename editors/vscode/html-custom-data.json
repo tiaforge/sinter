@@ -244,7 +244,7 @@
     },
     {
       "name": "data-sn-catch",
-      "description": "runs after an error; $error = {status, body, message, detail} (handler expression)"
+      "description": "runs after an error; $error = {status, body, message, detail}. A form without it shows a 4xx `{errors: {name: message}}` on its fields (aria-invalid and the message); its markup reads the failure as `$error` (handler expression)"
     },
     {
       "name": "data-sn-confirm",

@@ -81,7 +81,8 @@
         <h2>New task</h2>
         <button type="button" commandfor="new-task" command="close" aria-label="Close"></button>
       </header>
-      <label>Title <input data-sn-model="draft.title" required autofocus></label>
+      <!-- `name`: a 422 with { errors: { title: … } } marks this field and shows the message after it. -->
+      <label>Title <input name="title" data-sn-model="draft.title" required autofocus></label>
       <footer>
         <button type="button" commandfor="new-task" command="close" data-variant="ghost">Cancel</button>
         <button>Add task</button>

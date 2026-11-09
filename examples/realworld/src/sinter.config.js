@@ -28,4 +28,6 @@ async function auth(req, next) {
 configure({
   request: [auth],
   onError: () => {},
+  // the forms show the server's errors in their `.error-messages` list (`$error`), no field marked
+  fieldErrors: () => null,
 });

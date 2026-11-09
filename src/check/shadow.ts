@@ -169,6 +169,8 @@ export function shadow(o: ShadowOptions): Shadow {
         line('let {');
         f.names.forEach((n, k) => { at(f.locs?.[k]); line(`${n},`); });
         line(`} = ${f.init === null ? '$any' : `$e${f.init}()`};`);
+      } else if (f.kind === 'formError') {
+        line(`/** @type {${decl('Err')} | null} */ let $error = $any;`);
       } else if (f.kind === 'let') {
         at(f.loc);
         line(`const ${f.name} = ${f.init === null ? '$any' : `$e${f.init}()`};`);

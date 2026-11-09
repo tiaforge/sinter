@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<div data-sn-state="{ nav: 'settings', error: null, guest: signedOut() }">
+<div data-sn-state="{ nav: 'settings', guest: signedOut() }">
 <sn-include src="./partials/header.html"></sn-include>
 <template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 
@@ -20,14 +20,13 @@
     <div class="row">
       <div class="col-md-6 offset-md-3 col-xs-12">
         <h1 class="text-xs-center">Your Settings</h1>
-        <sn-include src="./partials/errors.html"></sn-include>
         <template data-sn-if="$meta.user.error"><p>Your settings cannot be loaded right now.</p></template>
         <template data-sn-if="user">
           <form data-sn-state="{ s: {image: user.image ?? '', username: user.username, bio: user.bio ?? '', email: user.email, password: ''} }"
                 data-sn-put="https://api.realworld.show/api/user"
                 data-sn-body="{user: {image: s.image, username: s.username, bio: s.bio, email: s.email, password: s.password || undefined}}"
-                data-sn-then="error = null; emit('signed-in', {user: $result.user, to: '/profile/' + encodeURIComponent($result.user.username)})"
-                data-sn-catch="error = $error">
+                data-sn-then="emit('signed-in', {user: $result.user, to: '/profile/' + encodeURIComponent($result.user.username)})">
+            <sn-include src="./partials/form-errors.html"></sn-include>
             <fieldset>
               <fieldset class="form-group"><input class="form-control" type="text" name="image" placeholder="URL of profile picture" data-sn-model="s.image"></fieldset>
               <fieldset class="form-group"><input class="form-control form-control-lg" type="text" name="username" placeholder="Your Name" data-sn-model="s.username"></fieldset>

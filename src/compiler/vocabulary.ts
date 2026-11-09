@@ -33,7 +33,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'concurrency', value: 'block | queue | latest', doc: 'mutations only; default block for forms, queue otherwise' },
   { name: 'optimistic', value: 'handler expression', doc: 'patch/upsert/remove calls applied before the request, kept on success, rolled back on failure' },
   { name: 'then', value: 'handler expression', doc: 'runs after a 2xx response; $result = parsed body' },
-  { name: 'catch', value: 'handler expression', doc: 'runs after an error; $error = {status, body, message, detail}' },
+  { name: 'catch', value: 'handler expression', doc: 'runs after an error; $error = {status, body, message, detail}. A form without it shows a 4xx `{errors: {name: message}}` on its fields (aria-invalid and the message); its markup reads the failure as `$error`' },
   { name: 'confirm', value: 'value expression', doc: 'asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy' },
   { name: 'encoding', value: 'json | form', doc: 'form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded' },
   { name: 'apply', value: 'off', doc: 'turns write-through off for this mutation: its response is not applied to the resources it is about' },

@@ -16,6 +16,12 @@ export interface Config {
   transport: ((url: string) => Transport | undefined) | null;
   /** `data-sn-confirm`: asks the question; the action runs on true (window.confirm by default) */
   confirm: (question: string) => boolean | Promise<boolean>;
+  /**
+   * server validation errors of a failed form action (`request`: what was sent, to tell APIs apart):
+   * `{ <control name>: message | message[] }`; null marks no field; undefined leaves it to the default
+   * (fields.ts: a 4xx whose JSON body has an `errors` object)
+   */
+  fieldErrors?: ((error: SinterError, request: { url: string; method: string }) => Record<string, unknown> | null | undefined) | null;
   /** what `configure({ env })` overrides of the default environment (see `envOf`); the testing module sets a whole one */
   env: Partial<Env> | null;
 }
@@ -163,3 +169,4 @@ export function takeReturnUrl(allow: string[]): string | null {
   if (u.origin !== new URL(env.href()).origin) return null;
   return allow.some((p) => u.pathname.startsWith(p)) ? u.pathname + u.search + u.hash : null;
 }
+

@@ -1,0 +1,11 @@
+<!-- Server validation errors: no data-sn-catch, so a 4xx with {errors: {email: "…"}} marks the field
+     aria-invalid and shows the message after it (temper styles aria-invalid); `aria-errormessage`
+     puts a message where you want it. Inside the form, `$error` is its last failed send: here a
+     line for a failure that is not about a field (a 5xx). -->
+<form data-sn-post="/api/signup" data-sn-then="emit('signed-up', $result)">
+  <p data-tone="danger" data-sn-show="$error && !$error.body?.errors" data-sn-text="$error?.detail ?? $error?.message"></p>
+  <label>Email <input type="email" name="email" required></label>
+  <label>Username <input name="username" required aria-errormessage="username-error"></label>
+  <small id="username-error" hidden></small>
+  <button>Sign up</button>
+</form>

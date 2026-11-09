@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<div data-sn-state="{ nav: 'editor', error: null, guest: signedOut() }">
+<div data-sn-state="{ nav: 'editor', guest: signedOut() }">
 <sn-include src="./partials/header.html"></sn-include>
 <template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 <sn-resource cache name="article" src="https://api.realworld.show/api/articles/{$url.slug}" items="article" when="$url.slug"></sn-resource>
@@ -20,11 +20,11 @@
   <div class="container page">
     <div class="row">
       <div class="col-md-10 offset-md-1 col-xs-12">
-        <sn-include src="./partials/errors.html"></sn-include>
         <template data-sn-if="$meta.article.error"><p>This article cannot be loaded.</p></template>
         <template data-sn-if="user && (!$url.slug || article)">
           <form data-sn-on-submit="$event.preventDefault()"
                 data-sn-state="{ d: article ? {title: article.title, description: article.description, body: article.body, tagList: [...article.tagList]} : {title: '', description: '', body: '', tagList: []}, tag: '' }">
+            <sn-include src="./partials/form-errors.html"></sn-include>
             <fieldset>
               <fieldset class="form-group"><input type="text" class="form-control form-control-lg" name="title" placeholder="Article Title" data-sn-model="d.title"></fieldset>
               <fieldset class="form-group"><input type="text" class="form-control" name="description" placeholder="What's this article about?" data-sn-model="d.description"></fieldset>
@@ -40,11 +40,11 @@
               </fieldset>
               <template data-sn-if="$url.slug">
                 <button class="btn btn-lg pull-xs-right btn-primary" type="button" data-sn-put="https://api.realworld.show/api/articles/{$url.slug}" data-sn-body="{article: {...d, tagList: tag.trim() && !d.tagList.includes(tag.trim()) ? [...d.tagList, tag.trim()] : d.tagList}}"
-                        data-sn-then="emit('navigate', '/article/' + encodeURIComponent($result.article.slug))" data-sn-catch="error = $error">Publish Article</button>
+                        data-sn-then="emit('navigate', '/article/' + encodeURIComponent($result.article.slug))">Publish Article</button>
               </template>
               <template data-sn-else>
                 <button class="btn btn-lg pull-xs-right btn-primary" type="button" data-sn-post="https://api.realworld.show/api/articles" data-sn-body="{article: {...d, tagList: tag.trim() && !d.tagList.includes(tag.trim()) ? [...d.tagList, tag.trim()] : d.tagList}}"
-                        data-sn-then="emit('navigate', '/article/' + encodeURIComponent($result.article.slug))" data-sn-catch="error = $error">Publish Article</button>
+                        data-sn-then="emit('navigate', '/article/' + encodeURIComponent($result.article.slug))">Publish Article</button>
               </template>
             </fieldset>
           </form>

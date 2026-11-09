@@ -291,6 +291,14 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     if (local) return { kind: 'local', info: local };
     if (name.startsWith('$')) {
       if (ALL_MAGIC.includes(name)) {
+        // outside `catch`, `$error` is the form's: a state field the compiler gives a form that reads it
+        if (name === '$error' && !magicAllowed.has(name)) {
+          for (let i = scope.states.length - 1; i >= 0; i--) {
+            if (scope.states[i]!.names.has(name)) return { kind: 'state', sid: scope.states[i]!.sid };
+          }
+          report('SN201', '`$error` is not available here: it is the action\'s error in `data-sn-catch`, and inside a `<form>` the form\'s last failed send', offset);
+          return null;
+        }
         if (!magicAllowed.has(name)) {
           report('SN201', `\`${name}\` is not available here`, offset);
           return null;

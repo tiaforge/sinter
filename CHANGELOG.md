@@ -7,6 +7,17 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Server errors on a form: a mutation without `data-sn-catch` on a form, or on a button or control inside one
+  (a `type="button"` Publish), that fails with a 4xx and `{ errors: { email: "…" } }` (or `email: ["…", "…"]`)
+  marks the control with that `name`: `aria-invalid="true"` and the message in the element its
+  `aria-errormessage` names, else in a `<small data-sn-error data-tone="danger">` inserted after it; the first
+  such field gets focus; editing a field clears its error, sending again clears all. Inside the form,
+  `$error` is its last failed send (or `null`), for any binding: a summary or a 5xx's `detail` is plain
+  markup. Shown (no `sn-error`, no `onError`) when every message marked a field or the form reads `$error`.
+  `data-sn-catch` opts out. Other formats: `configure({ fieldErrors: (error, { url, method }) => ({ name:
+  messages }) })`, reading the server's messages from `error.body` (or mapping error codes to `m.key()`);
+  `null` marks no field, `undefined` leaves it to the default. A feature module (`fields`, 1.1 KB gzip), loaded only by pages with such an action or a form that reads `$error`. Recipe: `docs/recipes/field-errors.html`.
+  The create template's task forms use it.
 - `refresh="30s"` on `<sn-resource>` (`@tiaforge-ui/sinter/refresh`): the resource is reloaded in the
   background once its last load is that old, counted from every load (first load, `refresh()`, a
   `refetch` event, a reconnect, a `src` change), so next to a stream it is a check that fills in only when
@@ -21,6 +32,12 @@ Attribute names, function names and diagnostic codes are public API. Before
   the page counts the same. The browser's HTTP cache does the
   revalidation when the server sends `Cache-Control: no-cache`.
 - `@tiaforge-ui/sinter/testing`: `visibility('hidden' | 'visible')` on a rendered page.
+
+### Fixed
+
+- A failed form action without `data-sn-catch` threw instead of dispatching `sn-error` under happy-dom
+  (tests with `render()`), which wraps forms in a Proxy that `EventTarget.prototype.dispatchEvent` refuses
+  as receiver. Browsers were not affected.
 
 ## 0.12.0 (2026-11-09)
 

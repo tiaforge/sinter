@@ -75,7 +75,7 @@ export default function api() {
       if (req.method === 'GET') return send(200, [...tasks.values()]);
       if (req.method === 'POST') {
         const title = typeof body.title === 'string' ? body.title.trim() : '';
-        if (!title) return send(422, { message: 'A task needs a title.' });
+        if (!title) return send(422, { message: 'A task needs a title.', errors: { title: 'A task needs a title.' } });
         const task = create(title);
         broadcast('task_updated', { task });
         return send(201, task);
@@ -88,7 +88,7 @@ export default function api() {
     if (task) {
       if (req.method === 'GET') return send(200, task);
       if (req.method === 'PATCH') {
-        if ('title' in body && (typeof body.title !== 'string' || !body.title.trim())) return send(422, { message: 'A task needs a title.' });
+        if ('title' in body && (typeof body.title !== 'string' || !body.title.trim())) return send(422, { message: 'A task needs a title.', errors: { title: 'A task needs a title.' } });
         const changed = { ...task };
         if (typeof body.title === 'string') changed.title = body.title.trim();
         if (typeof body.notes === 'string') changed.notes = body.notes;

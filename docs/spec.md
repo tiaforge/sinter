@@ -397,7 +397,7 @@ A resource whose `src` interpolates state or `$url` refetches when those values 
 | `$now` | everywhere | current time as a `Date`, refreshed every 60 s; the timer runs only on pages that use it |
 | `$locale` | everywhere | current locale from `configure({ locale })`; assignable in handlers |
 | `$result` | `then` | parsed response body (action); what the load stored (`<sn-resource then>`) |
-| `$error` | `catch` | `{status, body, message, detail}`; `detail` is the server's message or a thrown error's, else `null` |
+| `$error` | `catch`; inside a `<form>` | `{status, body, message, detail}`; `detail` is the server's message or a thrown error's, else `null`. In a form: its last failed send, else `null` (see Server validation errors on the form) |
 | `$meta` | everywhere | per resource status fields (see Resources and store) |
 
 
@@ -715,6 +715,35 @@ When an action fails and has no `data-sn-catch`:
 - If no listener prevented it, `configure({ onError(error, element) })` runs, e.g. to show a toast.
 - Dev builds log every unhandled error to the console.
 Resource load failures set `$meta.<name>.error` and then take the same path, with `detail.resource` set and the mount root as element. A 401 never reaches this path; the login redirect handles it.
+
+### Server validation errors on the form
+A mutation (`data-sn-post`, `-put`, `-patch`, `-delete`) without `data-sn-catch` on a form, or on a control inside one (a `type="button"` Publish button; `form="id"` counts), shows the server's errors without any code (added 2026-11-09). The messages are the server's: sinter puts them on the fields, and the form's markup shows the rest through `$error`.
+```html
+<form data-sn-post="/api/signup">
+  <p data-sn-show="$error && !$error.body?.errors" data-sn-text="$error?.detail"></p>  <!-- a 5xx -->
+  <label>Email <input type="email" name="email"></label>  <!-- `errors.email` goes next to it -->
+  <button>Sign up</button>
+</form>
+```
+- **Fields** (the `fields` feature module, 1.1 KB gzip, loaded by pages with such an action or a form that reads `$error`): by default a 4xx whose JSON body's `errors` is an object of `<name>: message` or `<name>: [message, …]` (Rails, Laravel, RealWorld, ASP.NET's `ValidationProblemDetails`). Each name that is a control of the form (as `form.elements` finds it: its `name`, else its `id`) marks it: every control of the name (radio buttons) gets `aria-invalid="true"`, which temper (and Pico) already style, and its messages (joined with `; `) go into the element the control's `aria-errormessage` names, shown if it was `hidden`, or else into a `<small data-sn-error="<name>" data-tone="danger">` inserted after the control, which `aria-errormessage` and `aria-describedby` then name (an existing `aria-describedby` keeps its ids). The first such control in document order gets focus, once the form's controls are enabled again. Editing a control (`input` or `change`) clears its error; sending the form again clears them all and restores what sinter changed.
+- **`$error` in the form**: inside a `<form>`, `$error` is the form's last failed send, `{status, body, message, detail}` as in `data-sn-catch`, or `null`; it is `null` again when the form is sent again. Any binding reads it, so a summary is plain markup: `<template data-sn-if="$error"><ul><template data-sn-for="m in errorLines($error)">…` with a helper for the lines. The compiler gives a form whose markup reads `$error` a state field of that name (merged into its `data-sn-state`), so it is reactive, typed by `sinter check` (`Err | null`), and assignable in handlers (`$error = null`). Outside a form and outside `data-sn-catch`, `$error` is `SN201`; inside `data-sn-catch` it is the action's own.
+- **Handled**: when every message marked a field, or the form's markup reads `$error`, the failure is shown: no `sn-error`, no `onError`. Otherwise (a name no control has, a 5xx, a network error, in a form that does not read `$error`) it takes the unhandled path as usual, so a toast reports it.
+- **Opting out**: `data-sn-catch` on the action. The app then handles the error itself: no field is marked and nothing counts as shown (`$error` is still set). `GET` actions and `data-sn-call` mark no fields.
+- **Other formats**: `configure({ fieldErrors(error, request) })` (`request`: `{url, method}` of what was sent, to tell APIs apart, as request middleware does) returns `{ <name>: message | [message, …] }`; `null` marks no field; `undefined` leaves the error to the default reading. It is called for every failure of such an action and reads the server's messages out of `error.body`:
+  ```js
+  configure({
+    fieldErrors: (error, { url }) => {
+      const p = error.body?.['invalid-params'];          // RFC 9457
+      if (Array.isArray(p)) return Object.fromEntries(p.map((x) => [x.name, x.reason]));
+      // undefined: the default (`errors`) for the rest
+    },
+  });
+  ```
+  The default reading lives in the fields module, not in the core: an earlier version exported it from the main package for hooks to call, and it then sat in the chunk every page shares (found by comparing RealWorld's home page with `main`, 2026-11-09).
+  JSON:API (`errors[].source.pointer` → the name, `detail` → the message), Django REST Framework (top-level names) and ASP.NET's PascalCase names (`Email` → `email`) are a few lines each the same way. `() => null` marks no field: the form's markup shows everything through `$error`.
+- **Translation**: when the server sends codes instead of text (`{email: ['taken']}`), the hook maps them to the app's messages (Messages): `m.key` is allowed in `src/sinter.config.js` as in any module of the page bundle, and a map of functions keeps them literal: `const text = { taken: () => m.error_taken() }`, then `msgs.map((c) => text[c]?.() ?? c)`. A message the server words in the user's language (`Accept-Language`) needs nothing.
+- RealWorld (2026-11-09): no form has a `data-sn-catch` any more (login, register, settings, the editor, comments). Its markup shows every error in one `<ul class="error-messages">` and marks no field: the config says `fieldErrors: () => null`, and each form holds the list it already had as a partial, reading `$error` instead of a state variable a catch filled (`<template data-sn-if="$error"><ul class="error-messages"><template data-sn-for="m in errors($error)">…`, the `<field> <message>` lines of its `errors()` helper). Its own error tests (`error-handling`, `user-fetch-errors`, mocked API) pass as before (44 of 45; the 45th, deleting another user's comment, fails on `main` too). The pages with a form load the fields module; the article page's budget went from 26 to 27 KB for it. Against `main`, a page with a form loads 1.1–1.2 KB more (the module), the home and profile pages 58 B more (the core's two calls into the module, the happy-dom fix, the config line).
+- Considered and dropped: a `data-sn-errors` element that sinter filled with what no field took (it is what `$error` replaced: data in, markup out, nothing to learn); splitting the fields module so that pages showing only a list load less (about 0.45 KB): which half runs is decided by the hook, which is code, so it would need a markup declaration, for too little gain.
 
 ### Pending state and concurrency
 - While a request is pending, the element gets `aria-busy="true"`. Pico CSS already styles `aria-busy`. Forms in `block` mode are also disabled.

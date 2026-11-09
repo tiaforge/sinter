@@ -185,6 +185,8 @@ interface Ctx {
   stateIdx: number;
   /** inside a `<dialog>` of the same block (page or template) */
   dialog?: boolean;
+  /** inside a `<form>` (template content included): a control's action there reports field errors on it */
+  form?: boolean;
 }
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
@@ -328,7 +330,7 @@ class Compiler {
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'transition'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'transition'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -755,6 +757,7 @@ class Compiler {
     const node: NodeDef = { tag: el.tagName, p: ctx.stateIdx, b: [] };
     const inDialog = ctx.dialog || el.tagName === 'dialog';
     if (inDialog) node.dl = 1;
+    const inForm = ctx.form || el.tagName === 'form';
     const nodeIdx = ctx.list.length;
     let scope = ctx.scope;
     let result: { node: NodeDef; binding: Binding } | null = null;
@@ -780,6 +783,33 @@ class Compiler {
           this.features.add('persist');
         }
         this.stateInits.push({ sid, fields: r.entries!.map((e) => ({ key: e.key, code: e.code, deps: e.deps })), persist: node.persist ?? null });
+      }
+    }
+
+    // a form whose markup reads `$error`: the form's last failed send, as a state field of the form
+    // (merged into its own `data-sn-state`); the runtime sets it when the send fails, null when sent again
+    if (el.tagName === 'form' && readsFormError(el)) {
+      this.features.add('fields');
+      let entry = node.state !== undefined ? scope.states.at(-1)! : null;
+      if (entry) {
+        const init = this.fns[node.state!]!;
+        node.state = this.fn(`($) => Object.assign((${init})($), { $error: null })`);
+        entry.names.add('$error');
+        this.stateInits.find((x) => x.sid === entry!.sid)!.fields.push({ key: '$error', code: '($) => (null)', deps: [] });
+      } else {
+        const sid = this.nextSid++;
+        node.state = this.fn('($) => ({ $error: null })');
+        node.sid = sid;
+        entry = { sid, names: new Set(['$error']) };
+        scope = { ...scope, states: [...scope.states, entry] };
+        this.stateInits.push({ sid, fields: [{ key: '$error', code: '($) => (null)', deps: [] }], persist: null });
+      }
+      if (this.check) {
+        // its own frame, inside the state's: typed as the error or null
+        const e2 = { sid: entry.sid, names: new Set(['$error']) };
+        this.frameOf.set(e2, this.check.frames.length);
+        this.check.frames.push({ kind: 'formError' });
+        scope = { ...scope, states: [...scope.states, e2] };
       }
     }
 
@@ -862,7 +892,7 @@ class Compiler {
 
     if (methods.length > 1) this.report(el, `data-sn-${methods[1]}`, 'SN102', 'an element can have only one method attribute', 0);
     if (methods.length && isCall) this.report(el, 'data-sn-call', 'SN102', 'an element has one action: a method attribute or `data-sn-call`, not both', 0);
-    if (methods.length) this.action(el, node, scope, methods[0]!, get);
+    if (methods.length) this.action(el, node, scope, methods[0]!, get, !!ctx.form || el.attrs.some((x) => x.name === 'form'));
     else if (isCall) this.action(el, node, scope, 'call', get);
     else for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs a method attribute (\`data-sn-get\`, \`-post\`, …) on the same element`, 0);
 
@@ -900,14 +930,14 @@ class Compiler {
     if (content) {
       if (inDialog || this.dlTemplates.has(ctx.tid)) this.dlTemplates.add(content.tid);
       const t = this.templates[content.tid]!;
-      this.walkChildren((el as P5Template).content, { scope: content.scope, list: t.nodes, tid: content.tid, path: [], stateIdx: -1 });
+      this.walkChildren((el as P5Template).content, { scope: content.scope, list: t.nodes, tid: content.tid, path: [], stateIdx: -1, form: inForm });
     } else if (isTemplate) {
       if (hasSnDeep((el as P5Template).content)) {
         this.report(el, null, 'SN102', 'directives inside a `<template>` need `data-sn-for` or `data-sn-if` on it', 0);
       }
     } else {
       this.walkChildren(el, {
-        ...ctx, scope, dialog: inDialog,
+        ...ctx, scope, dialog: inDialog, form: inForm,
         stateIdx: node.state !== undefined && hasDirectives ? nodeIdx : ctx.stateIdx,
         path: ctx.tid >= 0 ? [...ctx.path, index] : ctx.path,
       });
@@ -1280,7 +1310,7 @@ class Compiler {
     node.b.push(b);
   }
 
-  action(el: P5Element, node: NodeDef, scope: Scope, method: typeof METHODS[number] | 'call', get: (n: string) => string | undefined) {
+  action(el: P5Element, node: NodeDef, scope: Scope, method: typeof METHODS[number] | 'call', get: (n: string) => string | undefined, inForm = false) {
     // arguments and body are taken when the trigger fires, so they see its event
     const call = method === 'call' ? this.callExpr(el, 'data-sn-call', scope, undefined, ['$event']) : null;
     if (method === 'call' && get('body') !== undefined) this.report(el, 'data-sn-body', 'SN102', '`data-sn-body` belongs to a method attribute; a call takes its arguments in `data-sn-call`', 0);
@@ -1327,6 +1357,9 @@ class Compiler {
       this.features.add('apply');
       if (then.r?.ast) this.redundantWrites(el, then.r, ap, url, method, typed?.path ?? null);
     }
+    // server validation errors shown on the fields (fields.ts): forms that send a mutation and leave errors to sinter
+    // (a form's own action, or a control's inside one, as the editor's Publish button in RealWorld)
+    if ((isForm || (inForm && (tag === 'button' || FORM_CONTROLS.has(tag)))) && method !== 'call' && method !== 'get' && get('catch') === undefined) this.features.add('fields');
     const def: ActionDef = {
       method: method.toUpperCase() as ActionDef['method'], url, body: body.f, trigger, debounce, concurrency,
       optimistic: optimistic.f, then: then.f, catch: catch_.f, w: [...new Set([...then.w, ...catch_.w])].sort(), form: isForm,
@@ -2143,6 +2176,14 @@ function setAttr(el: P5Element, name: string, value: string) {
 
 function stripSn(el: P5Element) {
   el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-'));
+}
+
+/** Whether a form's markup reads `$error` (outside `data-sn-catch`, where `$error` is the action's own). */
+function readsFormError(el: P5Element): boolean {
+  const reads = (e: P5Element): boolean =>
+    e.attrs.some((a) => a.name.startsWith('data-sn-') && a.name !== 'data-sn-catch' && /\$error\b/.test(a.value))
+    || (e.tagName === 'template' ? (e as P5Template).content.childNodes : e.childNodes).some((c) => isElement(c) && reads(c));
+  return reads(el);
 }
 
 function hasSnDeep(parent: P5Parent): boolean {
