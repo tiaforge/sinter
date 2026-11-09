@@ -21,7 +21,6 @@ import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { ImageHost, ImageVariant, PrefetchParts, StyleSheet } from './compiler/index.js';
 import { hasCspMeta, pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { fontDownloader, inlineFonts } from './fonts-build.js';
-import { codeSplitting, mergeRuntime, type ChunkOptions } from './chunks-build.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -87,19 +86,9 @@ export interface SinterOptions extends ProjectOptions {
    * a build that cannot download one keeps the link and warns. `{ inline: false }`: off.
    */
   fonts?: { inline?: boolean };
-  /**
-   * Chunks of a multi-page build (Vite 8, whose bundler is Rolldown; Vite 6 and 7 keep their own):
-   * a chunk that pages share and that is smaller than `minSize` (default 10000 bytes of code before
-   * minifying) is copied into the bundles that import it, so a page loads fewer files; larger shared
-   * chunks stay shared, lazy (`import()`) chunks stay lazy, and a chunk a lazy one also uses stays
-   * shared. `runtime` (default true): sinter's own modules that pages share are one chunk,
-   * `assets/sinter-<hash>.js`. Off for a single page, and when the build's output configures its own
-   * chunking (`codeSplitting`, `advancedChunks`, `manualChunks`). `false`: Vite's chunks.
-   */
-  chunks?: false | ChunkOptions;
 }
 
-type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin, Plugin, Plugin];
+type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin, Plugin];
 
 /** a base Vite resolves per file (`./`, ''): its URLs are relative to the page or stylesheet */
 const relativeBase = (base: string) => base === '' || base.startsWith('.');
@@ -138,9 +127,6 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const unlisted = new Set<string>();
   const earlyFiles = new Map<string, { fileName: string; code: string; modules: Record<string, { renderedLength: number }>; stub?: string }>();
   const budget = options.earlyBudget ?? 10_000;
-  /** build: the chunk policy (`chunks`), decided in the `options` hook; the modules it builds as side-effect free */
-  let chunking: ReturnType<typeof codeSplitting> = null;
-  const pure = new Set<string>();
   /** built-in messages: keys each module calls (`m.key`), keys each page's markup calls, and each page's language files */
   const moduleMessages = new Map<string, string[]>();
   const markupMessages = new Map<string, string[]>();
@@ -344,32 +330,6 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       });
     },
 
-    /**
-     * build: the chunk policy (`chunks`), decided from the input before Rolldown asks for the output
-     * options (Vite sets `preserveEntrySignatures: false` for apps, which inlining needs)
-     */
-    options(input) {
-      chunking = null;
-      pure.clear();
-      if (dev || options.chunks === false || !('rolldownVersion' in this.meta) || resolved!.build.lib || resolved!.build.ssr) return null;
-      if ((this as { environment?: { config?: { consumer?: string } } }).environment?.config?.consumer === 'server') return null;
-      const list = typeof input.input === 'string' ? [input.input] : Array.isArray(input.input) ? input.input : Object.values(input.input ?? {});
-      const pages = list.filter((f) => typeof f === 'string' && f.endsWith('.html')).length;
-      const output = (resolved!.build as { rolldownOptions?: { output?: unknown } }).rolldownOptions?.output;
-      chunking = Array.isArray(output) ? null : codeSplitting(options.chunks || {}, (output ?? {}) as Parameters<typeof codeSplitting>[1], pages, input.preserveEntrySignatures);
-      if (chunking?.experimentalInlineCommonChunks) {
-        const p = project(root, options);
-        for (const f of [p.helpersFile, p.actionsFile]) if (f) pure.add(f);
-      }
-      return null;
-    },
-
-    /** build: the chunk policy on the output (`chunks`) */
-    outputOptions(output) {
-      if (!chunking || (output as { codeSplitting?: unknown }).codeSplitting !== undefined) return null;
-      return { ...output, codeSplitting: chunking } as typeof output;
-    },
-
     /** build: the pages that have something to run early (bundled into one file each in generateBundle) */
     buildStart(input) {
       unhashedPages = 0;
@@ -508,8 +468,6 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     transform(code, id) {
       collect(this, code, id);
-      // the chunk policy: the helpers and actions modules are side-effect free (see chunks-build.ts)
-      if (pure.size && pure.has(id.replace(/\?.*$/, ''))) return { code, map: null, moduleSideEffects: false };
       return null;
     },
 
@@ -757,18 +715,5 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return url ? ((await downloadFont!(url)) ?? '') : null;
     },
   };
-  // the chunk policy, after bundling and before Vite writes the pages' modulepreload links and the
-  // lazy chunks' dependency lists: Rolldown's runtime helpers into the `sinter` chunk (chunks-build.ts)
-  const chunks: Plugin = {
-    name: 'sinter:chunks',
-    apply: 'build',
-    generateBundle: {
-      order: 'pre',
-      handler(_, bundle) {
-        if (!chunking?.experimentalInlineCommonChunks || !chunking.groups) return;
-        mergeRuntime(bundle as unknown as Parameters<typeof mergeRuntime>[0]);
-      },
-    },
-  };
-  return [main, post, cssImages, fonts, chunks];
+  return [main, post, cssImages, fonts];
 }

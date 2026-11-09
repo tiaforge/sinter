@@ -3,6 +3,21 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Removed
+
+- The chunk policy of 0.11.0 (`sinter({ chunks })`: small shared chunks copied into the pages, sinter's
+  runtime as one shared file) is gone; builds use Vite's chunks again. Measured on Caley over HTTP/2 + TLS +
+  gzip, as a reverse proxy serves it (cold loads, 40 and 300 ms round trips, median of 5): Vite's chunks,
+  the 0.11.0 default, copying without the runtime file, one bundle per page and one bundle per page with a
+  shared runtime all painted and showed content within 15 ms of each other. Vite's shared chunks already hold
+  only what the pages using them need; merging only saved requests, which HTTP/2 makes cheap, and added bytes
+  (one runtime file with every feature: 8-11 kB gzip more on light pages; module wrappers from the forced
+  execution order). It helped only over HTTP/1.1, which a reverse proxy fixes for every app, and it relied on
+  an experimental Rolldown option and a rewrite of the build output. `chunks` is no longer an option of
+  `sinter({ … })`: TypeScript reports it, the build ignores it; remove it.
+
 ## 0.11.0 (2026-11-09)
 
 ### Added
