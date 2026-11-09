@@ -23,6 +23,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   - Action functions' runtime part (`data-sn-call`, `<sn-resource call>`: the call context, the pagehide
     signal, a thrown value as `$error`) moved into `@tiaforge-ui/sinter/call` (0.4 KB gzip), imported
     only by pages that call one: core −127 B.
+  - Debounced handlers and actions (`data-sn-debounce`, `data-sn-debounce-<event>`) moved into
+    `@tiaforge-ui/sinter/debounce` (0.2 KB gzip), imported only by pages with one: core −67 B.
   - The dev warning for duplicate `data-sn-for` keys moved into the dev module: core −43 B.
   - The Vite plugin turns off Vite's modulepreload polyfill unless the app sets `build.modulePreload`'s
     `polyfill` (or `modulePreload: false`): every browser sinter's pages need preloads modules natively.

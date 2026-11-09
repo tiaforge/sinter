@@ -160,6 +160,8 @@ export interface App {
     /** an action is sent: the form's marks and `$error` are cleared; the function reports a failure, true when the form shows it */
     /** action functions (call.ts): runs one with its context (an action's signal aborts on pagehide); what one throws as an `$error` */
     call?: { run(f: number, args: unknown, el: Element | null, signal?: AbortSignal): Promise<unknown>; error(e: unknown): SinterError };
+    /** debounced handlers and actions (debounce.ts): runs `run` once, `ms` after the last call for `key` */
+    debounce?: (key: object, ms: number, run: () => void) => void;
     /** `$url` was written: the query string follows (location.ts) */
     location?: () => void;
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
@@ -287,7 +289,6 @@ interface ActState {
   c: AbortController | null;
   /** the running write's retry: aborted when a newer `latest` trigger replaces it while it waits */
   r: AbortController | null;
-  t: unknown;
   off: HTMLInputElement[] | null;
 }
 
@@ -407,8 +408,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Elements written through callbacks (`$.$m(row, …)`) since the last flush. */
   const marked = new Set<unknown>();
-  /** debounced handlers' pending timers */
-  const timers = new WeakMap<RB, unknown>();
   /** Per flush round: how dirty paths reach a template's rows (0 not, 1 only marked elements, 2 any row). */
   let rowHits = new Map<TemplateDef, number>();
   /** Per flush round: the rows of a template the round's changes select by their index (null: any row). */
@@ -1153,7 +1152,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     for (; el; el = el.parentElement) {
       const h = handlersOf(el as Tagged), hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
       if (hs?.length) {
-        for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? later(h, e) : handle(h, h.b.f!, e, h.b.w);
+        // a debounced handler (debounce.ts) runs once, with the last event, if its element is still on the page
+        for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? app.ext.debounce!(h, h.b.ms, () => h.el.isConnected && handle(h, h.b.f!, e, h.b.w)) : handle(h, h.b.f!, e, h.b.w);
         // a bubbling custom event is a notification: it goes on up until a handler prevents it. Otherwise handled:
         // any handler or action ran; for keys, a filter matched (it prevents the default), an action or a
         // debounced handler ran, or a plain handler prevented the default. A key it did not prevent goes on up.
@@ -1168,15 +1168,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     app.exec(f, child(rb.s, { $el: rb.el, $event: e, $f: app.storeFns(rb.el), ...extra }), writes, rb.b);
   }
 
-  /** A debounced handler: runs once `ms` after the last event, with that event. */
-  function later(rb: RB, e: Event) {
-    const t = timers.get(rb);
-    if (t) { env.clearTimeout(t); app.busy--; }
-    app.busy++;
-    // the element may have left the page (its row removed) while the handler waited
-    timers.set(rb, env.setTimeout(() => { timers.delete(rb); app.busy--; if (rb.el.isConnected) handle(rb, rb.b.f!, e, rb.b.w); }, rb.b.ms!, 'debounce'));
-  }
-
   // ---- actions
 
   /** `e` is null for `run()`: no event, no default to prevent */
@@ -1184,15 +1175,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const a = ir.actions[rb.b.x!]!, el = rb.el;
     // an action does not end a custom event's walk: it prevents only native defaults
     if (e && !(e instanceof CustomEvent) && (e.type == 'submit' || el.localName == 'a' || (e.type == 'click' && /^(button|input)$/.test(el.localName) && el.closest('form')))) e.preventDefault();
-    if (!a.debounce) return fire(rb, a, e);
-    const st = act(el);
-    if (st.t) { env.clearTimeout(st.t); app.busy--; }
-    app.busy++;
-    st.t = env.setTimeout(() => { st.t = null; app.busy--; fire(rb, a, e); }, a.debounce, 'debounce');
+    a.debounce ? app.ext.debounce!(el, a.debounce, () => fire(rb, a, e)) : fire(rb, a, e);
   }
 
   function act(el: Element): ActState {
-    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, c: null, r: null, t: null, off: null });
+    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, c: null, r: null, off: null });
     return acts.get(el)!;
   }
 

@@ -383,7 +383,7 @@ class Compiler {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'transition'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'transition'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -946,6 +946,7 @@ class Compiler {
       }
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'] });
       const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
+      if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
     }
 
@@ -1500,7 +1501,7 @@ class Compiler {
     const def: ActionDef = {
       method: method.toUpperCase() as ActionDef['method'], url, concurrency,
       ...(body.f !== null ? { body: body.f } : {}),
-      ...(debounce ? { debounce } : {}),
+      ...(debounce ? (this.features.add('debounce'), { debounce }) : {}),
       ...(optimistic.f !== null ? { optimistic: optimistic.f } : {}),
       ...(then.f !== null ? { then: then.f } : {}),
       ...(catch_.f !== null ? { catch: catch_.f } : {}),

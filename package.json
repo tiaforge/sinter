@@ -52,6 +52,7 @@
     "./select": "./dist/select.js",
     "./location": "./dist/location.js",
     "./call": "./dist/call.js",
+    "./debounce": "./dist/debounce.js",
     "./transition": "./dist/transition.js",
     "./early": "./dist/early.js",
     "./messages": "./dist/messages.js",

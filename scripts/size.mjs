@@ -46,6 +46,7 @@ const entries = {
   select: `export { default } from '${dist}/select.js';`,
   location: `export { default } from '${dist}/location.js';`,
   call: `export { default } from '${dist}/call.js';`,
+  debounce: `export { default } from '${dist}/debounce.js';`,
   transition: `export { default } from '${dist}/transition.js';`,
   remote: `export { remote } from '${dist}/remote.js';`,
   dev: `export { default } from '${dist}/dev.js';`,
