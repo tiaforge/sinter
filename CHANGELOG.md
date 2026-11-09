@@ -5,6 +5,16 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- `npm create @tiaforge-ui` (`packages/create`, released with sinter): a new app with sinter and temper, a
+  task board on a demo API that runs inside Vite (`server/api.js`). It shows a typed resource with `cache`,
+  `<sn-sync>` updates across tabs, optimistic changes that roll back ("Fail next change" makes the server
+  refuse one), a form dialog, a key filter, `data-sn-persist`, an island (a canvas chart: `data-sn-prop` in,
+  a `CustomEvent` out), next-page data and a page transition, and `typecheck: true` with temper's Vite
+  plugin; its README lists typos that fail the build. `npm run release` bumps its version and the sinter
+  version new apps get.
+
 ### Removed
 
 - The chunk policy of 0.11.0 (`sinter({ chunks })`: small shared chunks copied into the pages, sinter's

@@ -1,0 +1,19 @@
+{
+  "name": "tiaforge-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "sinter check && temper check ."
+  },
+  "dependencies": {
+    "@tiaforge-ui/sinter": "^0.11.0",
+    "@tiaforge-ui/temper": "^0.1.7"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}

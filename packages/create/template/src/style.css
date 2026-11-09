@@ -1,0 +1,21 @@
+/* temper styles the HTML itself; this file only picks the modules and the brand. */
+@import '@tiaforge-ui/temper/core.css';
+@import '@tiaforge-ui/temper/feedback.css'; /* toasts */
+@import '@tiaforge-ui/temper/icons.css';
+
+/* Rebrand with two numbers: every color derives from them, in light and dark mode. Try 20 or 200. */
+:root {
+  --tm-hue: 290;
+  --tm-chroma: 0.16;
+}
+
+/* The app's own component: the island. */
+task-chart {
+  display: block;
+  inline-size: 9rem;
+  aspect-ratio: 1;
+  cursor: pointer;
+}
+task-chart canvas {
+  display: block;
+}

@@ -41,6 +41,9 @@ const edits = [
   // The root package's version, at the top and under packages[""].
   ['package-lock.json', (s) => s.replace(/^(  "version": )"[^"]*"/m, `$1"${version}"`)
     .replace(/(\n    "": \{\n      "name": "[^"]*",\n      "version": )"[^"]*"/, `$1"${version}"`)],
+  // npm create @tiaforge-ui: released with sinter, and new apps get this version
+  ['packages/create/package.json', (s) => s.replace(/("version": )"[^"]*"/, `$1"${version}"`)],
+  ['packages/create/template/package.json', (s) => s.replace(/("@tiaforge-ui\/sinter": )"[^"]*"/, `$1"^${version}"`)],
   ['bench/js-framework-benchmark/package.json', (s) => s.replace(/("frameworkVersion": )"[^"]*"/, `$1"${version}"`)],
   ['README.md', (s) => s.replace(/sinter is at v\d+\.\d+/, `sinter is at v${major}.${minor}`)],
   ['CHANGELOG.md', (s) => s.replace(/^## Unreleased$/m, `## ${version} (${date})`)],
@@ -77,3 +80,4 @@ git('tag', '-a', tag, '-m', `sinter ${version}`);
 
 console.log(`Released ${version}: commit "Release ${version}", tag ${tag}.`);
 console.log(`Push with: git push origin HEAD ${tag}`);
+console.log('Publish sinter, then packages/create (npm publish in each).');

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Task</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<!-- /task.html?id=…: one task. Its data was requested while the pointer rested on the link,
+     so it shows at once. -->
+<body data-sn-state="{ armed: false }" data-sn-on-sn-error="armed = false">
+
+  <sn-resource name="task" src="/api/tasks/{$url.id}" type="Task"></sn-resource>
+
+  <!-- Only events about this task: an edit in another tab shows here, a delete empties the page. -->
+  <sn-sync src="/api/events">
+    <sn-event name="task_updated" resource="task" op="upsert" item="task" when="task.id === $url.id" type="TaskEvent"></sn-event>
+    <sn-event name="task_removed" resource="task" op="remove" when="id === $url.id" type="TaskRemoved"></sn-event>
+  </sn-sync>
+
+  <sn-include src="./partials/header.html"></sn-include>
+
+  <main data-layout="center" data-gap="lg" data-pad="lg" style="--tm-measure: 48rem">
+    <a href="/" data-icon="arrow-left" data-layout="row" data-gap="xs" data-self="start">All tasks</a>
+    <!-- The same transition name as the link on the list: the title morphs into this heading. -->
+    <h1 data-sn-transition="'task-' + $url.id" data-sn-text="task ? task.title : ''"></h1>
+
+    <template data-sn-if="task">
+      <article data-layout="stack" data-gap="md">
+        <div data-layout="row" data-gap="sm" data-justify="between">
+          <span data-badge data-sn-attr="{ 'data-tone': task.done ? 'success' : 'accent' }"
+                data-sn-text="task.done ? 'Done' : 'Open'"></span>
+          <small data-muted data-sn-text="'Created ' + datetime(task.createdAt)"></small>
+        </div>
+
+        <!-- Edit a copy; saving sends it, and the response updates `task`. -->
+        <form data-layout="stack" data-gap="md" data-sn-state="{ draft: { title: task.title, notes: task.notes } }"
+              data-sn-patch="/api/tasks/{task.id}" data-sn-body="draft">
+          <label>Title <input data-sn-model="draft.title" required></label>
+          <label>Notes <textarea rows="5" data-sn-model="draft.notes"></textarea></label>
+          <footer>
+            <button type="button" data-variant="secondary"
+                    data-sn-patch="/api/tasks/{task.id}" data-sn-body="{ done: !task.done }"
+                    data-sn-optimistic="patch('task', task, { done: !task.done })"
+                    data-sn-text="task.done ? 'Reopen' : 'Mark done'"></button>
+            <button>Save</button>
+          </footer>
+        </form>
+      </article>
+    </template>
+
+    <template data-sn-if="!task && ($meta.task.error || $meta.task.loadedAt)">
+      <div data-callout data-tone="warning" role="status">
+        <strong>This task is gone</strong>
+        It was deleted, or the link is wrong. <a href="/">Back to all tasks</a>
+      </div>
+    </template>
+  </main>
+
+  <div data-toasts role="status"></div>
+</body>
+</html>

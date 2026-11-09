@@ -104,6 +104,13 @@ Measurements and sources: [`docs/realworld-comparison.md`](docs/realworld-compar
 
 ## Setup
 
+To start from a working app instead, `npm create @tiaforge-ui` creates a small task board with
+sinter, [temper](https://github.com/tiaforge/temper) for the styles and a demo API inside Vite: live
+updates across tabs, optimistic changes that roll back, an island, and the build-time checks
+([`packages/create`](packages/create)).
+
+To add sinter to a project:
+
 ```sh
 npm install @tiaforge-ui/sinter
 ```
