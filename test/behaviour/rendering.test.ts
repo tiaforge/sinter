@@ -92,6 +92,29 @@ test('keyed lists keep nodes, reorder and remove rows', async () => {
   expect(app).toBeDefined();
 });
 
+test('swapping two rows moves only them: adjacent or apart, rows of several nodes, rows after them', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ items: [1, 2, 3, 4, 5].map((id) => ({ id })) }">
+      <section><template data-sn-for="(it, i) in items" data-sn-key="it.id"><h3 data-sn-text="it.id"></h3><p data-sn-text="i"></p></template></section>
+      <button id="far" data-sn-on-click="items.splice(1, 1, items.splice(3, 1, items[1])[0])">far</button>
+      <button id="near" data-sn-on-click="items.splice(0, 1, items.splice(1, 1, items[0])[0])">near</button>
+    </div>`);
+  const text = () => [...root.querySelectorAll('section > :not(template)')].map((e) => e.textContent).join(' ');
+  const h3 = () => [...root.querySelectorAll('h3')];
+  const before = h3();
+  root.querySelector<HTMLElement>('#far')!.click();
+  await flush();
+  // ids 2 and 4 traded places; each row's index follows; the nodes are the same
+  expect(text()).toBe('1 0 4 1 3 2 2 3 5 4');
+  expect(h3()).toEqual([before[0], before[3], before[2], before[1], before[4]]);
+  root.querySelector<HTMLElement>('#near')!.click();
+  await flush();
+  expect(text()).toBe('4 0 1 1 3 2 2 3 5 4');
+  expect(h3()).toEqual([before[3], before[0], before[2], before[1], before[4]]);
+  // the list stays in place before what follows it
+  expect(root.querySelector('section')!.lastElementChild!.tagName).toBe('P');
+});
+
 test('if/else switch branches and nested lists render inside them', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ show: false, xs: ['a', 'b'] }">

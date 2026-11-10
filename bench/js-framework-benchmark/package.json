@@ -19,6 +19,8 @@
     "@tiaforge-ui/sinter": "file:../.."
   },
   "devDependencies": {
+    "@ivi/rolldown": "5.0.0",
+    "ivi": "5.1.0",
     "vite": "8.3.5"
   }
 }

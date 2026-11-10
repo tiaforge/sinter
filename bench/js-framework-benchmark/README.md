@@ -22,3 +22,17 @@ node <this folder>/compare.mjs results   # markdown table
 ```
 
 Add `--chromeBinary <path>` if Chrome is not on the default path.
+
+## sinter against itself
+
+`self.mjs` times this page's operations in headless Chrome without a js-framework-benchmark checkout:
+two or more builds, page loads alternating, script time (click until the render's microtasks are
+done) and total (also laid out), and the JS heap after GC (ready, 1,000 rows, five create-and-clear
+cycles). `ivi/` is the same page in ivi 5.1, as a reference.
+
+```sh
+npm run build                                   # in the repo root, for each sinter variant
+npx vite build --outDir dist-a                  # one build per variant
+npx vite build -c vite.ivi.config.js            # dist-ivi
+CHROME=/path/to/chrome node self.mjs dist-a dist-b dist-ivi [--loads 6] [--reps 10]
+```
