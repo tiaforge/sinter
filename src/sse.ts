@@ -117,7 +117,8 @@ class Connection {
   }
 
   private event(name: string, payload: unknown): void {
-    for (const [def, base] of this.subs) if (def.name === name) this.apply(def, base, payload);
+    // rendered with the next frame: a burst of events renders once
+    this.app.streamed(() => { for (const [def, base] of this.subs) if (def.name === name) this.apply(def, base, payload); });
     this.app.serverEvent(name, payload);
   }
 

@@ -2,23 +2,27 @@
 // (mock-api.mjs), so only the builds differ. Runs alternate between A and B (machine drift hits
 // both alike); each audit gets a new Chrome and profile. Prints the median of each metric.
 //
-//   node ab.mjs --a dist-a --b dist-b [--runs 7] [--pages /,/article/article-25] [--warm]
+//   node ab.mjs --a dist-a --b dist-b [--runs 7] [--pages /,/article/article-25] [--warm] [--b-axum] [--forms mobile]
 //
 // `--warm`: also each page opened after the index page in the same profile, cache kept (the
 // index's audit is discarded): what a reader following a link downloads.
+// `--b-axum`: B is served by sinter-axum's RealWorld server (axum.mjs; build B with SINTER_EMBED=1),
+// which fetches each page's data from the same mock API and writes it into the page.
 import { parseArgs } from 'node:util';
 import * as chromeLauncher from 'chrome-launcher';
 import lighthouse, { desktopConfig } from 'lighthouse';
+import { serveAxum } from './axum.mjs';
 import { mockApi } from './mock-api.mjs';
 import { serve } from './serve.mjs';
 
 const { values: opt } = parseArgs({ options: {
   a: { type: 'string' }, b: { type: 'string' }, runs: { type: 'string', default: '7' },
   pages: { type: 'string', default: '/,/article/article-25,/profile/author1,/login' }, warm: { type: 'boolean' },
+  'b-axum': { type: 'boolean' }, forms: { type: 'string', default: 'mobile,desktop' },
 } });
 const runs = Number(opt.runs), pages = opt.pages.split(',');
 const api = await mockApi();
-const servers = { A: await serve({ dist: opt.a }), B: await serve({ dist: opt.b }) };
+const servers = { A: await serve({ dist: opt.a }), B: opt['b-axum'] ? await serveAxum({ dist: opt.b, api: api.http }) : await serve({ dist: opt.b }) };
 
 async function audit(urls, config) {
   const chrome = await chromeLauncher.launch({
@@ -43,7 +47,7 @@ const metric = (lhr) => {
 const median = (xs) => { const s = [...xs].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
 
 const cases = [];
-for (const [form, config] of [['mobile', undefined], ['desktop', desktopConfig]]) {
+for (const [form, config] of [['mobile', undefined], ['desktop', desktopConfig]].filter(([f]) => opt.forms.split(',').includes(f))) {
   for (const page of pages) {
     cases.push({ form, config, page, warm: false });
     if (opt.warm && page !== '/') cases.push({ form, config, page, warm: true });
@@ -68,7 +72,7 @@ try {
 }
 
 const ms = (n) => `${Math.round(n)}`;
-console.log(`\nMedian of ${runs} runs each; A = ${opt.a}, B = ${opt.b}. Times in ms, JS transferred in KB (brotli).\n`);
+console.log(`\nMedian of ${runs} runs each; A = ${opt.a}, B = ${opt.b}${opt['b-axum'] ? ' (sinter-axum)' : ''}. Times in ms, JS transferred in KB (brotli).\n`);
 console.log('| form | page | perf A/B | FCP A | FCP B | LCP A | LCP B | SI A | SI B | TBT A | TBT B | JS A | JS B | JS req A/B | req A/B |');
 console.log('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
 for (const r of rows) {

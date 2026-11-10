@@ -214,6 +214,13 @@ export interface App {
    */
   mark(path: number | string, scope?: any, typing?: boolean): void;
   flush(): void;
+  /**
+   * Runs `fn`, a server event's changes: what it marks is rendered before the next frame is painted
+   * rather than in a microtask, so many events in one frame render once. Anything else that marks
+   * (a handler, a response) still flushes at once, with these changes. Hidden pages and environments
+   * without frames (the testing module) flush in a microtask, as for any change.
+   */
+  streamed(fn: () => void): void;
   /** records `change` as optimistic layers; the returned function settles them: committed when `ok`, else rolled back */
   record(change: () => void): (ok?: boolean) => void;
   storeFns(el: Element | null): Record<string, (...a: any[]) => unknown>;
@@ -370,6 +377,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const dialog = (id: string) => byId(id, 'dialog') as HTMLDialogElement | undefined;
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element>();
   let dirty: Dirty[] = [], cur: Dirty[] = [], scheduled = false, flushing = false, round = 0, destroyed = false;
+  /** inside `streamed()`; a flush waits for the next frame */
+  let streaming = 0, framed = false;
   /** dirty paths of this round that keystrokes in text fields produced */
   const typed = new Set<Dirty>();
 
@@ -579,7 +588,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
       const d: Dirty = { w, v: w < 0 ? [] : slots(w).map((n) => (s ? '' + s[n] : '{' + n + '}')) };
       dirty.push(d);
       if (typing) typed.add(d);
-      if (!scheduled && !flushing) { scheduled = true; env.queueMicrotask(app.flush); }
+      if (scheduled || flushing) return;
+      if (streaming && env.frame && !env.hidden?.()) {
+        // a frame flush only runs when no microtask flush took these changes first
+        if (!framed) { framed = true; env.frame(() => { framed = false; if (!scheduled && dirty.length) app.flush(); }); }
+      } else { scheduled = true; env.queueMicrotask(app.flush); }
+    },
+    streamed(fn) {
+      streaming++;
+      try { fn(); } finally { streaming--; }
     },
     flush() {
       scheduled = false;

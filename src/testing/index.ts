@@ -200,6 +200,11 @@ export interface RenderOptions {
   locale?: string;
   /** start time of sinter's clock */
   now?: number | Date;
+  /**
+   * browser frames: changes from server events wait for the next frame, which `frame()` runs (default:
+   * no frames, so they flush in a microtask like any change, and `flush()` shows them)
+   */
+  frames?: boolean;
   /** helper functions, and namespaces as objects of functions */
   helpers?: Record<string, unknown>;
   /** action functions for `data-sn-call` and `<sn-resource call>`, and namespaces as objects of functions */
@@ -255,6 +260,8 @@ export interface Rendered {
   url(): string;
   /** hides or shows the page (a background tab), then dispatches `visibilitychange` */
   visibility(state: 'hidden' | 'visible'): Promise<void>;
+  /** with `frames`: runs what waits for the next frame (the browser's requestAnimationFrame) */
+  frame(): Promise<void>;
   /** dispatches a window event to sinter; `props` are set on the event (`pageswap`/`pagereveal`: `viewTransition`, `activation`) */
   window(type: 'pagehide' | 'pageshow' | 'popstate' | 'online' | 'beforeunload' | 'pageswap' | 'pagereveal', props?: Record<string, unknown>): Promise<void>;
 }
@@ -400,6 +407,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   const store = options.storage ?? memoryStorage(), session = options.session ?? memoryStorage();
   const winListeners = new Map<string, Set<(e: Event) => void>>();
   let hidden = false;
+  const frameQueue: Array<() => void> = [];
   const env: Env = {
     now: () => now,
     setTimeout: (fn, ms, kind = 'timeout') => { const t = { id: nextTimer++, at: now + ms, fn, kind }; timers.push(t); return t.id; },
@@ -413,6 +421,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     replaceState: (url) => { href = new URL(url, href).href; },
     random: () => 0.5,
     hidden: () => hidden,
+    ...(options.frames ? { frame: (fn: () => void) => { frameQueue.push(fn); } } : {}),
     listen: (type, fn) => {
       if (!winListeners.has(type)) winListeners.set(type, new Set());
       winListeners.get(type)!.add(fn);
@@ -520,6 +529,11 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   return {
     root: doc.body, app, flush, settle, advance, navigations,
     url: () => href,
+    frame: async () => {
+      for (let j = 0; j < 10; j++) await Promise.resolve();
+      for (const fn of frameQueue.splice(0)) fn();
+      check();
+    },
     visibility: async (state) => {
       hidden = state === 'hidden';
       for (const fn of winListeners.get('visibilitychange') ?? []) fn(new Event('visibilitychange'));

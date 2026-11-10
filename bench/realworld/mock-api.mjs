@@ -3,9 +3,11 @@
 // third-party stylesheet hosts, to this server (`--host-resolver-rules`, `--ignore-certificate-errors`;
 // `--no-proxy-server`: a Chrome that picks up a proxy from the environment resolves hosts there, not here).
 // Signed out only: GETs of articles, an article, its comments, tags and a profile; stylesheets empty.
+// The same API over plain HTTP at `api.http`, for a server that fetches the pages' data (sinter-axum).
 //   const api = await mockApi(); … api.flags (Chrome flags) … await api.close();
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,10 +50,10 @@ export async function mockApi({ port = 0 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'mock-api-'));
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
     '-keyout', join(dir, 'key.pem'), '-out', join(dir, 'cert.pem')], { stdio: 'ignore' });
-  const server = createServer({ key: readFileSync(join(dir, 'key.pem')), cert: readFileSync(join(dir, 'cert.pem')) }, (req, res) => {
+  const handle = (api) => (req, res) => {
     const cors = { 'Access-Control-Allow-Origin': req.headers.origin ?? '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE', Vary: 'Origin' };
     if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
-    if (req.headers.host?.startsWith('api.')) {
+    if (api || req.headers.host?.startsWith('api.')) {
       const out = route(req.url);
       res.writeHead(out ? 200 : 404, { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
       return res.end(JSON.stringify(out ?? { errors: { body: ['not found'] } }));
@@ -59,11 +61,16 @@ export async function mockApi({ port = 0 } = {}) {
     // the stylesheets: empty, as fast as a cached CDN copy
     res.writeHead(200, { 'Content-Type': 'text/css', 'Cache-Control': 'public, max-age=31536000' });
     res.end('');
-  });
+  };
+  const server = createServer({ key: readFileSync(join(dir, 'key.pem')), cert: readFileSync(join(dir, 'cert.pem')) }, handle(false));
+  const http = createHttpServer(handle(true));
   await new Promise((ok) => server.listen(port, '127.0.0.1', ok));
+  await new Promise((ok) => http.listen(0, '127.0.0.1', ok));
   const at = `127.0.0.1:${server.address().port}`;
+  const shut = (s) => new Promise((ok) => { s.closeAllConnections(); s.close(ok); });
   return {
     flags: [`--host-resolver-rules=${HOSTS.map((h) => `MAP ${h} ${at}`).join(', ')}`, '--ignore-certificate-errors', '--no-proxy-server'],
-    close: () => new Promise((ok) => { server.closeAllConnections(); server.close(() => { rmSync(dir, { recursive: true, force: true }); ok(); }); }),
+    http: `http://127.0.0.1:${http.address().port}`,
+    close: async () => { await Promise.all([shut(server), shut(http)]); rmSync(dir, { recursive: true, force: true }); },
   };
 }

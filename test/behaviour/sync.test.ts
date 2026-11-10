@@ -379,3 +379,50 @@ test('`then` without resource and op only runs the handler; `when` gates it; a p
   await flush();
   expect(text()).toBe('hello 0 0');
 });
+
+test('server events render with the next frame: a burst renders once; a handler still renders at once', async () => {
+  const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] } });
+  const stream = mockStream();
+  const { root, frame, app, settle } = await render(`
+    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
+    <div data-sn-state="{ n: 0, clicks: 0 }">
+      <sn-sync src="/api/events/stream">
+        <sn-event name="contact_patched" resource="contacts" op="patch" set="{name}" then="n = n + 1"></sn-event>
+      </sn-sync>
+      <b data-sn-text="n"></b> <i data-sn-text="clicks"></i>
+      <button data-sn-on-click="clicks = clicks + 1"></button>
+      <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>
+    </div>`, { requests, streams: { '/api/events/stream': stream }, frames: true });
+  await settle();
+  await frame();
+  const flushes: number[] = [];
+  app.afterFlush.push(() => flushes.push(1));
+  for (const name of ['B', 'C', 'D']) stream.emit('contact_patched', { id: 1, name });
+  for (let j = 0; j < 10; j++) await Promise.resolve();
+  // applied to the store and state at once, rendered with the frame
+  expect(names(root)).toEqual(['Ada']);
+  expect(app.resource('contacts').all()[0]).toMatchObject({ name: 'D' });
+  await frame();
+  expect(names(root)).toEqual(['D']);
+  expect(root.querySelector('b')!.textContent).toBe('3');
+  expect(flushes).toHaveLength(1);
+  // a click flushes in a microtask, and takes the waiting server changes with it
+  stream.emit('contact_patched', { id: 1, name: 'E' });
+  root.querySelector('button')!.click();
+  for (let j = 0; j < 10; j++) await Promise.resolve();
+  expect(names(root)).toEqual(['E']);
+  expect(root.querySelector('i')!.textContent).toBe('1');
+  await frame();
+  expect(flushes).toHaveLength(2);
+});
+
+test('a hidden page renders server events in a microtask (no frames come)', async () => {
+  const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] } });
+  const stream = mockStream();
+  const { root, visibility, settle } = await render(PAGE, { requests, streams: { '/api/events/stream': stream }, frames: true });
+  await settle();
+  await visibility('hidden');
+  stream.emit('contact_patched', { id: 1, name: 'Zed' });
+  for (let j = 0; j < 10; j++) await Promise.resolve();
+  expect(names(root)).toEqual(['Zed']);
+});
