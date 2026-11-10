@@ -37,11 +37,11 @@ the pages.
 
 | The classic multi-page problem | What sinter does |
 | --- | --- |
-| Pages flash empty, then fill in | The page shows its layout and saved values in the **first frame**, [also on the very first visit](docs/spec.md#first-paint). Your data follows after one API round trip, or is in the first frame too with the optional server layer below. |
+| Pages flash empty, then fill in | The page shows its layout and saved values in the **first frame**, [also on the very first visit](docs/first-paint.md). Your data follows after one API round trip, or is in the first frame too with the optional server layer below. |
 | Data in the first frame means rendering every page on a server, which costs CPU on every visit | Optional, off by default: a small layer writes the API's JSON into the HTML as it is sent. **Nothing is rendered on the server.** About 2 ms per page, [roughly ten times cheaper than server rendering](docs/first-paint-comparison.md). |
 | Every click is a full reload with a white flash | The next page's data is [fetched while the pointer rests on the link](docs/navigation.md) (all browsers); sinter also writes Speculation Rules so Chromium prefetches or prerenders the HTML, and one attribute wires a [list-to-detail morph](docs/navigation.md#page-transitions) (the browser's view transitions, Chromium and Safari 18.2+). |
-| Data on the page goes stale | Quick start: add `refresh="30s"` to a resource and it reloads in the background, keeping the old data on screen ([details](docs/spec.md#background-refresh-refresh)). For real-time, [live updates](docs/spec.md#sync-change-messages-and-transports) arrive over SSE or WebSocket and are applied to the right lists. |
-| Forms wait for the server before anything happens | Changes show at once and [roll back on failure](docs/spec.md#optimistic-updates). |
+| Data on the page goes stale | Quick start: add `refresh="30s"` to a resource and it reloads in the background, keeping the old data on screen ([details](docs/resources.md)). For real-time, [live updates](docs/sync.md) arrive over SSE or WebSocket and are applied to the right lists. |
+| Forms wait for the server before anything happens | Changes show at once and [roll back on failure](docs/actions.md#optimistic-updates). |
 | A typo only shows up when someone clicks it | The build [checks every name and type](docs/diagnostics.md) and fails. |
 | Adding behavior means writing and wiring JavaScript | You write attributes. The compiler and a small runtime do the rest. |
 
@@ -112,51 +112,51 @@ or as an element that stays empty.
 
 - **Resources.** `<sn-resource>` loads a JSON endpoint, caches it by key and shares the request
   between everything that asks. Loading flags, stale responses and refetching are handled.
-  [Resources and store](docs/spec.md#resources-and-store)
+  [Resources and store](docs/resources.md)
 - **Live updates.** `<sn-sync>` turns server events into list changes (upsert, remove, patch) with
   attributes, over SSE, WebSocket or SignalR. Coming back online or from the back button refetches.
-  [Sync](docs/spec.md#sync-change-messages-and-transports), [recipe](docs/recipes/sse-sync.html)
+  [Sync](docs/sync.md), [recipe](docs/recipes/sse-sync.html)
 - **Pagination.** Keyset, offset and "load more" lists, including a start page from the URL.
-  [Pagination](docs/spec.md#pagination), [recipe](docs/recipes/pagination.html)
+  [Pagination](docs/pagination.md), [recipe](docs/recipes/pagination.html)
 - **Fan-out.** One request per item of another list (`each="a in accounts"`).
-  [Fan-out resources](docs/spec.md#fan-out-resources-each)
+  [Fan-out resources](docs/resources.md)
 - **Background refresh and caching.** `cache` shows last visit's data at once, then revalidates;
   `refresh` keeps data current. [Cached list](docs/recipes/cached-list.html),
-  [Background refresh](docs/spec.md#background-refresh-refresh)
+  [Background refresh](docs/resources.md)
 
 ### Changing data
 
 - **Optimistic updates that stay correct**, also when requests overlap or a server event arrives
-  mid-request. [Optimistic updates](docs/spec.md#optimistic-updates),
+  mid-request. [Optimistic updates](docs/actions.md#optimistic-updates),
   [recipe](docs/recipes/optimistic-toggle.html)
 - **Forms and server validation.** Field errors from the server land on the right input.
-  [Server validation errors](docs/spec.md#server-validation-errors-on-the-form),
+  [Server validation errors](docs/actions.md),
   [recipe](docs/recipes/field-errors.html)
 - **Writes that survive a dropped connection.** Retries with idempotency keys, per element.
   [Retries](docs/retry.md), [recipe](docs/recipes/offline-draft.html)
 - **Dialogs, keyboard shortcuts, suggestion lists and row selection** in markup.
   [Form dialog](docs/recipes/form-dialog.html),
   [Shortcuts](docs/recipes/keyboard-shortcuts.html),
-  [Listbox](docs/spec.md#suggestion-lists-data-sn-listbox),
+  [Listbox](docs/actions.md),
   [Row select](docs/recipes/row-select.html)
 
 ### Speed
 
 - **First paint with data.** Build-time constants, an early script that renders as the page is
-  parsed, and, optionally, data embedded by a server layer. [First paint](docs/spec.md#first-paint),
+  parsed, and, optionally, data embedded by a server layer. [First paint](docs/first-paint.md),
   [benchmark against a server-rendering framework](docs/first-paint-comparison.md)
 - **An optional server layer that does not render.** [`sinter-axum`](packages/sinter-axum) (Rust, a `tower`
   layer) streams the head first, then writes each API response into its slot. The build checks
   at compile time that every slot can be filled. Other languages are easy to add: the
   server only writes JSON into the `<script type="application/json" data-sn-data>` slots in the
-  head, listed in the build's `sinter-embed.json` ([contract](docs/spec.md#data-sources)).
+  head, listed in the build's `sinter-embed.json` ([contract](docs/first-paint.md)).
 - **Instant navigation.** Next-page data (sinter, all browsers). Generated Speculation Rules and
   CSP handling for HTML prefetch or prerender (the browser fetches; Chromium). `data-sn-transition`
   wires a list-row-to-detail morph on top of the browser's view transitions (Chromium, Safari 18.2+).
   [Navigation](docs/navigation.md)
 - **Preloading done for you.** Preconnect to API origins, `preload` for requests known at build
   time, low priority for data behind dialogs, fonts bundled at build time.
-  [First paint](docs/spec.md#first-paint)
+  [First paint](docs/first-paint.md)
 - **Images.** AVIF/WebP/JPEG variants, `srcset` and `sizes` written from your own markup and CSS.
   [Images](docs/images.md)
 - **Fast rendering.** Keyed lists measured level with or ahead of ivi, Solid and Svelte on
@@ -167,21 +167,21 @@ or as an element that stays empty.
 
 - **Build-time errors with fixes.** Every diagnostic has a code, a "did you mean" and a page.
   [Diagnostics](docs/diagnostics.md)
-- **Type checking** against TypeScript types or OpenAPI. [Type checking](docs/spec.md#type-checking),
+- **Type checking** against TypeScript types or OpenAPI. [Type checking](docs/type-checking.md),
   [recipe](docs/recipes/typed.html)
 - **Editor support.** Hover, completion, go to definition and errors as you type, in VS Code,
   Neovim, Helix and Emacs. [Editors](docs/editors.md)
 - **Testing.** Render a page, mock requests and streams, assert on the DOM, in plain Vitest.
-  [Testing](docs/spec.md#testing)
+  [Testing](docs/testing.md)
 - **Translations.** Typed `m.key({ param })` messages with inlang, one small file per page and
   language. [Recipe](docs/recipes/messages.html)
 - **Islands for the rest.** Canvases, editors and charts are plain custom elements that get data
-  in and send events out. [JS API for islands](docs/spec.md#js-api-for-islands)
+  in and send events out. [JS API for islands](docs/islands.md)
 - **LLM-ready.** [`llms.txt`](llms.txt) has the whole attribute reference and recipes.
 
 ### Safety
 
-- **Strict CSP.** Pages run under `script-src 'self'`. [Security](docs/spec.md#security),
+- **Strict CSP.** Pages run under `script-src 'self'`. [Security](docs/security.md),
   [CSP and Speculation Rules](docs/navigation.md#speculation-rules-and-a-content-security-policy)
 - **Compiled, not interpreted.** No parser and no `eval` in the browser; markup from the network
   stays inert.
@@ -233,19 +233,19 @@ export default { plugins: [sinter()] };
 
 The broad concepts:
 
-- **[Resources](docs/spec.md#resources-and-store)** (`<sn-resource>`) load and cache server data by name. Templates read them.
+- **[Resources](docs/resources.md)** (`<sn-resource>`) load and cache server data by name. Templates read them.
 - **[Bindings](docs/attributes.md#show-data)** (`data-sn-text`, `data-sn-for`, `data-sn-if`, ...) render data. Expressions are checked at build time.
-- **[Actions](docs/spec.md#actions-events-and-request-layer)** (`data-sn-post`, `data-sn-delete`, ...) send changes; [`data-sn-optimistic`](docs/spec.md#optimistic-updates) shows them at once.
-- **[Sync](docs/spec.md#sync-change-messages-and-transports)** (`<sn-sync>`) applies server events to resources.
-- **[Islands](docs/spec.md#js-api-for-islands)** are custom elements for what attributes can't do.
+- **[Actions](docs/actions.md)** (`data-sn-post`, `data-sn-delete`, ...) send changes; [`data-sn-optimistic`](docs/actions.md#optimistic-updates) shows them at once.
+- **[Sync](docs/sync.md)** (`<sn-sync>`) applies server events to resources.
+- **[Islands](docs/islands.md)** are custom elements for what attributes can't do.
 
 Every attribute is in the [reference](docs/attributes.md). Optional files in `src/`:
 
-- [`sinter.config.js`](docs/spec.md#request-layer): auth headers, error handling, transports, retries.
-- [`sinter.helpers.js`](docs/spec.md#helpers): functions your expressions can call.
-- `sinter.types.ts`, or `sinter({ openapi: 'openapi.yml' })`: types for [`sinter check`](docs/spec.md#type-checking).
+- [`sinter.config.js`](docs/configuration.md): auth headers, error handling, transports, retries.
+- [`sinter.helpers.js`](docs/configuration.md): functions your expressions can call.
+- `sinter.types.ts`, or `sinter({ openapi: 'openapi.yml' })`: types for [`sinter check`](docs/type-checking.md).
 
-`npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/spec.md#first-paint) and [navigation](docs/navigation.md) docs.
+`npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/first-paint.md) and [navigation](docs/navigation.md) docs.
 
 ## Contributing and license
 

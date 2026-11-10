@@ -35,7 +35,7 @@ so a core serves about 7x fewer pages.
 
 The middleware fetches the page's API data and writes the JSON into the page's `data-sn-data`
 placeholders. The head script renders the bindings over it, rows included, as the parser goes, and the
-page module adopts those rows ([spec](spec.md), "Embedded data renders early"). The middleware has no DOM
+page module adopts those rows ([first paint](first-paint.md)). The middleware has no DOM
 and no renderer: it does a fetch and a string replacement.
 
 [`packages/sinter-axum`](../packages/sinter-axum) is the same thing in Rust, as a `tower` layer. It

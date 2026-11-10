@@ -4,7 +4,7 @@ Serve a [sinter](https://github.com/tiaforge/sinter#readme) app from axum with i
 
 You add one layer. For each page, it calls your API and writes the JSON into the HTML as it's sent.
 
-The server layer is optional: without it, sinter pages fetch their data in the browser. It is also easy to port to another language. The server only writes JSON into the `<script type="application/json" data-sn-data>` slots in the head of each page, which the build lists in `sinter-embed.json` ([contract](https://github.com/tiaforge/sinter/blob/main/docs/spec.md#data-sources)).
+The server layer is optional: without it, sinter pages fetch their data in the browser. It is also easy to port to another language. The server only writes JSON into the `<script type="application/json" data-sn-data>` slots in the head of each page, which the build lists in `sinter-embed.json` ([contract](https://github.com/tiaforge/sinter/blob/main/docs/first-paint.md)).
 
 ## Quick start
 

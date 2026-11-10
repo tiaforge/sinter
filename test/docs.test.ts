@@ -204,12 +204,12 @@ function customData(): string {
 
 // Attribute reference for people: the vocabulary grouped by what it does. A new attribute must be placed in a group.
 const ATTRIBUTE_GROUPS: Array<[string, string, string[]]> = [
-  ['Show data', 'Bind values to the page. Details: [rendering](spec.md#rendering).', ['text', 'attr', 'class', 'style', 'show', 'prop', 'for', 'key', 'if', 'else']],
-  ['Keep state', 'Local state next to the markup that uses it. Details: [state](spec.md#state).', ['state', 'let', 'model', 'persist']],
-  ['Send changes', 'Turn an element into a request. Details: [actions](spec.md#actions-events-and-request-layer).', ['get', 'post', 'put', 'patch', 'delete', 'call', 'body', 'trigger', 'debounce', 'encoding', 'concurrency', 'confirm', 'retry', 'apply']],
-  ['After a request', 'What happens on screen around a response. Details: [optimistic updates](spec.md#optimistic-updates).', ['optimistic', 'then', 'catch']],
-  ['React to events', 'Handlers without a request. Details: [events](spec.md#actions-and-events), [key filters](spec.md#key-filters).', ['on-<event>', 'debounce-<event>', 'listbox']],
-  ['Pages and navigation', 'Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [first paint](spec.md#first-paint).', ['path', 'prefetch', 'transition', 'data']],
+  ['Show data', 'Bind values to the page.', ['text', 'attr', 'class', 'style', 'show', 'prop', 'for', 'key', 'if', 'else']],
+  ['Keep state', 'Local state next to the markup that uses it.', ['state', 'let', 'model', 'persist']],
+  ['Send changes', 'Turn an element into a request. Details: [actions](actions.md).', ['get', 'post', 'put', 'patch', 'delete', 'call', 'body', 'trigger', 'debounce', 'encoding', 'concurrency', 'confirm', 'retry', 'apply']],
+  ['After a request', 'What happens on screen around a response. Details: [optimistic updates](actions.md#optimistic-updates).', ['optimistic', 'then', 'catch']],
+  ['React to events', 'Handlers without a request. Details: [events](actions.md), [key filters](actions.md).', ['on-<event>', 'debounce-<event>', 'listbox']],
+  ['Pages and navigation', 'Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [first paint](first-paint.md).', ['path', 'prefetch', 'transition', 'data']],
 ];
 const RESOURCE_GROUPS: Array<[string, string[]]> = [
   ['Where the data comes from', ['name', 'src', 'call', 'each', 'when', 'early']],
@@ -229,7 +229,7 @@ function attributes(): string {
   const placed = new Set<string>(ATTRIBUTE_GROUPS.flatMap((g) => g[2]));
   const out = [`# Attribute reference
 
-Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element; anything else is a build error with a suggestion. Generated from the compiler's vocabulary (\`npm run docs\`). The full rules are in the [specification](spec.md); \`llms.txt\` has the same list for LLMs.
+Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element; anything else is a build error with a suggestion. Generated from the compiler's vocabulary (\`npm run docs\`). \`llms.txt\` has the same list for LLMs.
 `];
   for (const [title, intro, names] of ATTRIBUTE_GROUPS) {
     out.push(`## ${title}\n\n${intro}\n\n| Attribute | Value | Meaning |\n| --- | --- | --- |`);
@@ -248,7 +248,7 @@ Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element; anything 
       const placedR = new Set(RESOURCE_GROUPS.flatMap((g) => g[1]));
       const missingR = e.attrs.filter((x) => !placedR.has(x));
       if (missingR.length) throw new Error(`sn-resource attributes without a group: ${missingR.join(', ')}`);
-      out.push(`### \`<sn-resource>\`\n\nA named, page-wide cache of server data. Details: [resources](spec.md#resources-and-store).\n`);
+      out.push(`### \`<sn-resource>\`\n\nA named, page-wide cache of server data. Details: [resources](resources.md).\n`);
       for (const [g, names] of RESOURCE_GROUPS) out.push(`- **${g}:** ${names.map((x) => `\`${x}\``).join(', ')}`);
       out.push('');
     } else {

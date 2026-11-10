@@ -1,10 +1,10 @@
 # Attribute reference
 
-Every directive is a `data-sn-*` attribute or an `<sn-*>` element; anything else is a build error with a suggestion. Generated from the compiler's vocabulary (`npm run docs`). The full rules are in the [specification](spec.md); `llms.txt` has the same list for LLMs.
+Every directive is a `data-sn-*` attribute or an `<sn-*>` element; anything else is a build error with a suggestion. Generated from the compiler's vocabulary (`npm run docs`). `llms.txt` has the same list for LLMs.
 
 ## Show data
 
-Bind values to the page. Details: [rendering](spec.md#rendering).
+Bind values to the page.
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ Bind values to the page. Details: [rendering](spec.md#rendering).
 
 ## Keep state
 
-Local state next to the markup that uses it. Details: [state](spec.md#state).
+Local state next to the markup that uses it.
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
@@ -32,7 +32,7 @@ Local state next to the markup that uses it. Details: [state](spec.md#state).
 
 ## Send changes
 
-Turn an element into a request. Details: [actions](spec.md#actions-events-and-request-layer).
+Turn an element into a request. Details: [actions](actions.md).
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
@@ -53,7 +53,7 @@ Turn an element into a request. Details: [actions](spec.md#actions-events-and-re
 
 ## After a request
 
-What happens on screen around a response. Details: [optimistic updates](spec.md#optimistic-updates).
+What happens on screen around a response. Details: [optimistic updates](actions.md#optimistic-updates).
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
@@ -63,7 +63,7 @@ What happens on screen around a response. Details: [optimistic updates](spec.md#
 
 ## React to events
 
-Handlers without a request. Details: [events](spec.md#actions-and-events), [key filters](spec.md#key-filters).
+Handlers without a request. Details: [events](actions.md), [key filters](actions.md).
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ Handlers without a request. Details: [events](spec.md#actions-and-events), [key 
 
 ## Pages and navigation
 
-Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [first paint](spec.md#first-paint).
+Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [first paint](first-paint.md).
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
@@ -86,7 +86,7 @@ Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [fi
 
 ### `<sn-resource>`
 
-A named, page-wide cache of server data. Details: [resources](spec.md#resources-and-store).
+A named, page-wide cache of server data. Details: [resources](resources.md).
 
 - **Where the data comes from:** `name`, `src`, `call`, `each`, `when`, `early`
 - **What it looks like:** `key`, `items`, `total`, `order`, `type`

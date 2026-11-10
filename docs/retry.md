@@ -14,7 +14,6 @@ write.
 | While waiting | the element stays `aria-busy`, its optimistic change stays, leaving the page asks first |
 | Lives | as long as the page: nothing is stored, so a closed tab loses waiting writes |
 
-The full rules are in the spec, [Retry policies](spec.md#retry-policies-data-sn-retry).
 
 ## Setup
 
