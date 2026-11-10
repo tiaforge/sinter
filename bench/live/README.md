@@ -19,6 +19,21 @@ The JSON clients share the data model and the formatting and path functions
 hypermedia variants' server keeps the view state and renders or formats per tick
 ([`server.mjs`](server.mjs)); that work is outside the browser, but its delay counts (below).
 
+## What this shows, and what not
+
+- For pages fed by a stream of server events, sinter's default (server events render once per
+  frame) beats the default way of Solid, Svelte, Vue, ivi and Datastar, and matches hand-written
+  plain JS: at high rates, and in sorted tables. At low rates every variant is about level (the
+  browser's layout is the limit).
+- Most of the gap is that one scheduling choice. Each of the others can buffer events and apply them
+  in a `requestAnimationFrame` by hand (ivi with a custom root); they would likely close most of it.
+  The claim is "faster with each one's default", which matters because sinter's needs no code.
+- Not covered here: building and restructuring lists (js-framework-benchmark, where sinter ranks 28th
+  on CPU and 49th on memory of 208: behind Solid, Svelte, ivi and plain JS on create, swap and
+  append), first render, bundle size against these frameworks, memory under load beyond the heap
+  after GC. Cells are one run each, often 1 s steps: enough for gaps like 5,000 against 200 ticks/s,
+  not for close ones.
+
 ## Method
 
 - **Harness** ([`shared/harness.js`](shared/harness.js)), the same classic script first in every
