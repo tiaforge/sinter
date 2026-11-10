@@ -28,6 +28,25 @@ jobs:
       - run: npm ci --prefix examples/realworld
       - run: npm run size -- --check
 
+  # the Rust middleware that fills embedded data (packages/sinter-axum)
+  sinter-axum:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sinter-axum
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/sinter-axum
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build --no-default-features
+
   # sinter across page loads in a real browser: next-page data, Speculation Rules, morphs
   # (e2e/navigation/README.md); the runner's Chrome
   e2e-navigation:
