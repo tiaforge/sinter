@@ -3,7 +3,7 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
-## Unreleased
+## 0.13.1 (2026-11-10)
 
 ### Fixed
 
