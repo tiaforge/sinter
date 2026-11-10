@@ -79,7 +79,15 @@ src/components/live-clock.ts            ...plus a script, run per instance by si
 - Together, these two attributes are the component's whole contract. Nothing else declares it: not
   the caller, and not the script (see [One contract](#one-contract)).
 - `<style>` is scoped to the component and goes into the app's CSS files: no inline style, no
-  CSP change.
+  CSP change. The compiler wraps it in native `@scope`:
+  `@scope ([data-sn-c="article-preview"]) to ([data-sn-c]) { … }`.
+  - The root of each instance carries `data-sn-c` with the component's name, in production too
+    (only for components that have styles; others keep it in dev builds only).
+  - The `to` boundary stops the styles at nested components, and at slot content, which the
+    compiler marks with the same boundary.
+  - Selectors stay as written, with their normal specificity; devtools show them unchanged.
+  - `@scope` is in Chrome, Safari, and Firefox since late 2025. A browser without it ignores the
+    block, so the component shows unstyled; sinter's supported browsers must have `@scope`.
 
 ### Using a component
 
@@ -131,8 +139,8 @@ element**, for components with and without a script alike:
   - Directly in a `<tbody>` or `<table>`, the parser moves an unknown tag out of the table before
     the compiler sees it. The compiler detects that from source positions and fails the build with
     the fix (put it in the row's template).
-- **Devtools:** dev builds mark the root with the component's name (`data-sn-c="article-preview"`);
-  production builds leave nothing.
+- **Devtools:** the root carries the component's name (`data-sn-c="article-preview"`): in dev
+  builds always, in production builds for components with styles, which scope by it.
 - **Scripts need no tag.** The compiler knows every place a component is used, including inside
   templates, and the runtime already creates and removes those elements. It starts the component's
   script for each instance when the root is created or adopted, and stops it when it is removed,
@@ -461,7 +469,7 @@ has no store code**. `npm run size` must show the core unchanged.
 3. **Store functions:** `patch(item, …)` and `remove(item)` resolved from where the item came from,
    replacing the forms with a resource name; provenance through state assignments and component
    props. This step is useful for pages on its own and can ship before components.
-4. **Scoped styles** (`@scope`, or a build-time attribute; see below).
+4. **Scoped styles** through native `@scope`, with the slot boundary.
 5. **Script components:**
    - the generated base class through the Vite plugin, typed by `src/sinter.components.d.ts`
    - `data-sn-emits`, `data-sn-ref`
@@ -474,8 +482,6 @@ has no store code**. `npm run size` must show the core unchanged.
 
 ## Open questions
 
-4. **Scoped CSS.** Native `@scope`, which is in every evergreen browser but young in Firefox, or a
-   build-time attribute selector? Both keep the CSS in files.
 5. **`<sn-include>`.** Keep partials for lexical scope, or deprecate them in favour of components?
 6. **Two-way props.** `data-sn-model` on a component, for a custom input? Events cover it, but
    forms are where people will expect it.
