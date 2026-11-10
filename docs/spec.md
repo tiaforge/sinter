@@ -1250,7 +1250,7 @@ app.on('new_email', payload => notify(payload));  // any server event, mapped or
 
 
 ### Rules
-- Islands never write to sinter-managed nodes; sinter never touches an island's children.
+- Islands never write to sinter-managed nodes. Markup written inside a custom element in the page is bound like the rest of the page.
 - Direct store writes from islands go to the base, like server events; unconfirmed changes use `app.optimistic()`. Both follow the base/layer model, so SSE and optimistic updates stay consistent.
 - Multiple instances may exist (one per mount root); there is no global singleton.
 

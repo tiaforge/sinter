@@ -1401,6 +1401,8 @@ class Compiler {
   objectBinding(el: P5Element, node: NodeDef, scope: Scope, k: 'class' | 'style' | 'prop') {
     const name = `data-sn-${k}`;
     const r = this.expr(el, name, scope, { mode: 'value', object: k === 'class' ? 'any-keys' : 'literal-keys' });
+    // a custom element's properties, from the app's HTMLElementTagNameMap
+    if (this.check && k === 'prop') this.typeLast({ returns: { kind: 'decl', name: `Props<${JSON.stringify(el.tagName)}>` } });
     if (!r.entries) return;
     for (const e of r.entries) {
       let key = e.key;

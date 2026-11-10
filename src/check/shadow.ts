@@ -216,14 +216,14 @@ export function shadow(o: ShadowOptions): Shadow {
     if (e.mode === 'value') {
       // action arguments and bodies are taken when the trigger fires
       // run('id') starts the action without an event: unguarded reads are reported
-      if (e.event !== null) line(`/** @type {${decl(e.run ? `RunEvent<${decl(`Ev<${JSON.stringify(e.event)}>`)}>` : `Ev<${JSON.stringify(e.event)}>`)}} */ const $event = $any;`);
+      if (e.event !== null) line(`/** @type {${decl(e.run ? `RunEvent<${decl(`Ev<${JSON.stringify(e.event)}, ${JSON.stringify(e.tag)}>`)}>` : `Ev<${JSON.stringify(e.event)}, ${JSON.stringify(e.tag)}>`)}} */ const $event = $any;`);
       // a value of the wrong type as a whole is reported on `return`
       regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
       line('return (');
       verbatim(e.src, e.loc);
       line(');');
     } else {
-      line(`/** @type {${decl(`Ev<${JSON.stringify(e.event ?? '')}>`)}} */ const $event = $any;`);
+      line(`/** @type {${decl(`Ev<${JSON.stringify(e.event ?? '')}, ${JSON.stringify(e.tag)}>`)}} */ const $event = $any;`);
       if (e.result) {
         if (e.resultType) tagged('type', e.resultType, ' const $result = $any;');
         else line('/** @type {any} */ const $result = $any;');
@@ -281,7 +281,20 @@ export interface CallContext { signal: AbortSignal; request(url: string, init?: 
 export type CallArgs<F> = F extends (...a: infer P) => any ? (P extends [...infer A, infer L] ? ([L] extends [CallContext] ? A : P) : P) : never;
 export type Item<T> = NonNullable<T> extends readonly (infer U)[] ? U : NonNullable<T> extends Iterable<infer U> ? U : any;
 export type El<K extends string> = K extends keyof HTMLElementTagNameMap ? HTMLElementTagNameMap[K] : HTMLElement;
-export type Ev<K extends string> = K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K] : CustomEvent;
+declare global {
+  /**
+   * The events a custom element dispatches, by tag and event name, with their detail types:
+   * \`interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean } }\`. Empty here; the app
+   * declares it (\`declare global\`) in the types module or beside the element's class, and components
+   * declare theirs with data-sn-emits.
+   */
+  interface SinterElementEvents {}
+}
+/** $event of a handler for event K on an element with tag T */
+export type Ev<K extends string, T extends string = string> = K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K]
+  : T extends keyof SinterElementEvents ? (K extends keyof SinterElementEvents[T] ? CustomEvent<SinterElementEvents[T][K]> : CustomEvent) : CustomEvent;
+/** what data-sn-prop accepts on a custom element: its own properties when HTMLElementTagNameMap has it, anything otherwise */
+export type Props<K extends string> = K extends keyof HTMLElementTagNameMap ? { [P in keyof HTMLElementTagNameMap[K]]?: HTMLElementTagNameMap[K][P] } : Record<string, unknown>;
 /**
  * $event where run('id') can start the action: null then. Checking runs without strictNullChecks, where
  * \`E | null\` is just E, so the missing event is \`void\`: \`$event.shiftKey\` is an error, \`$event && $event.shiftKey\` is not.

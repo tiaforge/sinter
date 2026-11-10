@@ -89,6 +89,24 @@ describe('sinter check', () => {
     one(page(`<div data-sn-state="{ q: '' }"><input data-sn-on-input="q = $el.valu"></div>`), /Did you mean 'value'\?/, 'valu');
   });
 
+  test('custom elements: data-sn-prop, $el and $event.detail are typed by the app\'s declarations under src/', () => {
+    const island = { 'src/islands/mail-reader.ts': `export class MailReader extends HTMLElement { message: Contact | null = null; readonly = false; }
+import type { Contact } from '../sinter.types';
+declare global {
+  interface HTMLElementTagNameMap { 'mail-reader': MailReader }
+  interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean } }
+}
+` };
+    const ok = page(`<div data-sn-state="{ flag: false, name: '' }">
+  <mail-reader data-sn-prop="{ message: contacts[0], readonly: true }" data-sn-on-reader-flag="flag = $event.detail; name = $el.message.name"></mail-reader>
+  <other-thing data-sn-prop="{ anything: 1 }" data-sn-on-ping="name = $event.detail"></other-thing>
+</div>`);
+    expect(run(ok, island).diagnostics).toEqual([]);
+    one(page(`<mail-reader data-sn-prop="{ mesage: contacts[0] }"></mail-reader>`), /'mesage' does not exist/, 'mesage', island);
+    one(page(`<mail-reader data-sn-prop="{ readonly: 'yes' }"></mail-reader>`), /Type 'string' is not assignable to type 'boolean'/, "readonly: 'yes'", island);
+    one(page(`<div data-sn-state="{ n: 0 }"><mail-reader data-sn-on-reader-flag="n = $event.detail"></mail-reader></div>`), /Type 'boolean' is not assignable to type 'number'/, 'n = $event', island);
+  });
+
   test('SN507 complex expressions: in checkPage like other diagnostics, with the complexity option', () => {
     const html = page(`<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5" data-sn-text="n + contacts.length"></button></div>`);
     const d = checkPage(html, { files: { 'src/sinter.types.ts': TYPES } });

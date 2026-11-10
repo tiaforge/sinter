@@ -1,7 +1,7 @@
 // `sinter check`: type-checks every expression of the compiled pages with the
 // project's own TypeScript (`tsc` on generated, checked JavaScript files).
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -51,20 +51,25 @@ export interface Support {
   types: { file: string; names: string[] } | null;
   /** generated declarations per OpenAPI spec, by spec index */
   openapi: string[];
+  /** the app's modules that declare its custom elements or their events (see `augmentations`) */
+  augments: string[];
 }
 
 /** Writes `sinter.d.ts` and the spec declarations into `outDir`. */
 export function writeSupport(o: { root: string; outDir: string; types: string | null; openapi?: OpenApiSpec[] }): Support {
   const declarations = join(o.outDir, 'sinter.d.ts');
   mkdirSync(o.outDir, { recursive: true });
-  writeIfChanged(declarations, DECLARATIONS);
+  // the app's own declarations of its elements and their events, wherever in src/ they are written
+  const augments = augmentations(o.root);
+  const refs = augments.map((f) => `/// <reference path="${relative(o.outDir, f).split('\\').join('/')}" />\n`).join('');
+  writeIfChanged(declarations, refs + DECLARATIONS);
   const openapi = (o.openapi ?? []).map((s, i) => {
     const file = join(o.outDir, `openapi-${i}.d.ts`);
     writeIfChanged(file, specDeclarations(s.doc, relative(o.root, s.file).split('\\').join('/')));
     return file;
   });
   const types = o.types ? { file: o.types, names: typeExports(readFileSync(o.types, 'utf8')) } : null;
-  return { outDir: o.outDir, declarations, types, openapi };
+  return { outDir: o.outDir, declarations, types, openapi, augments };
 }
 
 /** The compiler options shadow files are checked with. */
@@ -89,6 +94,32 @@ export function typeDiagnostic(unit: CheckUnit, regions: Region[], line: number,
   return loc
     ? { severity: 'error', code: 'SN208', message: text + (loc.chain.length ? ` (included from ${loc.chain.join(' ← ')})` : ''), file: loc.file, line: loc.line, col: loc.col }
     : { severity: 'error', code: 'SN208', message: `in code sinter generated (please report): ${text}`, file: unit.file, line: 1, col: 1 };
+}
+
+/** What a page's types may need from the app besides the types module: the custom elements and their events. */
+const AUGMENTS = /\binterface\s+(HTMLElementTagNameMap|SinterElementEvents)\b/;
+
+/**
+ * The app's modules under `src/` that declare custom elements for \`HTMLElementTagNameMap\` or their
+ * events for \`SinterElementEvents\` (an island's class with \`declare global\`): \`$el\`, \`data-sn-prop\`
+ * and \`$event.detail\` are typed by them.
+ */
+export function augmentations(root: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.') || e.name === 'node_modules') continue;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/\.(ts|mts|js|mjs)$/.test(e.name) && !/\.(test|spec)\./.test(e.name)) {
+        try { if (AUGMENTS.test(readFileSync(p, 'utf8'))) out.push(p); } catch { /* unreadable */ }
+      }
+    }
+  };
+  walk(join(root, 'src'));
+  return out.sort();
 }
 
 function writeIfChanged(file: string, text: string): void {

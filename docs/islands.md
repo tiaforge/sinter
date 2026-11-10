@@ -2,7 +2,7 @@
 
 Attributes cover showing and changing API data. For imperative work such as editors, canvases,
 charts or encryption, write a plain custom element. It gets data in through properties and sends
-events out through DOM events; sinter never looks inside it.
+events out through DOM events; sinter does not touch the elements it builds.
 
 ```html
 <sn-resource name="messages" src="/api/messages" key="id"></sn-resource>
@@ -72,7 +72,7 @@ The round trip:
 3. Typing dispatches `reader-note` with the text. The handler writes it to the `draft` state, and the
    `<span data-sn-text="draft.length">` next to the island updates on every keystroke.
 
-The island owns everything inside `<mail-reader>`; sinter owns the bindings around it. Data flows in
+The island owns the elements it builds; sinter owns the bindings around it. Data flows in
 through properties and out through events, never through the DOM in between.
 
 ## Data in
@@ -84,10 +84,16 @@ The island's module may define the element after the page has mounted (a lazy `i
 set before that are not lost: when the element is defined, sinter sets the latest value of each
 property again through your class's setter.
 
+With a declaration in `HTMLElementTagNameMap` under `src/`, `sinter check` checks each key and value against the
+element's properties ([type-checking.md](type-checking.md)).
+
 ## Events out
 
 An island dispatches `CustomEvent`s with lowercase kebab-case names (`reader-flag`) that bubble.
 `data-sn-on-<name>` handles them like any other event, with the payload in `$event.detail`.
+
+Declare the details in `SinterElementEvents` and `$event.detail` is typed:
+`interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean; 'reader-note': string } }`.
 
 Handlers run at every level the event bubbles through until one calls `$event.preventDefault()`.
 If an event may be final at some level, dispatch it with `cancelable: true`.
@@ -125,7 +131,8 @@ all mappings have run.
 
 ## Rules
 
-- Islands never write to nodes sinter manages, and sinter never touches an island's children.
+- Islands never write to nodes sinter manages. Markup written inside a custom element in the page is bound like the
+  rest of the page, so an island that replaces its children (as `<mail-reader>` does) should be written empty.
 - Store writes from an island go to the base data, like server events. For a change the server
   hasn't confirmed, use `app.optimistic()`, so it rolls back on failure and stays consistent with
   incoming events.

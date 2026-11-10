@@ -53,6 +53,22 @@ State is typed by its literal. When the literal cannot show the type, cast it wi
 
 Everything else is typed for you: helpers and namespace members by their own modules, `$event` and `$el` by the DOM types of the event and element, and `$meta`, `$error` and the store functions by sinter. `$result` in `then` has the resource's type, or the action's awaited result for `call`.
 
+Custom elements are typed by the app's own declarations. A module under `src/` that declares an element in
+`HTMLElementTagNameMap`, or its events in `SinterElementEvents`, is part of every check:
+
+```ts
+// src/islands/mail-reader.ts
+export class MailReader extends HTMLElement { message: Message | null = null; readonly = false; }
+declare global {
+  interface HTMLElementTagNameMap { 'mail-reader': MailReader }
+  interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean } }
+}
+```
+
+Then `data-sn-prop` on `<mail-reader>` takes only its properties, with their types; `$el` is a `MailReader`; and in
+`data-sn-on-reader-flag`, `$event.detail` is a `boolean`. An element the app does not declare takes any property,
+and its events' `detail` is `any`.
+
 Null checks and implicit `any` are off. A binding that reads `null` renders nothing, and expressions in separate attributes cannot narrow each other, so strictness would only produce noise.
 
 ## Server events

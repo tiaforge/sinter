@@ -5,6 +5,13 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- `sinter check` types custom elements from the app's declarations under `src/` (a module with `declare global` for
+  `HTMLElementTagNameMap` or `SinterElementEvents`): `data-sn-prop` keys and values are checked against the element's
+  properties, `$el` has the element's class, and `$event.detail` has the type `SinterElementEvents` gives the event on
+  that tag (`interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean } }`).
+
 ### Changed
 
 - Changes from server events render once per frame: `<sn-event>` mappings and their `then` still apply when each
