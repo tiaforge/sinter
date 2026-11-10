@@ -1,77 +1,120 @@
 # sinter-axum
 
-Gives a [sinter](../../README.md) page its API data in the first frame, without server rendering. It's a `tower` layer for axum.
+Serve a [sinter](../../README.md) app from axum with its API data already in the page. The first frame shows the data, the browser makes no API request on load, and nothing is rendered on the server.
 
-sinter builds static HTML. A page that declares an empty placeholder in its `<head>`
+You add one layer. For each page, it calls your API and writes the JSON into the HTML as it's sent.
 
-```html
-<script type="application/json" data-sn-data="articles"></script>
-<sn-resource name="articles" src="/api/articles?tag={$url.tag}" key="slug" items="articles"></sn-resource>
+## Quick start
+
+**1. Get the build.** The frontend's `vite build` produces a `dist/` directory. If its pages embed data, it contains `sinter-embed.json`; that file tells the layer which pages need which data. No file means no page asks for embedded data (see [For the frontend](#for-the-frontend)), and `Embed::from_dir` returns an error saying so.
+
+**2. Add the crate.**
+
+```toml
+[dependencies]
+sinter-axum = "0.1"
 ```
 
-takes the JSON in it as the resource's data. The browser makes no request, and the early script renders the bindings over the data, rows included, while the HTML is parsed. This layer writes that JSON per request. For each page in the build's `sinter-embed.json` it:
-
-1. streams the page up to the first placeholder at once, so stylesheets and scripts load while the data is fetched;
-2. fetches every placeholder's data in parallel;
-3. writes the data and the rest of the page.
-
-It has no DOM, no renderer and no JS engine. Each page is cut at its placeholders once, at startup.
+**3. Add the layer** in front of the static files, and give it your API router:
 
 ```rust
-use axum::{Router, routing::get};
+use axum::{Router, routing::get, serve::ListenerExt};
 use sinter_axum::Embed;
 use tower_http::{compression::CompressionLayer, services::ServeDir};
 
 let api = Router::new().route("/api/articles", get(articles));
+
 let app = Router::new()
     .merge(api.clone())
     .fallback_service(ServeDir::new("dist"))
     .layer(Embed::from_dir("dist")?.api(api))
     .layer(CompressionLayer::new());
+
+let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?
+    // the page is sent in two parts (head first, then the data); without this the second part can wait ~40 ms
+    .tap_io(|tcp| { let _ = tcp.set_nodelay(true); });
+axum::serve(listener, app).await?;
 ```
 
-Requests for other paths, and non-GET requests, go to the inner service. `/sinter-embed.json` itself answers 404.
+That's all. The layer calls your router in-process for each page's data, with the visitor's cookies. Requests for anything other than a page pass through untouched. If the data can't be fetched, the page is sent without it and the browser loads the data itself, as it would without the layer.
 
 ## Where the data comes from
 
-For each placeholder, the first of these that applies:
+The build records each page's API requests. You only say how to reach the API:
 
-1. **`Embed::resolve(resource, f)`.** Your async function returns the JSON of the response the browser would get, or `None`. Use it for anything the build can't describe: a helper in `src` (`offset($url.page, 10)`), a `when`, pagination, or a database query instead of an HTTP round trip. It receives `$url` (query, then path parameters), the URL the build describes (if any) and the page request's headers.
-2. **The resource's `src`, when the build could describe it** (literal text and plain `$url.name` reads).
-   - A path on the same origin is sent to `Embed::api(router)`, your API router called in-process with no socket. Otherwise, with the `upstream` feature, it goes to `Embed::upstream("http://127.0.0.1:4000")`. Both receive the forwarded headers (`Cookie`, `Authorization`, `Accept-Language`; change the list with `Embed::forward`).
-   - An absolute URL is fetched only with the `upstream` feature, and only if its origin was allowed with `Embed::allow_origin`, and then without the page's headers, as the browser would send it.
-   - A URL whose origin comes from a `$url` value is never fetched.
-3. **Nothing.** The placeholder stays empty and the browser requests the data itself, as it does without this layer.
+| Your API | Configure |
+| --- | --- |
+| Routes in the same axum app | `.api(router)`, as above |
+| Another server, same paths (`/api/...`) | `.upstream("http://127.0.0.1:4000")`, with the `upstream` feature |
+| Absolute URLs in the frontend (`https://api.example.com/...`) | `.allow_origin("https://api.example.com")`, with the `upstream` feature |
+| A request the build can't describe, or data you'd rather get straight from the database | `.resolve("articles", \|req\| async { ... })` |
 
-A failure, a non-2xx or non-JSON answer, a body over `max_bytes` (2 MiB), or the time limit (`Embed::timeout`, 500 ms for all placeholders together) all leave the placeholder empty too. A slow API therefore costs the page at most the time limit, never correctness.
+The `upstream` feature adds an HTTP client (reqwest, with rustls):
 
-The data is written with `<` as `\u003c`, so it can't close its `<script>`. The pages get `Cache-Control: private, no-cache`, because the data may be the user's.
+```toml
+sinter-axum = { version = "0.1", features = ["upstream"] }
+```
 
-## Setup
+**When you need `resolve`.** The build can describe a request whose URL uses only the page's URL (`/api/articles/{$url.slug}`). It can't describe one that calls a helper (`offset($url.page, 10)`), has a `when`, or is paginated. Without a resolver, those are left to the browser. A resolver gets the page's URL parameters (`req.params`), the request headers (`req.headers`) and the URL the build describes, if any. It returns the JSON body the browser would have received, or `None`:
 
-- The default build has no HTTP client: data comes from your router and your resolvers. For an API on another server, or absolute `src` URLs, enable the `upstream` feature (it adds `reqwest`, with rustls):
-
-  ```toml
-  sinter-axum = { version = "0.1", features = ["upstream"] }
-  ```
-- Build the app with sinter's Vite plugin. Every build with at least one `data-sn-data` placeholder writes `dist/sinter-embed.json`. A page and a manifest from different builds are refused at startup.
-- Put the placeholders in `<head>`; the runtime ignores them anywhere else.
-- Serve with `TCP_NODELAY`. The head and the rest of the page are two writes, and without it the second can wait about 40 ms for the client's delayed ACK. With `axum::serve`: `listener.tap_io(|tcp| { let _ = tcp.set_nodelay(true); })`.
-- Put `CompressionLayer` outside this layer. It compresses the streamed page without holding back the head.
+```rust
+Embed::from_dir("dist")?
+    .api(api)
+    .resolve("articles", |req| async move {
+        let page: u32 = req.params.get("page").and_then(|p| p.parse().ok()).unwrap_or(1);
+        let rows = db::articles(page).await.ok()?;
+        serde_json::to_vec(&rows).ok().map(Into::into)
+    })
+```
 
 ## Signed-in users
 
-Data fetched without the user's credentials is the anonymous view, and embedded data is not reloaded. Two cases:
+Cookies and `Authorization` are forwarded to `.api` and `.upstream`, so a cookie session works: the API answers for the user. Absolute URLs get no cookies, as the browser wouldn't send them either.
 
-- The session is in a cookie: forward it (the default), and the API answers for the user.
-- The token is somewhere the server can't see (RealWorld keeps it in `localStorage`): a page with per-user fields would show the anonymous values. Leave those resources to the browser, with a resolver that returns `None` for them.
+If the frontend keeps its token where the server can't see it (in `localStorage`), the layer would embed the signed-out view, and the page wouldn't reload it. For resources with per-user fields, return `None` from a resolver to leave them to the browser.
+
+## Options
+
+| Option | Default |
+| --- | --- |
+| `.timeout(Duration)`: how long a page waits for all its data; anything later is left to the browser | 500 ms |
+| `.forward([headers])`: headers passed to `.api` and `.upstream` | `Cookie`, `Authorization`, `Accept-Language` |
+| `.max_bytes(n)`: larger responses are left to the browser | 2 MiB |
+| `.stream(false)`: send each page whole instead of head first | streamed |
+| `.cache_control(value)`: for the pages | `private, no-cache` |
+
+## What the layer does
+
+- **At startup:** it reads `sinter-embed.json` and cuts each page at its data slots. It refuses a manifest and pages from different builds.
+- **On a GET for a page:**
+  - it sends the HTML up to the first slot right away, so the browser fetches stylesheets and scripts during the wait;
+  - it fetches every slot's data in parallel;
+  - it writes the data, with `<` escaped so it can't break out of its `<script>`, then the rest of the page.
+- **Anything it can't fill** (an error, a non-JSON or non-2xx answer, the time limit) stays empty, and the browser requests it.
+- **What it never does:** fetch a URL whose host comes from the request, or serve `sinter-embed.json` itself.
+
+## For the frontend
+
+A resource gets embedded data from an empty placeholder in the page's `<head>`, with the same name:
+
+```html
+<head>
+  <script type="application/json" data-sn-data="articles"></script>
+</head>
+…
+<sn-resource name="articles" src="/api/articles?tag={$url.tag}" key="slug" items="articles"></sn-resource>
+```
+
+The page works the same without the server: the placeholder stays empty and the browser fetches. With the layer, the data is in the HTML, and the bindings over it, rows included, render while the page is parsed.
 
 ## Measured
 
 Measured on RealWorld, slow 4G, cold Chromium; details in [docs/first-paint-comparison.md](../../docs/first-paint-comparison.md).
 
-- **Home LCP:** 948 → 588 ms with an API that answers at once, 1,128 → 572 ms when it takes 300 ms.
-- **Throughput per core:** about 2,000 home pages/s, against 57–67 for Qwik City and about 590 for the Node middleware.
+- **Home page LCP:** 948 → 588 ms with an API that answers at once, 1,128 → 572 ms when it takes 300 ms.
+- **Throughput per core:** about 2,000 home pages/s, against 57–67 for Qwik City SSR.
+
+The RealWorld server used for this:
 
 ```sh
 cargo run --release --features upstream --example realworld -- ../../examples/realworld/dist 4370 http://localhost:4400
