@@ -178,12 +178,18 @@ message files today:
 
 - `import { TaskRingElement } from './task-ring.html'` resolves, through the Vite plugin, to a base
   class that extends sinter's element base and registers the tag.
-- A generated `task-ring.html.d.ts` types it:
+- Generated types describe it:
   - `this.props` from `data-sn-component`
   - `this.emit(name, detail)` from `data-sn-emits`
   - `this.refs` from `data-sn-ref`, typed by tag
   - `this.state` from `data-sn-state`
 - Editors get completion and errors from those types, with no sinter TypeScript plugin.
+- **One file for the app:** the types of every component with a script go in
+  `src/sinter.components.d.ts`, beside `src/sinter.messages.d.ts`, not in a file per component.
+- **Handled like the messages file:** written on every build and `sinter check`, so an app may
+  commit it or git-ignore it; the starter template commits both.
+- **Current while editing:** `sinter lsp` rewrites it when a component's HTML changes, so the
+  editor's types are current without the dev server running.
 
 The compiler checks every edge against that one declaration:
 
@@ -193,8 +199,8 @@ The compiler checks every edge against that one declaration:
 | The component's markup | bindings read only declared props, the component's state and globals; `emit()` names and details match `data-sn-emits` |
 | The script | TypeScript, through the generated base: a misspelled prop, event or ref, or a wrong detail type, is a type error |
 
-Changing a prop in the HTML updates the types the next time the dev server or `sinter check` runs,
-so a script that still uses the old name fails at once.
+Changing a prop in the HTML updates the types at once in the editor (through `sinter lsp`), and on
+the next build or `sinter check`, so a script that still uses the old name fails at once.
 
 ### Scope
 
@@ -416,7 +422,7 @@ has no store code**. `npm run size` must show the core unchanged.
    props. This step is useful for pages on its own and can ship before components.
 4. **Scoped styles** (`@scope`, or a build-time attribute; see below).
 5. **Script components:**
-   - the generated base class and its `.d.ts`, through the Vite plugin
+   - the generated base class through the Vite plugin, typed by `src/sinter.components.d.ts`
    - `data-sn-emits`, `data-sn-ref`
    - `this.props`, `this.state`, `this.emit`, the three hooks
    - tag registration from the file name
@@ -427,12 +433,6 @@ has no store code**. `npm run size` must show the core unchanged.
 
 ## Open questions
 
-1. **Generated files.** Settled: a class extending a generated base, typed from the HTML (see
-   [One contract](#one-contract)); no setup-function API. Still open:
-   - a `.d.ts` next to each component, or one generated file for the app (as for messages);
-   - whether the generated files are committed;
-   - how the types stay fresh in an editor without the dev server running (`sinter lsp` could
-     write them).
 2. **The host element.** Keep `<article-preview>` in the DOM (a styling hook, the target for
    events, visible in devtools; `display: contents` when unwanted), or replace it with the
    template's content? Keeping it breaks components inside `<table>`, `<ul>` and `<select>`, where
