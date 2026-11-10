@@ -71,12 +71,32 @@ Home page, slow 4G, while the server under test takes a steady stream of other r
 
 The middleware's own latency stayed at 2–3 ms at every rate. Warm navigations (the article first, then the home page, full page loads): idle, sinter 472 vs Qwik 480 ms at 1×, 528 vs 520 ms at 4×; at 80/s, 468 vs 504 ms at 1× and 528 vs 576 ms at 4×.
 
+### Where each server breaks (`limit.mjs`)
+
+Home page, open-loop load stepped up, 6 s per step; latency the load saw, and the server process's CPU (one Node process, % of one core; above 100% is gzip in worker threads). The mock API and the load generator stayed below 25% throughout.
+
+| Load | sinter middleware: p50 / p90 / p99 | CPU | Qwik City: p50 / p90 / p99 | CPU |
+| --- | --- | --- | --- | --- |
+| 40/s | | | 12 / 17 / 27 ms | 66% |
+| 80/s | | | 13 / 29 / 51 ms | 100% |
+| 100/s | | | 10 / 26 / 53 ms | 88% |
+| 120/s | | | 206 / 398 / 487 ms | 111% |
+| 150/s | | | 744 / 2,873 / 4,140 ms | 133% |
+| 200/s | 2.7 / 3.7 / 8.4 ms | 30% | | |
+| 400/s | 3.6 / 5.5 / 10.9 ms | 54% | | |
+| 600/s | 4.7 / 7.8 / 12.8 ms | 75% | | |
+| 800/s | 6.5 / 25 / 53 ms | 97% | | |
+| 1,000/s | 25 / 76 / 105 ms | 96% | | |
+| 1,200/s | 237 / 2,331 / 4,493 ms | 116% | | |
+
+The same curve, an order of magnitude apart: Qwik breaks between 100 and 120 pages per second per core, the middleware between 1,000 and 1,200.
+
 ## Findings
 
 1. **The same first frame without server rendering.** With a middleware that only writes the JSON in, sinter's first paint has the data, as Qwik's does: LCP equals first paint on both pages.
 2. **Within 30–40 ms of Qwik on slow devices, level or ahead on fast ones.** On a 4× slower CPU, sinter's head script spends about 40 ms rendering rows before the first paint; at 1× that is about 10 ms. Part of the remaining gap at 1× is bytes: on a cold load the two head scripts (about 4.8 kB gzip) share the slow link with the stylesheets.
 3. **The cost sits in different places.** Per page, about 3 ms on the server plus about 55 ms in the browser (at 1×, home) for sinter, against about 22 ms on the server plus about 34 ms in the browser for Qwik. Qwik pays per request, on the server, for every visitor.
-4. **No scaling problem.** A Qwik server core saturates at about 90 home pages per second: past that, pages time out. The middleware ran at 2–3 ms with 120 requests per second and serves about 640 per second per core. Where server compute is expensive (an edge function billed per CPU millisecond), that is the difference: about 2 ms against 22 ms per page.
+4. **No scaling problem.** A Qwik server core saturates at about 100–120 home pages per second: past that, pages time out. The middleware's core saturates at about 1,000–1,200, so the same traffic needs about a tenth of the servers. Where server compute is expensive (an edge function billed per CPU millisecond), that is the difference: about 2 ms against 22 ms per page.
 5. **Server time shows little in first paint until the server queues.** On slow 4G the first paint waits mostly for the network; Qwik's 20–40 ms later first byte moved its first paint by 10–15 ms.
 
 ## Not measured
