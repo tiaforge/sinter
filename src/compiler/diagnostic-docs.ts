@@ -38,9 +38,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Fix the typo, declare the name in `data-sn-state`, or export it from the helpers module. Loop variables are only visible inside their `<template>`.',
   },
   SN202: {
-    example: '`window` is a browser API; expressions may use JavaScript, not the browser. Use an island',
+    example: '`window` is a browser API; expressions may use JavaScript, not the browser. Use a component\'s script',
     means: 'Expressions may use JavaScript built-ins but not browser APIs such as `window`, `document`, `fetch` or timers, so pages stay safe under a strict CSP and testable.',
-    fix: 'Move the browser code into a helper (for a pure function) or an island (a custom element that owns imperative work).',
+    fix: 'Move the browser code into a helper (for a pure function) or a component\'s script (`src/components/<name>.ts`, which owns imperative work).',
   },
   SN203: {
     example: 'value expressions cannot assign; move this to `data-sn-on-*`',

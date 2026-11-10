@@ -18,8 +18,9 @@ npm run dev
   `src/sinter.config.ts`.
 - **Press N.** A key filter on `<body>` opens the dialog. The dialog itself needs no JavaScript:
   `command="show-modal"` is the browser's.
-- **Click the ring.** It is an island (`src/islands/task-chart.ts`): a custom element that draws
-  on a canvas, gets the tasks through `data-sn-prop` and sends the filter back as an event.
+- **Click the ring.** It is a component with a script (`src/components/task-chart.html` and
+  `.ts`): sinter renders its markup, the script draws on the canvas; it gets the tasks through
+  `data-sn-prop` and sends the filter back as an event.
 - **Rest the pointer on a task, then click it.** Its data was requested while you pointed, so
   `task.html` shows it at once, and the title morphs into the page's heading.
 - **Reload.** The list appears before the server answers (`cache`), and the filter is kept
@@ -48,8 +49,9 @@ type: see sinter's `docs/editors.md`.
 | `src/components/app-header.html` | A component: shared markup, expanded at build time where `<app-header>` is used. |
 | `src/sinter.types.ts` | The API's types. `type="Task[]"` on a resource checks every expression that reads it. |
 | `src/sinter.helpers.ts` | Functions expressions can call (`visible(…)`). |
-| `src/sinter.config.ts` | Error handling, and the place to import islands. |
-| `src/islands/` | Custom elements for browser work: canvas, editors, storage, timers. |
+| `src/sinter.config.ts` | Error handling. |
+| `src/components/*.ts` | Scripts of components, for browser work: canvas, editors, storage, timers. |
+| `src/sinter.components.d.ts` | Generated: the types of the components' scripts, from their HTML. |
 | `src/style.css` | temper's modules and the brand color. |
 | `server/api.js` | The demo backend, running inside Vite. |
 

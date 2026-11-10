@@ -177,6 +177,8 @@ export interface App {
      * rendered; 2: every row renders
      */
     select?: (inner: Inner) => (rb: BoundBinding, free: boolean) => number;
+    /** components with a script (components.ts): a root's `cmp` binding, `v` its class module, props and class name */
+    components?: (rb: BoundBinding, v: unknown) => void;
     fields?: { sent(el: Element, a: ActionDef): ((error: SinterError, request: { url: string; method: string }) => boolean) | undefined };
   };
   readonly beforeFlush: Array<(dirty: Dirty[]) => void>;
@@ -884,6 +886,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (k == 'for') reconcile(rb, v);
     else if (k == 'if') toggle(rb, v ? 1 : rb.else ? 2 : 0);
     else if (k == 'model') writeModel(rb, v);
+    else if (k == 'cmp') app.ext.components!(rb, v);
     else if (!Object.is(v, rb.v)) { write(rb.b, rb.el, v, rb.v == UNSET ? undefined : rb.v, rb.v == UNSET); rb.v = v; }
     return true;
   }

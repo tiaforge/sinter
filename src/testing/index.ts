@@ -33,13 +33,14 @@ import select from '../select.js';
 import location from '../location.js';
 import call from '../call.js';
 import debounce from '../debounce.js';
+import components from '../components.js';
 import confirm from '../confirm.js';
 import models from '../models.js';
 import sse from '../sse.js';
 import { prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, call, debounce, confirm, models, transition };
 
 // ---- requests
 
@@ -213,6 +214,8 @@ export interface RenderOptions {
   files?: Record<string, string>;
   /** the app's components, by name: `{ 'article-preview': '<template data-sn-component="…">…</template>' }` */
   components?: Record<string, string>;
+  /** the scripts of components, by name: the module (`await import('../src/components/task-ring.ts')`) or the class */
+  scripts?: Record<string, unknown>;
   /** localStorage and sessionStorage (default: empty ones); pass the previous page's to test what carries over */
   storage?: Storage;
   session?: Storage;
@@ -340,6 +343,7 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
   }
   const files: Record<string, string> = { ...options.files };
   for (const [name, text] of Object.entries(options.components ?? {})) files[`src/components/${name}.html`] = text;
+  for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= '';
   const parts = compileParts(html, {
     file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank',
     readFile: (p) => {
@@ -394,6 +398,11 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     values.push(b === undefined ? actions[a] : (actions[a] as Record<string, unknown>)[b]);
   }
   if (parts.remote) { names.push('$ri'); values.push(remote(parts.remote)); }
+  for (const x of parts.scripts) {
+    const m = options.scripts?.[x.name];
+    names.push(x.local);
+    values.push(typeof m === 'function' ? { default: m } : m ?? {});
+  }
   // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
   const fns = new Function(...names, `"use strict"; return [\n${parts.fns.join(',\n')}\n];`)(...values);
 

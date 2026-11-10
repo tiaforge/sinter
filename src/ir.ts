@@ -109,7 +109,9 @@ export interface SyncDef {
 
 export type BindingKind =
   | 'text' | 'attr' | 'class' | 'style' | 'show' | 'model' | 'prop'
-  | 'for' | 'if' | 'else' | 'on';
+  | 'for' | 'if' | 'else' | 'on'
+  /** a component's script on its root: `f` gives `[its module, its props, the class name]` */
+  | 'cmp';
 
 export interface Binding {
   /** dev builds: where each function it uses was written in the markup (`"file:line:col"`, by function index) */
@@ -334,7 +336,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
       for (const d of e.w ?? []) if (bad(d)) errs.push(`${at}: bad path`);
     });
   });
-  const kinds = new Set(['text', 'attr', 'class', 'style', 'show', 'model', 'prop', 'for', 'if', 'else', 'on']);
+  const kinds = new Set(['text', 'attr', 'class', 'style', 'show', 'model', 'prop', 'for', 'if', 'else', 'on', 'cmp']);
   const nodes = (list: NodeDef[], at: string, inTemplate: boolean) => list.forEach((n, i) => {
     const a = `${at}[${i}]`;
     if (inTemplate ? !Array.isArray(n.path) : !Number.isInteger(n.id)) errs.push(`${a}: needs ${inTemplate ? 'path' : 'id'}`);

@@ -73,12 +73,13 @@ Handlers without a request. Details: [events](actions.md), [key filters](actions
 
 ## Components
 
-On the `<template>` of a component file in `src/components/`. Details: [components](components.md).
+In a component file in `src/components/`. Details: [components](components.md).
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
 | `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean } |
 | `data-sn-emits` | events type | on the &lt;template data-sn-component&gt;: the events emit() sends and their detail types, e.g. { select: Article } |
+| `data-sn-ref` | name | in a component's markup: the element its script reads as this.refs.&lt;name&gt;, typed by its tag |
 
 ## Pages and navigation
 

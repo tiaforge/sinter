@@ -412,7 +412,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return null;
     }
     if (BROWSER.has(name)) {
-      report('SN202', `\`${name}\` is a browser API; expressions may use JavaScript, not the browser. Use an island`, offset);
+      report('SN202', `\`${name}\` is a browser API; expressions may use JavaScript, not the browser. Use a component's script`, offset);
       return null;
     }
     if (opts.payload) { payloadNames.add(name); return { kind: 'payload' }; }

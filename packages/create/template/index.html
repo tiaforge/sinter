@@ -33,9 +33,9 @@
 
     <!-- split: the chart beside the list, above it on a phone -->
     <div data-layout="split" data-gap="lg" style="--tm-split: 9rem">
-      <!-- The island: data in through properties, the filter back out through its event. -->
+      <!-- A component with a script: the tasks in through props, the filter back out through its event. -->
       <aside>
-        <task-chart data-sn-prop="{ tasks, show }" data-sn-on-chart-select="show = $event.detail"></task-chart>
+        <task-chart data-sn-prop="{ tasks, show }" data-sn-on-pick="show = $event.detail"></task-chart>
       </aside>
 
       <section data-layout="stack" data-gap="md" data-sn-let="{ shown: visible(tasks, q, show) }">

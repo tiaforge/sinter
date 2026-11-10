@@ -1,8 +1,92 @@
-# Islands
+# Components with a script
 
-Attributes cover showing and changing API data. For imperative work such as editors, canvases,
-charts or encryption, write a plain custom element. It gets data in through properties and sends
-events out through DOM events; sinter does not touch the elements it builds.
+Attributes cover showing and changing API data. For imperative work such as editors, canvases, charts
+or a third-party library, give a [component](components.md) a script: a file beside its HTML with the
+same name. sinter renders the markup (so it is in the first frame, with data); the script does the
+browser work and writes the component's state.
+
+```html
+<!-- src/components/task-ring.html: the only contract -->
+<template data-sn-component="{ done: number; open: number }" data-sn-emits="{ pick: 'done' | 'open' }">
+  <figure>
+    <canvas data-sn-ref="canvas" role="img" data-sn-attr="{ 'aria-label': done + ' of ' + (done + open) + ' done' }"></canvas>
+    <figcaption data-sn-text="done + ' / ' + (done + open)"></figcaption>
+  </figure>
+</template>
+```
+
+```ts
+// src/components/task-ring.ts
+import Chart from 'chart.js/auto';                    // any npm package: bundled with the pages that use the component
+import { TaskRingComponent } from './task-ring.html'; // generated from the component file, typed
+
+export class TaskRing extends TaskRingComponent {
+  #chart?: Chart;
+
+  connected() {                                       // the markup is rendered; refs are set
+    this.#chart = new Chart(this.refs.canvas, {       // HTMLCanvasElement
+      type: 'doughnut',
+      data: { labels: ['Done', 'Open'], datasets: [{ data: [this.props.done, this.props.open] }] },
+      options: { onClick: (_e, [hit]) => hit && this.emit('pick', hit.index ? 'open' : 'done') },
+    });
+  }
+
+  propsChanged() {                                    // a live prop changed: a server event, a filter
+    this.#chart!.data.datasets[0]!.data = [this.props.done, this.props.open];
+    this.#chart!.update();
+  }
+
+  disconnected() { this.#chart?.destroy(); }
+}
+```
+
+```html
+<!-- any page -->
+<task-ring data-sn-prop="{ done: doneCount(tasks), open: openCount(tasks) }"
+           data-sn-on-pick="show = $event.detail"></task-ring>
+```
+
+- **First frame:** the caption and the `aria-label` are bindings, so they are in the first frame. The
+  library draws once the page module runs.
+- **Nothing is registered.** The script is found by its file name. It exports the class named after the
+  component (`TaskRing` for `task-ring`), or a default export. It is not a custom element: no
+  `customElements.define`, no upgrade timing.
+- **External code is an import**, bundled with the pages that use the component and nowhere else.
+- **One contract.** The props, events and refs are declared once, in the HTML. The script extends the
+  base class generated from it, so `this.props`, `this.emit()`, `this.refs` and `this.state` are typed
+  by the HTML (through `src/sinter.components.d.ts`, below), and a misspelled prop, event or ref is a
+  type error in the script.
+- **`data-sn-ref="name"`** gives the script an element of its own markup as `this.refs.name`, typed by
+  its tag. A ref inside a `data-sn-for` or `data-sn-if` template is `undefined` while it is not
+  rendered, and its type says so. Elements of nested components and of slot content are not refs.
+- **`this.root`** is the instance's root element; `this.emit(name, detail)` dispatches a declared event
+  from it (bubbling, cancelable). `this` is not an element: it is an object sinter creates per instance.
+- **`this.state`** is the root's `data-sn-state` (a component with a script always has one). Assigning
+  a field renders, as a handler does: `this.state.loaded = true`.
+- **Lifecycle, driven by sinter:**
+  - `connected()` runs once the instance's markup is rendered or adopted, so refs are set.
+  - `propsChanged()` runs once per render in which a prop changed.
+  - `disconnected()` runs when sinter removes the instance: its row, its `data-sn-if` branch, or the
+    page.
+  Inside a `data-sn-for` or `data-sn-if`, each instance has its own object, started when its root is
+  created and ended when it is removed.
+- **The script writes only state.** It never writes to nodes sinter renders. A ref is for handing an
+  element to code that owns it (a canvas, a map container, an editor), not for setting its text.
+
+## `src/sinter.components.d.ts`
+
+The types of every component with a script go in one generated file, beside
+`src/sinter.messages.d.ts`. It is written on every build and `sinter check`, and `sinter lsp` rewrites
+it when a component's HTML changes, so the editor's types are current without the dev server. An app
+may commit it or git-ignore it; the starter template commits it. Types it names come from
+`src/sinter.types.ts`.
+
+## Plain custom elements
+
+Your own or third-party web components keep working without a component file: data goes in through
+properties (`data-sn-prop`), events come out as DOM events. The rest of this page is about them.
+
+An example:
 
 ```html
 <sn-resource name="messages" src="/api/messages" key="id"></sn-resource>
@@ -75,7 +159,7 @@ The round trip:
 The island owns the elements it builds; sinter owns the bindings around it. Data flows in
 through properties and out through events, never through the DOM in between.
 
-## Data in
+### Data in
 
 `data-sn-prop` takes an object literal and assigns each entry as a JavaScript property, so the
 island receives objects and arrays, not strings. It works on custom elements only.
@@ -87,7 +171,7 @@ property again through your class's setter.
 With a declaration in `HTMLElementTagNameMap` under `src/`, `sinter check` checks each key and value against the
 element's properties ([type-checking.md](type-checking.md)).
 
-## Events out
+### Events out
 
 An island dispatches `CustomEvent`s with lowercase kebab-case names (`reader-flag`) that bubble.
 `data-sn-on-<name>` handles them like any other event, with the payload in `$event.detail`.
@@ -98,7 +182,7 @@ Declare the details in `SinterElementEvents` and `$event.detail` is typed:
 Handlers run at every level the event bubbles through until one calls `$event.preventDefault()`.
 If an event may be final at some level, dispatch it with `cancelable: true`.
 
-## Instance API
+### Instance API
 
 An island can also use the store directly:
 
@@ -129,7 +213,7 @@ app.on('new_email', payload => notify(payload));  // any server event, mapped or
 `app.on` receives every event on the stream, including ones no `<sn-event>` maps, and fires after
 all mappings have run.
 
-## Rules
+### Rules
 
 - Islands never write to nodes sinter manages. Markup written inside a custom element in the page is bound like the
   rest of the page, so an island that replaces its children (as `<mail-reader>` does) should be written empty.

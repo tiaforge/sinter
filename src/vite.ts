@@ -5,7 +5,7 @@
 // data as the parser inserts it, before the first paint, with nothing render-blocking.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { posix, relative, resolve, sep } from 'node:path';
+import { dirname, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
@@ -22,6 +22,8 @@ import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, StyleSheet } from './compiler/index.js';
 import { hasCspMeta, pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { faceName, faceOf, fontDownloader, inlineFonts, preloadFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
+import { componentBase } from './components-build.js';
+import { COMPONENT_NAME } from './compiler/components.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -130,6 +132,8 @@ const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/s
 const IMG_CSS = `${PREFIX}img-css/`;
 /** a component's scoped styles, imported by the page modules of the pages that use it */
 const COMPONENT_CSS = `${PREFIX}component-css/`;
+/** the base class a component's script imports from its HTML (`import { TaskRingComponent } from './task-ring.html'`) */
+const COMPONENT_BASE = `${PREFIX}component-base/`;
 /** dev: where the image variants are served */
 const IMG = `${PREFIX}img/`;
 const PREFETCH = `${PREFIX}prefetch.js`;
@@ -589,7 +593,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return null;
     },
 
-    resolveId(id) {
+    resolveId(id, importer) {
+      // a component's script imports its generated base from its own HTML file
+      if (importer && id.endsWith('.html') && !importer.endsWith('.html')) {
+        const file = resolve(dirname(importer.replace(/[?#].*$/, '')), id);
+        const name = file.slice(0, -5).split(sep).pop()!;
+        if (dirname(file) === resolve(root, 'src/components') && COMPONENT_NAME.test(name)) return `\0${COMPONENT_BASE}${name}.js`;
+      }
       // a build with source maps: page modules keep a plain id, as Rolldown drops the map of a `\0` module
       if (id.startsWith(PREFIX) && !dev && maps.has(id)) return id;
       if (id.startsWith(PREFIX)) return '\0' + id;
@@ -599,6 +609,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     async load(id) {
       if (id.startsWith(`\0${IMG_CSS}`)) return imageCss.get(id.slice(IMG_CSS.length + 1, -4)) ?? '';
       if (id.startsWith(`\0${COMPONENT_CSS}`)) return componentCss.get(id.slice(COMPONENT_CSS.length + 1, -4)) ?? '';
+      if (id.startsWith(`\0${COMPONENT_BASE}`)) return componentBase(id.slice(COMPONENT_BASE.length + 1, -3));
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
       if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;

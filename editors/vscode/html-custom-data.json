@@ -165,6 +165,10 @@
       "description": "on the <template> of a component file (src/components/<name>.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean } (props type)"
     },
     {
+      "name": "data-sn-ref",
+      "description": "in a component's markup: the element its script reads as this.refs.<name>, typed by its tag (name)"
+    },
+    {
       "name": "data-sn-emits",
       "description": "on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article } (events type)"
     },

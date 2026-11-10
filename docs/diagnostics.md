@@ -56,11 +56,11 @@ An expression uses a name that is not a loop variable, state field, resource, ma
 
 Error, for example:
 
-> `window` is a browser API; expressions may use JavaScript, not the browser. Use an island
+> `window` is a browser API; expressions may use JavaScript, not the browser. Use a component's script
 
 Expressions may use JavaScript built-ins but not browser APIs such as `window`, `document`, `fetch` or timers, so pages stay safe under a strict CSP and testable.
 
-**Fix:** Move the browser code into a helper (for a pure function) or an island (a custom element that owns imperative work).
+**Fix:** Move the browser code into a helper (for a pure function) or a component's script (`src/components/<name>.ts`, which owns imperative work).
 
 ## SN203 side-effect
 

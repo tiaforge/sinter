@@ -15,6 +15,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'transition', value: 'value expression (a name)', doc: 'the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too)' },
   { name: 'prop', value: 'object literal', doc: 'sets JS properties; custom elements only (one defined later gets them again through its setters). On a component\'s tag: its props, live and read-only' },
   { name: 'component', value: 'props type', doc: 'on the <template> of a component file (src/components/<name>.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }' },
+  { name: 'ref', value: 'name', doc: 'in a component\'s markup: the element its script reads as this.refs.<name>, typed by its tag' },
   { name: 'emits', value: 'events type', doc: 'on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article }' },
   { name: 'model', value: 'state path', doc: 'two-way binding for form controls' },
   { name: 'for', value: 'item in list | (item, i) in list', doc: 'repeats a <template> per item' },

@@ -236,6 +236,8 @@ export interface CompiledParts {
   unlistedOrigins?: string[];
   /** the scoped styles of the components the page uses, by component */
   styles: Array<{ name: string; css: string }>;
+  /** the scripts of the components the page uses: the module, imported as `local` (`import * as local`) */
+  scripts: Array<{ name: string; module: string; local: string }>;
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
@@ -272,6 +274,16 @@ interface Use {
   scope?: ComponentScope;
   /** the caller's scope at the use: its attributes on the tag and its slot content see it */
   caller?: Scope;
+}
+
+/** A component file, read once: its text, scoped styles and script. */
+interface ComponentFile {
+  file: string;
+  text: string;
+  bad?: true;
+  css?: string | null;
+  /** the script beside it (`/src/components/task-ring.ts`), imported by the page modules that use it */
+  script?: string | null;
 }
 
 /** An `<sn-include>`, kept only to name what the partial reads from the page in its migration error. */
@@ -323,7 +335,9 @@ class Compiler {
   private readonly stateAt = new Map<number, { site: Site; fields: Map<string, Site> }>();
   readonly origins = new WeakMap<object, Origin>();
   /** component files by tag, read once (null: no such component, a plain custom element) */
-  private readonly componentFiles = new Map<string, { file: string; text: string; bad?: true; css?: string | null } | null>();
+  private readonly componentFiles = new Map<string, ComponentFile | null>();
+  /** by component id (`ComponentScope.id`): the use, for the refs of its markup */
+  private readonly useById = new Map<number, Use>();
   /** slot content's top-level elements and the component whose markup they are ('' for the page's) */
   private readonly slotEls: Array<{ el: P5Element; caller: string; host: string }> = [];
   /** a component's root, by the element that replaced its tag */
@@ -334,6 +348,10 @@ class Compiler {
   readonly slotOf = new WeakMap<object, Use>();
   /** every use, by component name */
   readonly uses = new Map<string, Use[]>();
+  /** the scripts of the components the page uses: module and local name in the page module */
+  readonly scripts = new Map<string, { module: string; local: string }>();
+  /** refs by element, set on it once its other attributes are stripped */
+  private readonly refEls: Array<[P5Element, string]> = [];
   /** nodes that came from an `<sn-include>`, and the top-level ones */
   private readonly includeOf = new WeakMap<object, IncludeRec>();
   private readonly includeTop = new WeakMap<object, IncludeRec>();
@@ -439,7 +457,9 @@ class Compiler {
     this.reportIncludes();
     // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
     // which start at the roots and stop at other components' roots and at slot content (`data-sn-s`)
-    const styled = [...this.uses.keys()].filter((n) => this.componentFiles.get(n)?.css);
+    // a script's refs belong to its own markup, found by these marks too
+    const styled = [...this.uses.keys()].filter((n) => this.componentFiles.get(n)?.css || this.componentFiles.get(n)?.script);
+    for (const [el, name] of this.refEls) setAttr(el, 'data-sn-r', name);
     if (this.opts.dev || styled.length) for (const list of this.uses.values()) for (const u of list) setAttr(u.root, 'data-sn-c', u.name);
     if (styled.length) for (const x of this.slotEls) if (attr(x.el, 'data-sn-c') === undefined) setAttr(x.el, 'data-sn-s', x.caller);
 
@@ -492,7 +512,7 @@ class Compiler {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition', 'components'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -504,6 +524,7 @@ class Compiler {
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
       styles: [...this.uses.keys()].sort().flatMap((n) => { const css = this.componentFiles.get(n)?.css; return css ? [{ name: n, css }] : []; }),
+      scripts: [...this.scripts].sort(([a], [b]) => a.localeCompare(b)).map(([name, x]) => ({ name, ...x })),
     };
   }
 
@@ -739,13 +760,23 @@ class Compiler {
   // ---- components
 
   /** The component file for a tag (null: a plain custom element, or not a valid component name). */
-  componentFile(tag: string): { file: string; text: string; bad?: true } | null {
+  componentFile(tag: string): ComponentFile | null {
     if (!COMPONENT_NAME.test(tag) || tag.startsWith('sn-')) return null;
     let c = this.componentFiles.get(tag);
     if (c !== undefined) return c;
     const dir = this.opts.components ?? `${normalize(this.opts.root).replace(/\/$/, '')}/src/components`;
     const file = normalize(`${dir}/${tag}.html`);
     try { c = { file, text: this.opts.readFile(file) }; } catch { c = null; }
+    if (c) {
+      // a script beside it: the component runs it per instance
+      const root = normalize(this.opts.root).replace(/\/$/, '');
+      for (const ext of ['.ts', '.js', '.mts', '.mjs']) {
+        const f = file.replace(/\.html$/, ext);
+        try { this.opts.readFile(f); } catch { continue; }
+        c.script = f.startsWith(root + '/') ? f.slice(root.length) : f;
+        break;
+      }
+    }
     this.componentFiles.set(tag, c);
     return c;
   }
@@ -786,7 +817,7 @@ class Compiler {
   }
 
   /** Replaces one component tag by the component's root; null when the component file is invalid. */
-  expandUse(host: P5Element, def: { file: string; text: string; bad?: true; css?: string | null }, chain: string[]): P5Element | null {
+  expandUse(host: P5Element, def: ComponentFile, chain: string[]): P5Element | null {
     const name = host.tagName;
     const hostOrigin = this.origins.get(host) ?? { file: this.opts.file, src: '', chain: [] };
     const frag = parse5.parseFragment(def.text, { sourceCodeLocationInfo: true });
@@ -832,6 +863,8 @@ class Compiler {
     if (root.tagName === 'template' || root.tagName === 'slot' || this.componentFile(root.tagName)) {
       return fail(root, null, `a component's root is a plain element: \`<${root.tagName}>\` cannot be the root of \`<${name}>\``, 'wrap it in an element');
     }
+    // a script reads and writes the root's own state: there is one
+    if (def.script && attr(root, 'data-sn-state') === undefined) root.attrs.push({ name: 'data-sn-state', value: '{}' });
     const propsText = attr(template, 'data-sn-component')!;
     const props = typeMembers(propsText.trim() === '' ? '{}' : propsText);
     const emitsText = attr(template, 'data-sn-emits') ?? null;
@@ -993,8 +1026,9 @@ class Compiler {
     }
     const outer = new Set<string>([...(caller.lets ?? []).map((l) => l.name), ...caller.loops.map((l) => l.name), ...caller.states.flatMap((x) => [...x.names])]);
     // no `data-sn-emits`: no events; one the compiler cannot list (an alias): not checked here
-    const cs: ComponentScope = { name, outer, id: this.useIds++, ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
+    const cs: ComponentScope = { name, outer, id: this.useIds, ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
     use.scope = cs;
+    this.useById.set(this.useIds++, use);
     if (this.check) {
       this.frameOf.set(cs, this.check.frames.length);
       this.check.frames.push({ kind: 'props', component: name, type: { kind: 'ts', text: use.propsText.trim() || '{}', loc: this.locOf(use.template, 'data-sn-component') }, names: declared ?? [...passed] });
@@ -1321,6 +1355,18 @@ class Compiler {
     this.bindings(el, node, scope, ctx);
     // a component's root: the caller's attributes on its tag, in the caller's scope
     if (use) this.bindings(use.host, node, use.caller!, callerCtx!, use);
+    // a component with a script: its object, created per instance with the live props
+    const script = use ? this.componentFiles.get(use.name)?.script : null;
+    if (use && script) {
+      const local = `$cm$${use.name.replace(/-/g, '_')}`;
+      this.scripts.set(use.name, { module: script, local });
+      this.features.add('components');
+      const props = (scope.lets ?? []).filter((l) => l.prop);
+      const code = `($) => [${local}, { ${props.map((l) => `${JSON.stringify(l.name)}: (${l.code})`).join(', ')} }, ${JSON.stringify(pascalName(use.name))}]`;
+      node.b.push(this.binding({ k: 'cmp', f: this.fn(code, { el, attr: null, shift: 0 }), d: [...new Set(props.flatMap((l) => l.deps))].sort() }));
+    }
+    // `data-sn-ref="name"`: an element of a component's markup, for its script (`this.refs.name`)
+    if (has('ref')) this.ref(el, scope);
 
     // templates
     let content: { tid: number; scope: Scope } | null = null;
@@ -1648,6 +1694,18 @@ class Compiler {
       else this.check.exprs[i]!.broken = true;
     }
     return r;
+  }
+
+  /** `data-sn-ref="name"` in a component's markup: kept on the element as `data-sn-r`, which the script's `this.refs` finds */
+  ref(el: P5Element, scope: Scope) {
+    const name = attr(el, 'data-sn-ref') ?? '';
+    const use = scope.component?.id !== undefined ? this.useById.get(scope.component.id) : undefined;
+    if (!use || this.useOf.get(el) === use) {
+      this.report(el, 'data-sn-ref', 'SN102', use ? '`data-sn-ref` on a component\'s root: the script has it as `this.root`' : '`data-sn-ref` names an element of a component\'s markup for its script', 0);
+      return;
+    }
+    if (!IDENT.test(name)) { this.report(el, 'data-sn-ref', 'SN401', '`data-sn-ref` takes a name, as the script reads it: `this.refs.canvas`', 0); return; }
+    this.refEls.push([el, name]);
   }
 
   addSources(ref: string, src: string[]) {
@@ -2949,6 +3007,9 @@ function binding(b: Binding): Binding {
   if (out.d && out.d.length === 0) delete out.d;
   return out;
 }
+
+/** `task-ring` → `TaskRing`: the class a component's script exports */
+const pascalName = (name: string) => name.split('-').map((p) => p[0]!.toUpperCase() + p.slice(1)).join('');
 
 /** The literal keys of a `data-sn-state` object (none when it does not parse). */
 function stateKeys(src: string | undefined): Set<string> {

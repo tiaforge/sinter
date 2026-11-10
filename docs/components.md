@@ -141,6 +141,14 @@ A component that declares a `value` prop and a `change` event can be bound like 
 writes `$event.detail` back. Only the component's own event writes: a native `change` from a control
 inside it is not. It binds state, never a resource, as on `<input>`.
 
+## A script
+
+A component that needs the browser (a canvas, a map, a third-party library) gets a script beside its
+HTML: `src/components/task-ring.ts`. sinter runs it once per instance, on the instance's root, with
+`connected()`, `propsChanged()` and `disconnected()`; the script reads `this.props`, writes
+`this.state`, reaches elements through `data-sn-ref` and emits declared events. See
+[components with a script](islands.md).
+
 ## Types
 
 `sinter check` checks every edge against the one declaration:
@@ -149,6 +157,7 @@ inside it is not. It binds state, never a resource, as on `<input>`.
 | --- | --- |
 | The tag | `data-sn-prop` keys and types; `data-sn-on-<event>` names and the type of `$event.detail`; slot names |
 | The component's markup | bindings read only declared props, its state and globals; `emit()` names match `data-sn-emits` |
+| The script | TypeScript, through the generated base class: a misspelled prop, event or ref, or a wrong detail type, is a type error |
 
 Errors in the component are reported in the component's file, followed by where it is used. In the
 editor, `sinter lsp` checks a component through the pages that use it, and goes from a tag to its file.

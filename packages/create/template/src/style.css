@@ -9,13 +9,3 @@
   --tm-chroma: 0.16;
 }
 
-/* The app's own component: the island. */
-task-chart {
-  display: block;
-  inline-size: 9rem;
-  aspect-ratio: 1;
-  cursor: pointer;
-}
-task-chart canvas {
-  display: block;
-}

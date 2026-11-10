@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import { compile, type Diagnostic, type HelperManifest } from '../compiler/index.js';
 import { project, viteProject, type Project, type ProjectOptions } from '../project.js';
+import { writeComponentTypes } from '../components-build.js';
 
 const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
 
@@ -154,6 +155,10 @@ export class Workspace {
 
   private async htmlChanged(file: string): Promise<void> {
     const state = await this.projectFor(file);
+    // a component's contract changed: its script's types follow, without the dev server
+    if (componentName(state.root, file)) {
+      try { writeComponentTypes(state.root, (f) => this.docs.get(resolve(f)) ?? readFileSync(f, 'utf8')); } catch { /* reported by the compiler */ }
+    }
     const includers = [...state.includes].filter(([, files]) => files.includes(file)).map(([page]) => page);
     const pages = new Set(includers);
     if (state.pages.has(file) || !includers.length) {

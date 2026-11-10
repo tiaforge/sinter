@@ -71,3 +71,68 @@ test('a build: scoped styles in the page\'s stylesheet, roots and slot content m
     await browser.close();
   }
 }, 60_000);
+
+test('a component with a script: its base class from its HTML, the generated types, and the built page running it', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'sinter-component-script-'));
+  try {
+    mkdirSync(join(app, 'src/components'), { recursive: true });
+    writeFileSync(join(app, 'src/sinter.types.ts'), 'export interface Task { id: number; done: boolean }\n');
+    writeFileSync(join(app, 'src/components/task-ring.html'), `<template data-sn-component="{ tasks: Task[] }" data-sn-emits="{ pick: 'done' | 'open' }">
+  <figure data-sn-state="{ drawn: 0 }">
+    <canvas data-sn-ref="canvas"></canvas>
+    <figcaption data-sn-text="tasks.filter((t) => t.done).length + ' done, drawn ' + drawn"></figcaption>
+  </figure>
+</template>
+`);
+    writeFileSync(join(app, 'src/components/task-ring.ts'), `import { TaskRingComponent } from './task-ring.html';
+export class TaskRing extends TaskRingComponent {
+  connected() { this.draw(); this.refs.canvas.addEventListener('click', () => this.emit('pick', 'done')); }
+  propsChanged() { this.draw(); }
+  draw() { this.refs.canvas.width = 10 + this.props.tasks.length; this.state.drawn = this.state.drawn + 1; }
+}
+`);
+    writeFileSync(join(app, 'index.html'), `<!doctype html><html><head><title>t</title></head><body>
+<div data-sn-state="{ tasks: [{ id: 1, done: true }, { id: 2, done: false }], picked: '' }">
+  <task-ring data-sn-prop="{ tasks }" data-sn-on-pick="picked = $event.detail"></task-ring>
+  <button data-sn-on-click="tasks = [...tasks, { id: 3, done: true }]">add</button>
+  <output data-sn-text="picked"></output>
+</div>
+</body></html>`);
+    const out = join(app, 'dist');
+    await build({ root: app, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false } });
+    // the types: written with the build, and the script checks against them
+    const dts = readFileSync(join(app, 'src/sinter.components.d.ts'), 'utf8');
+    expect(dts).toContain("declare module '*/task-ring.html' {");
+    expect(dts).toContain("type Task = import('./sinter.types').Task;");
+    expect(dts).toContain('export class TaskRingComponent extends Base<{ tasks: Task[] }, { pick: \'done\' | \'open\' }, { canvas: HTMLElementTagNameMap["canvas"] }, { drawn: number }> {}');
+    const { findTsc } = await import('../../src/check/index.js');
+    const { spawnSync } = await import('node:child_process');
+    const tsconfig = (files: string[]) => JSON.stringify({ compilerOptions: { strict: true, noEmit: true, target: 'es2022', module: 'esnext', moduleResolution: 'bundler', lib: ['es2023', 'dom', 'dom.iterable'], allowImportingTsExtensions: true, skipLibCheck: true,
+      paths: { '@tiaforge-ui/sinter/components': [join(src, 'components.ts')] } }, files });
+    writeFileSync(join(app, 'tsconfig.json'), tsconfig(['src/sinter.components.d.ts', 'src/components/task-ring.ts']));
+    const tsc = (path = app) => spawnSync(process.execPath, [findTsc(process.cwd()), '-p', path], { encoding: 'utf8' }).stdout;
+    expect(tsc()).toBe('');
+    writeFileSync(join(app, 'src/components/task-ring.ts'), readFileSync(join(app, 'src/components/task-ring.ts'), 'utf8').replace("this.emit('pick', 'done')", "this.emit('pik', 'done')"));
+    expect(tsc()).toMatch(/Argument of type '"pik"' is not assignable/);
+    if (!chromium) return;
+    const { preview } = await import('vite');
+    const server = await preview({ root: app, logLevel: 'silent', preview: { port: 0 }, build: { outDir: out } });
+    const browser = await chromium.launch();
+    try {
+      const tab = await browser.newPage();
+      await tab.goto(server.resolvedUrls!.local[0]!);
+      await tab.waitForFunction(() => document.querySelector('figcaption')?.textContent === '1 done, drawn 1');
+      expect(await tab.$eval('canvas', (c) => (c as HTMLCanvasElement).width)).toBe(12);
+      await tab.click('button');
+      await tab.waitForFunction(() => document.querySelector('figcaption')?.textContent === '2 done, drawn 2');
+      expect(await tab.$eval('canvas', (c) => (c as HTMLCanvasElement).width)).toBe(13);
+      await tab.click('canvas');
+      await tab.waitForFunction(() => document.querySelector('output')?.textContent === 'done');
+    } finally {
+      await browser.close();
+      await new Promise((r) => server.httpServer.close(r));
+    }
+  } finally {
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 60_000);
