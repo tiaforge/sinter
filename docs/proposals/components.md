@@ -1,6 +1,7 @@
 # Proposal: components
 
-Status: draft, for discussion. Nothing here is implemented.
+Status: draft. The design questions are settled (see [Decisions](#decisions)); nothing here is
+implemented.
 
 This reverses a non-goal (`spec.md`: "Routing, a component system, a virtual DOM, transitions";
 "components remain a non-goal"). Once sinter has components, they will be compared with Svelte, Vue
@@ -431,7 +432,7 @@ element is plain `HTMLElement`, and `$event.detail` is `any`.
   `<slot>` and `slot=""`, `<style>` in a component file, and for scripts a generated base class
   with three hooks.
 - Every mistake is a build error with a suggestion.
-- This is the property to protect most carefully when choosing between the open questions below.
+- This is the property to protect most carefully as the design grows.
 
 ## Table stakes
 
@@ -452,7 +453,8 @@ Missing any of these loses the comparison regardless of the hallmark:
 - Client-side routing and a virtual DOM. These stay non-goals.
 - **The size of a component ecosystem.** Any existing web component already works inside sinter
   through `data-sn-prop` and events. sinter components are not custom elements; using them outside
-  sinter would need a generated wrapper (open question 7).
+  sinter would need a generated wrapper, which is left for after the first release
+  ([Decisions](#decisions)).
 - **Peak re-render speed.** Stay close to the leaders in `bench/js-framework-benchmark`. The case
   rests on first paint and data correctness.
 
@@ -534,8 +536,23 @@ has no store code**. `npm run size` must show the core unchanged.
 6. **Recursive and dynamic components:** the runtime path.
 7. **The RealWorld rewrite**, the comparison docs, the spec, README and `llms.txt`.
 
-## Open questions
+## Decisions
 
-7. **Exporting.** sinter components are not custom elements. Should a component also build as a
-   standalone custom element for use outside sinter (a generated wrapper that runs the script and
-   the bindings), and when?
+Settled in review, in the order they were discussed:
+
+| Question | Decision | Section |
+| --- | --- | --- |
+| First paint | A hard requirement: components render in the first frame and never hydrate | [The hallmark](#the-hallmark-components-in-the-first-frame-without-hydration) |
+| The script's contract | Declared once in the HTML; the script extends a generated base class | [One contract](#one-contract) |
+| `patch` and `remove` | Take the item, act on the resource it came from, no resource name | [Store functions](#store-functions-resolved-from-the-item) |
+| State holding a row | Stays a snapshot; derive the current row with `data-sn-let` | [Store functions](#store-functions-resolved-from-the-item) |
+| Generated files | One `src/sinter.components.d.ts`, handled like the messages file, kept current by `sinter lsp` | [One contract](#one-contract) |
+| The tag | Replaced by the single root element; scripts run per instance, not as custom elements | [The tag](#the-tag-replaced-by-the-root) |
+| Scoped slots | None at first; an additive form is sketched | [Scope](#scope) |
+| Scoped CSS | Native `@scope`, with nested components and slot content as the boundary | [Defining a component](#defining-a-component) |
+| `<sn-include>` | Removed (breaking); partials become components | [What changes elsewhere](#what-changes-elsewhere) |
+| Two-way props | `data-sn-model` on components, as shorthand for a `value` prop and a `change` event | [Custom inputs](#custom-inputs-data-sn-model) |
+| Exporting | Not now; revisit after the first release | [What we do not compete on](#what-we-do-not-compete-on) |
+
+Still open, and needed before release: **recursive components** and **choosing a component at
+runtime** ([Limits](#limits-that-come-from-expanding-at-build-time)).
