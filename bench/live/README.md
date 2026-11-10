@@ -28,10 +28,11 @@ hypermedia variants' server keeps the view state and renders or formats per tick
 - Most of the gap is that one scheduling choice. Each of the others can buffer events and apply them
   in a `requestAnimationFrame` by hand (ivi with a custom root); they would likely close most of it.
   The claim is "faster with each one's default", which matters because sinter's needs no code.
-- Not covered here: building and restructuring lists (js-framework-benchmark, where sinter ranks 28th
-  on CPU and 49th on memory of 208: behind Solid, Svelte, ivi and plain JS on create, swap and
-  append), first render, bundle size against these frameworks, memory under load beyond the heap
-  after GC. Cells are one run each, often 1 s steps: enough for gaps like 5,000 against 200 ticks/s,
+- Not covered here: building and restructuring lists. That is js-framework-benchmark
+  ([docs/benchmark.md](../../docs/benchmark.md), 2026-11-08): sinter ranks 28th of 208 on CPU (the
+  official table has Vue Vapor 35th, Solid 50th, Svelte 5 75th) and 49th on memory (Solid 36th,
+  Svelte 5 81st); ivi and plain JS are ahead on both. Also not covered: first render, bundle size
+  against these frameworks, memory under load beyond the heap after GC. Cells are one run each, often 1 s steps: enough for gaps like 5,000 against 200 ticks/s,
   not for close ones.
 
 ## Method
