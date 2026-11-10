@@ -1,11 +1,11 @@
 // Helpers used in the pages' expressions.
-import { token } from './session.js';
+import { getToken } from './session.js';
 
 /**
  * Whether no session token is stored: the signed-out state, known before the first paint (the
  * pages' `guest`), so the banner and the Sign in / Sign up links render with the page.
  */
-export const signedOut = () => !token.get();
+export const signedOut = () => !getToken();
 
 /** The author's image, or the default avatar. */
 export const avatar = (image) => image || '/default-avatar.svg';

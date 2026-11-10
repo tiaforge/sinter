@@ -40,6 +40,11 @@ Attribute names, function names and diagnostic codes are public API. Before
     where the core used the document's URL whenever the base was not http(s); not by the element's own
     base, which is `about:blank` while a row is a clone of its template. Only the scheme is checked: a URL
     the browser cannot parse further is written, an invalid link as in static HTML. Core +51 B.
+  - Early requests read the browser's clock, location and fetch unless the app has an early module
+    (`src/sinter.early.ts`), the only code that could `configure({ env })` before the first paint; then
+    the compiler passes `configured` to `requests`, and only then does the early file carry the config.
+    RealWorld's early files with requests −135 B gzip (1.7–1.9 KB). RealWorld's `signedOut` helper reads
+    a standalone `getToken`, so the early files no longer carry the whole `token` object (−28 B).
   - The dev warning for duplicate `data-sn-for` keys moved into the dev module: core −43 B.
   - The Vite plugin turns off Vite's modulepreload polyfill unless the app sets `build.modulePreload`'s
     `polyfill` (or `modulePreload: false`): every browser sinter's pages need preloads modules natively.

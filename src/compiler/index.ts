@@ -82,7 +82,7 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   const page = early ? earlyPage(early) : null;
   // a page with nothing to wait for (no requests, no messages, no app early module's dictionary): `run`, one step
   const simple = !!early && !split && !req && !Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES);
-  lines.push(`import { ${[split ? 'prime' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests'] : []), ...(pages ? ['withParams'] : [])].join(', ')} } from '${PACKAGE}/early';`);
+  lines.push(`import { ${[split ? 'prime' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : []), ...(pages ? ['withParams'] : [])].join(', ')} } from '${PACKAGE}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
   if (early) {
@@ -113,7 +113,7 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
     early.fns.forEach((f, i) => lines.fn('    ', f, ',', early.sources?.fns[i]));
     lines.push('  ];', `  return ${page!.code};`, '};');
   }
-  const args = `${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? `, requests(${pages ? 'withParams' : ''})` : ''}`;
+  const args = `${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? `, requests(${pages ? 'withParams' : app ? 'undefined' : ''}${app ? ', configured' : ''})` : ''}`;
   // split: the requests start when the file runs (`async`, before the stylesheets); the stub calls `render` after the parse
   lines.push(split ? `export const render = prime(${args});` : simple ? 'run(page);' : `start(${args});`);
   return lines;

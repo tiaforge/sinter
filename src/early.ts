@@ -13,11 +13,17 @@ import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
 import { expand, readUrl, type withParams } from './runtime/url.js';
 import type { EarlyIR } from './ir.js';
 
-/** What the early file needs from the outside world: `configure({ env })` from the app's early module, else the browser. */
-type EarlyEnv = Pick<Env, 'now' | 'href' | 'storage' | 'fetch'>;
-const envOf = (): EarlyEnv => {
-  const e = config.env, g = globalThis as typeof globalThis & Window;
-  return { now: e?.now ?? Date.now, href: e?.href ?? (() => g.location.href), storage: e?.storage ?? (() => { try { return g.localStorage; } catch { return null; } }), fetch: e?.fetch ?? ((r) => fetch(r)) };
+/** What the early requests read from the outside world: the clock, the location, fetch. */
+type EarlyEnv = Pick<Env, 'now' | 'href' | 'fetch'>;
+/** the browser's: before the first paint only an app early module could have configured another */
+const browser = (): EarlyEnv => ({ now: Date.now, href: () => location.href, fetch: (r) => fetch(r) });
+/**
+ * `configure({ env })`, else the browser: for a page whose app has an early module (the compiler
+ * passes it to `requests`), and for tests; only then does the early file carry the config.
+ */
+export const configured = (): EarlyEnv => {
+  const e = config.env;
+  return { now: e?.now ?? Date.now, href: e?.href ?? (() => location.href), fetch: e?.fetch ?? ((r) => fetch(r)) };
 };
 
 export { $k } from './runtime/keys.js';
@@ -115,8 +121,11 @@ export interface EarlyRequests {
   send(ir: Pick<EarlyIR, 'res'>, scopes: any[], base: any, fns: Fn[]): void;
 }
 
-/** `params`: adds a paginated resource's first-page parameters (`withParams`, imported only by a page that has one) */
-export function requests(params?: typeof withParams): EarlyRequests {
+/**
+ * `params`: adds a paginated resource's first-page parameters (`withParams`, imported only by a page
+ * that has one); `envOf`: where the environment comes from (`configured` where an app early module may set it)
+ */
+export function requests(params?: typeof withParams, envOf: () => EarlyEnv = browser): EarlyRequests {
   let url: Record<string, string> | null = null, now: Date | null = null, e: EarlyEnv | null = null;
   // the environment only requests read (the clock, the location, fetch): read when first needed, after the app's early module ran
   const env = () => (e ??= envOf());
@@ -176,7 +185,7 @@ const own = (s: Prefetched) => (setPrefetched(s), s);
 
 /** Renders a page's early part (tests; the early file goes through `start`). */
 export function early(doc: Document, page: ReturnType<EarlyPage>): void {
-  prepare(page, requests()).render(doc);
+  prepare(page, requests(undefined, configured)).render(doc);
 }
 
 function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
