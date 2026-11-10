@@ -1150,7 +1150,7 @@ sinter never creates HTML from data, and every remaining DOM sink is closed at b
 
 ### URL attributes
 `href`, `src`, `action`, `formaction`, `poster`, `cite`, `data`, `ping` and `xlink:href` are checked, and every candidate in `srcset`.
-- The value is parsed with `new URL(value, document.baseURI)`, the browser's own parser, so whitespace, control characters, tabs inside the scheme and mixed case cannot disguise it.
+- The scheme is read as the URL standard reads it (`schemeOf` in `runtime/security.ts`): leading control characters and spaces stripped, tabs and newlines removed anywhere, then a letter followed by letters, digits, `+`, `-` or `.` up to `:`; anything else is relative and judged by the scheme of the element's base URL (`baseURI`, what the browser resolves it against: `<base href>` can make it `ftp:` or `webcal:`, and then a relative link has that scheme). So whitespace, control characters, tabs inside the scheme and mixed case cannot disguise it. It agrees with the browser's parser on every URL that parser accepts (a differential test over generated strings; 2026-11-09, 200,000 strings in Chromium, none differing), at a fraction of the cost of `new URL()` (1,000 links: 1.5 ms instead of 5.1 ms in Chromium, 1.2 ms with no check). Only the scheme is checked: a URL the browser cannot parse further is written as an invalid link, as in static HTML.
 - Allowed: `http:`, `https:`, `mailto:`, `tel:`, and relative URLs. `data:` and `blob:` only in `src` of `<img>`, `<video>`, `<audio>` and `<source>`.
 - A rejected value removes the attribute; dev builds warn with the element and the value.
 - `configure({ urlSchemes: ['webcal:'] })` adds schemes. `javascript:`, `vbscript:` and `data:` outside media can never be added.

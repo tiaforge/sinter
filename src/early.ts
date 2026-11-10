@@ -274,7 +274,7 @@ export const set = (el: HTMLElement, v: any, n: string) => {
 };
 /** a URL attribute whose value may have any scheme: written only if the scheme is allowed */
 export const attr = (el: HTMLElement, v: any, n: string) => {
-  if (v == null || v === false || urlAllowed(el, n, v === true ? '' : '' + v, el.baseURI, schemesOf(config.urlSchemes))) set(el, v, n);
+  if (v == null || v === false || urlAllowed(el, n, v === true ? '' : '' + v, document.baseURI, schemesOf(config.urlSchemes))) set(el, v, n);
 };
 export const style = (el: HTMLElement, v: any, n: string) => {
   if (v == null || v === false) el.style.removeProperty(n);

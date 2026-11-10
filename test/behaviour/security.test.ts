@@ -156,3 +156,39 @@ describe('requests and origins', () => {
     expect(requests.calls.map((c) => c.headers['x-sinter'] ?? null)).toEqual(['1', null]);
   });
 });
+
+test('the URL check reads the scheme as the URL parser does: no disagreement on any URL it parses (Node\'s WHATWG URL, fuzzed)', async () => {
+  const { schemeOf } = await import('../../src/runtime/security.js');
+  const base = 'https://app.test/page';
+  const corpus = ['javascript:alert(1)', ' javascript:x', '\tjava\nscript:x', 'JaVaScRiPt:x', '\x00javascript:x', 'java\x00script:x', 'vbscript:x', 'data:text/html,x', '//evil.com', '/\\evil', 'mailto:a@b', '/a:b', 'a:b', '1a:b', '-a:b', 'C:/x', '?x:y', '#j:x', '', ' ', 'https:x', 'javascript&colon;x', 'java\u00a0script:x', '\u2028javascript:x', '\x1fjavascript:x', 'javascript\x1f:x', '\ufeffjavascript:x', 'ｊavascript:x', 'java%73cript:x', 'h\nttps://x', 'javascript\r:x'];
+  const alpha = ['j', 'a', 'v', 's', 'c', 'r', 'i', 'p', 't', 'h', ':', '/', '\\', '\t', '\n', '\r', ' ', '\x00', '\x01', '\x1f', '\x7f', '\u00a0', '\ufeff', '+', '-', '.', '1', 'A', '%', '?', '#', '@', 'é'];
+  const words = ['javascript', 'vbscript', 'data', 'https', 'mailto', 'blob'];
+  let seed = 7;
+  const rnd = (n: number) => ((seed = (seed * 16807) % 2147483647) % n);
+  for (let i = 0; i < 50_000; i++) {
+    let s = rnd(2) ? words[rnd(words.length)]! : '';
+    for (let k = rnd(8); k--;) s = rnd(3) ? s + alpha[rnd(alpha.length)] : alpha[rnd(alpha.length)] + s;
+    if (rnd(2)) { const at = rnd(s.length + 1); s = s.slice(0, at) + ':' + s.slice(at); }
+    corpus.push(s);
+  }
+  const bad: string[] = [];
+  for (const v of corpus) {
+    let parsed: string;
+    try { parsed = new URL(v, base).protocol; } catch { continue; }
+    if ((schemeOf(v) ?? 'https:') !== parsed) bad.push(JSON.stringify(v));
+  }
+  expect(bad).toEqual([]);
+});
+
+test('a relative URL is judged by the document\'s base: under <base href="ftp://…"> it is an ftp: link, refused; in rows too', async () => {
+  const page = (base: string) => `<html><head>${base}</head><body data-sn-state="{ to: 'x/y', abs: 'https://ok.example/', rows: ['a'] }">
+    <a id="rel" data-sn-attr="{href: to}">r</a><a id="abs" data-sn-attr="{href: abs}">a</a>
+    <ul><template data-sn-for="r in rows"><li><a data-sn-attr="{href: to + r}">row</a></li></template></ul></body></html>`;
+  const ftp = await render(page('<base href="ftp://files.example/">'));
+  expect(ftp.root.querySelector('#rel')!.hasAttribute('href')).toBe(false);
+  expect(ftp.root.querySelector('li a')!.hasAttribute('href')).toBe(false);
+  expect(ftp.root.querySelector('#abs')!.getAttribute('href')).toBe('https://ok.example/');
+  const plain = await render(page(''));
+  expect(plain.root.querySelector('#rel')!.getAttribute('href')).toBe('x/y');
+  expect(plain.root.querySelector('li a')!.getAttribute('href')).toBe('x/ya');
+});

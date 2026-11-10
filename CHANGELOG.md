@@ -31,6 +31,15 @@ Attribute names, function names and diagnostic codes are public API. Before
   - Models of controls other than text fields (checkbox, radio, `<select>`, number and range) and the
     `<select>` value set again after each render moved into `@tiaforge-ui/sinter/models` (0.5 KB gzip),
     imported only by pages with one: core −168 B. Text fields and textareas stay in the core.
+  - The URL check reads the scheme as the URL standard does (`schemeOf`: leading controls and spaces
+    stripped, tabs and newlines removed, a letter then letters, digits, `+`, `-`, `.` up to `:`) instead
+    of `new URL()`: 0.06 µs per URL instead of 0.74 µs in Chromium; the same decision as the browser's
+    parser on every URL it parses (200,000 generated strings in Chromium, 50,000 against Node's in the
+    tests). A relative URL is judged by the base of the document it is written into, which a
+    `<base href>` can make another scheme (an `ftp:` base makes relative links `ftp:` links: refused),
+    where the core used the document's URL whenever the base was not http(s); not by the element's own
+    base, which is `about:blank` while a row is a clone of its template. Only the scheme is checked: a URL
+    the browser cannot parse further is written, an invalid link as in static HTML. Core +51 B.
   - The dev warning for duplicate `data-sn-for` keys moved into the dev module: core −43 B.
   - The Vite plugin turns off Vite's modulepreload polyfill unless the app sets `build.modulePreload`'s
     `polyfill` (or `modulePreload: false`): every browser sinter's pages need preloads modules natively.

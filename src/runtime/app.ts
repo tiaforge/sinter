@@ -404,7 +404,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // form state: the attribute is only the default once the user has changed the control
       if (/^(checked|selected|indeterminate|value)$/.test(n) && n in el) (el as any)[n] = n == 'value' ? (v == null || v === false || v === true ? '' : v) : v != null && v !== false;
       if (v == null || v === false) el.removeAttribute(n);
-      else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), /^https?:/.test(el.baseURI) ? el.baseURI : env.href(), schemes)) el.setAttribute(n, v);
+      // relative URLs by the base of the document rows go into (a clone's own is its template's, about:blank)
+      else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), doc.baseURI, schemes)) el.setAttribute(n, v);
       else { el.removeAttribute(n); warn(7, n, el.localName, v); }
     },
     s(el: HTMLElement, n: string, v: any) {
