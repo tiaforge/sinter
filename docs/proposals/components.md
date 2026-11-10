@@ -124,7 +124,7 @@ A component can be bound like a form control. `data-sn-model` on a component is 
 on `<input>`: the component shows the state value, and its changes write it back.
 
 ```html
-<form data-sn-put="/api/contacts/{draft.id}">
+<form data-sn-put="/api/contacts/{draft.id}" data-sn-body="draft">
   <rating-input data-sn-model="draft.stars"></rating-input>
   <button>Save</button>
 </form>
