@@ -14,10 +14,10 @@ Bind values to the page. Details: [rendering](spec.md#rendering).
 | `data-sn-style` | object literal {'--color': …} | sets each property with style.setProperty |
 | `data-sn-show` | value expression | toggles the hidden attribute |
 | `data-sn-prop` | object literal | sets JS properties; custom elements only (one defined later gets them again through its setters) |
-| `data-sn-for` | item in list | (item, i) in list | repeats a <template> per item |
+| `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item |
 | `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
-| `data-sn-if` | value expression | renders a <template> while truthy |
-| `data-sn-else` |  | on a <template> directly after an if template |
+| `data-sn-if` | value expression | renders a &lt;template&gt; while truthy |
+| `data-sn-else` |  | on a &lt;template&gt; directly after an if template |
 
 ## Keep state
 
@@ -45,8 +45,8 @@ Turn an element into a request. Details: [actions](spec.md#actions-events-and-re
 | `data-sn-body` | value expression | JSON request body; overrides form serialization |
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
 | `data-sn-debounce` | milliseconds | delays the trigger, resets on each event; without a method, delays the element's data-sn-on-* handlers |
-| `data-sn-encoding` | json | form | form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded |
-| `data-sn-concurrency` | block | queue | latest | mutations only; default block for forms, queue otherwise |
+| `data-sn-encoding` | json \| form | form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded |
+| `data-sn-concurrency` | block \| queue \| latest | mutations only; default block for forms, queue otherwise |
 | `data-sn-confirm` | value expression | asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy |
 | `data-sn-retry` | retry policy name | mutations only: sends the request again as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once |
 | `data-sn-apply` | off | turns write-through off for this mutation: its response is not applied to the resources it is about |
@@ -68,7 +68,7 @@ Handlers without a request. Details: [events](spec.md#actions-and-events), [key 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
 | `data-sn-on-<event>` | handler expression | plain event handler, no request; e.g. data-sn-on-click |
-| `data-sn-debounce-<event>` | milliseconds | delays only that event's data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input |
+| `data-sn-debounce-<event>` | milliseconds | delays only that event's data-sn-on-&lt;event&gt; handler (it runs with the last event); e.g. data-sn-debounce-input |
 | `data-sn-listbox` | id of the suggestion list, or empty | on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox] around the input), Enter or Tab clicks it, Escape fires `dismiss` |
 
 ## Pages and navigation
@@ -77,10 +77,10 @@ Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [fi
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-path` | URL patterns /a/:b … | on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url |
-| `data-sn-prefetch` | off | on <html>: no other page prefetches this one's data or the page itself (Speculation Rules), and none prerenders it; for pages that do something when they load |
+| `data-sn-path` | URL patterns /a/:b … | on &lt;html&gt;: the path shapes this page is served for; `:name` segments appear read-only in $url |
+| `data-sn-prefetch` | off | on &lt;html&gt;: no other page prefetches this one's data or the page itself (Speculation Rules), and none prerenders it; for pages that do something when they load |
 | `data-sn-transition` | value expression (a name) | the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too) |
-| `data-sn-data` | resource name | on <script type="application/json"> in <head>: initial data for a resource |
+| `data-sn-data` | resource name | on &lt;script type="application/json"&gt; in &lt;head&gt;: initial data for a resource |
 
 ## Elements
 
@@ -99,7 +99,7 @@ A named, page-wide cache of server data. Details: [resources](spec.md#resources-
 
 ### `<sn-event>`
 
-`name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type`. Maps one server event to a change message; child of <sn-sync>. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close('detail'); with `then`, `resource` and `op` may be left out.
+`name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type`. Maps one server event to a change message; child of &lt;sn-sync&gt;. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close('detail'); with `then`, `resource` and `op` may be left out.
 
 ### `<sn-include>`
 

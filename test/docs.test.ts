@@ -218,6 +218,12 @@ const RESOURCE_GROUPS: Array<[string, string[]]> = [
   ['Pagination', ['paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'start-page']],
 ];
 
+// Markdown-safe text for a table cell or sentence: `|` would split the row, and a bare <tag> outside code is
+// swallowed as HTML.
+function md(text: string): string {
+  return text.split(/(`[^`]*`)/).map((part, i) => i % 2 ? part.replace(/\|/g, '\\|') : part.replace(/\|/g, '\\|').replace(/</g, '&lt;').replace(/>/g, '&gt;')).join('');
+}
+
 function attributes(): string {
   const all = [...ATTRIBUTES, ON_DOC, KEY_ON_DOC, DEBOUNCE_ON_DOC];
   const placed = new Set<string>(ATTRIBUTE_GROUPS.flatMap((g) => g[2]));
@@ -230,7 +236,7 @@ Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element; anything 
     for (const n of names) {
       const a = all.find((x) => x.name === n);
       if (!a) throw new Error(`unknown attribute ${n} in ATTRIBUTE_GROUPS`);
-      out.push(`| \`data-sn-${a.name}\` | ${a.value ?? ''} | ${a.doc.replace(/\|/g, '\\|')} |`);
+      out.push(`| \`data-sn-${a.name}\` | ${md(a.value ?? '')} | ${md(a.doc)} |`);
     }
     out.push('');
   }
@@ -246,7 +252,7 @@ Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element; anything 
       for (const [g, names] of RESOURCE_GROUPS) out.push(`- **${g}:** ${names.map((x) => `\`${x}\``).join(', ')}`);
       out.push('');
     } else {
-      out.push(`### \`<${e.name}>\`\n\n${e.attrs.map((x) => `\`${x}\``).join(', ')}. ${e.doc.charAt(0).toUpperCase()}${e.doc.slice(1)}.\n`);
+      out.push(`### \`<${e.name}>\`\n\n${e.attrs.map((x) => `\`${x}\``).join(', ')}. ${md(e.doc.charAt(0).toUpperCase() + e.doc.slice(1))}.\n`);
     }
   }
   out.push(`## Names available in expressions
