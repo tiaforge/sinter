@@ -7,8 +7,11 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
-- Smaller builds, the same code paths: the core is 14,606 → 13,959 B gzip, the minimal page 14,787 → 14,137 B,
-  RealWorld's pages about 1.7 KB smaller each, the article 666 B (27,627 → 26,961 B of its 27,648 B budget).
+- Smaller builds: the core is 14,606 → 13,514 B gzip, the minimal page 14,787 → 13,691 B; RealWorld's
+  pages 2.4–3.5 KB smaller each (the article 27,627 → 25,251 B of its 27,648 B budget, login 23,947 →
+  20,814 B), their early files 1.0–1.9 KB (were 2.3–3.4 KB). Measured with Lighthouse (mobile, a fixed
+  API) where the first paint's path changed: no change in FCP or LCP. The entries below give each step's
+  numbers at the time.
   - Form serialization and `data-sn-encoding="form"` moved from the core into a feature module
     (`@tiaforge-ui/sinter/form`, 0.8 KB gzip), imported only by pages with a form action without
     `data-sn-body` (not GET or DELETE) or with form encoding: core −390 B. `serialize` and `formBody` are
