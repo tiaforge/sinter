@@ -1,8 +1,8 @@
 # sinter
 
-**Plain HTML pages that behave like an app.** Bind the JSON API you already have to HTML and get live
-data, instant updates and a first paint with no flicker. Typos fail the build, not the page. No
-components, no router, no store, no JavaScript to write.
+**HTML pages that behave like an app.** Add attributes to your HTML to bind the JSON API you already
+have and get live data, instant updates and a first paint with no flicker. Typos fail the build, not
+the page. No components, router or store library to write, and no JavaScript.
 
 ```html
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
