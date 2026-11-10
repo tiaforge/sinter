@@ -246,13 +246,13 @@ the feed, the profile and the article page:
 #### Store functions: resolved from the item
 
 This applies to pages too, not only components. **`patch(item, …)` and `remove(item)` act on the
-resource the item came from. They take no resource name. Other lists follow from write-through and
-server events.**
+item in the resource it came from, found by its key. They take no resource name. Other resources
+that hold the same entity follow from write-through and server events.**
 
 | Call | Meaning |
 | --- | --- |
-| `patch(a, { … })` | change the item in the resource it came from |
-| `remove(m)` | take it out of the resource it came from (archived, moved, deleted); a single resource becomes `null` |
+| `patch(a, { … })` | change the item in the resource it came from; everything that reads that resource shows the change |
+| `remove(m)` | take it out of the resource it came from (archived, moved, deleted), wherever that resource is shown; a single resource becomes `null` |
 | `upsert('contacts', x)` | add it to this list (keeps its name: a new item has no source) |
 | `refresh('name')`, `page('name', …)` | unchanged: they act on a resource, not an item |
 
@@ -275,7 +275,24 @@ server events.**
   | `$event.detail` from a script component | the script itself, through the JS API, which holds the resource handle |
   | a state field assigned from an untraceable value | the error names the assignment |
 
-- **Other lists holding the same entity follow from the response and from events.** Write-through
+- **Every instance in the resource, no other resource.** The change is to the resource's item,
+  found by its key (by identity in a resource without `key`), not to the copy that was clicked. So
+  every place that shows that resource shows it:
+  - every `data-sn-for` over it, including a filtered or sorted one (`m in visible(messages, q)`);
+  - every `data-sn-let` derived from it, such as `selected` found by `selectedId` in a reading pane;
+  - every loaded page of a paginated or `append` resource;
+  - the same row passed to several components.
+
+  The same entity in **another** resource (the same `Article` in `feed` and in `articles`) is not
+  patched. It is a different resource, with its own request, and it follows from the response and
+  from events (next point).
+- **State that holds a copy of a row** (`sel = p`) still points at the old object after a patch,
+  because a change replaces the item object. `patch(sel, …)` finds the right item through its key
+  anyway, but bindings that read `sel` show the old values. That is how sinter behaves today; the
+  pattern that stays current is to keep the key in state and derive the row with `data-sn-let`
+  (`islands.md` does this with `selectedId`). Whether state should follow its row is an
+  [open question](#open-questions).
+- **Other resources holding the same entity follow from the response and from events.** Write-through
   rule 1 patches every keyed list of the response's schema, and server events do the same for
   changes made elsewhere. RealWorld has a spec and no SSE: its feed patches `'articles'` and
   `'feed'` one after the other today (`examples/realworld/index.html:56`), but the second patch
@@ -428,3 +445,6 @@ has no store code**. `npm run size` must show the core unchanged.
    forms are where people will expect it.
 7. **Exporting.** Should a script component also build as a standalone custom element for use
    outside sinter, and when?
+8. **State that holds a row.** After `patch(sel, …)`, should a state field holding that row follow it
+   (the runtime re-reads it by key), or stay a copy, as today? Following it removes the
+   `selectedId` + `data-sn-let` pattern, but state would then change without an assignment.
