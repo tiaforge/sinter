@@ -7,6 +7,14 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- `packages/sinter-axum`: a Rust `tower` layer (axum) that fills a build's `data-sn-data` placeholders per
+  request. It streams the head up to the first placeholder at once, then each placeholder's data from the app's
+  API router (in-process), an upstream, an allowed origin or a resolver function. RealWorld, slow 4G: home LCP
+  948 → 588 ms; one core serves about 2,000 home pages/s, against 57–67 for Qwik City
+  (docs/first-paint-comparison.md).
+- Builds with embedded-data placeholders write `sinter-embed.json` next to the pages: each page's paths and,
+  per placeholder, its `data-sn` id, resource and request (the `src` template when only `$url` reads make it up).
+
 - Bindings over embedded data render before the first paint: on a page whose `<script type="application/json"
   data-sn-data>` a server filled in, the early script also renders the bindings that read those resources,
   `data-sn-for` rows included, and `$url`, as the parser goes. The page module adopts the rows (binds them, no
@@ -19,6 +27,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   dev warning 25 when the page did not render with the face in its first 3 frames.
 
 ### Changed
+
+- An empty `data-sn-data` placeholder is no data: the page requests the resource, with no dev warning (was
+  warning 5, "not valid JSON"). It is what a server leaves when it has nothing to write.
 
 - First paint no longer holds the paint (PR #16). The early file is a classic script first in the head (one
   shared by every page, `assets/sinter-head-<hash>.js`, and the page's own, `assets/<page>-head-<hash>.js`)
