@@ -211,6 +211,12 @@ function check(path: string, content: string) {
 
 test('llms.txt is current', () => check('llms.txt', llms()));
 test('docs/diagnostics.md is current', () => check('docs/diagnostics.md', diagnostics()));
+// a marker a server writes on its error body (sinter-axum), not an attribute developers write: kept out of
+// what tells developers and models which attributes exist
+test('`data-sn-failed` is in neither llms.txt nor the editors\' custom data', () => {
+  expect(llms()).not.toContain('data-sn-failed');
+  expect(customData()).not.toContain('data-sn-failed');
+});
 test('html-custom-data.json is current', () => check('html-custom-data.json', customData()));
 test('the VS Code extension\'s custom data is current', () => check('editors/vscode/html-custom-data.json', customData()));
 test('every recipe has a test', () => {

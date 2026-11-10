@@ -519,7 +519,7 @@ fn error_tail(i: &Inner) -> String {
         let js = serde_json::to_string(u).unwrap_or_default().replace('<', "\\u003c");
         format!("<meta http-equiv=\"refresh\" content=\"0;url={}\"><script>location.replace({js})</script>", html(u))
     });
-    format!("{go}</head><body><p>{}</p></body></html>", html(&i.error_text))
+    format!("{go}</head><body data-sn-failed><p>{}</p></body></html>", html(&i.error_text))
 }
 
 /// The data for one placeholder.

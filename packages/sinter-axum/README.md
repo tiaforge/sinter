@@ -137,7 +137,7 @@ Pages are sent with `Cache-Control: private, no-cache`, so a shared cache never 
   - it sends the HTML up to the first slot right away, so the browser loads stylesheets and scripts while the data is fetched;
   - it fetches every slot's data in parallel, for this URL: the URL's values in the request, the page a paginated list starts at, and no request when the resource's `when` doesn't hold;
   - it writes the data, with `<` escaped so it can't break out of its `<script>`, then the rest of the page.
-- **When a slot's data can't be fetched** (the API errors or can't be reached, a non-2xx or non-JSON response, one over `max_bytes`, the time limit), the page is not sent: the layer ends the response there with the error text, and with `.error_redirect(url)` sends the browser to your error page. A 404 from the API counts too, so a missing article shows the error text, not the page's own not-found state.
+- **When a slot's data can't be fetched** (the API errors or can't be reached, a non-2xx or non-JSON response, one over `max_bytes`, the time limit), the page is not sent: the layer ends the response there with the error text in the page's body, marked so the page's scripts don't start, and with `.error_redirect(url)` sends the browser to your error page. A 404 from the API counts too, so a missing article shows the error text, not the page's own not-found state.
 - **No data is not a failure:** a resolver's `None`, a `skip`, or a `when` that doesn't hold leaves the slot empty, and the browser requests that data itself.
 - **What it never does:** fetch a URL whose host comes from the page's URL, or serve `sinter-embed.json` (it answers 404).
 

@@ -117,7 +117,7 @@ async fn fills_each_placeholder_from_the_api_in_process() {
     assert!(html.contains(r#"data-sn="0">{"article":{"slug":"hello world"}}</script>"#), "{html}");
     assert!(
         html.ends_with(
-            r#"<script type="application/json" data-sn="1"></script></head><body><p>Error, please retry later.</p></body></html>"#
+            r#"<script type="application/json" data-sn="1"></script></head><body data-sn-failed><p>Error, please retry later.</p></body></html>"#
         ),
         "{html}"
     );
@@ -191,7 +191,7 @@ async fn the_head_is_sent_before_the_data_and_slow_data_ends_the_page_at_the_tim
     let rest = String::from_utf8(body.collect().await.unwrap().to_bytes().to_vec()).unwrap();
     assert_eq!(
         rest,
-        r#"{}</script><script type="application/json" data-sn="1"></script></head><body><p>Error, please retry later.</p></body></html>"#
+        r#"{}</script><script type="application/json" data-sn="1"></script></head><body data-sn-failed><p>Error, please retry later.</p></body></html>"#
     );
     // the slow one waited for the time limit, not for itself
     let took = t.elapsed();
@@ -224,7 +224,10 @@ async fn unstreamed_the_page_is_one_piece_and_a_failure_is_its_status() {
     // the comments answer 500: a 502 with the error text instead of the page
     let (status, _, html) = text(app(embed), get_("/article/x")).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
-    assert_eq!(html, r#"<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><p>Error, please retry later.</p></body></html>"#);
+    assert_eq!(
+        html,
+        r#"<!DOCTYPE html><html><head><meta charset="utf-8"></head><body data-sn-failed><p>Error, please retry later.</p></body></html>"#
+    );
     // out of time: 504
     let slow = Embed::from_dir(app_build())
         .api(api())
@@ -253,7 +256,7 @@ async fn a_failure_redirects_to_the_error_page_when_there_is_one() {
     let tail = html.split(r#"data-sn="1">"#).nth(1).unwrap();
     assert_eq!(
         tail,
-        r#"</script><meta http-equiv="refresh" content="0;url=/error?from=&quot;x&quot;&lt;"><script>location.replace("/error?from=\"x\"\u003c")</script></head><body><p>Try again &lt;soon&gt;</p></body></html>"#
+        r#"</script><meta http-equiv="refresh" content="0;url=/error?from=&quot;x&quot;&lt;"><script>location.replace("/error?from=\"x\"\u003c")</script></head><body data-sn-failed><p>Try again &lt;soon&gt;</p></body></html>"#
     );
 }
 

@@ -14,6 +14,9 @@ Attribute names, function names and diagnostic codes are public API. Before
 - Pagination: `offset-param` in offset mode (the items to skip instead of the page number), and `start-page`
   (offset mode, or keyset with `offset-param`): the page the first load asks for, e.g. `start-page="$url.page"` for
   lists whose page links navigate. RealWorld's lists use both instead of its `offset()` helper.
+- sinter-axum: a page whose data cannot be fetched ends, still streamed, with an error text (or a redirect to an error
+  page); unstreamed, with a real 502/504. The runtime does not mount on such a page (`<body data-sn-failed>`, a
+  marker the server writes, not an attribute for pages).
 - sinter-axum: `build()` checks that every placeholder has a source (a resolver, `skip`, or a request it can make)
   and lists every problem; `embed!` makes that check when the server compiles and compiles the manifest in.
 
