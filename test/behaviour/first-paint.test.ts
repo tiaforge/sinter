@@ -162,3 +162,37 @@ test('first paint: an early binding reads `$locale` from `configure({ locale })`
     expect(document.getElementById('l')!.textContent).toBe('');
   } finally { configure({ locale: null }); }
 });
+
+test('rows over embedded data render early, and the page module adopts them: the same nodes, nothing removed or rewritten', async () => {
+  const data = JSON.stringify({ articles: [{ slug: 'a', title: 'First', tags: ['x', 'y'] }, { slug: 'b', title: 'Second', tags: ['z'] }] });
+  const page = `<!doctype html><html><head><script type="application/json" data-sn-data="articles">${data}</script></head>
+<body data-sn-state="{ n: 0 }">
+  <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
+  <ul><template data-sn-for="a in articles"><li><h2 data-sn-text="a.title"></h2><a data-sn-attr="{href: '/article/' + a.slug}">read</a>
+    <template data-sn-for="t in a.tags" data-sn-key="t"><i data-sn-text="t"></i></template></li></template></ul>
+</body></html>`;
+  const changes: string[] = [];
+  let early: Element[] = [];
+  const watch = new MutationObserver((records) => {
+    for (const r of records) {
+      if (r.type === 'childList' && [...r.removedNodes, ...r.addedNodes].some((n) => n.nodeType === 1)) changes.push(`rows changed in ${(r.target as Element).localName}`);
+      if (r.type === 'characterData') changes.push(`text ${r.oldValue} → ${r.target.textContent}`);
+    }
+  });
+  const { settle } = await render(page, {
+    firstPaint: {
+      afterEarly: () => {
+        early = [...document.querySelectorAll('li, i')];
+        watch.observe(document.body, { subtree: true, childList: true, characterData: true, characterDataOldValue: true });
+      },
+    },
+  });
+  await settle();
+  watch.disconnect();
+  // rendered before the page module: two rows with their nested rows
+  expect(early.map((e) => e.textContent!.replace(/\s+/g, ' ').trim())).toEqual(['Firstread xy', 'x', 'y', 'Secondread z', 'z']);
+  // adopted: the same elements, now bound; nothing was added, removed or written again
+  expect([...document.querySelectorAll('li, i')]).toEqual(early);
+  expect(changes).toEqual([]);
+  expect(document.querySelector('li a')!.getAttribute('href')).toBe('/article/a');
+});

@@ -378,25 +378,26 @@ export function iff(tpl: HTMLTemplateElement, v: unknown, other: HTMLTemplateEle
 }
 type Branch = (nodes: Node[], s: any) => void;
 
-/** set on a `data-sn-for` template whose rows `each` rendered: the nodes it inserted (the page module removes them at mount) */
+/** set on a `data-sn-for` template whose rows `each` rendered: each row's nodes and the end marker, for the page module to adopt */
 export const EARLY_ROWS = Symbol.for('sinter.early.rows');
+export interface EarlyRows { rows: Node[][]; end: Comment }
 
 /**
  * A `data-sn-for` over embedded data: a clone of the template per item, after it, each rendered by `r` over a scope
- * with the loop variable (and index); the inserted nodes are left on the template for the page module's mount.
+ * with the loop variable (and index). The rows are left on the template: the page module adopts them (binds them
+ * instead of new clones) when its list has the same number of items, else removes them.
  */
 export function each(tpl: HTMLTemplateElement, list: unknown, r: Branch | 0, item: string, index: string | null, s: any): void {
   if (!Array.isArray(list) || !list.length) return;
-  const end = new Comment(), all: ChildNode[] = [];
+  const end = new Comment(), rows: Node[][] = [];
   tpl.after(end);
   list.forEach((v, i) => {
     const nodes = [...(tpl.content.cloneNode(true) as DocumentFragment).childNodes];
     end.before(...nodes);
-    all.push(...nodes);
+    rows.push(nodes);
     if (r) { const sc = Object.create(s); sc[item] = v; if (index) sc[index] = i; r(nodes, sc); }
   });
-  all.push(end);
-  (tpl as any)[EARLY_ROWS] = all;
+  (tpl as any)[EARLY_ROWS] = { rows, end } satisfies EarlyRows;
 }
 
 // the writers, as the runtime's first write
