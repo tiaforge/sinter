@@ -20,7 +20,7 @@ import { resolveRemote, type RemoteImages } from './remote.js';
 import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { ImageHost, ImageVariant, PrefetchParts, StyleSheet } from './compiler/index.js';
 import { hasCspMeta, pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
-import { fontDownloader, inlineFonts } from './fonts-build.js';
+import { faceName, faceOf, fontDownloader, inlineFonts, preloadFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -84,11 +84,19 @@ export interface SinterOptions extends ProjectOptions {
    * render-blocking request to another origin less, and the font files' connection is open when they
    * are requested (as the Angular CLI does). Downloads are cached in `node_modules/.cache/sinter/fonts`;
    * a build that cannot download one keeps the link and warns. `{ inline: false }`: off.
+   *
+   * `preload` (opt-in, default none): faces to preload, each a family name (its regular face, 400
+   * normal) or `{ family, weight, style }`. A page whose Google Fonts stylesheets have the face gets
+   * `<link rel="preload" as="font">` for its Latin file after `<meta charset>`, in builds and in dev.
+   * The build fails when a page preloads a face of a family none of its stylesheets uses (a
+   * `font-family` or `font` declaration, outside `@font-face`), or when no page has the face at all;
+   * in dev, sinter warns when the page did not render with the face in its first frames (a preload
+   * competes with what the first paint needs, and when the font is slow it can hold the first paint).
    */
-  fonts?: { inline?: boolean };
+  fonts?: { inline?: boolean; preload?: FontPreload[] };
 }
 
-type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin, Plugin];
+type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin, Plugin, Plugin];
 
 /** a base Vite resolves per file (`./`, ''): its URLs are relative to the page or stylesheet */
 const relativeBase = (base: string) => base === '' || base.startsWith('.');
@@ -817,19 +825,28 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (logger) logger.warn(msg); else console.warn(msg);
   }
 
-  // Google Fonts as the app's own CSS (`fonts`, on by default; see fonts-build.ts)
+  // Google Fonts as the app's own CSS (`fonts`, on by default; see fonts-build.ts), and the faces to preload
   const fontSheets = new Map<string, string>();
   let downloadFont: ((url: string) => Promise<string | null>) | null = null;
+  const download = () => (downloadFont ??= fontDownloader(resolve(root, 'node_modules/.cache/sinter/fonts')));
+  const preloads: FontFaceRef[] = (options.fonts?.preload ?? []).map(faceOf);
+  /** build: the faces each page preloads, by its path relative to the root (the HTML file's name in the bundle) */
+  const pagePreloads = new Map<string, FontFaceRef[]>();
   const fonts: Plugin = {
     name: 'sinter:fonts',
     enforce: 'pre',
-    apply: 'build',
     transformIndexHtml: {
       order: 'pre',
-      async handler(html) {
-        if (options.fonts?.inline === false) return html;
-        downloadFont ??= fontDownloader(resolve(root, 'node_modules/.cache/sinter/fonts'));
-        const out = await inlineFonts(html, downloadFont);
+      async handler(html, ctx) {
+        const dev = !!ctx.server;
+        // first the preloads: they read the Google Fonts links, which the inlining below rewrites
+        if (preloads.length) {
+          const out = await preloadFonts(html, download(), preloads, dev);
+          html = out.html;
+          if (!dev) pagePreloads.set(relative(root, ctx.filename).split(sep).join('/'), out.preloaded);
+        }
+        if (dev || options.fonts?.inline === false) return html;
+        const out = await inlineFonts(html, download());
         for (const [id, url] of out.ids) fontSheets.set(id, url);
         for (const url of out.failed) resolved?.logger.warn(`sinter: could not download ${url}; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)`);
         return out.html;
@@ -841,5 +858,41 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return url ? ((await downloadFont!(url)) ?? '') : null;
     },
   };
-  return [main, post, cssImages, fonts];
+  // build: a preloaded face whose family the page's stylesheets do not use fails the build, as does one no page has
+  const fontCheck: Plugin = {
+    name: 'sinter:font-check',
+    enforce: 'post',
+    apply: 'build',
+    generateBundle(_, bundle) {
+      if (!preloads.length) return;
+      const base = resolved?.base ?? '/', pub = resolved?.publicDir || '';
+      const text = (s: string | Uint8Array) => (typeof s == 'string' ? s : Buffer.from(s).toString('utf8'));
+      /** a stylesheet the page links, from the bundle or the public directory; '' for another origin's or a missing one */
+      const sheet = (href: string, page: string) => {
+        if (/^[a-z][\w+.-]*:|^\/\//i.test(href)) return '';
+        const path = href.split(/[?#]/)[0]!;
+        const name = path.startsWith(base) ? path.slice(base.length) : posix.join(posix.dirname(page), path);
+        const a = bundle[name.replace(/^\/+/, '')];
+        if (a?.type == 'asset') return text(a.source);
+        const file = pub && resolve(pub, name.replace(/^\/+/, ''));
+        try { return file ? readFileSync(file, 'utf8') : ''; } catch { return ''; }
+      };
+      const found = new Set<string>();
+      for (const [page, faces] of pagePreloads) {
+        for (const f of faces) found.add(faceName(f));
+        const html = bundle[page];
+        if (!faces.length || html?.type != 'asset') continue;
+        const doc = text(html.source);
+        const css = [
+          ...[...doc.matchAll(/<link\b[^>]*>/gi)].filter((m) => /\brel=["']?stylesheet\b/i.test(m[0])).map((m) => sheet(/\bhref=["']([^"']+)["']/i.exec(m[0])?.[1] ?? '', page)),
+          ...[...doc.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]!),
+          ...[...doc.matchAll(/\sstyle=(?:"([^"]*)"|'([^']*)')/gi)].map((m) => `x{${m[1] ?? m[2]}}`),
+        ].join('\n');
+        for (const f of faces) if (!usesFamily(css, f.family)) this.error(`sinter({ fonts: { preload } }): ${page} preloads ${faceName(f)}, but no stylesheet of the page uses the family \`${f.family}\` (a font-family or font declaration): the preload is downloaded for nothing. Remove it, or use the font`);
+      }
+      const none = preloads.filter((f) => !found.has(faceName(f)));
+      if (none.length) this.error(`sinter({ fonts: { preload } }): no page's Google Fonts stylesheets have ${none.map(faceName).join(', ')}: nothing to preload. Check the family, weight and style against the stylesheet's link`);
+    },
+  };
+  return [main, post, cssImages, fonts, fontCheck];
 }

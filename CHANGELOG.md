@@ -5,6 +5,13 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- `sinter({ fonts: { preload: [...] } })` (opt-in): preloads faces of the Google Fonts the pages link
+  (a family for its regular face, or `{ family, weight, style }`), their Latin file, in builds and dev.
+  The build fails when a page preloads a family none of its stylesheets uses, or a face no page has;
+  dev warning 25 when the page did not render with the face in its first 3 frames.
+
 ### Changed
 
 - One classic head script per page: a page that uses `data-sn-transition` and has an early file or
