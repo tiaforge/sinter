@@ -147,7 +147,9 @@ or as an element that stays empty.
   [benchmark against a server-rendering framework](docs/first-paint-comparison.md)
 - **An optional server layer that does not render.** [`sinter-axum`](packages/sinter-axum) (Rust, a `tower`
   layer) streams the head first, then writes each API response into its slot. The build checks
-  at compile time that every slot can be filled.
+  at compile time that every slot can be filled. Other languages are easy to add: the
+  server only writes JSON into the `<script type="application/json" data-sn-data>` slots in the
+  head, listed in the build's `sinter-embed.json` ([contract](docs/spec.md#data-sources)).
 - **Instant navigation.** Next-page data (sinter, all browsers). Generated Speculation Rules and
   CSP handling for HTML prefetch or prerender (the browser fetches; Chromium). `data-sn-transition`
   wires a list-row-to-detail morph on top of the browser's view transitions (Chromium, Safari 18.2+).
