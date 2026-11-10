@@ -69,7 +69,7 @@
             <div class="card">
               <div class="card-block"><p class="card-text" data-sn-text="c.body"></p></div>
               <div class="card-footer">
-                <a class="comment-author" data-sn-attr="{href: '/profile/' + encodeURIComponent(c.author.username)}"><img class="comment-author-img" alt="" data-sn-attr="{src: avatar(c.author.image)}"></a>
+                <a class="comment-author" data-sn-attr="{href: '/profile/' + encodeURIComponent(c.author.username)}"><img class="comment-author-img" data-sn-attr="{src: avatar(c.author.image), alt: c.author.username}"></a>
                 &nbsp;
                 <a class="comment-author" data-sn-attr="{href: '/profile/' + encodeURIComponent(c.author.username)}" data-sn-text="c.author.username"></a>
                 <span class="date-posted" data-sn-text="date(c.createdAt, 'long')"></span>

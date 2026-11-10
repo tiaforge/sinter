@@ -79,3 +79,75 @@ export function fontDownloader(dir: string, fetchImpl: typeof fetch = fetch): (u
     return p;
   };
 }
+
+/**
+ * A font face to preload (`sinter({ fonts: { preload } })`): a family name for its regular face
+ * (400, normal), or the family with a weight and style.
+ */
+export type FontPreload = string | { family: string; weight?: number; style?: 'normal' | 'italic' };
+export type FontFaceRef = { family: string; weight: number; style: 'normal' | 'italic' };
+
+export const faceOf = (p: FontPreload): FontFaceRef =>
+  typeof p == 'string' ? { family: p, weight: 400, style: 'normal' } : { family: p.family, weight: p.weight ?? 400, style: p.style ?? 'normal' };
+
+/** How a face is named in messages: `Source Sans Pro 400`, `… 700 italic`. */
+export const faceName = (f: FontFaceRef) => `${f.family} ${f.weight}${f.style == 'italic' ? ' italic' : ''}`;
+
+const unquote = (s: string) => s.trim().replace(/^(['"])(.*)\1$/, '$2').trim();
+const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+/**
+ * The URL of a face's Latin file in a Google Fonts stylesheet: the `@font-face` with that family,
+ * weight and style that the stylesheet marks `/* latin *\/` (Google's subsets), else the one whose
+ * `unicode-range` covers U+0000-00FF, else the only one. Null when the stylesheet has none.
+ */
+export function fontFaceUrl(css: string, face: FontFaceRef): string | null {
+  const blocks = [...css.matchAll(/(?:\/\*\s*([\w-]+)\s*\*\/\s*)?@font-face\s*\{([^}]*)\}/g)].map((m) => ({ subset: m[1] ?? '', body: m[2]! }));
+  const prop = (body: string, name: string) => new RegExp(`(?:^|[;{\\s])${name}\\s*:\\s*([^;]+)`, 'i').exec(body)?.[1]?.trim() ?? '';
+  const matching = blocks.filter((b) => unquote(prop(b.body, 'font-family')).toLowerCase() == face.family.toLowerCase()
+    && Number(prop(b.body, 'font-weight') || 400) == face.weight && (prop(b.body, 'font-style') || 'normal') == face.style);
+  const pick = matching.find((b) => b.subset == 'latin') ?? matching.find((b) => /U\+0000-00FF/i.test(prop(b.body, 'unicode-range'))) ?? (matching.length == 1 ? matching[0] : undefined);
+  return pick ? /url\(\s*['"]?([^'")\s]+)/.exec(pick.body)?.[1] ?? null : null;
+}
+
+/**
+ * The tag that preloads a font file (fonts load in CORS mode: `crossorigin`, or the preload goes
+ * unused). `face`: dev only, the face it is for, which the dev check reads (`data-sn-font`).
+ */
+export const fontPreloadTag = (url: string, face?: FontFaceRef) =>
+  `<link rel="preload" as="font" type="font/woff2" href="${url}" crossorigin${face ? ` data-sn-font="${`${face.family};${face.weight};${face.style}`.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`)}"` : ''}>`;
+
+/**
+ * Adds a preload, after `<meta charset>`, for each face whose Latin file one of the page's Google
+ * Fonts stylesheets has (`sheet(url)`: the downloaded CSS). Returns the page and the faces it
+ * preloads; a page without such a stylesheet is unchanged. `dev`: the tags name their face.
+ */
+export async function preloadFonts(html: string, sheet: (url: string) => Promise<string | null>, faces: FontFaceRef[], dev = false): Promise<{ html: string; preloaded: FontFaceRef[] }> {
+  const links = googleFontLinks(html);
+  if (!faces.length || !links.length) return { html, preloaded: [] };
+  const sheets = (await Promise.all(links.map((l) => sheet(l.url)))).filter((c): c is string => c != null);
+  const preloaded: FontFaceRef[] = [], tags: string[] = [];
+  for (const f of faces) {
+    const url = sheets.map((c) => fontFaceUrl(c, f)).find(Boolean);
+    if (url && !html.includes(`href="${url}"`)) { preloaded.push(f); tags.push(fontPreloadTag(url, dev ? f : undefined)); }
+  }
+  const pre = tags.join('');
+  if (pre) html = /<meta\s+charset[^>]*>/i.test(html) ? html.replace(/<meta\s+charset[^>]*>/i, (m) => m + pre) : html.replace(/<head[^>]*>/i, (m) => m + pre);
+  return { html, preloaded };
+}
+
+/**
+ * Whether a stylesheet uses a family: a `font-family` or `font` declaration outside `@font-face`
+ * lists it (quoted or not, any case).
+ */
+export function usesFamily(css: string, family: string): boolean {
+  const rules = stripComments(css).replace(/@font-face\s*\{[^}]*\}/gi, '');
+  const want = family.toLowerCase();
+  for (const m of rules.matchAll(/(?:^|[;{\s])font(-family)?\s*:\s*([^;}]+)/gi)) {
+    const parts = m[2]!.replace(/!important/i, '').split(',').map((p) => p.trim());
+    // `font: italic 700 1rem/1.5 "A B", serif`: the first part ends with a family after the size
+    if (!m[1]) parts[0] = parts[0]!.replace(/^.*\d[\w%.]*(?:\/[\w%.]+)?\s+/, '');
+    if (parts.some((p) => unquote(p).toLowerCase() == want)) return true;
+  }
+  return false;
+}

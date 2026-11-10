@@ -30,6 +30,7 @@ const MESSAGES: Record<number, string> = {
   20: "`run('%')`: no element with that id and an action is on the page (a `data-sn-if` branch that is not rendered?); nothing ran",
   21: 'write-through after `%`: %',
   23: '`data-sn-retry="%"`: no such retry policy in `configure({ retry })`; the action fails when triggered',
+  25: 'font % is preloaded (sinter({ fonts: { preload } })), but the page did not render with it in its first % frames: the preload competes with what the first paint needs, and when the font is slow it can hold the first paint. Preload a face the first view uses, or remove it',
   22: "the page's Content-Security-Policy blocked an inline script (%): sinter's Speculation Rules are one, so the next page's HTML is not prefetched. If the policy comes from a response header, add 'inline-speculation-rules' to its script-src (a CSP in a <meta> gets their hash from the build), or set sinter({ speculation: { mode: 'prefetch', delivery: 'header' } }). See docs/navigation.md",
 };
 
@@ -50,6 +51,9 @@ export function protocolOf(url: string, base: string, perf: Pick<Performance, 'g
   }
   return null;
 }
+
+/** The frames after mount within which a preloaded font must have been used (warning 25). */
+export const FONT_FRAMES = 3;
 
 function deepFreeze<T>(v: T): T {
   if (v && typeof v == 'object' && !Object.isFrozen(v)) {
@@ -111,6 +115,25 @@ const dev: Feature = {
       }, { types: ['csp-violation'], buffered: true });
       ro.observe();
       app.addCleanup(() => ro.disconnect());
+    }
+    // preloaded fonts: a face is loaded only once something is laid out with it, so a face of a preload that is
+    // still `unloaded` after the first frames was not used by them (the preload's file does not load the face)
+    const fontLinks = doc ? [...doc.querySelectorAll<HTMLLinkElement>('link[rel="preload"][as="font"][data-sn-font]')] : [];
+    const raf = globalThis.requestAnimationFrame;
+    if (fontLinks.length && doc?.fonts && raf) {
+      let n = 0, stopped = false;
+      const check = () => {
+        if (stopped) return;
+        if (++n < FONT_FRAMES) { raf(check); return; }
+        const faces = [...doc.fonts as unknown as Iterable<FontFace>];
+        for (const l of fontLinks) {
+          const [family, weight, style] = l.dataset.snFont!.split(';');
+          const mine = faces.filter((f) => f.family.replace(/^(['"])(.*)\1$/, '$2').toLowerCase() == family!.toLowerCase() && String(f.weight) == weight && f.style == style);
+          if (mine.length && mine.every((f) => f.status == 'unloaded')) app.warn(25, `${family} ${weight}${style == 'italic' ? ' italic' : ''}`, FONT_FRAMES);
+        }
+      };
+      raf(check);
+      app.addCleanup(() => { stopped = true; });
     }
     app.streamOpened = (url) => {
       if (/^http\/1\./i.test(protocolOf(url, app.env.href()) ?? '')) app.warn(18, url);

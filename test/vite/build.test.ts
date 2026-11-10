@@ -85,7 +85,7 @@ test('`delivery: \'header\'`: a rules file at the site root, no inline script; `
   }
 });
 
-test('a page that uses data-sn-transition gets the hold script before its page module; others do not', async () => {
+test('a page that uses data-sn-transition gets the hold script before its page module, in one head script with the paint script; others do not', async () => {
   const page = join(root, 'index.html');
   const original = readFileSync(page, 'utf8');
   const plain = readFileSync(join(out, 'index.html'), 'utf8');
@@ -95,10 +95,16 @@ test('a page that uses data-sn-transition gets the hold script before its page m
     const dir = join(out, 'hold');
     await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
     const html = readFileSync(join(dir, 'index.html'), 'utf8');
-    const hold = html.search(/<script src="\/assets\/sinter-hold-[\w-]+\.js"><\/script>/), module = html.search(/<script type="module" crossorigin src="\/assets\/index-[\w-]+\.js" async>/);
+    // the page has an early file: the hold script and the paint script are one file, one tag
+    const hold = html.search(/<script src="\/assets\/sinter-head-[\w-]+\.js" data-sn-early><\/script>/), module = html.search(/<script type="module" crossorigin src="\/assets\/index-[\w-]+\.js" async>/);
     expect(hold).toBeGreaterThan(0);
     expect(hold).toBeLessThan(module);
-    expect(readdirSync(join(dir, 'assets')).some((f) => f.startsWith('sinter-hold-'))).toBe(true);
+    expect(html).not.toMatch(/sinter-(hold|paint)-/);
+    const head = readdirSync(join(dir, 'assets')).find((f) => f.startsWith('sinter-head-'))!;
+    const code = readFileSync(join(dir, 'assets', head), 'utf8');
+    expect(code).toContain('sn:vt');
+    expect(code).toContain('/* sinter paint */');
+    expect(readdirSync(join(dir, 'assets')).some((f) => /^sinter-(hold|paint)-/.test(f))).toBe(false);
   } finally {
     writeFileSync(page, original);
   }
