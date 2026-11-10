@@ -4,6 +4,7 @@
 //   GET /events?fmt=datastar   `datastar-patch-signals`: the tick's changed values, formatted, as a JSON merge patch
 //   GET /events?fmt=datastar-elements   `datastar-patch-elements`: the changed elements, morphed by id (two per tick)
 //   GET /events?fmt=htmx       `event: tick`: the new seq for #seq plus the other changes out of band
+//   GET /events?fmt=grid&n=10000&k=100   the live grid (shared/grid.js): `event: tick` {seq, rows: K changed rows}
 //   GET /control?rate=N        ticks per second for every open stream (0 pauses); answers each stream's
 //                              schedule: segments [first seq, its due time, ms per tick], so a client
 //                              knows when every tick was due
@@ -14,6 +15,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gridTick } from './shared/grid.js';
 import { barsHtml, chartHtml, initial, rowHtml, seqHtml, signalPatch, slide, tick } from './shared/model.js';
 
 const root = import.meta.dirname;
@@ -44,11 +46,11 @@ function encode(fmt, t, state) {
   return `event: tick\n${[String(t.seq), ...oob.slice(0, parts.length), `<template>${oob.slice(parts.length).join('')}</template>`].map((p) => `data: ${p}\n`).join('')}\n`;
 }
 
-function stream(req, res, fmt) {
+function stream(req, res, fmt, q) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
   res.socket.setNoDelay(true);
   res.write(': open\n\n');
-  const s = { fmt, res, seq: 0, due: 0, state: initial(), segments: [] };
+  const s = { fmt, res, seq: 0, due: 0, state: fmt === 'grid' ? null : initial(), segments: [], n: +(q.get('n') ?? 10000), k: +(q.get('k') ?? 100) };
   streams.add(s);
   req.on('close', () => streams.delete(s));
 }
@@ -64,8 +66,8 @@ function loop() {
       if (!s.due) { s.due = t; s.segments.push([s.seq + 1, performance.timeOrigin + t, step]); }
       let out = '';
       while (s.due <= t) {
-        const tk = tick(++s.seq, performance.timeOrigin + s.due);
-        out += encode(s.fmt, tk, s.state);
+        if (s.fmt === 'grid') { ++s.seq; out += `event: tick\ndata: ${JSON.stringify({ seq: s.seq, rows: gridTick(s.seq, s.n, s.k) })}\n\n`; }
+        else out += encode(s.fmt, tick(++s.seq, performance.timeOrigin + s.due), s.state);
         s.due += step;
         sent++;
       }
@@ -79,7 +81,7 @@ loop();
 export function start(port = 0) {
   const server = createServer(async (req, res) => {
     const u = new URL(req.url, 'http://x');
-    if (u.pathname === '/events') return stream(req, res, u.searchParams.get('fmt') ?? 'json');
+    if (u.pathname === '/events') return stream(req, res, u.searchParams.get('fmt') ?? 'json', u.searchParams);
     if (u.pathname === '/control') {
       if (u.searchParams.has('rate')) rate = Math.max(0, Number(u.searchParams.get('rate')) || 0);
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });

@@ -17,14 +17,19 @@
     for (const s of painting) s.frame = t;
     painting = [];
   };
-  // a 1px box whose width changes every frame, so its ResizeObserver runs in every frame
+  // a 1px box whose width changes in each frame that has a tick to time, so its ResizeObserver runs
+  // in that frame; contained, so the change costs nothing outside it (an uncontained probe changed
+  // every frame cost a full frame of main thread on a page of 10,000 table rows)
   const probe = document.createElement('div');
-  probe.style.cssText = 'position:fixed;left:0;top:0;height:1px;width:1px;opacity:0;pointer-events:none';
+  probe.style.cssText = 'position:fixed;left:0;top:0;height:1px;width:1px;opacity:0;pointer-events:none;contain:strict';
   let wide = false;
   new ResizeObserver(() => {
     if (pending.length) { painting.push(...pending); pending = []; mc.port2.postMessage(0); }
   }).observe(probe);
-  const onFrame = () => { frames++; probe.style.width = (wide = !wide) ? '2px' : '1px'; requestAnimationFrame(onFrame); };
+  const onFrame = () => { frames++; requestAnimationFrame(onFrame); };
+  // a tick seen: the probe changes now, so the frame that paints this tick runs its ResizeObserver
+  // (the current frame when the tick rendered in a rAF callback, else the next one)
+  const arm = () => { probe.style.width = (wide = !wide) ? '2px' : '1px'; };
   requestAnimationFrame(onFrame);
   const addProbe = () => (document.body ? document.body.appendChild(probe) : setTimeout(addProbe, 5));
   addProbe();
@@ -40,7 +45,7 @@
       if (!(seq > last)) return;
       seen += seq - last; last = seq;
       const s = { seq, at: clock(), frame: 0 };
-      samples.push(s); pending.push(s);
+      samples.push(s); pending.push(s); arm();
     }).observe(el, { childList: true, subtree: true, characterData: true });
   };
   // #seq may be replaced (morphs, outerHTML swaps): watch its parent

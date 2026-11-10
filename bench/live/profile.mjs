@@ -1,16 +1,16 @@
 // Self time by function for one variant at one rate (CPU profile over the DevTools protocol).
 //   MINIFY=0 ONLY=sinter node build.mjs   (readable names)
-//   CHROME=… node profile.mjs sinter 1000 [cpu=4] [ms=2000]
+//   CHROME=… node profile.mjs sinter 1000 [cpu=4] [ms=2000] [query, e.g. n=10000&k=100&sort=1]
 import { spawn } from 'node:child_process';
 import { launch, withPage } from '../swap/cdp.mjs';
 
-const [variant = 'sinter', rate = '1000', cpu = '4', ms = '2000'] = process.argv.slice(2);
+const [variant = 'sinter', rate = '1000', cpu = '4', ms = '2000', query = ''] = process.argv.slice(2);
 const idle = (t) => new Promise((r) => setTimeout(r, t));
 const server = spawn(process.execPath, ['server.mjs', '0'], { cwd: import.meta.dirname, stdio: ['ignore', 'pipe', 'inherit'] });
 const base = await new Promise((ok) => server.stdout.on('data', (d) => { const m = String(d).match(/http:\/\/[\d.:]+/); if (m) ok(m[0]); }));
 const chrome = await launch();
 try {
-  await withPage(chrome, `${base}/${variant}/`, async (send) => {
+  await withPage(chrome, `${base}/${variant}/${query ? '?' + query : ''}`, async (send) => {
     await idle(300);
     await fetch(`${base}/control?rate=${rate}`);
     await idle(500);

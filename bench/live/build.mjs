@@ -6,7 +6,8 @@ import { barsHtml, chartHtml, initial, rowHtml, seqHtml, signalBody, signalsOf }
 
 const only = process.env.ONLY?.split(',');
 const want = (v) => !only || only.includes(v);
-for (const v of ['sinter', 'solid', 'svelte', 'vue'].filter(want)) {
+const GRID = ['grid-sinter', 'grid-solid', 'grid-svelte', 'grid-vue', 'grid-ivi', 'grid-vanilla'];
+for (const v of ['sinter', 'solid', 'svelte', 'vue', ...GRID].filter(want)) {
   execFileSync('npx', ['vite', 'build', '--logLevel', 'warn'], { stdio: 'inherit', env: { ...process.env, VARIANT: v } });
 }
 

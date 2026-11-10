@@ -11,3 +11,13 @@ header { margin-bottom: 8px; }
 table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
 td { padding: 2px 8px; border-bottom: 1px solid #eee; }
 td.up { color: #1a7f37; } td.down { color: #c62828; }
+/* the grid: block rows of fixed size, fixed-width cells, each its own containment root. On 10,000
+   rows (plain JS, 10 ticks of 100 rows/s, 1x, Chrome 153) the frames that change cells cost, in
+   layout over 2 s: <table> 780 ms (fixed columns or not); display: grid rows with contain: strict
+   455 ms; these 345 ms. content-visibility: auto on the rows adds an intersection check per row per
+   frame (700 ms). The browser's part is the same for every variant: compare against grid-vanilla. */
+.grid { width: 420px; }
+.grid .row { width: 420px; height: 18px; contain: strict; white-space: nowrap; }
+.grid .row span { display: inline-block; width: 89px; padding: 0 8px; overflow: hidden; contain: strict; height: 18px; }
+.grid .row span:nth-child(n+2) { text-align: right; }
+.grid .up { color: #1a7f37; } .grid .down { color: #c62828; }

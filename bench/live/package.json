@@ -10,12 +10,15 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@ivi/rolldown": "5.0.0",
     "@tiaforge-ui/sinter": "file:../..",
     "htmx-ext-sse": "2.2.4",
     "htmx.org": "2.0.11",
+    "ivi": "5.1.0",
     "solid-js": "1.9.18",
     "svelte": "5.57.3",
-    "vue": "3.5.45"
+    "vue": "3.5.45",
+    "vue36": "npm:vue@3.6.0-rc.14"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.3.1",

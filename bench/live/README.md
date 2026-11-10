@@ -19,6 +19,22 @@ The JSON clients share the data model and the formatting and path functions
 hypermedia variants' server keeps the view state and renders or formats per tick
 ([`server.mjs`](server.mjs)); that work is outside the browser, but its delay counts (below).
 
+## What this shows, and what not
+
+- For pages fed by a stream of server events, sinter's default (server events render once per
+  frame) beats the default way of Solid, Svelte, Vue, ivi and Datastar, and matches hand-written
+  plain JS: at high rates, and in sorted tables. At low rates every variant is about level (the
+  browser's layout is the limit).
+- Most of the gap is that one scheduling choice. Each of the others can buffer events and apply them
+  in a `requestAnimationFrame` by hand (ivi with a custom root); they would likely close most of it.
+  The claim is "faster with each one's default", which matters because sinter's needs no code.
+- Not covered here: building and restructuring lists. That is js-framework-benchmark
+  ([docs/benchmark.md](../../docs/benchmark.md), 2026-11-08): sinter ranks 28th of 208 on CPU (the
+  official table has Vue Vapor 35th, Solid 50th, Svelte 5 75th) and 49th on memory (Solid 36th,
+  Svelte 5 81st); ivi and plain JS are ahead on both. Also not covered: first render, bundle size
+  against these frameworks, memory under load beyond the heap after GC. Cells are one run each, often 1 s steps: enough for gaps like 5,000 against 200 ticks/s,
+  not for close ones.
+
 ## Method
 
 - **Harness** ([`shared/harness.js`](shared/harness.js)), the same classic script first in every
@@ -196,3 +212,52 @@ the next rAF): sinter kept up to 2,000/s at 1x and 200/s at 4x, level with Solid
 | htmx | 50 | 51 | 41 | 16.0 / 39.3 | 36.0 / 150.7 | 98 | 58 | 18 | 4 (319) | 2.9 | 7 |
 | htmx | 100 | 105 | 5 | 37.4 / 60.2 | 135.8 / 281.7 | 100 | 89 | 5 | 16 (2958) | 7.2 | 80 |
 | htmx | 200 | 179 | 1 | 1260.0 / 1863.0 | 1949.3 / 2776.2 | 100 | 96 | 1 | 4 (5389) | 19.2 | no |
+
+## The live grid
+
+A large table under a stream of row updates: N rows (symbol, price, change %, volume), each tick
+changes K rows ([`shared/grid.js`](shared/grid.js); stream `fmt=grid`). Two modes: **in place**
+(rows keep their position) and **sorted** (the table stays sorted by change %, so rows move every
+tick). Variants: `grid-sinter` (one state value, `merge()` per tick, sorted in the `data-sn-for`
+expression), `grid-solid` (store + `batch`, sorted `createMemo`), `grid-svelte` (deep `$state`,
+`$derived`), `grid-vue` (Vue 3.6.0-rc.14 Vapor mode, `reactive` + `computed`), `grid-ivi` (ivi 5.1,
+immutable rows, keyed `List` of `strictEq` row components), `grid-vanilla` (the floor: changes
+applied once per frame, only changed cells written, sorted moves by longest increasing subsequence).
+Before measuring, each variant's rows (order, text, classes) were compared with the model after
+~100 ticks, in both modes: all equal.
+
+```sh
+QUICK=1 CPU=1,4 RATES=50,200,500,1000 QUERY='n=1000&k=100&sort=1' \
+  ONLY=grid-vanilla,grid-sinter,grid-solid,grid-svelte,grid-vue,grid-ivi node run.mjs
+```
+
+**The browser's part dominates, and is the same for everyone.** Rows are block elements of fixed
+size with fixed-width cells, each a containment root ([`shared/style.css`](shared/style.css)). On
+10,000 rows a `<table>` was laid out again on every frame that changed a cell (780 ms of layout in
+2 s at 10 ticks/s, fixed columns or not), and `content-visibility: auto` on the rows cost an
+intersection check per row per frame (700 ms in 2 s). With these rows, a frame's layout covers the
+cells that changed (about 4,000 of 9,000 layout objects at 1,000 rows and 200 ticks/s, 23 ms).
+How the writes are ordered does not change it (plain JS, total layout over 2 s, two runs each): as
+they come 906 / 916 ms, changed rows in DOM order 892 / 896, one column at a time 915 / 890, the
+container detached while writing 901 / 935 (it then dirties all 6,000 objects, at the same cost).
+`grid-vanilla?exp=order|column|detach` has those variants.
+
+1,000 rows, 100 changes per tick, CPU 1x, quick run (1 s steps), frames per second:
+
+| ticks/s | vanilla | sinter | Solid | Svelte | Vue Vapor | ivi |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| in place, 200 | 30 | 32 | 35 | 22 | 31 | 41 |
+| in place, 500 | 19 | 18 | 13 | 9 | 14 | 17 |
+| in place, 1000 | 16 | 17 | 7 | 4 | 7 | 13 |
+| sorted, 50 | 57 | 55 | 22 | 13 | 36 | 33 |
+| sorted, 200 | 17 | 14 | 5 | 1 | 2 | 12 |
+| sorted, 1000 | 12 | 12 | – | – | – | 4 |
+
+- sinter tracks the plain-JS floor in both modes: it renders once per frame, so the work per frame
+  stays one frame's worth of changes, and the browser's layout of the changed cells is the limit.
+- The others render per event: in place they fall behind the floor above 200 ticks/s; sorted, they
+  sort 1,000 reactive rows per event (Solid, Svelte, Vue: 74–95 % script at 200/s) and collapse.
+- 10,000 rows (quick runs, 1x): in place every variant is within noise of the floor up to 35
+  ticks/s (the floor itself moved 44 → 27 fps between two runs at 35/s); sorted, Solid, Svelte and
+  Vue stop at 20 ticks/s (93–97 % script), sinter, ivi and plain JS degrade together.
+- At 4x every variant is at the browser's limit from 50 ticks/s; one 1 s step per cell is noise there.
