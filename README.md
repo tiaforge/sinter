@@ -233,17 +233,17 @@ export default { plugins: [sinter()] };
 
 The broad concepts:
 
-- **Resources** (`<sn-resource>`) load and cache server data by name. Templates read them.
-- **Bindings** (`data-sn-text`, `data-sn-for`, `data-sn-if`, ...) render data. Expressions are checked at build time.
-- **Actions** (`data-sn-post`, `data-sn-delete`, ...) send changes; `data-sn-optimistic` shows them at once.
-- **Sync** (`<sn-sync>`) applies server events to resources.
-- **Islands** are custom elements for what attributes can't do.
+- **[Resources](docs/spec.md#resources-and-store)** (`<sn-resource>`) load and cache server data by name. Templates read them.
+- **[Bindings](docs/attributes.md#show-data)** (`data-sn-text`, `data-sn-for`, `data-sn-if`, ...) render data. Expressions are checked at build time.
+- **[Actions](docs/spec.md#actions-events-and-request-layer)** (`data-sn-post`, `data-sn-delete`, ...) send changes; [`data-sn-optimistic`](docs/spec.md#optimistic-updates) shows them at once.
+- **[Sync](docs/spec.md#sync-change-messages-and-transports)** (`<sn-sync>`) applies server events to resources.
+- **[Islands](docs/spec.md#js-api-for-islands)** are custom elements for what attributes can't do.
 
-Everything is listed in the [attribute reference](docs/attributes.md). Optional files in `src/`:
+Every attribute is in the [reference](docs/attributes.md). Optional files in `src/`:
 
-- `sinter.config.js`: auth headers, error handling, transports, retries.
-- `sinter.helpers.js`: functions your expressions can call.
-- `sinter.types.ts`, or `sinter({ openapi: 'openapi.yml' })`: types for `sinter check`.
+- [`sinter.config.js`](docs/spec.md#request-layer): auth headers, error handling, transports, retries.
+- [`sinter.helpers.js`](docs/spec.md#helpers): functions your expressions can call.
+- `sinter.types.ts`, or `sinter({ openapi: 'openapi.yml' })`: types for [`sinter check`](docs/spec.md#type-checking).
 
 `npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/spec.md#first-paint) and [navigation](docs/navigation.md) docs.
 
