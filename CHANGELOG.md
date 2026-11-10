@@ -15,6 +15,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   single root, which takes the tag's classes, attributes and handlers. The component's markup sees only its props, its
   state, resources and helpers. New diagnostics `SN312`–`SN316`; `sinter check` types props and `$event.detail`, and a
   type written in markup may name the OpenAPI spec's schemas; `render(…, { components })` in the testing module.
+- Scoped styles: a `<style>` in a component file goes into the page's stylesheet, wrapped in native `@scope` from the
+  component's root to nested components and slot content (marked `data-sn-c` and `data-sn-s` on pages that use one).
+  Selectors stay as written; `@keyframes` and the other global at-rules stay outside.
 - `sinter check` types custom elements from the app's declarations under `src/` (a module with `declare global` for
   `HTMLElementTagNameMap` or `SinterElementEvents`): `data-sn-prop` keys and values are checked against the element's
   properties, `$el` has the element's class, and `$event.detail` has the type `SinterElementEvents` gives the event on

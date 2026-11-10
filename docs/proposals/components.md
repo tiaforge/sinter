@@ -1,7 +1,7 @@
 # Proposal: components
 
 Status: being implemented, step by step (see [Plan](#plan)): done are 1 (typing gaps), 2
-(markup-only components, [components.md](../components.md)) and 3 (store functions).
+(markup-only components, [components.md](../components.md)), 3 (store functions) and 4 (scoped styles).
 
 This reverses a non-goal (`spec.md`: "Routing, a component system, a virtual DOM, transitions";
 "components remain a non-goal"). Once sinter has components, they will be compared with Svelte, Vue
@@ -80,8 +80,10 @@ src/components/live-clock.ts            ...plus a script, run per instance by si
 - Together, these two attributes are the component's whole contract. Nothing else declares it: not
   the caller, and not the script (see [One contract](#one-contract)).
 - `<style>` is scoped to the component and goes into the app's CSS files: no inline style, no
-  CSP change. The compiler wraps it in native `@scope`:
-  `@scope ([data-sn-c="article-preview"]) to ([data-sn-c]) { … }`.
+  CSP change. The compiler wraps it in native `@scope`. (Implemented with the root's parent as the
+  scope root, `@scope (:has(> [data-sn-c="article-preview"])) to (:scope > :not([data-sn-c="article-preview"]), :scope > * [data-sn-c])`:
+  selectors in `@scope` match only descendants of the scope root, so `([data-sn-c="article-preview"]) to ([data-sn-c])`
+  would not let `.preview` match the root itself; see spec.md, Components.)
   - The root of each instance carries `data-sn-c` with the component's name, in production too
     (only for components that have styles; others keep it in dev builds only).
   - The `to` boundary stops the styles at nested components, and at slot content, which the

@@ -1,3 +1,5 @@
+import * as csstree from 'css-tree';
+
 // Components (docs/proposals/components.md): a file in `src/components/` whose name is
 // its tag. The compiler expands each use at build time, so a component's markup is page
 // markup; this module reads component files and the contract they declare.
@@ -90,4 +92,36 @@ export const DOM_EVENTS = new Set([
 export function callerAttribute(name: string): boolean {
   return /^data-sn-(prop|model|persist|class|attr|style|show|transition|get|post|put|patch|delete|call|body|trigger|debounce|concurrency|optimistic|then|catch|confirm|encoding|apply|retry)$/.test(name)
     || name.startsWith('data-sn-on-') || name.startsWith('data-sn-debounce-');
+}
+
+/** at-rules that cannot be scoped: they stay at the top of the stylesheet */
+const GLOBAL_AT = new Set(['import', 'font-face', 'keyframes', '-webkit-keyframes', 'property', 'counter-style', 'font-feature-values', 'font-palette-values', 'page', 'namespace', 'charset']);
+
+/**
+ * A component's `<style>`, scoped with native `@scope`: its roots (the component's root, and the
+ * slot content it passes into other components) and what is inside them, up to the boundaries (a
+ * nested component's root, slot content). Selectors stay as written. At-rules that cannot be scoped (`@keyframes`,
+ * `@font-face`, `@import`, …) stay outside.
+ */
+export function scopeCss(css: string, name: string): string {
+  const { global, scoped } = splitCss(css);
+  const sel = JSON.stringify(name);
+  const out = [...global];
+  // the scope root is the parent of the component's root (and of the slot content it passes on):
+  // selectors in @scope match the root's descendants only, and a component's own selectors name its
+  // root (`.preview`, `.compact p`). The parent's other children, and nested components and slot
+  // content below the root, are the limits.
+  if (scoped.length) out.push(`@scope (:has(> [data-sn-c=${sel}]), :has(> [data-sn-s=${sel}])) to (:scope > :not([data-sn-c=${sel}], [data-sn-s=${sel}]), :scope > * [data-sn-c], :scope > * [data-sn-s]) {\n${scoped.join('\n')}\n}`);
+  return out.join('\n') + '\n';
+}
+
+function splitCss(css: string): { global: string[]; scoped: string[] } {
+  const ast = csstree.parse(css, { parseValue: false, parseRulePrelude: false, parseAtrulePrelude: false }) as csstree.StyleSheet;
+  const global: string[] = [], scoped: string[] = [];
+  ast.children.forEach((node) => {
+    const text = csstree.generate(node);
+    if (node.type === 'Atrule' && (GLOBAL_AT.has(node.name.toLowerCase()) || (node.name.toLowerCase() === 'layer' && !node.block))) global.push(text);
+    else scoped.push(text);
+  });
+  return { global, scoped };
 }

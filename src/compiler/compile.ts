@@ -10,7 +10,7 @@ import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, literalNames, STORE_FNS, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
-import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, typeMembers, type Member } from './components.js';
+import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, scopeCss, typeMembers, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
@@ -100,6 +100,8 @@ export interface CompileOptions {
   sourcemap?: boolean;
   /** where the app's components are (default `<root>/src/components`): `<name>.html` is the component `<name>` */
   components?: string;
+  /** the module the page module imports for a component's scoped styles (`CompiledParts.styles`), so the bundler puts them in the page's stylesheet */
+  componentCss?: (name: string) => string;
 }
 
 /** A place in the markup: `file`, 1-based line and column. */
@@ -117,6 +119,8 @@ export interface FnSources { fns: Array<FnSource | null>; content: Record<string
 export interface CompileResult {
   html: string;
   module: string;
+  /** the scoped styles of the components the page uses (the adapter serves them at `componentCss(name)`) */
+  styles: Array<{ name: string; css: string }>;
   /** with `sourcemap`: the page module's source map, from each function back to the markup (null-free; absent when nothing maps) */
   map?: SourceMap;
   /** with `sourcemap`: the early module's source map */
@@ -230,6 +234,8 @@ export interface CompiledParts {
   prefetchOff?: true;
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
+  /** the scoped styles of the components the page uses, by component */
+  styles: Array<{ name: string; css: string }>;
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
@@ -317,7 +323,9 @@ class Compiler {
   private readonly stateAt = new Map<number, { site: Site; fields: Map<string, Site> }>();
   readonly origins = new WeakMap<object, Origin>();
   /** component files by tag, read once (null: no such component, a plain custom element) */
-  private readonly componentFiles = new Map<string, { file: string; text: string; bad?: true } | null>();
+  private readonly componentFiles = new Map<string, { file: string; text: string; bad?: true; css?: string | null } | null>();
+  /** slot content's top-level elements and the component whose markup they are ('' for the page's) */
+  private readonly slotEls: Array<{ el: P5Element; caller: string; host: string }> = [];
   /** a component's root, by the element that replaced its tag */
   readonly useOf = new WeakMap<P5Element, Use>();
   /** a component's tag: the use it belongs to */
@@ -429,8 +437,11 @@ class Compiler {
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
     this.resolveSources();
     this.reportIncludes();
-    // the component's name on its root: in dev builds for devtools (production: components with styles, which scope by it)
-    if (this.opts.dev) for (const list of this.uses.values()) for (const u of list) setAttr(u.root, 'data-sn-c', u.name);
+    // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
+    // which start at the roots and stop at other components' roots and at slot content (`data-sn-s`)
+    const styled = [...this.uses.keys()].filter((n) => this.componentFiles.get(n)?.css);
+    if (this.opts.dev || styled.length) for (const list of this.uses.values()) for (const u of list) setAttr(u.root, 'data-sn-c', u.name);
+    if (styled.length) for (const x of this.slotEls) if (attr(x.el, 'data-sn-c') === undefined) setAttr(x.el, 'data-sn-s', x.caller);
 
     for (const [name, id] of this.embedded) {
       const r = this.resources.find((x) => x.name === name);
@@ -492,6 +503,7 @@ class Compiler {
       embed: this.embedSlots(),
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
+      styles: [...this.uses.keys()].sort().flatMap((n) => { const css = this.componentFiles.get(n)?.css; return css ? [{ name: n, css }] : []; }),
     };
   }
 
@@ -774,7 +786,7 @@ class Compiler {
   }
 
   /** Replaces one component tag by the component's root; null when the component file is invalid. */
-  expandUse(host: P5Element, def: { file: string; text: string; bad?: true }, chain: string[]): P5Element | null {
+  expandUse(host: P5Element, def: { file: string; text: string; bad?: true; css?: string | null }, chain: string[]): P5Element | null {
     const name = host.tagName;
     const hostOrigin = this.origins.get(host) ?? { file: this.opts.file, src: '', chain: [] };
     const frag = parse5.parseFragment(def.text, { sourceCodeLocationInfo: true });
@@ -797,6 +809,14 @@ class Compiler {
     const template = templates[0]!;
     for (const t of top) {
       if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template data-sn-component>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
+    }
+    // its `<style>`, scoped to the component (read once per file)
+    if (def.css === undefined) {
+      const css = top.filter((t) => t.tagName === 'style').map((t) => t.childNodes.map((c) => (c as DefaultTreeAdapterMap['textNode']).value ?? '').join('')).join('\n');
+      try { def.css = css.trim() ? scopeCss(css, name) : null; } catch (e) {
+        def.css = null;
+        this.report(top.find((t) => t.tagName === 'style')!, null, 'SN401', `the component's \`<style>\` does not parse: ${(e as Error).message}`, 0);
+      }
     }
     for (const a of template.attrs) {
       if (a.name !== 'data-sn-component' && a.name !== 'data-sn-emits') this.report(template, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<template data-sn-component>\`; it takes \`data-sn-component\` and \`data-sn-emits\``, 0);
@@ -853,8 +873,9 @@ class Compiler {
       const given = groups.get(k);
       const nodes = real(given) ? given! : s.childNodes;
       if (nodes === given) {
+        const caller = chain.filter((x) => x !== '#').at(-1) ?? '';
         for (const c of nodes) {
-          if (isElement(c)) c.attrs = c.attrs.filter((a) => a.name !== 'slot');
+          if (isElement(c)) { c.attrs = c.attrs.filter((a) => a.name !== 'slot'); this.slotEls.push({ el: c, caller, host: name }); }
           this.slotOf.set(c, use);
         }
       }

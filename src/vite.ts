@@ -128,6 +128,8 @@ const EARLY_PKG = '@tiaforge-ui/sinter/early';
 const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/early'/.exec(code)?.[1]!.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
+/** a component's scoped styles, imported by the page modules of the pages that use it */
+const COMPONENT_CSS = `${PREFIX}component-css/`;
 /** dev: where the image variants are served */
 const IMG = `${PREFIX}img/`;
 const PREFETCH = `${PREFIX}prefetch.js`;
@@ -235,6 +237,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** image variants by file name, and each page's image rules */
   const variants = new Map<string, ImageVariant>();
   const imageCss = new Map<string, string>();
+  const componentCss = new Map<string, string>();
   let resolveId: ((id: string, importer?: string) => Promise<string | undefined>) | null = null;
   let engines: StyleEngine[] | null = null;
   const warned = new Set<string>();
@@ -371,7 +374,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(options.origins?.length ? { origins: options.origins } : {}),
       ...(firstPaint ? { observe: true } : {}),
       ...(options.embed && !dev ? { embed: true } : {}),
+      componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
     });
+    for (const x of out.styles) {
+      if (componentCss.get(x.name) === x.css) continue;
+      componentCss.set(x.name, x.css);
+      invalidate(`${COMPONENT_CSS}${x.name}.css`);
+    }
     if (out.early) setModule(`${EARLY}${rel}.js`, out.early, out.earlyMap);
     if (!dev && out.embed.length) embedPages.set(rel, { paths: pagePaths(rel, resolved?.base ?? '/', out.path), data: out.embed });
     else embedPages.delete(rel);
@@ -589,6 +598,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     async load(id) {
       if (id.startsWith(`\0${IMG_CSS}`)) return imageCss.get(id.slice(IMG_CSS.length + 1, -4)) ?? '';
+      if (id.startsWith(`\0${COMPONENT_CSS}`)) return componentCss.get(id.slice(COMPONENT_CSS.length + 1, -4)) ?? '';
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
       if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;

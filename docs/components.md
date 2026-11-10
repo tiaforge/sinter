@@ -88,6 +88,34 @@ through the root, where the caller's `data-sn-on-select` sits. Its name must be 
 declares (`SN315`), and so must the event of a `data-sn-on-<event>` on the tag, unless it is a DOM
 event such as `click`. `sinter check` types `$event.detail` from the declaration.
 
+## Styles
+
+A `<style>` in the component file is scoped to the component:
+
+```html
+<!-- src/components/article-preview.html, after the template -->
+<style>
+  .preview { padding: var(--space-md); }
+  .compact p { display: none; }
+</style>
+```
+
+- It goes into the page's stylesheet (the bundler puts it there, with the page's other CSS): no inline
+  style, no CSP change, and it is there for the first paint.
+- The compiler wraps it in native `@scope`. The rules apply to the component's root and what is inside
+  it, and stop at a nested component's root and at slot content, so a component's `p { … }` styles
+  neither the paragraphs of the components it uses nor those the caller passes into its slots.
+- Slot content is styled by the component whose markup it is: the content a component passes into
+  another one's slots gets its own styles.
+- Selectors stay as written, with their normal specificity; devtools show them unchanged.
+- `@keyframes`, `@font-face`, `@import` and `@property` stay global.
+- To scope, the root carries `data-sn-c="article-preview"` and top-level slot content carries
+  `data-sn-s`, on pages with scoped styles (the root's name is there in dev builds too).
+- `@scope` is in every browser sinter supports. An older browser ignores the rules, and the component
+  shows unstyled.
+- Styling a component's inside from outside is not supported: style its root through the tag's
+  `class`, or give the component a prop.
+
 ## Custom inputs: `data-sn-model`
 
 A component that declares a `value` prop and a `change` event can be bound like a form control:
