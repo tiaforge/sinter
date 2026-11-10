@@ -16,6 +16,14 @@ const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 
   .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
   .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
 
+/** the page's head scripts, first in the head: the shared one (`sinter-head-…`) and the page's own (`<page>-head-…`) */
+function heads(html: string, dir: string, page = 'index') {
+  const shared = new RegExp(`<script src="/assets/(sinter-head-[\\w-]+\\.js)"( data-sn-i18n="([^"]+)")?></script>`).exec(html);
+  const own = new RegExp(`<script src="/assets/(${page}-head-[\\w-]+\\.js)"></script>`).exec(html);
+  const read = (m: RegExpExecArray | null) => (m ? readFileSync(join(dir, 'assets', m[1]!), 'utf8') : '');
+  return { shared, own, sharedCode: read(shared), ownCode: read(own), i18n: shared?.[3] ? JSON.parse(shared[3].replace(/&#34;/g, '"')) : null };
+}
+
 async function run(outDir: string) {
   return build({ root, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir, emptyOutDir: true, minify: false } });
 }
@@ -23,9 +31,12 @@ async function run(outDir: string) {
 test('builds a page: rewritten HTML, page module, helpers, namespace members and called actions', async () => {
   await run(out);
   const html = readFileSync(join(out, 'index.html'), 'utf8');
-  // no directive is left; the paint script's marker is the build's own (a page with an early file and no messages)
-  expect(html).toMatch(/<script src="\/assets\/sinter-paint-[\w-]+\.js" data-sn-early><\/script>\s*<script type="module" crossorigin src="\/assets\/index-early-[\w-]+\.js" blocking="render">/);
-  expect(html.replace(' data-sn-early>', '>')).not.toContain('data-sn-');
+  // no directive is left; the head scripts, the shared one then the page's, come before the page bundle and its preloads
+  const tags = /<script src="\/assets\/sinter-head-[\w-]+\.js"><\/script>\s*<script src="\/assets\/index-head-[\w-]+\.js"><\/script>/.exec(html);
+  expect(tags).not.toBeNull();
+  expect(tags!.index).toBeLessThan(html.search(/<script type="module"|<link rel="modulepreload"/));
+  expect(html).not.toContain('data-sn-');
+  expect(html).not.toContain('blocking=');
   expect(html).not.toContain('sn-resource');
   // the page bundle is async: it does not wait for the stylesheets
   expect(html).toMatch(/<script type="module" crossorigin src="\/assets\/[^"]+\.js" async><\/script>/);
@@ -85,25 +96,22 @@ test('`delivery: \'header\'`: a rules file at the site root, no inline script; `
   }
 });
 
-test('a page that uses data-sn-transition gets the hold script before its page module, in one head script with the paint script; others do not', async () => {
+test('a page that uses data-sn-transition gets the hold script in its own head script, before its page module; others do not', async () => {
   const page = join(root, 'index.html');
   const original = readFileSync(page, 'utf8');
   const plain = readFileSync(join(out, 'index.html'), 'utf8');
-  expect(plain).not.toContain('sinter-hold-');
+  expect(heads(plain, out).ownCode).not.toContain('sn:vt');
   writeFileSync(page, original.replace('<input data-sn-model="q">', '<input data-sn-model="q"><h2 data-sn-transition="\'people\'">People</h2>'));
   try {
     const dir = join(out, 'hold');
     await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
     const html = readFileSync(join(dir, 'index.html'), 'utf8');
-    // the page has an early file: the hold script and the paint script are one file, one tag
-    const hold = html.search(/<script src="\/assets\/sinter-head-[\w-]+\.js" data-sn-early><\/script>/), module = html.search(/<script type="module" crossorigin src="\/assets\/index-[\w-]+\.js" async>/);
-    expect(hold).toBeGreaterThan(0);
-    expect(hold).toBeLessThan(module);
-    expect(html).not.toMatch(/sinter-(hold|paint)-/);
-    const head = readdirSync(join(dir, 'assets')).find((f) => f.startsWith('sinter-head-'))!;
-    const code = readFileSync(join(dir, 'assets', head), 'utf8');
-    expect(code).toContain('sn:vt');
-    expect(code).toContain('/* sinter paint */');
+    // the hold script is in the page's own head script (with its early bindings): one tag, before the page module
+    const h = heads(html, dir), module = html.search(/<script type="module" crossorigin src="\/assets\/index-[\w-]+\.js" async>/);
+    expect(h.own).not.toBeNull();
+    expect(html.indexOf(h.own![0])).toBeLessThan(module);
+    expect(h.ownCode).toContain('sn:vt');
+    expect(h.sharedCode).not.toContain('sn:vt');
     expect(readdirSync(join(dir, 'assets')).some((f) => /^sinter-(hold|paint)-/.test(f))).toBe(false);
   } finally {
     writeFileSync(page, original);
@@ -195,7 +203,7 @@ test('typecheck: type errors fail `vite build` with SN208', async () => {
   }
 });
 
-test('first paint: one early file per page, render-blocking before the page module', async () => {
+test('first paint: a classic head script per page over one shared by every page, before the page module; nothing render-blocking', async () => {
   const dir = join(out, 'first-paint');
   const logs: string[] = [];
   await build({
@@ -204,56 +212,52 @@ test('first paint: one early file per page, render-blocking before the page modu
     plugins: [sinter({ earlyBudget: 1 })],
   });
   const html = readFileSync(join(dir, 'index.html'), 'utf8');
-  const early = /<script type="module" crossorigin src="\/assets\/(index-early-[\w-]+\.js)" blocking="render"><\/script>/.exec(html);
-  expect(early).not.toBeNull();
+  const h = heads(html, dir);
+  expect(h.shared).not.toBeNull();
+  expect(h.own).not.toBeNull();
   const page = /<script type="module" crossorigin src="\/assets\/(index-[\w-]+\.js)" async><\/script>/.exec(html);
   expect(page).not.toBeNull();
-  expect(html.indexOf(early![0])).toBeLessThan(html.indexOf(page![0]));
-  const code = readFileSync(join(dir, 'assets', early![1]!), 'utf8');
-  // one file: the app's early module, the compiled early bindings, the message one calls; nothing to import, as no
-  // early binding checks a URL or a style and the page has no early request: the first paint waits for no other file
-  expect(code).not.toMatch(/^\s*import\s/m);
-  expect(code).not.toMatch(/\bimport\(/);
-  expect(code).not.toContain('function urlAllowed');
-  // nothing is requested for it ahead of its tag (the page bundle's own preloads come after)
-  expect(html.slice(0, html.indexOf(early![0]))).not.toContain('rel="modulepreload"');
-  expect(code).toMatch(/dataset\.early = ["']yes["']/);
-  expect(code).toContain('People');
-  expect(code).toContain('not available early');
-  // not the page's other helpers, nor the runtime
-  expect(code).not.toContain('toUpperCase');
-  expect(code).not.toContain('mount(');
-  // the page module (async) mounts once the early file has rendered
+  expect(html.indexOf(h.shared![0])).toBeLessThan(html.indexOf(h.own![0]));
+  expect(html.indexOf(h.own![0])).toBeLessThan(html.indexOf(page![0]));
+  expect(html).not.toContain('blocking=');
+  // classic scripts, nothing imported, nothing requested for them ahead of their tags
+  for (const code of [h.sharedCode, h.ownCode]) {
+    expect(code).not.toMatch(/^\s*(import|export)\s/m);
+    expect(code).not.toMatch(/\bimport\(/);
+  }
+  expect(html.slice(0, html.indexOf(h.own![0]))).not.toContain('rel="modulepreload"');
+  // the shared one: the app's early module and the runtime; the page's: its compiled bindings, over the runtime's global
+  expect(h.sharedCode).toMatch(/dataset\.early = ["']yes["']/);
+  expect(h.sharedCode).toContain('MutationObserver');
+  expect(h.ownCode).not.toContain('MutationObserver');
+  expect(h.ownCode).not.toMatch(/dataset\.early = /);
+  expect(h.ownCode).toContain('People');
+  const both = h.sharedCode + h.ownCode;
+  expect(both).toContain('not available early');
+  // not the page's other helpers, nor the page runtime
+  expect(both).not.toContain('toUpperCase');
+  expect(both).not.toContain('mount(');
+  // the page module (async) mounts once the early script has rendered
   expect(readFileSync(join(dir, 'assets', page![1]!), 'utf8')).toMatch(/await rendered\(\);[\s\S]*mount\(document/);
-  // the build reports the early file's size, and warns over the budget with the largest modules
-  expect(logs.find((l) => l.includes('early file of index.html'))).toMatch(/early file of index\.html: assets\/index-early-[\w-]+\.js [\d.]+ kB gzip( \+ assets\/[\w-]+\.js [\d.]+ kB gzip \(shared\))?, over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
+  // the build reports the early scripts' size, and warns over the budget with the largest modules
+  expect(logs.find((l) => l.includes('early script of index.html'))).toMatch(/early script of index\.html: assets\/index-head-[\w-]+\.js [\d.]+ kB gzip \+ assets\/sinter-head-[\w-]+\.js [\d.]+ kB gzip \(shared\), over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
   // `firstPaint: false`: everything waits for the page module
   await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: join(dir, 'off'), emptyOutDir: true, minify: false }, plugins: [sinter({ firstPaint: false })] });
   const off = readFileSync(join(dir, 'off', 'index.html'), 'utf8');
-  expect(off).not.toContain('early');
+  expect(off).not.toContain('-head-');
   expect(off).not.toContain('blocking');
 });
 
-test('first paint: an early file that checks a URL imports the chunk it shares with the page bundle, which the page requests before it', async () => {
+test('first paint: an early binding that checks a URL: the check is in the shared head script once, not in the page\'s', async () => {
   const file = join(root, 'shared.html');
   writeFileSync(file, '<!doctype html><html><head><title>x</title></head><body data-sn-state="{ to: \'/a\' }" data-sn-persist="nav"><a data-sn-attr="{href: to}">a</a><sn-resource name="people" src="/api/people" key="id"></sn-resource><p data-sn-text="people.length"></p></body></html>');
   const dir = join(out, 'early-shared');
   try {
     await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false, rollupOptions: { input: file } }, plugins: [sinter()] });
   } finally { rmSync(file, { force: true }); }
-  const html = readFileSync(join(dir, 'shared.html'), 'utf8');
-  const early = /<script type="module" crossorigin src="\/assets\/(shared-early-[\w-]+\.js)" blocking="render"><\/script>/.exec(html)!;
-  const code = readFileSync(join(dir, 'assets', early[1]!), 'utf8');
-  const imports = [...code.matchAll(/^\s*import\b[^;]*?from\s*["']\.\/([\w.-]+)["']/gm)].map((m) => m[1]);
-  expect(imports).toHaveLength(1);
-  expect(code).not.toContain('function urlAllowed');
-  const preload = html.indexOf(`<link rel="modulepreload" crossorigin href="/assets/${imports[0]}">`);
-  expect(preload).toBeGreaterThanOrEqual(0);
-  expect(preload).toBeLessThan(html.indexOf(early[0]));
-  expect(readFileSync(join(dir, 'assets', imports[0]!), 'utf8')).toContain('function urlAllowed');
-  // the page bundle imports the same chunk: one copy of it on the page
-  const page = /<script type="module" crossorigin src="\/assets\/(shared-[\w]+\.js)" async>/.exec(html)!;
-  expect(readFileSync(join(dir, 'assets', page[1]!), 'utf8')).not.toContain('function urlAllowed');
+  const h = heads(readFileSync(join(dir, 'shared.html'), 'utf8'), dir, 'shared');
+  expect(h.sharedCode).toContain('function urlAllowed');
+  expect(h.ownCode).not.toContain('function urlAllowed');
 });
 
 test('first paint: an early module\'s dynamic import is inlined, without a deprecated-option warning', async () => {
@@ -277,22 +281,27 @@ test('first paint: an early module\'s dynamic import is inlined, without a depre
     rmSync(lazy, { force: true });
   }
   const html = readFileSync(join(dir, 'index.html'), 'utf8');
-  const file = /src="\/assets\/(index-early-[\w-]+\.js)" blocking="render"/.exec(html)![1]!;
-  const code = readFileSync(join(dir, 'assets', file), 'utf8');
-  expect(code).toContain('lazy-early-module');            // in the early file itself
+  // the app's early module is in the shared head script
+  const code = heads(html, dir).sharedCode;
+  expect(code).toContain('lazy-early-module');            // in the head script itself
   // which loads nothing (Vite's preload helper reads import.meta): no dynamic import, and here no static one either
   expect(code).not.toMatch(/\bimport\(/);
   expect(code).not.toMatch(/^\s*import\s/m);
   expect(said.join('\n')).not.toMatch(/inlineDynamicImports|codeSplitting/);
 });
 
-test('first paint in the dev server: the early chunk as a module of its own, before the page module', async () => {
+test('first paint in the dev server: the early script as in builds, one classic script first in the head, the runtime bundled in', async () => {
   const server = await createServer({ root, logLevel: 'silent', resolve: { alias }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', plugins: [sinter()] });
   try {
     const html = await server.transformIndexHtml('/index.html', readFileSync(join(root, 'index.html'), 'utf8'));
-    expect(html).toMatch(/<script type="module" src="\/@sinter\/early\/index\.html\.js" blocking="render"><\/script><script type="module" src="\/@sinter\/index\.html\.js"><\/script>/);
+    const tag = html.indexOf('<script src="/@sinter/early/index.html.js"></script>');
+    expect(tag).toBeGreaterThan(0);
+    expect(tag).toBeLessThan(html.indexOf('<script type="module" src="/@sinter/index.html.js"></script>'));
+    expect(html).not.toContain('blocking=');
     const js = await server.transformRequest('/@sinter/early/index.html.js');
-    expect(js?.code).toContain('sinter.early.js');
+    expect(js?.code).toContain('MutationObserver');
+    expect(js?.code).toMatch(/dataset\.early = ["']yes["']/);   // the app's early module
+    expect(js?.code).not.toMatch(/^\s*(import|export)\s/m);
   } finally {
     await server.close();
   }
@@ -328,9 +337,13 @@ test('messages: one file per page and language with only the keys it calls (mark
   const dir = join(out, 'i18n');
   await build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ typecheck: true })] });
   const html = readFileSync(join(dir, 'index.html'), 'utf8');
-  const picker = /<script src="\/assets\/(sinter-i18n-[\w-]+\.js)" data-sn-i18n="([^"]+)" data-sn-early><\/script>\s*<script type="module" crossorigin src="\/assets\/index-early-[\w-]+\.js" blocking="render">/.exec(html);
-  expect(picker).not.toBeNull();
-  const data = JSON.parse(picker![2]!.replace(/&#34;/g, '"'));
+  // the picker starts the shared head script, its data on the tag; the page's own follows
+  const h = heads(html, dir);
+  expect(h.i18n).not.toBeNull();
+  expect(h.own).not.toBeNull();
+  expect(h.sharedCode).toContain('/* sinter i18n */');
+  expect(html).not.toContain('blocking=');
+  const data = h.i18n;
   expect(data).toMatchObject({ base: 'en', locales: ['en', 'de'], storage: 'locale' });
   const lang = (l: string) => readFileSync(join(dir, data.files[l].slice(1)), 'utf8');
   // markup's title, hello, only_en; the config module's bye; not `unused`; German falls back for only_en
@@ -340,6 +353,9 @@ test('messages: one file per page and language with only the keys it calls (mark
   const js = readdirSync(join(dir, 'assets')).filter((f) => /^index-(?!en-|de-)/.test(f)).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n');
   expect(js).not.toMatch(/People|Leute|Tschüss/);
   expect(js).toContain('await ready()');
+  // the base language's text is in the HTML, marked: hidden for other languages until the page module has rendered
+  expect(html).toContain('data-sn-m="">People</h1>');
+  expect(html).toContain('data-sn-m="">Hello Ada</p>');
   // the app's modules are typed: generated declarations for `m`
   expect(readFileSync(join(i18nRoot, 'src/sinter.messages.d.ts'), 'utf8')).toContain('hello(params: { name: string | number }): string;');
 });
@@ -348,9 +364,8 @@ test('messages: a page whose markup has no `m` but whose modules call it gets th
   const dir = join(out, 'i18n-other');
   await build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: dir, emptyOutDir: true, minify: false, rollupOptions: { input: join(i18nRoot, 'other.html') } }, plugins: [sinter({ typecheck: true })] });
   const html = readFileSync(join(dir, 'other.html'), 'utf8');
-  const picker = /<script src="\/assets\/sinter-i18n-[\w-]+\.js" data-sn-i18n="([^"]+)"( data-sn-early)?><\/script>/.exec(html);
-  expect(picker).not.toBeNull();
-  const data = JSON.parse(picker![1]!.replace(/&#34;/g, '"'));
+  const data = heads(html, dir, 'other').i18n;
+  expect(data).not.toBeNull();
   const lang = (l: string) => readFileSync(join(dir, data.files[l].slice(1)), 'utf8');
   // the helper's only_en and the config module's bye; nothing the other page's markup calls
   expect(lang('de')).toContain('{"bye":"Tschüss","only_en":"Only in English"}');

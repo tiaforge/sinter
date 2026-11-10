@@ -24,11 +24,13 @@ export interface I18nState {
   dicts: Record<string, Record<string, string>>;
   /** called by a language file once it has stored its dictionary */
   loaded?: (locale: string) => void;
+  /** prototype (observe): the sheet that hides the base-language text until the page module has rendered */
+  hide?: CSSStyleSheet;
   subs?: Set<() => void>;
 }
 
 const KEY = Symbol.for('sinter.i18n');
-const state = (): I18nState => ((globalThis as any)[KEY] ??= { locale: '', base: '', locales: [], storage: 'locale', files: {}, dicts: {} });
+export const state = (): I18nState => ((globalThis as any)[KEY] ??= { locale: '', base: '', locales: [], storage: 'locale', files: {}, dicts: {} });
 
 /** `{name}` placeholders; a missing parameter stays as written */
 const fill = (s: string, p?: Record<string, unknown>) => (p ? s.replace(/\{(\w+)\}/g, (x, n) => (n in p ? String(p[n]) : x)) : s);
@@ -78,6 +80,9 @@ let mounted: { mark(path: string): void } | null = null;
  */
 export function use(app?: { mark(path: string): void }): void {
   if (app) mounted = app;
+  // mounted: every message is in the visitor's language now
+  const h = app && state().hide;
+  if (h) { document.adoptedStyleSheets = document.adoptedStyleSheets.filter((x) => x !== h); delete state().hide; }
   if (config.locale) return;
   config.locale = { get: getLocale, set: (l) => { void setLocale(l).then(() => mounted?.mark('$locale')); } };
 }

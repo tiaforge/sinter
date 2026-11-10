@@ -63,6 +63,12 @@ export interface CompileOptions {
   /** write bindings whose value is a build-time constant (literal state, no helpers) into the HTML */
   prerender?: boolean;
   /**
+   * builds: the base language's messages. With `prerender`, a text binding
+   * that calls `m` is written into the HTML in the base language and marked `data-sn-m`; it is still
+   * rendered in the browser (early file, page module), which writes the visitor's language
+   */
+  baseMessages?: Record<string, string>;
+  /**
    * the early chunk: a second, render-blocking page entry that runs the app's early module and
    * the bindings outside templates whose inputs exist before any data has loaded. `module`: the
    * app's early module (`/src/sinter.early.ts`) or null; `src`: where the page loads the early
@@ -79,8 +85,8 @@ export interface CompileOptions {
    * credentials, as the request layer sends cross-origin requests
    */
   origins?: string[];
-  /** builds: a page with early requests gets a split early file (`earlySplit`): see `prime` in `@tiaforge-ui/sinter/early` */
-  splitEarly?: boolean;
+  /** the early module runs as a classic script in the head, started by `observe` (see `@tiaforge-ui/sinter/early`); with `early.src`, its tag is classic */
+  observe?: boolean;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
   /** also return where each function in `fns` was written (`CompiledParts.sources`), for the page module's source map */
@@ -112,8 +118,6 @@ export interface CompileResult {
   check?: CheckUnit;
   /** with `early`: the page's early module, or null when the page has nothing to run early */
   early?: string | null;
-  /** with `splitEarly`: the early file exports `render`, and the page loads it `async` first and renders it from a stub */
-  earlySplit?: true;
   /** the built-in message keys the page calls (markup only; modules are collected by the adapter); absent without built-in messages */
   messages?: string[];
   /** with `images` */
@@ -1976,6 +1980,18 @@ class Compiler {
     const params = new Map<string, unknown>([['$k', $k]]);
     for (const h of ['Date', 'Intl', 'Math', 'date', 'time', 'datetime', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, stub);
+    // the base language's text, for a text binding: the binding is marked and stays the browser's
+    const base = this.opts.baseMessages;
+    let usedMessage = false;
+    const msgNs = base ? Object.entries(this.opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages') : undefined;
+    if (base && msgNs) for (const m of msgNs[1].members) {
+      params.set(`${msgNs[0]}$${m}`, (p?: Record<string, unknown>) => {
+        const t = base[m];
+        if (typeof t !== 'string') throw NOT;
+        usedMessage = true;
+        return p ? t.replace(/\{(\w+)\}/g, (x, n) => (n in p ? String(p[n]) : x)) : t;
+      });
+    }
     const used = [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!)])];
     let table: Array<($: unknown) => unknown>;
     try {
@@ -1988,6 +2004,8 @@ class Compiler {
     const isPersisted = (p: string) => p !== own && this.persisted.has(p);
     const states = new Map<number, unknown>();
     const known = (deps: string[]) => deps.every((d) => {
+      // a message re-renders on `$locale`: its base text is what is written
+      if (d === '$locale' && msgNs) return true;
       const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
       if (!m || !states.has(Number(m[1]))) return false;
       return m[2] !== undefined ? !isPersisted(`$s${m[1]}.${m[2]}`) : ![...this.persisted].some((p) => p !== own && p.startsWith(`$s${m[1]}.`));
@@ -2016,10 +2034,13 @@ class Compiler {
     const schemes = schemesOf([]);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
+      usedMessage = false;
       const v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
+      if (usedMessage && c.b.k !== 'text') continue;
       const w = v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes);
       if (w === FAIL) continue;
       writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
+      if (usedMessage) { setAttr(c.el, 'data-sn-m', ''); continue; }
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) this.painted.add(c.b);
     }
@@ -2250,9 +2271,17 @@ class Compiler {
       head.childNodes.splice(at, 0, ...(links as never[]));
     }
     if (early) {
-      const tag = parse5.parseFragment(`<script type="module" src="${esc(early)}" blocking="render"></script>`).childNodes[0] as P5Element;
+      // with `observe`, a classic script (the dev server bundles it) after the leading <meta>s, before stylesheets
+      // (a classic script waits for those before it) and scripts: it renders as the parser goes; else a
+      // render-blocking module, before the page module
+      const observe = !!this.opts.observe;
+      const tag = parse5.parseFragment(observe ? `<script src="${esc(early)}"></script>` : `<script type="module" src="${esc(early)}" blocking="render"></script>`).childNodes[0] as P5Element;
       tag.parentNode = head;
-      head.childNodes.push(tag as never);
+      if (observe) {
+        let at = 0;
+        for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta') break; if (isElement(n)) at = i + 1; }
+        head.childNodes.splice(at, 0, tag as never);
+      } else head.childNodes.push(tag as never);
     }
     const src = this.opts.moduleSrc ?? `./${basename(this.opts.file).replace(/\.html?$/, '')}.sinter.js`;
     const frag = parse5.parseFragment(`<script type="module" src="${esc(src)}"></script>`);

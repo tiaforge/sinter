@@ -71,7 +71,7 @@ test('a listed origin is preloaded and requested early; early="off" and an unlis
   expect(html).toContain(`<link rel="preload" as="fetch" crossorigin="" href="${apiOrigin}/tags">`);
   expect(html).not.toContain(`href="${apiOrigin}/me"`);
   expect(html).not.toContain('other.example/x"');
-  const early = /src="\/assets\/(index-early-[\w-]+\.js)" async>/.exec(html)![1]!;
+  const early = /<script src="\/assets\/(index-head-[\w-]+\.js)"><\/script>/.exec(html)![1]!;
   const code = readFileSync(join(out, 'assets', early), 'utf8');
   expect(code).toContain(`${apiOrigin}/items?q=`);
   // a paginated resource: its first page
@@ -81,21 +81,25 @@ test('a listed origin is preloaded and requested early; early="off" and an unlis
   // the build names the origin it could have requested early
   expect(logs.find((l) => l.includes('https://other.example'))).toMatch(/requested when the page module runs; list the origin in sinter\(\{ origins/);
   // the page module adds the build's origins to the runtime's allowlist, after the app's config module
-  const page = /src="\/assets\/(index-[\w-]+\.js)" async>/.exec(html.replace(/index-early-[\w-]+\.js/g, ''))![1]!;
+  const page = /src="\/assets\/(index-[\w-]+\.js)" async>/.exec(html)![1]!;
   expect(readFileSync(join(out, 'assets', page), 'utf8')).toContain(`$origins(["${apiOrigin}"])`);
 });
 
-test('a page with early requests: the early file async before the stylesheets, a render-blocking stub after them', () => {
+test('a page with early requests: the shared and the page\'s head script, classic, first in the head, before the stylesheets; nothing render-blocking', () => {
   const html = readFileSync(join(out, 'index.html'), 'utf8');
-  const asyncTag = /<script type="module" crossorigin src="\/assets\/(index-early-[\w-]+\.js)" async><\/script>/.exec(html)!;
-  const stub = /<script type="module" crossorigin src="\/assets\/(index-render-[\w-]+\.js)" blocking="render"><\/script>/.exec(html)!;
-  expect(asyncTag).not.toBeNull();
-  expect(stub).not.toBeNull();
-  expect(html.indexOf(asyncTag[0])).toBeLessThan(html.indexOf('<link rel="stylesheet"'));
-  expect(html.indexOf(stub[0])).toBeGreaterThan(html.indexOf('<link rel="stylesheet"'));
-  // the stub loads nothing but the early file (one module: the async tag already ran it) and renders
-  expect(readFileSync(join(out, 'assets', stub[1]!), 'utf8')).toBe(`import{render}from"./${asyncTag[1]}";render();\n`);
-  expect(readFileSync(join(out, 'assets', asyncTag[1]!), 'utf8')).toMatch(/export\s*\{[^}]*\brender\b/);
+  const shared = /<script src="\/assets\/(sinter-head-[\w-]+\.js)"><\/script>/.exec(html)!;
+  const own = /<script src="\/assets\/(index-head-[\w-]+\.js)"><\/script>/.exec(html)!;
+  expect(shared).not.toBeNull();
+  expect(own).not.toBeNull();
+  expect(html.indexOf(shared[0])).toBeLessThan(html.indexOf(own[0]));
+  expect(html.indexOf(own[0])).toBeLessThan(html.indexOf('<link rel="stylesheet"'));
+  expect(html).not.toContain('blocking=');
+  // the runtime is in the shared script once; the page's takes it from the global the shared one sets
+  const sharedCode = readFileSync(join(out, 'assets', shared[1]!), 'utf8'), ownCode = readFileSync(join(out, 'assets', own[1]!), 'utf8');
+  expect(sharedCode).toContain('MutationObserver');
+  expect(ownCode).not.toContain('MutationObserver');
+  for (const code of [sharedCode, ownCode]) expect(code).toContain('Symbol.for("sinter.early.rt")');
+  for (const code of [sharedCode, ownCode]) expect(code).not.toMatch(/^\s*(import|export)\b/m);
 });
 
 test.runIf(!!chromium)('in Chromium: the requests leave while a slow stylesheet loads (a paginated resource\'s first page too), once each, and the page renders their data', async () => {
