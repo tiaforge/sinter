@@ -377,11 +377,13 @@ class Compiler {
     for (const [k, v] of [...this.page.usedNs].sort(([a], [b]) => a.localeCompare(b))) namespaces[k] = [...v].sort();
     // unchanged reloads skipped by version, where reloads are routine: refreshes, refetch events and reconnects
     if (this.features.has('refresh') || this.features.has('sse')) this.features.add('versions');
+    // a handler that writes `$url`: the query string follows (location.ts)
+    if (/"w":\[[^\]]*"\$url[".]/.test(JSON.stringify(ir))) this.features.add('location');
     return {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'transition'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -482,6 +484,8 @@ class Compiler {
     if (deps) for (const d of r.deps) deps.add(d);
     if (!r.ok) return null;
     this.calls.add(name);
+    // the runtime's part of action functions (call.ts)
+    this.features.add('call');
     return { args: this.fn(r.code), run: this.fn(`($a, $c) => ${local}(...$a, $c)`), name };
   }
 
@@ -942,6 +946,7 @@ class Compiler {
       }
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'] });
       const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
+      if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
     }
 
@@ -1390,6 +1395,8 @@ class Compiler {
     if (!ro.ok || !oo.ok || oo.usesIndex || oo.usesEl || ro.usesEl) return undefined;
     const d = oo.deps.filter((x) => !ro.deps.includes(x));
     if (!d.length) return undefined;
+    // the runtime's selection index (select.ts)
+    this.features.add('select');
     return { r: this.fn(ro.code), o: this.fn(oo.code), d, ...(bin.operator === '!==' ? { x: 1 as const } : {}) };
   }
 
@@ -1404,6 +1411,8 @@ class Compiler {
       kind = type === 'number' || type === 'range' ? 'number' : type === 'checkbox' ? 'checkbox' : type === 'radio' ? 'radio' : 'text';
     } else if (tag.includes('-')) kind = 'text';
     else { this.report(el, 'data-sn-model', 'SN102', '`data-sn-model` must be on `<input>`, `<select>` or `<textarea>`', 0); return; }
+    // controls other than text fields: the models module
+    if (kind != 'text') this.features.add('models');
     if (persist !== undefined) {
       const ac = (attr(el, 'autocomplete') ?? '').toLowerCase().trim();
       if (type === 'password' || SECRET_AUTOCOMPLETE.test(ac)) {
@@ -1486,20 +1495,22 @@ class Compiler {
     // server validation errors shown on the fields (fields.ts): forms that send a mutation and leave errors to sinter
     // (a form's own action, or a control's inside one, as the editor's Publish button in RealWorld)
     if ((isForm || (inForm && (tag === 'button' || FORM_CONTROLS.has(tag)))) && method !== 'call' && method !== 'get' && get('catch') === undefined) this.features.add('fields');
+    // a form's own fields as the body, or form encoding: the form module (form.ts)
+    if ((isForm && body.f === null && method !== 'call' && method !== 'get' && method !== 'delete') || (encoding === 'form' && method !== 'call')) this.features.add('form');
     // only what differs from the defaults: an attribute the page does not write costs no bytes
     // (the event is the `on` binding's; the runtime reads absent fields as null, 0, false, [])
     const w = [...new Set([...then.w, ...catch_.w])].sort();
     const def: ActionDef = {
       method: method.toUpperCase() as ActionDef['method'], url, concurrency,
       ...(body.f !== null ? { body: body.f } : {}),
-      ...(debounce ? { debounce } : {}),
+      ...(debounce ? (this.features.add('debounce'), { debounce }) : {}),
       ...(optimistic.f !== null ? { optimistic: optimistic.f } : {}),
       ...(then.f !== null ? { then: then.f } : {}),
       ...(catch_.f !== null ? { catch: catch_.f } : {}),
       ...(w.length ? { w } : {}),
       ...(isForm ? { form: true } : {}),
       ...(call ? { call: { args: call.args, run: call.run } } : {}),
-      ...(confirm.f !== null ? { confirm: confirm.f } : {}),
+      ...(confirm.f !== null ? (this.features.add('confirm'), { confirm: confirm.f }) : {}),
       ...(encoding === 'form' ? { enc: 'form' as const } : {}),
       ...(ap ? { ap } : {}),
       ...(retryAttr && method !== 'call' && method !== 'get' ? { retry: retryAttr } : {}),

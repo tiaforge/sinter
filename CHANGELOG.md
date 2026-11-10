@@ -7,6 +7,82 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- Smaller builds: the core is 14,606 → 13,514 B gzip, the minimal page 14,787 → 13,691 B; RealWorld's
+  pages 2.4–3.5 KB smaller each (the article 27,627 → 25,251 B of its 27,648 B budget, login 23,947 →
+  20,814 B), their early files 1.0–1.9 KB (were 2.3–3.4 KB). Measured with Lighthouse (mobile, a fixed
+  API) where the first paint's path changed: no change in FCP or LCP. The entries below give each step's
+  numbers at the time.
+  - Form serialization and `data-sn-encoding="form"` moved from the core into a feature module
+    (`@tiaforge-ui/sinter/form`, 0.8 KB gzip), imported only by pages with a form action without
+    `data-sn-body` (not GET or DELETE) or with form encoding: core −390 B. `serialize` and `formBody` are
+    exported from `src/form.ts` instead of `src/runtime/app.ts`.
+  - The selection index (`{active: row.id === selected}` in a row: only the rows that were and become
+    selected re-render) moved into `@tiaforge-ui/sinter/select` (0.5 KB gzip), imported only by pages with
+    such a binding: core −214 B. Selecting a row in a 5,000-row list is unchanged (0.009 ms, happy-dom; the
+    runtime benchmark has the case now).
+  - Writing `$url` from a handler (the query string follows, `replaceState`) moved into
+    `@tiaforge-ui/sinter/location` (0.3 KB gzip), imported only by pages whose handlers write `$url`:
+    core −96 B.
+  - Action functions' runtime part (`data-sn-call`, `<sn-resource call>`: the call context, the pagehide
+    signal, a thrown value as `$error`) moved into `@tiaforge-ui/sinter/call` (0.4 KB gzip), imported
+    only by pages that call one: core −127 B.
+  - Debounced handlers and actions (`data-sn-debounce`, `data-sn-debounce-<event>`) moved into
+    `@tiaforge-ui/sinter/debounce` (0.2 KB gzip), imported only by pages with one: core −67 B.
+  - `data-sn-confirm` moved into `@tiaforge-ui/sinter/confirm` (0.2 KB gzip), imported only by pages with
+    one: core −38 B. `config.confirm` is `null` unless configured (the browser's `confirm()` is used
+    then, as before).
+  - Models of controls other than text fields (checkbox, radio, `<select>`, number and range) and the
+    `<select>` value set again after each render moved into `@tiaforge-ui/sinter/models` (0.5 KB gzip),
+    imported only by pages with one: core −168 B. Text fields and textareas stay in the core.
+  - The URL check reads the scheme as the URL standard does (`schemeOf`: leading controls and spaces
+    stripped, tabs and newlines removed, a letter then letters, digits, `+`, `-`, `.` up to `:`) instead
+    of `new URL()`: 0.06 µs per URL instead of 0.74 µs in Chromium; the same decision as the browser's
+    parser on every URL it parses (200,000 generated strings in Chromium, 50,000 against Node's in the
+    tests). A relative URL is judged by the base of the document it is written into, which a
+    `<base href>` can make another scheme (an `ftp:` base makes relative links `ftp:` links: refused),
+    where the core used the document's URL whenever the base was not http(s); not by the element's own
+    base, which is `about:blank` while a row is a clone of its template. Only the scheme is checked: a URL
+    the browser cannot parse further is written, an invalid link as in static HTML. Core +51 B.
+  - Early requests read the browser's clock, location and fetch unless the app has an early module
+    (`src/sinter.early.ts`), the only code that could `configure({ env })` before the first paint; then
+    the compiler passes `configured` to `requests`, and only then does the early file carry the config.
+    RealWorld's early files with requests −135 B gzip (1.7–1.9 KB). RealWorld's `signedOut` helper reads
+    a standalone `getToken`, so the early files no longer carry the whole `token` object (−28 B).
+  - The dev warning for duplicate `data-sn-for` keys moved into the dev module: core −43 B.
+  - The Vite plugin turns off Vite's modulepreload polyfill unless the app sets `build.modulePreload`'s
+    `polyfill` (or `modulePreload: false`): every browser sinter's pages need preloads modules natively.
+    RealWorld's pages −212 B each.
+  - RealWorld: `<conduit-markdown>` moved from the islands every page loads into `src/markdown.js`, loaded
+    by the article page only. Its dynamic imports of marked and DOMPurify brought Vite's preload helper
+    (~600 B gzip) into every page: the other pages −814 B each, the article +214 B (the helper is in its
+    own chunk now). The article requests the renderer when the module runs, alongside its data, instead
+    of once the data has arrived.
+  - Early files no longer carry their own copy of URL expansion (and, where an early binding needs
+    them, the URL checks): the build emits what some early file uses as one chunk the early files and
+    the page bundle import, preloaded with each early file that uses it; an early file with no early
+    request and no checked attribute or style imports nothing. `BAD_KEY` and `$k` moved to
+    `runtime/keys.ts`, `encodeSegment` to `runtime/url.ts` (`security.ts` re-exports the first two).
+    Each RealWorld early file is 0.3–0.8 KB smaller (also when following a link to another page); per
+    page, the article, index, profile and editor about −380 B, login, register and settings about
+    +110 B (their early files used little of that code). Lighthouse (mobile, fixed API): no change in
+    FCP or LCP. The early file's size report and budget include the shared chunk.
+  - The early file's bindings are compiled (`src/compiler/early-render.ts`): instead of the early IR and
+    the runtime that interpreted it, the early module holds the page's renderer as straight-line calls
+    of small writers and helpers that `@tiaforge-ui/sinter/early` exports, so each early file bundles
+    only the writers its bindings use, and the clock, location, fetch, storage and `config` only when
+    its requests, persisted state or `$locale` need them. An attribute that is no URL attribute, or a
+    URL whose expression fixes its scheme (`'/article/' + slug`, `` `#${id}` ``, `x ? '/a' : null`), is
+    written without the browser's URL check, which checks only the scheme. A lone leading `/`
+    (`'/' + v`, `` `/${v}` ``, also `'//'`, `'/\'`) does not count: `v` starting with `/` or `\` makes
+    it `//host`; those keep the check (docs/spec.md, URL attributes). A page with nothing to wait for (no early request, no
+    messages) renders in one step (`run(page)`). RealWorld's early files 1.0–2.0 KB gzip (were
+    2.0–3.4 KB); login, register and settings import nothing. Each page 700–900 B smaller (login
+    22,364 → 21,254 B, the article 26,578 → 25,810 B). The early page object is
+    `{ ir: { res, path }, fns, scopes, render, locale? }`; `early(doc, page)` (tests) takes it,
+    and `earlyPage(parts)` from the compiler writes its source. `compactEarly` is gone.
+  - The page module imports feature modules as `sn$<name>`, so a helper named like a feature (`keys`,
+    `form`, …) no longer collides with its import.
+
 - IR v2: the page module's dependency and written paths are node ids of one trie per page, with a path table
   (`ps`) in place of the strings; the compiler decides which written path reaches which binding and leaves the
   runtime only the checks against scope values (`src/paths.ts`). The runtime refuses IR v1. The compiler's IR

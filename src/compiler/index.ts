@@ -1,8 +1,9 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
 import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts } from './compile.js';
-import { compactEarly, compactIR } from '../ir.js';
+import { compactIR } from '../ir.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
+import { earlyRender } from './early-render.js';
 
 export type { SourceMap };
 export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, FnSource, FnSources, HelperManifest, HelperOrigin, PrefetchParts };
@@ -58,13 +59,30 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
   return earlyLines(early, options, split)?.text() ?? null;
 }
 
+/**
+ * The early page object's source, over the early table `f`: the early requests (`ir`), the table,
+ * and the compiled renderer (early-render.ts); `uses`: the early module's exports it calls.
+ */
+export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
+  const r = earlyRender(early.ir, early.fns);
+  // a request's scope by the root whose state it is (the renderer keeps a scope only for nodes that open one)
+  const res = early.ir.res?.map((x) => ({ ...x, scope: x.scope < 0 ? -1 : r.owner[x.scope]! }));
+  const ir = { ...(res ? { res } : {}), ...(early.ir.path ? { path: early.ir.path } : {}) };
+  // `$locale` read early: the page passes the configured locale source (else the early file carries no config)
+  const lc = early.fns.some((x) => /\$\.\$locale\b/.test(x));
+  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${lc ? ', locale' : ''} }`, uses: lc ? [...r.uses, 'locale'].sort() : r.uses };
+}
+
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early'>, split: boolean): MappedLines | null {
   const app = options.early?.module ?? null;
   if (!early && !app) return null;
   const lines = new MappedLines();
   if (app) lines.push(`import ${JSON.stringify(app)};`);
   const req = !!early?.ir.res?.length, pages = !!early?.ir.res?.some((r) => r.q);
-  lines.push(`import { ${split ? 'prime' : 'start'}${early ? ', $k' : ''}${req ? ', requests' : ''}${pages ? ', withParams' : ''} } from '${PACKAGE}/early';`);
+  const page = early ? earlyPage(early) : null;
+  // a page with nothing to wait for (no requests, no messages, no app early module's dictionary): `run`, one step
+  const simple = !!early && !split && !req && !Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES);
+  lines.push(`import { ${[split ? 'prime' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : []), ...(pages ? ['withParams'] : [])].join(', ')} } from '${PACKAGE}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
   if (early) {
@@ -91,13 +109,13 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   if (messages) lines.push(messages);
   lines.push('');
   if (early) {
-    lines.push('const page = () => {', `  const ir = ${JSON.stringify(compactEarly(early.ir))};`, '  const fns = [');
+    lines.push('const page = () => {', '  const f = [');
     early.fns.forEach((f, i) => lines.fn('    ', f, ',', early.sources?.fns[i]));
-    lines.push('  ];', '  return { ir, fns };', '};');
+    lines.push('  ];', `  return ${page!.code};`, '};');
   }
-  const args = `${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? `, requests(${pages ? 'withParams' : ''})` : ''}`;
+  const args = `${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? `, requests(${pages ? 'withParams' : app ? 'undefined' : ''}${app ? ', configured' : ''})` : ''}`;
   // split: the requests start when the file runs (`async`, before the stylesheets); the stub calls `render` after the parse
-  lines.push(split ? `export const render = prime(${args});` : `start(${args});`);
+  lines.push(split ? `export const render = prime(${args});` : simple ? 'run(page);' : `start(${args});`);
   return lines;
 }
 
@@ -110,9 +128,10 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
   lines.push(`import { ${core.join(', ')} } from '${PACKAGE}';`);
-  for (const f of parts.features) lines.push(`import ${f} from '${PACKAGE}/${f}';`);
+  // prefixed: a helper may be named as a feature (`keys`, `form`, …)
+  for (const f of parts.features) lines.push(`import sn$${f} from '${PACKAGE}/${f}';`);
   // next-page data: the app's pages, described in one module every page shares
-  const features = options.prefetch ? [...parts.features, '$prefetch'] : parts.features;
+  const features = [...parts.features.map((f) => `sn$${f}`), ...(options.prefetch ? ['$prefetch'] : [])];
   if (options.prefetch) lines.push(`import $prefetch from ${JSON.stringify(options.prefetch)};`);
   if (parts.helpers.user.length && options.helpers.module) {
     lines.push(`import { ${parts.helpers.user.join(', ')} } from ${JSON.stringify(options.helpers.module)};`);

@@ -7,7 +7,7 @@ import { config, SinterError, type Middleware } from './config.js';
 import { envOf, type Env } from './env.js';
 import { prefetched } from './handoff.js';
 import { createRequestLayer, isAbort, readBody, toError, type RequestLayer, type SendInit } from './request.js';
-import { BAD_KEY, schemesOf, STYLE_BAD, urlAllowed } from './security.js';
+import { schemesOf, STYLE_BAD, urlAllowed } from './security.js';
 import { expand, readUrl as readFrom, withParams } from './url.js';
 
 export { withParams };
@@ -157,8 +157,26 @@ export interface App {
     keys?: (rb: BoundBinding, e: KeyboardEvent) => boolean;
     /** write-through: a mutation's 2xx response, applied to the resources it is about (before `then`) */
     apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
-    /** server validation errors on a form's fields: `show` returns whether every error found its field */
     /** an action is sent: the form's marks and `$error` are cleared; the function reports a failure, true when the form shows it */
+    /** action functions (call.ts): runs one with its context (an action's signal aborts on pagehide); what one throws as an `$error` */
+    call?: { run(f: number, args: unknown, el: Element | null, signal?: AbortSignal): Promise<unknown>; error(e: unknown): SinterError };
+    /** debounced handlers and actions (debounce.ts): runs `run` once, `ms` after the last call for `key` */
+    debounce?: (key: object, ms: number, run: () => void) => void;
+    /** `data-sn-confirm` (confirm.ts): runs `go` once the user agrees to `question` (at once when it is falsy) */
+    confirm?: (question: unknown, go: () => void) => void;
+    /** models of controls other than text fields (models.ts) */
+    models?: (inner: ModelInner) => Models;
+    /** `$url` was written: the query string follows (location.ts) */
+    location?: () => void;
+    /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
+    form?: (el: Element, a: ActionDef, body: unknown) => unknown;
+    /**
+     * selection bindings (select.ts): given the renderer's internals, the check for a list whose rows
+     * no other change reaches. `free`: the index may be used (no row was reconciled this round, none
+     * waits in a closed dialog). 0: no selection's outer side changed; 1: the rows concerned were
+     * rendered; 2: every row renders
+     */
+    select?: (inner: Inner) => (rb: BoundBinding, free: boolean) => number;
     fields?: { sent(el: Element, a: ActionDef): ((error: SinterError, request: { url: string; method: string }) => boolean) | undefined };
   };
   readonly beforeFlush: Array<(dirty: Dirty[]) => void>;
@@ -174,6 +192,8 @@ export interface App {
   /** dev builds: returns true for a handler's error (code 24) it reported; the core logs it otherwise */
   warn(code: number | string, ...args: unknown[]): unknown;
   prep?: <T>(item: T) => T;
+  /** dev: a list's row keys, checked for duplicates */
+  dupes?: (keys: unknown[]) => void;
   /** dev: an EventSource stream opened (its connection counts against HTTP/1.1's 6 per origin) */
   streamOpened?: (url: string) => void;
 
@@ -203,6 +223,18 @@ export interface App {
   addCleanup(fn: () => void): void;
   /** runs `fn` now, or, on a page the browser prerenders (Speculation Rules), once it is shown */
   shown(fn: () => void): void;
+}
+
+/** The renderer's internals the models of controls other than text fields (models.ts) use. */
+export interface ModelInner { evaluate(rb: any): any; deferred: Set<any> }
+export interface Models { write(rb: any, v: unknown): void; read(rb: any): unknown; bound(rb: any): void; forget(rb: any): void; sync(): void }
+
+/** The renderer's internals the selection index (select.ts) uses. */
+export interface Inner {
+  hit(deps: PathRef[] | undefined, s?: any): boolean;
+  isSimple(t: TemplateDef): { vals: Array<[number, Binding]> } | null;
+  walkSimple(x: any, t: TemplateDef, meta: any, force: number, only?: number): void;
+  process(rb: any, level: number): boolean;
 }
 
 /** Runtime binding: the bound binding plus last value and list/conditional state. */
@@ -265,7 +297,6 @@ interface ActState {
   c: AbortController | null;
   /** the running write's retry: aborted when a newer `latest` trigger replaces it while it waits */
   r: AbortController | null;
-  t: unknown;
   off: HTMLInputElement[] | null;
 }
 
@@ -300,7 +331,7 @@ export const STATE = Symbol('sinter.state');
 /** HANDLERS: one handler binding, or an array when the element has several */
 export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
 const indexReaders = new WeakMap<TemplateDef, boolean>();
-const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>(), selOf = new WeakMap<TemplateDef, Binding[]>();
+const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
 /** row templates: whether each holds one element (see oneElement()) */
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
 /** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
@@ -329,7 +360,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const acts = new WeakMap<Element, ActState>();
   /** props set on custom elements not defined yet, by element: the latest value of each */
   const early = new WeakMap<Element, Map<string, unknown>>();
-  const types = new Set<string>(), selects = new Set<RB>(), deferred = new Set<RB>();
+  const types = new Set<string>(), deferred = new Set<RB>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<Got> }>();
   /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id; `run(id)`: any element */
@@ -373,7 +404,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // form state: the attribute is only the default once the user has changed the control
       if (/^(checked|selected|indeterminate|value)$/.test(n) && n in el) (el as any)[n] = n == 'value' ? (v == null || v === false || v === true ? '' : v) : v != null && v !== false;
       if (v == null || v === false) el.removeAttribute(n);
-      else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), /^https?:/.test(el.baseURI) ? el.baseURI : env.href(), schemes)) el.setAttribute(n, v);
+      // relative URLs by the base of the document rows go into (a clone's own is its template's, about:blank)
+      else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), doc.baseURI, schemes)) el.setAttribute(n, v);
       else { el.removeAttribute(n); warn(7, n, el.localName, v); }
     },
     s(el: HTMLElement, n: string, v: any) {
@@ -385,21 +417,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Elements written through callbacks (`$.$m(row, …)`) since the last flush. */
   const marked = new Set<unknown>();
-  /** debounced handlers' pending timers */
-  const timers = new WeakMap<RB, unknown>();
-  /** action calls' signal: aborts when the page is hidden */
-  let hide = new AbortController();
-  /** runs an action function; it counts as busy (for the testing module's settle) while it runs */
-  async function invoke(run: number, args: unknown, ctx: CallContext): Promise<unknown> {
-    app.busy++;
-    try { return await fns[run]!(args, ctx); } finally { app.busy--; }
-  }
-  /** a failed call: SinterErrors as they are, anything else with status null */
-  const callError = (e: unknown) => {
-    if (e instanceof SinterError) return e;
-    const detail = (e instanceof Error ? e.message : typeof e == 'string' ? e : '') || null;
-    return new SinterError(null, e, detail ?? String(e), detail);
-  };
   /** Per flush round: how dirty paths reach a template's rows (0 not, 1 only marked elements, 2 any row). */
   let rowHits = new Map<TemplateDef, number>();
   /** Per flush round: the rows of a template the round's changes select by their index (null: any row). */
@@ -470,7 +487,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     ...(b.s ? ids(b.d).filter((d) => !b.s!.d.includes(d)) : ids(b.d)),
     ...(b.k == 'for' || b.k == 'if' || b.k == 'else' ? templateDeps(ir.templates[b.x!]!) : []),
   ]))), others.get(t)!);
-  const sels = (t: TemplateDef): Binding[] => selOf.get(t) ?? (selOf.set(t, t.nodes.flatMap((nd) => nd.b.filter((b) => b.s))), selOf.get(t)!);
 
   /** Whether a dirty path of the current flush reaches one of `deps`. */
   const hit = (deps: PathRef[] | undefined, s?: any) => {
@@ -624,7 +640,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     exec(f, s, writes, o) {
       try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); }
       for (const w of writes ?? []) app.mark(w, s);
-      if (writes?.some((w) => up(w as number)[0] == ps.x.$url)) writeUrl();
+      // `$url` written: the query string follows (location.ts, on pages whose handlers write it)
+      if (app.ext.location && writes?.some((w) => up(w as number)[0] == ps.x.$url)) app.ext.location();
     },
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),
@@ -633,6 +650,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
   app.page.$f = app.storeFns(null);
   instances.set(root, app);
   for (const f of o.features ?? []) f.install(app);
+  /** controls other than text fields (models.ts), on pages with such a model */
+  const models = app.ext.models?.({ evaluate, deferred });
+  /** the selection index (select.ts), on pages with selection bindings */
+  const sel = app.ext.select?.({ hit, isSimple, walkSimple, process });
 
   // ---- mount: one querySelectorAll, ids checked against the IR's tags
   const qsa = (root instanceof Document ? Document : Element).prototype.querySelectorAll;
@@ -643,10 +664,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
   for (const id of bad) { found.delete(id); warn(1, id); }
   for (const def of ir.resources) createLoader(def);
-  // action calls see the page leave through ctx.signal
-  if (ir.actions.some((x) => x.call) || ir.resources.some((x) => x.call)) {
-    app.addCleanup(env.listen('pagehide', () => { hide.abort(); hide = new AbortController(); }));
-  }
   // back from the bfcache, or online again: the data may have changed meanwhile. Resources a stream
   // feeds are refetched by the stream module when it reconnects.
   const fed = new Set((ir.syncs ?? []).flatMap((s) => s.events.map((e) => e.resource)));
@@ -707,13 +724,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return readFrom(env.href(), ir.path);
   }
 
-  function writeUrl() {
-    const u = new URL(env.href()), q = new URLSearchParams();
-    const fromPath = new Set((ir.path ?? []).flatMap((p) => p.split('/').filter((s) => s[0] == ':').map((s) => s.slice(1))));
-    for (const [k, v] of Object.entries(app.page.$url)) if (v != null && v !== '' && !fromPath.has(k)) q.set(k, '' + v);
-    u.search = '' + q;
-    env.replaceState(u.pathname + u.search + u.hash);
-  }
 
   /** One delegated capture listener per used event type, at the mount root. */
   function listen(type: string) {
@@ -754,7 +764,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (b.k == 'else') continue;
         if (b.k == 'model') {
           el[MODEL] = rb;
-          if (el.localName == 'select') selects.add(rb);
+          models?.bound(rb);
           if (b.p != null) app.ext.persist?.model(rb, (v) => setModel(rb, v));
         }
         if (b.k == 'for') { rb.rows = []; rb.t = ir.templates[b.x!]; }
@@ -780,13 +790,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       // only a selection's outer side changed: the rows it concerns, through the index; rows that were
       // just reconciled (some re-rendered, the index stale) or wait in a closed dialog render as usual
-      if (!r) {
-        const ss = sels(t!);
-        if (ss.some((b) => hit(b.s!.d, rb.s))) {
-          if (rb.rr != round && !deferred.size) { for (const b of ss) select(rb, b); continue; }
-          r = 2;
-        }
-      }
+      if (!r && sel && (r = sel(rb, rb.rr != round && !deferred.size)) == 1) continue;
       rb.sx = undefined;
       // only marked elements changed and the list did not move: visit their rows directly
       if (r == 1 && rb.rr != round) {
@@ -850,34 +854,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   /**
-   * A selection binding (`row.id === selected`) whose outer side may have changed: re-evaluates it on
-   * the rows it held for and the rows whose row side equals the new outer value; the others keep their
-   * value. The index is built from the rows on first use and kept while no row is rendered.
-   */
-  function select(rb: RB, b: Binding) {
-    const s = b.s!, f = s.x ? 0 : 1, t = rb.t!, meta = isSimple(t), j = meta ? meta.vals.findIndex((y) => y[1] == b) : -1;
-    if (!hit(s.d, rb.s)) return;
-    // the binding's current value in a row (undefined when its element is missing), and its re-evaluation
-    const cur = (x: Inst) => (meta ? x.v![j] : x.rbs!.find((y) => y.b == b)?.v);
-    const run = (x: Inst) => { if (meta) walkSimple(x, t, meta, 2, j); else { const y = x.rbs!.find((y) => y.b == b); if (y) process(y, 2); } };
-    const safe = (i: number, sc: any) => { try { return fns[i]!(sc); } catch { return undefined; } };
-    let e = rb.sx?.get(b);
-    if (!e) {
-      const m = new Map<unknown, Inst[]>(), on = new Set<Inst>();
-      for (const x of rb.rows!) {
-        const k = safe(s.r, x.s), a = m.get(k);
-        a ? a.push(x) : m.set(k, [x]);
-        if (+!!cur(x) == f) on.add(x);
-      }
-      (rb.sx ??= new Map()).set(b, (e = { m, on }));
-    }
-    for (const x of [...e.on, ...(e.m.get(safe(s.o, rb.s)) ?? [])]) {
-      run(x);
-      if (+!!cur(x) == f) e.on.add(x); else e.on.delete(x);
-    }
-  }
-
-  /**
    * A property set before its custom element is defined is an own property that would hide the
    * class's setter: once defined, the latest values are set again, through the class.
    */
@@ -913,39 +889,20 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
   }
 
-  /** Sets each select's value again, as its options may have changed; one in a closed dialog waits, as in process(). */
-  function syncSelects() {
-    for (const rb of selects) {
-      if (rb.c && rb.el.closest('dialog:not([open])')) deferred.add(rb);
-      else writeModel(rb, evaluate(rb));
-    }
-  }
+  /** Sets each select's value again, as its options may have changed (models.ts). */
+  function syncSelects() { models?.sync(); }
 
-  // ---- models
+  // ---- models: text fields here, other controls in models.ts
 
   function writeModel(rb: RB, v: any) {
-    const el = rb.el as HTMLInputElement & HTMLSelectElement, k = rb.b.n;
-    const has = (x: string) => Array.isArray(v) && v.map(String).includes(x);
-    if (k == 'checkbox') el.checked = Array.isArray(v) ? has(el.value) : !!v;
-    else if (k == 'radio') el.checked = v != null && '' + v == el.value;
-    else if (k == 'multi') for (const opt of el.options) opt.selected = has(opt.value);
-    // loose comparison: '1.0' == 1 keeps a number input's text as typed
+    const el = rb.el as HTMLInputElement;
+    if (rb.b.n != 'text') models!.write(rb, v);
     else if (el.value != (v ?? '')) el.value = v ?? '';
   }
 
-  /** The control's value for its model; undefined for an unchecked radio. */
+  /** The control's value for its model. */
   function readModel(rb: RB): unknown {
-    const el = rb.el as HTMLInputElement & HTMLSelectElement, k = rb.b.n;
-    if (k == 'number') return el.value === '' ? null : +el.value;
-    if (k == 'radio') return el.checked ? el.value : undefined;
-    if (k == 'multi') return [...el.selectedOptions].map((x) => x.value);
-    if (k != 'checkbox') return el.value;
-    const cur = evaluate(rb);
-    if (!Array.isArray(cur)) return el.checked;
-    const i = cur.map(String).indexOf(el.value);
-    if (el.checked && i < 0) cur.push(el.value);
-    if (!el.checked && i >= 0) cur.splice(i, 1);
-    return cur;
+    return rb.b.n != 'text' ? models!.read(rb) : (rb.el as HTMLInputElement).value;
   }
 
   /** `typing`: a keystroke in a text field (`input` on an `<input>`/`<textarea>`), not a paste-like whole change */
@@ -988,10 +945,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
     const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
-    if (app.dev && new Set(keys).size < n) {
-      const k = keys.find((k, i) => keys.indexOf(k) != i);
-      warn(11, typeof k == 'string' ? k.slice(1) : 'the same object twice');
-    }
+    app.dupes?.(keys);
     const reuse = (x: Inst, i: number) => {
       const item = items[i];
       if (x.item !== item) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = 2; }
@@ -1023,7 +977,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (parent.firstChild == tpl && parent.lastChild == end) parent.replaceChildren(tpl, end);
       else while (tpl.nextSibling != end) tpl.nextSibling!.remove();
     } else for (const node of gone.flatMap(nodesOf)) (node as ChildNode).remove();
-    if (deferred.size || selects.size) for (const o of gone) if (old[o]!.rbs) forget(old[o]!.rbs!);
+    if (deferred.size || models) for (const o of gone) if (old[o]!.rbs) forget(old[o]!.rbs!);
     const ref = ne < n ? rows[ne]!.first ?? end : end;
     if (!seq.some((o) => o >= 0)) {
       // only new rows in the middle: insert each straight before the reference (going through a
@@ -1153,7 +1107,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   function forget(rbs: RB[]) {
     for (const rb of rbs) {
       deferred.delete(rb);
-      selects.delete(rb);
+      models?.forget(rb);
       for (const r of rb.rows ?? []) if (r.rbs) forget(r.rbs);
     }
   }
@@ -1190,7 +1144,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     for (; el; el = el.parentElement) {
       const h = handlersOf(el as Tagged), hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
       if (hs?.length) {
-        for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? later(h, e) : handle(h, h.b.f!, e, h.b.w);
+        // a debounced handler (debounce.ts) runs once, with the last event, if its element is still on the page
+        for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? app.ext.debounce!(h, h.b.ms, () => h.el.isConnected && handle(h, h.b.f!, e, h.b.w)) : handle(h, h.b.f!, e, h.b.w);
         // a bubbling custom event is a notification: it goes on up until a handler prevents it. Otherwise handled:
         // any handler or action ran; for keys, a filter matched (it prevents the default), an action or a
         // debounced handler ran, or a plain handler prevented the default. A key it did not prevent goes on up.
@@ -1205,15 +1160,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     app.exec(f, child(rb.s, { $el: rb.el, $event: e, $f: app.storeFns(rb.el), ...extra }), writes, rb.b);
   }
 
-  /** A debounced handler: runs once `ms` after the last event, with that event. */
-  function later(rb: RB, e: Event) {
-    const t = timers.get(rb);
-    if (t) { env.clearTimeout(t); app.busy--; }
-    app.busy++;
-    // the element may have left the page (its row removed) while the handler waited
-    timers.set(rb, env.setTimeout(() => { timers.delete(rb); app.busy--; if (rb.el.isConnected) handle(rb, rb.b.f!, e, rb.b.w); }, rb.b.ms!, 'debounce'));
-  }
-
   // ---- actions
 
   /** `e` is null for `run()`: no event, no default to prevent */
@@ -1221,15 +1167,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const a = ir.actions[rb.b.x!]!, el = rb.el;
     // an action does not end a custom event's walk: it prevents only native defaults
     if (e && !(e instanceof CustomEvent) && (e.type == 'submit' || el.localName == 'a' || (e.type == 'click' && /^(button|input)$/.test(el.localName) && el.closest('form')))) e.preventDefault();
-    if (!a.debounce) return fire(rb, a, e);
-    const st = act(el);
-    if (st.t) { env.clearTimeout(st.t); app.busy--; }
-    app.busy++;
-    st.t = env.setTimeout(() => { st.t = null; app.busy--; fire(rb, a, e); }, a.debounce, 'debounce');
+    a.debounce ? app.ext.debounce!(el, a.debounce, () => fire(rb, a, e)) : fire(rb, a, e);
   }
 
   function act(el: Element): ActState {
-    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, c: null, r: null, t: null, off: null });
+    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, c: null, r: null, off: null });
     return acts.get(el)!;
   }
 
@@ -1243,22 +1185,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (a.call) body = fns[a.call.args]!(s);
       else {
         url = app.url(a.url, s);
-        const fields = a.form && !get && a.method != 'DELETE';
-        // form encoding: the fields as the browser would submit them (FormData), then as one of its bodies
-        body = a.body != null ? fns[a.body]!(s) : fields ? (a.enc == 'form' ? new FormData(rb.el as HTMLFormElement) : serialize(rb.el as HTMLFormElement)) : undefined;
-        if (a.enc == 'form') body = formBody(body);
+        if (a.body != null) body = fns[a.body]!(s);
+        // a form's own fields, and form encoding (form.ts): on pages that have such an action
+        if (app.ext.form) body = app.ext.form(rb.el, a, body);
       }
     } catch (err) {
       return unhandled(toError(err), rb.el);
     }
-    // a question first: the action runs only when the user agrees
-    const question = a.confirm != null ? fns[a.confirm]!(s) : null;
-    if (question) {
-      const yes = config.confirm(String(question));
-      if (yes instanceof Promise) return void yes.then((y) => y && go());
-      if (!yes) return;
-    }
-    go();
+    // a question first (confirm.ts): the action runs only when the user agrees
+    a.confirm != null ? app.ext.confirm!(fns[a.confirm]!(s), go) : go();
     function go() {
     const drop = a.optimistic != null ? app.ext.optimistic!.begin(a.optimistic, s) : () => {};
     if (get) {
@@ -1287,7 +1222,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     try {
       const result = a.call
-        ? await invoke(a.call.run, body, { signal: hide.signal, request: (u: string, i?: SendInit) => req.send(u, i), el })
+        ? await app.ext.call!.run(a.call.run, body, el)
         : await req.send(url, { method: a.method, body, signal: c?.signal, ...(a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : {}) });
       // a superseded GET's change is rolled back; a success keeps it, under what `then` writes
       if (c && st.c != c) return drop();
@@ -1298,7 +1233,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     } catch (err) {
       drop();
       if (isAbort(err) || (c && st.c != c)) return;
-      const error = a.call ? callError(err) : toError(err);
+      const error = a.call ? app.ext.call!.error(err) : toError(err);
       // shown on the form (every message on its field, or its markup reads `$error`): handled
       if (fs?.(error, { url, method: a.method }) && a.catch == null) return;
       a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null);
@@ -1444,7 +1379,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         try {
           const req = withParams(url, m ? l.pager!.params(m) : null);
           const body = def.call
-            ? await invoke(def.call.run, args, { signal: ctl.signal, request: (u: string, i?: SendInit) => app.req.send(u, i), el: null })
+            ? await app.ext.call!.run(def.call.run, args, null, ctl.signal)
             : await l.get(req, ctl.signal, (def.lo ?? 0) | (quiet ? 2 : 0));
           if (n != seq) return;
           // UNCHANGED (the versions module): nothing to store; `then` still runs, with what that data's load stored
@@ -1455,7 +1390,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           r.meta.loadedAt = env.now();
         } catch (e) {
           if (n != seq || isAbort(e)) return;
-          fail(def.call ? callError(e) : e, quiet);
+          fail(def.call ? app.ext.call!.error(e) : e, quiet);
           l.settle(false);
         } finally {
           // writes made while this load ran win over its (older) response
@@ -1519,48 +1454,4 @@ export function lis(seq: number[]): Set<number> {
   const keep = new Set<number>();
   for (let k = tails.at(-1); k != null; k = prev[k]) keep.add(k);
   return keep;
-}
-
-/** Serializes a form's named controls to nested JSON, or FormData if it has a file input. */
-/**
- * A body as form fields (`data-sn-encoding="form"`): a form's own fields, or an object's keys with
- * arrays as repeated keys; null and undefined values are left out. Files stay multipart.
- */
-export function formBody(body: unknown): URLSearchParams | FormData | null {
-  if (body == null) return null;
-  if (body instanceof FormData) {
-    const out = new URLSearchParams();
-    for (const [k, v] of body) {
-      if (typeof v != 'string') return body;
-      out.append(k, v);
-    }
-    return out;
-  }
-  if (body instanceof URLSearchParams) return body;
-  const out = new URLSearchParams();
-  for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
-    for (const x of Array.isArray(v) ? v : [v]) if (x != null) out.append(k, typeof x == 'object' ? JSON.stringify(x) : String(x));
-  }
-  return out;
-}
-
-export function serialize(form: HTMLFormElement): unknown {
-  const controls = [...form.elements] as Array<HTMLInputElement & { selectedOptions: HTMLCollectionOf<HTMLOptionElement> }>;
-  if (controls.some((c) => c.type == 'file')) return new FormData(form);
-  const out = Object.create(null), boxes: Record<string, number> = {};
-  for (const c of controls) if (c.type == 'checkbox') boxes[c.name] = (boxes[c.name] ?? 0) + 1;
-  for (const c of controls) {
-    const { name, type } = c, segs = name?.match(/[^.[\]]+/g);
-    if (!segs || c.disabled || /^(submit|button|reset|image|fieldset|output)$/.test(type) || (type == 'radio' && !c.checked) || segs.some((s) => BAD_KEY.test(s))) continue;
-    const k = segs.pop()!;
-    let o = out;
-    // a container at each step; a scalar written there earlier (`a`, then `a.b`) is replaced
-    segs.forEach((s, i) => (o = typeof o[s] == 'object' && o[s] ? o[s] : (o[s] = /^\d+$/.test(segs[i + 1] ?? k) ? [] : Object.create(null))));
-    if (type == 'checkbox' && boxes[name]! > 1) (o[k] ??= []).push(...(c.checked ? [c.value] : []));
-    else o[k] = type == 'checkbox' ? c.checked
-      : /^(number|range)$/.test(type) ? (c.value === '' ? null : +c.value)
-      : type == 'select-multiple' ? [...c.selectedOptions].map((x) => x.value)
-      : c.value;
-  }
-  return out;
 }

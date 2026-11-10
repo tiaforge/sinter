@@ -12,7 +12,7 @@ const src = resolve(__dirname, '../../src');
 const out = mkdtempSync(join(tmpdir(), 'sinter-vite-'));
 afterAll(() => rmSync(out, { recursive: true, force: true }));
 
-const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 'transition']
+const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 'transition', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models']
   .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
   .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
 
@@ -189,7 +189,7 @@ test('typecheck: type errors fail `vite build` with SN208', async () => {
   }
 });
 
-test('first paint: one self-contained early file per page, render-blocking before the page module', async () => {
+test('first paint: one early file per page, render-blocking before the page module', async () => {
   const dir = join(out, 'first-paint');
   const logs: string[] = [];
   await build({
@@ -204,8 +204,13 @@ test('first paint: one self-contained early file per page, render-blocking befor
   expect(page).not.toBeNull();
   expect(html.indexOf(early![0])).toBeLessThan(html.indexOf(page![0]));
   const code = readFileSync(join(dir, 'assets', early![1]!), 'utf8');
-  // everything in one file: the app's early module, the early runtime, the message the early binding calls
-  expect(code).not.toMatch(/^\s*import\b|\bimport\(/m);
+  // one file: the app's early module, the compiled early bindings, the message one calls; nothing to import, as no
+  // early binding checks a URL or a style and the page has no early request: the first paint waits for no other file
+  expect(code).not.toMatch(/^\s*import\s/m);
+  expect(code).not.toMatch(/\bimport\(/);
+  expect(code).not.toContain('function urlAllowed');
+  // nothing is requested for it ahead of its tag (the page bundle's own preloads come after)
+  expect(html.slice(0, html.indexOf(early![0]))).not.toContain('rel="modulepreload"');
   expect(code).toMatch(/dataset\.early = ["']yes["']/);
   expect(code).toContain('People');
   expect(code).toContain('not available early');
@@ -215,12 +220,34 @@ test('first paint: one self-contained early file per page, render-blocking befor
   // the page module (async) mounts once the early file has rendered
   expect(readFileSync(join(dir, 'assets', page![1]!), 'utf8')).toMatch(/await rendered\(\);[\s\S]*mount\(document/);
   // the build reports the early file's size, and warns over the budget with the largest modules
-  expect(logs.find((l) => l.includes('early file of index.html'))).toMatch(/early file of index\.html: assets\/index-early-[\w-]+\.js [\d.]+ kB gzip, over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
+  expect(logs.find((l) => l.includes('early file of index.html'))).toMatch(/early file of index\.html: assets\/index-early-[\w-]+\.js [\d.]+ kB gzip( \+ assets\/[\w-]+\.js [\d.]+ kB gzip \(shared\))?, over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
   // `firstPaint: false`: everything waits for the page module
   await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: join(dir, 'off'), emptyOutDir: true, minify: false }, plugins: [sinter({ firstPaint: false })] });
   const off = readFileSync(join(dir, 'off', 'index.html'), 'utf8');
   expect(off).not.toContain('early');
   expect(off).not.toContain('blocking');
+});
+
+test('first paint: an early file that checks a URL imports the chunk it shares with the page bundle, which the page requests before it', async () => {
+  const file = join(root, 'shared.html');
+  writeFileSync(file, '<!doctype html><html><head><title>x</title></head><body data-sn-state="{ to: \'/a\' }" data-sn-persist="nav"><a data-sn-attr="{href: to}">a</a><sn-resource name="people" src="/api/people" key="id"></sn-resource><p data-sn-text="people.length"></p></body></html>');
+  const dir = join(out, 'early-shared');
+  try {
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false, rollupOptions: { input: file } }, plugins: [sinter()] });
+  } finally { rmSync(file, { force: true }); }
+  const html = readFileSync(join(dir, 'shared.html'), 'utf8');
+  const early = /<script type="module" crossorigin src="\/assets\/(shared-early-[\w-]+\.js)" blocking="render"><\/script>/.exec(html)!;
+  const code = readFileSync(join(dir, 'assets', early[1]!), 'utf8');
+  const imports = [...code.matchAll(/^\s*import\b[^;]*?from\s*["']\.\/([\w.-]+)["']/gm)].map((m) => m[1]);
+  expect(imports).toHaveLength(1);
+  expect(code).not.toContain('function urlAllowed');
+  const preload = html.indexOf(`<link rel="modulepreload" crossorigin href="/assets/${imports[0]}">`);
+  expect(preload).toBeGreaterThanOrEqual(0);
+  expect(preload).toBeLessThan(html.indexOf(early[0]));
+  expect(readFileSync(join(dir, 'assets', imports[0]!), 'utf8')).toContain('function urlAllowed');
+  // the page bundle imports the same chunk: one copy of it on the page
+  const page = /<script type="module" crossorigin src="\/assets\/(shared-[\w]+\.js)" async>/.exec(html)!;
+  expect(readFileSync(join(dir, 'assets', page[1]!), 'utf8')).not.toContain('function urlAllowed');
 });
 
 test('first paint: an early module\'s dynamic import is inlined, without a deprecated-option warning', async () => {
@@ -247,7 +274,9 @@ test('first paint: an early module\'s dynamic import is inlined, without a depre
   const file = /src="\/assets\/(index-early-[\w-]+\.js)" blocking="render"/.exec(html)![1]!;
   const code = readFileSync(join(dir, 'assets', file), 'utf8');
   expect(code).toContain('lazy-early-module');            // in the early file itself
-  expect(code).not.toMatch(/^\s*import\s|\bimport\(/m);  // which loads nothing (Vite's preload helper reads import.meta)
+  // which loads nothing (Vite's preload helper reads import.meta): no dynamic import, and here no static one either
+  expect(code).not.toMatch(/\bimport\(/);
+  expect(code).not.toMatch(/^\s*import\s/m);
   expect(said.join('\n')).not.toMatch(/inlineDynamicImports|codeSplitting/);
 });
 

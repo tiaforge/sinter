@@ -288,15 +288,15 @@ test('the compiler checks the value and adds the feature only where it is used',
   const page = (v: string | null) => `<sn-resource name="jobs" src="/api/jobs"${v == null ? '' : ` refresh="${v}"`}></sn-resource><p data-sn-text="jobs"></p>`;
   const ok = compile(page('5m'), opts);
   expect(ok.diagnostics).toEqual([]);
-  expect(ok.module).toContain("import refresh from '@tiaforge-ui/sinter/refresh'");
+  expect(ok.module).toContain("import sn$refresh from '@tiaforge-ui/sinter/refresh'");
   expect(ok.module).toContain('"refresh":300000');
-  expect(ok.module).toContain("import versions from '@tiaforge-ui/sinter/versions'");
+  expect(ok.module).toContain("import sn$versions from '@tiaforge-ui/sinter/versions'");
   const plain = compile(page(null), opts).module;
   expect(plain).not.toContain('sinter/refresh');
   expect(plain).not.toContain('sinter/versions');
   // a stream reloads resources too (refetch events, reconnects): its pages get the version check
   const streamed = compile(`${page(null)}<sn-sync src="/api/events"><sn-event name="x" resource="jobs" op="refetch"></sn-event></sn-sync>`, opts).module;
-  expect(streamed).toContain("import versions from '@tiaforge-ui/sinter/versions'");
+  expect(streamed).toContain("import sn$versions from '@tiaforge-ui/sinter/versions'");
   expect(streamed).not.toContain('sinter/refresh');
   const errors = (v: string) => compile(page(v), opts).diagnostics.map((d) => `${d.code} ${d.message}`);
   expect(errors('0s')).toEqual(['SN401 `refresh` must be at least `1s`']);

@@ -6,6 +6,16 @@ import { compactIR } from '../../src/ir.js';
 import { mount, type App } from '../../src/runtime/app.js';
 import { $k } from '../../src/runtime/security.js';
 import * as builtins from '../../src/runtime/helpers.js';
+import form from '../../src/form.js';
+import select from '../../src/select.js';
+import location from '../../src/location.js';
+import call from '../../src/call.js';
+import debounce from '../../src/debounce.js';
+import confirm from '../../src/confirm.js';
+import models from '../../src/models.js';
+
+/** features that are only parts of the renderer, split off the core for size: what the page would load */
+const FEATURES: Record<string, typeof select> = { form, select, location, call, debounce, confirm, models };
 
 const none = { module: null, names: [], namespaces: {} };
 let current: App | null = null;
@@ -18,14 +28,15 @@ export function page(html: string): App {
   });
   const errors = parts.diagnostics.filter((d) => d.severity === 'error');
   if (errors.length) throw new Error(errors.map((d) => d.message).join('\n'));
-  if (parts.features.length) throw new Error(`benchmark page needs features: ${parts.features.join(', ')}`);
+  const other = parts.features.filter((f) => !FEATURES[f]);
+  if (other.length) throw new Error(`benchmark page needs features: ${other.join(', ')}`);
   const names = ['$k', ...parts.helpers.builtin];
   const values = [$k, ...parts.helpers.builtin.map((h) => (builtins as Record<string, unknown>)[h])];
   // eslint-disable-next-line no-new-func -- benchmarks only; pages load a compiled module
   const fns = new Function(...names, `"use strict"; return [\n${parts.fns.join(',\n')}\n];`)(...values);
   const inner = /<html[^>]*>([\s\S]*)<\/html>/i.exec(parts.html)?.[1] ?? parts.html;
   document.documentElement.innerHTML = inner.replace(/<script type="module" src="about:blank"><\/script>/, '');
-  current = mount(document, { ir: compactIR(parts.ir), fns, request: [] });
+  current = mount(document, { ir: compactIR(parts.ir), fns, request: [], features: parts.features.map((f) => FEATURES[f]!) });
   return current;
 }
 

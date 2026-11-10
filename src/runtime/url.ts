@@ -1,7 +1,10 @@
 // URL templates and `$url`: shared by the runtime and the early file, so a request the early file
 // starts has exactly the URL the runtime computes for the same resource.
-import { BAD_KEY, encodeSegment } from './security.js';
+import { BAD_KEY } from './keys.js';
 import type { UrlTemplate } from '../ir.js';
+
+/** Encodes one interpolated URL value. */
+export const encodeSegment = (v: unknown): string => encodeURIComponent(String(v ?? '')).replace(/^\.\.?$/, (d) => d.replace(/\./g, '%2E'));
 
 /** Fills a URL template: each value encoded, an array query value a repeated key, null leaves the parameter out. */
 export function expand(tpl: UrlTemplate, s: any, fns: Array<(s: any) => any>): string {

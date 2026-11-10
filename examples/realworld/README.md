@@ -22,12 +22,13 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `login.html`, `register.html` | auth | `/login`, `/register` |
 | `partials/` | header (declares the `user` resource), footer, article meta, preview, errors | |
 | `src/sinter.config.js` | JWT middleware (`localStorage.jwtToken`), current-user error handling | |
-| `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `<conduit-markdown>` (marked + DOMPurify), `window.__conduit_debug__` | |
+| `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `window.__conduit_debug__` | |
+| `src/markdown.js` | `<conduit-markdown>` (marked + DOMPurify, requested when the module runs), loaded by `article.html` only | |
 | `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ openapi, origins })` (the API's origin: allowed on every page, its requests start before the stylesheets) | |
 | `openapi.yml` | the Conduit API spec ([realworld-apps/realworld](https://github.com/realworld-apps/realworld), MIT), which types every resource for `npx sinter check` | |
 
 Everything the pages' expressions cannot do (storage, navigation, HTML rendering) lives in the
-config module and the islands; the pages are declarative.
+config module and the islands (`src/markdown.js` too); the pages are declarative.
 
 Every resource has `cache`: a page shows what the previous page loaded at once and revalidates.
 Signing in or out calls `clearPersisted()`, since the cached data belongs to the previous identity.

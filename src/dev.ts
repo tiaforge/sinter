@@ -93,6 +93,11 @@ const dev: Feature = {
       (code == 16 ? console.error : console.warn)(msg, ...args.slice(i));
     };
     app.prep = deepFreeze;
+    app.dupes = (keys) => {
+      if (new Set(keys).size == keys.length) return;
+      const k = keys.find((k, i) => keys.indexOf(k) != i);
+      app.warn(11, typeof k == 'string' ? k.slice(1) : 'the same object twice');
+    };
     // retries: each failed try, each resend and the outcome
     app.req.log = (m) => console.info(`sinter: retry ${m}`);
     for (const a of app.ir.actions) if (a.retry && !config.retry?.has(a.retry)) app.warn(23, a.retry);

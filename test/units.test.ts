@@ -1,6 +1,7 @@
 // Small pure functions of the runtime.
 import { expect, test } from 'vitest';
-import { serialize, withParams } from '../src/runtime/app.js';
+import { withParams } from '../src/runtime/app.js';
+import { serialize } from '../src/form.js';
 import { bytes, date, number, relative } from '../src/runtime/helpers.js';
 import { configure } from '../src/runtime/config.js';
 

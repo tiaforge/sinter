@@ -42,6 +42,13 @@ const entries = {
   apply: `export { default } from '${dist}/apply.js';`,
   prefetch: `export { prefetch } from '${dist}/prefetch.js';`,
   fields: `export { default } from '${dist}/fields.js';`,
+  form: `export { default } from '${dist}/form.js';`,
+  select: `export { default } from '${dist}/select.js';`,
+  location: `export { default } from '${dist}/location.js';`,
+  call: `export { default } from '${dist}/call.js';`,
+  debounce: `export { default } from '${dist}/debounce.js';`,
+  confirm: `export { default } from '${dist}/confirm.js';`,
+  models: `export { default } from '${dist}/models.js';`,
   transition: `export { default } from '${dist}/transition.js';`,
   remote: `export { remote } from '${dist}/remote.js';`,
   dev: `export { default } from '${dist}/dev.js';`,
@@ -78,7 +85,8 @@ try {
   await build({ root: realworld, configFile: join(realworld, 'vite.config.js'), logLevel: 'silent', build: { outDir: out, emptyOutDir: true } });
   for (const f of readdirSync(out).filter((f) => f.endsWith('.html')).sort()) {
     const html = readFileSync(join(out, f), 'utf8');
-    const srcs = [...html.matchAll(/<script type="module"[^>]* src="([^"]+)"|<link rel="modulepreload"[^>]* href="([^"]+)"/g)].map((m) => m[1] ?? m[2]);
+    // each file once: the early file's shared chunk is preloaded with it and for the page bundle
+    const srcs = [...new Set([...html.matchAll(/<script type="module"[^>]* src="([^"]+)"|<link rel="modulepreload"[^>]* href="([^"]+)"/g)].map((m) => m[1] ?? m[2]))];
     let raw = 0, size = 0;
     for (const s of srcs) {
       const code = readFileSync(join(out, s));

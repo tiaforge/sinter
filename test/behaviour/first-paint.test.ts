@@ -121,7 +121,7 @@ test('the async page module mounts after the parse and after the early file has 
   const { rendered } = await import('../../src/runtime/env.js');
   delete (globalThis as any)[Symbol.for('sinter.early.page')];
   const order: string[] = [];
-  const page = () => { order.push('early renders'); return { ir: { roots: [], templates: [] }, fns: [] }; };
+  const page = () => { order.push('early renders'); return { ir: {}, fns: [], scopes: () => [], render: () => {} }; };
   const { doc, interactive, contentLoaded } = loadingDoc();
   // the page module runs first, while the body is parsed
   void rendered(doc).then(() => order.push('page module mounts'));
@@ -149,4 +149,16 @@ test('an early file that failed to load does not hold the page module: it mounts
   contentLoaded();
   await tick();
   expect(mounted).toBe(true);
+});
+
+test('first paint: an early binding reads `$locale` from `configure({ locale })` in the app\'s early module; without it, the binding waits', async () => {
+  const { configure } = await import('@tiaforge-ui/sinter');
+  const html = '<!doctype html><html><head></head><body data-sn-state="{ n: 1 }" data-sn-persist="p"><p id="l" data-sn-text="$locale + n"></p></body></html>';
+  try {
+    await firstPaint(html, { storage: memoryStorage(), early: () => configure({ locale: { get: () => 'de', set: () => {} } }) });
+    expect(document.getElementById('l')!.textContent).toBe('de1');
+    configure({ locale: null });
+    await firstPaint(html, { storage: memoryStorage() });
+    expect(document.getElementById('l')!.textContent).toBe('');
+  } finally { configure({ locale: null }); }
 });

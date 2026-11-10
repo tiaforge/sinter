@@ -4,7 +4,7 @@ export {
   type Config, type Middleware, type LoginRedirectOptions,
 } from './runtime/config.js';
 export type { Resource, Change, Meta } from './runtime/store.js';
-export { $k } from './runtime/security.js';
+export { $k } from './runtime/keys.js';
 export { date, time, datetime, relative, number, bytes } from './runtime/helpers.js';
 export { parsed, rendered, type Env } from './runtime/env.js';
 export type { IR } from './ir.js';

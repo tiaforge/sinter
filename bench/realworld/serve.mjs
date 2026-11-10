@@ -9,7 +9,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { brotliCompressSync } from 'node:zlib';
 
-const dist = resolve(import.meta.dirname, '../../examples/realworld', process.env.REALWORLD_DIST ?? 'dist');
+const app = resolve(import.meta.dirname, '../../examples/realworld');
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon',
@@ -25,7 +25,9 @@ const ROUTES = [
   [/^\/profile\/[^/]+(\/favorites)?$/, 'profile'],
 ];
 
-export async function serve({ port = 0, host = '127.0.0.1' } = {}) {
+/** `dist`: the build to serve, relative to examples/realworld (default `REALWORLD_DIST`, else `dist`) */
+export async function serve({ port = 0, host = '127.0.0.1', dist: out = process.env.REALWORLD_DIST ?? 'dist' } = {}) {
+  const dist = resolve(app, out);
   const cache = new Map();
   const server = createServer(async (req, res) => {
     const path = new URL(req.url, 'http://x').pathname;

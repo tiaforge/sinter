@@ -408,7 +408,3 @@ const compactNode = (n: NodeDef): NodeDef => {
   return rest;
 };
 
-/** The early file's IR, its nodes compacted as the page module's are. */
-export function compactEarly(e: EarlyIR): EarlyIR {
-  return { ...e, roots: e.roots.map(compactNode), templates: e.templates.map((t) => (t ? { ...t, nodes: t.nodes.map(compactNode) } : t)) };
-}
