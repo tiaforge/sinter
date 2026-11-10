@@ -45,7 +45,7 @@ type: see sinter's `docs/editors.md`.
 | File | What it is |
 | --- | --- |
 | `index.html`, `task.html` | The pages: `data-sn-*` for data, `data-*` from temper for looks. |
-| `partials/header.html` | Shared markup, inlined at build time with `<sn-include>`. |
+| `src/components/app-header.html` | A component: shared markup, expanded at build time where `<app-header>` is used. |
 | `src/sinter.types.ts` | The API's types. `type="Task[]"` on a resource checks every expression that reads it. |
 | `src/sinter.helpers.ts` | Functions expressions can call (`visible(…)`). |
 | `src/sinter.config.ts` | Error handling, and the place to import islands. |

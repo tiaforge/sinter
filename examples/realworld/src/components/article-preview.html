@@ -1,0 +1,11 @@
+<!-- Title, description and tags of an article in a list (which has no `body`), linking to it. -->
+<template data-sn-component="{ article: Omit<Article, 'body'> }">
+  <a class="preview-link" data-sn-attr="{href: '/article/' + encodeURIComponent(article.slug)}">
+    <h1 data-sn-text="article.title" data-sn-transition="'article-' + article.slug"></h1>
+    <p data-sn-text="article.description"></p>
+    <span>Read more...</span>
+    <ul class="tag-list">
+      <template data-sn-for="t in article.tagList" data-sn-key="t"><li class="tag-default tag-pill tag-outline" data-sn-text="t"></li></template>
+    </ul>
+  </a>
+</template>

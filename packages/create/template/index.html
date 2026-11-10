@@ -23,7 +23,7 @@
     <sn-event name="task_removed" resource="tasks" op="remove" type="TaskRemoved"></sn-event>
   </sn-sync>
 
-  <sn-include src="./partials/header.html"></sn-include>
+  <app-header data-sn-prop="{ armed }" data-sn-on-arm="armed = true"></app-header>
 
   <main data-layout="center" data-gap="lg" data-pad="lg" style="--tm-measure: 48rem">
     <div data-layout="row" data-gap="sm">

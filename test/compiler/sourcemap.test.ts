@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { compile, type CompileOptions } from '../../src/compiler/index.js';
 
 const files: Record<string, string> = {
-  '/p/partials/row.html': '<p>\n  <b data-sn-text="q.toUpperCase()"></b></p>',
+  '/p/src/components/x-row.html': '<template data-sn-component="{ q: string }"><p>\n  <b data-sn-text="q.toUpperCase()"></b></p></template>',
 };
 
 const opts = (o: Partial<CompileOptions> = {}): CompileOptions => ({
@@ -18,7 +18,7 @@ const PAGE = [
   '  <input data-sn-model="q">',
   '  <p data-sn-text="q.length + n"></p>',
   '  <button data-sn-on-click="n = n + 1">+</button>',
-  '  <sn-include src="./partials/row.html"></sn-include>',
+  '  <x-row data-sn-prop="{ q }"></x-row>',
   '</div>',
 ].join('\n');
 
@@ -39,7 +39,7 @@ describe('source maps', () => {
     expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
     const map = out.map!;
     expect(map.version).toBe(3);
-    expect(map.sources).toEqual(['/p/page.html', '/p/partials/row.html']);
+    expect(map.sources).toEqual(['/p/page.html', '/p/src/components/x-row.html']);
     expect(map.sourcesContent[0]).toBe(PAGE);
     // where each value starts in the markup
     expect(origin(out.module, map, '.length')).toEqual({ file: '/p/page.html', line: 3, col: 20 });
@@ -47,8 +47,8 @@ describe('source maps', () => {
     expect(origin(out.module, map, "q: ''")).toEqual({ file: '/p/page.html', line: 1, col: 21 });
   });
 
-  test('an expression from a partial maps into the partial', () => {
-    expect(origin(out.module, out.map!, 'toUpperCase')).toEqual({ file: '/p/partials/row.html', line: 2, col: 20 });
+  test('an expression from a component maps into the component', () => {
+    expect(origin(out.module, out.map!, 'toUpperCase')).toEqual({ file: '/p/src/components/x-row.html', line: 2, col: 20 });
   });
 
   test('the module text is the same with and without a map', () => {

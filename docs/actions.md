@@ -332,7 +332,7 @@ for chaining, or for "mark read after the body loads":
           data-sn-optimistic="remove('messages', open)">Archive</button>
 ```
 
-- The target is an element in the page (partials included) that carries `data-sn-get`, `-post`,
+- The target is an element in the page (components included) that carries `data-sn-get`, `-post`,
   `-put`, `-patch`, `-delete` or `data-sn-call`. The id must be a string literal naming exactly one
   such element, outside any `data-sn-for` row, or the build fails (`SN311`). Pass a row through
   state: `open = m; run('mark-read')`.
@@ -447,7 +447,7 @@ Use the native `<dialog>`. A button that only opens it needs no handler: `comman
 
 - `showModal('edit')` and `close('edit')` are for opening or closing from a handler, such as a
   `then` after a request or a custom event. `close()` alone closes the nearest dialog. The id must
-  be a string literal naming a `<dialog id>` on the page or its partials, or the build fails
+  be a string literal naming a `<dialog id>` on the page or in the components it uses, or the build fails
   (`SN309`).
 - Bindings inside a dialog render when it opens. A resource that only dialogs read loads with low
   priority.

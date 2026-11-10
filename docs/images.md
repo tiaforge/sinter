@@ -14,7 +14,7 @@ sinter({ images: false })                         // turn image handling off
 
 | Source | What you write | Result |
 | --- | --- | --- |
-| Local image in a page or partial | `<img src="./photo.jpg" alt="...">` | `<picture>` with format sources, `srcset`, `sizes`, `width`, `height` |
+| Local image in a page or component | `<img src="./photo.jpg" alt="...">` | `<picture>` with format sources, `srcset`, `sizes`, `width`, `height` |
 | Image URL from your API | `<img data-sn-attr="{src: c.avatar}">` | `srcset` pointing at a [resizing service](#images-from-the-api) |
 | CSS background | `background: url(./hero.jpg)` | [`image-set()`](#css-backgrounds) with AVIF and a fallback |
 

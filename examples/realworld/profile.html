@@ -13,7 +13,10 @@
 <body>
 <div data-sn-state="{ nav: 'profile:' + $url.username, error: null, guest: signedOut() }"
      data-sn-on-sn-error="$event.detail.error.status == 401 ? emit('navigate', '/login') : error = $event.detail.error; $event.preventDefault()">
-<sn-include src="./partials/header.html"></sn-include>
+<!-- early="off": the auth middleware answers this request without a token, and adds one otherwise:
+     a request sent before the page module would go unused -->
+<sn-resource cache name="user" src="https://api.realworld.show/api/user" items="user" then="guest = !$result" early="off"></sn-resource>
+<conduit-header data-sn-prop="{ nav, guest }"></conduit-header>
 <sn-resource cache name="profile" src="https://api.realworld.show/api/profiles/{$url.username}" items="profile"></sn-resource>
 <sn-resource cache name="articles" key="slug" items="articles" total="articlesCount"
   src="https://api.realworld.show/api/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}" paginate="offset" page-size="10" size-param="limit" offset-param="offset" start-page="$url.page"></sn-resource>
@@ -55,7 +58,7 @@
     <div class="container">
       <div class="row">
         <div class="col-xs-12 col-md-10 offset-md-1">
-          <sn-include src="./partials/errors.html"></sn-include>
+          <error-list data-sn-prop="{ error }"></error-list>
           <div class="articles-toggle">
             <ul class="nav nav-pills outline-active">
               <li class="nav-item"><a class="nav-link" data-sn-class="{active: $url.tab != 'favorites'}" data-sn-attr="{href: '/profile/' + encodeURIComponent(profile.username)}">My Articles</a></li>
@@ -66,7 +69,7 @@
           <template data-sn-if="$meta.articles.error"><div class="article-preview error-messages">Could not load articles.</div></template>
           <template data-sn-for="a in articles">
             <div class="article-preview">
-              <div class="article-meta">
+              <article-byline data-sn-prop="{ article: a }">
                 <template data-sn-if="a.favorited">
                   <button class="btn btn-primary btn-sm pull-xs-right" data-sn-delete="https://api.realworld.show/api/articles/{a.slug}/favorite"
                           data-sn-optimistic="patch('articles', a, {favorited: false, favoritesCount: a.favoritesCount - 1})">
@@ -79,9 +82,8 @@
                     <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
                   </button>
                 </template>
-                <sn-include src="./partials/byline.html"></sn-include>
-              </div>
-              <sn-include src="./partials/preview.html"></sn-include>
+              </article-byline>
+              <article-preview data-sn-prop="{ article: a }"></article-preview>
             </div>
           </template>
           <template data-sn-if="$meta.articles.loadedAt && !$meta.articles.loading && !articles.length">
@@ -105,7 +107,7 @@
   </template>
 </main>
 
-<sn-include src="./partials/footer.html"></sn-include>
+<conduit-footer></conduit-footer>
 </div>
 </body>
 </html>

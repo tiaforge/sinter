@@ -7,10 +7,25 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
+  is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
+  costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots
+  (named, default, fallback content) in the caller's scope, events through `emit()` declared with `data-sn-emits`, and
+  `data-sn-model` for a component with a `value` prop and a `change` event. The tag is replaced by the component's
+  single root, which takes the tag's classes, attributes and handlers. The component's markup sees only its props, its
+  state, resources and helpers. New diagnostics `SN312`–`SN316`; `sinter check` types props and `$event.detail`, and a
+  type written in markup may name the OpenAPI spec's schemas; `render(…, { components })` in the testing module.
 - `sinter check` types custom elements from the app's declarations under `src/` (a module with `declare global` for
   `HTMLElementTagNameMap` or `SinterElementEvents`): `data-sn-prop` keys and values are checked against the element's
   properties, `$el` has the element's class, and `$event.detail` has the type `SinterElementEvents` gives the event on
   that tag (`interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean } }`).
+
+### Removed
+
+- `<sn-include>` (breaking): a partial is a component. The build fails with `SN316`, whose message lists the names the
+  partial reads from the page (the props it needs). `SN305` is retired; `SN306` is now a component that uses itself
+  with no `data-sn-for` or `data-sn-if` template between. The starter template's header and RealWorld's partials are
+  components.
 
 ### Changed
 

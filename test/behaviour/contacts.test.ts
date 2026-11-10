@@ -5,7 +5,6 @@ import { render, mockRequests, mockStream } from '../../src/testing/index.js';
 
 const dir = resolve(__dirname, '../fixtures');
 const page = readFileSync(`${dir}/contacts.html`, 'utf8');
-const files = { 'partials/contact-dialog.html': readFileSync(`${dir}/partials/contact-dialog.html`, 'utf8') };
 const ada = { account_id: 'a', uid: '1', addressbook_href: '/ab', fn_name: 'Ada', org: '', emails: [], phones: [], addresses: [] };
 
 test('delete is optimistic and rolls back on failure', async () => {
@@ -14,7 +13,7 @@ test('delete is optimistic and rolls back on failure', async () => {
     'DELETE /api/contact': { status: 500 },
   });
   const stream = mockStream();
-  const { root, flush, settle } = await render(page, { requests, streams: { '/api/events/stream': stream }, files });
+  const { root, flush, settle } = await render(page, { requests, streams: { '/api/events/stream': stream } });
   await settle();
   expect(root.querySelectorAll('li')).toHaveLength(1);
 

@@ -3,9 +3,12 @@ import { compile, compileParts, CODES, type ComplexityOptions } from '../../src/
 import { complexityOf } from '../../src/project.js';
 
 const files: Record<string, string> = {
-  '/p/partials/a.html': '<sn-include src="./b.html"></sn-include>',
-  '/p/partials/b.html': '<sn-include src="./a.html"></sn-include>',
-  '/p/partials/bad.html': '<p>\n  <b data-sn-txt="x"></b></p>',
+  '/p/src/components/x-a.html': '<template data-sn-component=""><div><x-b></x-b></div></template>',
+  '/p/src/components/x-b.html': '<template data-sn-component=""><div><x-a></x-a></div></template>',
+  '/p/src/components/x-bad.html': '<template data-sn-component=""><p>\n  <b data-sn-txt="x"></b></p></template>',
+  '/p/src/components/x-card.html': '<template data-sn-component="{ title: string }" data-sn-emits="{ pick: number }"><div><slot name="foot"></slot></div></template>',
+  '/p/partials/old.html': '<p></p>',
+  '/p/src/components/x-two.html': '<template data-sn-component=""><p></p><p></p></template>',
 };
 
 const SPEC = { file: '/p/openapi.json', doc: {
@@ -51,12 +54,16 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN302', `${R}${use}<sn-resource name="contacts" src="/x" key="id"></sn-resource>`, /resource `contacts` is declared twice/],
   ['SN303', `${R}${use}<p data-sn-text="$meta.contacts.loadng"></p>`, /`\$meta.contacts.loadng` is not a status field. Did you mean `loading`\?/],
   ['SN304', `${R}${use}<button data-sn-on-click="page('messages', 7)"></button>`, /keyset pagination cannot jump to a page number/],
-  ['SN305', '<sn-include src="./partials/contact-dialg.html"></sn-include>', /partial `\.\/partials\/contact-dialg.html` not found or outside the project root/],
   ['SN308', '<sn-resource name="c" src="/api/c" items="contcts"></sn-resource><p data-sn-text="c"></p>', /the response of `GET \/api\/c` has no `contcts`. Did you mean `contacts`\?/, { openapi: true }],
-  ['SN306', '<sn-include src="./partials/a.html"></sn-include>', /a.html → b.html → a.html includes itself/],
+  ['SN306', '<x-a></x-a>', /`<x-a>` → `<x-b>` → `<x-a>` uses itself with no `data-sn-for` or `data-sn-if` template between/],
   ['SN309', '<dialog id="compose"></dialog><button data-sn-on-click="showModal(\'compse\')"></button>', /no `<dialog id="compse">` on this page. Did you mean `compose`\?/],
   ['SN310', '<button data-sn-call="archive(1)"></button>', /`archive` is not exported by the actions module/],
   ['SN311', `<span id="mark-read" data-sn-post="/x"></span><button data-sn-on-click="run('mark-raed')"></button>`, /no element `id="mark-raed"` on this page. Did you mean `mark-read`\?/],
+  ['SN312', '<x-two></x-two>', /a component has one root element/],
+  ['SN313', '<x-card data-sn-prop="{ titel: 1 }"></x-card>', /`titel` is not a prop of `<x-card>`/],
+  ['SN314', '<x-card data-sn-prop="{ title: \'a\' }"><b slot="fot"></b></x-card>', /`<x-card>` has no slot `fot`/],
+  ['SN315', '<x-card data-sn-prop="{ title: \'a\' }" data-sn-on-pik="1"></x-card>', /`<x-card>` does not emit `pik`/],
+  ['SN316', '<sn-include src="./partials/old.html"></sn-include>', /`<sn-include>` is removed: a partial is a component/],
   ['SN401', '<p data-sn-text="a +"></p>', /Unexpected token/],
   ['SN501', R + '<p data-sn-text="messages.length"></p>', /resource `contacts` is declared but never read/],
   ['SN502', '<p data-sn-text="Date.now()"></p>', /`Date.now\(\)` in a binding never updates. Use `\$now`/],
@@ -281,9 +288,9 @@ describe('positions', () => {
     const d = diags('<div>\n  <p data-sn-text="1 + contcts"></p>\n</div>')[0]!;
     expect([d.line, d.col]).toEqual([2, 24]);
   });
-  test('point into the partial, followed by the include chain', () => {
-    const d = diags('<div>\n<sn-include src="./partials/bad.html"></sn-include></div>')[0]!;
-    expect(d.file).toBe('/p/partials/bad.html');
+  test('point into the component, followed by where it is used', () => {
+    const d = diags('<div>\n<x-bad></x-bad></div>')[0]!;
+    expect(d.file).toBe('/p/src/components/x-bad.html');
     expect(d.line).toBe(2);
     expect(d.message).toContain('included from page.html:2');
   });

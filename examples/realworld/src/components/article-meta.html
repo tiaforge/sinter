@@ -1,0 +1,40 @@
+<!-- Author, date and the follow/favorite or edit/delete actions of the page's single `article`. -->
+<template data-sn-component="{ article: Article }" data-sn-emits="{ navigate: string }">
+  <div class="article-meta">
+    <a data-sn-attr="{href: '/profile/' + encodeURIComponent(article.author.username)}"><img data-sn-attr="{src: avatar(article.author.image), alt: article.author.username}"></a>
+    <div class="info">
+      <a class="author" data-sn-attr="{href: '/profile/' + encodeURIComponent(article.author.username)}" data-sn-text="article.author.username"></a>
+      <span class="date" data-sn-text="date(article.createdAt, 'long')"></span>
+    </div>
+    <template data-sn-if="user && user.username == article.author.username">
+      <a class="btn btn-outline-secondary btn-sm" data-sn-attr="{href: '/editor/' + encodeURIComponent(article.slug)}"><i class="ion-edit"></i> Edit Article</a>
+      <button class="btn btn-outline-danger btn-sm" data-sn-delete="https://api.realworld.show/api/articles/{article.slug}"
+              data-sn-then="emit('navigate', '/')"><i class="ion-trash-a"></i> Delete Article</button>
+    </template>
+    <template data-sn-else>
+      <template data-sn-if="article.author.following">
+        <button class="btn btn-sm btn-secondary" data-sn-delete="https://api.realworld.show/api/profiles/{article.author.username}/follow">
+          <i class="ion-plus-round"></i> <span data-sn-text="'Unfollow ' + article.author.username"></span>
+        </button>
+      </template>
+      <template data-sn-else>
+        <button class="btn btn-sm btn-outline-secondary" data-sn-post="https://api.realworld.show/api/profiles/{article.author.username}/follow">
+          <i class="ion-plus-round"></i> <span data-sn-text="'Follow ' + article.author.username"></span>
+        </button>
+      </template>
+      &nbsp;
+      <template data-sn-if="article.favorited">
+        <button class="btn btn-sm btn-primary" data-sn-delete="https://api.realworld.show/api/articles/{article.slug}/favorite"
+                data-sn-optimistic="patch('article', article, {favorited: false, favoritesCount: article.favoritesCount - 1})">
+          <i class="ion-heart"></i> Unfavorite Article <span class="counter" data-sn-text="'(' + article.favoritesCount + ')'"></span>
+        </button>
+      </template>
+      <template data-sn-else>
+        <button class="btn btn-sm btn-outline-primary" data-sn-post="https://api.realworld.show/api/articles/{article.slug}/favorite"
+                data-sn-optimistic="patch('article', article, {favorited: true, favoritesCount: article.favoritesCount + 1})">
+          <i class="ion-heart"></i> Favorite Article <span class="counter" data-sn-text="'(' + article.favoritesCount + ')'"></span>
+        </button>
+      </template>
+    </template>
+  </div>
+</template>

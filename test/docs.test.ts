@@ -64,6 +64,14 @@ Key filters (\`data-sn-on-keydown-<modifiers->key\`, \`data-sn-on-keyup-…\`): 
 - URL templates: \`/api/x?id={c.id}\`; interpolations are URL-encoded; the template must start with a literal \`/path\` or \`https://origin\`. A whole query value that is \`null\`/\`undefined\` or an empty array leaves the parameter out; an array is a repeated key (\`?cal={cals}\` → \`cal=a&cal=b\`); an array in the path is refused.
 - Use \`$now\` instead of \`Date.now()\` so bindings update.
 
+## Components
+
+- A component is a file \`src/components/<name>.html\` (the name has a \`-\`), used as \`<name>\` on any page. It holds one \`<template data-sn-component="{ article: Article; compact?: boolean }">\` with exactly one root element, and optionally a \`<style>\`. \`data-sn-emits="{ select: Article }"\` on the template declares its events.
+- Every use is expanded at build time: the root element replaces the tag, so the component renders in the first frame like page markup and needs no runtime. The caller's \`class\` is joined with the root's; other attributes, handlers (\`data-sn-on-<event>\`), actions, \`data-sn-class\`, \`-attr\`, \`-style\`, \`-show\` move onto the root in the caller's scope.
+- Props go in with \`data-sn-prop="{ article: a, compact: narrow }"\`: each is the caller's expression, live and read-only. An optional prop not passed is \`undefined\`, or the root's \`data-sn-state\` field of the same name. The component sees only its props, its own state, resources, helpers and magic names; slot content (\`<slot>\`, \`<slot name="meta">\` with fallback content, filled by the caller's children and \`slot="meta"\`) sees the caller's scope.
+- Events come out with \`emit('select', article)\` (names checked against \`data-sn-emits\`); the caller handles them with \`data-sn-on-select\`, \`$event.detail\` typed. \`data-sn-model="draft.stars"\` binds a component that declares a \`value\` prop and a \`change\` event.
+- \`<sn-include>\` is removed (SN316): a partial is a component.
+
 ## What belongs in markup
 
 - Markup holds filters, conditions, single assignments and short calls. Logic goes into a helper when it computes a value (pure: unit-test it without a page), or into an action when it has side effects (\`data-sn-call\`).
@@ -132,7 +140,7 @@ The built page shows its chrome before the page module has run; the page bundle 
 `);
   out.push(`## Images
 
-Write plain \`<img src="./photo.jpg" alt="…">\` (a local JPEG, PNG, WebP or AVIF, relative to the page or partial): the build makes it a \`<picture>\` with AVIF (photos) or lossless WebP (PNG graphics), widths for every screen, \`width\`/\`height\`, \`decoding="async"\` and \`loading="lazy"\` (not on the page's first image), and the image's dominant color as background until it loads. Needs sharp (an optional dependency); \`sinter({ images: false })\` turns it off. See docs/images.md.
+Write plain \`<img src="./photo.jpg" alt="…">\` (a local JPEG, PNG, WebP or AVIF, relative to the page or component): the build makes it a \`<picture>\` with AVIF (photos) or lossless WebP (PNG graphics), widths for every screen, \`width\`/\`height\`, \`decoding="async"\` and \`loading="lazy"\` (not on the page's first image), and the image's dominant color as background until it loads. Needs sharp (an optional dependency); \`sinter({ images: false })\` turns it off. See docs/images.md.
 
 - No \`width\`/\`height\`, or the source's own: fluid. \`sizes\` is the image's width at every viewport width, from the CSS: per breakpoint of its width media queries, linear in the viewport, through grids (equal tracks, gaps, \`span\`, \`repeat(auto-fill, minmax(…, 1fr))\`), flex rows (equal \`flex: 1\` columns, wrapped items with a basis), max-width containers, margins and padding. When the CSS cannot be followed (\`em\`, \`vh\`, unequal tracks, \`:hover\`), the narrowest container with a fixed or absolute max width bounds it; write \`sizes\` yourself only then.
 - \`width\`/\`height\` smaller than the source: a box of that size in CSS px, with 1x/2x(/3x) files of exactly that width. A source with too few pixels for 2x is SN511.
@@ -156,7 +164,7 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 `);
   out.push(`## Editors
 
-\`npx sinter lsp --stdio\` is a language server for the project's HTML files: sinter's diagnostics as you type (partials checked through the pages that include them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix; "Extract to helper" moves an expression into a typed function of the helpers module. VS Code: the extension in \`editors/vscode\`. Setup for Neovim, Helix and Emacs: \`docs/editors.md\`. Every diagnostic links to its explanation in \`docs/diagnostics.md\`.
+\`npx sinter lsp --stdio\` is a language server for the project's HTML files: sinter's diagnostics as you type (components checked through the pages that use them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix; "Extract to helper" moves an expression into a typed function of the helpers module. VS Code: the extension in \`editors/vscode\`. Setup for Neovim, Helix and Emacs: \`docs/editors.md\`. Every diagnostic links to its explanation in \`docs/diagnostics.md\`.
 `);
   out.push(`## Testing
 
@@ -209,6 +217,7 @@ const ATTRIBUTE_GROUPS: Array<[string, string, string[]]> = [
   ['Send changes', 'Turn an element into a request. Details: [actions](actions.md).', ['get', 'post', 'put', 'patch', 'delete', 'call', 'body', 'trigger', 'debounce', 'encoding', 'concurrency', 'confirm', 'retry', 'apply']],
   ['After a request', 'What happens on screen around a response. Details: [optimistic updates](actions.md#optimistic-updates).', ['optimistic', 'then', 'catch']],
   ['React to events', 'Handlers without a request. Details: [events](actions.md), [key filters](actions.md).', ['on-<event>', 'debounce-<event>', 'listbox']],
+  ['Components', 'On the `<template>` of a component file in `src/components/`. Details: [components](components.md).', ['component', 'emits']],
   ['Pages and navigation', 'Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [first paint](first-paint.md).', ['path', 'prefetch', 'transition', 'data']],
 ];
 const RESOURCE_GROUPS: Array<[string, string[]]> = [

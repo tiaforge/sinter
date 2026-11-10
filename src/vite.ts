@@ -440,7 +440,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           res.end(map ? `${code}\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(map)).toString('base64')}\n` : code);
         }, next);
       });
-      // an HTML, partial or helpers change triggers a full reload in v0.1
+      // an HTML, component or helpers change triggers a full reload in v0.1
       s.watcher.on('change', (file) => {
         // a page's resources may have changed: the next-page module is described again
         if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear(); }
@@ -634,7 +634,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const moduleSrc = `${PREFIX}${rel}.js`;
         // dev: the tag goes in with the page; a build adds it after bundling (see the post plugin)
         const earlySrc = dev ? `${resolved?.base ?? '/'}${EARLY.slice(1)}${rel}.js` : null;
-        const styles = images && /<img\b|<sn-include\b/i.test(html) ? await stylesOf(html, file, project(root, options)) : undefined;
+        const styles = images && /<img\b|<[a-z][a-z0-9]*-/i.test(html) ? await stylesOf(html, file, project(root, options)) : undefined;
         let { out, p } = build(html, file, earlySrc, styles);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
         if (images && out.images?.pending.length) {

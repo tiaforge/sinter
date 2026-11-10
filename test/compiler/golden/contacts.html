@@ -35,7 +35,24 @@
       </li>
     </template>
   </ul>
-  <sn-include src="./partials/contact-dialog.html"></sn-include>
+  <dialog id="edit">
+    <form data-sn-post="/api/contact" data-sn-body="draft"
+          data-sn-then="upsert('contacts', $result); draft = null; close()"
+          data-sn-catch="emit('toast', $error.message)">
+      <input data-sn-model="draft.fn_name" required>
+      <input data-sn-model="draft.org">
+
+      <template data-sn-for="(e, i) in draft.emails">
+        <div role="group">
+          <input type="email" data-sn-model="draft.emails[i].value">
+          <button type="button" data-sn-on-click="draft.emails.splice(i, 1)">×</button>
+        </div>
+      </template>
+      <button type="button" data-sn-on-click="draft.emails.push({value: '', type_label: 'home'})">Add email</button>
+
+      <button type="submit">Save</button>
+    </form>
+  </dialog>
 </section>
 </body>
 </html>

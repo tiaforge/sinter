@@ -12,7 +12,10 @@
 </head>
 <body>
 <div data-sn-state="{ nav: 'login', guest: signedOut(), email: '', password: '' }">
-<sn-include src="./partials/header.html"></sn-include>
+<!-- early="off": the auth middleware answers this request without a token, and adds one otherwise:
+     a request sent before the page module would go unused -->
+<sn-resource cache name="user" src="https://api.realworld.show/api/user" items="user" then="guest = !$result" early="off"></sn-resource>
+<conduit-header data-sn-prop="{ nav, guest }"></conduit-header>
 
 <main class="auth-page">
   <div class="container page">
@@ -22,7 +25,7 @@
         <p class="text-xs-center"><a href="/register">Need an account?</a></p>
         <form data-sn-post="https://api.realworld.show/api/users/login" data-sn-body="{user: {email, password}}"
               data-sn-then="emit('signed-in', {user: $result.user, to: /^\/(?!\/)/.test($url.next || '') ? $url.next : null})">
-          <sn-include src="./partials/form-errors.html"></sn-include>
+          <error-list data-sn-prop="{ error: $error }"></error-list>
           <fieldset>
             <fieldset class="form-group"><input class="form-control form-control-lg" type="email" name="email" placeholder="Email" data-sn-model="email"></fieldset>
             <fieldset class="form-group"><input class="form-control form-control-lg" type="password" name="password" placeholder="Password" data-sn-model="password"></fieldset>
@@ -34,7 +37,7 @@
   </div>
 </main>
 
-<sn-include src="./partials/footer.html"></sn-include>
+<conduit-footer></conduit-footer>
 </div>
 </body>
 </html>

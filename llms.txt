@@ -15,7 +15,9 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-show` (value expression): toggles the hidden attribute
 - `data-sn-prefetch` (off): on <html>: no other page prefetches this one's data or the page itself (Speculation Rules), and none prerenders it; for pages that do something when they load
 - `data-sn-transition` (value expression (a name)): the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too)
-- `data-sn-prop` (object literal): sets JS properties; custom elements only (one defined later gets them again through its setters)
+- `data-sn-prop` (object literal): sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only
+- `data-sn-component` (props type): on the <template> of a component file (src/components/<name>.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }
+- `data-sn-emits` (events type): on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article }
 - `data-sn-model` (state path): two-way binding for form controls
 - `data-sn-for` (item in list | (item, i) in list): repeats a <template> per item
 - `data-sn-key` (value expression): row identity; defaults to the resource key or object identity
@@ -53,7 +55,6 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 - `<sn-resource>` `name`, `src`, `call`, `each`, `key`, `items`, `total`, `order`, `when`, `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `direction-values`, `page-param`, `offset-param`, `start-page`, `type`, `cache`, `refresh`, `then`, `early`: a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates. `refresh="30s"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early="off"`: never preloaded or requested before the page module (for a resource whose request a middleware answers or changes). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches
 - `<sn-sync>` `src`: one server event stream
 - `<sn-event>` `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type`: maps one server event to a change message; child of <sn-sync>. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close('detail'); with `then`, `resource` and `op` may be left out
-- `<sn-include>` `src`: inlines a partial at build time
 
 ## Expressions and scope
 
@@ -70,6 +71,14 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 - Helpers are plain function calls, never pipes: `date()`, `time()`, `datetime()`, `relative()`, `number()`, `bytes()`. Helper namespaces: `m.inbox_title()`.
 - URL templates: `/api/x?id={c.id}`; interpolations are URL-encoded; the template must start with a literal `/path` or `https://origin`. A whole query value that is `null`/`undefined` or an empty array leaves the parameter out; an array is a repeated key (`?cal={cals}` → `cal=a&cal=b`); an array in the path is refused.
 - Use `$now` instead of `Date.now()` so bindings update.
+
+## Components
+
+- A component is a file `src/components/<name>.html` (the name has a `-`), used as `<name>` on any page. It holds one `<template data-sn-component="{ article: Article; compact?: boolean }">` with exactly one root element, and optionally a `<style>`. `data-sn-emits="{ select: Article }"` on the template declares its events.
+- Every use is expanded at build time: the root element replaces the tag, so the component renders in the first frame like page markup and needs no runtime. The caller's `class` is joined with the root's; other attributes, handlers (`data-sn-on-<event>`), actions, `data-sn-class`, `-attr`, `-style`, `-show` move onto the root in the caller's scope.
+- Props go in with `data-sn-prop="{ article: a, compact: narrow }"`: each is the caller's expression, live and read-only. An optional prop not passed is `undefined`, or the root's `data-sn-state` field of the same name. The component sees only its props, its own state, resources, helpers and magic names; slot content (`<slot>`, `<slot name="meta">` with fallback content, filled by the caller's children and `slot="meta"`) sees the caller's scope.
+- Events come out with `emit('select', article)` (names checked against `data-sn-emits`); the caller handles them with `data-sn-on-select`, `$event.detail` typed. `data-sn-model="draft.stars"` binds a component that declares a `value` prop and a `change` event.
+- `<sn-include>` is removed (SN316): a partial is a component.
 
 ## What belongs in markup
 
@@ -96,7 +105,7 @@ Nothing is sent again unless a retry policy says so. Policies are named in the c
 
 ## Diagnostics
 
-`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN209 name-conflict`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN305 include-not-found`, `SN306 include-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN311 unknown-run-target`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`, `SN507 complex-expression`, `SN509 run-cycle`, `SN510 redundant-write`, `SN511 image-too-small`, `SN512 image-stretched`, `SN513 bound-local-image`, `SN514 auto-fit-rows`.
+`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN209 name-conflict`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN306 component-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN311 unknown-run-target`, `SN312 invalid-component`, `SN313 unknown-prop`, `SN314 unknown-slot`, `SN315 unknown-component-event`, `SN316 include-removed`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`, `SN507 complex-expression`, `SN509 run-cycle`, `SN510 redundant-write`, `SN511 image-too-small`, `SN512 image-stretched`, `SN513 bound-local-image`, `SN514 auto-fit-rows`.
 
 ## Recipes
 
@@ -1193,7 +1202,7 @@ The built page shows its chrome before the page module has run; the page bundle 
 
 ## Images
 
-Write plain `<img src="./photo.jpg" alt="…">` (a local JPEG, PNG, WebP or AVIF, relative to the page or partial): the build makes it a `<picture>` with AVIF (photos) or lossless WebP (PNG graphics), widths for every screen, `width`/`height`, `decoding="async"` and `loading="lazy"` (not on the page's first image), and the image's dominant color as background until it loads. Needs sharp (an optional dependency); `sinter({ images: false })` turns it off. See docs/images.md.
+Write plain `<img src="./photo.jpg" alt="…">` (a local JPEG, PNG, WebP or AVIF, relative to the page or component): the build makes it a `<picture>` with AVIF (photos) or lossless WebP (PNG graphics), widths for every screen, `width`/`height`, `decoding="async"` and `loading="lazy"` (not on the page's first image), and the image's dominant color as background until it loads. Needs sharp (an optional dependency); `sinter({ images: false })` turns it off. See docs/images.md.
 
 - No `width`/`height`, or the source's own: fluid. `sizes` is the image's width at every viewport width, from the CSS: per breakpoint of its width media queries, linear in the viewport, through grids (equal tracks, gaps, `span`, `repeat(auto-fill, minmax(…, 1fr))`), flex rows (equal `flex: 1` columns, wrapped items with a basis), max-width containers, margins and padding. When the CSS cannot be followed (`em`, `vh`, unequal tracks, `:hover`), the narrowest container with a fixed or absolute max width bounds it; write `sizes` yourself only then.
 - `width`/`height` smaller than the source: a box of that size in CSS px, with 1x/2x(/3x) files of exactly that width. A source with too few pixels for 2x is SN511.
@@ -1217,7 +1226,7 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 
 ## Editors
 
-`npx sinter lsp --stdio` is a language server for the project's HTML files: sinter's diagnostics as you type (partials checked through the pages that include them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix; "Extract to helper" moves an expression into a typed function of the helpers module. VS Code: the extension in `editors/vscode`. Setup for Neovim, Helix and Emacs: `docs/editors.md`. Every diagnostic links to its explanation in `docs/diagnostics.md`.
+`npx sinter lsp --stdio` is a language server for the project's HTML files: sinter's diagnostics as you type (components checked through the pages that use them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix; "Extract to helper" moves an expression into a typed function of the helpers module. VS Code: the extension in `editors/vscode`. Setup for Neovim, Helix and Emacs: `docs/editors.md`. Every diagnostic links to its explanation in `docs/diagnostics.md`.
 
 ## Testing
 

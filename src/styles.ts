@@ -151,11 +151,11 @@ async function compileFile(path: string, compile: NonNullable<StyleContext['comp
   return out?.code ?? null;
 }
 
-/** The page's markup with its partials (`<sn-include>`, recursively): where its class names are. */
+/** The page's markup with its components (`src/components/<tag>.html`, recursively): where its class names are. */
 function markupOf(html: string, file: string, root: string, seen = new Set<string>()): string {
   let out = html;
-  for (const m of html.matchAll(/<sn-include\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) {
-    const path = resolve(m[1]!.startsWith('/') ? root : dirname(file), m[1]!.startsWith('/') ? '.' + m[1] : m[1]!);
+  for (const m of html.matchAll(/<([a-z][a-z0-9]*(?:-[a-z0-9]+)+)[\s/>]/g)) {
+    const path = resolve(root, 'src/components', `${m[1]!}.html`);
     if (seen.has(path)) continue;
     seen.add(path);
     const text = read(path);

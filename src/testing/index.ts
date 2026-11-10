@@ -209,8 +209,10 @@ export interface RenderOptions {
   helpers?: Record<string, unknown>;
   /** action functions for `data-sn-call` and `<sn-resource call>`, and namespaces as objects of functions */
   actions?: Record<string, unknown>;
-  /** partials for `<sn-include>`, by path relative to the page */
+  /** other files the page reads, by path relative to the page (`src/components/x-y.html`) */
   files?: Record<string, string>;
+  /** the app's components, by name: `{ 'article-preview': '<template data-sn-component="…">…</template>' }` */
+  components?: Record<string, string>;
   /** localStorage and sessionStorage (default: empty ones); pass the previous page's to test what carries over */
   storage?: Storage;
   session?: Storage;
@@ -278,11 +280,11 @@ const PAGE = '/test/page.html';
  * constants, written into the document, and its early chunk run over it. Nothing is mounted:
  * bindings that wait for data are as the HTML has them.
  */
-export async function firstPaint(html: string, options: Pick<RenderOptions, 'helpers' | 'files' | 'storage' | 'messages' | 'locale'> & FirstPaintTestOptions = {}): Promise<{ root: HTMLElement; html: string }> {
+export async function firstPaint(html: string, options: Pick<RenderOptions, 'helpers' | 'files' | 'components' | 'storage' | 'messages' | 'locale'> & FirstPaintTestOptions = {}): Promise<{ root: HTMLElement; html: string }> {
   if (current) { current.destroy(); current = null; }
-  const { files } = options;
+  const { files, components } = options;
   const helpers = withMessages(options);
-  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), firstPaint: true });
+  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), firstPaint: true });
   writePage(parts.html, options.messages);
   const env = config.env;
   config.env = { ...env, storage: () => options.storage ?? null };
@@ -336,7 +338,8 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
     if (typeof v === 'function') actionManifest.names.push(k);
     else if (v && typeof v === 'object') actionManifest.namespaces[k] = { module: k, members: Object.keys(v) };
   }
-  const files = options.files ?? {};
+  const files: Record<string, string> = { ...options.files };
+  for (const [name, text] of Object.entries(options.components ?? {})) files[`src/components/${name}.html`] = text;
   const parts = compileParts(html, {
     file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank',
     readFile: (p) => {

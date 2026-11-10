@@ -9,7 +9,8 @@ import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
-import { analyze, literalNames, STORE_FNS, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, literalNames, STORE_FNS, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, typeMembers, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
@@ -97,6 +98,8 @@ export interface CompileOptions {
   prefetch?: string | null;
   /** also return where each function in `fns` was written (`CompiledParts.sources`), for the page module's source map */
   sourcemap?: boolean;
+  /** where the app's components are (default `<root>/src/components`): `<name>.html` is the component `<name>` */
+  components?: string;
 }
 
 /** A place in the markup: `file`, 1-based line and column. */
@@ -243,6 +246,30 @@ const BAD_PARAM = /^(constructor|__proto__|prototype)$/;
 const SECRET_AUTOCOMPLETE = /^(cc-|one-time-code$|current-password$|new-password$)/;
 
 interface Origin { file: string; src: string; chain: string[] }
+
+/** One use of a component: its tag in the caller's markup (`host`), replaced by the component's root. */
+interface Use {
+  name: string;
+  file: string;
+  host: P5Element;
+  root: P5Element;
+  /** the component's `<template data-sn-component>`, where its contract is written */
+  template: P5Element;
+  /** declared props and events (null: written as a type the compiler cannot list, such as an alias) */
+  props: Member[] | null;
+  propsText: string;
+  emits: Member[] | null;
+  emitsText: string | null;
+  /** the components it is inside, outer first, `#` for a `data-sn-for` or `data-sn-if` template between */
+  chain: string[];
+  /** what the component's markup sees of it */
+  scope?: ComponentScope;
+  /** the caller's scope at the use: its attributes on the tag and its slot content see it */
+  caller?: Scope;
+}
+
+/** An `<sn-include>`, kept only to name what the partial reads from the page in its migration error. */
+interface IncludeRec { el: P5Element; src: string; names: Set<string>; site: Set<object> | null }
 /**
  * an expression's place: the value of `attr` (null: the element's start tag), `shift` characters in.
  * `parts`: for a function the compiler wrote, the code it inlined (found in order) and where each was written.
@@ -261,6 +288,9 @@ interface Ctx {
   /** inside a `<form>` (template content included): a control's action there reports field errors on it */
   form?: boolean;
 }
+
+/** what a component's tag may not carry: these change its content, which belongs to the component */
+const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-prop`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
   return new Compiler(options).run(html);
@@ -286,6 +316,20 @@ class Compiler {
   private readonly earlySites = new Map<string, Site>();
   private readonly stateAt = new Map<number, { site: Site; fields: Map<string, Site> }>();
   readonly origins = new WeakMap<object, Origin>();
+  /** component files by tag, read once (null: no such component, a plain custom element) */
+  private readonly componentFiles = new Map<string, { file: string; text: string; bad?: true } | null>();
+  /** a component's root, by the element that replaced its tag */
+  readonly useOf = new WeakMap<P5Element, Use>();
+  /** a component's tag: the use it belongs to */
+  readonly hostUse = new WeakMap<P5Element, Use>();
+  /** slot content's top-level nodes: the use whose caller wrote them */
+  readonly slotOf = new WeakMap<object, Use>();
+  /** every use, by component name */
+  readonly uses = new Map<string, Use[]>();
+  /** nodes that came from an `<sn-include>`, and the top-level ones */
+  private readonly includeOf = new WeakMap<object, IncludeRec>();
+  private readonly includeTop = new WeakMap<object, IncludeRec>();
+  private readonly includes: IncludeRec[] = [];
   /** attributes SN507 has measured, so an expression analysed twice is reported once */
   readonly measured = new WeakMap<P5Element, Set<string>>();
   readonly lineStarts = new Map<string, number[]>();
@@ -365,6 +409,8 @@ class Compiler {
     const doc = parse5.parse(html, { sourceCodeLocationInfo: true });
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     this.expandIncludes(doc, [this.opts.file]);
+    this.expandComponents(doc, []);
+    this.componentIds();
     const layout = this.layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
     const images = this.opts.images ? rewriteImages(doc, {
       host: this.opts.images, root: this.opts.root,
@@ -376,6 +422,9 @@ class Compiler {
     const paths = this.pathPatterns(doc);
     this.pathList = paths;
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
+    this.reportIncludes();
+    // the component's name on its root: in dev builds for devtools (production: components with styles, which scope by it)
+    if (this.opts.dev) for (const list of this.uses.values()) for (const u of list) setAttr(u.root, 'data-sn-c', u.name);
 
     for (const [name, id] of this.embedded) {
       const r = this.resources.find((x) => x.name === name);
@@ -606,12 +655,12 @@ class Compiler {
     const src = attr(el, 'src');
     const origin = this.origins.get(el)!;
     const fail = (code: Code, msg: string) => { this.report(el, 'src', code, msg, 0); detach(el); };
-    if (src == null || src === '' || src.includes('{')) return fail('SN305', 'partial `src` must be a literal path');
+    if (src == null || src === '' || src.includes('{')) return fail('SN316', 'partial `src` must be a literal path');
     for (const a of el.attrs) if (a.name !== 'src') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-include>\``, 0);
     const resolved = resolvePath(dirname(origin.file), src);
     const root = normalize(this.opts.root).replace(/\/$/, '');
     if (!(resolved === root || resolved.startsWith(root + '/'))) {
-      return fail('SN305', `partial \`${src}\` not found or outside the project root`);
+      return fail('SN316', `partial \`${src}\` not found or outside the project root`);
     }
     if (chain.includes(resolved)) {
       return fail('SN306', `${[...chain, resolved].map(basename).join(' → ')} includes itself`);
@@ -620,13 +669,21 @@ class Compiler {
     try {
       text = this.opts.readFile(resolved);
     } catch {
-      return fail('SN305', `partial \`${src}\` not found or outside the project root`);
+      return fail('SN316', `partial \`${src}\` not found or outside the project root`);
     }
     this.files.add(resolved);
     const frag = parse5.parseFragment(text, { sourceCodeLocationInfo: true });
     const loc = el.sourceCodeLocation ? this.lineCol(origin.src, el.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
     const here = `${basename(origin.file)}:${loc.line}`;
     this.tag(frag, { file: resolved, src: text, chain: [here, ...origin.chain] });
+    const rec: IncludeRec = { el, src, names: new Set(), site: null };
+    this.includes.push(rec);
+    const mark = (n: object) => {
+      this.includeOf.set(n, rec);
+      for (const c of (n as P5Parent).childNodes ?? []) mark(c);
+      if ((n as P5Element).nodeName === 'template') mark((n as P5Template).content);
+    };
+    for (const c of frag.childNodes) { mark(c); this.includeTop.set(c, rec); }
     this.expandIncludes(frag, [...chain, resolved]);
     const parent = el.parentNode!;
     const i = parent.childNodes.indexOf(el as never);
@@ -634,6 +691,288 @@ class Compiler {
     parent.childNodes.splice(i, 1, ...(frag.childNodes as never[]));
     // the browser merges adjacent text when it parses the output; merge now so node paths agree
     mergeText(parent);
+  }
+
+  /**
+   * `<sn-include>` is removed: a partial is a component. Each one fails the build with what it
+   * reads from the page, the props it needs as a component.
+   */
+  reportIncludes() {
+    for (const rec of this.includes) {
+      const names = [...rec.names].sort();
+      const name = basename(rec.src).replace(/\.html?$/, '');
+      const tag = name.includes('-') ? name : `x-${name}`;
+      this.report(rec.el, 'src', 'SN316', `\`<sn-include>\` is removed: a partial is a component. Move \`${rec.src}\` to \`src/components/${tag}.html\`, wrap its markup in \`<template data-sn-component="{ … }">\` around one root element, and write \`<${tag}></${tag}>\` here${
+        names.length ? `. It reads ${names.map((n) => `\`${n}\``).join(', ')} from the page: add ${names.length > 1 ? 'them' : 'it'} to \`data-sn-component\` and pass ${names.length > 1 ? 'them' : 'it'} with \`data-sn-prop="{ ${names.map((n) => `${n}: ${n}`).join(', ')} }"\`` : ''}`, 0);
+    }
+  }
+
+  /** The names a partial's expression reads from the scope its `<sn-include>` is in. */
+  outerNames(src: string, scope: Scope, o: Omit<ExprOptions, 'report'>, rec: IncludeRec) {
+    if (!rec.site) return;
+    const free: string[] = [];
+    analyze(src, { loops: [], states: [] }, this.page, { ...o, report: (code, message) => { const m = code === 'SN201' && /^`([^`]+)` is not defined/.exec(message); if (m) free.push(m[1]!); } });
+    for (const n of free) {
+      const entry = (scope.lets ?? []).findLast((l) => l.name === n) ?? scope.loops.findLast((l) => l.name === n) ?? scope.states.findLast((x) => x.names.has(n));
+      if (entry && rec.site.has(entry)) rec.names.add(n);
+    }
+  }
+
+  // ---- components
+
+  /** The component file for a tag (null: a plain custom element, or not a valid component name). */
+  componentFile(tag: string): { file: string; text: string; bad?: true } | null {
+    if (!COMPONENT_NAME.test(tag) || tag.startsWith('sn-')) return null;
+    let c = this.componentFiles.get(tag);
+    if (c !== undefined) return c;
+    const dir = this.opts.components ?? `${normalize(this.opts.root).replace(/\/$/, '')}/src/components`;
+    const file = normalize(`${dir}/${tag}.html`);
+    try { c = { file, text: this.opts.readFile(file) }; } catch { c = null; }
+    this.componentFiles.set(tag, c);
+    return c;
+  }
+
+  /**
+   * Expands every component tag, at any depth, into the component's markup: the root element
+   * takes the tag's place, the caller's content fills the slots. `chain`: the components this
+   * markup is in, `#` marking a `data-sn-for` or `data-sn-if` template between.
+   */
+  expandComponents(parent: P5Parent, chain: string[]) {
+    for (const child of [...parent.childNodes]) {
+      if (!isElement(child)) continue;
+      // slot content is the caller's: it is inside the components its caller is in
+      const ch = this.slotOf.get(child)?.chain ?? chain;
+      const def = this.componentFile(child.tagName);
+      if (def) {
+        const name = child.tagName;
+        const at = ch.lastIndexOf(name);
+        if (at >= 0) {
+          const loop = [...ch.slice(at).filter((x) => x !== '#'), name];
+          if (ch.slice(at).includes('#')) this.report(child, null, 'SN306', `${loop.map((n) => `\`<${n}>\``).join(' → ')}: a component that uses itself is not supported yet`, 0);
+          else this.report(child, null, 'SN306', `${loop.map((n) => `\`<${n}>\``).join(' → ')} uses itself with no \`data-sn-for\` or \`data-sn-if\` template between, so it would never end`, 0,
+            'only data ends a recursion: put the inner use in a `<template data-sn-for>` over the children, or a `<template data-sn-if>`');
+          detach(child);
+          continue;
+        }
+        if (def.bad) { detach(child); continue; }
+        const root = this.expandUse(child, def, ch);
+        if (root) this.expandComponents(root, [...ch, name]);
+        continue;
+      }
+      this.expandComponents(child, ch);
+      if (child.tagName === 'template') {
+        const t = attr(child, 'data-sn-for') !== undefined || attr(child, 'data-sn-if') !== undefined || attr(child, 'data-sn-else') !== undefined;
+        this.expandComponents((child as P5Template).content, t ? [...ch, '#'] : ch);
+      }
+    }
+  }
+
+  /** Replaces one component tag by the component's root; null when the component file is invalid. */
+  expandUse(host: P5Element, def: { file: string; text: string; bad?: true }, chain: string[]): P5Element | null {
+    const name = host.tagName;
+    const hostOrigin = this.origins.get(host) ?? { file: this.opts.file, src: '', chain: [] };
+    const frag = parse5.parseFragment(def.text, { sourceCodeLocationInfo: true });
+    const loc = host.sourceCodeLocation ? this.lineCol(hostOrigin.src, host.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
+    this.tag(frag, { file: def.file, src: def.text, chain: [`${basename(hostOrigin.file)}:${loc.line}`, ...hostOrigin.chain] });
+    this.files.add(def.file);
+    const fail = (el: P5Element | null, a: string | null, message: string, hint?: string): null => {
+      if (el) this.report(el, a, 'SN312', message, 0, hint);
+      else this.diagnostics.push({ severity: 'error', code: 'SN312', message, file: def.file, line: 1, col: 1, ...(hint ? { hint } : {}) });
+      def.bad = true;
+      detach(host);
+      return null;
+    };
+    const top = frag.childNodes.filter(isElement);
+    const templates = top.filter((t) => t.tagName === 'template' && attr(t, 'data-sn-component') !== undefined);
+    if (templates.length !== 1) {
+      return fail(templates[1] ?? null, null, `component \`<${name}>\` needs ${templates.length ? 'exactly ' : ''}one \`<template data-sn-component="{ …props }">\` around its markup`,
+        '`<template data-sn-component="{ article: Article }"><article>…</article></template>`');
+    }
+    const template = templates[0]!;
+    for (const t of top) {
+      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template data-sn-component>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
+    }
+    for (const a of template.attrs) {
+      if (a.name !== 'data-sn-component' && a.name !== 'data-sn-emits') this.report(template, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<template data-sn-component>\`; it takes \`data-sn-component\` and \`data-sn-emits\``, 0);
+    }
+    const content = (template as P5Template).content.childNodes;
+    const text = content.find((c) => c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
+    const els = content.filter(isElement);
+    if (els.length !== 1 || text) {
+      return fail(els[1] ?? template, null, `a component has one root element; \`<${name}>\` has ${text ? 'text and ' : ''}${els.length} element${els.length === 1 ? '' : 's'} at the top of its template`,
+        'wrap the markup in one element: it is what the caller\'s classes, attributes and handlers land on');
+    }
+    const root = els[0]!;
+    if (root.tagName === 'template' || root.tagName === 'slot' || this.componentFile(root.tagName)) {
+      return fail(root, null, `a component's root is a plain element: \`<${root.tagName}>\` cannot be the root of \`<${name}>\``, 'wrap it in an element');
+    }
+    const propsText = attr(template, 'data-sn-component')!;
+    const props = typeMembers(propsText.trim() === '' ? '{}' : propsText);
+    const emitsText = attr(template, 'data-sn-emits') ?? null;
+    const emits = emitsText === null ? [] : typeMembers(emitsText);
+    if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
+    const use: Use = { name, file: def.file, host, root, template, props, propsText, emits, emitsText, chain };
+
+    // the table rule: a tag the parser moved out of its table
+    const next = host.parentNode?.childNodes.slice(host.parentNode.childNodes.indexOf(host as never) + 1).find(isElement);
+    if (next?.tagName === 'table' && next.sourceCodeLocation && host.sourceCodeLocation && next.sourceCodeLocation.startOffset < host.sourceCodeLocation.startOffset) {
+      this.report(host, null, 'SN102', `\`<${name}>\` is written in a table, where the HTML parser moves it out before the table`, 0,
+        `write it in the row's template, where it stays in place: \`<template data-sn-for="…"><${name} …></${name}></template>\``);
+    }
+
+    // slots: the caller's content, by `slot` name
+    const groups = new Map<string, P5Node[]>();
+    for (const c of [...host.childNodes]) {
+      const slot = isElement(c) ? attr(c, 'slot') : undefined;
+      const k = slot ?? '';
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k)!.push(c);
+    }
+    const real = (nodes: P5Node[] | undefined) => !!nodes?.some((c) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== ''));
+    const slots: P5Element[] = [];
+    const findSlots = (n: P5Parent) => {
+      for (const c of n.childNodes) {
+        if (!isElement(c)) continue;
+        if (c.tagName === 'slot') slots.push(c);
+        else findSlots(c);
+        if (c.tagName === 'template') findSlots((c as P5Template).content);
+      }
+    };
+    findSlots(root);
+    const filled = new Set<string>();
+    for (const s of slots) {
+      const k = attr(s, 'name') ?? '';
+      if (filled.has(k)) { this.report(s, null, 'SN312', `\`<${name}>\` has two ${k ? `slots named \`${k}\`` : 'default slots'}; slot content is placed once`, 0); detach(s); continue; }
+      filled.add(k);
+      const given = groups.get(k);
+      const nodes = real(given) ? given! : s.childNodes;
+      if (nodes === given) {
+        for (const c of nodes) {
+          if (isElement(c)) c.attrs = c.attrs.filter((a) => a.name !== 'slot');
+          this.slotOf.set(c, use);
+        }
+      }
+      const parent = s.parentNode!;
+      const i = parent.childNodes.indexOf(s as never);
+      for (const c of nodes) (c as { parentNode: P5Parent }).parentNode = parent;
+      parent.childNodes.splice(i, 1, ...(nodes as never[]));
+      mergeText(parent);
+    }
+    const slotNames = slots.map((x) => attr(x, 'name')).filter((x): x is string => !!x);
+    for (const [k, nodes] of groups) {
+      if (filled.has(k) || !real(nodes)) continue;
+      const el = nodes.find(isElement);
+      if (k) this.report(el!, 'slot', 'SN314', `\`<${name}>\` has no slot \`${k}\`.${slotNames.length ? ` Its slots are ${slotNames.map((x) => `\`${x}\``).join(', ')}.` : ''}${didYouMean(k, slotNames)}`, 0);
+      else this.report(el ?? host, null, 'SN314', `\`<${name}>\` has no default \`<slot>\`, so this content would be dropped`, 0,
+        slotNames.length ? `put it in a named slot: ${slotNames.map((x) => `\`slot="${x}"\``).join(', ')}` : `add a \`<slot></slot>\` to \`<${name}>\` where the content goes`);
+    }
+
+    // the tag's attributes: plain ones move onto the root, sinter's are compiled on it in the caller's scope
+    for (const a of host.attrs) {
+      if (a.name.startsWith('data-sn-')) {
+        if (!callerAttribute(a.name)) this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a component's tag`, 0, TAG_ONLY_HINT);
+        continue;
+      }
+      if (a.name === 'class') {
+        const own = attr(root, 'class');
+        if (own === undefined) root.attrs.push({ name: 'class', value: a.value });
+        else setAttr(root, 'class', `${own} ${a.value}`.trim());
+      } else if (attr(root, a.name) !== undefined) {
+        this.report(host, a.name, 'SN209', `\`${a.name}\` is set both here and on the root of \`<${name}>\`; one of them would be lost`, 0);
+      } else root.attrs.push({ name: a.name, value: a.value });
+    }
+
+    const parent = host.parentNode!;
+    const i = parent.childNodes.indexOf(host as never);
+    parent.childNodes[i] = root as never;
+    root.parentNode = parent;
+    host.parentNode = null;
+    const slotUse = this.slotOf.get(host);
+    if (slotUse) this.slotOf.set(root, slotUse);
+    this.useOf.set(root, use);
+    this.hostUse.set(host, use);
+    if (!this.uses.has(name)) this.uses.set(name, []);
+    this.uses.get(name)!.push(use);
+    return root;
+  }
+
+  /** A literal `id` in the markup of a component used more than once would be on the page more than once. */
+  componentIds() {
+    for (const [name, list] of this.uses) {
+      if (list.length < 2) continue;
+      const u = list[0]!;
+      const find = (n: P5Parent): P5Element | null => {
+        for (const c of n.childNodes) {
+          if (!isElement(c) || this.slotOf.get(c)) continue;
+          if (attr(c, 'id') !== undefined && this.origins.get(c)?.file === u.file) return c;
+          const x = find(c) ?? (c.tagName === 'template' ? find((c as P5Template).content) : null);
+          if (x) return x;
+        }
+        return null;
+      };
+      const el = attr(u.root, 'id') !== undefined && this.origins.get(u.root)?.file === u.file ? u.root : find(u.root);
+      if (el) this.report(el, 'id', 'SN209', `\`<${name}>\` is used ${list.length} times on this page, and its markup has \`id="${attr(el, 'id')}"\`: the page would have that id ${list.length} times`, 0,
+        'compute the id from a prop: `data-sn-attr="{ id: \'edit-\' + item.id }"`, or use the component once');
+    }
+  }
+
+  /**
+   * The scope of a component's markup: its props, each the caller's expression (inlined where it
+   * is read, as `data-sn-let`), and nothing else of the caller's.
+   */
+  componentScope(use: Use, caller: Scope): Scope {
+    use.caller = caller;
+    const host = use.host, name = use.name;
+    const lets: LetEntry[] = [];
+    const passed = new Set<string>();
+    const declared = use.props?.map((m) => m.name) ?? null;
+    const src = attr(host, 'data-sn-prop');
+    if (src !== undefined) {
+      const r = this.expr(host, 'data-sn-prop', caller, { mode: 'value', object: 'literal-keys' });
+      // a missing prop the compiler reports itself; TypeScript checks the types of those given
+      if (this.check) this.typeLast({ returns: { kind: 'ts', text: use.props ? `Partial<${use.propsText.trim() || '{}'}>` : use.propsText, loc: this.locOf(use.template, 'data-sn-component') } });
+      for (const e of r.entries ?? []) {
+        if (declared && !declared.includes(e.key)) {
+          this.report(host, 'data-sn-prop', 'SN313', `\`${e.key}\` is not a prop of \`<${name}>\`; ${declared.length ? `its props are ${declared.map((x) => `\`${x}\``).join(', ')}` : 'it declares none'}.${didYouMean(e.key, declared)}`, e.offset);
+          continue;
+        }
+        if (passed.has(e.key)) continue;
+        passed.add(e.key);
+        const v = entryValue(r, e);
+        const q = v ? analyze(src.slice(v.start, v.end), caller, this.page, { mode: 'value', report: () => {} }) : null;
+        lets.push({ name: e.key, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, prop: true });
+      }
+    }
+    // `data-sn-model`: the `value` prop (and the `change` handler, with the other bindings)
+    if (attr(host, 'data-sn-model') !== undefined) {
+      const ok = (!declared || declared.includes('value')) && (!use.emits || use.emits.some((m) => m.name === 'change'));
+      if (!ok) {
+        this.report(host, 'data-sn-model', 'SN313', `\`data-sn-model\` binds a component through its \`value\` prop and \`change\` event; \`<${name}>\` declares ${declared?.includes('value') ? 'no `change` event' : 'no `value` prop'}`, 0,
+          `declare both: \`data-sn-component="{ value: … }" data-sn-emits="{ change: … }"\`, and \`emit('change', v)\` when the value changes`);
+      } else if (passed.has('value')) {
+        this.report(host, 'data-sn-model', 'SN209', '`data-sn-model` passes the `value` prop; `data-sn-prop` cannot pass it too', 0);
+      } else {
+        const q = analyze(attr(host, 'data-sn-model')!, caller, this.page, { mode: 'value', report: () => {} });
+        passed.add('value');
+        lets.push({ name: 'value', code: q.ok ? q.inner : 'undefined', deps: q.deps, usesEl: q.usesEl, usesIndex: q.usesIndex, resource: q.resource, prop: true });
+      }
+    }
+    // a prop not given is undefined, unless the root's state gives it a default
+    const defaults = stateKeys(attr(use.root, 'data-sn-state'));
+    for (const m of use.props ?? []) {
+      if (passed.has(m.name)) continue;
+      if (!m.optional) this.report(host, null, 'SN313', `\`<${name}>\` needs the prop \`${m.name}\``, 0, `pass it with \`data-sn-prop="{ ${m.name}: … }"\``);
+      if (!defaults.has(m.name)) lets.push({ name: m.name, code: 'undefined', deps: [], usesEl: false, usesIndex: false, resource: null, prop: true });
+    }
+    const outer = new Set<string>([...(caller.lets ?? []).map((l) => l.name), ...caller.loops.map((l) => l.name), ...caller.states.flatMap((x) => [...x.names])]);
+    // no `data-sn-emits`: no events; one the compiler cannot list (an alias): not checked here
+    const cs: ComponentScope = { name, outer, ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
+    use.scope = cs;
+    if (this.check) {
+      this.frameOf.set(cs, this.check.frames.length);
+      this.check.frames.push({ kind: 'props', component: name, type: { kind: 'ts', text: use.propsText.trim() || '{}', loc: this.locOf(use.template, 'data-sn-component') }, names: declared ?? [...passed] });
+    }
+    return { loops: [], states: [], lets, component: cs };
   }
 
   // ---- declarations (first pass: names only, so expressions can see every resource and dialog)
@@ -801,6 +1140,16 @@ class Compiler {
 
   element(el: P5Element, ctx: Ctx, index: number, prevIf: { node: NodeDef; binding: Binding } | null): { node: NodeDef; binding: Binding } | null {
     this.at = { el, attr: null, shift: 0 };
+    // slot content sees the scope of the caller that wrote it
+    const slot = this.slotOf.get(el);
+    if (slot?.caller) ctx = { ...ctx, scope: slot.caller };
+    // the partial an `<sn-include>` inserted: what the page's scope has there
+    const inc = this.includeTop.get(el);
+    if (inc && !inc.site) inc.site = new Set<object>([...ctx.scope.loops, ...ctx.scope.states, ...(ctx.scope.lets ?? [])]);
+    // a component's root: its markup sees the props only
+    const use = this.useOf.get(el);
+    const callerCtx = use ? ctx : null;
+    if (use) ctx = { ...ctx, scope: this.componentScope(use, ctx.scope) };
     switch (el.tagName) {
       case 'sn-resource': this.resource(el, ctx); return null;
       case 'sn-sync': this.sync(el, ctx); return null;
@@ -821,6 +1170,9 @@ class Compiler {
       this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
     }
 
+    for (const n of ['component', 'emits']) {
+      if (has(n)) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` belongs on the \`<template>\` of a component file (\`src/components/<name>.html\`)`, 0);
+    }
     if (has('path') && el.tagName !== 'html') this.report(el, 'data-sn-path', 'SN102', '`data-sn-path` belongs on `<html>`', 0);
     if (has('prefetch')) {
       if (el.tagName !== 'html') this.report(el, 'data-sn-prefetch', 'SN102', '`data-sn-prefetch` belongs on `<html>`: it keeps other pages from prefetching or prerendering this one', 0);
@@ -890,7 +1242,7 @@ class Compiler {
 
     // a form whose markup reads `$error`: the form's last failed send, as a state field of the form
     // (merged into its own `data-sn-state`); the runtime sets it when the send fails, null when sent again
-    if (el.tagName === 'form' && readsFormError(el)) {
+    if (el.tagName === 'form' && readsFormError(el, (e) => this.useOf.get(e)?.host)) {
       this.features.add('fields');
       let entry = node.state !== undefined ? scope.states.at(-1)! : null;
       if (entry) {
@@ -933,72 +1285,15 @@ class Compiler {
     }
 
     const isTemplate = el.tagName === 'template';
-    const valueB = (k: 'text' | 'show', name: string) => {
-      const r = this.expr(el, name, scope, { mode: 'value' });
-      if (r.ok) node.b.push(this.binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
-    };
 
     for (const n of ['for', 'if', 'else'] as const) {
       if (has(n) && !isTemplate) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` must be on a \`<template>\``, 0);
     }
     if (has('key') && !(isTemplate && has('for'))) this.report(el, 'data-sn-key', 'SN102', '`data-sn-key` belongs on a `<template data-sn-for>`', 0);
 
-    if (has('text')) valueB('text', 'data-sn-text');
-    if (has('show')) valueB('show', 'data-sn-show');
-    // the morph across a navigation: the name is kept on the element, the transition feature uses it
-    if (has('transition')) {
-      const r = this.expr(el, 'data-sn-transition', scope, { mode: 'value' });
-      if (r.ok) { node.b.push(this.binding({ k: 'attr', n: 'data-sn-vt', f: this.fn(r.code), d: r.deps, ...usesEl(r) })); this.features.add('transition'); }
-    }
-    if (has('attr')) this.attrBinding(el, node, scope);
-    if (has('class')) this.objectBinding(el, node, scope, 'class');
-    if (has('style')) this.objectBinding(el, node, scope, 'style');
-    if (has('prop')) {
-      if (!el.tagName.includes('-')) this.report(el, 'data-sn-prop', 'SN102', '`data-sn-prop` is for custom elements only; use `data-sn-attr`', 0);
-      else this.objectBinding(el, node, scope, 'prop');
-    }
-    if (has('model')) this.model(el, node, scope, get('persist'));
-    else if (has('persist') && !has('state')) this.report(el, 'data-sn-persist', 'SN102', '`data-sn-persist` needs `data-sn-model` or `data-sn-state` on the same element', 0);
-
-    const methods = METHODS.filter((m) => has(m));
-    const isCall = has('call');
-    // without a method, `data-sn-debounce` delays the element's own handlers
-    let handlerDebounce = 0;
-    if (!methods.length && !isCall && has('debounce')) {
-      handlerDebounce = Number(get('debounce'));
-      if (!Number.isFinite(handlerDebounce) || handlerDebounce < 0) this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
-      if (!sn.some((a) => a.name.startsWith('data-sn-on-'))) this.report(el, 'data-sn-debounce', 'SN102', '`data-sn-debounce` needs a method attribute (`data-sn-get`, `-post`, …) or a `data-sn-on-*` handler on the same element', 0);
-    }
-    // `data-sn-debounce-<event>`: only that event's handler waits
-    for (const a of sn) {
-      if (!a.name.startsWith('data-sn-debounce-')) continue;
-      const event = a.name.slice('data-sn-debounce-'.length), ms = Number(a.value);
-      if (!Number.isFinite(ms) || ms < 0 || a.value.trim() === '') this.report(el, a.name, 'SN401', `\`${a.name}\` takes milliseconds`, 0);
-      if (!has(`on-${event}`)) this.report(el, a.name, 'SN102', `\`${a.name}\` needs a \`data-sn-on-${event}\` handler on the same element`, 0);
-    }
-    for (const a of sn) {
-      if (!a.name.startsWith('data-sn-on-')) continue;
-      const event = a.name.slice('data-sn-on-'.length);
-      // `keydown-<modifiers->key`: a key filter on keydown or keyup
-      const kf = /^(key(?:down|up))-(.*)$/s.exec(event);
-      const filter = kf ? this.keyFilter(el, a.name, kf[2]!) : undefined;
-      if (filter === null) continue;
-      if (filter) this.features.add('keys');
-      if (!kf && !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(event)) {
-        this.report(el, a.name, 'SN101', `event names are lowercase kebab-case: \`${a.name}\``, 0);
-        continue;
-      }
-      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'] });
-      const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
-      if (ms > 0) this.features.add('debounce');
-      if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
-    }
-
-    if (methods.length > 1) this.report(el, `data-sn-${methods[1]}`, 'SN102', 'an element can have only one method attribute', 0);
-    if (methods.length && isCall) this.report(el, 'data-sn-call', 'SN102', 'an element has one action: a method attribute or `data-sn-call`, not both', 0);
-    if (methods.length) this.action(el, node, scope, methods[0]!, get, !!ctx.form || el.attrs.some((x) => x.name === 'form'));
-    else if (isCall) this.action(el, node, scope, 'call', get);
-    else for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs a method attribute (\`data-sn-get\`, \`-post\`, …) on the same element`, 0);
+    this.bindings(el, node, scope, ctx);
+    // a component's root: the caller's attributes on its tag, in the caller's scope
+    if (use) this.bindings(use.host, node, use.caller!, callerCtx!, use);
 
     // templates
     let content: { tid: number; scope: Scope } | null = null;
@@ -1047,6 +1342,103 @@ class Compiler {
       });
     }
     return result;
+  }
+
+  /**
+   * The bindings, handlers and action of an element's attributes. For a component's root, it runs
+   * twice: for the root's own attributes in the component's scope, and for the tag's (`use`) in
+   * the caller's, onto the same node.
+   */
+  bindings(el: P5Element, node: NodeDef, scope: Scope, ctx: Ctx, use?: Use) {
+    const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-'));
+    const get = (n: string) => sn.find((a) => a.name === `data-sn-${n}`)?.value;
+    const has = (n: string) => sn.some((a) => a.name === `data-sn-${n}`);
+    const valueB = (k: 'text' | 'show', name: string) => {
+      const r = this.expr(el, name, scope, { mode: 'value' });
+      if (r.ok) node.b.push(this.binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
+    };
+    if (has('text')) valueB('text', 'data-sn-text');
+    if (has('show')) valueB('show', 'data-sn-show');
+    // the morph across a navigation: the name is kept on the element, the transition feature uses it
+    if (has('transition')) {
+      const r = this.expr(el, 'data-sn-transition', scope, { mode: 'value' });
+      if (r.ok) { node.b.push(this.binding({ k: 'attr', n: 'data-sn-vt', f: this.fn(r.code), d: r.deps, ...usesEl(r) })); this.features.add('transition'); }
+    }
+    if (has('attr')) this.attrBinding(el, node, scope);
+    if (has('class')) this.objectBinding(el, node, scope, 'class');
+    if (has('style')) this.objectBinding(el, node, scope, 'style');
+    if (has('prop') && !use) {
+      if (!el.tagName.includes('-')) this.report(el, 'data-sn-prop', 'SN102', '`data-sn-prop` is for custom elements only; use `data-sn-attr`', 0);
+      else this.objectBinding(el, node, scope, 'prop');
+    }
+    if (has('model') && use) this.componentModel(use, node, scope);
+    else if (has('model')) this.model(el, node, scope, get('persist'));
+    else if (has('persist') && !has('state')) this.report(el, 'data-sn-persist', 'SN102', '`data-sn-persist` needs `data-sn-model` or `data-sn-state` on the same element', 0);
+
+    const methods = METHODS.filter((m) => has(m));
+    const isCall = has('call');
+    // without a method, `data-sn-debounce` delays the element's own handlers
+    let handlerDebounce = 0;
+    if (!methods.length && !isCall && has('debounce')) {
+      handlerDebounce = Number(get('debounce'));
+      if (!Number.isFinite(handlerDebounce) || handlerDebounce < 0) this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
+      if (!sn.some((a) => a.name.startsWith('data-sn-on-'))) this.report(el, 'data-sn-debounce', 'SN102', '`data-sn-debounce` needs a method attribute (`data-sn-get`, `-post`, …) or a `data-sn-on-*` handler on the same element', 0);
+    }
+    // `data-sn-debounce-<event>`: only that event's handler waits
+    for (const a of sn) {
+      if (!a.name.startsWith('data-sn-debounce-')) continue;
+      const event = a.name.slice('data-sn-debounce-'.length), ms = Number(a.value);
+      if (!Number.isFinite(ms) || ms < 0 || a.value.trim() === '') this.report(el, a.name, 'SN401', `\`${a.name}\` takes milliseconds`, 0);
+      if (!has(`on-${event}`)) this.report(el, a.name, 'SN102', `\`${a.name}\` needs a \`data-sn-on-${event}\` handler on the same element`, 0);
+    }
+    for (const a of sn) {
+      if (!a.name.startsWith('data-sn-on-')) continue;
+      const event = a.name.slice('data-sn-on-'.length);
+      // `keydown-<modifiers->key`: a key filter on keydown or keyup
+      const kf = /^(key(?:down|up))-(.*)$/s.exec(event);
+      const filter = kf ? this.keyFilter(el, a.name, kf[2]!) : undefined;
+      if (filter === null) continue;
+      if (filter) this.features.add('keys');
+      if (!kf && !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(event)) {
+        this.report(el, a.name, 'SN101', `event names are lowercase kebab-case: \`${a.name}\``, 0);
+        continue;
+      }
+      if (use && !kf && use.emits && !DOM_EVENTS.has(event) && !use.emits.some((m) => m.name === event)) {
+        const names = use.emits.map((m) => m.name);
+        this.report(el, a.name, 'SN315', `\`<${use.name}>\` does not emit \`${event}\`; ${names.length ? `it declares ${names.map((x) => `\`${x}\``).join(', ')}` : 'it declares no events'}.${didYouMean(event, names)}`, 0);
+      }
+      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'] });
+      const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
+      if (ms > 0) this.features.add('debounce');
+      if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
+    }
+
+    if (methods.length > 1) this.report(el, `data-sn-${methods[1]}`, 'SN102', 'an element can have only one method attribute', 0);
+    if (methods.length && isCall) this.report(el, 'data-sn-call', 'SN102', 'an element has one action: a method attribute or `data-sn-call`, not both', 0);
+    if (methods.length) this.action(el, node, scope, methods[0]!, get, !!ctx.form || el.attrs.some((x) => x.name === 'form'));
+    else if (isCall) this.action(el, node, scope, 'call', get);
+    else for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs a method attribute (\`data-sn-get\`, \`-post\`, …) on the same element`, 0);
+  }
+
+  /**
+   * `data-sn-model` on a component: the `value` prop (see `componentScope`) and a handler for its
+   * `change` event that writes the detail back. Only the component's own event writes: a native
+   * `change` bubbling from a control inside it is not a `CustomEvent`.
+   */
+  componentModel(use: Use, node: NodeDef, scope: Scope) {
+    const host = use.host;
+    const src = attr(host, 'data-sn-model')!;
+    const r = analyze(src, scope, this.page, { mode: 'value', report: this.reporter(host, 'data-sn-model') });
+    if (!r.ok) return;
+    if (r.resource) { this.report(host, 'data-sn-model', 'SN205', `\`data-sn-model\` cannot write to resource \`${r.resource}\`; copy the item into state with structuredClone()`, 0); return; }
+    if (!r.path || !(r.path[0]!.startsWith('$s') && r.path.length >= 2)) { this.report(host, 'data-sn-model', 'SN203', '`data-sn-model` takes a state path such as `q` or `draft.stars`', 0); return; }
+    if (attr(host, 'data-sn-persist') !== undefined) {
+      this.report(host, 'data-sn-persist', 'SN102', '`data-sn-persist` on a component: persist the state the model writes instead (`data-sn-persist` on its `data-sn-state`)', 0);
+    }
+    const h = this.expr(host, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'] }, `${src} = $event.detail`);
+    if (!h.ok) return;
+    const f = this.fn(`($) => { if ($.$event instanceof CustomEvent) (${h.code})($); }`, { el: host, attr: 'data-sn-model', shift: 0 });
+    node.b.push(this.binding({ k: 'on', n: 'change', f, w: h.writes }));
   }
 
   /**
@@ -1201,6 +1593,8 @@ class Compiler {
   expr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, value?: string, shift = 0): ExprResult {
     const src = value ?? attr(el, attrName) ?? '';
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
+    const inc = this.includeOf.get(el);
+    if (inc) this.outerNames(src, scope, o, inc);
     this.at = { el, attr: attrName, shift };
     if (r.ok && !this.codeAt.has(r.code)) this.codeAt.set(r.code, this.at);
     if (r.ok && r.ast) this.complexity(el, attrName, o, r.ast);
@@ -1269,7 +1663,8 @@ class Compiler {
   checkNames(el: P5Element, attrName: string, scope: Scope, names: string[], offset = 0): boolean {
     let ok = true;
     for (const n of names) {
-      const isLet = (scope.lets ?? []).some((l) => l.name === n);
+      // a component's state gives an optional prop its default
+      const isLet = (scope.lets ?? []).some((l) => l.name === n && !(l.prop && attrName === 'data-sn-state'));
       const other = attrName === 'data-sn-let' && (scope.loops.some((l) => l.name === n) || scope.states.some((s) => s.names.has(n)));
       if (isLet || other) {
         this.report(el, attrName, 'SN209', `\`${n}\` is already defined here${isLet ? ' by `data-sn-let`' : ''}; use another name`, offset);
@@ -1298,7 +1693,7 @@ class Compiler {
 
   recordExpr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, src: string, shift: number, r: ExprResult): number {
     const frames: number[] = [];
-    for (const f of [...scope.states, ...scope.loops, ...(scope.lets ?? [])]) {
+    for (const f of [...(scope.component ? [scope.component] : []), ...scope.states, ...scope.loops, ...(scope.lets ?? [])]) {
       const i = this.frameOf.get(f);
       if (i !== undefined && !frames.includes(i)) frames.push(i);
     }
@@ -1307,12 +1702,18 @@ class Compiler {
     if (attrName.startsWith('data-sn-on-')) event = attrName.slice('data-sn-on-'.length).replace(/^(key(?:down|up))-.*/s, '$1');
     // an element-less handler (<sn-event>, <sn-resource then>) runs for no DOM event
     else if ((o.mode !== 'value' || o.magic?.includes('$event')) && !o.noElement) {
-      event = attr(el, 'data-sn-trigger') ?? (el.tagName === 'form' ? 'submit' : FORM_CONTROLS.has(el.tagName) ? 'change' : 'click');
+      const tag = this.hostUse.get(el)?.root.tagName ?? el.tagName;
+      event = attr(el, 'data-sn-trigger') ?? (tag === 'form' ? 'submit' : FORM_CONTROLS.has(tag) ? 'change' : 'click');
     }
+    // a component's tag: the element is its root; its events have the detail `data-sn-emits` declares
+    const use = this.hostUse.get(el);
     const e: CheckExpr = {
-      src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: el.tagName, event,
+      src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: use?.root.tagName ?? el.tagName, event,
       result: attrName === 'data-sn-then' || !!o.magic?.includes('$result'), error: attrName === 'data-sn-catch',
     };
+    if (use && event && use.emitsText && use.emits?.some((m) => m.name === event)) {
+      e.detail = { kind: 'ts', text: `(${use.emitsText})[${JSON.stringify(event)}]`, loc: this.locOf(use.template, 'data-sn-emits') };
+    }
     if (o.payload) e.payload = { names: r.payloadNames ?? [], type: null, ...(r.payloadStates?.length ? { states: r.payloadStates } : {}), ...(r.payloadLets?.length ? { lets: r.payloadLets } : {}) };
     this.check!.exprs.push(e);
     const list = this.exprsOf.get(el) ?? [];
@@ -1492,7 +1893,7 @@ class Compiler {
     if (method === 'call' && get('body') !== undefined) this.report(el, 'data-sn-body', 'SN102', '`data-sn-body` belongs to a method attribute; a call takes its arguments in `data-sn-call`', 0);
     const reads: Read[] = [];
     const url = method === 'call' ? [] : this.urlTemplate(el, `data-sn-${method}`, scope, {}, undefined, reads);
-    const tag = el.tagName;
+    const tag = this.hostUse.get(el)?.root.tagName ?? el.tagName;
     const isForm = tag === 'form';
     const trigger = get('trigger') ?? (isForm ? 'submit' : FORM_CONTROLS.has(tag) ? 'change' : 'click');
     if (!/^[a-z][a-z0-9-]*$/.test(trigger)) this.report(el, 'data-sn-trigger', 'SN401', '`data-sn-trigger` takes a DOM event name', 0);
@@ -1664,8 +2065,11 @@ class Compiler {
     t.ii = ii;
     const resInfo = list.resource ? this.page.resources.get(list.resource) : undefined;
     const alias = list.path && list.path[0]!.startsWith('$s') ? [...list.path, `{${ii}}`] : null;
-    const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource, ...(list.resources ? { resources: list.resources } : {}) }];
-    if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias });
+    // in a component, the runtime names are the template's own, so a prop read in a row cannot resolve to a row of the component's
+    const rt = scope.component ? (n: string) => ({ rt: `${n}$${tid}` }) : () => ({});
+    const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource, ...(list.resources ? { resources: list.resources } : {}), ...rt(item) }];
+    if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias, ...rt(index) });
+    if (scope.component) { t.item = `${item}$${tid}`; if (index) t.index = `${index}$${tid}`; }
     if (this.check) {
       for (const l of loops.slice(scope.loops.length)) this.frameOf.set(l, this.check.frames.length);
       const itemAt = value.indexOf(item, value.indexOf('(') >= 0 && value.indexOf('(') < m[0].length ? value.indexOf('(') : 0);
@@ -2459,6 +2863,17 @@ function binding(b: Binding): Binding {
   return out;
 }
 
+/** The literal keys of a `data-sn-state` object (none when it does not parse). */
+function stateKeys(src: string | undefined): Set<string> {
+  const out = new Set<string>();
+  if (!src) return out;
+  try {
+    const o = parseExpressionAt(src, 0, { ecmaVersion: 'latest' });
+    if (o.type === 'ObjectExpression') for (const p of o.properties) if (p.type === 'Property' && !p.computed && p.key.type === 'Identifier') out.add(p.key.name);
+  } catch { /* reported where the state is compiled */ }
+  return out;
+}
+
 function isElement(n: P5Node): n is P5Element {
   return 'tagName' in n;
 }
@@ -2477,9 +2892,10 @@ function stripSn(el: P5Element) {
 }
 
 /** Whether a form's markup reads `$error` (outside `data-sn-catch`, where `$error` is the action's own). */
-function readsFormError(el: P5Element): boolean {
-  const reads = (e: P5Element): boolean =>
-    e.attrs.some((a) => a.name.startsWith('data-sn-') && a.name !== 'data-sn-catch' && /\$error\b/.test(a.value))
+function readsFormError(el: P5Element, hostOf: (e: P5Element) => P5Element | undefined): boolean {
+  const own = (e: P5Element) => e.attrs.some((a) => a.name.startsWith('data-sn-') && a.name !== 'data-sn-catch' && /\$error\b/.test(a.value));
+  // a component's tag, which its root replaced: `data-sn-prop="{ error: $error }"`
+  const reads = (e: P5Element): boolean => own(e) || (!!hostOf(e) && own(hostOf(e)!))
     || (e.tagName === 'template' ? (e as P5Template).content.childNodes : e.childNodes).some((c) => isElement(c) && reads(c));
   return reads(el);
 }

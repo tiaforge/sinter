@@ -1,0 +1,138 @@
+# Components
+
+A component is an HTML file in `src/components/`. Its file name is its tag, and it can be used on
+every page:
+
+```html
+<!-- src/components/article-preview.html -->
+<template data-sn-component="{ article: Article; compact?: boolean }" data-sn-emits="{ select: Article }">
+  <article class="preview" data-sn-class="{ compact }">
+    <a data-sn-attr="{ href: '/article/' + article.slug }" data-sn-on-click="emit('select', article)">
+      <h2 data-sn-text="article.title"></h2>
+    </a>
+    <slot name="meta"></slot>
+    <p data-sn-text="article.description"></p>
+    <slot></slot>
+  </article>
+</template>
+```
+
+```html
+<!-- any page -->
+<template data-sn-for="a in articles">
+  <article-preview class="item" data-sn-prop="{ article: a, compact: narrow }" data-sn-on-select="sel = $event.detail">
+    <span slot="meta" data-sn-text="date(a.createdAt)"></span>
+    <favorite-button data-sn-prop="{ article: a }"></favorite-button>
+  </article-preview>
+</template>
+```
+
+The compiler expands each use at build time. After expansion, the component's markup is page markup:
+it renders in the first frame like the rest of the page (build-time constants, the early script,
+embedded data), and the page module adopts it. Nothing hydrates it, and a component costs nothing at
+runtime.
+
+## The file
+
+- The name contains a `-` (`article-preview.html` is `<article-preview>`).
+- One `<template data-sn-component="…">` holds the markup, with **exactly one root element**.
+- `data-sn-component` is the props type, written in TypeScript with the names `src/sinter.types.ts`
+  exports (or the schemas of your OpenAPI spec), as `<sn-resource type>` is. `data-sn-component=""`
+  takes no props.
+- `data-sn-emits` (optional) declares the events the component emits, with their detail types.
+- Together, these two attributes are the component's whole contract.
+
+## The tag is replaced by the root
+
+Each use is replaced by the component's root element, so a parent's layout reaches it as a direct
+child (grid, flex, `data-layout`), with no wrapper.
+
+- `class` on the tag is joined with the root's. Another attribute (`id`, `aria-*`, `data-grow`) moves
+  onto the root; the same attribute on both is an error, not a silent override.
+- Handlers (`data-sn-on-*`), an action (`data-sn-post`, …), `data-sn-class`, `-attr`, `-style`,
+  `-show` and `-transition` on the tag move onto the root, in the caller's scope.
+- A component whose root is a `<tr>` or `<li>` is that element. Write its tag inside the row's
+  `<template data-sn-for>`: directly in a `<table>`, the HTML parser moves an unknown tag out of the
+  table, which is a build error with the fix.
+
+## Props
+
+`data-sn-prop` on the tag passes the props. Each prop is the caller's expression, evaluated where the
+component reads it: nothing is copied, so a change shows at once.
+
+- Props are read-only. A component changes its own `data-sn-state`, or emits an event.
+- A prop the component does not declare, or a required one left out, is a build error (`SN313`).
+- An optional prop that is not passed is `undefined`, or, when the root's `data-sn-state` has a field
+  with its name, that field: its default.
+
+## Scope
+
+The component's markup sees its props, its own state, the page's resources, helpers and magic names.
+It does not see the caller's state or loop variables: reading one is an error that names the prop to
+add.
+
+Slot content is the reverse: it is the caller's markup and sees the caller's scope, none of the
+component's.
+
+## Slots
+
+The tag's children fill the component's slots at build time. Content with `slot="meta"` goes into
+`<slot name="meta">`, the rest into the default `<slot>`. A slot the caller leaves empty shows its own
+children (fallback content). Content that no slot takes is a build error (`SN314`). Slot content is
+light DOM: global CSS, forms, labels and ARIA references work across the boundary.
+
+## Events
+
+`emit('select', article)` inside the component dispatches a bubbling event from where it runs, up
+through the root, where the caller's `data-sn-on-select` sits. Its name must be one `data-sn-emits`
+declares (`SN315`), and so must the event of a `data-sn-on-<event>` on the tag, unless it is a DOM
+event such as `click`. `sinter check` types `$event.detail` from the declaration.
+
+## Custom inputs: `data-sn-model`
+
+A component that declares a `value` prop and a `change` event can be bound like a form control:
+
+```html
+<!-- src/components/rating-input.html -->
+<template data-sn-component="{ value: number }" data-sn-emits="{ change: number }">
+  <div>
+    <template data-sn-for="i in [1, 2, 3, 4, 5]" data-sn-key="i">
+      <button type="button" data-sn-class="{ on: i <= value }" data-sn-on-click="emit('change', i)" data-sn-text="i"></button>
+    </template>
+  </div>
+</template>
+```
+
+```html
+<form data-sn-put="/api/contacts/{draft.id}" data-sn-body="draft">
+  <rating-input data-sn-model="draft.stars"></rating-input>
+</form>
+```
+
+`data-sn-model="draft.stars"` is `data-sn-prop="{ value: draft.stars }"` plus a `change` handler that
+writes `$event.detail` back. Only the component's own event writes: a native `change` from a control
+inside it is not. It binds state, never a resource, as on `<input>`.
+
+## Types
+
+`sinter check` checks every edge against the one declaration:
+
+| Where | What is checked |
+| --- | --- |
+| The tag | `data-sn-prop` keys and types; `data-sn-on-<event>` names and the type of `$event.detail`; slot names |
+| The component's markup | bindings read only declared props, its state and globals; `emit()` names match `data-sn-emits` |
+
+Errors in the component are reported in the component's file, followed by where it is used. In the
+editor, `sinter lsp` checks a component through the pages that use it, and goes from a tag to its file.
+
+## Ids
+
+A literal `id` in a component used more than once on a page would be on the page more than once:
+that is a build error. Compute it from a prop (`data-sn-attr="{ id: 'edit-' + item.id }"`).
+
+## From `<sn-include>`
+
+`<sn-include>` is removed: a partial is a component without a script. The build error (`SN316`) lists
+the names the partial read from the page. Move the file to `src/components/<name>.html`, wrap its
+markup in `<template data-sn-component="{ … }">` around one root element, declare those names as
+props, and pass them with `data-sn-prop`.

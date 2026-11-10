@@ -107,6 +107,23 @@ declare global {
     one(page(`<div data-sn-state="{ n: 0 }"><mail-reader data-sn-on-reader-flag="n = $event.detail"></mail-reader></div>`), /Type 'boolean' is not assignable to type 'number'/, 'n = $event', island);
   });
 
+  test('components: props typed by data-sn-component at the call site and inside, $event.detail by data-sn-emits', () => {
+    const card = { 'src/components/contact-card.html': `<template data-sn-component="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
+  <div><h2 data-sn-text="contact.name"></h2><button data-sn-on-click="emit('pick', contact)"></button></div>
+</template>` };
+    const ok = page(`<div data-sn-state="{ sel: /** @type {Contact|null} */ (null) }">
+  <template data-sn-for="c in contacts"><contact-card data-sn-prop="{ contact: c }" data-sn-on-pick="sel = $event.detail"></contact-card></template>
+</div>`);
+    expect(run(ok, card).diagnostics).toEqual([]);
+    one(page(`<contact-card data-sn-prop="{ contact: contacts[0], compact: 'yes' }"></contact-card>`), /Type 'string' is not assignable to type 'boolean'/, "compact: 'yes'", card);
+    one(page(`<div data-sn-state="{ n: 0 }"><contact-card data-sn-prop="{ contact: contacts[0] }" data-sn-on-pick="n = $event.detail"></contact-card></div>`),
+      /Type 'Contact' is not assignable to type 'number'/, 'n = $event', card);
+    const typo = { 'src/components/contact-card.html': card['src/components/contact-card.html'].replace('contact.name', 'contact.nmae') };
+    const r = run(page(`<contact-card data-sn-prop="{ contact: contacts[0] }"></contact-card>`), typo);
+    expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Property 'nmae' does not exist on type 'Contact'/)]);
+    expect(r.diagnostics[0]!.file).toMatch(/src\/components\/contact-card.html$/);
+  });
+
   test('SN507 complex expressions: in checkPage like other diagnostics, with the complexity option', () => {
     const html = page(`<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5" data-sn-text="n + contacts.length"></button></div>`);
     const d = checkPage(html, { files: { 'src/sinter.types.ts': TYPES } });
@@ -367,12 +384,13 @@ export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
 </div>`), /Property 'statsu' does not exist on type 'Err'/, 'statsu');
   });
 
-  test('a partial maps to its own file, with the include chain', () => {
-    const row = '<li>\n  <b data-sn-text="c.emial"></b></li>';
-    const r = run(page('<ul><template data-sn-for="c in contacts"><sn-include src="./row.html"></sn-include></template></ul>'), { 'row.html': row });
+  test('a component maps to its own file, with where it is used', () => {
+    const row = '<template data-sn-component="{ c: Contact }"><li>\n  <b data-sn-text="c.emial"></b></li></template>';
+    const r = run(page('<ul><template data-sn-for="c in contacts"><contact-row data-sn-prop="{ c }"></contact-row></template></ul>'), { 'src/components/contact-row.html': row });
+    expect(r.compile).toEqual([]);
     expect(r.diagnostics).toHaveLength(1);
     const d = r.diagnostics[0]!;
-    expect(d.file).toBe(join(r.root, 'row.html'));
+    expect(d.file).toBe(join(r.root, 'src/components/contact-row.html'));
     expect([d.line, d.col]).toEqual(at(row, 'emial'));
     expect(d.message).toMatch(/Property 'emial' does not exist on type 'Contact'. \(TS2339\) \(included from index.html:3\)$/);
   });

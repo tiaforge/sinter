@@ -19,6 +19,8 @@ export interface LoopEntry {
   resources?: string[];
   /** index: the item's alias, so `list[i]` over the same list becomes the row's own element */
   of?: string[] | null;
+  /** the name the runtime gives it, when not `name`: loops inside a component, so a prop read in them cannot be shadowed */
+  rt?: string;
 }
 
 export interface StateEntry { sid: number; names: Set<string> }
@@ -36,6 +38,8 @@ export interface LetEntry {
   names?: string[] | null;
   /** the lets those names come from */
   from?: LetEntry[];
+  /** a component's prop: the caller's expression */
+  prop?: true;
 }
 
 export interface ResourceInfo {
@@ -49,6 +53,17 @@ export interface Scope {
   states: StateEntry[];
   /** `data-sn-let` names, outer to inner */
   lets?: LetEntry[];
+  /** inside a component's markup (not its slot content): the component, its declared events and props */
+  component?: ComponentScope;
+}
+
+/** What expressions in a component's markup see of the component. */
+export interface ComponentScope {
+  name: string;
+  /** the events `data-sn-emits` declares; null: it declares none; absent: a type the compiler cannot list */
+  emits?: string[] | null;
+  /** names the caller's scope has at the use: reading one is an error that names the prop to add */
+  outer: Set<string>;
 }
 
 export interface PageInfo {
@@ -369,6 +384,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       ...(scope.lets ?? []).map((l) => l.name), ...scope.loops.map((l) => l.name), ...scope.states.flatMap((s) => [...s.names]),
       ...page.resources.keys(), ...page.helpers, ...page.namespaces.keys(), ...STORE_FNS, ...BUILTIN_HELPERS,
     ];
+    if (scope.component?.outer.has(name)) {
+      report('SN201', `\`${name}\` is not defined in component \`<${scope.component.name}>\`, which sees only its props, its own state and the page's resources and helpers`, offset,
+        `add \`${name}\` to \`data-sn-component\` and pass it from the caller: \`data-sn-prop="{ ${name}: ${name} }"\``);
+      return null;
+    }
     report('SN201', `\`${name}\` is not defined here.${didYouMean(name, candidates)}`, offset);
     void member;
     return null;
@@ -377,7 +397,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   function emitName(name: string, res: Resolved, sid?: number): string {
     switch (res.kind) {
       case 'local': case 'global': case 'helper': return name;
-      case 'loop': return `$.${name}`;
+      case 'loop': return `$.${res.entry.rt ?? name}`;
       case 'let': return `(${res.entry.code})`;
       case 'state': return `$.$s${sid}.${name}`;
       case 'resource': return `$.$r.${name}`;
@@ -761,6 +781,16 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     if (name === 'run') {
       runCall(first, n);
+      return;
+    }
+    // in a component, the events it emits are the ones `data-sn-emits` declares
+    if (name === 'emit' && scope.component && scope.component.emits !== undefined) {
+      const c = scope.component;
+      if (!first || first.type !== 'Literal' || typeof first.value !== 'string') report('SN315', `\`emit()\` in component \`<${c.name}>\` takes the event's name as a string literal`, n.start);
+      else if (!c.emits?.includes(first.value)) {
+        report('SN315', c.emits ? `\`<${c.name}>\` does not declare the event \`${first.value}\`; \`data-sn-emits\` declares ${c.emits.map((e) => `\`${e}\``).join(', ') || 'none'}.${didYouMean(first.value, c.emits)}`
+          : `\`<${c.name}>\` declares no events; add \`data-sn-emits="{ ${first.value}: … }"\` to its \`<template data-sn-component>\``, (first as Node).start);
+      }
       return;
     }
     if (name === 'showModal' || (name === 'close' && first)) {

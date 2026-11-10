@@ -1,0 +1,16 @@
+<!-- Shared by every page: a component, expanded at build time. It shows the page's `armed` state and
+     emits `arm` when the next change is set to fail; the page writes its state.
+     data-theme="dark": a dark band on a light page is one attribute. -->
+<template data-sn-component="{ armed: boolean }" data-sn-emits="{ arm: null }">
+  <header data-theme="dark" data-pad="sm">
+    <div data-layout="center" style="--tm-measure: 48rem">
+      <div data-layout="row" data-gap="sm" data-justify="between">
+        <a href="/" data-icon="circle-check"><strong>Tasks</strong></a>
+        <!-- a plain POST action; the next failed change resets `armed` (data-sn-on-sn-error on <body>) -->
+        <button data-variant="outline" data-size="sm" data-icon="triangle-alert"
+                data-sn-post="/api/fail-next" data-sn-then="emit('arm', null)"
+                data-sn-attr="{'aria-pressed': armed ? 'true' : 'false'}">Fail next change</button>
+      </div>
+    </div>
+  </header>
+</template>

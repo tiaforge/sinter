@@ -117,15 +117,6 @@
           "name": "type"
         }
       ]
-    },
-    {
-      "name": "sn-include",
-      "description": "inlines a partial at build time",
-      "attributes": [
-        {
-          "name": "src"
-        }
-      ]
     }
   ],
   "globalAttributes": [
@@ -167,7 +158,15 @@
     },
     {
       "name": "data-sn-prop",
-      "description": "sets JS properties; custom elements only (one defined later gets them again through its setters) (object literal)"
+      "description": "sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only (object literal)"
+    },
+    {
+      "name": "data-sn-component",
+      "description": "on the <template> of a component file (src/components/<name>.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean } (props type)"
+    },
+    {
+      "name": "data-sn-emits",
+      "description": "on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article } (events type)"
     },
     {
       "name": "data-sn-model",

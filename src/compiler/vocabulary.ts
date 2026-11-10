@@ -13,7 +13,9 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'show', value: 'value expression', doc: 'toggles the hidden attribute' },
   { name: 'prefetch', value: 'off', doc: 'on <html>: no other page prefetches this one\'s data or the page itself (Speculation Rules), and none prerenders it; for pages that do something when they load' },
   { name: 'transition', value: 'value expression (a name)', doc: 'the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too)' },
-  { name: 'prop', value: 'object literal', doc: 'sets JS properties; custom elements only (one defined later gets them again through its setters)' },
+  { name: 'prop', value: 'object literal', doc: 'sets JS properties; custom elements only (one defined later gets them again through its setters). On a component\'s tag: its props, live and read-only' },
+  { name: 'component', value: 'props type', doc: 'on the <template> of a component file (src/components/<name>.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }' },
+  { name: 'emits', value: 'events type', doc: 'on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article }' },
   { name: 'model', value: 'state path', doc: 'two-way binding for form controls' },
   { name: 'for', value: 'item in list | (item, i) in list', doc: 'repeats a <template> per item' },
   { name: 'key', value: 'value expression', doc: 'row identity; defaults to the resource key or object identity' },
@@ -49,7 +51,6 @@ export const ELEMENTS: Array<{ name: string; attrs: string[]; doc: string }> = [
   { name: 'sn-resource', attrs: ['name', 'src', 'call', 'each', 'key', 'items', 'total', 'order', 'when', 'paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'start-page', 'type', 'cache', 'refresh', 'then', 'early'], doc: 'a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates. `refresh="30s"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early="off"`: never preloaded or requested before the page module (for a resource whose request a middleware answers or changes). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches' },
   { name: 'sn-sync', attrs: ['src'], doc: 'one server event stream' },
   { name: 'sn-event', attrs: ['name', 'resource', 'op', 'item', 'set', 'when', 'fallback', 'then', 'type'], doc: 'maps one server event to a change message; child of <sn-sync>. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close(\'detail\'); with `then`, `resource` and `op` may be left out' },
-  { name: 'sn-include', attrs: ['src'], doc: 'inlines a partial at build time' },
 ];
 
 // ---- key filters: `data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`

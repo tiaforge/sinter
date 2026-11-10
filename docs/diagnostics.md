@@ -172,25 +172,15 @@ Keyset (cursor) pagination only knows the next and previous page, so `page('name
 
 **Fix:** If the API accepts an offset next to its cursor, add `offset-param="offset"`: the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `paginate="offset"`, or only step with `first`, `prev`, `next` and `last`.
 
-## SN305 include-not-found
+## SN306 component-cycle
 
 Error, for example:
 
-> partial `./partials/contact-dialg.html` not found or outside the project root
+> `<comment-card>` → `<reply-list>` → `<comment-card>` uses itself with no `data-sn-for` or `data-sn-if` template between, so it would never end
 
-The `src` of `<sn-include>` must be a literal path, relative to the including file, that resolves inside the project root.
+A component uses itself, directly or through other components, and nothing in between depends on data: expanding it would never end.
 
-**Fix:** Fix the path. Partials outside the root are refused on purpose.
-
-## SN306 include-cycle
-
-Error, for example:
-
-> `a.html` → `b.html` → `a.html` includes itself
-
-Partials include each other in a cycle.
-
-**Fix:** Move the shared part into a third partial that neither includes back.
+**Fix:** Put the inner use in a `<template data-sn-for>` over the children (or a `<template data-sn-if>`), so data ends the recursion.
 
 ## SN307 openapi-invalid
 
@@ -241,6 +231,56 @@ Error, for example:
 `run(id)` starts the action of the element with that literal `id`: an element on the page or one of its partials with `data-sn-get`, `-post`, `-put`, `-patch`, `-delete` or `data-sn-call`. Also reported: an id that is not a string literal, an element without an action, an element inside a `data-sn-for` row (every row would have the id), and an id that more than one element has.
 
 **Fix:** Fix the id, or give the action element an `id`. For a row's action, put one action element outside the list and pass the row through state: `open = m; run('mark-read')`.
+
+## SN312 invalid-component
+
+Error, for example:
+
+> a component has one root element; `<article-preview>` has 2 elements at the top of its template
+
+A file in `src/components/` is not a valid component: it needs one `<template data-sn-component="{ …props }">` (and optionally a `<style>`) with exactly one root element in it, and the root cannot be a `<template>`, a `<slot>` or another component. Also reported: two slots with the same name.
+
+**Fix:** Wrap the markup in one element inside `<template data-sn-component>`: the caller's classes, attributes and handlers land on it.
+
+## SN313 unknown-prop
+
+Error, for example:
+
+> `artcle` is not a prop of `<article-preview>`; its props are `article`, `compact`. Did you mean `article`?
+
+`data-sn-prop` on a component passes a name its `data-sn-component` does not declare, or leaves out a prop that is not optional. Also reported: `data-sn-model` on a component without a `value` prop and a `change` event.
+
+**Fix:** Fix the name, pass the missing prop, or declare it in the component (`{ article: Article; compact?: boolean }`).
+
+## SN314 unknown-slot
+
+Error, for example:
+
+> `<article-preview>` has no slot `meta`. Its slots are `footer`.
+
+Content on a component's tag goes into its `<slot>` elements: a `slot="name"` names a `<slot name>`, the rest goes into the default `<slot>`. Content no slot takes would be dropped.
+
+**Fix:** Fix the slot name, or add the `<slot>` to the component.
+
+## SN315 unknown-component-event
+
+Error, for example:
+
+> `<task-ring>` does not declare the event `pik`; `data-sn-emits` declares `pick`. Did you mean `pick`?
+
+A component's events are the ones its `data-sn-emits` declares: `emit()` inside it, and `data-sn-on-<event>` on its tag, must name one of them (or, on the tag, a DOM event such as `click`).
+
+**Fix:** Fix the name, or declare the event with its detail type: `data-sn-emits="{ pick: 'done' | 'open' }"`.
+
+## SN316 include-removed
+
+Error, for example:
+
+> `<sn-include>` is removed: a partial is a component. Move `./partials/contact-dialog.html` to `src/components/contact-dialog.html`, … It reads `draft`, `save` from the page: add them to `data-sn-component` and pass them with `data-sn-prop="{ draft: draft, save: save }"`
+
+Partials became components. A component sees only its props, so the names a partial read from the page where it was included become props; the message lists them.
+
+**Fix:** Move the file to `src/components/<name>.html` (the name needs a `-`), wrap its markup in `<template data-sn-component="{ draft: Contact; … }">` around one root element, and replace the `<sn-include>` by `<name data-sn-prop="{ draft: draft }"></name>`.
 
 ## SN401 parse-error
 

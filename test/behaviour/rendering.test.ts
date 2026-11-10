@@ -443,11 +443,11 @@ test('render() keeps <html> attributes: persisted state on <html> is read from <
   expect([...document.documentElement.attributes].map((a) => a.name)).toEqual([]);
 });
 
-test('partials are inlined with lexical scope', async () => {
-  const { root } = await render(`
-    <div data-sn-state="{ c: { name: 'Ada' } }"><sn-include src="./card.html"></sn-include></div>`,
-  { files: { 'card.html': '<b data-sn-text="c.name"></b>' } });
-  expect(root.querySelector('b')!.textContent).toBe('Ada');
+test('<sn-include> is removed: the build error names what the partial reads from the page', async () => {
+  await expect(render(`
+    <div data-sn-state="{ c: { name: 'Ada' }, d: 1 }"><template data-sn-for="x in [1]" data-sn-key="x"><sn-include src="./card.html"></sn-include></template></div>`,
+  { files: { 'card.html': '<b data-sn-state="{ own: 2 }" data-sn-text="c.name + x + own"></b>' } }))
+    .rejects.toThrow(/SN316 include-removed: `<sn-include>` is removed: a partial is a component\. Move `\.\/card\.html` to `src\/components\/x-card\.html`.* It reads `c`, `x` from the page: add them to `data-sn-component` and pass them with `data-sn-prop="\{ c: c, x: x \}"`/);
 });
 
 test('islands: props in, events out, state().update()', async () => {
@@ -750,15 +750,15 @@ test('an array as a URL path value is refused', async () => {
   warn.mockRestore();
 });
 
-test('bindings after a partial inside a template keep their node paths', async () => {
+test('bindings after a component inside a template keep their node paths', async () => {
   const { root } = await render(`
     <div data-sn-state="{ show: true, n: 'after' }">
       <template data-sn-if="show">
         <p>before</p>
-        <sn-include src="./part.html"></sn-include>
+        <x-part data-sn-prop="{ n }"></x-part>
         <b data-sn-text="n"></b>
       </template>
-    </div>`, { files: { 'part.html': '<!-- partial -->\n<i data-sn-text="n + \'!\'"></i>\n' } });
+    </div>`, { components: { 'x-part': '<!-- a component -->\n<template data-sn-component="{ n: string }">\n  <!-- its root -->\n  <i data-sn-text="n + \'!\'"></i>\n</template>\n' } });
   expect(root.querySelector('i')!.textContent).toBe('after!');
   expect(root.querySelector('b')!.textContent).toBe('after');
 });

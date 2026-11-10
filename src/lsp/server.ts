@@ -7,7 +7,7 @@ import { CODES, docsUrl, type Diagnostic } from '../compiler/index.js';
 import { check, findTsc, typeExports } from '../check/index.js';
 import { Connection } from './rpc.js';
 import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { didYouMeanEdit } from './quickfix.js';
 import { editFor, fixPlans, plans, type ExtractContext, type Plan } from './extract.js';
 import { TypeScriptBridge, typescriptMajor, type Target } from './typescript.js';
@@ -245,10 +245,11 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
   conn.onRequest('textDocument/definition', async (p: any) => {
     if (!local(p.textDocument.uri)) return null;
     const file = uriToPath(p.textDocument.uri);
-    const partial = includeAt(workspace.read(file), p.position.line, p.position.character);
-    if (partial !== null) {
-      const target = resolve(dirname(file), partial);
-      return existsSync(target) ? [{ uri: pathToUri(target), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } }] : null;
+    // a component's tag opens the component
+    const tag = componentAt(workspace.read(file), p.position.line, p.position.character);
+    if (tag !== null) {
+      const target = join((await workspace.projectFor(file)).root, 'src/components', `${tag}.html`);
+      if (existsSync(target)) return [{ uri: pathToUri(target), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } }];
     }
     const b = await bridgeFor(file);
     if (!b) return null;
@@ -343,12 +344,12 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
   return conn;
 }
 
-/** The `src` of an `<sn-include>` when the 0-based position is inside its value, else null. */
-export function includeAt(text: string, line: number, character: number): string | null {
+/** The tag name (with a `-`, as a component's) when the 0-based position is on it in a start or end tag, else null. */
+export function componentAt(text: string, line: number, character: number): string | null {
   const t = text.split('\n')[line] ?? '';
-  for (const m of t.matchAll(/<sn-include\b[^>]*?\bsrc\s*=\s*(["'])([^"']*)\1/g)) {
-    const start = m.index! + m[0].length - 1 - m[2]!.length;
-    if (character >= start && character <= start + m[2]!.length) return m[2]!;
+  for (const m of t.matchAll(/<\/?([a-z][a-z0-9]*(?:-[a-z0-9]+)+)/g)) {
+    const start = m.index! + m[0].length - m[1]!.length;
+    if (character >= start && character <= start + m[1]!.length) return m[1]!;
   }
   return null;
 }

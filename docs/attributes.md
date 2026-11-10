@@ -13,7 +13,7 @@ Bind values to the page.
 | `data-sn-class` | object literal {unread: …} | toggles each class |
 | `data-sn-style` | object literal {'--color': …} | sets each property with style.setProperty |
 | `data-sn-show` | value expression | toggles the hidden attribute |
-| `data-sn-prop` | object literal | sets JS properties; custom elements only (one defined later gets them again through its setters) |
+| `data-sn-prop` | object literal | sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only |
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item |
 | `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
 | `data-sn-if` | value expression | renders a &lt;template&gt; while truthy |
@@ -71,6 +71,15 @@ Handlers without a request. Details: [events](actions.md), [key filters](actions
 | `data-sn-debounce-<event>` | milliseconds | delays only that event's data-sn-on-&lt;event&gt; handler (it runs with the last event); e.g. data-sn-debounce-input |
 | `data-sn-listbox` | id of the suggestion list, or empty | on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox] around the input), Enter or Tab clicks it, Escape fires `dismiss` |
 
+## Components
+
+On the `<template>` of a component file in `src/components/`. Details: [components](components.md).
+
+| Attribute | Value | Meaning |
+| --- | --- | --- |
+| `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean } |
+| `data-sn-emits` | events type | on the &lt;template data-sn-component&gt;: the events emit() sends and their detail types, e.g. { select: Article } |
+
 ## Pages and navigation
 
 Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [first paint](first-paint.md).
@@ -100,10 +109,6 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 ### `<sn-event>`
 
 `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type`. Maps one server event to a change message; child of &lt;sn-sync&gt;. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close('detail'); with `then`, `resource` and `op` may be left out.
-
-### `<sn-include>`
-
-`src`. Inlines a partial at build time.
 
 ## Names available in expressions
 

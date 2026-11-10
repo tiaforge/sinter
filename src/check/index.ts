@@ -12,7 +12,7 @@ import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compile, MESSAGES } from '../compiler/index.js';
 import { project, type ProjectOptions } from '../project.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
-import { specDeclarations } from './openapi-types.js';
+import { specDeclarations, typeName } from './openapi-types.js';
 import { DECLARATIONS, mapPosition, shadow, type Region, type Shadow } from './shadow.js';
 
 export interface CheckOptions {
@@ -53,6 +53,8 @@ export interface Support {
   openapi: string[];
   /** the app's modules that declare its custom elements or their events (see `augmentations`) */
   augments: string[];
+  /** the type names each spec declares (its named schemas), by spec index: a type the app writes may use them */
+  schemas?: string[][];
 }
 
 /** Writes `sinter.d.ts` and the spec declarations into `outDir`. */
@@ -69,7 +71,8 @@ export function writeSupport(o: { root: string; outDir: string; types: string | 
     return file;
   });
   const types = o.types ? { file: o.types, names: typeExports(readFileSync(o.types, 'utf8')) } : null;
-  return { outDir: o.outDir, declarations, types, openapi, augments };
+  const schemas = (o.openapi ?? []).map((s) => Object.keys((s.doc as { components?: { schemas?: Record<string, unknown> } }).components?.schemas ?? {}).map(typeName));
+  return { outDir: o.outDir, declarations, types, openapi, augments, schemas };
 }
 
 /** The compiler options shadow files are checked with. */
@@ -84,7 +87,7 @@ export function shadowPath(support: Support, root: string, page: string): string
 }
 
 export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest, actions?: HelperManifest): Shadow {
-  return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi });
+  return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}) });
 }
 
 /** A TypeScript error at a 1-based shadow position, as an SN208 diagnostic at the HTML position. */

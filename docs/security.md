@@ -128,7 +128,7 @@ What the build adds to the page and how it fits a strict policy:
 - The compiler uses a spec-compliant HTML parser (the browsers' algorithm, no regular expressions)
   and serializes from that tree, so the compiler and the browser agree on which element an
   attribute belongs to.
-- `<sn-include>` resolves only inside the project root, symlinks included.
+- Component files are read from `src/components/` inside the project root only, symlinks included.
 
 ## Related
 

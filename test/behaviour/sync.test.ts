@@ -262,15 +262,15 @@ test('<sn-sync>s that share a stream URL share one connection, and all their eve
   const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] }, 'GET /api/n': { unread: 0 }, 'GET /api/user': { id: 'me' } });
   try {
     const { root, app, flush, settle } = await render(`
-      <sn-include src="nav.html"></sn-include>
+      <nav-sync></nav-sync>
       ${PAGE}
       <p data-sn-text="n.unread"></p>`, {
       requests,
-      files: { 'nav.html': `<sn-resource name="n" src="/api/n"></sn-resource>
+      components: { 'nav-sync': `<template data-sn-component=""><div><sn-resource name="n" src="/api/n"></sn-resource>
         <sn-sync src="/api/events/stream">
           <sn-event name="unread" resource="n" op="upsert"></sn-event>
           <sn-event name="contacts_refetch" resource="n" op="refetch"></sn-event>
-        </sn-sync>` },
+        </sn-sync></div></template>` },
     });
     await settle();
     expect(connects).toBe(1);
