@@ -2,7 +2,7 @@
 
 **HTML pages that behave like an app.** Add attributes to your HTML to bind the JSON API you already
 have and get live data, instant updates and a first paint with no flicker. Typos fail the build, not
-the page. No components, router or store library to write, and no JavaScript.
+the page. No components, router or store library to write, and no app JavaScript for typical pages: a small runtime ships with each page (14-16 KB).
 
 ```html
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
@@ -43,7 +43,7 @@ the pages.
 | Data on the page goes stale | [Live updates](docs/spec.md#sync-change-messages-and-transports) arrive over SSE or WebSocket and are applied to the right lists. |
 | Forms wait for the server before anything happens | Changes show at once and [roll back on failure](docs/spec.md#optimistic-updates). |
 | A typo only shows up when someone clicks it | The build [checks every name and type](docs/diagnostics.md) and fails. |
-| Adding JavaScript to a page means a pile of tooling | You write attributes. The compiler writes the JavaScript. |
+| Adding behavior means writing and wiring JavaScript | You write attributes. The compiler and a small runtime do the rest. |
 
 ## What you get
 
@@ -139,7 +139,7 @@ Each item links to the details.
   [recipe](docs/recipes/field-errors.html)
 - **Writes that survive a dropped connection.** Retries with idempotency keys, per element.
   [Retries](docs/retry.md), [recipe](docs/recipes/offline-draft.html)
-- **Dialogs, keyboard shortcuts, suggestion lists and row selection** without JavaScript.
+- **Dialogs, keyboard shortcuts, suggestion lists and row selection** in markup, with attributes instead of handlers written by hand.
   [Form dialog](docs/recipes/form-dialog.html),
   [Shortcuts](docs/recipes/keyboard-shortcuts.html),
   [Listbox](docs/spec.md#suggestion-lists-data-sn-listbox),
