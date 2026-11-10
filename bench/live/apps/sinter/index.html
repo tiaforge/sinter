@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>sinter</title>
+  <link rel="icon" href="data:,">
+</head>
+<!-- the whole view is one state value; each tick replaces it with the next (helpers: src/sinter.helpers.js) -->
+<body data-sn-state="{ s: initial() }">
+<sn-sync src="/events?fmt=json">
+  <sn-event name="tick" then="s = advance(s, seq, p, bars, hosts)"></sn-event>
+</sn-sync>
+<main>
+  <header>seq <span id="seq" data-sn-text="s.seq"></span></header>
+  <section class="charts">
+    <template data-sn-for="(sr, k) in s.series" data-sn-key="k">
+      <figure class="chart"><figcaption><span data-sn-text="seriesName(k)"></span> <b data-sn-text="fmt1(sr[sr.length - 1])"></b></figcaption>
+        <svg viewBox="0 0 240 60" preserveAspectRatio="none"><path data-sn-attr="{d: linePath(sr)}"></path></svg></figure>
+    </template>
+  </section>
+  <section class="bars">
+    <template data-sn-for="(v, i) in s.bars" data-sn-key="i"><div class="bar" data-sn-style="{height: v + '%'}"><span data-sn-text="v"></span></div></template>
+  </section>
+  <table><tbody>
+    <template data-sn-for="h in s.hosts" data-sn-key="h.id">
+      <tr><td data-sn-text="h.name"></td><td data-sn-text="fmt1(h.v)"></td><td data-sn-class="{up: h.d > 0, down: h.d < 0}" data-sn-text="fmt2(h.d)"></td></tr>
+    </template>
+  </tbody></table>
+</main>
+</body>
+</html>

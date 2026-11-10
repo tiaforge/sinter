@@ -1,0 +1,26 @@
+{
+  "name": "live-dashboard-benchmark",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A live dashboard fed by SSE at rising rates: sinter, Solid, Svelte, Vue, Datastar, htmx",
+  "scripts": {
+    "build": "node build.mjs",
+    "bench": "node run.mjs"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@tiaforge-ui/sinter": "file:../..",
+    "htmx-ext-sse": "2.2.4",
+    "htmx.org": "2.0.11",
+    "solid-js": "1.9.18",
+    "svelte": "5.57.3",
+    "vue": "3.5.45"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@vitejs/plugin-vue": "6.0.10",
+    "vite": "8.3.5",
+    "vite-plugin-solid": "2.11.15"
+  }
+}
