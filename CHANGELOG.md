@@ -7,6 +7,12 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Bindings over embedded data render before the first paint: on a page whose `<script type="application/json"
+  data-sn-data>` a server filled in, the early script also renders the bindings that read those resources,
+  `data-sn-for` rows included, and `$url`, as the parser goes. The page module adopts the rows (binds them, no
+  second render). A server (a middleware) only has to fetch the API and write its JSON into the page; no DOM,
+  no server rendering. Measured against Qwik City in docs/first-paint-comparison.md.
+
 - `sinter({ fonts: { preload: [...] } })` (opt-in): preloads faces of the Google Fonts the pages link
   (a family for its regular face, or `{ family, weight, style }`), their Latin file, in builds and dev.
   The build fails when a page preloads a family none of its stylesheets uses, or a face no page has;
@@ -14,6 +20,20 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- First paint no longer holds the paint (PR #16). The early file is a classic script first in the head (one
+  shared by every page, `assets/sinter-head-<hash>.js`, and the page's own, `assets/<page>-head-<hash>.js`)
+  that renders each early binding as the parser inserts its element (a `MutationObserver`). Gone: the
+  render-blocking early module (`blocking="render"`), its split `async` file and stub, the chunk it shared
+  with the page bundle, the Firefox fallback that hid `<html>` (`sinter-paint-<hash>.js`), and the blocking
+  language file. RealWorld, Chromium on slow 4G cold: first paint 564 → 508 ms (home), 544 → 484 ms
+  (article), no wrong frame in 240 loads either way; Caley's persisted rail collapsed in the first frame in
+  Chromium and Firefox. `vite dev` works the same way.
+- Messages: the language file is not waited for. The base language's text is in the HTML (`data-sn-m`);
+  for another language those elements are hidden, their space kept, until the page module has rendered
+  them (3 s at most), so nobody sees one language replaced by another.
+- The early script writes an element's attribute-like bindings (`attr`, `class`, `style`, `show`) when the
+  parser inserts it, and its content (text, a control's value, `if`, `for`) once the parser has closed it.
+  Before, a persisted class on an element that wraps the page waited for the end of the document.
 - One classic head script per page: a page that uses `data-sn-transition` and has an early file or
   messages gets the hold script and the paint script (or the language picker) in one file,
   `assets/sinter-head-<hash>.js`, instead of `sinter-hold-<hash>.js` plus the other: one parser-blocking
