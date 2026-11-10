@@ -118,6 +118,40 @@ src/components/live-clock.ts            ...plus a script, run per instance by si
 - Other attributes (`class`, `id`, `aria-*`, layout attributes such as temper's `data-grow`) and
   handlers move onto the component's root element (next section).
 
+### Custom inputs: `data-sn-model`
+
+A component can be bound like a form control. `data-sn-model` on a component is two-way, as it is
+on `<input>`: the component shows the state value, and its changes write it back.
+
+```html
+<form data-sn-put="/api/contacts/{draft.id}">
+  <rating-input data-sn-model="draft.stars"></rating-input>
+  <button>Save</button>
+</form>
+```
+
+- **It is shorthand, not a new mechanism:** `data-sn-model="draft.stars"` is
+  `data-sn-prop="{ value: draft.stars }"` plus `data-sn-on-change="draft.stars = $event.detail"`.
+- **The component opts in** by declaring a `value` prop and a `change` event
+  (`data-sn-emits="{ change: number }"`). `data-sn-model` on a component without them is a build
+  error, and the compiler checks that the state path's type matches `value`.
+- **It binds state, never a resource,** as on `<input>`: resources are read-only in expressions
+  (`SN205`). The usual flow is the form dialog's: copy the row into a draft
+  (`draft = structuredClone(c)`), bind the draft's fields, and save with the form's action;
+  write-through then patches the resource. To save on each change instead, use an action on the
+  component's event with an optimistic `patch`:
+
+  ```html
+  <rating-input data-sn-prop="{ value: c.stars }"
+                data-sn-patch="/api/contacts/{c.id}" data-sn-trigger="change"
+                data-sn-body="{ stars: $event.detail }"
+                data-sn-optimistic="patch(c, { stars: $event.detail })"></rating-input>
+  ```
+- **`data-sn-persist`** works with it, as on `<input>`.
+- **Form integration** (a `name` submitted with the form, `reset()`, validation) is not part of it
+  at first: the form's action sends the draft through `data-sn-body`. It can come later, once the
+  form cases are clear.
+
 ### The tag: replaced by the root
 
 The component's tag does not stay in the page. **Each use is replaced by the component's root
@@ -485,6 +519,7 @@ has no store code**. `npm run size` must show the core unchanged.
    - diagnostics, `sinter check`, LSP
    - first paint through components, with tests
    - removing `<sn-include>`: the migration error, ids across components, the template's header
+   - `data-sn-model` on components: the `value` prop and `change` event, checked
 3. **Store functions:** `patch(item, …)` and `remove(item)` resolved from where the item came from,
    replacing the forms with a resource name; provenance through state assignments and component
    props. This step is useful for pages on its own and can ship before components.
@@ -501,8 +536,6 @@ has no store code**. `npm run size` must show the core unchanged.
 
 ## Open questions
 
-6. **Two-way props.** `data-sn-model` on a component, for a custom input? Events cover it, but
-   forms are where people will expect it.
 7. **Exporting.** sinter components are not custom elements. Should a component also build as a
    standalone custom element for use outside sinter (a generated wrapper that runs the script and
    the bindings), and when?
