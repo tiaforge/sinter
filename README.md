@@ -38,7 +38,7 @@ problems and keeps the simplicity.
 | --- | --- |
 | Pages flash empty, then fill in | The page shows its layout, saved values and your data in the **first frame**, [also on the very first visit](docs/spec.md#first-paint). |
 | Showing data means rendering every page on a server, which costs CPU on every visit | A small layer writes the API's JSON into the HTML as it is sent. **Nothing is rendered on the server.** About 2 ms per page, [roughly ten times cheaper than server rendering](docs/first-paint-comparison.md). |
-| Every click is a full reload with a white flash | The next page's data and HTML are [fetched while the pointer rests on the link](docs/navigation.md), and pages [cross-fade or morph](docs/navigation.md#page-transitions). |
+| Every click is a full reload with a white flash | The next page's data is [fetched while the pointer rests on the link](docs/navigation.md) (all browsers); Chromium also prefetches or prerenders the HTML, and Chromium and Safari 18.2+ [cross-fade or morph](docs/navigation.md#page-transitions) the pages. |
 | Data on the page goes stale | [Live updates](docs/spec.md#sync-change-messages-and-transports) arrive over SSE or WebSocket and are applied to the right lists. |
 | Forms wait for the server before anything happens | Changes show at once and [roll back on failure](docs/spec.md#optimistic-updates). |
 | A typo only shows up when someone clicks it | The build [checks every name and type](docs/diagnostics.md) and fails. |
@@ -65,6 +65,18 @@ problems and keeps the simplicity.
   correctly on the first try (`llms.txt` ships with the package).
 - **Small and safe.** 14-16 KB of JavaScript per page. No `eval`, no `unsafe-eval` in your Content
   Security Policy, and markup injected at runtime stays inert.
+
+## Browser support
+
+Everything works in current Chromium, Firefox and Safari (WebKit); the test suite runs in all three.
+Three navigation extras depend on the browser and degrade to a normal page load:
+
+| | Chromium | Safari | Firefox |
+| --- | :---: | :---: | :---: |
+| First frame, live data, optimistic updates | yes | yes | yes |
+| Next-page data on hover or press | yes | yes | yes |
+| Speculation Rules (HTML prefetch, prerender) | yes | no | no |
+| Page cross-fade and morph | yes | 18.2+ | no |
 
 ## Try it
 
@@ -140,8 +152,9 @@ Each item links to the details.
 - **A server layer that does not render.** [`sinter-axum`](packages/sinter-axum) (Rust, a `tower`
   layer) streams the head first, then writes each API response into its slot. The build checks
   at compile time that every slot can be filled.
-- **Instant navigation.** Next-page data, Speculation Rules (prefetch or prerender), and a morph
-  from a list row into its detail page. [Navigation](docs/navigation.md)
+- **Instant navigation.** Next-page data (all browsers), Speculation Rules to prefetch or prerender
+  (Chromium), and a morph from a list row into its detail page (Chromium, Safari 18.2+; Firefox
+  navigates without it). [Navigation](docs/navigation.md)
 - **Preloading done for you.** Preconnect to API origins, `preload` for requests known at build
   time, low priority for data behind dialogs, fonts bundled at build time.
   [First paint](docs/spec.md#first-paint)
