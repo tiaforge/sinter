@@ -290,13 +290,18 @@ test('first paint: an early module\'s dynamic import is inlined, without a depre
   expect(said.join('\n')).not.toMatch(/inlineDynamicImports|codeSplitting/);
 });
 
-test('first paint in the dev server: the early chunk as a module of its own, before the page module', async () => {
+test('first paint in the dev server: the early script as in builds, one classic script first in the head, the runtime bundled in', async () => {
   const server = await createServer({ root, logLevel: 'silent', resolve: { alias }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', plugins: [sinter()] });
   try {
     const html = await server.transformIndexHtml('/index.html', readFileSync(join(root, 'index.html'), 'utf8'));
-    expect(html).toMatch(/<script type="module" src="\/@sinter\/early\/index\.html\.js" blocking="render"><\/script><script type="module" src="\/@sinter\/index\.html\.js"><\/script>/);
+    const tag = html.indexOf('<script src="/@sinter/early/index.html.js"></script>');
+    expect(tag).toBeGreaterThan(0);
+    expect(tag).toBeLessThan(html.indexOf('<script type="module" src="/@sinter/index.html.js"></script>'));
+    expect(html).not.toContain('blocking=');
     const js = await server.transformRequest('/@sinter/early/index.html.js');
-    expect(js?.code).toContain('sinter.early.js');
+    expect(js?.code).toContain('MutationObserver');
+    expect(js?.code).toMatch(/dataset\.early = ["']yes["']/);   // the app's early module
+    expect(js?.code).not.toMatch(/^\s*(import|export)\s/m);
   } finally {
     await server.close();
   }

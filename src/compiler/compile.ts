@@ -85,7 +85,7 @@ export interface CompileOptions {
    * credentials, as the request layer sends cross-origin requests
    */
   origins?: string[];
-  /** builds: the early module runs as a classic script in the head, started by `observe` (see `@tiaforge-ui/sinter/early`) */
+  /** the early module runs as a classic script in the head, started by `observe` (see `@tiaforge-ui/sinter/early`); with `early.src`, its tag is classic */
   observe?: boolean;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
@@ -2271,9 +2271,17 @@ class Compiler {
       head.childNodes.splice(at, 0, ...(links as never[]));
     }
     if (early) {
-      const tag = parse5.parseFragment(`<script type="module" src="${esc(early)}" blocking="render"></script>`).childNodes[0] as P5Element;
+      // with `observe`, a classic script (the dev server bundles it) after the leading <meta>s, before stylesheets
+      // (a classic script waits for those before it) and scripts: it renders as the parser goes; else a
+      // render-blocking module, before the page module
+      const observe = !!this.opts.observe;
+      const tag = parse5.parseFragment(observe ? `<script src="${esc(early)}"></script>` : `<script type="module" src="${esc(early)}" blocking="render"></script>`).childNodes[0] as P5Element;
       tag.parentNode = head;
-      head.childNodes.push(tag as never);
+      if (observe) {
+        let at = 0;
+        for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta') break; if (isElement(n)) at = i + 1; }
+        head.childNodes.splice(at, 0, tag as never);
+      } else head.childNodes.push(tag as never);
     }
     const src = this.opts.moduleSrc ?? `./${basename(this.opts.file).replace(/\.html?$/, '')}.sinter.js`;
     const frag = parse5.parseFragment(`<script type="module" src="${esc(src)}"></script>`);

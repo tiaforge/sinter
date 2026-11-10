@@ -138,6 +138,58 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     modules.set(id, code);
     if (map) maps.set(id, map); else maps.delete(id);
   };
+  /**
+   * One classic script (IIFE) from an early module's `code`, with nothing imported: builds (the shared head script
+   * and each page's) and the dev server (a page's whole early script). `rt`: the runtime's exports it takes from the
+   * shared head script's global (`runtimeId`: the runtime's resolved id); null: the runtime is bundled in. `map`: the
+   * module's own (dev), carried into the script's (the entry then has a plain id: Rolldown drops a `\0` module's map).
+   */
+  const earlyScript = async (code: string, keys: Set<string>, rt: string[] | null, what: string, runtimeId: string | null = null, map?: SourceMap) => {
+        const r = resolved!, ENTRY = `${PREFIX}early-entry.js`, entryId = map ? ENTRY : '\0' + ENTRY;
+        const vite = await import('vite'), rolldown = 'rolldownVersion' in vite;
+        const out = await vite.build({
+          configFile: false, root, base: r.base, mode: dev ? 'development' : r.mode, logLevel: 'silent', publicDir: false, define: r.define,
+          resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions },
+          plugins: [{
+            name: 'sinter:early-entry', enforce: 'pre',
+            async resolveId(id, importer, o) {
+              if (id === ENTRY) return entryId;
+              if (!rt || id === RT_ID) return null;
+              // the runtime, however it is named (an alias may resolve the package to its source)
+              if (id === EARLY_PKG) return RT_ID;
+              const res = await this.resolve(id, importer, { ...o, skipSelf: true });
+              return res && runtimeId && res.id === runtimeId ? RT_ID : null;
+            },
+            load: (id) => (id === entryId ? (map ? { code, map } : code) : id === RT_ID ? `const R = globalThis[Symbol.for(${JSON.stringify(RT_KEY)})];\nexport const { ${rt!.join(', ')} } = R;\n` : null),
+            transform(src, id) { if (messages && !id.includes('/node_modules/') && /\.[cm]?[jt]sx?$/.test(id)) for (const k of moduleKeys(src, id).keys) keys.add(k); },
+          }],
+          build: {
+            write: false, minify: dev ? false : r.build.minify, target: r.build.target, sourcemap: !!map, modulePreload: false, copyPublicDir: false, reportCompressedSize: false,
+            // one file: dynamic imports inlined. Vite 8 bundles with Rolldown (`codeSplitting: false`; it
+            // deprecates `inlineDynamicImports`), Vite 6 and 7 with Rollup, which knows only the latter.
+            [rolldown ? 'rolldownOptions' : 'rollupOptions']: {
+              input: ENTRY,
+              output: { format: 'iife', ...(rolldown ? { codeSplitting: false } : { inlineDynamicImports: true }) },
+            },
+          },
+        });
+        const output = (Array.isArray(out) ? out[0] : out) as { output: Array<{ type: string; fileName: string; code?: string; map?: SourceMap | null; modules?: Record<string, { renderedLength: number }> }> };
+        const chunks = output.output.filter((c) => c.type === 'chunk');
+        if (chunks.length !== 1) throw new Error(`sinter: the early script of ${what} came out as ${chunks.length} chunks; it must be one file with nothing imported`);
+        // the map's sources are relative to where the script would have been written: absolute, as the page module's
+        const c = chunks[0]!, at = resolve(root, r.build.outDir, posix.dirname(c.fileName));
+        if (c.map) c.map.sources = c.map.sources.map((x) => (x && !x.startsWith('\0') ? resolve(at, x) : x));
+        return { code: c.code!, map: c.map ?? null, modules: c.modules ?? {} };
+  };
+  /** dev: each page's early script, bundled when first requested (cleared when a watched file changes) */
+  const devEarly = new Map<string, Promise<{ code: string; map: SourceMap | null }>>();
+  /** dev: the early module `key` (`/@sinter/early/<page>.js`) as one classic script, the runtime bundled in, as in builds */
+  const devScript = (key: string) => {
+    const code = modules.get(key)!;
+    let js = devEarly.get(code);
+    if (!js) devEarly.set(code, (js = earlyScript(code, new Set(), null, key.slice(EARLY.length, -3), null, maps.get(key))));
+    return js;
+  };
   const watched = new Set<string>();
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
@@ -303,9 +355,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
-      ...(firstPaint && !dev && p.messages ? { baseMessages: p.messages.dicts[p.messages.base] ?? {} } : {}),
+      ...(firstPaint && p.messages ? { baseMessages: p.messages.dicts[p.messages.base] ?? {} } : {}),
       ...(options.origins?.length ? { origins: options.origins } : {}),
-      ...(firstPaint && !dev ? { observe: true } : {}),
+      ...(firstPaint ? { observe: true } : {}),
     });
     if (out.early) setModule(`${EARLY}${rel}.js`, out.early, out.earlyMap);
     if (out.module.includes(`/transition';`)) holdPages.add(rel); else holdPages.delete(rel);
@@ -361,10 +413,22 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }, next);
       });
       s.middlewares.use(rulesMiddleware(rulesJson));
+      // the early script is a classic script: served as bundled, not through the module pipeline (which would add
+      // imports, e.g. Vite's query helper for a dynamic import), its map inline
+      s.middlewares.use((req, res, next) => {
+        const base = resolved?.base ?? '/', url = req.url?.split('?')[0] ?? '';
+        const key = url.startsWith(base + EARLY.slice(1)) ? '/' + url.slice(base.length) : null;
+        if (!key || !modules.has(key)) return next();
+        devScript(key).then(({ code, map }) => {
+          res.setHeader('Content-Type', 'text/javascript');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.end(map ? `${code}\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(map)).toString('base64')}\n` : code);
+        }, next);
+      });
       // an HTML, partial or helpers change triggers a full reload in v0.1
       s.watcher.on('change', (file) => {
         // a page's resources may have changed: the next-page module is described again
-        if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); }
+        if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear(); }
         if (watched.has(file)) s.ws.send({ type: 'full-reload' });
       });
     },
@@ -412,7 +476,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      * configure()) is set again by the page.
      */
     async generateBundle(_, bundle) {
-      const r = resolved!, ENTRY = `${PREFIX}early-entry.js`;
+      const r = resolved!;
       if (remoteConfig?.url.startsWith('/_vercel/image') && remoteWidths.size) {
         r.logger.info(`sinter: images from the API use these widths; Vercel resizes only the ones in vercel.json: "images": { "sizes": [${[...remoteWidths].sort((a, b) => a - b).join(', ')}], "remotePatterns": [...] }`);
       }
@@ -423,41 +487,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }));
       }
       const earlyKeys = new Map<string, Set<string>>();
-      const vite = earlyPages.size ? await import('vite') : null;
-      const rolldown = !!vite && 'rolldownVersion' in vite;
-      /** one classic script from `code`; `rt`: the runtime's exports it takes from the shared head script's global */
-      const bundleEarly = async (code: string, keys: Set<string>, rt: string[] | null, what: string) => {
-        const out = await vite!.build({
-          configFile: false, root, base: r.base, mode: r.mode, logLevel: 'silent', publicDir: false, define: r.define,
-          resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions },
-          plugins: [{
-            name: 'sinter:early-entry', enforce: 'pre',
-            async resolveId(id, importer, o) {
-              if (id === ENTRY) return '\0' + ENTRY;
-              if (!rt || id === RT_ID) return null;
-              // the runtime, however it is named (an alias may resolve the package to its source)
-              if (id === EARLY_PKG) return RT_ID;
-              const res = await this.resolve(id, importer, { ...o, skipSelf: true });
-              return res && runtimeId && res.id === runtimeId ? RT_ID : null;
-            },
-            load: (id) => (id === '\0' + ENTRY ? code : id === RT_ID ? `const R = globalThis[Symbol.for(${JSON.stringify(RT_KEY)})];\nexport const { ${rt!.join(', ')} } = R;\n` : null),
-            transform(src, id) { if (messages && !id.includes('/node_modules/') && /\.[cm]?[jt]sx?$/.test(id)) for (const k of moduleKeys(src, id).keys) keys.add(k); },
-          }],
-          build: {
-            write: false, minify: r.build.minify, target: r.build.target, modulePreload: false, copyPublicDir: false, reportCompressedSize: false,
-            // one file: dynamic imports inlined. Vite 8 bundles with Rolldown (`codeSplitting: false`; it
-            // deprecates `inlineDynamicImports`), Vite 6 and 7 with Rollup, which knows only the latter.
-            [rolldown ? 'rolldownOptions' : 'rollupOptions']: {
-              input: ENTRY,
-              output: { format: 'iife', ...(rolldown ? { codeSplitting: false } : { inlineDynamicImports: true }) },
-            },
-          },
-        });
-        const output = (Array.isArray(out) ? out[0] : out) as { output: Array<{ type: string; code?: string; modules?: Record<string, { renderedLength: number }> }> };
-        const chunks = output.output.filter((c) => c.type === 'chunk');
-        if (chunks.length !== 1) this.error(`sinter: the early script of ${what} came out as ${chunks.length} chunks; it must be one file with nothing imported`);
-        return { code: chunks[0]!.code!, modules: chunks[0]!.modules ?? {} };
-      };
+      const bundleEarly = (code: string, keys: Set<string>, rt: string[] | null, what: string) => earlyScript(code, keys, rt, what, runtimeId);
       const runtimeId = earlyPages.size ? (await this.resolve(EARLY_PKG, resolve(root, 'index.html')))?.id ?? null : null;
       if (earlyPages.size) {
         // the app's early module runs once, from the shared script, before any page's bindings
@@ -537,7 +567,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return null;
     },
 
-    load(id) {
+    async load(id) {
       if (id.startsWith(`\0${IMG_CSS}`)) return imageCss.get(id.slice(IMG_CSS.length + 1, -4)) ?? '';
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
@@ -549,6 +579,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (key === null) return null;
       const code = modules.get(key);
       if (code === undefined) throw new Error(`sinter: page module ${key} requested before its HTML was compiled`);
+      // dev: the page's whole early script (also served by the middleware above, outside the module pipeline)
+      if (dev && key.startsWith(EARLY)) { const { code: c, map: m } = await devScript(key); return m ? { code: c, map: m } : c; }
       const map = maps.get(key);
       return map ? { code, map } : code;
     },
@@ -612,8 +644,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         setModule(moduleSrc, out.module, out.map);
         invalidate(moduleSrc);
         invalidate(`${EARLY}${rel}.js`);
-        // dev: the picker first in the head, with every language's whole dictionary (else, with an early
-        // file, the paint script); a build adds them after bundling
+        // dev: the picker first in the head, with every language's whole dictionary; a build adds it after bundling
         const base = resolved?.base ?? '/', early = out.early != null;
         // dev: the console warns about images shown with too few pixels
         const checked = dev && images ? out.html.replace('</body>', `<script type="module" src="${base}${PREFIX.slice(1)}img-check.js"></script></body>`) : out.html;
