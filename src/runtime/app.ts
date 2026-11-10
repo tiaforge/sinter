@@ -334,6 +334,8 @@ const indexReaders = new WeakMap<TemplateDef, boolean>();
 const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
 /** row templates: whether each holds one element (see oneElement()) */
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
+/** set by the early script on a `data-sn-for` template whose rows it rendered from embedded data: each row's nodes, the end marker */
+const EARLY_ROWS = Symbol.for('sinter.early.rows');
 /** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
 const EARLY = Symbol.for('sinter.early');
 const simple = new WeakMap<TemplateDef, Simple | null>(), SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
@@ -389,8 +391,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     t(el: HTMLElement, _n: string, v: any) {
       const t = el.firstChild as Text | null;
       v = '' + (v ?? '');
-      if (t?.nodeType == 3 && !t.nextSibling) t.data = v;
-      else el.textContent = v;
+      // the same text is not written again: an adopted early row, or a server-rendered one, keeps its text node
+      // (a write counts as new content for the browser's paint timing, LCP)
+      if (t?.nodeType == 3 && !t.nextSibling) { if (t.data !== v) t.data = v; }
+      else if (el.textContent !== v) el.textContent = v;
     },
     h(el: HTMLElement, _n: string, v: any) { el.hidden = !v; },
     p(el: HTMLElement, n: string, v: any) {
@@ -939,8 +943,27 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   function reconcile(rb: RB, v: any) {
-    const t = rb.t!, old = rb.rows!, end = (rb.end ??= after(rb.el)), tpl = rb.el as HTMLTemplateElement;
     const items: unknown[] = v == null ? [] : Array.isArray(v) ? v : Symbol.iterator in Object(v) ? [...v] : [];
+    // rows the early script rendered from the page's embedded data: adopted (bound, not cloned again) when there
+    // are as many items, else removed; the row's values are written again, so a changed item still renders right
+    const pre: { rows: Node[][]; end: Comment } | undefined = (rb.el as any)[EARLY_ROWS];
+    if (pre) {
+      delete (rb.el as any)[EARLY_ROWS];
+      const t = rb.t!, tpl = rb.el as HTMLTemplateElement;
+      if (!rb.rows!.length && !rb.end && pre.rows.length == items.length) {
+        rb.end = pre.end;
+        rb.rows = items.map((item, i) => {
+          const s = setRow(Object.create(rb.s), t, item, i);
+          return instantiate(tpl, t, s, keyOf(t, item, s), item, i, pre.rows[i]);
+        });
+        rb.rr = round;
+        rb.pf = true;
+        return;
+      }
+      for (const n of pre.rows.flat()) (n as ChildNode).remove();
+      pre.end.remove();
+    }
+    const t = rb.t!, old = rb.rows!, end = (rb.end ??= after(rb.el)), tpl = rb.el as HTMLTemplateElement;
     const n = items.length, m = old.length, rows: Inst[] = new Array(n), moved = readsIndex(t);
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;

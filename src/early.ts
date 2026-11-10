@@ -41,7 +41,7 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'emb'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale };
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
@@ -112,29 +112,36 @@ export function observe(page: EarlyPage | null, messages: { use(): void; state?(
   const prep = p, I = messages?.state?.();
   const waiting = () => !!I?.locale && !I.dicts?.[I.locale];
   /** the roots seen and not rendered yet; `pick`: rendered in this pass, by `data-sn` id */
-  const pending = new Set<Element>();
+  /** every root seen, by `data-sn` id (a binding may name another root: an `if` its `data-sn-else`); `fresh`: any since the last pass */
+  const roots = new Map<number, Element>();
+  let fresh = false, held = 0;
+  const root = (el: Element) => { roots.set(+el.getAttribute('data-sn')!, el); fresh = true; };
   const add = (n: Node) => {
     if (n.nodeType != 1) return;
-    if ((n as Element).hasAttribute('data-sn')) pending.add(n as Element);
+    if ((n as Element).hasAttribute('data-sn')) root(n as Element);
     // a node inserted with children (a parser chunk, or a branch clone): its roots too
-    if ((n as Element).firstElementChild) for (const el of (n as Element).querySelectorAll('[data-sn]')) pending.add(el);
+    if ((n as Element).firstElementChild) for (const el of (n as Element).querySelectorAll('[data-sn]')) root(el);
   };
   const pass = (all: boolean) => {
-    const pick = new Map<number, Element>();
-    for (const el of pending) if (all || ready(el)) { pending.delete(el); pick.set(+el.getAttribute('data-sn')!, el); }
-    if (!pick.size) return;
-    live = pick;
+    // every root seen so far: its attribute-like bindings are written at once (its attributes are all there when the
+    // parser inserts it), its content bindings once the parser has closed it (`w`, each binding once). A pass runs
+    // when roots were added or a content binding is still waiting
+    if (!all && !fresh && !held) return;
+    fresh = false;
+    live = { pick: roots, all, waiting: new Set() };
+    const cur = live;
     // a missing dictionary: `m` throws (its lookup reads this), so those bindings are left for later
     const trap = waiting() && I!.dicts ? (I!.dicts[I!.locale!] = new Proxy({}, { get() { throw NOT_YET; } })) : null;
     try { prep.render(doc); } catch (e) { fail(e); }
     if (trap && I!.dicts![I!.locale!] === trap) delete I!.dicts![I!.locale!];
     live = null;
+    held = cur.waiting.size;
   };
   let ended = false;
   const seen = (rs: MutationRecord[]) => { for (const r of rs) for (const n of r.addedNodes) add(n); };
   const o = new MutationObserver((rs) => { if (ended) return; seen(rs); pass(false); });
   // what is parsed already (`<html>`, the head so far)
-  for (const el of doc.querySelectorAll('[data-sn]')) pending.add(el);
+  for (const el of doc.querySelectorAll('[data-sn]')) root(el);
   o.observe(doc.documentElement, { childList: true, subtree: true });
   pass(false);
   if (I && waiting()) {
@@ -157,7 +164,12 @@ const NOT_YET = Symbol('not yet');
 /** what `observe` reads of the messages' shared state (messages.ts) */
 interface I18nLike { locale?: string; dicts?: Record<string, unknown>; loaded?: (l: string) => void }
 /** during an observing pass: the roots it renders, by `data-sn` id */
-let live: Map<number, Element> | null = null;
+let live: { pick: Map<number, Element>; all: boolean; waiting: Set<Element> } | null = null;
+/** observing: the bindings already written, by element (a root whose content waits is rendered again by later passes) */
+const wrote = new WeakMap<Element, Set<string>>();
+let fnIds = new WeakMap<Fn, number>(), fnN = 0;
+/** a content binding (text, a control's value, an `if` or `for` template) waits for the parser to close its element */
+const content = (el: Element, wr: unknown) => el.localName == 'template' || wr === text || wr === model;
 /** the bindings skipped for a missing dictionary, tried again when it arrives */
 const retries: Array<() => void> = [];
 
@@ -177,13 +189,36 @@ const ready = (el: Element) => {
   return closed(el) && (!e || !e.hasAttribute('data-sn-else') || closed(e));
 };
 
+/** `$r` over the page's embedded data: each resource's items (by its `items` path), parsed once; another resource throws */
+function embedded(emb: NonNullable<EarlyIR['emb']>): any {
+  const got = new Map<string, unknown>();
+  return new Proxy(Object.create(null), {
+    get(_, name) {
+      const e = typeof name == 'string' ? emb[name] : undefined;
+      if (!e) throw Error('sinter: not available early');
+      if (!got.has(name as string)) {
+        const el = document.querySelector(`head > script[data-sn="${e.id}"]`);
+        let v: any = JSON.parse(el!.textContent!);
+        for (const k of e.items ? e.items.split('.') : []) v = v?.[k];
+        got.set(name as string, v);
+      }
+      return got.get(name as string);
+    },
+  });
+}
+
 /** The base scope: what is not available before data throws, and the binding (or request) is left to the page module. */
 function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
+  let emb: any = null, url: any = null;
   return new Proxy(Object.create(null), {
     get(_, k) {
       // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
       const l = k == '$locale' ? o.locale?.() : null;
       if (l) return l.get();
+      // the resources whose data is embedded in the page: read from it (the head is parsed before any binding)
+      if (k == '$r' && o.ir.emb) return (emb ??= embedded(o.ir.emb));
+      // bindings over embedded data may read the URL (a page without early requests: read here)
+      if (k == '$url' && o.ir.emb && !req) return (url ??= readUrl(location.href, o.ir.path));
       // for requests only: no early binding reads the clock or the URL
       if (req) return req.read(k, o.ir.path);
       throw Error('sinter: not available early');
@@ -310,7 +345,7 @@ export function pm(s: any, key: string, set: Fn): void {
 /** the root elements by `data-sn` id, in the order given */
 export function byId(doc: Document, ids: Array<number | undefined>): Array<Element | null> {
   // observing: the roots of this pass, each once, when the parser has closed it
-  if (live) { const l = live; return ids.map((i) => l.get(i!) ?? null); }
+  if (live) { const l = live.pick; return ids.map((i) => l.get(i!) ?? null); }
   const m = new Map<number, Element>();
   for (const el of doc.querySelectorAll('[data-sn]')) m.set(+el.getAttribute('data-sn')!, el);
   return ids.map((i) => m.get(i!) ?? null);
@@ -329,6 +364,16 @@ export function at(nodes: Node[], path: number[], tag: string): Element | null {
 /** one binding's first write: its value in `s` (one that throws is the page module's), written by `wr` */
 export function w(el: Element | null, f: Fn, s: any, wr: (el: any, v: any, n: string) => void, n = ''): void {
   if (!el) return;
+  if (live) {
+    // observing: each binding once; a content binding of an element the parser has not closed yet waits
+    let id = fnIds.get(f);
+    if (id == null) fnIds.set(f, (id = fnN++));
+    const key = id + ' ' + n + ' ' + (content(el, wr) ? 'c' : 'a'), done = wrote.get(el) ?? new Set<string>();
+    if (done.has(key)) return;
+    if (!live.all && content(el, wr) && !ready(el)) { live.waiting.add(el); return; }
+    done.add(key);
+    wrote.set(el, done);
+  }
   let v: any;
   try { v = f(s); } catch (e) {
     // a message whose dictionary is on its way: tried again when it arrives (observe)
@@ -354,6 +399,28 @@ export function iff(tpl: HTMLTemplateElement, v: unknown, other: HTMLTemplateEle
   if (r) r(nodes, Object.create(s));
 }
 type Branch = (nodes: Node[], s: any) => void;
+
+/** set on a `data-sn-for` template whose rows `each` rendered: each row's nodes and the end marker, for the page module to adopt */
+export const EARLY_ROWS = Symbol.for('sinter.early.rows');
+export interface EarlyRows { rows: Node[][]; end: Comment }
+
+/**
+ * A `data-sn-for` over embedded data: a clone of the template per item, after it, each rendered by `r` over a scope
+ * with the loop variable (and index). The rows are left on the template: the page module adopts them (binds them
+ * instead of new clones) when its list has the same number of items, else removes them.
+ */
+export function each(tpl: HTMLTemplateElement, list: unknown, r: Branch | 0, item: string, index: string | null, s: any): void {
+  if (!Array.isArray(list) || !list.length) return;
+  const end = new Comment(), rows: Node[][] = [];
+  tpl.after(end);
+  list.forEach((v, i) => {
+    const nodes = [...(tpl.content.cloneNode(true) as DocumentFragment).childNodes];
+    end.before(...nodes);
+    rows.push(nodes);
+    if (r) { const sc = Object.create(s); sc[item] = v; if (index) sc[index] = i; r(nodes, sc); }
+  });
+  (tpl as any)[EARLY_ROWS] = { rows, end } satisfies EarlyRows;
+}
 
 // the writers, as the runtime's first write
 export const text = (el: HTMLElement, v: any) => { el.textContent = '' + (v ?? ''); };

@@ -86,6 +86,8 @@ export function earlyRender(ir: EarlyIR, fns: string[] = []): EarlyRender {
         if (b.k == 'else') continue;
         const call = (wr: string, name?: string) => `${use('w')}(n[${i}], f[${b.f}], ${sc[i]}, ${wr}${name !== undefined ? `, ${str(name)}` : ''});`;
         if (b.k == 'if') out.push(call(`(t, v) => ${use('iff')}(t, v, ${b.y != null ? `n[${b.y}]` : 'null'}, ${branch(b.x!)}, ${elseOf(defs, b)}, ${sc[i]})`));
+        // a `data-sn-for` over embedded data: a row per item, its bindings over the row's scope
+        else if (b.k == 'for') { const t = ir.templates[b.x!]; out.push(call(`(t, v) => ${use('each')}(t, v, ${branch(b.x!)}, ${str(t?.item ?? 'item')}, ${str(t?.index ?? null)}, ${sc[i]})`)); }
         else if (b.k == 'class') out.push(b.n ? call(use('cls'), b.n) : call(use('pair')));
         // an attribute needs the browser's URL check only if it is a URL attribute and its scheme is not fixed by the expression
         else if (b.k == 'attr') out.push(call(use(URL_ATTR.test(b.n!.toLowerCase()) || b.n!.toLowerCase().endsWith('srcset') ? (fns[b.f!] != null && fixedScheme(fns[b.f!]!) ? 'set' : 'attr') : 'set'), b.n));
