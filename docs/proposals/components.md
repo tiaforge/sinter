@@ -233,7 +233,7 @@ the feed, the profile and the article page:
 </template>
 ```
 
-- **`patch(article, …)` takes no resource name** (see [Store functions](#store-functions-item-or-list)).
+- **`patch(article, …)` takes no resource name** (see [Store functions](#store-functions-resolved-from-the-item)).
   It changes the article wherever it is: a row of `articles` on the feed, the single `article` on
   the article page.
 - **Write-through needs nothing extra**: the response `Article` patches each list that holds it,
@@ -243,39 +243,46 @@ the feed, the profile and the article page:
   docs already count this for pages (Angular: a 73-line component plus service methods plus the
   parent's toggle handling).
 
-#### Store functions: item or list
+#### Store functions: resolved from the item
 
-This applies to pages too, not only components. **An item on its own means the entity; a resource
-name means membership in that list.**
+This applies to pages too, not only components. `patch` and `remove` take the item and the
+compiler resolves the resource from where the item came from, as it does for write-through today.
+They differ in reach, because they change different things:
 
 | Call | Meaning |
 | --- | --- |
-| `patch(a, { … })` | change the item wherever it is: every resource that holds it (by schema and key), and the single resource it is |
-| `remove(m)` | the item is gone: take it out of every resource that holds it |
-| `remove('messages', m)` | the item left this list (archived, moved); other lists keep it |
-| `upsert('contacts', x)` | the item joins this list (unchanged: a new item has no provenance) |
+| `patch(a, { … })` | change the entity: in the resource it came from and in every other resource that holds it (by schema and key) |
+| `remove(m)` | take it out of the list it came from (archived, moved, deleted); other lists keep it |
+| `remove('starred', m)` | take it out of another list, one it was not read from |
+| `upsert('contacts', x)` | add it to this list (unchanged: a new item has no provenance) |
 
-- **`patch('name', item, …)` is removed.** The name was redundant for a single resource
-  (`patch('article', article, …)`) and error-prone for a row that may be in several lists:
-  RealWorld's feed patches `'articles'` and `'feed'` one after the other
-  (`examples/realworld/index.html:56`), and forgetting one is a bug. `patch(a, …)` covers both.
-  This is the same rule write-through already follows for responses (rule 1). Migration: drop
-  the first argument; the build error for the old form says so.
-- **The compiler must know what the item is.** It does for loop rows (including
+- **`patch` changes the entity, which is the same in every list**, so it updates all of them.
+  Patching only the source would leave the others stale. RealWorld's feed works around exactly
+  that today by patching `'articles'` and `'feed'` one after the other
+  (`examples/realworld/index.html:56`); `patch(a, …)` covers both.
+  - This is the rule write-through already follows for responses (rule 1).
+  - The name was redundant for a single resource as well (`patch('article', article, …)`).
+  - **`patch('name', item, …)` is removed.** Migration: drop the first argument; the build error
+    for the old form says so.
+- **`remove` changes list membership, which belongs to one list**, so it acts on the list the item
+  came from:
+  - For `m in messages`, `remove(m)` is what `remove('messages', m)` is today. An archive button
+    needs no name.
+  - For a row of `a in (x ? feed : articles)`, it is the list the row is shown from.
+  - For a single resource, it sets it to `null`, as today.
+  - Deleted everywhere needs no form of its own. The other lists follow from the `DELETE` (rule 4)
+    and from server events.
+- **`remove('name', item)` is only for another list.** Naming the list the item came from is the
+  same call as `remove(item)`, so it is a warning (like `SN510` redundant-write) that suggests the
+  short form. "One way to do each thing" holds.
+- **The compiler must know where the item came from.** It does for loop rows (including
   `a in (x ? feed : articles)`) and single resources. It also carries provenance through state
   assignments in the page's handlers: `sel = p` with `p in messages` makes `sel` a row of
-  `messages`, so `patch(sel, …)` works. An item whose source it cannot trace is a build error
-  naming the assignment.
-- **The two `remove` forms are not aliases.** They mean different things. The risk is picking the
-  shorter one by habit: `remove(m)` on an archive button would take the message out of "starred"
-  too. A warning catches that from the HTTP method:
-  - `remove(item)` in the `data-sn-optimistic` of a `DELETE`: fine.
-  - `remove(item)` in the `data-sn-optimistic` of a `POST`, `PUT`, `PATCH` or `data-sn-call`:
-    warning, "`remove(m)` takes it out of every list; to take it out of this one (archive, move),
-    name it: `remove('messages', m)`".
-- **In components**, `patch(item, …)` and `remove(item)` need no name, which a component could not
-  know. A component that takes an item out of one list only needs the list's name from its caller:
-  see [open questions](#open-questions).
+  `messages`, so `patch(sel, …)` and `remove(sel)` work. An item whose source it cannot trace is a
+  build error naming the assignment.
+- **In components, neither needs a name**, which a component could not know. A prop keeps the
+  caller's provenance, so an archive button component used on the inbox and on a search result
+  removes the item from the inbox at one use and from the results at the other.
 
 ### 3. Composition that costs nothing at runtime
 
@@ -374,9 +381,9 @@ has no store code**. `npm run size` must show the core unchanged.
    - slots
    - diagnostics, `sinter check`, LSP
    - first paint through components, with tests
-3. **Store functions:** `patch(item, …)` replacing `patch('name', item, …)`; `remove(item)` beside
-   `remove('name', item)`, with the method warning; provenance through state assignments. This
-   step is useful for pages on its own and can ship before components.
+3. **Store functions:** `patch(item, …)` replacing `patch('name', item, …)`; `remove(item)` from
+   the list the item came from, `remove('name', item)` only for another list; provenance through
+   state assignments. This step is useful for pages on its own and can ship before components.
 4. **Scoped styles** (`@scope`, or a build-time attribute; see below).
 5. **Script components:**
    - the generated base class and its `.d.ts`, through the Vite plugin
@@ -410,6 +417,3 @@ has no store code**. `npm run size` must show the core unchanged.
    forms are where people will expect it.
 7. **Exporting.** Should a script component also build as a standalone custom element for use
    outside sinter, and when?
-8. **A list name from the caller.** For a component's `remove('…', item)` (an archive button
-   used on several lists): a prop typed as a resource name (`data-sn-component="{ list: ResourceName }"`,
-   checked at each use like a literal), or none at first, so the caller handles an emitted event?
