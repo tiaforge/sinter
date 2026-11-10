@@ -4,6 +4,8 @@ Serve a [sinter](https://github.com/tiaforge/sinter#readme) app from axum with i
 
 You add one layer. For each page, it calls your API and writes the JSON into the HTML as it's sent.
 
+The server layer is optional: without it, sinter pages fetch their data in the browser. It is also easy to port to another language. The server only writes JSON into the `<script type="application/json" data-sn-data>` slots in the head of each page, which the build lists in `sinter-embed.json` ([contract](https://github.com/tiaforge/sinter/blob/main/docs/spec.md#data-sources)).
+
 ## Quick start
 
 **1. Build the frontend for a server.** In its Vite config, `sinter({ embed: true })` (needs `@tiaforge-ui/sinter` 0.13 or newer). The build then leaves an empty data slot in each page for every resource whose request the page's URL decides, and lists them in `dist/sinter-embed.json`. The browser no longer requests those itself: their data comes with the page.
@@ -37,7 +39,7 @@ let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?
 axum::serve(listener, app).await?;
 ```
 
-That's all. For each page request, the layer calls your router in-process, passing on the request's cookies. Other requests pass through untouched.
+For each page request, the layer calls your router in-process, passing on the request's cookies. Other requests pass through untouched.
 
 The page is sent head first, before the data is in, so its status is `200` from the start. If the data then can't be fetched, the rest of the page isn't sent: the response ends with an error text, or a redirect to your error page (see [What the layer does](#what-the-layer-does)).
 
@@ -168,14 +170,11 @@ For a request to `/?tag=rust`, the layer requests `/api/articles?tag=rust` from 
 
 The body goes in exactly as the API returned it (`items="articles"` picks the list out of it in the browser), except that every `<` is escaped. The bindings over it, rows included, render while the page is parsed.
 
-## Measured
+## Performance
 
-Measured on RealWorld, slow 4G, cold Chromium; details in [docs/first-paint-comparison.md](https://github.com/tiaforge/sinter/blob/main/docs/first-paint-comparison.md).
+Latency and throughput numbers, with the method, are in [docs/first-paint-comparison.md](https://github.com/tiaforge/sinter/blob/main/docs/first-paint-comparison.md).
 
-- **Home page LCP:** 960 → 576 ms with an API that answers at once, 1,128 → 572 ms when it takes 300 ms.
-- **Throughput per core:** about 2,000 home pages/s, against 57–67 for Qwik City SSR.
-
-The RealWorld server used for this (frontend built with `SINTER_EMBED=1`):
+To run the RealWorld server used there (frontend built with `SINTER_EMBED=1`):
 
 ```sh
 cargo run --release --features upstream --example realworld -- ../../examples/realworld/dist 4370 http://localhost:4400
