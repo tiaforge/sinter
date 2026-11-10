@@ -245,8 +245,13 @@ names. It cannot see the caller's state or loop variables. This is the one new s
 the compiler enforces it: reading a caller name in a component is an error that names the prop to
 add.
 
-Slot content is the reverse: it sees the caller's scope and none of the component's. Scoped slots,
-which pass values from the component to the slot, are an [open question](#open-questions).
+Slot content is the reverse: it sees the caller's scope and none of the component's.
+
+**No scoped slots at first.** A component cannot pass values to its slot content (Vue's
+`v-slot="{ item }"`, Svelte's `let:item`). The caller writes the loop itself, which a sinter page
+does easily. If they are needed later, the form would be a `<slot data-sn-let="{ item }">` whose
+names the slot content reads through `$slot` (`data-sn-let="{ c: $slot.item }"`), declared in the
+caller's markup and typed across the boundary. That can be added without breaking anything.
 
 ## Where sinter components win
 
@@ -469,8 +474,6 @@ has no store code**. `npm run size` must show the core unchanged.
 
 ## Open questions
 
-3. **Scoped slots.** Pass component values to slot content (`<slot data-sn-let="{ item }">`), or
-   leave them out at first?
 4. **Scoped CSS.** Native `@scope`, which is in every evergreen browser but young in Firefox, or a
    build-time attribute selector? Both keep the CSS in files.
 5. **`<sn-include>`.** Keep partials for lexical scope, or deprecate them in favour of components?
