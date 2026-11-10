@@ -88,7 +88,7 @@ test('selection over a resource, an outer loop variable as the outer side, and b
       <template data-sn-for="g in groups"><section><template data-sn-for="n in [1, 2, 3]" data-sn-key="n"><i data-sn-class="{on: n === g.pick}" data-sn-text="n"></i></template></section></template>
       <button id="c" data-sn-on-click="sel = 'c'">c</button>
       <button id="g" data-sn-on-click="groups[1].pick = 3">g</button>
-      <button id="both" data-sn-on-click="sel = 'a'; patch('items', items[0], {code: 'z'})">both</button>
+      <button id="both" data-sn-on-click="sel = 'a'; patch('items', {id: 1}, {code: 'z'})">both</button>
     </div>`, { requests: mockRequests({ 'GET /api/items': [{ id: 1, code: 'a' }, { id: 2, code: 'b' }, { id: 3, code: 'c' }] }) });
   const click = (id: string) => (root.querySelector('#' + id) as HTMLElement).click();
   const on = (s: string) => [...root.querySelectorAll(s)].filter((e) => e.classList.contains('on')).map((e) => e.textContent);

@@ -269,7 +269,7 @@ server events.**
 
   | Item | Instead |
   | --- | --- |
-  | a key literal, `patch({id: 1}, …)` | write it as a row: `patch(items[0], …)`, or the row the key belongs to |
+  | a key literal, `patch('items', {id: 1}, …)` | write it as a row; only the tests use this form today |
   | `$result` | with a spec, write-through already applies the response; else patch the row with `$result`'s fields |
   | a server event's payload | `<sn-event resource op>`, which keeps its `resource` |
   | `$event.detail` from a script component | the script itself, through the JS API, which holds the resource handle |
