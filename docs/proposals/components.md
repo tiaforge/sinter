@@ -286,12 +286,14 @@ that hold the same entity follow from write-through and server events.**
   The same entity in **another** resource (the same `Article` in `feed` and in `articles`) is not
   patched. It is a different resource, with its own request, and it follows from the response and
   from events (next point).
-- **State that holds a copy of a row** (`sel = p`) still points at the old object after a patch,
-  because a change replaces the item object. `patch(sel, …)` finds the right item through its key
-  anyway, but bindings that read `sel` show the old values. That is how sinter behaves today; the
-  pattern that stays current is to keep the key in state and derive the row with `data-sn-let`
-  (`islands.md` does this with `selectedId`). Whether state should follow its row is an
-  [open question](#open-questions).
+- **State that holds a row is a snapshot, and stays one.** sinter keeps resources current, and
+  `data-sn-let` names derived from them. It does not rewrite values held in state: an old value
+  there may be intentional. The form dialog keeps `draft = structuredClone(p)` so the user's edits
+  survive a server event that changes the row.
+  - `patch(sel, …)` still finds the right item through its key; only bindings that read `sel`
+    itself show the old values.
+  - To show the current row, keep its key in state and derive the row with `data-sn-let`
+    (`islands.md` does this with `selectedId`).
 - **Other resources holding the same entity follow from the response and from events.** Write-through
   rule 1 patches every keyed list of the response's schema, and server events do the same for
   changes made elsewhere. RealWorld has a spec and no SSE: its feed patches `'articles'` and
@@ -445,6 +447,3 @@ has no store code**. `npm run size` must show the core unchanged.
    forms are where people will expect it.
 7. **Exporting.** Should a script component also build as a standalone custom element for use
    outside sinter, and when?
-8. **State that holds a row.** After `patch(sel, …)`, should a state field holding that row follow it
-   (the runtime re-reads it by key), or stay a copy, as today? Following it removes the
-   `selectedId` + `data-sn-let` pattern, but state would then change without an assignment.
