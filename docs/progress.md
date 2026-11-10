@@ -360,4 +360,8 @@ built, what deviates, and what is left.
 - Playwright suite in real browsers (`<dialog>`/`commandfor`, bfcache,
   `EventSource`, focus preservation), with Trusted Types and strict CSP.
 - List-update benchmark in CI.
+- From bench/live (2026-11-10), not needed now: `<sn-event op="patch" items="…">` (one event patching several
+  items, so a tick of many rows patches a keyed resource instead of a `then` helper replacing a whole state value,
+  and only the changed rows' bindings are checked); a frame-rate cap for server-event renders (e.g. 30 fps, to save
+  battery). The dashboard at 4× CPU is now bound by style, layout and paint (about 30 % of the main thread).
 - Release pipeline (CI-only trusted publishing with provenance).
