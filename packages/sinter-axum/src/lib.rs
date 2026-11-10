@@ -28,7 +28,7 @@
 //!
 //! Where the data comes from, per placeholder, first match:
 //! 1. [`Embed::resolve`]: your function for that resource (a database query, or anything the URL
-//!    template cannot express: a helper in `src`, a `when`, pagination);
+//!    template cannot express: a helper in `src`, a `when`);
 //! 2. the resource's `src`, when the build could describe it (literals and `$url` reads):
 //!    a same-origin path goes to [`Embed::api`] (your API router, called in-process), or else,
 //!    with the `upstream` feature, to `Embed::upstream`; an absolute URL is fetched only with that
@@ -44,7 +44,7 @@ mod manifest;
 mod url;
 
 pub use manifest::{Error, Part};
-pub use url::{expand, url_params};
+pub use url::{expand, url_params, with_params};
 
 use axum::body::Body;
 use bytes::Bytes;
@@ -69,13 +69,11 @@ use tower::{Layer, Service, ServiceExt, util::BoxCloneSyncService};
 pub struct SlotRequest {
     /// the resource's name (`data-sn-data="articles"`)
     pub resource: String,
-    /// the resource's `src` filled from `$url`, when the build could describe it (it may still
-    /// have a `when` or be paginated: see `conditional` and `paginated`)
+    /// the resource's `src` filled from `$url`, when the build could describe it; for a paginated
+    /// resource, its first page (it may still have a `when`: see `conditional`)
     pub url: Option<String>,
     /// the resource has a `when`: only the browser evaluates it
     pub conditional: bool,
-    /// paginated: the browser asks for the first page with its own parameters
-    pub paginated: bool,
     /// the page's `$url`: query parameters, then the path's `:name` segments
     pub params: Arc<HashMap<String, String>>,
     /// the page request's headers (cookies included: the data can be the user's)
@@ -271,9 +269,8 @@ fn render(embed: Embed, i: usize, req: http::request::Parts, head: bool) -> Resp
         .map(|s| {
             let r = SlotRequest {
                 resource: s.resource.clone(),
-                url: s.src.as_deref().and_then(|t| expand(t, &params)),
+                url: s.src.as_deref().and_then(|t| expand(t, &params)).map(|u| with_params(&u, &s.query)),
                 conditional: s.when,
-                paginated: s.paginate,
                 params: params.clone(),
                 headers: headers.clone(),
             };
@@ -318,7 +315,7 @@ async fn fill(e: &Embed, r: SlotRequest) -> Option<Bytes> {
     if let Some(f) = i.resolvers.get(&r.resource) {
         return f(r).await;
     }
-    if r.conditional || r.paginated {
+    if r.conditional {
         return None;
     }
     let url = r.url.as_deref()?;

@@ -370,3 +370,37 @@ test('page() before the first load has come back does nothing for prev and next'
   expect(requests.calls.map((c) => c.url)).toEqual(['/api/m?limit=3&direction=first']);
   expect([...r.root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['1', '2', '3']);
 });
+
+test('embedded data is the first page: positions, total and the next cursor come from it, with no request', async () => {
+  // what a server writes for the first page (the request firstParams describes: limit=3&direction=first)
+  const first = JSON.stringify({ messages: ALL.slice(0, 3), total: ALL.length });
+  const requests = mockRequests({ 'GET /api/m': keyset });
+  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-data="messages">${first}</script></head><body>${PAGE}</body></html>`, { requests });
+  await settle();
+  const state = () => [[...root.querySelectorAll('li')].map((l) => l.textContent).join(','), root.querySelector('span')!.textContent, root.querySelector('b')!.textContent];
+  expect(state()).toEqual(['1,2,3', '1–3 of 7 3', 'false,true']);
+  expect(requests.calls).toHaveLength(0);
+  root.querySelector<HTMLElement>('#next')!.click();
+  await settle();
+  expect(state()).toEqual(['4,5,6', '4–6 of 7 3', 'true,true']);
+  expect(requests.calls.map((c) => c.url)).toEqual(['/api/m?at=98&limit=3&direction=next']);
+});
+
+test('offset mode: embedded data is page 1, and page(3) asks for page 3', async () => {
+  const requests = mockRequests({ 'GET /api/o': (call) => {
+    const q = new URL(call.url, 'http://x').searchParams, p = Number(q.get('page')), n = Number(q.get('limit'));
+    return { items: ALL.slice((p - 1) * n, p * n), total: ALL.length };
+  } });
+  const first = JSON.stringify({ items: ALL.slice(0, 3), total: ALL.length });
+  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-data="o">${first}</script></head><body>
+    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="offset" page-size="3"></sn-resource>
+    <span data-sn-text="[$meta.o.page, $meta.o.pages, $meta.o.from, $meta.o.to, $meta.o.hasPrev, $meta.o.hasNext].join()"></span>
+    <button data-sn-on-click="page('o', 3)"></button></body></html>`, { requests });
+  await settle();
+  expect(root.querySelector('span')!.textContent).toBe('1,3,1,3,false,true');
+  expect(requests.calls).toHaveLength(0);
+  root.querySelector('button')!.click();
+  await settle();
+  expect(root.querySelector('span')!.textContent).toBe('3,3,7,7,true,false');
+  expect(requests.calls.map((c) => c.url)).toEqual(['/api/o?page=3&limit=3']);
+});

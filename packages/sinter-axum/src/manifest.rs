@@ -30,9 +30,9 @@ pub(crate) struct SlotDesc {
     /// a `when` condition: only the browser can evaluate it
     #[serde(default)]
     pub when: bool,
-    /// paginated: the first page's URL is not the template
+    /// paginated: the first page's query parameters, set on the template's URL
     #[serde(default)]
-    pub paginate: bool,
+    pub query: Vec<(String, String)>,
 }
 
 /// A piece of a URL template: literal text, or a `$url` value.

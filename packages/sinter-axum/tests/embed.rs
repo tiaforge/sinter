@@ -187,6 +187,20 @@ async fn the_head_is_sent_before_the_data_and_slow_data_is_left_to_the_browser()
 }
 
 #[tokio::test]
+async fn a_paginated_resource_is_requested_at_its_first_page() {
+    // the build: `paginate="offset" page-size="10" size-param="limit"` over a tag from the path
+    let dir = build(
+        "paginated",
+        r#"{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/tag/:tag"], "data": [
+          { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }], "query": [["page", "1"], ["limit", "10"]] } ] } ] }"#,
+        &[("index.html", r#"<head><script type="application/json" data-sn="0"></script></head>"#)],
+    );
+    let (_, _, html) = text(app(Embed::from_dir(dir).unwrap().api(api())), get_("/tag/a%20b")).await;
+    // the page's `$url` in the template, then the pager's first-page parameters, as the runtime writes them
+    assert!(html.contains(r#""q":"tag=a+b&page=1&limit=10""#), "{html}");
+}
+
+#[tokio::test]
 async fn unstreamed_the_page_is_one_piece() {
     let embed = Embed::from_dir(app_build()).unwrap().api(api()).stream(false);
     let res = app(embed).oneshot(get_("/article/x")).await.unwrap();

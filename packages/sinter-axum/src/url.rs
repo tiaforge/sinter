@@ -103,6 +103,42 @@ pub fn expand(parts: &[Part], params: &HashMap<String, String>) -> Option<String
     Some(out)
 }
 
+/// A URL with query parameters set, as the runtime sets a paginated resource's page
+/// (`withParams`): each replaces the first parameter of its name (and drops the others), or is
+/// added at the end; the query is then written as a form (`URLSearchParams`).
+pub fn with_params(url: &str, params: &[(String, String)]) -> String {
+    if params.is_empty() {
+        return url.to_string();
+    }
+    let (path, hash) = match url.split_once('#') {
+        Some((p, h)) => (p, h.split('#').next().unwrap_or("")),
+        None => (url, ""),
+    };
+    let (base, query) = path.split_once('?').unwrap_or((path, ""));
+    let mut q: Vec<(String, String)> = form_urlencoded::parse(query.as_bytes()).into_owned().collect();
+    for (k, v) in params {
+        match q.iter().position(|(n, _)| n == k) {
+            Some(i) => {
+                q[i].1 = v.clone();
+                let mut seen = 0;
+                q.retain(|(n, _)| {
+                    n != k || {
+                        seen += 1;
+                        seen == 1
+                    }
+                });
+            }
+            None => q.push((k.clone(), v.clone())),
+        }
+    }
+    let mut out = format!("{base}?{}", form_urlencoded::Serializer::new(String::new()).extend_pairs(&q).finish());
+    if !hash.is_empty() {
+        out.push('#');
+        out.push_str(hash);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,5 +181,19 @@ mod tests {
         assert_eq!(expand(&t, &p(&[("slug", "..")])), None);
         assert_eq!(expand(&t, &p(&[])).unwrap(), "/api/articles//comments");
         assert_eq!(encode_segment("a'b(c)*!~"), "a'b(c)*!~");
+    }
+
+    #[test]
+    fn with_params_as_the_runtime() {
+        let q = |kv: &[(&str, &str)]| kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
+        // added in order; the query written as a form (a space as `+`)
+        assert_eq!(with_params("/api/m", &q(&[("page", "1"), ("limit", "10")])), "/api/m?page=1&limit=10");
+        assert_eq!(with_params("/api/m?tag=a%20b", &q(&[("limit", "10")])), "/api/m?tag=a+b&limit=10");
+        // a parameter of the same name: replaced where it was, its repeats dropped
+        assert_eq!(with_params("/api/m?limit=5&x=1&limit=6", &q(&[("limit", "10")])), "/api/m?limit=10&x=1");
+        assert_eq!(with_params("/api/m#top", &q(&[("n", "1")])), "/api/m?n=1#top");
+        assert_eq!(with_params("/api/m?x=1", &[]), "/api/m?x=1");
+        // the form's own encoding, as URLSearchParams writes it
+        assert_eq!(with_params("/api/m?q=é*~'()!", &q(&[("n", "1")])), "/api/m?q=%C3%A9*%7E%27%28%29%21&n=1");
     }
 }

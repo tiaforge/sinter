@@ -165,16 +165,17 @@ export interface PrefetchParts {
  * One embedded-data placeholder (`data-sn-data`), for a server that fills it per request (a
  * middleware: `sinter-embed.json`). `id`: the `data-sn` id the build gives the `<script>`. `src`:
  * the resource's URL template when only literals and plain `$url.<name>` reads make it up (`{ url:
- * name }`), else null and the server must produce the data itself. `when`: the resource has a
- * condition the server cannot evaluate; `paginate`, `call`, `each`: likewise, the request is not
- * the template alone.
+ * name }`), else null and the server must produce the data itself (`call`, `each` too). `when`:
+ * the resource has a condition the server cannot evaluate. `query`: a paginated resource's first
+ * page, the parameters the pager sends for it (`firstParams`), set on the template's URL as the
+ * runtime sets them (`withParams`), in this order.
  */
 export interface EmbedSlot {
   id: number;
   resource: string;
   src: Array<string | { url: string }> | null;
   when?: true;
-  paginate?: true;
+  query?: Array<[string, string]>;
 }
 
 export interface CompiledParts {
@@ -2280,7 +2281,7 @@ class Compiler {
       });
       out.push({
         id: def.data, resource: def.name, src: parts && parts.length && parts.every((x) => x != null) ? parts as EmbedSlot['src'] : null,
-        ...(def.when != null ? { when: true as const } : {}), ...(def.paginate ? { paginate: true as const } : {}),
+        ...(def.when != null ? { when: true as const } : {}), ...(def.paginate ? { query: Object.entries(firstParams(def.paginate)) } : {}),
       });
     }
     return out.sort((a, b) => a.id - b.id);

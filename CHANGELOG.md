@@ -14,7 +14,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   948 → 588 ms; one core serves about 2,000 home pages/s, against 57–67 for Qwik City
   (docs/first-paint-comparison.md).
 - Builds with embedded-data placeholders write `sinter-embed.json` next to the pages: each page's paths and,
-  per placeholder, its `data-sn` id, resource and request (the `src` template when only `$url` reads make it up).
+  per placeholder, its `data-sn` id, resource and request (the `src` template when only `$url` reads make it up;
+  for a paginated resource, its first page).
 
 - Bindings over embedded data render before the first paint: on a page whose `<script type="application/json"
   data-sn-data>` a server filled in, the early script also renders the bindings that read those resources,
