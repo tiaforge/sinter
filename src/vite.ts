@@ -179,11 +179,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const watched = new Set<string>();
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
-  let pickerFile = '';
-  let paintFile = '';
-  /** pages that use `data-sn-transition`: they get the hold script (paint-build.ts), and its file */
+  /** pages that use `data-sn-transition`: they get the hold script (paint-build.ts) */
   const holdPages = new Set<string>();
-  let holdFile = '';
+  /**
+   * build: each page's one classic head script: the hold script, the language picker or paint script,
+   * or both in one file (`sinter-head-<hash>.js`), so the page makes one parser-blocking request, not two
+   */
+  const headFiles = new Map<string, string>();
   /** build: the pages with an early module, and each one's bundled early file */
   const earlyPages = new Map<string, string>();
   /** pages whose early file is split (it has early requests): loaded `async` first, rendered by a stub */
@@ -531,13 +533,25 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const rules = spec()?.delivery === 'header' ? rulesJson() : null;
       rulesWritten = !!rules;
       if (rules) this.emitFile({ type: 'asset', fileName: RULES_FILE, source: rules });
-      // a morph pending: the first paint waits for the page module (pages that use data-sn-transition)
-      holdFile = `${r.build.assetsDir}/sinter-hold-${createHash('sha256').update(HOLD_SCRIPT).digest('base64url').slice(0, 8)}.js`;
-      if (holdPages.size) this.emitFile({ type: 'asset', fileName: holdFile, source: HOLD_SCRIPT });
-      // the render-blocking fallback, for the pages with an early file and no picker to carry it (emitted at the end)
-      paintFile = `${r.build.assetsDir}/sinter-paint-${createHash('sha256').update(PAINT_SCRIPT).digest('base64url').slice(0, 8)}.js`;
-      const paint = () => { if ([...earlyFiles.keys()].some((rel) => !languageFiles.has(rel))) this.emitFile({ type: 'asset', fileName: paintFile, source: PAINT_SCRIPT }); };
-      if (!messages) return paint();
+      // each page's classic head script, once the language files are known (emitted at the end): the hold script
+      // (a morph pending: the first paint waits for the page module; pages that use data-sn-transition), and the
+      // language picker or, on a page with an early file and no messages, the render-blocking fallback; a page with
+      // both gets them in one file (two parser-blocking requests on the first paint's path cost more than ~0.3 kB)
+      const heads = () => {
+        headFiles.clear();
+        const emitted = new Set<string>();
+        for (const rel of new Set([...holdPages, ...earlyFiles.keys(), ...languageFiles.keys()])) {
+          const hold = holdPages.has(rel) ? HOLD_SCRIPT : '', second = languageFiles.has(rel) ? I18N_PICKER : earlyFiles.has(rel) ? PAINT_SCRIPT : '';
+          if (!hold && !second) continue;
+          const kind = hold && second ? 'head' : hold ? 'hold' : second === I18N_PICKER ? 'i18n' : 'paint';
+          const source = hold && second ? `${hold}\n${second}` : hold || second;
+          const fileName = `${r.build.assetsDir}/sinter-${kind}-${createHash('sha256').update(source).digest('base64url').slice(0, 8)}.js`;
+          if (!emitted.has(fileName)) this.emitFile({ type: 'asset', fileName, source });
+          emitted.add(fileName);
+          headFiles.set(rel, fileName);
+        }
+      };
+      if (!messages) return heads();
       // per page and language, the keys the page calls: its markup, the modules of its bundle, its early file
       for (const [rel, own] of markupMessages) {
         const entry = Object.values(bundle).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
@@ -563,10 +577,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }
         languageFiles.set(rel, files);
       }
-      const picker = `${r.build.assetsDir}/sinter-i18n-${createHash('sha256').update(I18N_PICKER).digest('base64url').slice(0, 8)}.js`;
-      if (languageFiles.size) this.emitFile({ type: 'asset', fileName: picker, source: I18N_PICKER });
-      pickerFile = picker;
-      paint();
+      heads();
     },
 
     transform(code, id) {
@@ -767,12 +778,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // the shared chunk the early file imports, requested with it (not once the early file has arrived)
         const preload = early?.shared ? `<link rel="modulepreload" crossorigin href="${attr(base + shared!.fileName)}">` : '';
         if (preload && !early!.stub) tags.push(preload);
-        // before the page module's tag, which it changes as the parser inserts it
-        if (hold) tags.push(`<script src="${attr(base + holdFile)}"></script>`);
-        // the picker before the early file: it runs while the head is parsed, so the language file it adds blocks the first paint too;
-        // it (or, without messages, the paint script) also holds the first paint where `blocking` is not supported
-        if (langs) tags.push(pickerTag(base + pickerFile, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName])), !!early));
-        else if (early) tags.push(paintTag(base + paintFile));
+        // the one classic head script. Its hold part goes before the page module's tag, which it changes as the parser
+        // inserts it; its picker part before the early file: it runs while the head is parsed, so the language file it
+        // adds blocks the first paint too; it (or, without messages, the paint part) also holds the first paint where
+        // `blocking` is not supported
+        const head = base + headFiles.get(rel)!;
+        if (langs) tags.push(pickerTag(head, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName])), !!early));
+        else if (early) tags.push(paintTag(head));
+        else if (hold) tags.push(`<script src="${attr(head)}"></script>`);
         // a split early file renders from its stub, here; the file itself is loaded `async` before the stylesheets (below)
         if (early) tags.push(`<script type="module" crossorigin src="${attr(base + (early.stub ?? early.fileName))}" blocking="render"></script>`);
         if (early || langs) report(rel, early ?? null, langs ?? null);

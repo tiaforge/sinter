@@ -7,6 +7,11 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- One classic head script per page: a page that uses `data-sn-transition` and has an early file or
+  messages gets the hold script and the paint script (or the language picker) in one file,
+  `assets/sinter-head-<hash>.js`, instead of `sinter-hold-<hash>.js` plus the other: one parser-blocking
+  request on the first paint's path, not two. Pages with only one of them keep their file as before.
+  RealWorld's home page, real Chrome throttled to slow 4G and 4x CPU (median of 7): first paint 564 → 496 ms.
 - Smaller builds: the core is 14,606 → 13,514 B gzip, the minimal page 14,787 → 13,691 B; RealWorld's
   pages 2.4–3.5 KB smaller each (the article 27,627 → 25,251 B of its 27,648 B budget, login 23,947 →
   20,814 B), their early files 1.0–1.9 KB (were 2.3–3.4 KB). Measured with Lighthouse (mobile, a fixed
