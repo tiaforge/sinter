@@ -6,8 +6,7 @@
 changes and refactors. A pull request without an agreed issue may be closed, however good the code
 is. Small fixes (typos, a broken link) can go straight to a pull request.
 
-In the issue, describe the problem, not just the change, and what you plan to do. Then link the
-issue from the pull request.
+Link the issue from the pull request.
 
 ## Pull requests
 
@@ -21,8 +20,8 @@ issue from the pull request.
 
 ## License and sign-off
 
-sinter is MIT licensed. Contributions are accepted under the Developer Certificate of Origin: add
-`Signed-off-by` to each commit with `git commit -s`. There is no CLA.
+sinter is MIT licensed. Please sign off your commits with `git commit -s` (Developer Certificate of
+Origin). It isn't enforced and there is no CLA.
 
 ## Development
 

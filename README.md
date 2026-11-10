@@ -27,7 +27,7 @@ the page. No components, router or store library to write, and no app JavaScript
 
 That page loads the contacts, keeps them sorted, applies updates other users make as they arrive,
 filters as you type, and removes a contact the moment you click Delete, putting it back if the
-server refuses. It is the whole page: there is no script file next to it.
+server refuses.
 
 ## The simplicity of separate pages, without the old problems
 
@@ -54,16 +54,14 @@ the pages.
   One core serves roughly 600-1,100 pages per second as a Node script and about 2,000 with the Rust layer;
   a server-rendering framework in the same benchmark saturates around 60-120.
   ([measurements](docs/first-paint-comparison.md))
-- **Type checking from the database edge to the button.** Point sinter at your TypeScript types or
-  your OpenAPI spec and `article.titel` is a build error with a "did you mean `title`?". Your editor
-  shows it as you type.
+- **Type checking.** Point sinter at your TypeScript types or
+  your OpenAPI spec and `article.titel` is a build error with a "did you mean `title`?".
 - **Web performance by default.** Preloading, preconnecting, low-priority loading for data nobody
   needs yet, self-hosted fonts, optimized images and Speculation Rules are done by the build. You do
   not configure them. RealWorld scores **94 on mobile and 99 on desktop** in Lighthouse, with the
   least JavaScript of the apps that show articles ([comparison](docs/realworld-comparison.md#lighthouse)).
 - **Great ergonomics.** One way to do each thing, all of it visible on the element. 735 lines for
-  the RealWorld app, against 2,210 for the official Angular one. Small enough that an LLM writes it
-  correctly on the first try (`llms.txt` ships with the package).
+  the RealWorld app, against 2,210 for the official Angular one. `llms.txt` ships with the package for LLMs.
 - **Small and safe.** Currently under 20 KB of JavaScript per page. No `eval`, no `unsafe-eval` in your Content
   Security Policy, and markup injected at runtime stays inert.
 
@@ -87,8 +85,7 @@ npm create @tiaforge-ui my-app
 
 You get a small task board with live updates across tabs, optimistic changes that roll back, a
 dialog without JavaScript, page transitions and the build-time checks, with a demo API inside
-Vite ([`packages/create`](packages/create)). To add sinter to an existing project, see
-[Setup](#setup).
+Vite ([`packages/create`](packages/create)).
 
 ## Mistakes fail the build
 
@@ -110,8 +107,6 @@ your data before they ship, so the same typo shows up only when that code runs: 
 or as an element that stays empty.
 
 ## Features
-
-Each item links to the details.
 
 ### Data
 
@@ -139,7 +134,7 @@ Each item links to the details.
   [recipe](docs/recipes/field-errors.html)
 - **Writes that survive a dropped connection.** Retries with idempotency keys, per element.
   [Retries](docs/retry.md), [recipe](docs/recipes/offline-draft.html)
-- **Dialogs, keyboard shortcuts, suggestion lists and row selection** in markup, with attributes instead of handlers written by hand.
+- **Dialogs, keyboard shortcuts, suggestion lists and row selection** in markup.
   [Form dialog](docs/recipes/form-dialog.html),
   [Shortcuts](docs/recipes/keyboard-shortcuts.html),
   [Listbox](docs/spec.md#suggestion-lists-data-sn-listbox),
@@ -234,7 +229,7 @@ import sinter from '@tiaforge-ui/sinter/vite';
 export default { plugins: [sinter()] };
 ```
 
-Then write `data-sn-*` attributes and `<sn-*>` elements in your HTML pages. The broad concepts:
+The broad concepts:
 
 - **Resources** (`<sn-resource>`) load and cache server data by name. Templates read them.
 - **Bindings** (`data-sn-text`, `data-sn-for`, `data-sn-if`, ...) render data. Expressions are checked at build time.
