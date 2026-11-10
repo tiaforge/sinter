@@ -59,6 +59,7 @@
     "./early": "./dist/early.js",
     "./messages": "./dist/messages.js",
     "./components": "./dist/components.js",
+    "./nested": "./dist/nested.js",
     "./compiler": "./dist/compiler/index.js",
     "./vite": "./dist/vite.js",
     "./check": "./dist/check/index.js",

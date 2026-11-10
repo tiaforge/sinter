@@ -9,7 +9,7 @@ import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
-import { analyze, literalNames, STORE_FNS, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, literalNames, STORE_FNS, throughField, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, scopeCss, typeMembers, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -361,6 +361,13 @@ class Compiler {
   /** calls whose sources hold references, resolved after the walk */
   private readonly srcCalls: Array<{ el: P5Element; attr: string; shift: number; fn: string; offset: number; src: string[]; text: string }> = [];
   private useIds = 0;
+  /** components used inside themselves: their tags (recursion points), and the definition each compiles to */
+  private readonly points = new WeakMap<P5Element, string>();
+  private readonly defs = new Map<string, { tid: number; id: string; use: Use } | null>();
+  /** the synthetic tag of a shared definition, whose props are the row's item `rt` */
+  private readonly defHosts = new WeakMap<P5Element, { rt: string }>();
+  /** the page's `<head>`, where shared definitions go */
+  private head: P5Element | null = null;
   /** attributes SN507 has measured, so an expression analysed twice is reported once */
   readonly measured = new WeakMap<P5Element, Set<string>>();
   readonly lineStarts = new Map<string, number[]>();
@@ -440,6 +447,7 @@ class Compiler {
     const doc = parse5.parse(html, { sourceCodeLocationInfo: true });
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     this.expandIncludes(doc, [this.opts.file]);
+    this.head = findHead(doc);
     this.expandComponents(doc, []);
     this.componentIds();
     const layout = this.layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
@@ -512,7 +520,7 @@ class Compiler {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition', 'components'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -797,8 +805,15 @@ class Compiler {
         const at = ch.lastIndexOf(name);
         if (at >= 0) {
           const loop = [...ch.slice(at).filter((x) => x !== '#'), name];
-          if (ch.slice(at).includes('#')) this.report(child, null, 'SN306', `${loop.map((n) => `\`<${n}>\``).join(' → ')}: a component that uses itself is not supported yet`, 0);
-          else this.report(child, null, 'SN306', `${loop.map((n) => `\`<${n}>\``).join(' → ')} uses itself with no \`data-sn-for\` or \`data-sn-if\` template between, so it would never end`, 0,
+          if (ch.slice(at).includes('#')) {
+            // data ends it: the use is an instance of the component's shared definition
+            if (child.childNodes.some((c) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== ''))) {
+              this.report(child, null, 'SN314', `\`<${name}>\` used inside itself takes no slot content`, 0);
+            }
+            this.points.set(child, name);
+            continue;
+          }
+          this.report(child, null, 'SN306', `${loop.map((n) => `\`<${n}>\``).join(' → ')} uses itself with no \`data-sn-for\` or \`data-sn-if\` template between, so it would never end`, 0,
             'only data ends a recursion: put the inner use in a `<template data-sn-for>` over the children, or a `<template data-sn-if>`');
           detach(child);
           continue;
@@ -982,6 +997,27 @@ class Compiler {
    */
   componentScope(use: Use, caller: Scope): Scope {
     use.caller = caller;
+    const name = use.name;
+    const declared = use.props?.map((m) => m.name) ?? null;
+    // the shared definition of a component used inside itself: its props are the row's item, given at each use
+    const def = this.defHosts.get(use.host);
+    const { lets, passed } = def
+      ? { lets: (use.props ?? []).map((m): LetEntry => ({ name: m.name, code: `$.${def.rt}.${m.name}`, deps: [], usesEl: false, usesIndex: false, resource: null, prop: true, src: [`@def:${name}:${m.name}`] })), passed: new Set(declared) }
+      : this.propLets(use, caller);
+    const outer = new Set<string>([...(caller.lets ?? []).map((l) => l.name), ...caller.loops.map((l) => l.name), ...caller.states.flatMap((x) => [...x.names])]);
+    // no `data-sn-emits`: no events; one the compiler cannot list (an alias): not checked here
+    const cs: ComponentScope = { name, outer, id: this.useIds, ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
+    use.scope = cs;
+    this.useById.set(this.useIds++, use);
+    if (this.check) {
+      this.frameOf.set(cs, this.check.frames.length);
+      this.check.frames.push({ kind: 'props', component: name, type: { kind: 'ts', text: use.propsText.trim() || '{}', loc: this.locOf(use.template, 'data-sn-component') }, names: declared ?? [...passed] });
+    }
+    return { loops: [], states: [], lets, component: cs };
+  }
+
+  /** A use's props: each the caller's expression (checked against the declaration), as `data-sn-let` names. */
+  propLets(use: Use, caller: Scope): { lets: LetEntry[]; passed: Set<string> } {
     const host = use.host, name = use.name;
     const lets: LetEntry[] = [];
     const passed = new Set<string>();
@@ -1024,16 +1060,70 @@ class Compiler {
       if (!m.optional) this.report(host, null, 'SN313', `\`<${name}>\` needs the prop \`${m.name}\``, 0, `pass it with \`data-sn-prop="{ ${m.name}: … }"\``);
       if (!defaults.has(m.name)) lets.push({ name: m.name, code: 'undefined', deps: [], usesEl: false, usesIndex: false, resource: null, prop: true });
     }
-    const outer = new Set<string>([...(caller.lets ?? []).map((l) => l.name), ...caller.loops.map((l) => l.name), ...caller.states.flatMap((x) => [...x.names])]);
-    // no `data-sn-emits`: no events; one the compiler cannot list (an alias): not checked here
-    const cs: ComponentScope = { name, outer, id: this.useIds, ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
-    use.scope = cs;
-    this.useById.set(this.useIds++, use);
-    if (this.check) {
-      this.frameOf.set(cs, this.check.frames.length);
-      this.check.frames.push({ kind: 'props', component: name, type: { kind: 'ts', text: use.propsText.trim() || '{}', loc: this.locOf(use.template, 'data-sn-component') }, names: declared ?? [...passed] });
-    }
-    return { loops: [], states: [], lets, component: cs };
+    return { lets, passed };
+  }
+
+  /**
+   * A component used inside itself (through a `data-sn-for` or `data-sn-if` template): one shared
+   * definition, a `<template>` in the head, compiled once as a row template whose item is the props.
+   * Each use is an empty `<template data-sn-def>` with a `data-sn-for` over `[props]`; the runtime and
+   * the early script clone the definition into it, so a tree renders at any depth.
+   */
+  recursionPoint(host: P5Element, name: string, ctx: Ctx, index: number): null {
+    const def = this.definition(name);
+    if (!def) { detach(host); return null; }
+    const use: Use = { ...def.use, host, chain: [] };
+    const { lets } = this.propLets(use, ctx.scope);
+    for (const l of lets) if (l.src?.length) this.addSources(`@def:${name}:${l.name}`, l.src);
+    const code = `($) => [{ ${lets.map((l) => `${JSON.stringify(l.name)}: (${l.code})`).join(', ')} }]`;
+    const node: NodeDef = { tag: 'template', p: ctx.stateIdx, b: [this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-prop', shift: 0 }), d: [...new Set(lets.flatMap((l) => l.deps))].sort(), x: def.tid })] };
+    // the tag becomes the empty template the definition is cloned into
+    const t = host as unknown as P5Template;
+    host.tagName = host.nodeName = 'template';
+    host.attrs = [{ name: 'data-sn-def', value: def.id }];
+    t.content = parse5.defaultTreeAdapter.createDocumentFragment();
+    host.childNodes = [];
+    if (ctx.tid < 0) {
+      node.id = this.nextId++;
+      setAttr(host, 'data-sn', String(node.id));
+    } else node.path = [...ctx.path, index];
+    if (this.opts.dev) (node as NodeDef & { src?: string }).src = this.position(host);
+    ctx.list.push(node);
+    return null;
+  }
+
+  /** The shared definition of a component used inside itself, compiled on its first such use. */
+  definition(name: string): { tid: number; id: string; use: Use } | null {
+    const known = this.defs.get(name);
+    if (known !== undefined) return known;
+    const file = this.componentFile(name);
+    if (!file || file.bad) { this.defs.set(name, null); return null; }
+    const tid = this.newTemplate(), t = this.templates[tid]!, rt = `$p${tid}`;
+    t.item = rt;
+    t.index = null;
+    // one row: kept across renders, its item (the props) updated
+    t.key = this.fn('() => 0');
+    t.keyFields = null;
+    const ad = parse5.defaultTreeAdapter;
+    const tpl = ad.createElement('template', parse5.html.NS.HTML, [{ name: 'id', value: `sn-def-${name}` }]) as P5Template;
+    tpl.content = ad.createDocumentFragment();
+    const host = ad.createElement(name, parse5.html.NS.HTML, []);
+    ad.appendChild(tpl.content, host);
+    this.origins.set(host, { file: this.opts.file, src: '', chain: [] });
+    this.defHosts.set(host, { rt });
+    this.expandComponents(tpl.content, []);
+    const root = tpl.content.childNodes.find(isElement);
+    const use = root ? this.useOf.get(root) : undefined;
+    if (!root || !use) { this.defs.set(name, null); return null; }
+    const entry = { tid, id: `sn-def-${name}`, use };
+    this.defs.set(name, entry);
+    if (!use.props) this.report(use.template, 'data-sn-component', 'SN312', `\`<${name}>\` uses itself, so its props must be a type literal the compiler can list (\`{ comment: Comment }\`), not a named type`, 0);
+    // in the head, so the parser has it before the body: the early script clones it while the body arrives
+    const head = this.head;
+    if (head) ad.appendChild(head, tpl);
+    this.templateAt.set(tid, { el: root, attr: null, shift: 0 });
+    this.walkChildren(tpl.content, { scope: { loops: [], states: [] }, list: t.nodes, tid, path: [], stateIdx: -1 });
+    return entry;
   }
 
   // ---- declarations (first pass: names only, so expressions can see every resource and dialog)
@@ -1207,6 +1297,9 @@ class Compiler {
     // the partial an `<sn-include>` inserted: what the page's scope has there
     const inc = this.includeTop.get(el);
     if (inc && !inc.site) inc.site = new Set<object>([...ctx.scope.loops, ...ctx.scope.states, ...(ctx.scope.lets ?? [])]);
+    // a component used inside itself: an instance of its shared definition
+    const point = this.points.get(el);
+    if (point) return this.recursionPoint(el, point, ctx, index);
     // a component's root: its markup sees the props only
     const use = this.useOf.get(el);
     const callerCtx = use ? ctx : null;
@@ -1721,13 +1814,15 @@ class Compiler {
    */
   resolveSources() {
     const resolve = (ref: string, seen: Set<string>): string[] => {
+      // `@def:x:comment>replies`: what the reference resolves to, through `replies`
+      const at = ref.indexOf('>');
+      if (at > 0) return resolve(ref.slice(0, at), seen).map((n) => ref.slice(at + 1).split('>').reduce(throughField, n));
       if (seen.has(ref)) return [];
       seen.add(ref);
       const out: string[] = [];
-      // a state path assigned an item, or any path inside it assigned one (`draft = …`, read as `draft`)
       for (const [k, set] of this.srcOf) {
         if (k !== ref) continue;
-        for (const x of set) out.push(...(x.startsWith('@') ? resolve(x, seen) : [x]));
+        for (const x of set) out.push(...(x.startsWith('@') ? resolve(x, new Set(seen)) : [x]));
       }
       return out;
     };
@@ -1746,11 +1841,14 @@ class Compiler {
       for (const n of names) { const info = this.page.resources.get(n); if (info) info.used = true; }
       resolved.set(JSON.stringify(c.src), names);
     }
-    if (!this.srcCalls.length) return;
+    // a change under a row (`comments>replies`): the nested module
+    const nested = () => { if (this.fns.some((f) => /\$\.\$f\.(?:patch|remove|upsert)\(\[[^\]]*>/.test(f))) this.features.add('nested'); };
+    if (!this.srcCalls.length) return nested();
     for (let i = 0; i < this.fns.length; i++) {
       if (!this.fns[i]!.includes('/*src*/')) continue;
       this.fns[i] = this.fns[i]!.replace(/\/\*src\*\/(\[.*?\])\/\*end\*\//g, (_, j: string) => JSON.stringify(resolved.get(j) ?? JSON.parse(j).filter((x: string) => !x.startsWith('@'))));
     }
+    nested();
   }
 
   // ---- derived names
@@ -3006,6 +3104,16 @@ function binding(b: Binding): Binding {
   }
   if (out.d && out.d.length === 0) delete out.d;
   return out;
+}
+
+function findHead(doc: P5Parent): P5Element | null {
+  for (const c of doc.childNodes) {
+    if (!isElement(c)) continue;
+    if (c.tagName === 'head') return c;
+    const h = findHead(c);
+    if (h) return h;
+  }
+  return null;
 }
 
 /** `task-ring` → `TaskRing`: the class a component's script exports */

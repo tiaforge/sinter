@@ -418,6 +418,9 @@ export function each(tpl: HTMLTemplateElement, list: unknown, r: Branch | 0, ite
   const end = new Comment(), rows: Node[][] = [];
   tpl.after(end);
   list.forEach((v, i) => {
+    // a component used inside itself: the template is empty, its definition is in the head
+    const id = tpl.getAttribute('data-sn-def');
+    if (id && !tpl.content.firstChild) tpl.content.append((document.getElementById(id) as HTMLTemplateElement).content.cloneNode(true));
     const nodes = [...(tpl.content.cloneNode(true) as DocumentFragment).childNodes];
     end.before(...nodes);
     rows.push(nodes);

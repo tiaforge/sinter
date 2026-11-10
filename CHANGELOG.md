@@ -21,6 +21,10 @@ Attribute names, function names and diagnostic codes are public API. Before
   `connected()`, `propsChanged()` and `disconnected()`; it reads `this.props`, writes `this.state`, uses `this.refs` and
   `this.emit()`. No custom element, no hydration: the markup is rendered by sinter, in the first frame. The starter
   template's chart is one. `render(…, { scripts })` in the testing module.
+- A component may use itself (a comment thread, a file tree) when every cycle passes through a `data-sn-for` or
+  `data-sn-if` template: it compiles once to a shared definition in the head, which the runtime and the early script
+  instantiate per item, so a tree renders at any depth, early too. Nested items change along their path: `patch(r, …)`
+  and `remove(r)` for `r in comment.replies` at any depth, and `upsert(c.replies, x)` (the `nested` module).
 - Scoped styles: a `<style>` in a component file goes into the page's stylesheet, wrapped in native `@scope` from the
   component's root to nested components and slot content (marked `data-sn-c` and `data-sn-s` on pages that use one).
   Selectors stay as written; `@keyframes` and the other global at-rules stay outside.

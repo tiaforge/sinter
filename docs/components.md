@@ -149,6 +149,41 @@ HTML: `src/components/task-ring.ts`. sinter runs it once per instance, on the in
 `this.state`, reaches elements through `data-sn-ref` and emits declared events. See
 [components with a script](islands.md).
 
+## A component inside itself
+
+A component may use itself by its own tag, for a tree of data: comments and their replies, a file
+tree, a nested menu.
+
+```html
+<!-- src/components/comment-thread.html -->
+<template data-sn-component="{ comment: Comment }">
+  <li>
+    <p data-sn-text="comment.body"></p>
+    <button data-sn-on-click="upsert(comment.replies, { id: $now, body: 'Thanks!', replies: [] })">Reply</button>
+    <ul>
+      <template data-sn-for="r in comment.replies" data-sn-key="r.id">
+        <comment-thread data-sn-prop="{ comment: r }"></comment-thread>
+      </template>
+    </ul>
+  </li>
+</template>
+```
+
+- Every cycle must pass through a `data-sn-for` or `data-sn-if` template, because only data ends it. A
+  cycle that does not is a build error (`SN306`) showing it; the rule covers mutual recursion too (A uses
+  B, B uses A).
+- The compiler compiles the component once, as a shared definition: a `<template>` in the `<head>`, so
+  the parser has it before the body. Each inner use is an instance of it, created per item as
+  `data-sn-for` creates rows. The early script clones it too: a tree in embedded data is in the first
+  frame at any depth.
+- A component used inside itself declares its props as a type literal, and its inner uses take no slot
+  content.
+- **Nested items are changed along their path.** `patch(r, …)` and `remove(r)` for `r in
+  comment.replies` act on `r` inside its top-level row, at any depth: the objects along the path are
+  replaced, and every view of that row updates. Nested items are matched by the resource's key, so
+  give nested loops `data-sn-key`. `upsert(c.replies, x)` adds `x` to a nested list (or replaces the item
+  with its key); a resource name stays the form for top-level lists.
+
 ## Types
 
 `sinter check` checks every edge against the one declaration:

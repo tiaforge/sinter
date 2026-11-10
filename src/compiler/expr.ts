@@ -231,6 +231,16 @@ export const READ_ONLY = new Set([
   'getTime', 'toISOString', 'toJSON', 'getFullYear', 'getMonth', 'getDate', 'getDay', 'getHours',
   'getMinutes', 'getSeconds', 'test', 'exec',
 ]);
+/** A source through one more nested list: `comments` and `replies` give `comments>replies`; a list's fields join (`comments>replies,children`). */
+export function throughField(src: string, field: string): string {
+  if (src.startsWith('@')) return `${src}>${field}`;
+  const at = src.indexOf('>');
+  if (at < 0) return `${src}>${field}`;
+  const fields = new Set(src.slice(at + 1).split(','));
+  fields.add(field);
+  return `${src.slice(0, at)}>${[...fields].join(',')}`;
+}
+
 /** list methods whose result holds the list's own items */
 const LIST_KEEP = new Set(['filter', 'slice', 'toSorted', 'toReversed']);
 /** list methods that return one of its items */
@@ -852,6 +862,21 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       for (const a of n.arguments) for (const c of resourcesOf(a as Node, name, locals) ?? []) refreshes.push({ name: c.name, offset: c.at });
       return;
     }
+    // `upsert(c.replies, x)`: into a nested list, which the item that holds it gets as a patch
+    if (name === 'upsert' && first && first.type === 'MemberExpression' && !first.computed && first.property.type === 'Identifier') {
+      const owner = itemSource(first.object as Node, locals);
+      if (owner?.length) {
+        if (owner.some((x) => x.startsWith('!'))) { report('SN317', `\`${src.slice(first.start, first.end)}\` is a list of rows with no single source`, first.start); return; }
+        for (const r of owner) if (!r.startsWith('@')) { const info = page.resources.get(r.split('>')[0]!); if (info) info.used = true; }
+        const text = JSON.stringify(owner);
+        if (owner.some((x) => x.startsWith('@'))) {
+          srcRefs.push({ fn: 'upsert', offset: first.start, src: owner, text: src.slice(first.start, first.end) });
+          edits.push({ start: first.start, end: first.start, text: `/*src*/${text}/*end*/, ` });
+        } else edits.push({ start: first.start, end: first.start, text: `${text}, ` });
+        edits.push({ start: (first.object as Node).end, end: first.end, text: `, ${JSON.stringify(first.property.name)}` });
+        return;
+      }
+    }
     if (['upsert', 'page'].includes(name)) {
       const cands = first ? resourcesOf(first as Node, name, locals) : (report('SN301', `\`${name}()\` takes a resource name: ${NAME_FORMS}`, n.start), null);
       if (!cands || name !== 'page') return;
@@ -931,6 +956,13 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         return null;
       }
       case 'ArrayExpression': return (n as acorn.ArrayExpression).elements.length ? null : [];
+      // a nested list of an item with a source: `comment.replies`, its items found under that item at any depth
+      case 'MemberExpression': {
+        const m = n as acorn.MemberExpression & Node;
+        if (m.computed || m.property.type !== 'Identifier') return null;
+        const owner = itemSource(m.object as Node, locals);
+        return owner?.length && !owner.some((x) => x.startsWith('!')) ? owner.map((x) => throughField(x, (m.property as acorn.Identifier).name)) : null;
+      }
       case 'ConditionalExpression': return joined(listSource(n.consequent as Node, locals), listSource(n.alternate as Node, locals));
       case 'LogicalExpression': return n.operator === '&&' ? null : joined(listSource(n.left as Node, locals), listSource(n.right as Node, locals));
       case 'CallExpression': {
