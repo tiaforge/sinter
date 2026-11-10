@@ -25,6 +25,10 @@ Attribute names, function names and diagnostic codes are public API. Before
   `data-sn-if` template: it compiles once to a shared definition in the head, which the runtime and the early script
   instantiate per item, so a tree renders at any depth, early too. Nested items change along their path: `patch(r, …)`
   and `remove(r)` for `r in comment.replies` at any depth, and `upsert(c.replies, x)` (the `nested` module).
+- `<sn-component use="…">`: a component chosen by data, named by a template string (``use="`${b.type}-block`"``), a map in
+  the markup (`use="{ hero: 'hero-block' }[b.type]"`) or a helper. `sinter check` checks the name against the generated
+  `ComponentName` (a type the data can have and no component has is an error) and each candidate's props with the item
+  narrowed; a value outside the candidates renders the `data-sn-else` template after it.
 - Scoped styles: a `<style>` in a component file goes into the page's stylesheet, wrapped in native `@scope` from the
   component's root to nested components and slot content (marked `data-sn-c` and `data-sn-s` on pages that use one).
   Selectors stay as written; `@keyframes` and the other global at-rules stay outside.

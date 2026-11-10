@@ -200,7 +200,7 @@ export class Workspace {
       }
       try {
         const out = compile(html, {
-          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles,
+          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles,
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));
         // the use is not in any file, nor are the props it leaves out

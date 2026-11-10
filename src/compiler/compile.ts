@@ -100,6 +100,8 @@ export interface CompileOptions {
   sourcemap?: boolean;
   /** where the app's components are (default `<root>/src/components`): `<name>.html` is the component `<name>` */
   components?: string;
+  /** every component of the app: the candidates of `<sn-component use>` a helper chooses (default: the components the page names) */
+  componentNames?: string[];
   /** the module the page module imports for a component's scoped styles (`CompiledParts.styles`), so the bundler puts them in the page's stylesheet */
   componentCss?: (name: string) => string;
 }
@@ -363,6 +365,8 @@ class Compiler {
   private useIds = 0;
   /** components used inside themselves: their tags (recursion points), and the definition each compiles to */
   private readonly points = new WeakMap<P5Element, string>();
+  /** `<sn-component use>`: one point per candidate, rendered when `use` is its name; `key`: the value of the data that names it, for narrowing */
+  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; first: boolean; keys?: string[] }>();
   private readonly defs = new Map<string, { tid: number; id: string; use: Use } | null>();
   /** the synthetic tag of a shared definition, whose props are the row's item `rt` */
   private readonly defHosts = new WeakMap<P5Element, { rt: string }>();
@@ -799,6 +803,7 @@ class Compiler {
       if (!isElement(child)) continue;
       // slot content is the caller's: it is inside the components its caller is in
       const ch = this.slotOf.get(child)?.chain ?? chain;
+      if (child.tagName === 'sn-component') { this.choice(child); continue; }
       const def = this.componentFile(child.tagName);
       if (def) {
         const name = child.tagName;
@@ -828,6 +833,82 @@ class Compiler {
         const t = attr(child, 'data-sn-for') !== undefined || attr(child, 'data-sn-if') !== undefined || attr(child, 'data-sn-else') !== undefined;
         this.expandComponents((child as P5Template).content, t ? [...ch, '#'] : ch);
       }
+    }
+  }
+
+  /**
+   * `<sn-component use="…" data-sn-prop="…">`: a component chosen by data at runtime. `use` names it in
+   * one of three forms, each of which gives the candidates:
+   * - convention, ``use="`${b.type}-block`"``: the components whose names have that prefix and suffix
+   *   (sinter check: the template-literal type of the data's union, which must fit `ComponentName`);
+   * - map, `use="{ hero: 'hero-block', text: 'rich-text' }[b.type]"`: its values;
+   * - helper, `use="blockComponent(b)"`: every component (sinter check: its return type).
+   * It becomes one point per candidate (a shared definition each), of which only the one `use` names
+   * renders; a `data-sn-else` template after it renders for a value outside the candidates.
+   */
+  choice(el: P5Element) {
+    const use = attr(el, 'use');
+    const elseAfter = () => el.parentNode?.childNodes.slice(el.parentNode.childNodes.indexOf(el as never) + 1).find((c) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== ''));
+    const fail = (message: string, hint?: string) => {
+      this.report(el, use === undefined ? null : 'use', 'SN312', message, 0, hint);
+      // its else template goes with it: nothing to pair it with
+      const e = elseAfter();
+      if (e && isElement(e) && e.tagName === 'template' && attr(e, 'data-sn-else') !== undefined) detach(e);
+      detach(el);
+    };
+    for (const a of el.attrs) {
+      if (a.name !== 'use' && a.name !== 'data-sn-prop') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-component>\`; it takes \`use\` and \`data-sn-prop\``, 0);
+    }
+    let ast: ReturnType<typeof parseExpressionAt> | null = null;
+    try { ast = use ? parseExpressionAt(use, 0, { ecmaVersion: 'latest' }) : null; } catch { ast = null; }
+    if (!ast || ast.end !== use!.trimEnd().length) {
+      return fail('`<sn-component>` takes `use`, an expression naming the component: ``use="`${b.type}-block`"``, `use="{ hero: \'hero-block\' }[b.type]"` or `use="blockComponent(b)"`');
+    }
+    const all = [...new Set([...(this.opts.componentNames ?? []), ...this.componentFiles.keys()])].filter((n) => this.componentFile(n)).sort();
+    // each candidate, and the value of the data that names it (convention, map), for narrowing
+    let cands: Array<{ name: string; key: string | null }>;
+    let keySrc: string | null = null, map = false;
+    if (ast.type === 'TemplateLiteral' && ast.expressions.length === 1) {
+      const pre = ast.quasis[0]!.value.cooked ?? '', post = ast.quasis[1]!.value.cooked ?? '';
+      const e = ast.expressions[0]!;
+      keySrc = use!.slice(e.start, e.end);
+      cands = all.filter((n) => n.startsWith(pre) && n.endsWith(post) && n.length > pre.length + post.length).map((n) => ({ name: n, key: n.slice(pre.length, n.length - post.length) }));
+    } else if (ast.type === 'MemberExpression' && ast.computed && ast.object.type === 'ObjectExpression') {
+      keySrc = use!.slice(ast.property.start, ast.property.end);
+      map = true;
+      cands = [];
+      for (const p of ast.object.properties) {
+        const k = p.type === 'Property' && !p.computed ? (p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : null) : null;
+        const v = p.type === 'Property' && p.value.type === 'Literal' && typeof p.value.value === 'string' ? p.value.value : null;
+        if (k === null || v === null) return fail('the map in `use` has literal keys and component names as string values: `{ hero: \'hero-block\' }[b.type]`');
+        if (!this.componentFile(v)) { this.report(el, 'use', 'SN312', `\`'${v}'\` is not a component; create \`src/components/${v}.html\``, (p as import('acorn').Property).value.start); continue; }
+        cands.push({ name: v, key: k });
+      }
+    } else if (ast.type === 'CallExpression') {
+      cands = all.map((n) => ({ name: n, key: null }));
+    } else if (ast.type === 'BinaryExpression' && ast.operator === '+') {
+      return fail('`use` built with `+` is a `string` to TypeScript, so its candidates are unknown: write a template string, ``use="`${b.type}-block`"``');
+    } else {
+      return fail('`use` names the component by a template string (``use="`${b.type}-block`"``), a map (`use="{ hero: \'hero-block\' }[b.type]"`) or a helper (`use="blockComponent(b)"`)');
+    }
+    const names = cands.map((c) => c.name);
+    const parent = el.parentNode!;
+    const at = parent.childNodes.indexOf(el as never);
+    const clones: P5Element[] = [];
+    for (const c of cands) {
+      const x: P5Element = { ...el, attrs: el.attrs.map((a) => ({ ...a })), childNodes: [], parentNode: parent };
+      this.origins.set(x, this.origins.get(el)!);
+      this.points.set(x, c.name);
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, first: !clones.length, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
+      clones.push(x);
+    }
+    if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);
+    parent.childNodes.splice(at, 1, ...(clones as never[]));
+    // a value outside the candidates: the `data-sn-else` template after it
+    const next = parent.childNodes.slice(at + clones.length).find((c) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== ''));
+    if (next && isElement(next) && next.tagName === 'template' && attr(next, 'data-sn-else') !== undefined) {
+      next.attrs = next.attrs.filter((a) => a.name !== 'data-sn-else');
+      next.attrs.push({ name: 'data-sn-if', value: `!${JSON.stringify(names)}.includes(${use})` });
     }
   }
 
@@ -1073,10 +1154,27 @@ class Compiler {
     const def = this.definition(name);
     if (!def) { detach(host); return null; }
     const use: Use = { ...def.use, host, chain: [] };
+    const choice = this.choices.get(host);
+    // `<sn-component use>`: the name, checked once against `ComponentName` (the app's components)
+    let pick: ExprResult | null = null;
+    if (choice) {
+      pick = choice.first ? this.expr(host, 'use', ctx.scope, { mode: 'value' }) : analyze(attr(host, 'use')!, ctx.scope, this.page, { mode: 'value', report: () => {} });
+      // a map in the markup: TypeScript types its values as strings, so the key is what must fit (its keys); the values are checked above
+      if (choice.first && this.check && choice.keys) {
+        if (this.lastExpr !== null) this.check.exprs.pop();
+        const src = attr(host, 'use')!;
+        this.expr(host, 'use', ctx.scope, { mode: 'value' }, choice.keySrc!, src.lastIndexOf(choice.keySrc!));
+        this.typeLast({ returns: { kind: 'ts', text: choice.keys.map((k) => JSON.stringify(k)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
+      } else if (choice.first && this.check) this.typeLast({ returns: { kind: 'ts', text: [...new Set([...(this.opts.componentNames ?? []), ...choice.names])].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
+    }
     const { lets } = this.propLets(use, ctx.scope);
+    // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
+    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) this.check.exprs[this.lastExpr]!.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
     for (const l of lets) if (l.src?.length) this.addSources(`@def:${name}:${l.name}`, l.src);
-    const code = `($) => [{ ${lets.map((l) => `${JSON.stringify(l.name)}: (${l.code})`).join(', ')} }]`;
-    const node: NodeDef = { tag: 'template', p: ctx.stateIdx, b: [this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-prop', shift: 0 }), d: [...new Set(lets.flatMap((l) => l.deps))].sort(), x: def.tid })] };
+    const props = `[{ ${lets.map((l) => `${JSON.stringify(l.name)}: (${l.code})`).join(', ')} }]`;
+    const code = pick ? `($) => ((${pick.ok ? pick.inner : 'undefined'}) === ${JSON.stringify(choice!.name)} ? ${props} : [])` : `($) => ${props}`;
+    const deps = [...new Set([...lets.flatMap((l) => l.deps), ...(pick?.deps ?? [])])].sort();
+    const node: NodeDef = { tag: 'template', p: ctx.stateIdx, b: [this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-prop', shift: 0 }), d: deps, x: def.tid })] };
     // the tag becomes the empty template the definition is cloned into
     const t = host as unknown as P5Template;
     host.tagName = host.nodeName = 'template';
@@ -1310,7 +1408,7 @@ class Compiler {
       case 'sn-event': this.report(el, null, 'SN102', '`<sn-event>` must be a child of `<sn-sync>`', 0); this.remove.push(el); return null;
     }
     if (el.tagName.startsWith('sn-')) {
-      this.report(el, null, 'SN101', `\`<${el.tagName}>\` is not a sinter element.${didYouMean(el.tagName, ['sn-resource', 'sn-sync', 'sn-event', 'sn-include'])}`, 0);
+      this.report(el, null, 'SN101', `\`<${el.tagName}>\` is not a sinter element.${didYouMean(el.tagName, ['sn-resource', 'sn-sync', 'sn-event', 'sn-component'])}`, 0);
     }
 
     const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-'));

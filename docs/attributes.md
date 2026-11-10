@@ -107,6 +107,10 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 
 `src`. One server event stream.
 
+### `<sn-component>`
+
+`use`, `data-sn-prop`. A component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it.
+
 ### `<sn-event>`
 
 `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type`. Maps one server event to a change message; child of &lt;sn-sync&gt;. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close('detail'); with `then`, `resource` and `op` may be left out.

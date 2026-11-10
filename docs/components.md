@@ -184,6 +184,40 @@ tree, a nested menu.
   give nested loops `data-sn-key`. `upsert(c.replies, x)` adds `x` to a nested list (or replaces the item
   with its key); a resource name stays the form for top-level lists.
 
+## Choosing a component at runtime
+
+A list of mixed blocks (a CMS page, dashboard widgets, a form builder) picks a component per item:
+
+```html
+<template data-sn-for="b in blocks" data-sn-key="b.id">
+  <sn-component use="`${b.type}-block`" data-sn-prop="{ block: b }"></sn-component>
+</template>
+```
+
+- `use` is an expression naming the component. The compiler needs every candidate at build time, and
+  `use` must have a type that fits `ComponentName`, the union of the app's components (generated in
+  `src/sinter.components.d.ts`).
+- Three ways to write it, one check:
+
+  | Form | Example | For |
+  | --- | --- | --- |
+  | Convention | ``use="`${b.type}-block`"`` | names that follow the data: with `b.type` typed `'hero' \| 'text'`, TypeScript types it `'hero-block' \| 'text-block'` |
+  | Map | `use="{ hero: 'hero-block', text: 'rich-text' }[b.type]"` | names that do not follow a convention; untyped pages |
+  | Helper | `use="blockComponent(b)"` | logic, such as a fallback; its return type, a union of names, is checked |
+
+  `b.type + '-block'` is a `string` to TypeScript, so it is an error that points to the template
+  string.
+- A missing component is an error: a new block type in the API spec fails `sinter check` until its
+  component exists, and a map that names a missing file fails the build.
+- Props are checked per candidate. For the convention and the map, each candidate's props are checked
+  with the item narrowed to its type (`hero-block` can declare `{ block: HeroBlock }` for
+  `Block = HeroBlock | TextBlock`). A helper hides that link, so its candidates take the whole union.
+- A value outside the candidates renders nothing, or the `data-sn-else` template that follows the
+  element.
+- Each candidate compiles to a shared definition in the head (as for [recursion](#a-component-inside-itself)).
+  A convention or a map compiles only its candidates; a helper compiles every component of the app,
+  since only TypeScript knows its return type.
+
 ## Types
 
 `sinter check` checks every edge against the one declaration:

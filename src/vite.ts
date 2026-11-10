@@ -370,7 +370,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
       file, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
-      check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles,
+      check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles,
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),

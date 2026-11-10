@@ -124,6 +124,31 @@ declare global {
     expect(r.diagnostics[0]!.file).toMatch(/src\/components\/contact-card.html$/);
   });
 
+  test('<sn-component use>: the name must fit ComponentName; props are checked per candidate, narrowed by the key', () => {
+    const types = `export interface Hero { id: number; type: 'hero'; title: string }
+export interface Text { id: number; type: 'text'; body: string }
+export interface Image { id: number; type: 'image'; src: string }
+export type Block = Hero | Text;
+export type AnyBlock = Hero | Text | Image;
+`;
+    const files = {
+      'src/sinter.types.ts': types,
+      'src/components/hero-block.html': '<template data-sn-component="{ block: Hero }"><h1 data-sn-text="block.title"></h1></template>',
+      'src/components/text-block.html': '<template data-sn-component="{ block: Text }"><p data-sn-text="block.body"></p></template>',
+    };
+    const html = (t: string, use: string) => `<!doctype html><html><head></head><body>
+<sn-resource name="blocks" src="/api/b" key="id" type="${t}[]"></sn-resource>
+<template data-sn-for="b in blocks"><sn-component use="${use}" data-sn-prop="{ block: b }"></sn-component></template>
+</body></html>`;
+    const run2 = (t: string, use: string) => checkPage(html(t, use), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    // narrowed per candidate: hero-block gets a Hero, text-block a Text
+    expect(run2('Block', '`${b.type}-block`')).toEqual([]);
+    expect(run2('Block', "{ hero: 'hero-block', text: 'text-block' }[b.type]")).toEqual([]);
+    // a type the spec has and no component: the name does not fit ComponentName
+    expect(run2('AnyBlock', '`${b.type}-block`')).toEqual([expect.stringMatching(/Type '"image-block"' is not assignable to type '"hero-block" \| "text-block"'/)]);
+    expect(run2('AnyBlock', "{ hero: 'hero-block', text: 'text-block' }[b.type]")).toEqual([expect.stringMatching(/Type '"image"' is not assignable to type '"hero" \| "text"'/)]);
+  });
+
   test('SN507 complex expressions: in checkPage like other diagnostics, with the complexity option', () => {
     const html = page(`<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5" data-sn-text="n + contacts.length"></button></div>`);
     const d = checkPage(html, { files: { 'src/sinter.types.ts': TYPES } });

@@ -346,7 +346,7 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
   for (const [name, text] of Object.entries(options.components ?? {})) files[`src/components/${name}.html`] = text;
   for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= '';
   const parts = compileParts(html, {
-    file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank',
+    file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank', componentNames: Object.keys(options.components ?? {}),
     readFile: (p) => {
       const rel = p.startsWith('/test/') ? p.slice('/test/'.length) : p;
       const hit = files[rel] ?? files[`./${rel}`] ?? files[p];
