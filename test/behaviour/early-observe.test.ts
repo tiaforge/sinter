@@ -1,7 +1,7 @@
 // Prototype `firstPaint: 'observe'`: the early file runs from the head and renders each root as the
 // parser closes it (MutationObserver), skipping messages whose dictionary is still on its way.
 import { afterEach, expect, test } from 'vitest';
-import { byId, iff, observe, text, w, type EarlyPage } from '../../src/early.js';
+import { byId, cls, iff, observe, text, w, type EarlyPage } from '../../src/early.js';
 import { meeting } from '../../src/runtime/handoff.js';
 
 const I18N = Symbol.for('sinter.i18n');
@@ -28,15 +28,15 @@ afterEach(() => {
   delete (globalThis as any)[I18N];
 });
 
-/** roots 1 (text), 2 (if) and 3 (its else); `msg`: root 1's text reads the dictionary */
+/** roots 1 (text), 2 (if) and 3 (its else); `msg`: root 1's text reads the dictionary. One function table, as compiled pages have */
+const hi = () => (globalThis as any)[I18N].dicts[(globalThis as any)[I18N].locale].hi, early = () => 'early', no = () => false;
 const page = (msg = false): EarlyPage => () => ({
   ir: {}, fns: [],
   scopes: () => [],
   render(d) {
     const n = byId(d, [1, 2, 3]);
-    const g = (globalThis as any)[I18N];
-    w(n[0]!, msg ? () => g.dicts[g.locale].hi : () => 'early', null, text);
-    w(n[1]!, () => false, null, (t, v) => iff(t as HTMLTemplateElement, v, n[2] as HTMLTemplateElement | null, 0, 0, null));
+    w(n[0]!, msg ? hi : early, null, text);
+    w(n[1]!, no, null, (t, v) => iff(t as HTMLTemplateElement, v, n[2] as HTMLTemplateElement | null, 0, 0, null));
   },
 });
 
@@ -96,4 +96,25 @@ test('a dictionary arriving after the parse is left to the page module', async (
   g.dicts.de = { hi: 'Hallo' };
   (g as any).loaded?.('de');
   expect(document.querySelector('p')!.textContent).toBe('');
+});
+
+const yes = () => true, txt = () => 'text';
+test('an element\'s own attributes are written when the parser inserts it; its content once it has closed it', async () => {
+  const doc = parsing();
+  // root 1: a class (attribute-like) and its text (content), as on a wrapper that holds the rest of the page
+  observe(() => ({
+    ir: {}, fns: [], scopes: () => [],
+    render(d) { const n = byId(d, [1]); w(n[0]!, yes, null, cls, 'collapsed'); w(n[0]!, txt, null, text); },
+  }));
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('data-sn', '1');
+  document.body.append(wrapper);
+  await tick();
+  // still open (the rest of the page is still to come): the class is there, the content waits
+  expect(wrapper.classList.contains('collapsed')).toBe(true);
+  expect(wrapper.textContent).toBe('');
+  document.body.append(document.createElement('footer'));
+  await tick();
+  expect(wrapper.textContent).toBe('text');
+  doc.end();
 });
