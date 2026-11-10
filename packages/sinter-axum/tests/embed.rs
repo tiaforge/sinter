@@ -111,10 +111,16 @@ async fn fills_each_placeholder_from_the_api_in_process() {
     // no tag: the parameter is left out
     let (_, _, html) = text(a.clone(), get_("/")).await;
     assert!(html.contains(r#""q":"limit=10""#));
-    // path parameters; a failing request leaves its placeholder empty
-    let (_, _, html) = text(a, get_("/article/hello%20world")).await;
+    // path parameters; a failing request (the comments answer 500) ends the page with the error text
+    let (status, _, html) = text(a, get_("/article/hello%20world")).await;
+    assert_eq!(status, StatusCode::OK);
     assert!(html.contains(r#"data-sn="0">{"article":{"slug":"hello world"}}</script>"#), "{html}");
-    assert!(html.contains(r#"<script type="application/json" data-sn="1"></script>"#));
+    assert!(
+        html.ends_with(
+            r#"<script type="application/json" data-sn="1"></script></head><body><p>Error, please retry later.</p></body></html>"#
+        ),
+        "{html}"
+    );
 }
 
 #[tokio::test]
@@ -154,7 +160,7 @@ async fn a_resolver_takes_precedence_and_gets_what_the_template_cannot_express()
 }
 
 #[tokio::test]
-async fn the_head_is_sent_before_the_data_and_slow_data_is_left_to_the_browser() {
+async fn the_head_is_sent_before_the_data_and_slow_data_ends_the_page_at_the_time_limit() {
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     let rx = std::sync::Mutex::new(Some(rx));
     let embed = Embed::from_dir(app_build())
@@ -183,7 +189,10 @@ async fn the_head_is_sent_before_the_data_and_slow_data_is_left_to_the_browser()
     assert!(t.elapsed() < Duration::from_millis(100));
     tx.send(()).unwrap();
     let rest = String::from_utf8(body.collect().await.unwrap().to_bytes().to_vec()).unwrap();
-    assert!(rest.starts_with(r#"{}</script><script type="application/json" data-sn="1"></script>"#), "{rest}");
+    assert_eq!(
+        rest,
+        r#"{}</script><script type="application/json" data-sn="1"></script></head><body><p>Error, please retry later.</p></body></html>"#
+    );
     // the slow one waited for the time limit, not for itself
     let took = t.elapsed();
     assert!(took >= Duration::from_millis(300) && took < Duration::from_secs(2), "{took:?}");
@@ -204,13 +213,56 @@ async fn a_paginated_resource_is_requested_at_its_first_page() {
 }
 
 #[tokio::test]
-async fn unstreamed_the_page_is_one_piece() {
+async fn unstreamed_the_page_is_one_piece_and_a_failure_is_its_status() {
     let embed = Embed::from_dir(app_build()).api(api()).skip("feed").stream(false).build().unwrap();
-    let res = app(embed).oneshot(get_("/article/x")).await.unwrap();
+    let res = app(embed.clone()).oneshot(get_("/")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
     let mut body = res.into_body();
     let all = body.frame().await.unwrap().unwrap().into_data().unwrap();
-    assert!(std::str::from_utf8(&all).unwrap().ends_with("</body></html>"));
+    assert!(std::str::from_utf8(&all).unwrap().ends_with("<main></main></body></html>"));
     assert!(body.frame().await.is_none());
+    // the comments answer 500: a 502 with the error text instead of the page
+    let (status, _, html) = text(app(embed), get_("/article/x")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(html, r#"<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><p>Error, please retry later.</p></body></html>"#);
+    // out of time: 504
+    let slow = Embed::from_dir(app_build())
+        .api(api())
+        .skip("feed")
+        .stream(false)
+        .timeout(Duration::from_millis(50))
+        .resolve("tags", |_| async {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            None
+        })
+        .build()
+        .unwrap();
+    assert_eq!(text(app(slow), get_("/")).await.0, StatusCode::GATEWAY_TIMEOUT);
+}
+
+#[tokio::test]
+async fn a_failure_redirects_to_the_error_page_when_there_is_one() {
+    let embed = Embed::from_dir(app_build())
+        .api(api())
+        .skip("feed")
+        .error_redirect("/error?from=\"x\"<")
+        .error_text("Try again <soon>")
+        .build()
+        .unwrap();
+    let (_, _, html) = text(app(embed), get_("/article/x")).await;
+    let tail = html.split(r#"data-sn="1">"#).nth(1).unwrap();
+    assert_eq!(
+        tail,
+        r#"</script><meta http-equiv="refresh" content="0;url=/error?from=&quot;x&quot;&lt;"><script>location.replace("/error?from=\"x\"\u003c")</script></head><body><p>Try again &lt;soon&gt;</p></body></html>"#
+    );
+}
+
+#[tokio::test]
+async fn data_left_to_the_browser_is_no_failure() {
+    // a resolver's None, a skip, a `when` that does not hold: the page is sent whole, those placeholders empty
+    let embed = Embed::from_dir(app_build()).api(api()).skip("feed").resolve("comments", |_| async { None }).build().unwrap();
+    let (_, _, html) = text(app(embed), get_("/article/x")).await;
+    assert!(html.ends_with(r#"<script type="application/json" data-sn="1"></script></head><body></body></html>"#), "{html}");
 }
 
 #[cfg(feature = "upstream")]

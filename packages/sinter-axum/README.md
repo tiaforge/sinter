@@ -39,6 +39,8 @@ axum::serve(listener, app).await?;
 
 That's all. For each page request, the layer calls your router in-process, passing on the request's cookies. Other requests pass through untouched.
 
+The page is sent head first, before the data is in, so its status is `200` from the start. If the data then can't be fetched, the rest of the page isn't sent: the response ends with an error text, or a redirect to your error page (see [What the layer does](#what-the-layer-does)).
+
 ## The compile-time check
 
 `embed!` reads the build's `sinter-embed.json` when your crate compiles; the path is relative to your `Cargo.toml`. It's a compile error when the build has a slot your configuration can't fill, and the error names the page, the resource and the fix:
@@ -122,7 +124,9 @@ Pages are sent with `Cache-Control: private, no-cache`, so a shared cache never 
 | `.timeout(Duration)`: how long a page waits for all its data | 500 ms |
 | `.forward([headers])`: the page request's headers passed on to `.api` and `.upstream` | `Cookie`, `Authorization`, `Accept-Language` |
 | `.max_bytes(n)`: the largest response put into a page | 2 MiB |
-| `.stream(false)`: send each page in one piece instead of head first | head first |
+| `.stream(false)`: send each page in one piece instead of head first; a failure is then a real `502` (`504` on the time limit) | head first |
+| `.error_text(text)`: sent instead of the rest of a page whose data failed | `Error, please retry later.` |
+| `.error_redirect(url)`: where the browser goes then (a `meta` refresh and `location.replace`); serve that page with an error status | none |
 | `.cache_control(value)`: the pages' `Cache-Control` header | `private, no-cache` |
 | `.dir(path)`: where the pages are at run time | the path given to `embed!` |
 
@@ -133,7 +137,8 @@ Pages are sent with `Cache-Control: private, no-cache`, so a shared cache never 
   - it sends the HTML up to the first slot right away, so the browser loads stylesheets and scripts while the data is fetched;
   - it fetches every slot's data in parallel, for this URL: the URL's values in the request, the page a paginated list starts at, and no request when the resource's `when` doesn't hold;
   - it writes the data, with `<` escaped so it can't break out of its `<script>`, then the rest of the page.
-- **A slot it can't fill** (an error, a non-2xx or non-JSON response, one over `max_bytes`, the time limit) is sent empty, and the browser requests that data.
+- **When a slot's data can't be fetched** (the API errors or can't be reached, a non-2xx or non-JSON response, one over `max_bytes`, the time limit), the page is not sent: the layer ends the response there with the error text, and with `.error_redirect(url)` sends the browser to your error page. A 404 from the API counts too, so a missing article shows the error text, not the page's own not-found state.
+- **No data is not a failure:** a resolver's `None`, a `skip`, or a `when` that doesn't hold leaves the slot empty, and the browser requests that data itself.
 - **What it never does:** fetch a URL whose host comes from the page's URL, or serve `sinter-embed.json` (it answers 404).
 
 ## What the browser receives

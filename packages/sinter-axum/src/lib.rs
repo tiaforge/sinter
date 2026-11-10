@@ -118,6 +118,8 @@ pub struct Embed {
     max_bytes: usize,
     stream: bool,
     cache_control: HeaderValue,
+    error_text: String,
+    error_redirect: Option<String>,
 }
 
 impl Embed {
@@ -138,6 +140,8 @@ impl Embed {
             max_bytes: 2 << 20,
             stream: true,
             cache_control: HeaderValue::from_static("private, no-cache"),
+            error_text: "Error, please retry later.".into(),
+            error_redirect: None,
         }
     }
 
@@ -232,6 +236,20 @@ impl Embed {
         self
     }
 
+    /// The text sent instead of the rest of a page whose data could not be fetched (default
+    /// "Error, please retry later.").
+    pub fn error_text(mut self, text: impl Into<String>) -> Self {
+        self.error_text = text.into();
+        self
+    }
+
+    /// Where the browser goes when a page's data could not be fetched (`/error.html`): a page you
+    /// serve with the error's status. The text is shown too, if the browser does not go.
+    pub fn error_redirect(mut self, url: impl Into<String>) -> Self {
+        self.error_redirect = Some(url.into());
+        self
+    }
+
     /// Reads the build and checks that every placeholder has a source: a resolver, a skip, or a
     /// request the build describes and this configuration can make (a same-origin path needs
     /// [`Embed::api`] or `Embed::upstream`, an absolute URL its origin allowed). Every problem
@@ -279,6 +297,8 @@ impl Embed {
             max_bytes: self.max_bytes,
             stream: self.stream,
             cache_control: self.cache_control,
+            error_text: self.error_text,
+            error_redirect: self.error_redirect,
         })))
     }
 
@@ -335,6 +355,8 @@ struct Inner {
     max_bytes: usize,
     stream: bool,
     cache_control: HeaderValue,
+    error_text: String,
+    error_redirect: Option<String>,
 }
 
 /// The layer [`Embed::build`] gives: add it to a router with `.layer(…)`.
@@ -385,7 +407,7 @@ where
             Some(i) => {
                 let (embed, head) = (self.embed.clone(), req.method() == Method::HEAD);
                 let (parts, _) = req.into_parts();
-                async move { Ok(render(embed, i, parts, head)) }.boxed()
+                async move { Ok(render(embed, i, parts, head).await) }.boxed()
             }
             None => self.inner.call(req).boxed(),
         }
@@ -407,7 +429,16 @@ fn described_url(s: &SlotDesc, params: &HashMap<String, String>) -> Option<Strin
     Some(with_params(&url, &query))
 }
 
-fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bool) -> Response<Body> {
+/// What became of one placeholder's data.
+enum Fill {
+    Data(Bytes),
+    /// none from the server: a resolver's `None`, a skip, a `when` that does not hold; the browser requests it
+    Browser,
+    /// the request failed (502) or ran out of time (504): the page is not sent
+    Failed(StatusCode),
+}
+
+async fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bool) -> Response<Body> {
     let res = Response::builder()
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
         .header(header::CACHE_CONTROL, embed.0.cache_control.clone());
@@ -430,76 +461,111 @@ fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bool) ->
                 headers: headers.clone(),
             };
             let e = embed.clone();
-            async move { timeout_at(deadline, fill(&e, r)).await.ok().flatten().map(escape) }
+            async move {
+                match timeout_at(deadline, fill(&e, r)).await {
+                    Ok(Fill::Data(j)) => Fill::Data(escape(j)),
+                    Ok(f) => f,
+                    Err(_) => Fill::Failed(StatusCode::GATEWAY_TIMEOUT),
+                }
+            }
         })
         .collect();
     let n = fills.len().max(1);
-    let body = if embed.0.stream {
-        let parts = page.parts.clone();
+    let parts = page.parts.clone();
+    if embed.0.stream {
+        // the head up to the first placeholder at once; the rest as the data comes in, in order. A
+        // failed placeholder ends the page there: still in the head, inside that placeholder's `<script>`
         let first = stream::once(std::future::ready(Ok::<_, Infallible>(parts[0].clone())));
-        let rest = stream::iter(fills).buffered(n).zip(stream::iter(parts.into_iter().skip(1))).map(|(json, part)| {
-            Ok(match json {
-                Some(j) => [j, part].concat().into(),
-                None => part,
-            })
-        });
-        Body::from_stream(first.chain(rest))
-    } else {
-        let parts = page.parts.clone();
-        Body::from_stream(stream::once(async move {
-            let json = futures_util::future::join_all(fills).await;
-            let mut out =
-                Vec::with_capacity(parts.iter().map(Bytes::len).sum::<usize>() + json.iter().flatten().map(Bytes::len).sum::<usize>());
-            for (k, p) in parts.iter().enumerate() {
-                if k > 0 {
-                    if let Some(j) = &json[k - 1] {
-                        out.extend_from_slice(j)
-                    }
-                }
-                out.extend_from_slice(p);
+        let e = embed.clone();
+        let rest = stream::iter(fills).buffered(n).zip(stream::iter(parts.into_iter().skip(1))).scan(false, move |ended, (fill, part)| {
+            if *ended {
+                return std::future::ready(None);
             }
-            Ok::<_, Infallible>(Bytes::from(out))
-        }))
-    };
-    res.status(StatusCode::OK).body(body).unwrap()
+            let chunk: Bytes = match fill {
+                Fill::Data(j) => [j, part].concat().into(),
+                Fill::Browser => part,
+                Fill::Failed(_) => {
+                    *ended = true;
+                    Bytes::from(format!("</script>{}", error_tail(&e.0)))
+                }
+            };
+            std::future::ready(Some(Ok(chunk)))
+        });
+        return res.status(StatusCode::OK).body(Body::from_stream(first.chain(rest))).unwrap();
+    }
+    // in one piece: the response waits for the data, and a failure is its status
+    let fills = futures_util::future::join_all(fills).await;
+    if let Some(status) = fills.iter().find_map(|f| if let Fill::Failed(s) = f { Some(*s) } else { None }) {
+        let doc = format!("<!DOCTYPE html><html><head><meta charset=\"utf-8\">{}", error_tail(&embed.0));
+        return res.status(status).body(Body::from(doc)).unwrap();
+    }
+    let mut out = Vec::with_capacity(parts.iter().map(Bytes::len).sum::<usize>() + 4096);
+    for (k, p) in parts.iter().enumerate() {
+        if k > 0 {
+            if let Fill::Data(j) = &fills[k - 1] {
+                out.extend_from_slice(j)
+            }
+        }
+        out.extend_from_slice(p);
+    }
+    res.status(StatusCode::OK).body(Body::from(out)).unwrap()
 }
 
-/// The data for one placeholder, or None to leave it to the browser.
-async fn fill(e: &EmbedLayer, r: SlotRequest) -> Option<Bytes> {
+/// The end of a page whose data failed, from inside its head: a redirect to the error page if there
+/// is one (a `meta` refresh, and `location.replace` where scripts run), then a body with the text.
+fn error_tail(i: &Inner) -> String {
+    let html = |v: &str| v.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
+    let go = i.error_redirect.as_deref().map_or(String::new(), |u| {
+        let js = serde_json::to_string(u).unwrap_or_default().replace('<', "\\u003c");
+        format!("<meta http-equiv=\"refresh\" content=\"0;url={}\"><script>location.replace({js})</script>", html(u))
+    });
+    format!("{go}</head><body><p>{}</p></body></html>", html(&i.error_text))
+}
+
+/// The data for one placeholder.
+async fn fill(e: &EmbedLayer, r: SlotRequest) -> Fill {
     let i = &e.0;
     let page_key = format!("{}:{}", r.page, r.resource);
     if let Some(f) = i.resolvers.get(&page_key).or_else(|| i.resolvers.get(&r.resource)) {
-        return f(r).await;
+        return f(r).await.map_or(Fill::Browser, Fill::Data);
     }
     if i.skips.contains(&page_key) || i.skips.contains(&r.resource) {
-        return None;
+        return Fill::Browser;
     }
-    let url = r.url.as_deref()?;
+    // no request at this URL (its `when` does not hold)
+    let Some(url) = r.url.as_deref() else { return Fill::Browser };
+    let failed = |d: Option<Bytes>| d.map_or(Fill::Failed(StatusCode::BAD_GATEWAY), Fill::Data);
     // a path of this origin; `//host` is another origin
     if url.starts_with('/') && !url.starts_with("//") {
         if let Some(api) = &i.api {
-            let mut q = Request::get(url).body(Body::empty()).ok()?;
-            forward(&i.forward, &r.headers, q.headers_mut());
-            q.headers_mut().insert(header::ACCEPT, HeaderValue::from_static("application/json"));
-            let res = api.clone().oneshot(q).await.ok()?;
-            if !res.status().is_success() || !is_json(res.headers()) {
-                return None;
-            }
-            return Limited::new(res.into_body(), i.max_bytes).collect().await.ok().map(|b| b.to_bytes());
+            return failed(call(i, api, url, &r.headers).await);
         }
         #[cfg(feature = "upstream")]
         if let Some(base) = &i.upstream {
             let mut h = HeaderMap::new();
             forward(&i.forward, &r.headers, &mut h);
-            return get(i, &format!("{base}{url}"), h).await;
+            return failed(get(i, &format!("{base}{url}"), h).await);
         }
-        return None;
+        // build() refuses a configuration without a source
+        return Fill::Browser;
     }
     #[cfg(feature = "upstream")]
     if i.origins.iter().any(|o| url.strip_prefix(o.as_str()).is_some_and(|rest| rest.starts_with(['/', '?']) || rest.is_empty())) {
-        return get(i, url, HeaderMap::new()).await;
+        return failed(get(i, url, HeaderMap::new()).await);
     }
-    None
+    Fill::Browser
+}
+
+/// The app's router, in-process: the body of a 2xx JSON response within `max_bytes`, else None.
+async fn call(i: &Inner, api: &Api, url: &str, headers: &HeaderMap) -> Option<Bytes> {
+    let mut q = Request::get(url).body(Body::empty()).ok()?;
+    forward(&i.forward, headers, q.headers_mut());
+    q.headers_mut().insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+    let res = api.clone().oneshot(q).await.ok()?;
+    if !res.status().is_success() || !is_json(res.headers()) {
+        return None;
+    }
+    Limited::new(res.into_body(), i.max_bytes).collect().await.ok().map(|b| b.to_bytes())
 }
 
 #[cfg(feature = "upstream")]
