@@ -41,7 +41,7 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'emb'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale };
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
@@ -177,13 +177,36 @@ const ready = (el: Element) => {
   return closed(el) && (!e || !e.hasAttribute('data-sn-else') || closed(e));
 };
 
+/** `$r` over the page's embedded data: each resource's items (by its `items` path), parsed once; another resource throws */
+function embedded(emb: NonNullable<EarlyIR['emb']>): any {
+  const got = new Map<string, unknown>();
+  return new Proxy(Object.create(null), {
+    get(_, name) {
+      const e = typeof name == 'string' ? emb[name] : undefined;
+      if (!e) throw Error('sinter: not available early');
+      if (!got.has(name as string)) {
+        const el = document.querySelector(`head > script[data-sn="${e.id}"]`);
+        let v: any = JSON.parse(el!.textContent!);
+        for (const k of e.items ? e.items.split('.') : []) v = v?.[k];
+        got.set(name as string, v);
+      }
+      return got.get(name as string);
+    },
+  });
+}
+
 /** The base scope: what is not available before data throws, and the binding (or request) is left to the page module. */
 function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
+  let emb: any = null, url: any = null;
   return new Proxy(Object.create(null), {
     get(_, k) {
       // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
       const l = k == '$locale' ? o.locale?.() : null;
       if (l) return l.get();
+      // the resources whose data is embedded in the page: read from it (the head is parsed before any binding)
+      if (k == '$r' && o.ir.emb) return (emb ??= embedded(o.ir.emb));
+      // bindings over embedded data may read the URL (a page without early requests: read here)
+      if (k == '$url' && o.ir.emb && !req) return (url ??= readUrl(location.href, o.ir.path));
       // for requests only: no early binding reads the clock or the URL
       if (req) return req.read(k, o.ir.path);
       throw Error('sinter: not available early');
@@ -354,6 +377,27 @@ export function iff(tpl: HTMLTemplateElement, v: unknown, other: HTMLTemplateEle
   if (r) r(nodes, Object.create(s));
 }
 type Branch = (nodes: Node[], s: any) => void;
+
+/** set on a `data-sn-for` template whose rows `each` rendered: the nodes it inserted (the page module removes them at mount) */
+export const EARLY_ROWS = Symbol.for('sinter.early.rows');
+
+/**
+ * A `data-sn-for` over embedded data: a clone of the template per item, after it, each rendered by `r` over a scope
+ * with the loop variable (and index); the inserted nodes are left on the template for the page module's mount.
+ */
+export function each(tpl: HTMLTemplateElement, list: unknown, r: Branch | 0, item: string, index: string | null, s: any): void {
+  if (!Array.isArray(list) || !list.length) return;
+  const end = new Comment(), all: ChildNode[] = [];
+  tpl.after(end);
+  list.forEach((v, i) => {
+    const nodes = [...(tpl.content.cloneNode(true) as DocumentFragment).childNodes];
+    end.before(...nodes);
+    all.push(...nodes);
+    if (r) { const sc = Object.create(s); sc[item] = v; if (index) sc[index] = i; r(nodes, sc); }
+  });
+  all.push(end);
+  (tpl as any)[EARLY_ROWS] = all;
+}
 
 // the writers, as the runtime's first write
 export const text = (el: HTMLElement, v: any) => { el.textContent = '' + (v ?? ''); };

@@ -2058,8 +2058,17 @@ class Compiler {
     const builtin = (code: string) => [...code.matchAll(BUILTIN)].some((m) => !userHelpers.has(m[1]!));
     // state fields known before data, by scope
     const fields = new Map<number, Map<string, string>>();
+    // a resource with embedded data: its data is in the page, so bindings over it render early (rows too)
+    const embedded = new Map(this.resources.filter((r) => r.data != null).map((r) => [r.name, r]));
+    const usedEmb = new Set<string>();
+    let readsUrl = false;
     const known = (deps: string[]) => deps.every((d) => {
       if (d === '$locale') return true;
+      // with embedded data, the URL too (the browser knows it as the head is parsed), and any resource: one without
+      // data throws when it is read, which leaves that binding to the page module (`($url.feed ? feed : articles)`)
+      if (embedded.size && (d === '$url' || d.startsWith('$url.'))) return (readsUrl = true);
+      const r = /^\$r\.([^.]+)/.exec(d);
+      if (r) { if (!embedded.size) return false; if (embedded.has(r[1]!)) usedEmb.add(r[1]!); return true; }
       const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
       const f = m ? fields.get(Number(m[1])) : undefined;
       if (!m || !f) return false;
@@ -2095,7 +2104,7 @@ class Compiler {
     const fns: string[] = [], index = new Map<string, number>();
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const templates: EarlyIR['templates'] = this.templates.map(() => null);
-    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if'].includes(b.k) && !b.e && b.f !== undefined && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
+    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for'] : [])].includes(b.k) && !b.e && b.f !== undefined && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
       const bs = defs.map((nd) => (nd.dl ? [] : nd.b.filter(eligible)));
@@ -2119,6 +2128,7 @@ class Compiler {
           if (b.n !== undefined) nb.n = b.n;
           if (b.k === 'model') { nb.a = fn(this.fns[b.a!]!); if (b.p !== undefined) nb.p = b.p; }
           if (b.k === 'if') { nb.x = tpl(b.x!); if (b.y !== undefined) nb.y = keep.get(b.y)!; }
+          if (b.k === 'for') nb.x = tpl(b.x!);
           o.b.push(nb);
         }
         if (elses.has(i)) { const e = nd.b.find((x) => x.k === 'else')!; o.b.push({ k: 'else', x: tpl(e.x!) }); }
@@ -2127,7 +2137,11 @@ class Compiler {
       return out;
     };
     const tpl = (x: number) => {
-      if (!templates[x]) { templates[x] = { nodes: [] }; templates[x]!.nodes = list(this.templates[x]!.nodes); }
+      if (!templates[x]) {
+        const t = this.templates[x]!;
+        templates[x] = { nodes: [], ...(t.item ? { item: t.item, index: t.index ?? null } : {}) };
+        templates[x]!.nodes = list(t.nodes);
+      }
       return x;
     };
     const states: NodeDef[] = [], reads: string[] = [];
@@ -2192,8 +2206,9 @@ class Compiler {
       if (used.length) namespaces[ns] = used;
     }
     const ir: EarlyIR = { roots, templates };
+    if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, items: embedded.get(n)!.items ?? null }]));
     if (res.length) ir.res = res;
-    if (url && this.pathList.length) ir.path = this.pathList;
+    if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
     return { ir, fns, helpers, namespaces };
   }
 

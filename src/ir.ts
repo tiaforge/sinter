@@ -174,7 +174,9 @@ export interface NodeDef {
 export interface EarlyIR {
   roots: NodeDef[];
   /** by template id; null for templates the early chunk does not render */
-  templates: Array<{ nodes: NodeDef[] } | null>;
+  templates: Array<{ nodes: NodeDef[]; item?: string; index?: string | null } | null>;
+  /** resources with embedded data the early bindings read (`$r.<name>`): the data element's `data-sn` id and `items` path */
+  emb?: Record<string, { id: number; items: string | null }>;
   /** resources the early file requests: URL template and `when` (function indexes into the early table), scope by index into `roots`, -1 for the page; `q`: a paginated resource's first-page query parameters */
   res?: Array<{ name: string; src: UrlTemplate; when: number | null; scope: number; q?: Record<string, string>; lo?: 1; xo?: 1 }>;
   /** `data-sn-path` patterns, when a request reads `$url` */

@@ -334,6 +334,8 @@ const indexReaders = new WeakMap<TemplateDef, boolean>();
 const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
 /** row templates: whether each holds one element (see oneElement()) */
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
+/** set by the early script on a `data-sn-for` template whose rows it rendered from embedded data: the nodes it inserted */
+const EARLY_ROWS = Symbol.for('sinter.early.rows');
 /** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
 const EARLY = Symbol.for('sinter.early');
 const simple = new WeakMap<TemplateDef, Simple | null>(), SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
@@ -351,6 +353,12 @@ export function instance(root: Document | Element): App {
 
 export function mount(root: Document | Element, o: MountOptions): App {
   if (instances.has(root)) throw Error('sinter: already mounted');
+  // rows the early script rendered from embedded data (left on their template): removed, and this mount renders
+  // them again from the same data, in this task, before the browser can paint
+  for (const t of root.querySelectorAll('template')) {
+    const rows = (t as any)[EARLY_ROWS] as ChildNode[] | undefined;
+    if (rows) { delete (t as any)[EARLY_ROWS]; for (const n of rows) n.remove(); }
+  }
   const { ir, fns } = o;
   if (ir?.v != 2 || !ir.ps) throw Error('sinter: unsupported IR');
   const env = o.env ?? envOf(config);
