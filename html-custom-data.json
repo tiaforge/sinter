@@ -57,6 +57,9 @@
           "name": "offset-param"
         },
         {
+          "name": "start-page"
+        },
+        {
           "name": "type"
         },
         {

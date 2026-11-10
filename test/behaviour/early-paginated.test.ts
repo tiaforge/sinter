@@ -22,6 +22,8 @@ const ALL = Array.from({ length: 5 }, (_, i) => ({ id: i + 1 }));
 /** A keyset server over ALL (cursor `after`/`before`), and offset pages (`p`, `n`). */
 function server(url: string) {
   const q = new URL(url, 'http://x').searchParams, n = Number(q.get('limit') ?? q.get('n'));
+  // the items to skip (`offset-param`), in offset mode or a keyset jump
+  if (q.has('off') || q.has('offset')) { const o = Number(q.get('off') ?? q.get('offset')); return { items: ALL.slice(o, o + n), total: ALL.length }; }
   if (q.has('p')) { const p = Number(q.get('p')); return { items: ALL.slice((p - 1) * n, p * n), total: ALL.length }; }
   const dir = q.get('dir');
   const page = dir === 'forward' && q.has('after') ? ALL.filter((m) => m.id > Number(q.get('after'))).slice(0, n)
@@ -44,7 +46,7 @@ const KEYSET = `paginate="keyset" page-size="2" size-param="limit" offset-param=
  * `early`), then the page module mounts. What the request layer does not take from the early file
  * reaches the mock (`net.calls`): the network of the page module.
  */
-async function load(html: string, o: { storage?: Storage; session?: Storage; ir?: (ir: EarlyIR) => void; hold?: Promise<void> } = {}) {
+async function load(html: string, o: { storage?: Storage; session?: Storage; ir?: (ir: EarlyIR) => void; hold?: Promise<void>; href?: string } = {}) {
   const opts: CompileOptions = { file: '/test/page.html', root: '/test', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null } };
   const out = compile(html, opts);
   // the early file's page object, as the compiler writes it
@@ -55,14 +57,14 @@ async function load(html: string, o: { storage?: Storage; session?: Storage; ir?
   const page = new Function('$k', ...made.uses, `"use strict"; const f = [${parts.fns.join(',\n')}]; return ${made.code};`)((x: unknown) => x, ...made.uses.map((u) => (earlyExports as Record<string, unknown>)[u]));
   const early: string[] = [];
   const storage = o.storage ?? memoryStorage();
-  configure({ env: { ...defaultEnv, href: () => 'http://localhost/', storage: () => storage, fetch: async (r: Request) => { const u = new URL(r.url); early.push(u.pathname + u.search); await o.hold; return Response.json(server(r.url)); } } });
+  configure({ env: { ...defaultEnv, href: () => o.href ?? 'http://localhost/', storage: () => storage, fetch: async (r: Request) => { const u = new URL(r.url); early.push(u.pathname + u.search); await o.hold; return Response.json(server(r.url)); } } });
   expect(out.early).toContain(', requests(withParams)');
   start(() => page, null, requests(withParams, configured));
   const mock = mockRequests({ 'GET /api/mail': (c: RecordedCall) => server(c.url) });
   // the page module's requests: the early response if the request layer takes it, else the mock
   const net = ((req: Request, next: Parameters<Middleware>[1]) => next(req).catch((e: Error) => (/unexpected network request/.test(e.message) ? mock(req, next) : Promise.reject(e)))) as unknown as MockRequests;
   for (const k of ['calls', 'errors', 'pending', 'deliver'] as const) Object.defineProperty(net, k, { get: () => (typeof mock[k] == 'function' ? (mock[k] as () => unknown).bind(mock) : mock[k]) });
-  const r = await render(html, { storage, ...(o.session ? { session: o.session } : {}), requests: net });
+  const r = await render(html, { storage, ...(o.session ? { session: o.session } : {}), ...(o.href ? { url: o.href } : {}), requests: net });
   const state = () => [[...r.root.querySelectorAll('li')].map((l) => l.textContent).join(','), r.root.querySelector('span')!.textContent];
   const go = async (id: string) => { r.root.querySelector<HTMLElement>(`#${id}`)!.click(); await r.settle(); };
   return { ...r, early, calls: mock.calls, state, go };
@@ -126,4 +128,40 @@ test('cache: the cached first page shows at once, the early response revalidates
   } finally {
     ALL.shift();
   }
+});
+
+test('start-page from the URL, offset mode with offset-param: the early file asks for that page as the items to skip; the runtime takes it and pages on from there', async () => {
+  const attrs = 'paginate="offset" page-size="2" size-param="n" offset-param="off" start-page="$url.page"';
+  const p = await load(PAGE(attrs).replace('<span ', '<b data-sn-text="$meta.mail.page"></b><span '), { href: 'http://localhost/?page=2' });
+  await p.settle();
+  expect(p.early).toEqual(['/api/mail?box=inbox&off=2&n=2']);
+  expect(p.calls).toEqual([]);
+  expect(p.state()).toEqual(['3,4', '3,4,5,3,true,true']);
+  expect(p.root.querySelector('b')!.textContent).toBe('2');
+  await p.go('next');
+  expect(p.calls.map((c) => c.url)).toEqual(['/api/mail?box=inbox&off=4&n=2']);
+  expect(p.state()).toEqual(['5', '5,5,5,3,true,false']);
+  // no page, or one that is not a number: page 1
+  for (const href of ['http://localhost/', 'http://localhost/?page=abc']) {
+    for (const k of KEYS) delete (globalThis as any)[Symbol.for(k)];
+    const q = await load(PAGE(attrs), { href });
+    await q.settle();
+    expect(q.early).toEqual(['/api/mail?box=inbox&off=0&n=2']);
+    expect(q.calls).toEqual([]);
+  }
+});
+
+test('start-page, keyset with offset-param: from page 2 on the first load is a jump (the skip with the `first` direction); page 1 is the plain first page', async () => {
+  const p = await load(PAGE(`${KEYSET} start-page="$url.page"`), { href: 'http://localhost/?page=2' });
+  await p.settle();
+  expect(p.early).toEqual(['/api/mail?box=inbox&offset=2&limit=2&dir=forward']);
+  expect(p.calls).toEqual([]);
+  expect(p.state()).toEqual(['3,4', '3,4,5,3,true,true']);
+  await p.go('next');
+  expect(p.calls.map((c) => c.url)).toEqual(['/api/mail?box=inbox&after=4&before=4&limit=2&dir=forward']);
+  for (const k of KEYS) delete (globalThis as any)[Symbol.for(k)];
+  const q = await load(PAGE(`${KEYSET} start-page="$url.page"`), { href: 'http://localhost/?page=1' });
+  await q.settle();
+  expect(q.early).toEqual(['/api/mail?box=inbox&limit=2&dir=forward']);
+  expect(q.calls).toEqual([]);
 });

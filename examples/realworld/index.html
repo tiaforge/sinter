@@ -15,10 +15,11 @@
      data-sn-on-sn-error="$event.detail.error.status == 401 ? emit('navigate', '/login') : error = $event.detail.error; $event.preventDefault()">
 <sn-include src="./partials/header.html"></sn-include>
 
+<!-- the page from the URL (?page=3): the first load asks for it, as an offset of 10 per page -->
 <sn-resource cache name="articles" key="slug" items="articles" total="articlesCount" when="$url.feed != 'following'"
-  src="https://api.realworld.show/api/articles?tag={$url.tag}&limit=10&offset={offset($url.page, 10)}"></sn-resource>
+  src="https://api.realworld.show/api/articles?tag={$url.tag}" paginate="offset" page-size="10" size-param="limit" offset-param="offset" start-page="$url.page"></sn-resource>
 <sn-resource cache name="feed" key="slug" items="articles" total="articlesCount" when="$url.feed == 'following' && user"
-  src="https://api.realworld.show/api/articles/feed?limit=10&offset={offset($url.page, 10)}"></sn-resource>
+  src="https://api.realworld.show/api/articles/feed" paginate="offset" page-size="10" size-param="limit" offset-param="offset" start-page="$url.page"></sn-resource>
 <sn-resource cache name="tags" src="https://api.realworld.show/api/tags" items="tags"></sn-resource>
 <template data-sn-if="$url.feed == 'following' && $meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 

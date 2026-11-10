@@ -7,6 +7,32 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- `sinter({ embed: true })`: builds for a server that writes each page's data into it. Every resource whose request
+  only the page's URL decides gets a data placeholder (not `call`, `each` or `early="off"`), and is neither preloaded
+  nor requested early. `sinter-embed.json` describes simple `when` conditions (`$url` values against strings, `!`,
+  `&&`, `||`) and `start-page`.
+- RealWorld: marked and DOMPurify load with the article page again (its LCP is the Markdown body: 1,088 → 888 ms on
+  slow 4G with sinter-axum). The size check leaves the example's own dependencies out of the page budgets and
+  reports them apart.
+- Pagination: `offset-param` in offset mode (the items to skip instead of the page number), and `start-page`
+  (offset mode, or keyset with `offset-param`): the page the first load asks for, e.g. `start-page="$url.page"` for
+  lists whose page links navigate. RealWorld's lists use both instead of its `offset()` helper.
+- sinter-axum: a page whose data cannot be fetched ends, still streamed, with an error text (or a redirect to an error
+  page); unstreamed, with a real 502/504. The runtime does not mount on such a page (`<body data-sn-failed>`, a
+  marker the server writes, not an attribute for pages).
+- sinter-axum: `build()` checks that every placeholder has a source (a resolver, `skip`, or a request it can make)
+  and lists every problem; `embed!` makes that check when the server compiles and compiles the manifest in.
+
+- `packages/sinter-axum`: a Rust `tower` layer (axum) that fills a build's `data-sn-data` placeholders per
+  request. It streams the head up to the first placeholder at once, then each placeholder's data from the app's
+  API router (in-process), an upstream or an allowed origin (both with the opt-in `upstream` feature, which
+  adds reqwest), or a resolver function. RealWorld, slow 4G: home LCP
+  948 → 588 ms; one core serves about 2,000 home pages/s, against 57–67 for Qwik City
+  (docs/first-paint-comparison.md).
+- Builds with embedded-data placeholders write `sinter-embed.json` next to the pages: each page's paths and,
+  per placeholder, its `data-sn` id, resource and request (the `src` template when only `$url` reads make it up;
+  for a paginated resource, its first page).
+
 - Bindings over embedded data render before the first paint: on a page whose `<script type="application/json"
   data-sn-data>` a server filled in, the early script also renders the bindings that read those resources,
   `data-sn-for` rows included, and `$url`, as the parser goes. The page module adopts the rows (binds them, no
@@ -19,6 +45,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   dev warning 25 when the page did not render with the face in its first 3 frames.
 
 ### Changed
+
+- An empty `data-sn-data` placeholder is no data: the page requests the resource, with no dev warning (was
+  warning 5, "not valid JSON"). It is what a server leaves when it has nothing to write.
 
 - First paint no longer holds the paint (PR #16). The early file is a classic script first in the head (one
   shared by every page, `assets/sinter-head-<hash>.js`, and the page's own, `assets/<page>-head-<hash>.js`)

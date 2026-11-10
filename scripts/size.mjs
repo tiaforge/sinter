@@ -1,8 +1,10 @@
 // Size budgets, per page (decided for 0.2, raised to 15 KB and 20 KB on 2026-11-07, the article to 22 KB on 2026-11-09 for next-page data, to 24 KB the same day for its early chunk: the signed-out header rendered before the first paint, no layout shift, to 26 KB the same day for its early requests: the API on another origin, requested before the stylesheets, to 27 KB the same day for its comment form without `data-sn-catch`: the fields module, 1.2 KB, which shows the server's errors in the form's list): min+gzip
-// of a minimal page (one resource, one text binding) and of what each RealWorld page loads; the core
-// and each feature module are reported for reference. `--check` fails on an overrun (CI runs it).
+// of a minimal page (one resource, one text binding) and of what each RealWorld page loads, without the
+// libraries the example itself depends on (marked, DOMPurify: reported apart, not budgeted, since
+// sinter does not choose them); the core and each feature module are reported for reference.
+// `--check` fails on an overrun (CI runs it).
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -80,9 +82,11 @@ try {
     report(name, js.length, gz(js));
   }
 
-  // RealWorld: a production build; per page, the gzip of every script it loads (entry + modulepreload)
+  // RealWorld: a production build; per page, the gzip of every script it loads (entry + modulepreload),
+  // the example's own dependencies left out (external) and reported on their own
+  const libs = Object.keys(JSON.parse(readFileSync(join(realworld, 'package.json'), 'utf8')).dependencies ?? {}).filter((d) => d !== '@tiaforge-ui/sinter');
   const out = join(dir, 'realworld');
-  await build({ root: realworld, configFile: join(realworld, 'vite.config.js'), logLevel: 'silent', build: { outDir: out, emptyOutDir: true } });
+  await build({ root: realworld, configFile: join(realworld, 'vite.config.js'), logLevel: 'silent', build: { outDir: out, emptyOutDir: true, rollupOptions: { external: libs } } });
   for (const f of readdirSync(out).filter((f) => f.endsWith('.html')).sort()) {
     const html = readFileSync(join(out, f), 'utf8');
     // each file once: the early file's shared chunk is preloaded with it and for the page bundle
@@ -94,6 +98,21 @@ try {
       size += gz(code);
     }
     report(`realworld ${f.replace('.html', '')}`, raw, size);
+  }
+  // the example's libraries, each as the article page loads it (an entry inside the example, so it resolves there)
+  const libDir = join(realworld, 'node_modules/.sinter-size');
+  mkdirSync(libDir, { recursive: true });
+  try {
+    for (const lib of libs) {
+      const entry = join(libDir, `${lib.replace(/\W/g, '_')}.js`);
+      writeFileSync(entry, `import * as m from '${lib}';\nexport default m;\n`, { flag: 'w' });
+      const o = join(dir, 'lib', lib);
+      await build({ root: realworld, configFile: false, logLevel: 'silent', build: { outDir: o, minify: true, lib: { entry, formats: ['es'], fileName: 'lib' } } });
+      const js = readFileSync(join(o, readdirSync(o).find((x) => x.endsWith('.js'))));
+      console.log(`${`app library ${lib}`.padEnd(19)} ${String(js.length).padStart(6)} B min  ${String(gz(js)).padStart(6)} B gzip  (the example's own, not budgeted)`);
+    }
+  } finally {
+    rmSync(libDir, { recursive: true, force: true });
   }
 } finally {
   rmSync(dir, { recursive: true, force: true });

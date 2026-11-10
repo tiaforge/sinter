@@ -105,3 +105,48 @@ The same curve, an order of magnitude apart: Qwik breaks between 100 and 120 pag
 - Data only the browser knows (login in localStorage, as RealWorld keeps it) cannot be fetched by the middleware: the user's own feed still loads in the browser. Qwik needs cookies for the same reason.
 - Real networks and a production deployment (CDN, an API with real latency): the API here answered in about 1 ms (a run with 50 and 200 ms API delays moved both servers alike).
 - Firefox and Safari: the comparison ran in Chromium (the first-paint mechanism itself was checked in Firefox).
+
+## sinter-axum (2026-11-10)
+
+The middleware above is a Node script; [`packages/sinter-axum`](../packages/sinter-axum) is the same in Rust, as a `tower` layer, reading the build's `sinter-embed.json` instead of a hand-written table. Same machine and mock API; `examples/realworld` with `data-sn-data` placeholders for `articles` and `tags` (home) and `article` and `comments` (article), in the `<head>` (the runtime ignores them anywhere else). The server is `cargo run --release --features upstream --example realworld`: tags, article and comments as the build describes them, the list from a resolver (its `src` calls a helper and has a `when`).
+
+### First frame (`measure.mjs`, slow 4G, cold, median of 5)
+
+| Page, API delay | sinter static: first paint / LCP | sinter-axum: first paint / LCP |
+| --- | --- | --- |
+| Home, 0 ms | 540 / 948 ms | 588 / **588** ms |
+| Home, 300 ms | 532 / 1,128 ms | 572 / **572** ms |
+| Article, 0 ms | 532 / 948 ms | 556 / 900 ms |
+| Article, 300 ms | 536 / 996 ms | 536 / 936 ms |
+
+- **The head is streamed.** The page goes out up to the first placeholder at once and the rest when the data is in, so stylesheets and scripts load while the API answers. Sending the page whole after the data (the Node middleware, or `Embed::stream(false)`) puts the API's time in front of everything: with the API at 300 ms, home LCP was 712 ms buffered and 536 ms streamed, and on a fast network the first paint moved from about 65 ms (static) to the API's time.
+- **The article page's LCP is its Markdown body.** RealWorld renders it in the browser (marked and DOMPurify), after the page module, so data in the page moves it little. The comparison above rendered the body as plain text, for both apps.
+
+### Throughput (`oha`, 15 s, 32 connections, gzip)
+
+Each server pinned to one core (all its threads), the mock API to another, the load generator to a third. Every server ran at about 98 % of its core; the API at 25–55 % of its own.
+
+| Pages per second, one core | Home | Article |
+| --- | --- | --- |
+| Qwik City SSR | 57 (p50 531 ms) | 199 (p50 153 ms) |
+| Node middleware (`serve.mjs embed`) | 583 (p50 51 ms) | 1,096 (p50 28 ms) |
+| **sinter-axum**, one Tokio thread | **2,156** (p50 14 ms) | **2,922** (p50 10 ms) |
+
+About 35× Qwik's home pages and 3.5× the Node middleware's per core; on the article page, 15× and 2.7×. A second run of 10 s gave 67, 595 and 1,884 home pages per second. Each page here is two API requests, which the API answered in about 1 ms: a slower API changes the latency, not the CPU per page.
+
+### With `sinter({ embed: true })` and native pagination (2026-11-10)
+
+RealWorld's lists moved to native pagination (`start-page="$url.page"`), and the build places the placeholders itself. The example server needs one resolver, for the profile list's ternary. Slow 4G, cold, median of 9:
+
+| Page | sinter static: first paint / LCP | sinter-axum: first paint / LCP |
+| --- | --- | --- |
+| Home | 528 / 960 ms | 576 / **576** ms |
+| Article, marked and DOMPurify lazy | 524 / 976 ms | 560 / 1,088 ms |
+| Article, marked and DOMPurify with the page | 524 / 948 ms | 548 / **888** ms |
+
+The article page's LCP is the Markdown body, rendered in the browser by marked and DOMPurify. Loaded lazily, they were requested only once the page module ran; with the data in the page that came later (the rest of the article renders during the parse, so the author's avatar shares the slow link with the module chunks), and the server made the page slower. Imported statically by `src/markdown.js` again, they download with the page, and the article page is faster with the server than without. They are RealWorld's own libraries, not sinter: the size check (`scripts/size.mjs`) now leaves the example's dependencies out of the page budgets and reports them apart (marked 13.2 kB, DOMPurify 9.2 kB gzip); the article page is 22.3 kB of its 27 kB budget.
+
+### Not measured, or not right yet
+
+- A signed-in user's data: the middleware fetches without the token RealWorld keeps in `localStorage`, so it embeds the anonymous view (`favorited`, `following` false), and embedded data is not reloaded. A page with per-user data leaves those resources to the browser for now.
+- Several cores per server, a real network, Firefox and Safari.

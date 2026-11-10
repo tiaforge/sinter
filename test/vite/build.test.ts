@@ -78,6 +78,66 @@ test('`<html data-sn-prefetch="off">`: the page is in neither the next-page modu
   }
 });
 
+test('embedded data: `sinter-embed.json` lists each placeholder with its `data-sn` id and the request a server makes for it', async () => {
+  const page = join(root, 'index.html');
+  const original = readFileSync(page, 'utf8');
+  writeFileSync(page, original
+    .replace('<head><title>app</title></head>', '<head><title>app</title><script type="application/json" data-sn-data="people"></script><script type="application/json" data-sn-data="person"></script></head>')
+    .replace('<sn-resource name="people"', '<sn-resource name="person" src="/api/people/{$url.id}?full=1" when="$url.id"></sn-resource><p data-sn-text="person.name"></p>\n  <sn-resource name="people"'));
+  try {
+    const dir = join(out, 'embed');
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+    const html = readFileSync(join(dir, 'index.html'), 'utf8');
+    const manifest = JSON.parse(readFileSync(join(dir, 'sinter-embed.json'), 'utf8'));
+    expect(manifest.version).toBe(1);
+    expect(manifest.pages).toHaveLength(1);
+    const p = manifest.pages[0];
+    expect(p.file).toBe('index.html');
+    expect(p.paths).toEqual(['/', '/index.html']);
+    const people = p.data.find((d: { resource: string }) => d.resource === 'people');
+    const person = p.data.find((d: { resource: string }) => d.resource === 'person');
+    expect(people.src).toEqual(['/api/people']);
+    expect(person).toMatchObject({ src: ['/api/people/', { url: 'id' }, '?full=1'], when: { url: 'id' } });
+    // the ids are the ones in the built HTML
+    for (const d of p.data) expect(html).toContain(`<script type="application/json" data-sn="${d.id}"></script>`);
+  } finally {
+    writeFileSync(page, original);
+  }
+  // without placeholders, no file
+  await run(join(out, 'no-embed'));
+  expect(readdirSync(join(out, 'no-embed'))).not.toContain('sinter-embed.json');
+});
+
+test('`embed: true`: placeholders for the resources only the URL decides, last in the head; those are not preloaded; `early="off"` and state-dependent ones keep the browser\'s request', async () => {
+  const page = join(root, 'index.html');
+  const original = readFileSync(page, 'utf8');
+  writeFileSync(page, original.replace('<sn-resource name="people"', `<sn-resource name="person" src="/api/people/{$url.id}" when="$url.id && $url.tab != 'off'"></sn-resource><p data-sn-text="person.name"></p>
+  <sn-resource name="me" src="/api/me" early="off"></sn-resource><p data-sn-text="me.name"></p>
+  <sn-resource name="people"`).replace('<div data-sn-state="{ q: \'\' }">', `<div data-sn-state="{ q: '' }"><sn-resource name="found" src="/api/find?q={q}" key="id"></sn-resource><i data-sn-text="found.length"></i>`));
+  try {
+    const plain = join(out, 'embed-off');
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: plain, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+    expect(readFileSync(join(plain, 'index.html'), 'utf8')).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/people">');
+    expect(readdirSync(plain)).not.toContain('sinter-embed.json');
+    const dir = join(out, 'embed-on');
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ embed: true })] });
+    const html = readFileSync(join(dir, 'index.html'), 'utf8');
+    const { pages: [p] } = JSON.parse(readFileSync(join(dir, 'sinter-embed.json'), 'utf8'));
+    const by = Object.fromEntries(p.data.map((d: { resource: string }) => [d.resource, d]));
+    expect(Object.keys(by).sort()).toEqual(['people', 'person']);
+    expect(by.people.src).toEqual(['/api/people']);
+    expect(by.person).toMatchObject({ src: ['/api/people/', { url: 'id' }], when: { and: [{ url: 'id' }, { url: 'tab', ne: 'off' }] } });
+    // the data comes with the page: no preload for it
+    expect(html).not.toContain('href="/api/people"');
+    // last in the head, after Vite's tags (the page module, its stylesheet)
+    const head = html.slice(0, html.indexOf('</head>'));
+    const last = Math.max(head.lastIndexOf('<script type="module"'), head.lastIndexOf('<link'));
+    for (const d of p.data) expect(head.indexOf(`<script type="application/json" data-sn="${d.id}"></script>`)).toBeGreaterThan(last);
+  } finally {
+    writeFileSync(page, original);
+  }
+});
+
 test('`delivery: \'header\'`: a rules file at the site root, no inline script; `vite preview` sends the header and its type', async () => {
   const dir = join(out, 'header');
   const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: { mode: 'prerender', delivery: 'header' } })] };

@@ -47,9 +47,11 @@ export const defaultEnv: Env = {
 
 /**
  * Resolves once the document is parsed (`readyState` past `loading`): the page module is `async`
- * and may run while the body is still being parsed, so it mounts after this.
+ * and may run while the body is still being parsed, so it mounts after this. Never on a page a
+ * server ended with its error text (`<body data-sn-failed>`, sinter-axum): nothing there to mount.
  */
-export const parsed = (doc: Document = document): Promise<void> => new Promise((done) => {
+export const parsed = (doc: Document = document): Promise<void> => new Promise((resolve) => {
+  const done = () => { if (!doc.body?.hasAttribute('data-sn-failed')) resolve(); };
   if (doc.readyState != 'loading') return done();
   const on = () => { if (doc.readyState != 'loading') { doc.removeEventListener('readystatechange', on); done(); } };
   doc.addEventListener('readystatechange', on);

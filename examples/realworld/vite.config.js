@@ -29,7 +29,9 @@ export default defineConfig({
   appType: 'mpa',
   plugins: [
     // the API's origin: every page allows it (no configure({ origins }) needed), and its resources are requested before the page module
-    sinter({ openapi: 'openapi.yml', origins: ['https://api.realworld.show'] }),
+    // SINTER_EMBED=1: for a server that writes each page's data into it (packages/sinter-axum); the public
+    // deployment is static, so off by default
+    sinter({ openapi: 'openapi.yml', origins: ['https://api.realworld.show'], embed: !!process.env.SINTER_EMBED }),
     {
       name: 'conduit-routes',
       configureServer: (server) => () => server.middlewares.use(rewrite),

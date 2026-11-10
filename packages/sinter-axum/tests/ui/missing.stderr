@@ -1,0 +1,5 @@
+error: index.html: `articles`: the build could not describe its request (its `src` or `start-page` calls a helper, or reads something other than `$url`). Add `"articles" => |req| async move { … }` to give its data, or `"articles" => skip` to leave it to the browser
+ --> tests/ui/missing.rs:4:33
+  |
+4 |     let _ = sinter_axum::embed!("../../../../tests/fixtures/web", { "user" => skip });
+  |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

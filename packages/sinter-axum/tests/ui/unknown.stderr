@@ -1,0 +1,5 @@
+error: no page of the build has a placeholder for `usr` (it has `articles`, `tags`, `user`)
+ --> tests/ui/unknown.rs:4:89
+  |
+4 |     let _ = sinter_axum::embed!("../../../../tests/fixtures/web", { "articles" => skip, "usr" => skip });
+  |                                                                                         ^^^^^

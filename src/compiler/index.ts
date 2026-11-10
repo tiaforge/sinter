@@ -1,12 +1,12 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts } from './compile.js';
+import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond } from './compile.js';
 import { compactIR } from '../ir.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
 import { earlyRender } from './early-render.js';
 
 export type { SourceMap };
-export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, FnSource, FnSources, HelperManifest, HelperOrigin, PrefetchParts };
+export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, FnSource, FnSources, HelperManifest, HelperOrigin, PrefetchParts, EmbedSlot, EmbedCond };
 export type { Diagnostic } from './diagnostics.js';
 export type { CheckUnit } from './check-unit.js';
 export type { ImageFormat, ImageHost, ImageInfo, ImageKind, ImageResult, ImageVariant } from './images.js';
@@ -27,7 +27,7 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   // the images' rules: imported, so the bundler puts them in the page's stylesheet (no request, no inline style)
   const css = parts.images?.css && options.images?.stylesheet ? `import ${JSON.stringify(options.images.stylesheet)};\n` : '';
   const page = pageLines(parts, options);
-  const out: CompileResult = { html: parts.html, module: css + page.text(), diagnostics: parts.diagnostics, files: parts.files, prefetch: parts.prefetch, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}) };
+  const out: CompileResult = { html: parts.html, module: css + page.text(), diagnostics: parts.diagnostics, files: parts.files, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}) };
   if (parts.check) out.check = parts.check;
   const map = options.sourcemap ? page.map(parts.sources, css ? 1 : 0) : null;
   if (map) out.map = map;
