@@ -1,7 +1,7 @@
 # Proposal: components
 
-Status: draft. The design questions are settled except one (see [Decisions](#decisions)); nothing
-here is implemented.
+Status: draft. The design questions are settled (see [Decisions](#decisions)); nothing here is
+implemented.
 
 This reverses a non-goal (`spec.md`: "Routing, a component system, a virtual DOM, transitions";
 "components remain a non-goal"). Once sinter has components, they will be compared with Svelte, Vue
@@ -358,8 +358,19 @@ that hold the same entity follow from write-through and server events.**
     prop keeps it too, so the caller's `data-sn-on-select="remove($event.detail)"` works.
   - a nested item: `r in comment.replies`, at any depth in a recursive component (see
     [Nested items](#nested-items-along-their-path)).
-  - a row that came through a helper, `m in visible(messages, q)`: **not settled yet**, see
-    [Still open](#still-open).
+  - a row that came through a helper: `m in visible(messages, q)`, or
+    `r in childrenOf(comments, c.id)` over a flat list with parent ids. **A helper that takes one
+    resource and returns its element type keeps that resource's provenance:**
+    - The compiler reads it from the helper's types: one argument whose source is a resource (or a
+      nested list with a source), and a return type of that argument's element type, or an array
+      of it.
+    - It composes: `m in visible(sorted(messages), q)` is still a row of `messages`.
+    - More than one argument with a source and the returned element type is a build error naming
+      the helper, since the source would be ambiguous.
+    - A helper that returns another type (mapped objects, counts) gives values with no source, as
+      before.
+    - A helper may return copies: `patch` and `remove` find the item in the resource by its key,
+      not by object identity.
 - **An item with no source is a build error** that names the right tool:
 
   | Item | Instead |
@@ -614,8 +625,8 @@ has no store code**. `npm run size` must show the core unchanged.
    - removing `<sn-include>`: the migration error, ids across components, the template's header
    - `data-sn-model` on components: the `value` prop and `change` event, checked
 3. **Store functions:** `patch(item, …)` and `remove(item)` resolved from where the item came from,
-   replacing the forms with a resource name; provenance through state assignments and component
-   props. This step is useful for pages on its own and can ship before components.
+   replacing the forms with a resource name; provenance through state assignments, component
+   props and helpers that return a resource's element type. This step is useful for pages on its own and can ship before components.
 4. **Scoped styles** through native `@scope`, with the slot boundary.
 5. **Script components:**
    - the generated base class through the Vite plugin, typed by `src/sinter.components.d.ts`
@@ -649,10 +660,4 @@ Settled in review, in the order they were discussed:
 | Recursion | A component uses itself by its tag; every cycle passes through a `for` or `if` template; shared definitions keep it in the first frame | [Recursion](#recursion) |
 | Nested items | `patch` and `remove` along their path; `upsert` takes the list, nested or by name | [Nested items](#nested-items-along-their-path) |
 | Choosing at runtime | `<sn-component use>`; candidates from a type that fits `ComponentName`, props narrowed per candidate | [Choosing a component at runtime](#choosing-a-component-at-runtime) |
-
-### Still open
-
-- **Rows through a helper.** For `m in visible(messages, q)` or `r in childrenOf(comments, c.id)`,
-  the compiler cannot tell today that `m` came from `messages`, so `patch(m, …)` has no source. A
-  possible rule: a helper that takes one resource and returns its element type (or an array of
-  it) keeps that resource's provenance; with more than one such argument, it is a build error.
+| Rows through a helper | A helper that takes one resource and returns its element type keeps that resource's provenance | [Store functions](#store-functions-resolved-from-the-item) |
