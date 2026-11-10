@@ -126,6 +126,8 @@ export interface CompileResult {
   remoteWidths?: number[];
   /** what another page needs to request this page's data ahead (null: nothing) */
   prefetch: PrefetchParts | null;
+  /** the page's embedded-data placeholders, for a server that fills them (`sinter-embed.json`) */
+  embed: EmbedSlot[];
   /** the page's `data-sn-path` patterns */
   path: string[];
   /** `<html data-sn-prefetch="off">`: no other page prefetches or prerenders this one */
@@ -159,6 +161,22 @@ export interface PrefetchParts {
   namespaces: Record<string, string[]>;
 }
 
+/**
+ * One embedded-data placeholder (`data-sn-data`), for a server that fills it per request (a
+ * middleware: `sinter-embed.json`). `id`: the `data-sn` id the build gives the `<script>`. `src`:
+ * the resource's URL template when only literals and plain `$url.<name>` reads make it up (`{ url:
+ * name }`), else null and the server must produce the data itself. `when`: the resource has a
+ * condition the server cannot evaluate; `paginate`, `call`, `each`: likewise, the request is not
+ * the template alone.
+ */
+export interface EmbedSlot {
+  id: number;
+  resource: string;
+  src: Array<string | { url: string }> | null;
+  when?: true;
+  paginate?: true;
+}
+
 export interface CompiledParts {
   html: string;
   ir: IR;
@@ -185,6 +203,8 @@ export interface CompiledParts {
   remoteWidths?: number[];
   /** what another page needs to request this page's data ahead; null when no request is decided by the URL alone */
   prefetch: PrefetchParts | null;
+  /** the page's embedded-data placeholders, in document order */
+  embed: EmbedSlot[];
   /** `<html data-sn-prefetch="off">` */
   prefetchOff?: true;
   /** origins of resources that could be requested early but are not in `origins` */
@@ -395,6 +415,7 @@ class Compiler {
       ...(images ? { images } : {}),
       ...(this.remoteUsed ? { remote: this.opts.remoteImages!, remoteWidths: [...this.remoteWidths].sort((a, b) => a - b) } : {}),
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
+      embed: this.embedSlots(),
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
     };
@@ -2245,6 +2266,24 @@ class Compiler {
       if (used.length) namespaces[ns] = used;
     }
     return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces };
+  }
+
+  /** The embedded-data placeholders a server can fill, with each resource's request where the URL alone decides it. */
+  embedSlots(): EmbedSlot[] {
+    const out: EmbedSlot[] = [];
+    for (const def of this.resources) {
+      if (def.data == null) continue;
+      const parts = def.call || def.each ? null : def.src.map((x) => {
+        if (typeof x === 'string') return x;
+        const m = /^\(\$\) => \(\$\.\$url\.([A-Za-z_$][\w$]*)\)$/.exec(this.fns[x]!);
+        return m ? { url: m[1]! } : null;
+      });
+      out.push({
+        id: def.data, resource: def.name, src: parts && parts.length && parts.every((x) => x != null) ? parts as EmbedSlot['src'] : null,
+        ...(def.when != null ? { when: true as const } : {}), ...(def.paginate ? { paginate: true as const } : {}),
+      });
+    }
+    return out.sort((a, b) => a.id - b.id);
   }
 
   /**

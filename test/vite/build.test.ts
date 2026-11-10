@@ -78,6 +78,36 @@ test('`<html data-sn-prefetch="off">`: the page is in neither the next-page modu
   }
 });
 
+test('embedded data: `sinter-embed.json` lists each placeholder with its `data-sn` id and the request a server makes for it', async () => {
+  const page = join(root, 'index.html');
+  const original = readFileSync(page, 'utf8');
+  writeFileSync(page, original
+    .replace('<head><title>app</title></head>', '<head><title>app</title><script type="application/json" data-sn-data="people"></script><script type="application/json" data-sn-data="person"></script></head>')
+    .replace('<sn-resource name="people"', '<sn-resource name="person" src="/api/people/{$url.id}?full=1" when="$url.id"></sn-resource><p data-sn-text="person.name"></p>\n  <sn-resource name="people"'));
+  try {
+    const dir = join(out, 'embed');
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
+    const html = readFileSync(join(dir, 'index.html'), 'utf8');
+    const manifest = JSON.parse(readFileSync(join(dir, 'sinter-embed.json'), 'utf8'));
+    expect(manifest.version).toBe(1);
+    expect(manifest.pages).toHaveLength(1);
+    const p = manifest.pages[0];
+    expect(p.file).toBe('index.html');
+    expect(p.paths).toEqual(['/', '/index.html']);
+    const people = p.data.find((d: { resource: string }) => d.resource === 'people');
+    const person = p.data.find((d: { resource: string }) => d.resource === 'person');
+    expect(people.src).toEqual(['/api/people']);
+    expect(person).toMatchObject({ src: ['/api/people/', { url: 'id' }, '?full=1'], when: true });
+    // the ids are the ones in the built HTML
+    for (const d of p.data) expect(html).toContain(`<script type="application/json" data-sn="${d.id}"></script>`);
+  } finally {
+    writeFileSync(page, original);
+  }
+  // without placeholders, no file
+  await run(join(out, 'no-embed'));
+  expect(readdirSync(join(out, 'no-embed'))).not.toContain('sinter-embed.json');
+});
+
 test('`delivery: \'header\'`: a rules file at the site root, no inline script; `vite preview` sends the header and its type', async () => {
   const dir = join(out, 'header');
   const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: { mode: 'prerender', delivery: 'header' } })] };

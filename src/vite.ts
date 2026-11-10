@@ -19,7 +19,7 @@ import { IMAGE_CHECK } from './image-check.js';
 import { rewriteCssImages, type CssImageHost } from './css-images.js';
 import { resolveRemote, type RemoteImages } from './remote.js';
 import { devRemote, remoteMiddleware } from './remote-dev.js';
-import type { ImageHost, ImageVariant, PrefetchParts, StyleSheet } from './compiler/index.js';
+import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, StyleSheet } from './compiler/index.js';
 import { hasCspMeta, pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { faceName, faceOf, fontDownloader, inlineFonts, preloadFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 
@@ -125,6 +125,8 @@ const IMG = `${PREFIX}img/`;
 const PREFETCH = `${PREFIX}prefetch.js`;
 /** `speculation: { delivery: 'header' }`: the rules file, at the site root */
 const RULES_FILE = 'speculation-rules.json';
+/** build: the pages' embedded-data placeholders, for a server that fills them per request (sinter-axum) */
+const EMBED_FILE = 'sinter-embed.json';
 
 export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let root = process.cwd();
@@ -204,6 +206,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const headFiles = new Map<string, string>();
   /** build: the pages with an early module, and each one's bundled early script */
   const earlyPages = new Map<string, string>();
+  /** build: each page's embedded-data placeholders and the paths it answers at, by file */
+  const embedPages = new Map<string, { paths: string[]; data: EmbedSlot[] }>();
   /** origins of resources that could have been requested early, not listed in `origins` (reported once per build) */
   const unlisted = new Set<string>();
   const earlyFiles = new Map<string, { code: string; modules: Record<string, { renderedLength: number }> }>();
@@ -360,6 +364,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(firstPaint ? { observe: true } : {}),
     });
     if (out.early) setModule(`${EARLY}${rel}.js`, out.early, out.earlyMap);
+    if (!dev && out.embed.length) embedPages.set(rel, { paths: pagePaths(rel, resolved?.base ?? '/', out.path), data: out.embed });
+    else embedPages.delete(rel);
     if (out.module.includes(`/transition';`)) holdPages.add(rel); else holdPages.delete(rel);
     messages = p.messages;
     if (out.messages) markupMessages.set(rel, out.messages);
@@ -477,6 +483,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      */
     async generateBundle(_, bundle) {
       const r = resolved!;
+      // the placeholders a server fills (data-sn-data), next to the pages: what a middleware reads to know each page's requests
+      if (embedPages.size) {
+        const pages = [...embedPages].sort(([a], [b]) => a.localeCompare(b)).map(([file, p]) => ({ file, paths: p.paths, data: p.data }));
+        this.emitFile({ type: 'asset', fileName: EMBED_FILE, source: JSON.stringify({ version: 1, pages }, null, 2) + '\n' });
+      }
       if (remoteConfig?.url.startsWith('/_vercel/image') && remoteWidths.size) {
         r.logger.info(`sinter: images from the API use these widths; Vercel resizes only the ones in vercel.json: "images": { "sizes": [${[...remoteWidths].sort((a, b) => a - b).join(', ')}], "remotePatterns": [...] }`);
       }

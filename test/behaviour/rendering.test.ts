@@ -180,6 +180,30 @@ test('embedded data replaces the first request', async () => {
   expect(requests.calls).toHaveLength(0);
 });
 
+test('an empty placeholder (the server that fills it did not) is no data: the page requests it, with no warning; invalid JSON still warns', async () => {
+  const requests = mockRequests({ 'GET /api/people': [{ id: 2, name: 'Grace' }], 'GET /api/tags': ['x'], 'GET /api/bad': ['y'] });
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const { root, settle } = await render(`<html><head>
+      <script type="application/json" data-sn-data="people"></script>
+      <script type="application/json" data-sn-data="tags">  </script>
+      <script type="application/json" data-sn-data="bad">{</script></head><body>
+      <sn-resource name="people" src="/api/people" key="id"></sn-resource>
+      <sn-resource name="tags" src="/api/tags"></sn-resource>
+      <sn-resource name="bad" src="/api/bad"></sn-resource>
+      <ul><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul><p data-sn-text="tags.length + bad.length"></p></body></html>`, { requests });
+    await settle();
+    expect(root.querySelector('li')!.textContent).toBe('Grace');
+    expect(root.querySelector('p')!.textContent).toBe('2');
+    expect(requests.calls.map((c) => c.url).sort()).toEqual(['/api/bad', '/api/people', '/api/tags']);
+    const said = warn.mock.calls.map((c) => c.join(' '));
+    expect(said.filter((m) => m.includes('not valid JSON'))).toHaveLength(1);
+    expect(said.some((m) => m.includes('`people`') || m.includes('`tags`'))).toBe(false);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
 test('forms serialize to nested JSON; then writes the base and closes the dialog', async () => {
   const requests = mockRequests({
     'GET /api/people': [],

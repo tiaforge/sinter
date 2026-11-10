@@ -1349,7 +1349,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
         const el = def.data != null ? found.get(def.data) : null;
         let data;
         if (el) {
-          if (el.localName == 'script' && el.parentElement?.localName == 'head') try { data = { v: JSON.parse(el.textContent!) }; } catch { warn(5, def.name); }
+          // empty: the server that fills it did not (no data, an error, its time ran out), so the page requests it
+          if (el.localName == 'script' && el.parentElement?.localName == 'head') { if (el.textContent!.trim()) try { data = { v: JSON.parse(el.textContent!) }; } catch { warn(5, def.name); } }
           else warn(4, def.name);
         }
         url = data ? resolve() : null;
