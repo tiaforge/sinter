@@ -196,3 +196,44 @@ test('rows over embedded data render early, and the page module adopts them: the
   expect(changes).toEqual([]);
   expect(document.querySelector('li a')!.getAttribute('href')).toBe('/article/a');
 });
+
+test('early rows whose nested if/else and lists rendered early are adopted with every binding: the else branch, elements after a nested template, and all their nodes go with the row', async () => {
+  const data = JSON.stringify([{ id: 1, photo: false, n: 'Ann', tags: ['x'] }, { id: 2, photo: true, n: 'Bob', tags: [] }]);
+  const page = `<!doctype html><html><head><script type="application/json" data-sn-data="cs">${data}</script></head>
+<body>
+  <sn-resource name="cs" src="/api/cs" key="id"></sn-resource>
+  <button id="drop" data-sn-on-click="remove('cs', cs[0])"></button>
+  <ul><template data-sn-for="c in cs" data-sn-key="c.id"><template data-sn-if="c.photo"><b class="top">photo</b></template><li>
+    <span class="av"><template data-sn-if="c.photo"><img alt=""></template><template data-sn-else><i data-sn-text="c.n[0]"></i></template></span>
+    <template data-sn-for="t in c.tags" data-sn-key="t"><em data-sn-text="t"></em></template>
+    <strong data-sn-text="c.n"></strong><u data-sn-text="c.photo ? 'yes' : 'no'"></u></li></template></ul>
+</body></html>`;
+  const changes: string[] = [];
+  let early: Element[] = [];
+  const watch = new MutationObserver((records) => {
+    for (const r of records) if (r.type === 'childList' && [...r.removedNodes, ...r.addedNodes].some((n) => n.nodeType === 1)) changes.push(`rows changed in ${(r.target as Element).localName}`);
+  });
+  const { settle } = await render(page, {
+    requests: mockRequests({}),
+    firstPaint: {
+      afterEarly: () => {
+        early = [...document.querySelectorAll('li, i, img, em, b')];
+        watch.observe(document.body, { subtree: true, childList: true });
+      },
+    },
+  });
+  await settle();
+  watch.disconnect();
+  const rows = () => [...document.querySelectorAll('li')].map((li) => li.textContent!.replace(/\s+/g, ''));
+  // the else branch's initial, the nested list's row and the bindings after it, in both rows
+  expect(rows()).toEqual(['AxAnnno', 'Bobyes']);
+  expect(document.querySelectorAll('img, b.top').length).toBe(2);
+  // adopted: the early nodes, nothing added or removed
+  expect([...document.querySelectorAll('li, i, img, em, b')]).toEqual(early);
+  expect(changes).toEqual([]);
+  // removing a row takes the nodes its nested templates rendered with it
+  (document.getElementById('drop') as HTMLButtonElement).click();
+  await settle();
+  expect(rows()).toEqual(['Bobyes']);
+  expect(document.querySelectorAll('i, em, b.top').length).toBe(1);
+});

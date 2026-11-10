@@ -1059,24 +1059,37 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const top: Node = pre ? (one ? pre[0]! : content) : one ? content.firstChild!.cloneNode(true) : content.cloneNode(true);
     const first = pre ? pre[0] ?? null : one ? top : top.firstChild;
     const defs = t.nodes, rbs: RB[] = [];
+    // A node and what the early script rendered after it: a nested template's branch or rows, up to their end marker.
+    const extent = (n: Node): Node => ((n as any)[EARLY] ?? (n as any)[EARLY_ROWS])?.end ?? n;
     const find = (): Array<Element | null> => {
-      if (t.find != null) return fns[t.find]!(first);
-      // if/else branches (and IR compiled before lookup functions): path[0] picks a child of the content
+      // an adopted early row may hold the branches and rows the early script rendered for its nested templates:
+      // the compiled lookup counts siblings and would land on those, so it walks the paths and steps over them
+      if (t.find != null && !pre) return fns[t.find]!(first);
+      // if/else branches, adopted rows (and IR compiled before lookup functions): path[0] picks a child of the content
       const els: Array<Element | null> = new Array(defs.length);
       for (let k = 0; k < defs.length; k++) {
         const path = defs[k]!.path!;
         let node: Node | null = first;
-        for (let c = path[0]!; c-- && node;) node = node.nextSibling;
+        for (let c = path[0]!; c-- && node;) node = extent(node).nextSibling;
         for (let x = 1; x < path.length && node; x++) {
           node = node.firstChild;
-          for (let c = path[x]!; c-- && node;) node = node.nextSibling;
+          for (let c = path[x]!; c-- && node;) node = extent(node).nextSibling;
         }
         els[k] = node && (node as Element).localName == defs[k]!.tag ? (node as Element) : null;
       }
       return els;
     };
-    // a fragment's nodes, after the bindings ran: a nested list adds its rows and end marker to it
-    const collect = () => { const nodes: Node[] = []; if (pre) nodes.push(...pre); else if (!one) for (let c = top.firstChild; c; c = c.nextSibling) nodes.push(c); return nodes; };
+    // an adopted row ends after its last node and what the early script rendered after that (read before the
+    // bindings run: adopting takes the markers off)
+    const stop = pre?.length && !one ? extent(pre[pre.length - 1]!).nextSibling : null;
+    // a fragment's nodes, after the bindings ran: a nested list adds its rows and end marker to it; an adopted
+    // row's are its nodes and the branches and rows of its nested templates between and after them
+    const collect = () => {
+      const nodes: Node[] = [];
+      if (pre) for (let c: Node | null = pre[0] ?? null; c && c != stop; c = c.nextSibling) nodes.push(c);
+      else if (!one) for (let c = top.firstChild; c; c = c.nextSibling) nodes.push(c);
+      return nodes;
+    };
     const meta = isSimple(t);
     if (meta) {
       // only value bindings and handlers: no binding objects. The values are written once and kept in

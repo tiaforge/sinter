@@ -3,6 +3,15 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Fixed
+
+- Rows over embedded data whose nested `data-sn-if`/`data-sn-else` or `data-sn-for` the early script had rendered:
+  the page module's element lookup counted the nodes the early script inserted after a nested template as the
+  row's own, so an `else` branch never rendered (its template was not found) and bindings on elements after a
+  nested template were lost. Adopted rows now step over those nodes, and a removed row takes them with it.
+
 ## 0.13.0 (2026-11-10)
 
 ### Added
