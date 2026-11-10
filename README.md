@@ -37,8 +37,8 @@ the pages.
 
 | The classic multi-page problem | What sinter does |
 | --- | --- |
-| Pages flash empty, then fill in | The page shows its layout, saved values and your data in the **first frame**, [also on the very first visit](docs/spec.md#first-paint). |
-| Showing data means rendering every page on a server, which costs CPU on every visit | A small layer writes the API's JSON into the HTML as it is sent. **Nothing is rendered on the server.** About 2 ms per page, [roughly ten times cheaper than server rendering](docs/first-paint-comparison.md). |
+| Pages flash empty, then fill in | The page shows its layout and saved values in the **first frame**, [also on the very first visit](docs/spec.md#first-paint). Your data follows after one API round trip, or is in the first frame too with the optional server layer below. |
+| Data in the first frame means rendering every page on a server, which costs CPU on every visit | Optional, off by default: a small layer writes the API's JSON into the HTML as it is sent. **Nothing is rendered on the server.** About 2 ms per page, [roughly ten times cheaper than server rendering](docs/first-paint-comparison.md). |
 | Every click is a full reload with a white flash | The next page's data is [fetched while the pointer rests on the link](docs/navigation.md) (all browsers); sinter also writes Speculation Rules so Chromium prefetches or prerenders the HTML, and one attribute wires a [list-to-detail morph](docs/navigation.md#page-transitions) (the browser's view transitions, Chromium and Safari 18.2+). |
 | Data on the page goes stale | [Live updates](docs/spec.md#sync-change-messages-and-transports) arrive over SSE or WebSocket and are applied to the right lists. |
 | Forms wait for the server before anything happens | Changes show at once and [roll back on failure](docs/spec.md#optimistic-updates). |
@@ -47,10 +47,10 @@ the pages.
 
 ## What you get
 
-- **No UI glitching, even on first load.** Layout, language, saved values and (with the optional
-  server layer) real data are in the first frame. No empty states that jump, no layout shift: the
+- **No UI glitching, even on first load.** Layout, language and saved values are in the first frame with a plain static
+  host. With the optional server layer (`sinter({ embed: true })`, switched at build time) real data is too. No empty states that jump, no layout shift: the
   RealWorld example measures a layout shift (CLS) of 0 in Lighthouse.
-- **A server that stays cool.** Pre-filling data costs a fetch and a string replacement, not a render.
+- **A server that stays cool, if you want one.** Pre-filling data (optional) costs a fetch and a string replacement, not a render.
   One core serves roughly 600-1,100 pages per second as a Node script and about 2,000 with the Rust layer;
   server-rendering the same page with Qwik City saturates around 60-120.
   ([measurements](docs/first-paint-comparison.md))
@@ -148,9 +148,9 @@ Each item links to the details.
 ### Speed
 
 - **First paint with data.** Build-time constants, an early script that renders as the page is
-  parsed, and data embedded by a server layer. [First paint](docs/spec.md#first-paint),
+  parsed, and, optionally, data embedded by a server layer. [First paint](docs/spec.md#first-paint),
   [measured against Qwik City](docs/first-paint-comparison.md)
-- **A server layer that does not render.** [`sinter-axum`](packages/sinter-axum) (Rust, a `tower`
+- **An optional server layer that does not render.** [`sinter-axum`](packages/sinter-axum) (Rust, a `tower`
   layer) streams the head first, then writes each API response into its slot. The build checks
   at compile time that every slot can be filled.
 - **Instant navigation.** Next-page data (sinter, all browsers). Generated Speculation Rules and
