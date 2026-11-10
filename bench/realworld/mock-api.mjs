@@ -1,6 +1,7 @@
 // A fixed Conduit API over HTTPS, for audits that must not depend on api.realworld.show (its
 // latency varies, and a sandbox may not reach it): Chrome resolves the API's host, and the pages'
-// third-party stylesheet hosts, to this server (`--host-resolver-rules`, `--ignore-certificate-errors`).
+// third-party stylesheet hosts, to this server (`--host-resolver-rules`, `--ignore-certificate-errors`;
+// `--no-proxy-server`: a Chrome that picks up a proxy from the environment resolves hosts there, not here).
 // Signed out only: GETs of articles, an article, its comments, tags and a profile; stylesheets empty.
 //   const api = await mockApi(); … api.flags (Chrome flags) … await api.close();
 import { execFileSync } from 'node:child_process';
@@ -62,7 +63,7 @@ export async function mockApi({ port = 0 } = {}) {
   await new Promise((ok) => server.listen(port, '127.0.0.1', ok));
   const at = `127.0.0.1:${server.address().port}`;
   return {
-    flags: [`--host-resolver-rules=${HOSTS.map((h) => `MAP ${h} ${at}`).join(', ')}`, '--ignore-certificate-errors'],
+    flags: [`--host-resolver-rules=${HOSTS.map((h) => `MAP ${h} ${at}`).join(', ')}`, '--ignore-certificate-errors', '--no-proxy-server'],
     close: () => new Promise((ok) => { server.closeAllConnections(); server.close(() => { rmSync(dir, { recursive: true, force: true }); ok(); }); }),
   };
 }
