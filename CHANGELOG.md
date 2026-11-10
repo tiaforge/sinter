@@ -7,6 +7,16 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- `sinter({ embed: true })`: builds for a server that writes each page's data into it. Every resource whose request
+  only the page's URL decides gets a data placeholder (not `call`, `each` or `early="off"`), and is neither preloaded
+  nor requested early. `sinter-embed.json` describes simple `when` conditions (`$url` values against strings, `!`,
+  `&&`, `||`) and `start-page`.
+- Pagination: `offset-param` in offset mode (the items to skip instead of the page number), and `start-page`
+  (offset mode, or keyset with `offset-param`): the page the first load asks for, e.g. `start-page="$url.page"` for
+  lists whose page links navigate. RealWorld's lists use both instead of its `offset()` helper.
+- sinter-axum: `build()` checks that every placeholder has a source (a resolver, `skip`, or a request it can make)
+  and lists every problem; `embed!` makes that check when the server compiles and compiles the manifest in.
+
 - `packages/sinter-axum`: a Rust `tower` layer (axum) that fills a build's `data-sn-data` placeholders per
   request. It streams the head up to the first placeholder at once, then each placeholder's data from the app's
   API router (in-process), an upstream or an allowed origin (both with the opt-in `upstream` feature, which

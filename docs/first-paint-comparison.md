@@ -134,6 +134,17 @@ Each server pinned to one core (all its threads), the mock API to another, the l
 
 About 35× Qwik's home pages and 3.5× the Node middleware's per core; on the article page, 15× and 2.7×. A second run of 10 s gave 67, 595 and 1,884 home pages per second. Each page here is two API requests, which the API answered in about 1 ms: a slower API changes the latency, not the CPU per page.
 
+### With `sinter({ embed: true })` and native pagination (2026-11-10)
+
+RealWorld's lists moved to native pagination (`start-page="$url.page"`), and the build places the placeholders itself. The example server needs one resolver, for the profile list's ternary. Slow 4G, cold, median of 9:
+
+| Page | sinter static: first paint / LCP | sinter-axum: first paint / LCP |
+| --- | --- | --- |
+| Home | 528 / 960 ms | 576 / **576** ms |
+| Article | 528 / 952 ms | 564 / 1,068 ms |
+
+The article page is slower with the server. Its LCP is the Markdown body, which the browser renders after the page module, marked and DOMPurify (loaded lazily, for the page's size budget). With the data in the page, the rest of the article renders during the parse, so the author's avatar is requested at once (512 ms instead of 738). On slow 4G that image shares the link with the page's module chunks, and the module mounts later, with more to do; marked is requested at 719 ms instead of 617. Starting the Markdown chunk earlier on this page would fix it; it runs into the size budget that made it lazy.
+
 ### Not measured, or not right yet
 
 - A signed-in user's data: the middleware fetches without the token RealWorld keeps in `localStorage`, so it embeds the anonymous view (`favorited`, `following` false), and embedded data is not reloaded. A page with per-user data leaves those resources to the browser for now.
