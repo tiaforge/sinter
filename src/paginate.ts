@@ -2,6 +2,7 @@
 import type { Paginate } from './ir.js';
 import type { App, Feature, Pager, ResourceLoader } from './runtime/app.js';
 import { SinterError } from './runtime/config.js';
+import { base, pageParams, startParams, toPage } from './runtime/pages.js';
 
 type Dir = 'first' | 'prev' | 'next' | 'last';
 
@@ -14,20 +15,7 @@ interface Move {
   to: number | null;
 }
 
-function base(cfg: Paginate, dir: Dir | null, size = cfg.size): Record<string, string> {
-  const p: Record<string, string> = { [cfg.sizeParam]: String(size) };
-  if (dir) p[cfg.directionParam] = cfg.directionValues?.[dir] ?? dir;
-  return p;
-}
-
-/**
- * The query parameters of the first page, as the pager sends them on the first load (and after a
- * `src` change): the compiler builds the early file's request (and the preload) for a paginated
- * resource from these, so the runtime takes that response for its first load.
- */
-export function firstParams(cfg: Paginate): Record<string, string> {
-  return cfg.mode === 'offset' ? { [cfg.pageParam]: '1', ...base(cfg, null) } : base(cfg, 'first');
-}
+export { firstParams } from './runtime/pages.js';
 
 class PagerImpl implements Pager {
   private move: Move;
@@ -35,14 +23,19 @@ class PagerImpl implements Pager {
 
   constructor(private readonly loader: ResourceLoader) {
     this.cfg = loader.def.paginate!;
-    this.move = this.first();
+    // page 1 until the first load: reset() reads `start-page` then, in the resource's scope
+    this.move = { dir: this.cfg.mode === 'offset' ? 'page' : 'first', page: 1, params: startParams(this.cfg, 1), from: null, to: null };
     const m = loader.res.meta;
     if (this.cfg.mode === 'offset' || this.cfg.offsetParam) m.page = 1;
     Object.assign(m, { pages: null, from: null, to: null, hasPrev: false, hasNext: false });
   }
 
+  /** page 1, or the page `start-page` names (read at each first load: the page's start and a `src` change) */
   private first(): Move {
-    return { dir: this.cfg.mode === 'offset' ? 'page' : 'first', page: 1, params: firstParams(this.cfg), from: null, to: null };
+    let n = 1;
+    if (this.cfg.start != null) try { n = toPage(this.loader.app.fns[this.cfg.start]!(this.loader.scope())); } catch { /* page 1 */ }
+    const dir = this.cfg.mode === 'offset' || n > 1 ? 'page' : 'first';
+    return { dir, page: n, params: startParams(this.cfg, n), from: null, to: null };
   }
 
   reset(): void {
@@ -104,13 +97,13 @@ class PagerImpl implements Pager {
         n = meta.pages;
       }
       n = Math.max(1, Math.floor(n));
-      move = { dir: 'page', page: n, params: { [this.cfg.pageParam]: String(n), ...base(this.cfg, null) }, from, to };
+      move = { dir: 'page', page: n, params: pageParams(this.cfg, n), from, to };
     } else {
       if (typeof target === 'number') {
         // the server skips (n - 1) pages; prev/next continue by cursor from there
         let n = Math.max(1, Math.floor(target));
         if (meta.pages != null) n = Math.min(n, meta.pages);
-        move = { dir: 'page', page: n, params: { [this.cfg.offsetParam!]: String((n - 1) * this.cfg.size), ...base(this.cfg, 'first') }, from, to };
+        move = { dir: 'page', page: n, params: pageParams(this.cfg, n), from, to };
         void this.loader.load(move);
         return;
       }

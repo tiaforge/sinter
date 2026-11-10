@@ -11,6 +11,7 @@ import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
 import { expand, readUrl, type withParams } from './runtime/url.js';
+import { toPage } from './runtime/pages.js';
 import type { EarlyIR } from './ir.js';
 
 /** What the early requests read from the outside world: the clock, the location, fetch. */
@@ -257,7 +258,10 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
         try {
           const s = r.scope < 0 ? base : scopes[r.scope];
           if (r.when != null && !fns[r.when]!(s)) continue;
-          const t = expand(r.src, s, fns), u = new URL(r.q ? params!(t, r.q) : t, here);
+          let q = r.q;
+          // `start-page`: page n's parameters (the pager's pageParams)
+          if (r.sp) { const n = toPage(fns[r.sp.f]!(s)); if (n > 1) q = { ...r.sp.qn, [r.sp.k]: String(r.sp.o ? (n - 1) * r.sp.s : n) }; }
+          const t = expand(r.src, s, fns), u = new URL(q ? params!(t, q) : t, here);
           // another origin only when the build found it in `sinter({ origins })` (`xo`)
           if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env()))).add(u.href, r.lo);
         } catch { /* not known early: the page module requests it */ }

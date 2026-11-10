@@ -19,7 +19,7 @@ import { matchOperation, matchResource, namedAt, namedSchema, properties, proper
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { withParams } from '../runtime/url.js';
-import { firstParams } from '../paginate.js';
+import { firstParams, pageParams } from '../runtime/pages.js';
 
 /** the compiler's IR holds paths as strings (the page module's holds node ids) */
 const strs = (x: PathRef[] | undefined) => (x ?? []) as string[];
@@ -87,6 +87,12 @@ export interface CompileOptions {
   origins?: string[];
   /** the early module runs as a classic script in the head, started by `observe` (see `@tiaforge-ui/sinter/early`); with `early.src`, its tag is classic */
   observe?: boolean;
+  /**
+   * builds served by a server that fills embedded data (sinter-axum): every resource whose request
+   * only the page's URL decides gets a placeholder in the head, so it is neither preloaded nor
+   * requested early; not `call`, `each`, or `early="off"` (a request a middleware changes)
+   */
+  embed?: boolean;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
   /** also return where each function in `fns` was written (`CompiledParts.sources`), for the page module's source map */
@@ -168,14 +174,25 @@ export interface PrefetchParts {
  * name }`), else null and the server must produce the data itself (`call`, `each` too). `when`:
  * the resource has a condition the server cannot evaluate. `query`: a paginated resource's first
  * page, the parameters the pager sends for it (`firstParams`), set on the template's URL as the
- * runtime sets them (`withParams`), in this order.
+ * runtime sets them (`withParams`), in this order. `start`: its `start-page` is a `$url` value; from
+ * page 2 on, the parameters are `query` of `start` with `key` set to the page (with `skip`, to
+ * `(page - 1) * size`), as the pager's `pageParams` writes them. A `start-page` that reads anything
+ * else makes `src` null.
  */
+/**
+ * A `when` a server can evaluate: a `$url` value is present and not empty (`{ url }`), equal or not
+ * to a string (`eq`, `ne`; an absent value equals nothing), and `not`, `and`, `or` over those.
+ */
+export type EmbedCond = { url: string; eq?: string; ne?: string } | { not: EmbedCond } | { and: EmbedCond[] } | { or: EmbedCond[] };
+
 export interface EmbedSlot {
   id: number;
   resource: string;
   src: Array<string | { url: string }> | null;
-  when?: true;
+  /** the resource's `when`, as a condition a server evaluates, or `true` when only the browser can */
+  when?: true | EmbedCond;
   query?: Array<[string, string]>;
+  start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> };
 }
 
 export interface CompiledParts {
@@ -364,6 +381,7 @@ class Compiler {
       const r = this.resources.find((x) => x.name === name);
       if (r) r.data = id;
     }
+    if (this.opts.embed) this.addPlaceholders(doc);
     for (const info of this.page.resources.values()) {
       if (!info.used) {
         const el = this.resourceEls.get(info.name)!;
@@ -1794,9 +1812,21 @@ class Compiler {
         };
         const offsetParam = attr(el, 'offset-param');
         if (offsetParam != null) {
-          if (mode !== 'keyset') this.report(el, 'offset-param', 'SN401', `\`offset-param\` applies to \`paginate="keyset"\`; ${mode === 'offset' ? 'offset pages jump with `page-param`' : 'append mode only loads more'}`, 0);
+          if (mode === 'append') this.report(el, 'offset-param', 'SN401', '`offset-param` applies to `paginate="offset"` (the items to skip, sent instead of `page-param`) and `paginate="keyset"` (to jump); append mode only loads more', 0);
           else if (!/^[\w.\-\[\]]+$/.test(offsetParam)) this.report(el, 'offset-param', 'SN401', '`offset-param` is a query parameter name', 0);
           else paginate.offsetParam = offsetParam;
+        }
+        // `start-page`: the page the first load asks for, e.g. the page number in the page's URL
+        if (attr(el, 'start-page') != null) {
+          if (mode === 'append' || (mode === 'keyset' && !paginate.offsetParam)) {
+            this.report(el, 'start-page', 'SN401', `\`start-page\` needs a resource that can ask for a page by number: \`paginate="offset"\`, or \`paginate="keyset"\` with \`offset-param\``, 0);
+          } else {
+            const r = this.expr(el, 'start-page', ctx.scope, { mode: 'value' });
+            if (r.ok) {
+              paginate.start = this.fn(r.code);
+              for (const d of r.deps) deps.add(d);
+            }
+          }
         }
         if (attr(el, 'direction-values') != null) {
           if (mode === 'offset') this.report(el, 'direction-values', 'SN401', '`direction-values` applies to `paginate="keyset"` and `paginate="append"`; offset pages send `page-param`', 0);
@@ -1808,7 +1838,7 @@ class Compiler {
         this.features.add('paginate');
       }
     }
-    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param']) {
+    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'start-page']) {
       if (attr(el, a) != null && !paginate && mode == null) this.report(el, a, 'SN102', `\`${a}\` needs \`paginate\``, 0);
     }
     let cache: number | undefined;
@@ -2182,12 +2212,13 @@ class Compiler {
       // another origin only when listed in `origins` (the runtime's allowlist, known at build time)
       const where = this.earlyOrigin(def.src);
       if (!where) continue;
-      const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
+      const start = def.paginate?.start;
+      const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : []), ...(start != null ? [start] : [])].map((i) => this.fns[i]!);
       const scope = (def.scope ?? -1) < 0 ? -1 : rootKeep.get(def.scope!);
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
       reads.push(...strs(def.deps));
       url ||= codes.some((c) => c.includes('$url'));
-      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}) });
+      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}) });
     }
     if (!roots.some((n) => n.b.length) && !res.length) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
@@ -2269,6 +2300,29 @@ class Compiler {
     return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces };
   }
 
+  /**
+   * `embed`: a placeholder at the end of the head for each resource without one whose `src`,
+   * `when` and `start-page` read only `$url`, constants and helpers (what a server knows at the
+   * page request; helpers make it a request only a resolver can make)
+   */
+  addPlaceholders(doc: DefaultTreeAdapterMap['document']) {
+    const html = doc.childNodes.find((n) => isElement(n) && n.tagName === 'html') as P5Element | undefined;
+    const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
+    if (!head) return;
+    for (const def of this.resources) {
+      if (def.data != null || def.call || def.each || this.noEarly.has(def.name) || !def.src.length) continue;
+      if (!strs(def.deps).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
+      const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : []), ...(def.paginate?.start != null ? [def.paginate.start] : [])].map((i) => this.fns[i]!);
+      if (codes.some((c) => /\$\.\$(?!url\b)/.test(c))) continue;
+      const id = this.nextId++;
+      def.data = id;
+      this.embedded.set(def.name, id);
+      const el = parse5.parseFragment(`<script type="application/json" data-sn="${id}"></script>`).childNodes[0] as P5Element;
+      el.parentNode = head;
+      head.childNodes.push(el as never);
+    }
+  }
+
   /** The embedded-data placeholders a server can fill, with each resource's request where the URL alone decides it. */
   embedSlots(): EmbedSlot[] {
     const out: EmbedSlot[] = [];
@@ -2276,12 +2330,16 @@ class Compiler {
       if (def.data == null) continue;
       const parts = def.call || def.each ? null : def.src.map((x) => {
         if (typeof x === 'string') return x;
-        const m = /^\(\$\) => \(\$\.\$url\.([A-Za-z_$][\w$]*)\)$/.exec(this.fns[x]!);
+        const m = URL_READ.exec(this.fns[x]!);
         return m ? { url: m[1]! } : null;
       });
+      const pg = def.paginate;
+      const startUrl = pg?.start != null ? URL_READ.exec(this.fns[pg.start]!)?.[1] ?? null : undefined;
+      const described = parts && parts.length && parts.every((x) => x != null) && startUrl !== null;
       out.push({
-        id: def.data, resource: def.name, src: parts && parts.length && parts.every((x) => x != null) ? parts as EmbedSlot['src'] : null,
-        ...(def.when != null ? { when: true as const } : {}), ...(def.paginate ? { query: Object.entries(firstParams(def.paginate)) } : {}),
+        id: def.data, resource: def.name, src: described ? parts as EmbedSlot['src'] : null,
+        ...(def.when != null ? { when: condOf(this.fns[def.when]!) ?? true as const } : {}), ...(pg ? { query: Object.entries(firstParams(pg)) } : {}),
+        ...(pg && startUrl ? { start: { url: startUrl, key: pg.offsetParam ?? pg.pageParam, size: pg.size, ...(pg.offsetParam ? { skip: true as const } : {}), query: Object.entries(pageParams(pg, 2)) } } : {}),
       });
     }
     return out.sort((a, b) => a.id - b.id);
@@ -2561,7 +2619,50 @@ export function makeCode(nodes: NodeDef[], fns: string[]): string | null {
 // ---- first paint
 
 /** A resource whose request is fixed at build time: a literal `src`, no `when`, not `each`, `call` or embedded (a paginated one: its first page). */
-const fixedRequest = (r: ResourceDef) => !r.call && !r.each && r.data == null && r.when == null && r.src.length > 0 && r.src.every((p) => typeof p === 'string');
+const fixedRequest = (r: ResourceDef) => !r.call && !r.each && r.data == null && r.when == null && r.paginate?.start == null && r.src.length > 0 && r.src.every((p) => typeof p === 'string');
+
+/** a compiled `when` as a condition a server can evaluate (see EmbedCond), or null */
+function condOf(code: string): EmbedCond | null {
+  let fn: acorn.Expression;
+  try { fn = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }) as acorn.Expression; } catch { return null; }
+  if (fn.type !== 'ArrowFunctionExpression' || fn.body.type === 'BlockStatement') return null;
+  const urlName = (n: acorn.Node): string | null => {
+    const m = n as acorn.MemberExpression;
+    if (m.type !== 'MemberExpression' || m.computed || m.property.type !== 'Identifier') return null;
+    const o = m.object as acorn.MemberExpression;
+    return o.type === 'MemberExpression' && !o.computed && o.object.type === 'Identifier' && o.object.name === '$' && o.property.type === 'Identifier' && o.property.name === '$url' ? m.property.name : null;
+  };
+  const str = (n: acorn.Node) => (n.type === 'Literal' && typeof (n as acorn.Literal).value === 'string' ? (n as acorn.Literal).value as string : null);
+  const walk = (n: acorn.Node): EmbedCond | null => {
+    const u = urlName(n);
+    if (u) return { url: u };
+    if (n.type === 'UnaryExpression' && (n as acorn.UnaryExpression).operator === '!') { const c = walk((n as acorn.UnaryExpression).argument); return c && { not: c }; }
+    if (n.type === 'LogicalExpression') {
+      const l = n as acorn.LogicalExpression;
+      if (l.operator === '??') return null;
+      const a = walk(l.left), b = walk(l.right);
+      return a && b ? (l.operator === '&&' ? { and: [a, b] } : { or: [a, b] }) : null;
+    }
+    if (n.type === 'BinaryExpression') {
+      const b = n as acorn.BinaryExpression;
+      if (!['==', '===', '!=', '!=='].includes(b.operator)) return null;
+      const [name, value] = urlName(b.left) ? [urlName(b.left), str(b.right)] : [urlName(b.right), str(b.left)];
+      if (name == null || value == null) return null;
+      return b.operator.startsWith('=') ? { url: name, eq: value } : { url: name, ne: value };
+    }
+    return null;
+  };
+  return walk(fn.body);
+}
+
+/** a compiled function that is one `$url` read: `($) => ($.$url.page)` */
+const URL_READ = /^\(\$\) => \(\$\.\$url\.([A-Za-z_$][\w$]*)\)$/;
+
+/** the early file's `start-page`: page n's parameters are `qn` with `k` set (the page, or with `offset-param` the items to skip) */
+function startOf(cfg: Paginate, f: number): NonNullable<NonNullable<EarlyIR['res']>[number]['sp']> {
+  const k = cfg.offsetParam ?? cfg.pageParam;
+  return { f, k, s: cfg.size, ...(cfg.offsetParam ? { o: 1 as const } : {}), qn: pageParams(cfg, 2) };
+}
 
 /** URLs of the resources whose request is fixed at build time (callers pass only those it may request early: same-origin or a listed origin): the page preloads them from its HTML (low priority when every resource of that URL is `lo`). */
 export function preloads(resources: ResourceDef[]): Array<{ url: string; lo: boolean }> {

@@ -69,6 +69,14 @@ export interface SinterOptions extends ProjectOptions {
    */
   prefetch?: boolean;
   /**
+   * Builds served by a server that writes each page's data into it (sinter-axum): every resource whose
+   * request only the page's URL decides gets a placeholder in the head, and the browser neither preloads
+   * nor requests it early, since the data comes with the page. Not `call`, `each`, or `early="off"` (a
+   * request a middleware changes, such as one with the user's token). `sinter-embed.json` lists them.
+   * `vite dev` is unaffected: there is no server there to fill them.
+   */
+  embed?: boolean;
+  /**
    * Other origins the app's resources, actions and streams may use: every page adds them to the
    * runtime's allowlist (as `configure({ origins })` would; list them here only), and their resources
    * with a literal `src` are preloaded or requested before the page module, like same-origin ones
@@ -362,6 +370,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(firstPaint && p.messages ? { baseMessages: p.messages.dicts[p.messages.base] ?? {} } : {}),
       ...(options.origins?.length ? { origins: options.origins } : {}),
       ...(firstPaint ? { observe: true } : {}),
+      ...(options.embed && !dev ? { embed: true } : {}),
     });
     if (out.early) setModule(`${EARLY}${rel}.js`, out.early, out.earlyMap);
     if (!dev && out.embed.length) embedPages.set(rel, { paths: pagePaths(rel, resolved?.base ?? '/', out.path), data: out.embed });
@@ -753,6 +762,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // the page bundle is `async`: it does not wait for the stylesheets as a deferred module does,
         // and mounts once the document is parsed and the early script has rendered (see the page module)
         if (ctx.chunk) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');
+        // the embedded-data placeholders last in the head, after the tags Vite added (the page module, its
+        // preloads, the stylesheets): a server that streams the page up to the first one sends all of those first
+        const slots = embedPages.get(rel)?.data;
+        if (slots?.length) {
+          const tags: string[] = [];
+          for (const d of slots) {
+            const tag = `<script type="application/json" data-sn="${d.id}"></script>`;
+            if (html.includes(tag)) { html = html.replace(tag, ''); tags.push(tag); }
+          }
+          html = html.replace('</head>', `${tags.map((t) => `  ${t}\n`).join('')}</head>`);
+        }
         if (!early && !langs && !own) return html;
         const tags: string[] = [];
         // the shared head script (with the picker, its data on the tag), then the page's: classic scripts, run in order
