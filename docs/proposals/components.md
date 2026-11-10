@@ -86,8 +86,9 @@ src/components/live-clock.ts            ...plus a script, run per instance by si
   - The `to` boundary stops the styles at nested components, and at slot content, which the
     compiler marks with the same boundary.
   - Selectors stay as written, with their normal specificity; devtools show them unchanged.
-  - `@scope` is in Chrome, Safari, and Firefox since late 2025. A browser without it ignores the
-    block, so the component shows unstyled; sinter's supported browsers must have `@scope`.
+  - `@scope` is in Chrome, Safari, and Firefox since late 2025, so every browser sinter supports
+    ("current Chromium, Firefox and Safari", README) has it. An older browser ignores the block,
+    and the component shows unstyled.
 
 ### Using a component
 
