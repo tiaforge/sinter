@@ -9,7 +9,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 - `packages/sinter-axum`: a Rust `tower` layer (axum) that fills a build's `data-sn-data` placeholders per
   request. It streams the head up to the first placeholder at once, then each placeholder's data from the app's
-  API router (in-process), an upstream, an allowed origin or a resolver function. RealWorld, slow 4G: home LCP
+  API router (in-process), an upstream or an allowed origin (both with the opt-in `upstream` feature, which
+  adds reqwest), or a resolver function. RealWorld, slow 4G: home LCP
   948 → 588 ms; one core serves about 2,000 home pages/s, against 57–67 for Qwik City
   (docs/first-paint-comparison.md).
 - Builds with embedded-data placeholders write `sinter-embed.json` next to the pages: each page's paths and,

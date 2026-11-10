@@ -3,7 +3,7 @@
 // origin, allowed here. The list's `src` calls a helper (`offset($url.page, 10)`) and has a `when`,
 // so a resolver makes its request: what the browser would ask for, signed out.
 //
-//   cargo run --release --example realworld -- <dist> [port] [api origin]
+//   cargo run --release --features upstream --example realworld -- <dist> [port] [api origin]
 use axum::{
     Router,
     http::{HeaderValue, header},

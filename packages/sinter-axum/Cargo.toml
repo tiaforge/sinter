@@ -12,8 +12,8 @@ keywords = ["sinter", "axum", "tower", "middleware", "html"]
 categories = ["web-programming::http-server"]
 
 [features]
-default = ["upstream"]
-# fetch over HTTP: an API on another server (`Embed::upstream`) and absolute `src` URLs
+default = []
+# opt-in: fetch over HTTP (reqwest, rustls): an API on another server (`Embed::upstream`) and absolute `src` URLs
 upstream = ["dep:reqwest"]
 
 [dependencies]
@@ -34,7 +34,6 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls"], o
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.7", features = ["fs", "compression-gzip"] }
-reqwest = { version = "0.13", default-features = false }
 
 [[example]]
 name = "realworld"

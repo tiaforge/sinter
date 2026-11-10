@@ -108,7 +108,7 @@ The same curve, an order of magnitude apart: Qwik breaks between 100 and 120 pag
 
 ## sinter-axum (2026-11-10)
 
-The middleware above is a Node script; [`packages/sinter-axum`](../packages/sinter-axum) is the same in Rust, as a `tower` layer, reading the build's `sinter-embed.json` instead of a hand-written table. Same machine and mock API; `examples/realworld` with `data-sn-data` placeholders for `articles` and `tags` (home) and `article` and `comments` (article), in the `<head>` (the runtime ignores them anywhere else). The server is `cargo run --release --example realworld`: tags, article and comments as the build describes them, the list from a resolver (its `src` calls a helper and has a `when`).
+The middleware above is a Node script; [`packages/sinter-axum`](../packages/sinter-axum) is the same in Rust, as a `tower` layer, reading the build's `sinter-embed.json` instead of a hand-written table. Same machine and mock API; `examples/realworld` with `data-sn-data` placeholders for `articles` and `tags` (home) and `article` and `comments` (article), in the `<head>` (the runtime ignores them anywhere else). The server is `cargo run --release --features upstream --example realworld`: tags, article and comments as the build describes them, the list from a resolver (its `src` calls a helper and has a `when`).
 
 ### First frame (`measure.mjs`, slow 4G, cold, median of 5)
 

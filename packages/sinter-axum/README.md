@@ -38,8 +38,8 @@ For each placeholder, the first of these that applies:
 
 1. **`Embed::resolve(resource, f)`.** Your async function returns the JSON of the response the browser would get, or `None`. Use it for anything the build can't describe: a helper in `src` (`offset($url.page, 10)`), a `when`, pagination, or a database query instead of an HTTP round trip. It receives `$url` (query, then path parameters), the URL the build describes (if any) and the page request's headers.
 2. **The resource's `src`, when the build could describe it** (literal text and plain `$url.name` reads).
-   - A path on the same origin is sent to `Embed::api(router)`, your API router called in-process with no socket. Otherwise it goes to `Embed::upstream("http://127.0.0.1:4000")`. Both receive the forwarded headers (`Cookie`, `Authorization`, `Accept-Language`; change the list with `Embed::forward`).
-   - An absolute URL is fetched only if its origin was allowed with `Embed::allow_origin`, and then without the page's headers, as the browser would send it.
+   - A path on the same origin is sent to `Embed::api(router)`, your API router called in-process with no socket. Otherwise, with the `upstream` feature, it goes to `Embed::upstream("http://127.0.0.1:4000")`. Both receive the forwarded headers (`Cookie`, `Authorization`, `Accept-Language`; change the list with `Embed::forward`).
+   - An absolute URL is fetched only with the `upstream` feature, and only if its origin was allowed with `Embed::allow_origin`, and then without the page's headers, as the browser would send it.
    - A URL whose origin comes from a `$url` value is never fetched.
 3. **Nothing.** The placeholder stays empty and the browser requests the data itself, as it does without this layer.
 
@@ -49,6 +49,11 @@ The data is written with `<` as `\u003c`, so it can't close its `<script>`. The 
 
 ## Setup
 
+- The default build has no HTTP client: data comes from your router and your resolvers. For an API on another server, or absolute `src` URLs, enable the `upstream` feature (it adds `reqwest`, with rustls):
+
+  ```toml
+  sinter-axum = { version = "0.1", features = ["upstream"] }
+  ```
 - Build the app with sinter's Vite plugin. Every build with at least one `data-sn-data` placeholder writes `dist/sinter-embed.json`. A page and a manifest from different builds are refused at startup.
 - Put the placeholders in `<head>`; the runtime ignores them anywhere else.
 - Serve with `TCP_NODELAY`. The head and the rest of the page are two writes, and without it the second can wait about 40 ms for the client's delayed ACK. With `axum::serve`: `listener.tap_io(|tcp| { let _ = tcp.set_nodelay(true); })`.
@@ -69,5 +74,5 @@ Measured on RealWorld, slow 4G, cold Chromium; details in [docs/first-paint-comp
 - **Throughput per core:** about 2,000 home pages/s, against 57–67 for Qwik City and about 590 for the Node middleware.
 
 ```sh
-cargo run --release --example realworld -- ../../examples/realworld/dist 4370 http://localhost:4400
+cargo run --release --features upstream --example realworld -- ../../examples/realworld/dist 4370 http://localhost:4400
 ```

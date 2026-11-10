@@ -30,12 +30,15 @@
 //! 1. [`Embed::resolve`]: your function for that resource (a database query, or anything the URL
 //!    template cannot express: a helper in `src`, a `when`, pagination);
 //! 2. the resource's `src`, when the build could describe it (literals and `$url` reads):
-//!    a same-origin path goes to [`Embed::api`] (your API router, called in-process) or else to
-//!    [`Embed::upstream`]; an absolute URL is fetched only if its origin is allowed with
-//!    [`Embed::allow_origin`];
+//!    a same-origin path goes to [`Embed::api`] (your API router, called in-process), or else,
+//!    with the `upstream` feature, to `Embed::upstream`; an absolute URL is fetched only with that
+//!    feature and if its origin is allowed with `Embed::allow_origin`;
 //! 3. nothing: the placeholder stays empty and the browser requests the data itself, as it does
 //!    without this layer. A failure, a non-JSON or non-2xx answer, or the time limit
 //!    ([`Embed::timeout`]) has the same result.
+//!
+//! The `upstream` feature (off by default) adds the HTTP client (`reqwest`, with rustls): without
+//! it the crate fetches nothing over the network, only your router and your resolvers.
 
 mod manifest;
 mod url;

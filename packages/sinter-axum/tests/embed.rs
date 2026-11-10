@@ -196,6 +196,7 @@ async fn unstreamed_the_page_is_one_piece() {
     assert!(body.frame().await.is_none());
 }
 
+#[cfg(feature = "upstream")]
 #[tokio::test]
 async fn upstream_over_http_and_allowed_origins_only() {
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

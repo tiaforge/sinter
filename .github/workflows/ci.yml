@@ -44,8 +44,9 @@ jobs:
           workspaces: packages/sinter-axum
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --all-targets --features upstream -- -D warnings
       - run: cargo test
-      - run: cargo build --no-default-features
+      - run: cargo test --features upstream
 
   # sinter across page loads in a real browser: next-page data, Speculation Rules, morphs
   # (e2e/navigation/README.md); the runner's Chrome
