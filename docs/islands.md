@@ -5,23 +5,75 @@ charts or encryption, write a plain custom element. It gets data in through prop
 events out through DOM events; sinter never looks inside it.
 
 ```html
-<template data-sn-if="selected">
-  <mail-reader data-sn-prop="{message: selected, unlocked: vaultUnlocked}"
-               data-sn-on-reader-flag="patch('messages', selected, {is_flagged: $event.detail})"></mail-reader>
-</template>
+<sn-resource name="messages" src="/api/messages" key="id"></sn-resource>
+
+<section data-sn-state="{ selectedId: null, draft: '' }"
+         data-sn-let="{ selected: messages.find(m => m.id === selectedId) }">
+  <ul>
+    <template data-sn-for="m in messages">
+      <li>
+        <button data-sn-on-click="selectedId = m.id; draft = ''" data-sn-text="m.subject"></button>
+        <span data-sn-show="m.is_flagged">flagged</span>
+      </li>
+    </template>
+  </ul>
+
+  <template data-sn-if="selected">
+    <mail-reader data-sn-prop="{message: selected, readonly: !selected.can_edit}"
+                 data-sn-on-reader-flag="patch('messages', selected, {is_flagged: $event.detail})"
+                 data-sn-on-reader-note="draft = $event.detail"></mail-reader>
+    <p>Note: <span data-sn-text="draft.length"></span> characters</p>
+  </template>
+</section>
 ```
 
 ```js
 class MailReader extends HTMLElement {
-  set message(m) { this.#m = m; this.#render(); }
-  #m = null;
-  #render() { /* draw this.#m into this element */ }
-  flag() {
-    this.dispatchEvent(new CustomEvent('reader-flag', { bubbles: true, detail: true }));
+  #message = null;
+  #readonly = false;
+  #title = document.createElement('h2');
+  #flag = document.createElement('button');
+  #note = document.createElement('textarea');
+
+  constructor() {
+    super();
+    this.#flag.onclick = () => this.#emit('reader-flag', !this.#message.is_flagged);
+    this.#note.oninput = () => this.#emit('reader-note', this.#note.value);
+  }
+
+  connectedCallback() {
+    this.replaceChildren(this.#title, this.#flag, this.#note);
+  }
+
+  // sinter assigns these from data-sn-prop, each time the value changes
+  set message(m) {
+    this.#message = m;
+    this.#title.textContent = m.subject;
+    this.#flag.textContent = m.is_flagged ? 'Unflag' : 'Flag';
+  }
+  set readonly(v) {
+    this.#flag.disabled = this.#note.readOnly = v;
+  }
+
+  #emit(name, detail) {
+    this.dispatchEvent(new CustomEvent(name, { bubbles: true, detail }));
   }
 }
 customElements.define('mail-reader', MailReader);
 ```
+The round trip:
+
+1. Clicking a row sets `selectedId`; `selected` is derived from the resource, so it is always the current item. `data-sn-prop` assigns `message` and `readonly` on the island, and its setters update the
+   elements it built.
+2. Clicking Flag dispatches `reader-flag` with the new value. The template's handler calls
+   `patch('messages', selected, {...})`, which updates the resource, so the `flagged` label in the
+   list changes, and `selected` is the patched item, which `data-sn-prop` passes to the island again, and it
+   re-renders with "Unflag".
+3. Typing dispatches `reader-note` with the text. The handler writes it to the `draft` state, and the
+   `<span data-sn-text="draft.length">` next to the island updates on every keystroke.
+
+The island owns everything inside `<mail-reader>`; sinter owns the bindings around it. Data flows in
+through properties and out through events, never through the DOM in between.
 
 ## Data in
 
