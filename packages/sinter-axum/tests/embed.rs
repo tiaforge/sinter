@@ -8,7 +8,7 @@ use axum::{
 };
 use bytes::Bytes;
 use http_body_util::BodyExt;
-use sinter_axum::Embed;
+use sinter_axum::{Embed, EmbedLayer};
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
@@ -80,8 +80,8 @@ fn api() -> Router {
 }
 
 /// the app: the layer over the API and a stand-in for ServeDir
-fn app(embed: Embed) -> Router {
-    Router::new().merge(api()).fallback(|| async { "static file" }).layer(embed)
+fn app(layer: EmbedLayer) -> Router {
+    Router::new().merge(api()).fallback(|| async { "static file" }).layer(layer)
 }
 
 async fn text(app: Router, req: Request<Body>) -> (StatusCode, HeaderMap, String) {
@@ -96,7 +96,7 @@ fn get_(uri: &str) -> Request<Body> {
 
 #[tokio::test]
 async fn fills_each_placeholder_from_the_api_in_process() {
-    let a = app(Embed::from_dir(app_build()).unwrap().api(api()));
+    let a = app(Embed::from_dir(app_build()).api(api()).skip("feed").build().unwrap());
     let req = Request::get("/?tag=rust%20lang&x=1").header(header::COOKIE, "s=1").body(Body::empty()).unwrap();
     let (status, h, html) = text(a.clone(), req).await;
     assert_eq!(status, StatusCode::OK);
@@ -119,7 +119,7 @@ async fn fills_each_placeholder_from_the_api_in_process() {
 
 #[tokio::test]
 async fn other_requests_go_to_the_inner_service() {
-    let a = app(Embed::from_dir(app_build()).unwrap().api(api()));
+    let a = app(Embed::from_dir(app_build()).api(api()).skip("feed").build().unwrap());
     assert_eq!(text(a.clone(), get_("/assets/app.css")).await.2, "static file");
     assert_eq!(text(a.clone(), get_("/article/a/b")).await.2, "static file");
     assert_eq!(text(a.clone(), Request::post("/").body(Body::empty()).unwrap()).await.2, "static file");
@@ -134,15 +134,16 @@ async fn other_requests_go_to_the_inner_service() {
 #[tokio::test]
 async fn a_resolver_takes_precedence_and_gets_what_the_template_cannot_express() {
     let embed = Embed::from_dir(app_build())
-        .unwrap()
         .api(api())
         .resolve("feed", |r| async move {
-            assert!(r.conditional);
+            assert_eq!(r.page, "index.html");
             assert_eq!(r.url.as_deref(), Some("/api/feed"));
             let user = r.headers.get(header::COOKIE)?.to_str().ok()?.to_string();
             Some(Bytes::from(format!(r#"{{"feed":"{user}","page":"{}"}}"#, r.params.get("page").map_or("1", |s| s))))
         })
-        .resolve("tags", |_| async { Some(Bytes::from_static(br#"{"tags":["mine"]}"#)) });
+        .resolve("tags", |_| async { Some(Bytes::from_static(br#"{"tags":["mine"]}"#)) })
+        .build()
+        .unwrap();
     let req = Request::get("/?page=2").header(header::COOKIE, "u=7").body(Body::empty()).unwrap();
     let (_, _, html) = text(app(embed.clone()), req).await;
     assert!(html.contains(r#"data-sn="5">{"feed":"u=7","page":"2"}</script>"#), "{html}");
@@ -157,8 +158,8 @@ async fn the_head_is_sent_before_the_data_and_slow_data_is_left_to_the_browser()
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     let rx = std::sync::Mutex::new(Some(rx));
     let embed = Embed::from_dir(app_build())
-        .unwrap()
         .api(api())
+        .skip("feed")
         .timeout(Duration::from_millis(300))
         .resolve("article", move |_| {
             let rx = rx.lock().unwrap().take();
@@ -170,7 +171,9 @@ async fn the_head_is_sent_before_the_data_and_slow_data_is_left_to_the_browser()
         .resolve("comments", |_| async {
             tokio::time::sleep(Duration::from_secs(5)).await;
             Some(Bytes::from_static(b"[]"))
-        });
+        })
+        .build()
+        .unwrap();
     let t = Instant::now();
     let res = app(embed).oneshot(get_("/article/x")).await.unwrap();
     let mut body = res.into_body();
@@ -195,14 +198,14 @@ async fn a_paginated_resource_is_requested_at_its_first_page() {
           { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }], "query": [["page", "1"], ["limit", "10"]] } ] } ] }"#,
         &[("index.html", r#"<head><script type="application/json" data-sn="0"></script></head>"#)],
     );
-    let (_, _, html) = text(app(Embed::from_dir(dir).unwrap().api(api())), get_("/tag/a%20b")).await;
+    let (_, _, html) = text(app(Embed::from_dir(dir).api(api()).build().unwrap()), get_("/tag/a%20b")).await;
     // the page's `$url` in the template, then the pager's first-page parameters, as the runtime writes them
     assert!(html.contains(r#""q":"tag=a+b&page=1&limit=10""#), "{html}");
 }
 
 #[tokio::test]
 async fn unstreamed_the_page_is_one_piece() {
-    let embed = Embed::from_dir(app_build()).unwrap().api(api()).stream(false);
+    let embed = Embed::from_dir(app_build()).api(api()).skip("feed").stream(false).build().unwrap();
     let res = app(embed).oneshot(get_("/article/x")).await.unwrap();
     let mut body = res.into_body();
     let all = body.frame().await.unwrap().unwrap().into_data().unwrap();
@@ -231,7 +234,15 @@ async fn upstream_over_http_and_allowed_origins_only() {
             r#"<head><script type="application/json" data-sn="0"></script><script type="application/json" data-sn="1"></script><script type="application/json" data-sn="2"></script><script type="application/json" data-sn="3"></script><script type="application/json" data-sn="4"></script></head>"#,
         )],
     );
-    let embed = Embed::from_dir(dir).unwrap().upstream(base.clone()).allow_origin(base.clone());
+    // another origin, or a URL whose origin a value makes up: refused when building
+    let err = Embed::from_dir(&dir).upstream(base.clone()).allow_origin(base.clone()).build().err().unwrap().to_string();
+    assert!(err.contains("2 placeholder(s) have no source"), "{err}");
+    assert!(
+        err.contains("index.html: `d`: `http://elsewhere.invalid/api/tags…` is on an origin not allowed with .allow_origin(…)"),
+        "{err}"
+    );
+    assert!(err.contains("index.html: `e`:"), "{err}");
+    let embed = Embed::from_dir(dir).upstream(base.clone()).allow_origin(base.clone()).skip("d").skip("e").build().unwrap();
     let req =
         Request::get(format!("/?tag=t&next={}", "http%3A%2F%2Fevil.invalid%2F")).header(header::COOKIE, "s=1").body(Body::empty()).unwrap();
     let (_, _, html) = text(app(embed), req).await;
@@ -240,7 +251,7 @@ async fn upstream_over_http_and_allowed_origins_only() {
     // an allowed origin: fetched, without the page's cookie
     assert!(html.contains(r#"data-sn="1">{"tags":["a"]}</script>"#));
     assert!(html.contains(r#"data-sn="2">{"articles":[{"title":"\u003c/script>\u003cb>x"}],"q":"","who":"-"}</script>"#), "{html}");
-    // another origin, or a URL that a value makes up: not fetched
+    // skipped: left to the browser
     assert!(html.contains(r#"<script type="application/json" data-sn="3"></script>"#));
     assert!(html.contains(r#"<script type="application/json" data-sn="4"></script>"#));
 }
@@ -252,13 +263,52 @@ fn a_page_from_another_build_is_refused() {
         r#"{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 9, "resource": "a", "src": null } ] } ] }"#,
         &[("index.html", r#"<head><script type="application/json" data-sn="1"></script></head>"#)],
     );
-    let err = Embed::from_dir(&dir).err().unwrap().to_string();
+    let err = Embed::from_dir(&dir).skip("a").build().err().unwrap().to_string();
     assert!(err.contains("no placeholder for `a`"), "{err}");
     let dir = build(
         "filled",
         r#"{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 1, "resource": "a", "src": null } ] } ] }"#,
         &[("index.html", r#"<head><script type="application/json" data-sn="1">{}</script></head>"#)],
     );
-    assert!(Embed::from_dir(&dir).err().unwrap().to_string().contains("not empty"));
-    assert!(Embed::from_dir(std::env::temp_dir().join("sinter-axum-none")).err().unwrap().to_string().contains("sinter-embed.json"));
+    assert!(Embed::from_dir(&dir).skip("a").build().err().unwrap().to_string().contains("not empty"));
+    assert!(
+        Embed::from_dir(std::env::temp_dir().join("sinter-axum-none")).build().err().unwrap().to_string().contains("sinter-embed.json")
+    );
+}
+
+#[test]
+fn build_refuses_placeholders_without_a_source_and_names_that_are_not_placeholders() {
+    // `feed` has a `when` only the browser evaluates; no .api(router) for the paths
+    let err = Embed::from_dir(app_build()).resolve("artcles", |_| async { None }).build().err().unwrap().to_string();
+    for want in [
+        "`artcles`: no page of the build has a placeholder for it",
+        "index.html: `feed`: its `when` is a condition only the browser can evaluate; add .resolve(\"feed\", …) or .skip(\"feed\")",
+        "index.html: `tags`: `/api/tags…` is a path of this origin, and there is no .api(router) to call",
+        "article.html: `article`:",
+    ] {
+        assert!(err.contains(want), "{want}\n{err}");
+    }
+    // a page-qualified name covers that page's placeholder
+    assert!(Embed::from_dir(app_build()).api(api()).skip("index.html:feed").build().is_ok());
+    assert!(Embed::from_dir(app_build()).api(api()).skip("article.html:feed").build().is_err());
+}
+
+#[tokio::test]
+async fn when_and_start_page_are_evaluated_from_the_url() {
+    let dir = build(
+        "when",
+        r#"{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+          { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }], "when": { "url": "feed", "ne": "following" },
+            "query": [["offset", "0"], ["limit", "10"]],
+            "start": { "url": "page", "key": "offset", "size": 10, "skip": true, "query": [["offset", "10"], ["limit", "10"]] } } ] } ] }"#,
+        &[("index.html", r#"<head><script type="application/json" data-sn="0"></script></head>"#)],
+    );
+    let a = app(Embed::from_dir(dir).api(api()).build().unwrap());
+    let q = |html: String| html.split(r#""q":""#).nth(1).map(|r| r.split('"').next().unwrap().to_string());
+    assert_eq!(q(text(a.clone(), get_("/?tag=x")).await.2).as_deref(), Some("tag=x&offset=0&limit=10"));
+    assert_eq!(q(text(a.clone(), get_("/?page=3")).await.2).as_deref(), Some("offset=20&limit=10"));
+    assert_eq!(q(text(a.clone(), get_("/?page=abc")).await.2).as_deref(), Some("offset=0&limit=10"));
+    // `when` does not hold: no request, the placeholder empty
+    let (_, _, html) = text(a, get_("/?feed=following")).await;
+    assert!(html.contains(r#"<script type="application/json" data-sn="0"></script>"#), "{html}");
 }

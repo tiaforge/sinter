@@ -1,13 +1,11 @@
 //! Fills a sinter build's embedded-data placeholders per request, so a static page has its API data
 //! in the first frame without server rendering.
 //!
-//! sinter compiles pages to static HTML. A page that declares
-//! `<script type="application/json" data-sn-data="articles"></script>` in its head takes that
-//! JSON as the resource's data: no request from the browser, and the early script renders the
-//! bindings over it, rows included, while the HTML is parsed. This crate writes that JSON: a
-//! [`tower::Layer`] that answers the pages listed in the build's `sinter-embed.json`, fetches each
-//! placeholder's data, and streams the page with the data in it. Everything else goes to the inner
-//! service (`ServeDir`, your API).
+//! A sinter build made with `sinter({ embed: true })` has an empty data placeholder in each page's
+//! head for every resource whose request the page's URL decides, and lists them in
+//! `sinter-embed.json`. This crate is a [`tower::Layer`] that answers those pages: it fetches each
+//! placeholder's data and writes it into the page. Everything else goes to the inner service
+//! (`ServeDir`, your API).
 //!
 //! ```no_run
 //! use axum::{Router, routing::get};
@@ -17,7 +15,7 @@
 //! # async fn articles() -> &'static str { "" }
 //! # #[tokio::main] async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let api = Router::new().route("/api/articles", get(articles));
-//! let embed = Embed::from_dir("dist")?.api(api.clone());
+//! let embed = Embed::from_dir("dist").api(api.clone()).build()?;
 //! let app = Router::new()
 //!     .merge(api)
 //!     .fallback_service(ServeDir::new("dist"))
@@ -27,15 +25,15 @@
 //! ```
 //!
 //! Where the data comes from, per placeholder, first match:
-//! 1. [`Embed::resolve`]: your function for that resource (a database query, or anything the URL
-//!    template cannot express: a helper in `src`, a `when`);
-//! 2. the resource's `src`, when the build could describe it (literals and `$url` reads):
-//!    a same-origin path goes to [`Embed::api`] (your API router, called in-process), or else,
-//!    with the `upstream` feature, to `Embed::upstream`; an absolute URL is fetched only with that
-//!    feature and if its origin is allowed with `Embed::allow_origin`;
-//! 3. nothing: the placeholder stays empty and the browser requests the data itself, as it does
-//!    without this layer. A failure, a non-JSON or non-2xx answer, or the time limit
-//!    ([`Embed::timeout`]) has the same result.
+//! 1. [`Embed::resolve`]: your function for that resource (a database query, or a request the
+//!    build cannot describe: a helper in `src`, a `when` only the browser evaluates);
+//! 2. [`Embed::skip`]: none; the browser requests it;
+//! 3. the request the build describes: a same-origin path goes to [`Embed::api`] (your API router,
+//!    called in-process), or else, with the `upstream` feature, to `Embed::upstream`; an absolute
+//!    URL is fetched only with that feature, from an origin allowed with `Embed::allow_origin`.
+//!
+//! [`Embed::build`] refuses a configuration that leaves a placeholder without a source, and
+//! [`embed!`] does the same check when your crate compiles.
 //!
 //! The `upstream` feature (off by default) adds the HTTP client (`reqwest`, with rustls): without
 //! it the crate fetches nothing over the network, only your router and your resolvers.
@@ -44,18 +42,37 @@ mod manifest;
 mod url;
 
 pub use manifest::{Error, Part};
-pub use url::{expand, url_params, with_params};
+pub use url::{expand, to_page, url_params, with_params};
+
+/// Checks a build's placeholders against your resolvers when your crate compiles.
+///
+/// ```ignore
+/// let embed = sinter_axum::embed!("../web/dist", {
+///     "articles" => |req| async move { load_articles(&req).await },
+///     "user" => skip,
+/// });
+/// let layer = embed.api(api).build()?;
+/// ```
+///
+/// The path is relative to your crate's `Cargo.toml`. It is a compile error when a placeholder has
+/// neither a request the build could describe nor an entry here, or when an entry names a
+/// resource the build does not have. A name applies to every page; `"profile.html:articles"`
+/// names one page's. The build's `sinter-embed.json` is compiled in: [`Embed::build`] then refuses
+/// a build directory with another one. [`Embed::dir`] sets where the pages are at run time
+/// (default: the path given here).
+#[cfg(feature = "macros")]
+pub use sinter_axum_macros::embed;
 
 use axum::body::Body;
 use bytes::Bytes;
 use futures_util::{FutureExt, StreamExt, future::BoxFuture, stream};
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode, header};
 use http_body_util::{BodyExt, Limited};
-use manifest::Page;
+use manifest::{Page, SlotDesc, When};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     convert::Infallible,
-    path::Path,
+    path::PathBuf,
     sync::Arc,
     task::{Context, Poll},
     time::Duration,
@@ -67,14 +84,15 @@ use tower::{Layer, Service, ServiceExt, util::BoxCloneSyncService};
 /// (if any), the page's `$url` and the page request's headers.
 #[derive(Clone, Debug)]
 pub struct SlotRequest {
+    /// the page's file in the build (`index.html`)
+    pub page: String,
     /// the resource's name (`data-sn-data="articles"`)
     pub resource: String,
-    /// the resource's `src` filled from `$url`, when the build could describe it; for a paginated
-    /// resource, its first page (it may still have a `when`: see `conditional`)
+    /// the request the build describes, filled from `$url`: the resource's `src`, a paginated
+    /// one at its first page (or the page `start-page` names); None when the build could not
+    /// describe it, or its `when` does not hold for this URL
     pub url: Option<String>,
-    /// the resource has a `when`: only the browser evaluates it
-    pub conditional: bool,
-    /// the page's `$url`: query parameters, then the path's `:name` segments
+    /// the page URL's parameters: the query, then the path's `:name` segments
     pub params: Arc<HashMap<String, String>>,
     /// the page request's headers (cookies included: the data can be the user's)
     pub headers: Arc<HeaderMap>,
@@ -83,9 +101,228 @@ pub struct SlotRequest {
 type Resolver = Arc<dyn Fn(SlotRequest) -> BoxFuture<'static, Option<Bytes>> + Send + Sync>;
 type Api = BoxCloneSyncService<Request<Body>, Response<Body>, Infallible>;
 
+/// The configuration: a build's output directory and where the data comes from. [`Embed::build`]
+/// checks it and gives the layer.
+pub struct Embed {
+    dir: PathBuf,
+    compiled: Option<&'static str>,
+    resolvers: HashMap<String, Resolver>,
+    skips: HashSet<String>,
+    api: Option<Api>,
+    #[cfg(feature = "upstream")]
+    upstream: Option<String>,
+    #[cfg(feature = "upstream")]
+    origins: Vec<String>,
+    forward: Vec<HeaderName>,
+    timeout: Duration,
+    max_bytes: usize,
+    stream: bool,
+    cache_control: HeaderValue,
+}
+
+impl Embed {
+    /// A build's output directory: its `sinter-embed.json` and pages are read by [`Embed::build`].
+    pub fn from_dir(dir: impl Into<PathBuf>) -> Self {
+        Self {
+            dir: dir.into(),
+            compiled: None,
+            resolvers: HashMap::new(),
+            skips: HashSet::new(),
+            api: None,
+            #[cfg(feature = "upstream")]
+            upstream: None,
+            #[cfg(feature = "upstream")]
+            origins: Vec::new(),
+            forward: vec![header::COOKIE, header::AUTHORIZATION, header::ACCEPT_LANGUAGE],
+            timeout: Duration::from_millis(500),
+            max_bytes: 2 << 20,
+            stream: true,
+            cache_control: HeaderValue::from_static("private, no-cache"),
+        }
+    }
+
+    /// [`embed!`]: the manifest the crate was compiled against, and the build's path then.
+    #[doc(hidden)]
+    pub fn __compiled(dir: &str, manifest: &'static str) -> Self {
+        Self { compiled: Some(manifest), ..Self::from_dir(dir) }
+    }
+
+    /// Where the build's pages are at run time, when not where they were when compiling ([`embed!`]).
+    pub fn dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.dir = dir.into();
+        self
+    }
+
+    /// The app's own API, for same-origin paths: called in-process (no socket, no HTTP
+    /// parsing), with the page request's [forwarded](Embed::forward) headers.
+    pub fn api<S>(mut self, api: S) -> Self
+    where
+        S: Service<Request<Body>, Response = Response<Body>, Error = Infallible> + Clone + Send + Sync + 'static,
+        S::Future: Send + 'static,
+    {
+        self.api = Some(BoxCloneSyncService::new(api));
+        self
+    }
+
+    /// An API on another server, for same-origin paths (`http://127.0.0.1:4000`): where the
+    /// page's own origin proxies `/api` to. Used when no [`Embed::api`] is set.
+    #[cfg(feature = "upstream")]
+    pub fn upstream(mut self, base: impl Into<String>) -> Self {
+        self.upstream = Some(base.into().trim_end_matches('/').to_string());
+        self
+    }
+
+    /// An origin whose absolute URLs are fetched (`https://api.example.com`), without the page's
+    /// headers: sinter's own requests to another origin carry no cookies either.
+    #[cfg(feature = "upstream")]
+    pub fn allow_origin(mut self, origin: impl Into<String>) -> Self {
+        self.origins.push(origin.into().trim_end_matches('/').to_string());
+        self
+    }
+
+    /// Your function for a resource's data: the JSON body the API would return (the whole body,
+    /// as the browser would get it), or None to leave it to the browser. `"articles"` applies to
+    /// every page; `"profile.html:articles"` to one.
+    pub fn resolve<F, Fut>(mut self, resource: impl Into<String>, f: F) -> Self
+    where
+        F: Fn(SlotRequest) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Option<Bytes>> + Send + 'static,
+    {
+        self.resolvers.insert(resource.into(), Arc::new(move |s| f(s).boxed()));
+        self
+    }
+
+    /// A resource the server does not fill: the browser requests it (for data only the browser
+    /// can request, such as the user's with a token from JavaScript). Names as for [`Embed::resolve`].
+    pub fn skip(mut self, resource: impl Into<String>) -> Self {
+        self.skips.insert(resource.into());
+        self
+    }
+
+    /// The page request's headers passed on to same-origin requests (default: `Cookie`,
+    /// `Authorization`, `Accept-Language`).
+    pub fn forward(mut self, headers: impl IntoIterator<Item = HeaderName>) -> Self {
+        self.forward = headers.into_iter().collect();
+        self
+    }
+
+    /// How long a page waits for its data, all placeholders together (default 500 ms).
+    pub fn timeout(mut self, t: Duration) -> Self {
+        self.timeout = t;
+        self
+    }
+
+    /// The largest response put into a page (default 2 MiB).
+    pub fn max_bytes(mut self, n: usize) -> Self {
+        self.max_bytes = n;
+        self
+    }
+
+    /// Whether the page is streamed (default): the head up to the first placeholder goes out at
+    /// once, so the browser loads stylesheets and scripts while the data is fetched. Without it,
+    /// the page is sent in one piece once the data is in.
+    pub fn stream(mut self, on: bool) -> Self {
+        self.stream = on;
+        self
+    }
+
+    /// The pages' `Cache-Control` (default `private, no-cache`: the data may be the user's).
+    pub fn cache_control(mut self, v: HeaderValue) -> Self {
+        self.cache_control = v;
+        self
+    }
+
+    /// Reads the build and checks that every placeholder has a source: a resolver, a skip, or a
+    /// request the build describes and this configuration can make (a same-origin path needs
+    /// [`Embed::api`] or `Embed::upstream`, an absolute URL its origin allowed). Every problem
+    /// is in the error, one line each.
+    pub fn build(self) -> Result<EmbedLayer, Error> {
+        let pages = manifest::load(&self.dir, self.compiled)?;
+        let mut problems = Vec::new();
+        let names: HashSet<String> =
+            pages.iter().flat_map(|p| p.slots.iter().flat_map(|s| [s.resource.clone(), format!("{}:{}", p.file, s.resource)])).collect();
+        for n in self.resolvers.keys().chain(&self.skips) {
+            if !names.contains(n) {
+                problems.push(format!("`{n}`: no page of the build has a placeholder for it"));
+            }
+        }
+        for p in &pages {
+            for s in &p.slots {
+                let named = |m: &dyn Fn(&str) -> bool| m(&format!("{}:{}", p.file, s.resource)) || m(&s.resource);
+                if named(&|k| self.resolvers.contains_key(k) || self.skips.contains(k)) {
+                    continue;
+                }
+                if let Err(why) = self.source(s) {
+                    problems.push(format!(
+                        "{}: `{}`: {why}; add .resolve(\"{}\", …) or .skip(\"{}\")",
+                        p.file, s.resource, s.resource, s.resource
+                    ));
+                }
+            }
+        }
+        if !problems.is_empty() {
+            return Err(Error(format!("{} placeholder(s) have no source:\n  {}", problems.len(), problems.join("\n  "))));
+        }
+        Ok(EmbedLayer(Arc::new(Inner {
+            pages,
+            resolvers: self.resolvers,
+            skips: self.skips,
+            api: self.api,
+            #[cfg(feature = "upstream")]
+            upstream: self.upstream,
+            #[cfg(feature = "upstream")]
+            origins: self.origins,
+            #[cfg(feature = "upstream")]
+            http: reqwest::Client::new(),
+            forward: self.forward,
+            timeout: self.timeout,
+            max_bytes: self.max_bytes,
+            stream: self.stream,
+            cache_control: self.cache_control,
+        })))
+    }
+
+    /// Whether this configuration can make the request the build describes for a placeholder.
+    fn source(&self, s: &SlotDesc) -> Result<(), String> {
+        if !s.described() {
+            return Err(if s.src.is_none() {
+                "the build could not describe its request (its `src` or `start-page` calls a helper, or reads something other than `$url`)"
+                    .into()
+            } else {
+                "its `when` is a condition only the browser can evaluate".into()
+            });
+        }
+        let first = match s.src.as_deref().and_then(|t| t.first()) {
+            Some(manifest::Part::Lit(l)) => l.as_str(),
+            _ => "",
+        };
+        if first.starts_with('/') && !first.starts_with("//") {
+            #[cfg(feature = "upstream")]
+            if self.upstream.is_some() {
+                return Ok(());
+            }
+            return if self.api.is_some() {
+                Ok(())
+            } else {
+                Err(format!("`{first}…` is a path of this origin, and there is no .api(router) to call"))
+            };
+        }
+        #[cfg(feature = "upstream")]
+        if self.origins.iter().any(|o| first.strip_prefix(o.as_str()).is_some_and(|rest| rest.starts_with(['/', '?']) || rest.is_empty())) {
+            return Ok(());
+        }
+        Err(if cfg!(feature = "upstream") {
+            format!("`{first}…` is on an origin not allowed with .allow_origin(…)")
+        } else {
+            format!("`{first}…` is on another origin (the `upstream` feature fetches those)")
+        })
+    }
+}
+
 struct Inner {
     pages: Vec<Page>,
     resolvers: HashMap<String, Resolver>,
+    skips: HashSet<String>,
     api: Option<Api>,
     #[cfg(feature = "upstream")]
     upstream: Option<String>,
@@ -100,124 +337,27 @@ struct Inner {
     cache_control: HeaderValue,
 }
 
-/// The layer: built from a sinter build's output directory, configured with where the data comes
-/// from, then added to a router with `.layer(embed)`.
+/// The layer [`Embed::build`] gives: add it to a router with `.layer(…)`.
 #[derive(Clone)]
-pub struct Embed(Arc<Inner>);
+pub struct EmbedLayer(Arc<Inner>);
 
-impl Embed {
-    /// Reads `sinter-embed.json` and the pages it lists from a build's output directory.
-    pub fn from_dir(dir: impl AsRef<Path>) -> Result<Self, Error> {
-        Ok(Self(Arc::new(Inner {
-            pages: manifest::load(dir.as_ref())?,
-            resolvers: HashMap::new(),
-            api: None,
-            #[cfg(feature = "upstream")]
-            upstream: None,
-            #[cfg(feature = "upstream")]
-            origins: Vec::new(),
-            #[cfg(feature = "upstream")]
-            http: reqwest::Client::new(),
-            forward: vec![header::COOKIE, header::AUTHORIZATION, header::ACCEPT_LANGUAGE],
-            timeout: Duration::from_millis(500),
-            max_bytes: 2 << 20,
-            stream: true,
-            cache_control: HeaderValue::from_static("private, no-cache"),
-        })))
-    }
-
-    fn with(mut self, f: impl FnOnce(&mut Inner)) -> Self {
-        f(Arc::get_mut(&mut self.0).expect("configure the Embed layer before cloning it"));
-        self
-    }
-
-    /// The app's own API, for same-origin `src` paths: called in-process (no socket, no HTTP
-    /// parsing), with the page request's [forwarded](Embed::forward) headers.
-    pub fn api<S>(self, api: S) -> Self
-    where
-        S: Service<Request<Body>, Response = Response<Body>, Error = Infallible> + Clone + Send + Sync + 'static,
-        S::Future: Send + 'static,
-    {
-        self.with(|i| i.api = Some(BoxCloneSyncService::new(api)))
-    }
-
-    /// An API on another server, for same-origin `src` paths (`http://127.0.0.1:4000`): where the
-    /// page's own origin proxies `/api` to. Used when no [`Embed::api`] is set.
-    #[cfg(feature = "upstream")]
-    pub fn upstream(self, base: impl Into<String>) -> Self {
-        let b = base.into();
-        self.with(|i| i.upstream = Some(b.trim_end_matches('/').to_string()))
-    }
-
-    /// An origin whose absolute `src` URLs are fetched (`https://api.example.com`), without the
-    /// page's headers: the browser would not send this origin the page's cookies either.
-    #[cfg(feature = "upstream")]
-    pub fn allow_origin(self, origin: impl Into<String>) -> Self {
-        let o = origin.into();
-        self.with(|i| i.origins.push(o.trim_end_matches('/').to_string()))
-    }
-
-    /// Your function for a resource's data: the JSON text of the response the browser would get
-    /// (the whole body, `items` and all), or None to leave the placeholder empty.
-    pub fn resolve<F, Fut>(self, resource: impl Into<String>, f: F) -> Self
-    where
-        F: Fn(SlotRequest) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Option<Bytes>> + Send + 'static,
-    {
-        let r: Resolver = Arc::new(move |s| f(s).boxed());
-        let name = resource.into();
-        self.with(|i| {
-            i.resolvers.insert(name, r);
-        })
-    }
-
-    /// The page request's headers passed on to same-origin requests (default: `Cookie`,
-    /// `Authorization`, `Accept-Language`).
-    pub fn forward(self, headers: impl IntoIterator<Item = HeaderName>) -> Self {
-        let h = headers.into_iter().collect();
-        self.with(|i| i.forward = h)
-    }
-
-    /// How long the page waits for its data, all placeholders together (default 500 ms); one
-    /// not filled by then stays empty, and the browser requests it.
-    pub fn timeout(self, t: Duration) -> Self {
-        self.with(|i| i.timeout = t)
-    }
-
-    /// The largest response put into a page (default 2 MiB); a larger one stays with the browser.
-    pub fn max_bytes(self, n: usize) -> Self {
-        self.with(|i| i.max_bytes = n)
-    }
-
-    /// Whether the page is streamed (default): the head up to the first placeholder goes out at
-    /// once, so the browser loads stylesheets and scripts while the data is fetched. Without it,
-    /// the page is sent whole once the data is in.
-    pub fn stream(self, on: bool) -> Self {
-        self.with(|i| i.stream = on)
-    }
-
-    /// The pages' `Cache-Control` (default `private, no-cache`: the data may be the user's, and
-    /// it is current only when sent).
-    pub fn cache_control(self, v: HeaderValue) -> Self {
-        self.with(|i| i.cache_control = v)
-    }
-
+impl EmbedLayer {
     fn page(&self, path: &str) -> Option<usize> {
         self.0.pages.iter().position(|p| p.paths.iter().any(|pat| url::matches(pat, path)))
     }
 }
 
-impl<S> Layer<S> for Embed {
+impl<S> Layer<S> for EmbedLayer {
     type Service = EmbedService<S>;
     fn layer(&self, inner: S) -> Self::Service {
         EmbedService { embed: self.clone(), inner }
     }
 }
 
-/// The service [`Embed`] wraps around the inner one.
+/// The service [`EmbedLayer`] wraps around the inner one.
 #[derive(Clone)]
 pub struct EmbedService<S> {
-    embed: Embed,
+    embed: EmbedLayer,
     inner: S,
 }
 
@@ -252,7 +392,22 @@ where
     }
 }
 
-fn render(embed: Embed, i: usize, req: http::request::Parts, head: bool) -> Response<Body> {
+/// The request the build describes for a placeholder at this URL, if any and if its `when` holds.
+fn described_url(s: &SlotDesc, params: &HashMap<String, String>) -> Option<String> {
+    if let Some(When::Cond(c)) = &s.when {
+        if !c.holds(params) {
+            return None;
+        }
+    }
+    let url = expand(s.src.as_deref()?, params)?;
+    let query = match &s.start {
+        Some(start) => start.params(&s.query, params),
+        None => std::borrow::Cow::Borrowed(s.query.as_slice()),
+    };
+    Some(with_params(&url, &query))
+}
+
+fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bool) -> Response<Body> {
     let res = Response::builder()
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
         .header(header::CACHE_CONTROL, embed.0.cache_control.clone());
@@ -268,9 +423,9 @@ fn render(embed: Embed, i: usize, req: http::request::Parts, head: bool) -> Resp
         .iter()
         .map(|s| {
             let r = SlotRequest {
+                page: page.file.clone(),
                 resource: s.resource.clone(),
-                url: s.src.as_deref().and_then(|t| expand(t, &params)).map(|u| with_params(&u, &s.query)),
-                conditional: s.when,
+                url: described_url(s, &params),
                 params: params.clone(),
                 headers: headers.clone(),
             };
@@ -310,12 +465,13 @@ fn render(embed: Embed, i: usize, req: http::request::Parts, head: bool) -> Resp
 }
 
 /// The data for one placeholder, or None to leave it to the browser.
-async fn fill(e: &Embed, r: SlotRequest) -> Option<Bytes> {
+async fn fill(e: &EmbedLayer, r: SlotRequest) -> Option<Bytes> {
     let i = &e.0;
-    if let Some(f) = i.resolvers.get(&r.resource) {
+    let page_key = format!("{}:{}", r.page, r.resource);
+    if let Some(f) = i.resolvers.get(&page_key).or_else(|| i.resolvers.get(&r.resource)) {
         return f(r).await;
     }
-    if r.conditional {
+    if i.skips.contains(&page_key) || i.skips.contains(&r.resource) {
         return None;
     }
     let url = r.url.as_deref()?;
@@ -378,8 +534,8 @@ fn is_json(h: &HeaderMap) -> bool {
     })
 }
 
-/// `<` as `\u003c`, so the data cannot close its `<script>` (or open a comment): the same JSON,
-/// since in valid JSON `<` is only ever inside a string.
+/// Every `<` as a JSON unicode escape, so the data cannot close its `<script>` (or open a
+/// comment): the same JSON, since in valid JSON `<` is only ever inside a string.
 pub fn escape(json: Bytes) -> Bytes {
     if !json.contains(&b'<') {
         return json;

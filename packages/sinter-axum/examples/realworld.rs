@@ -1,7 +1,8 @@
-// RealWorld's build (examples/realworld, with `data-sn-data` placeholders) served with its data in
-// the page. The article page and the tags are described by the build: their API is on another
-// origin, allowed here. The list's `src` calls a helper (`offset($url.page, 10)`) and has a `when`,
-// so a resolver makes its request: what the browser would ask for, signed out.
+// RealWorld's build (examples/realworld, built with SINTER_EMBED=1) served with its data in the
+// page. Every placeholder but one is described by the build, on an API origin allowed here. The
+// profile's article list picks its query parameter with a ternary (`author` or `favorited`), which
+// the build cannot describe: a resolver makes that request. RealWorld keeps its token in
+// localStorage, so this server embeds the signed-out view (`favorited` false): it is for measuring.
 //
 //   cargo run --release --features upstream --example realworld -- <dist> [port] [api origin]
 use axum::{
@@ -10,7 +11,7 @@ use axum::{
     middleware::{self, Next},
     response::Response,
 };
-use sinter_axum::Embed;
+use sinter_axum::{Embed, to_page};
 use std::time::Duration;
 use tower_http::{compression::CompressionLayer, services::ServeDir};
 
@@ -20,28 +21,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = args.next().ok_or("usage: realworld <dist> [port] [api origin]")?;
     let port = args.next().unwrap_or_else(|| "4370".into());
     let api = args.next().unwrap_or_else(|| "http://localhost:4400".into());
-    let http = reqwest::Client::new();
-    let base = api.clone();
-    let embed = Embed::from_dir(&dir)?.allow_origin(api.clone()).timeout(Duration::from_millis(800)).resolve("articles", move |r| {
-        let (http, base) = (http.clone(), base.clone());
-        async move {
-            // `when="$url.feed != 'following'"`: the user's own feed is the browser's (its token is in localStorage)
-            if r.params.get("feed").is_some_and(|f| f == "following") {
-                return None;
+    let (http, base) = (reqwest::Client::new(), api.clone());
+    let embed = Embed::from_dir(&dir)
+        .allow_origin(api.clone())
+        .timeout(Duration::from_millis(800))
+        // ?author=… on the profile's own tab, ?favorited=… on its favorites
+        .resolve("profile.html:articles", move |r| {
+            let (http, base) = (http.clone(), base.clone());
+            async move {
+                let user = r.params.get("username")?;
+                let by = if r.params.get("tab").is_some_and(|t| t == "favorites") { "favorited" } else { "author" };
+                let offset = (to_page(r.params.get("page").map(String::as_str)) - 1) * 10;
+                let mut url = reqwest::Url::parse(&format!("{base}/api/articles")).ok()?;
+                url.query_pairs_mut().append_pair(by, user).append_pair("offset", &offset.to_string()).append_pair("limit", "10");
+                let res = http.get(url).send().await.ok()?;
+                if !res.status().is_success() {
+                    return None;
+                }
+                res.bytes().await.ok()
             }
-            let page: u64 = r.params.get("page").and_then(|p| p.parse().ok()).unwrap_or(1).max(1);
-            let mut url = reqwest::Url::parse(&format!("{base}/api/articles")).ok()?;
-            url.query_pairs_mut()
-                .extend_pairs(r.params.get("tag").map(|t| ("tag", t.as_str())))
-                .append_pair("limit", "10")
-                .append_pair("offset", &((page - 1) * 10).to_string());
-            let res = http.get(url).send().await.ok()?;
-            if !res.status().is_success() {
-                return None;
-            }
-            res.bytes().await.ok()
-        }
-    });
+        })
+        .build()?;
     let app =
         Router::new().fallback_service(ServeDir::new(&dir)).layer(middleware::from_fn(cache)).layer(embed).layer(CompressionLayer::new());
     let l = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await?;

@@ -25,9 +25,6 @@ export function errors(error) {
 /** Page numbers 1…n for `count` items, `size` per page. */
 export const pages = (count, size) => Array.from({ length: Math.ceil((count || 0) / size) }, (_, i) => i + 1);
 
-/** Offset of a 1-based page number from `$url.page`. */
-export const offset = (page, size) => (Math.max(1, Number.parseInt(page, 10) || 1) - 1) * size;
-
 /** The tag list with `tag` added (trimmed), unless it is empty or already there. */
 export function withTag(list, tag) {
   const t = tag.trim();

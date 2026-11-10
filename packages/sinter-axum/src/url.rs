@@ -139,6 +139,23 @@ pub fn with_params(url: &str, params: &[(String, String)]) -> String {
     out
 }
 
+/// What `start-page` gives as a page, as the runtime's `toPage`: the whole number `parseInt` reads at
+/// the start of the value (`"3"`, `" 3x"`), else, or below 1, page 1.
+pub fn to_page(v: Option<&str>) -> u64 {
+    let s = v.unwrap_or("").trim_start();
+    let s = s.strip_prefix('+').unwrap_or(s);
+    if s.starts_with('-') {
+        return 1;
+    }
+    let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+    match digits.parse::<u64>() {
+        Ok(0) => 1,
+        Ok(n) => n,
+        Err(_) if digits.is_empty() => 1,
+        Err(_) => u64::MAX,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,6 +198,23 @@ mod tests {
         assert_eq!(expand(&t, &p(&[("slug", "..")])), None);
         assert_eq!(expand(&t, &p(&[])).unwrap(), "/api/articles//comments");
         assert_eq!(encode_segment("a'b(c)*!~"), "a'b(c)*!~");
+    }
+
+    #[test]
+    fn to_page_as_parse_int() {
+        for (v, n) in [
+            (Some("3"), 3),
+            (Some(" 3x"), 3),
+            (Some("+2"), 2),
+            (Some("0"), 1),
+            (Some("-4"), 1),
+            (Some("abc"), 1),
+            (Some(""), 1),
+            (None, 1),
+            (Some("2.9"), 2),
+        ] {
+            assert_eq!(to_page(v), n, "{v:?}");
+        }
     }
 
     #[test]
