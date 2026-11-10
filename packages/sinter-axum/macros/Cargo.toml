@@ -6,6 +6,9 @@ rust-version = "1.85"
 description = "embed!: checks a sinter build's data placeholders against a sinter-axum configuration at compile time."
 license = "MIT"
 repository = "https://github.com/tiaforge/sinter"
+homepage = "https://github.com/tiaforge/sinter/tree/main/packages/sinter-axum"
+keywords = ["sinter", "axum", "macro", "html"]
+categories = ["web-programming::http-server"]
 
 [lib]
 proc-macro = true

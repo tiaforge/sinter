@@ -1,12 +1,12 @@
 # sinter-axum
 
-Serve a [sinter](../../README.md) app from axum with its API data already in the page. The first frame shows the data, the browser makes no API request on load, and nothing is rendered on the server.
+Serve a [sinter](https://github.com/tiaforge/sinter#readme) app from axum with its API data already in the page. The first frame shows the data, the browser makes no API request on load, and nothing is rendered on the server.
 
 You add one layer. For each page, it calls your API and writes the JSON into the HTML as it's sent.
 
 ## Quick start
 
-**1. Build the frontend for a server.** In its Vite config, `sinter({ embed: true })`. The build then leaves an empty data slot in each page for every resource whose request the page's URL decides, and lists them in `dist/sinter-embed.json`. The browser no longer requests those itself: their data comes with the page.
+**1. Build the frontend for a server.** In its Vite config, `sinter({ embed: true })` (needs `@tiaforge-ui/sinter` 0.13 or newer). The build then leaves an empty data slot in each page for every resource whose request the page's URL decides, and lists them in `dist/sinter-embed.json`. The browser no longer requests those itself: their data comes with the page.
 
 **2. Add the crate.**
 
@@ -170,7 +170,7 @@ The body goes in exactly as the API returned it (`items="articles"` picks the li
 
 ## Measured
 
-Measured on RealWorld, slow 4G, cold Chromium; details in [docs/first-paint-comparison.md](../../docs/first-paint-comparison.md).
+Measured on RealWorld, slow 4G, cold Chromium; details in [docs/first-paint-comparison.md](https://github.com/tiaforge/sinter/blob/main/docs/first-paint-comparison.md).
 
 - **Home page LCP:** 960 → 576 ms with an API that answers at once, 1,128 → 572 ms when it takes 300 ms.
 - **Throughput per core:** about 2,000 home pages/s, against 57–67 for Qwik City SSR.
