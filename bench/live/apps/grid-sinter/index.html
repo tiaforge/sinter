@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>sinter grid</title>
+  <link rel="icon" href="data:,">
+</head>
+<!-- the rows are one state value; each tick replaces the changed rows (helpers: src/sinter.helpers.js) -->
+<body data-sn-state="{ g: start(), at: 0 }">
+<sn-sync src="/events?fmt=grid&n={size()}&k={changes()}">
+  <sn-event name="tick" then="g = merge(g, rows); at = seq"></sn-event>
+</sn-sync>
+<main>
+  <header>seq <span id="seq" data-sn-text="at"></span></header>
+  <div class="grid">
+    <template data-sn-for="r in view(g)" data-sn-key="r.id">
+      <div class="row"><span data-sn-text="r.s"></span><span data-sn-text="fmtPrice(r.p)"></span><span data-sn-class="{up: r.c > 0, down: r.c < 0}" data-sn-text="fmtPct(r.c)"></span><span data-sn-text="r.v"></span></div>
+    </template>
+  </div>
+</main>
+</body>
+</html>

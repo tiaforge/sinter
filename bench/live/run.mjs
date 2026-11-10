@@ -6,6 +6,7 @@
 //   node build.mjs && CHROME=/path/to/chrome node run.mjs
 //   ONLY also takes datastar-elements (Datastar's HTML morph mode, before signals mode replaced it here)
 //   RATES=50,100,200,500,1000,2000,5000 STEP=3000 WARM=1000 CPU=1 ONLY=sinter,solid CHROME_ARGS=--no-sandbox
+//   The grid (apps/grid-*): ONLY=grid-sinter,grid-solid,… QUERY='n=10000&k=100&sort=1' (shared/grid.js)
 //   QUICK=1: for iterating, ~20 s a variant: both CPU settings, 3 rates each, 1 s steps after 300 ms
 //   (CPU=1,4 also runs several settings in one invocation)
 //
@@ -27,6 +28,7 @@ const QUICK = !!process.env.QUICK;
 const STEP = +env('STEP', QUICK ? 1000 : 3000), WARM = +env('WARM', QUICK ? 300 : 1000);
 const CPUS = env('CPU', QUICK ? '1,4' : '1').split(',').map(Number);
 const ratesFor = (cpu) => (process.env.RATES ? RATES : QUICK ? (cpu > 1 ? [200, 500, 1000] : [1000, 2000, 5000]) : RATES);
+const QUERY = env('QUERY', '');
 const VARIANTS = env('ONLY', 'sinter,solid,svelte,vue,datastar,htmx').split(',');
 const idle = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -46,7 +48,7 @@ try {
     names.push(v);
     await control(0);
     const rows = (results[v] = []);
-    await withPage(chrome, `${base}/${variant}/`, async (send) => {
+    await withPage(chrome, `${base}/${variant}/${QUERY ? '?' + QUERY : ''}`, async (send) => {
       await send('Performance.enable', { timeDomain: 'timeTicks' });
       await idle(QUICK ? 200 : 500);
       await send('HeapProfiler.collectGarbage');
@@ -59,7 +61,7 @@ try {
         await idle(STEP);
         const got = await evaluate(send, '__live.take()');
         const m1 = await metricsOf(send), wall = (performance.now() - t0) / 1000;
-        const sched = (await control(0)).streams.find((s) => s.fmt === (['datastar', 'datastar-elements', 'htmx'].includes(variant) ? variant : 'json'));
+        const sched = (await control(0)).streams.find((s) => s.fmt === (['datastar', 'datastar-elements', 'htmx'].includes(variant) ? variant : variant.startsWith('grid-') ? 'grid' : 'json'));
         // when the server had each tick due
         const due = (seq) => { const g = sched.segments.findLast(([first]) => first <= seq); return g[1] + (seq - g[0]) * g[2]; };
         const dom = got.samples.map(([seq, at]) => at - due(seq));
@@ -93,7 +95,7 @@ try {
 }
 
 const f = (x, n = 0) => (Number.isFinite(x) ? x.toFixed(n) : '–');
-console.log(`\nCPU ${CPUS.map((c) => c + 'x').join(', ')}, ${STEP} ms per step after ${WARM} ms warm-up. Latencies in ms from when the server had the tick due.\n`);
+console.log(`\n${QUERY ? QUERY + ', ' : ''}CPU ${CPUS.map((c) => c + 'x').join(', ')}, ${STEP} ms per step after ${WARM} ms warm-up. Latencies in ms from when the server had the tick due.\n`);
 // the highest rate each variant kept up with: drained, and the frame p95 under 100 ms
 console.log('| variant | keeps up to (ticks/s) | heap after GC, start → end (MB) |\n| --- | ---: | ---: |');
 for (const v of names) {
