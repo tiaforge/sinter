@@ -189,3 +189,21 @@ test('early attributes: the URL check only where the expression does not fix the
   expect(early).toContain('set, "title"');
   expect(early).toContain('attr, "src"');
 });
+
+test('prototype baseMessages: a text binding that calls m is written in the base language and marked; it stays the browser\'s', () => {
+  const html = page(`<div data-sn-state="{ who: 'Ada' }"><h1 data-sn-text="m.title()"></h1><p data-sn-text="m.hello({ name: who })"></p><a data-sn-attr="{title: m.title()}">x</a><p data-sn-text="m.gone()"></p></div>`);
+  const opts: CompileOptions = {
+    file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', prerender: true, early: { module: null },
+    helpers: { module: null, names: [], namespaces: { m: { module: '@tiaforge-ui/sinter/messages', members: ['title', 'hello', 'gone'] } } },
+    baseMessages: { title: 'People', hello: 'Hello {name}' },
+  };
+  const out = compile(html, opts);
+  const body = out.html.slice(out.html.indexOf('<body'));
+  expect(body).toContain('data-sn-m="">People</h1>');
+  expect(body).toContain('data-sn-m="">Hello Ada</p>');
+  // attributes and unknown keys: left to the browser
+  expect(body).not.toContain('title="People"');
+  expect(body).toMatch(/<p data-sn="\d+"><\/p><\/div>/);
+  // still rendered early, in the visitor's language
+  expect(out.early).toContain('m$title');
+});

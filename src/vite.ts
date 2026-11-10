@@ -375,6 +375,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
+      ...(observing && !dev && p.messages ? { baseMessages: p.messages.dicts[p.messages.base] ?? {} } : {}),
       ...(options.origins?.length ? { origins: options.origins } : {}),
       ...(firstPaint && !dev ? { splitEarly: true } : {}),
     });

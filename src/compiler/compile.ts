@@ -63,6 +63,12 @@ export interface CompileOptions {
   /** write bindings whose value is a build-time constant (literal state, no helpers) into the HTML */
   prerender?: boolean;
   /**
+   * prototype (`firstPaint: 'observe'`): the base language's messages. With `prerender`, a text binding
+   * that calls `m` is written into the HTML in the base language and marked `data-sn-m`; it is still
+   * rendered in the browser (early file, page module), which writes the visitor's language
+   */
+  baseMessages?: Record<string, string>;
+  /**
    * the early chunk: a second, render-blocking page entry that runs the app's early module and
    * the bindings outside templates whose inputs exist before any data has loaded. `module`: the
    * app's early module (`/src/sinter.early.ts`) or null; `src`: where the page loads the early
@@ -1976,6 +1982,18 @@ class Compiler {
     const params = new Map<string, unknown>([['$k', $k]]);
     for (const h of ['Date', 'Intl', 'Math', 'date', 'time', 'datetime', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, stub);
+    // the base language's text, for a text binding: the binding is marked and stays the browser's
+    const base = this.opts.baseMessages;
+    let usedMessage = false;
+    const msgNs = base ? Object.entries(this.opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages') : undefined;
+    if (base && msgNs) for (const m of msgNs[1].members) {
+      params.set(`${msgNs[0]}$${m}`, (p?: Record<string, unknown>) => {
+        const t = base[m];
+        if (typeof t !== 'string') throw NOT;
+        usedMessage = true;
+        return p ? t.replace(/\{(\w+)\}/g, (x, n) => (n in p ? String(p[n]) : x)) : t;
+      });
+    }
     const used = [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!)])];
     let table: Array<($: unknown) => unknown>;
     try {
@@ -1988,6 +2006,8 @@ class Compiler {
     const isPersisted = (p: string) => p !== own && this.persisted.has(p);
     const states = new Map<number, unknown>();
     const known = (deps: string[]) => deps.every((d) => {
+      // a message re-renders on `$locale`: its base text is what is written
+      if (d === '$locale' && msgNs) return true;
       const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
       if (!m || !states.has(Number(m[1]))) return false;
       return m[2] !== undefined ? !isPersisted(`$s${m[1]}.${m[2]}`) : ![...this.persisted].some((p) => p !== own && p.startsWith(`$s${m[1]}.`));
@@ -2016,10 +2036,13 @@ class Compiler {
     const schemes = schemesOf([]);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
+      usedMessage = false;
       const v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
+      if (usedMessage && c.b.k !== 'text') continue;
       const w = v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes);
       if (w === FAIL) continue;
       writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
+      if (usedMessage) { setAttr(c.el, 'data-sn-m', ''); continue; }
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) this.painted.add(c.b);
     }

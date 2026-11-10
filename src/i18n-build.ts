@@ -143,5 +143,9 @@ export const I18N_PICKER = `/* sinter i18n */${RENDER_FALLBACK}(function(){try{v
 /**
  * Prototype (`firstPaint: 'observe'`): the picker without the render-blocking fallback, adding the
  * language file as a plain module script: it sets `<html lang>` and starts the load, nothing waits.
+ * The HTML has the base language's text (`data-sn-m`, see `baseMessages`): for another language
+ * those elements keep their space but stay invisible until the page module has rendered them
+ * (`use(app)` in the messages module), so no visitor sees one language replaced by another.
  */
-export const I18N_PICKER_OBSERVE = I18N_PICKER.replace(RENDER_FALLBACK, '').replace('t.setAttribute("blocking","render");', '');
+export const I18N_PICKER_OBSERVE = I18N_PICKER.replace(RENDER_FALLBACK, '').replace('t.setAttribute("blocking","render");', '')
+  .replace('document.documentElement.lang=g.locale;', 'document.documentElement.lang=g.locale;if(g.locale!=c.base)try{var h=new CSSStyleSheet;h.replaceSync("[data-sn-m]{visibility:hidden}");document.adoptedStyleSheets=document.adoptedStyleSheets.concat(h);g.hide=h}catch(x){}');
