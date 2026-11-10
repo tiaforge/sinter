@@ -1,7 +1,7 @@
 # Proposal: components
 
-Status: draft. The design questions are settled (see [Decisions](#decisions)); nothing here is
-implemented.
+Status: draft. The design questions are settled except one (see [Decisions](#decisions)); nothing
+here is implemented.
 
 This reverses a non-goal (`spec.md`: "Routing, a component system, a virtual DOM, transitions";
 "components remain a non-goal"). Once sinter has components, they will be compared with Svelte, Vue
@@ -344,7 +344,7 @@ that hold the same entity follow from write-through and server events.**
 | --- | --- |
 | `patch(a, { … })` | change the item in the resource it came from; everything that reads that resource shows the change |
 | `remove(m)` | take it out of the resource it came from (archived, moved, deleted), wherever that resource is shown; a single resource becomes `null` |
-| `upsert('contacts', x)` | add it to this list (keeps its name: a new item has no source) |
+| `upsert('contacts', x)`, `upsert(c.replies, x)` | add it to this list: a resource by name, or a nested list that has a source (a new item has none of its own) |
 | `refresh('name')`, `page('name', …)` | unchanged: they act on a resource, not an item |
 
 - **Where the item came from** is resolved the way write-through resolves what an action is about:
@@ -356,6 +356,10 @@ that hold the same entity follow from write-through and server events.**
     `sel` a row of `messages`;
   - in a component, a prop, which keeps its provenance from the caller. An event detail that is a
     prop keeps it too, so the caller's `data-sn-on-select="remove($event.detail)"` works.
+  - a nested item: `r in comment.replies`, at any depth in a recursive component (see
+    [Nested items](#nested-items-along-their-path)).
+  - a row that came through a helper, `m in visible(messages, q)`: **not settled yet**, see
+    [Still open](#still-open).
 - **An item with no source is a build error** that names the right tool:
 
   | Item | Instead |
@@ -458,14 +462,101 @@ Missing any of these loses the comparison regardless of the hallmark:
 - **Peak re-render speed.** Stay close to the leaders in `bench/js-framework-benchmark`. The case
   rests on first paint and data correctness.
 
+#### Nested items: along their path
+
+In a tree, an item is not a row of a resource but nested in one: `comments[3].replies[1].replies[0]`.
+The same rule applies, along the path.
+
+- **`patch(r, …)` and `remove(r)`** act on `r` where it came from inside its top-level row. The
+  runtime knows the path, because it created each level from its parent. Items are immutable, so
+  it replaces the objects along the path, and every view of that row updates.
+- **Nested loops need keys** (`data-sn-key`, or the schema's key), so that the path still finds the
+  item after the list changed: a reply added above it moves its index, not its key.
+- **`upsert` takes the list the item joins:** `upsert(c.replies, $result)` adds a reply to a reply,
+  optimistically. `c.replies` has a source, so the compiler knows where it is; a resource name
+  stays the form for top-level lists.
+- **Write-through** already patches "a nested entity at its path" when the URL named it, at a fixed
+  depth today. It follows the same paths at any depth.
+
+## Recursion and choosing a component at runtime
+
+Expanding at build time cannot handle a component that uses itself, or one chosen by data. Both are
+handled by one mechanism: **a shared definition, instantiated at runtime, as `data-sn-for` already
+instantiates its template per item.**
+
+### Shared definitions
+
+- The compiler compiles the component's body **once**, as a definition.
+- In the built HTML, the definition is a `<template>` in the `<head>`, so the parser has it before
+  the body.
+- The early script clones it per item while the parser runs, as `each()` clones a row template
+  today (`src/early.ts`). A tree or a block list in embedded data is in the first frame **at any
+  depth**, and the page module adopts it as it adopts rows.
+- Uses outside templates are still expanded in place, as page markup, with build-time constants
+  and everything else. Only the uses described below go through a definition.
+
+### Recursion
+
+A component uses itself by its own tag; there is no special element (Svelte 5 dropped
+`<svelte:self>` for the same form):
+
+```html
+<!-- src/components/comment-thread.html -->
+<template data-sn-component="{ comment: Comment }">
+  <li>
+    <p data-sn-text="comment.body"></p>
+    <ul>
+      <template data-sn-for="r in comment.replies" data-sn-key="r.id">
+        <comment-thread data-sn-prop="{ comment: r }"></comment-thread>
+      </template>
+    </ul>
+  </li>
+</template>
+```
+
+- **Every cycle must pass through a `data-sn-for` or `data-sn-if` template**, because only data
+  ends it. The inner use becomes a reference to the shared definition. A cycle that does not pass
+  through a template would recurse forever: a build error showing the cycle. The same rule covers
+  mutual recursion (A uses B, B uses A).
+- Nested items are changed along their path: [Nested items](#nested-items-along-their-path).
+
+### Choosing a component at runtime
+
+A list of mixed blocks (a CMS page, dashboard widgets, a form builder) picks a component per item:
+
+```html
+<template data-sn-for="b in blocks" data-sn-key="b.id">
+  <sn-component use="`${b.type}-block`" data-sn-prop="{ block: b }"></sn-component>
+</template>
+```
+
+- **The compiler needs every candidate at build time.** The generated `src/sinter.components.d.ts`
+  has a `ComponentName` type, the union of every component in the app (a component's name is its
+  file name). `use` must have a type that fits it, and **its members are the candidates**.
+- Three ways to write the mapping, one check:
+
+  | Form | Example | For |
+  | --- | --- | --- |
+  | Convention, from the data | ``use="`${b.type}-block`"`` | names that follow the data; TypeScript types a template string contextually typed by a literal union as the template-literal type (since 4.3), so the enum `'hero' \| 'text' \| 'image'` gives the candidates |
+  | Map in the markup | `use="{ hero: 'hero-block', text: 'rich-text' }[b.type]"` | names that do not follow a convention; untyped pages |
+  | Helper | `use="blockComponent(b)"` | logic, such as a fallback; the helper's return type, a literal union, gives the candidates |
+
+  `b.type + '-block'` is typed `string` by TypeScript, so it fails the check; the error points to
+  the template-string form.
+- **A missing component is a build error** at the use: "`'image-block'` is not a component; create
+  `src/components/image-block.html`". A new block type in the API spec breaks the build until its
+  component exists.
+- **Props are checked per candidate, narrowed.** Blocks are usually a discriminated union
+  (`Block = HeroBlock | TextBlock | …`). For the convention and the map, the compiler knows which
+  candidate belongs to which `b.type`, so it narrows `b` per candidate: `hero-block` can declare
+  `{ block: HeroBlock }`. A helper hides that link, so its candidates take the whole `Block`.
+- **A value outside the candidates at runtime** renders nothing, with a warning in dev builds, or
+  the `data-sn-else` template that follows the element.
+- Only the candidates are compiled into the page's definitions, and only their scripts are bundled.
+- `<sn-component>` is the one new element; its `use` attribute is an expression.
+
 ## Limits that come from expanding at build time
 
-- **Recursive components** (a tree of comments, a file tree) cannot be expanded at build time:
-  `SN306` today. They need a runtime path: a component instantiated from a template per level,
-  which renders early only for embedded data. This is a real gap against every other system and
-  needs a design before release.
-- **Choosing a component at runtime** (`<component :is>`): the same problem. A `data-sn-if` per
-  candidate covers small cases.
 - **HTML size**: each use outside a `data-sn-for` repeats the markup in the built HTML (inside a
   `for`, it is one template). gzip absorbs most of it; measure it on RealWorld.
 
@@ -485,9 +576,9 @@ Missing any of these loses the comparison regardless of the hallmark:
     against the page and, today, its partials (`SN309`, `SN311`). They look inside the components a
     page uses instead. A component used more than once whose markup has a literal `id` would make
     duplicate ids: a build error, unless the id is computed from a prop.
-  - **Diagnostics move:** `SN305` (partial not found) and `SN306` (partial cycle) are retired; a
-    component that uses itself is the recursion case under
-    [Limits](#limits-that-come-from-expanding-at-build-time).
+  - **Diagnostics move:** `SN305` (partial not found) is retired. `SN306` (partial cycle) becomes
+    the component cycle that does not pass through a template
+    ([Recursion](#recursion)).
   - **What uses partials today:** the starter template (`partials/header.html`), test fixtures,
     the LSP, the Vite plugin's file watching and the docs. All move to components with the
     implementation.
@@ -533,7 +624,9 @@ has no store code**. `npm run size` must show the core unchanged.
    - running a script per instance on its root, in rows and branches too
 
    Islands become this.
-6. **Recursive and dynamic components:** the runtime path.
+6. **Recursion and runtime choice:** shared definitions in the head, instantiated by the runtime
+   and the early script; the cycle rule; nested items along their path and `upsert(list, …)`;
+   `<sn-component use>`, `ComponentName`, narrowing per candidate.
 7. **The RealWorld rewrite**, the comparison docs, the spec, README and `llms.txt`.
 
 ## Decisions
@@ -553,6 +646,13 @@ Settled in review, in the order they were discussed:
 | `<sn-include>` | Removed (breaking); partials become components | [What changes elsewhere](#what-changes-elsewhere) |
 | Two-way props | `data-sn-model` on components, as shorthand for a `value` prop and a `change` event | [Custom inputs](#custom-inputs-data-sn-model) |
 | Exporting | Not now; revisit after the first release | [What we do not compete on](#what-we-do-not-compete-on) |
+| Recursion | A component uses itself by its tag; every cycle passes through a `for` or `if` template; shared definitions keep it in the first frame | [Recursion](#recursion) |
+| Nested items | `patch` and `remove` along their path; `upsert` takes the list, nested or by name | [Nested items](#nested-items-along-their-path) |
+| Choosing at runtime | `<sn-component use>`; candidates from a type that fits `ComponentName`, props narrowed per candidate | [Choosing a component at runtime](#choosing-a-component-at-runtime) |
 
-Still open, and needed before release: **recursive components** and **choosing a component at
-runtime** ([Limits](#limits-that-come-from-expanding-at-build-time)).
+### Still open
+
+- **Rows through a helper.** For `m in visible(messages, q)` or `r in childrenOf(comments, c.id)`,
+  the compiler cannot tell today that `m` came from `messages`, so `patch(m, …)` has no source. A
+  possible rule: a helper that takes one resource and returns its element type (or an array of
+  it) keeps that resource's provenance; with more than one such argument, it is a build error.
