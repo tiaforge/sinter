@@ -61,7 +61,7 @@ the pages.
   not configure them. RealWorld scores **94 on mobile and 99 on desktop** in Lighthouse, with the
   least JavaScript of the apps that show articles ([comparison](docs/realworld-comparison.md#lighthouse)).
 - **Great ergonomics.** One way to do each thing, all of it visible on the element. 735 lines for
-  the RealWorld app, against 2,210 for the official Angular one. `llms.txt` ships with the package for LLMs.
+  the RealWorld app, against 2,210 for the official Angular one. LLM-friendly: `llms.txt` ships with the package, and the small, uniform syntax is easy for a model to get right.
 - **Small and safe.** Currently under 20 KB of JavaScript per page. No `eval`, no `unsafe-eval` in your Content
   Security Policy, and markup injected at runtime stays inert.
 
