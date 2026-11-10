@@ -35,18 +35,20 @@ There is no component runtime to hydrate.
 ```
 src/components/article-preview.html     markup only: expanded at build time, no runtime
 src/components/live-clock.html          markup...
-src/components/live-clock.ts            ...plus a script: also a custom element (today's island)
+src/components/live-clock.ts            ...plus a script, run per instance by sinter (today's island)
 ```
 
 - A component **without a script** costs nothing at runtime. Its markup is expanded at each use,
   like `<sn-include>`, and only its bindings remain.
-- A component **with a script** is also expanded at build time, so it paints early. Its script is
-  registered as the custom element of the host tag. The script does browser work (timers, canvas,
+- A component **with a script** is also expanded at build time, so it paints early. sinter runs
+  its script once per instance, on the instance's root element (see [The tag](#the-tag-replaced-by-the-root)).
+  It is not a custom element. The script does browser work (timers, canvas,
   observers, third-party libraries, `fetch` outside resources) and writes the component's state;
   sinter renders the markup. No `document.createElement`. See
   [Components with a script](#components-with-a-script).
-- Islands become "a component with a script". Plain custom elements with no component file keep
-  working as they do today.
+- Islands become "a component with a script". Plain custom elements with no component file
+  (your own or third-party web components) keep working as they do today, through `data-sn-prop`
+  and events.
 
 ### Defining a component
 
@@ -91,19 +93,51 @@ src/components/live-clock.ts            ...plus a script: also a custom element 
 ```
 
 - **Props go in through `data-sn-prop`**, the attribute that already sets properties on custom
-  elements. It has the same shape and the same meaning, so a script component receives them as
-  properties.
+  elements: the same shape, and the same meaning of "values for this thing". A component's script
+  reads them as `this.props`.
 - **Props are live and read-only.** A prop is an expression evaluated in the caller's scope where
   the component reads it, as `data-sn-let` works today. Nothing is copied, so a change from a
   server event shows at once. A component that assigns to a prop fails the build. It changes its
   own `data-sn-state` instead, or emits an event.
 - **Events come out with `emit()`**, which exists today. The caller handles them with
-  `data-sn-on-<event>` on the host, and `$event.detail` has the type `data-sn-emits` gives it.
+  `data-sn-on-<event>` on the component's tag, and `$event.detail` has the type `data-sn-emits`
+  gives it.
 - **Slots are resolved at build time**: the default `<slot>`, named slots (`slot="meta"`) and
   fallback content. Slot content keeps the caller's scope. In the example, `a` and `date()` still
   refer to the caller's loop. It is light DOM, so global CSS, forms, labels and ARIA references
   work across the boundary.
-- Other attributes (`class`, `id`, `aria-*`) stay on the host element.
+- Other attributes (`class`, `id`, `aria-*`, layout attributes such as temper's `data-grow`) and
+  handlers move onto the component's root element (next section).
+
+### The tag: replaced by the root
+
+The component's tag does not stay in the page. **Each use is replaced by the component's root
+element**, for components with and without a script alike:
+
+- **A component has exactly one root element.** It is what the caller's attributes, classes and
+  `data-sn-on-*` handlers land on. More than one root is a build error.
+- **Attributes merge onto the root:** `class` is joined, a `data-sn-class` or `data-sn-attr` on the
+  tag combines with the root's, and a plain attribute the root also sets is a build error rather
+  than a silent override.
+- **Styling from outside works through the root.** A parent's layout reaches the component's root
+  as its direct child: `grid-column`, `flex`, `data-layout` children. No `display: contents`
+  wrapper gets in the way. Styling a component's inside from outside is not supported; scoped
+  styles are the way.
+- **Events:** `emit()` inside the component bubbles up through the root, where the caller's handler
+  now sits.
+- **Tables and lists:** a component whose root is a `<tr>`, `<li>` or `<option>` *is* that element.
+  - Inside `<template data-sn-for>`, where rows come from, the tag can be written as it is. The
+    compiler parses with the browser's rules (parse5), and template content keeps it in place.
+  - Directly in a `<tbody>` or `<table>`, the parser moves an unknown tag out of the table before
+    the compiler sees it. The compiler detects that from source positions and fails the build with
+    the fix (put it in the row's template).
+- **Devtools:** dev builds mark the root with the component's name (`data-sn-c="article-preview"`);
+  production builds leave nothing.
+- **Scripts need no tag.** The compiler knows every place a component is used, including inside
+  templates, and the runtime already creates and removes those elements. It starts the component's
+  script for each instance when the root is created or adopted, and stops it when it is removed,
+  as it does for bindings. No `customElements.define`, no upgrade timing, no "do not read children
+  in `connectedCallback`".
 
 ### Components with a script
 
@@ -123,9 +157,9 @@ drawn with Chart.js:
 ```ts
 // src/components/task-ring.ts
 import Chart from 'chart.js/auto';                 // any npm package: bundled with the pages that use the component
-import { TaskRingElement } from './task-ring.html'; // generated from the component file, typed
+import { TaskRingComponent } from './task-ring.html'; // generated from the component file, typed
 
-export class TaskRing extends TaskRingElement {
+export class TaskRing extends TaskRingComponent {
   #chart?: Chart;
 
   connected() {                                     // the markup is rendered; refs are set
@@ -158,16 +192,18 @@ export class TaskRing extends TaskRingElement {
 - **`data-sn-ref="name"`** gives the script an element of its own markup as `this.refs.name`, with
   the type of its tag. A ref inside a `data-sn-for` or `data-sn-if` template is `undefined` while
   it is not rendered; the generated type says so.
-- **Lifecycle:**
-  - `connected()` runs after the page module has adopted the component's markup, so refs are set.
+- **`this.root`** is the instance's root element (the `<figure>`); `this.emit()` dispatches from
+  it. `this` is not an element: the script is an object sinter creates per instance.
+- **Lifecycle, driven by sinter:**
+  - `connected()` runs once the instance's markup is rendered or adopted, so refs are set.
   - `propsChanged()` runs once per flush in which a prop the script reads changed.
-  - `disconnected()` runs when the component leaves the page.
+  - `disconnected()` runs when sinter removes the instance: its row, its `data-sn-if` branch, or
+    the page.
 - **State:** `this.state` is the component's `data-sn-state`. Assigning a field schedules a render,
   as a handler does.
 - **The script writes only state.** It never writes to nodes sinter renders. A ref is for handing
   an element to code that owns it (a canvas, a map container, an editor), not for setting its text.
-- The tag is registered by the generated base class from the file name. There is no
-  `customElements.define`.
+- Nothing is registered: the compiler links the script to the component by its file name.
 
 ### One contract
 
@@ -176,8 +212,8 @@ every component has: a markup-only component has no script to declare them in. T
 from a **generated base class**, the same way `src/sinter.messages.d.ts` is generated from the
 message files today:
 
-- `import { TaskRingElement } from './task-ring.html'` resolves, through the Vite plugin, to a base
-  class that extends sinter's element base and registers the tag.
+- `import { TaskRingComponent } from './task-ring.html'` resolves, through the Vite plugin, to a
+  base class that extends sinter's component base.
 - Generated types describe it:
   - `this.props` from `data-sn-component`
   - `this.emit(name, detail)` from `data-sn-emits`
@@ -366,9 +402,9 @@ Missing any of these loses the comparison regardless of the hallmark:
 ## What we do not compete on
 
 - Client-side routing and a virtual DOM. These stay non-goals.
-- **The size of a component ecosystem.** A script component is a standard custom element. Exporting
-  components for use outside sinter is a later step; any existing web component already works
-  inside sinter through `data-sn-prop` and events.
+- **The size of a component ecosystem.** Any existing web component already works inside sinter
+  through `data-sn-prop` and events. sinter components are not custom elements; using them outside
+  sinter would need a generated wrapper (open question 7).
 - **Peak re-render speed.** Stay close to the leaders in `bench/js-framework-benchmark`. The case
   rests on first paint and data correctness.
 
@@ -424,8 +460,8 @@ has no store code**. `npm run size` must show the core unchanged.
 5. **Script components:**
    - the generated base class through the Vite plugin, typed by `src/sinter.components.d.ts`
    - `data-sn-emits`, `data-sn-ref`
-   - `this.props`, `this.state`, `this.emit`, the three hooks
-   - tag registration from the file name
+   - `this.props`, `this.state`, `this.root`, `this.emit`, the three hooks
+   - running a script per instance on its root, in rows and branches too
 
    Islands become this.
 6. **Recursive and dynamic components:** the runtime path.
@@ -433,11 +469,6 @@ has no store code**. `npm run size` must show the core unchanged.
 
 ## Open questions
 
-2. **The host element.** Keep `<article-preview>` in the DOM (a styling hook, the target for
-   events, visible in devtools; `display: contents` when unwanted), or replace it with the
-   template's content? Keeping it breaks components inside `<table>`, `<ul>` and `<select>`, where
-   the parser moves unknown elements: Vue's `is` problem. Possibly keep it, except for components
-   whose template has a single `<tr>`, `<li>` or `<option>` root.
 3. **Scoped slots.** Pass component values to slot content (`<slot data-sn-let="{ item }">`), or
    leave them out at first?
 4. **Scoped CSS.** Native `@scope`, which is in every evergreen browser but young in Firefox, or a
@@ -445,5 +476,6 @@ has no store code**. `npm run size` must show the core unchanged.
 5. **`<sn-include>`.** Keep partials for lexical scope, or deprecate them in favour of components?
 6. **Two-way props.** `data-sn-model` on a component, for a custom input? Events cover it, but
    forms are where people will expect it.
-7. **Exporting.** Should a script component also build as a standalone custom element for use
-   outside sinter, and when?
+7. **Exporting.** sinter components are not custom elements. Should a component also build as a
+   standalone custom element for use outside sinter (a generated wrapper that runs the script and
+   the bindings), and when?
