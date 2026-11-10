@@ -52,7 +52,7 @@ the pages.
   RealWorld example measures a layout shift (CLS) of 0 in Lighthouse.
 - **A server that stays cool, if you want one.** Pre-filling data (optional) costs a fetch and a string replacement, not a render.
   One core serves roughly 600-1,100 pages per second as a Node script and about 2,000 with the Rust layer;
-  server-rendering the same page with Qwik City saturates around 60-120.
+  a server-rendering framework in the same benchmark saturates around 60-120.
   ([measurements](docs/first-paint-comparison.md))
 - **Type checking from the database edge to the button.** Point sinter at your TypeScript types or
   your OpenAPI spec and `article.titel` is a build error with a "did you mean `title`?". Your editor
@@ -149,7 +149,7 @@ Each item links to the details.
 
 - **First paint with data.** Build-time constants, an early script that renders as the page is
   parsed, and, optionally, data embedded by a server layer. [First paint](docs/spec.md#first-paint),
-  [measured against Qwik City](docs/first-paint-comparison.md)
+  [benchmark against a server-rendering framework](docs/first-paint-comparison.md)
 - **An optional server layer that does not render.** [`sinter-axum`](packages/sinter-axum) (Rust, a `tower`
   layer) streams the head first, then writes each API response into its slot. The build checks
   at compile time that every slot can be filled.
@@ -198,7 +198,7 @@ page load (the shared code comes from the browser cache).
 
 **Next, Nuxt, SvelteKit, Qwik.** These render pages on the server for the first frame, which makes
 every visit cost server CPU. sinter reaches the same first frame by writing JSON into a static page.
-[Measured against Qwik City](docs/first-paint-comparison.md).
+[Benchmark](docs/first-paint-comparison.md).
 
 **htmx, Datastar.** These expect a server that renders HTML for every page and interaction. If you
 have a JSON API, you would have to build and maintain that server. sinter uses the API you already
