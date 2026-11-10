@@ -1,7 +1,8 @@
 # sinter
 
-**Multi-page apps, rethought.** Build a fast, live, type-checked web app out of plain HTML pages and
-the JSON API you already have. No components, no router, no store, no JavaScript to write.
+**Plain HTML pages that behave like an app.** Bind the JSON API you already have to HTML and get live
+data, instant updates and a first paint with no flicker. Typos fail the build, not the page. No
+components, no router, no store, no JavaScript to write.
 
 ```html
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
@@ -28,11 +29,11 @@ That page loads the contacts, keeps them sorted, applies updates other users mak
 filters as you type, and removes a contact the moment you click Delete, putting it back if the
 server refuses. It is the whole page: there is no script file next to it.
 
-## Why multi-page apps are worth another look
+## The simplicity of separate pages, without the old problems
 
-Websites made of separate pages are simple, fast to open, easy to link to and hard to break. People
-moved to single-page apps because classic multi-page apps had real problems. sinter fixes those
-problems and keeps the simplicity.
+Separate pages are simple, fast to open, easy to link to and hard to break. People moved to
+single-page apps because classic multi-page apps had real problems. sinter fixes those and keeps
+the pages.
 
 | The classic multi-page problem | What sinter does |
 | --- | --- |
