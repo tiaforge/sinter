@@ -7,14 +7,16 @@ mobile score is within a few points of the best.
 
 | implementation | source lines | JS, home + article (gz KB) | Lighthouse mobile perf |
 | --- | ---: | ---: | ---: |
-| **sinter** | **735** | **35.7** | 94 |
+| **sinter** | **777** | **35.7** | 94 |
 | SvelteKit | 1153 | - | 95 |
 | Solid | 1281 | - | 97 (empty feed) |
 | Vue 3 | 1848 | 63.7 | 85 |
 | React + Redux | 2087 | - | - |
 | Angular | 2210 | 123.0 | 77 |
 
-A dash means the number could not be measured (see the notes under each table below). Scripts:
+A dash means the number could not be measured (see the notes under each table below). sinter's source
+lines are for its version with components (2026-11-10); its download size and Lighthouse score were
+measured before components and not measured again (they need the live API), see Components below. Scripts:
 [`bench/realworld/loc.mjs`](../bench/realworld/loc.mjs) (source lines),
 [`bench/realworld/weight.mjs`](../bench/realworld/weight.mjs) (what the browser downloads),
 [`bench/realworld/lighthouse.mjs`](../bench/realworld/lighthouse.mjs) (Lighthouse).
@@ -32,11 +34,14 @@ A dash means the number could not be measured (see the notes under each table be
 
 Non-blank lines of app source; tests, mocks, type declarations, generated code (Vue 3's 790-line
 generated API client) and the shared theme CSS excluded. sinter's count includes its 43-line Vite
-config (page entries and path rewrites).
+config (page entries and path rewrites), and leaves out its generated `src/sinter.components.d.ts`.
+Before components, with partials, the same script counts 765 lines (html 593, js 172): the components'
+`<template data-sn-component>` wrappers and their props cost more lines than the favorite button they
+deduplicate saves.
 
 | implementation | files | lines | by type |
 | --- | ---: | ---: | --- |
-| **sinter** | 18 | **735** | html 588, js 147 |
+| **sinter** | 20 | **777** | html 605, js 172 |
 | SvelteKit | 41 | 1153 | svelte 816, js 312, html 25 |
 | Solid | 27 | 1281 | js 1248, html 33 |
 | Vue 3 | 41 | 1848 | vue 1344, ts 488, html 16 |
@@ -160,17 +165,28 @@ Angular: a 73-line component (`favorite-button.component.ts`: template, auth che
 submit state, output event) plus `favorite`/`unfavorite` in `articles.service.ts` and the parent's
 handling of the toggle event. Not optimistic.
 
-sinter (per state of the button; optimistic, rolled back on failure, signed-out users sent to login):
+sinter: one component, `examples/realworld/src/components/favorite-button.html` (19 lines, both states),
+used on the feed, the profile and the article page. It is optimistic and rolled back on failure;
+signed-out users are sent to login by the page's `sn-error` handler. The state that favors:
 
 ```html
-<button class="btn btn-outline-primary btn-sm pull-xs-right"
-        data-sn-post="https://api.realworld.show/api/articles/{a.slug}/favorite"
-        data-sn-optimistic="patch(a, {favorited: true, favoritesCount: a.favoritesCount + 1})"
-        data-sn-then="patch(a, $result.article)"
-        data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
-  <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
-</button>
+<button class="btn btn-sm btn-outline-primary" data-sn-post="https://api.realworld.show/api/articles/{article.slug}/favorite"
+        data-sn-optimistic="patch(article, { favorited: true, favoritesCount: article.favoritesCount + 1 })">
 ```
+
+`patch(article, …)` names no resource. At each use it changes the article where it came from (a row of
+`articles` or `feed` on the home page, a row of the profile's list, the single `article` on the article
+page), and write-through applies the response. There is no store code: no `patch('articles', …)` and
+`patch('feed', …)` side by side as before.
+
+## Components
+
+The app has seven components: the header, footer, article meta, byline, preview, error list and the
+favorite button. They are expanded at build time, so every page still renders in the first frame with
+its data (the head script renders their bindings like the rest of the page: no hydration). `npm run
+size` (gzip): the core went from 13.9 to 14.1 KB (the hooks for item sources, scripts, nested items and
+shared definitions); with components, a RealWorld page with its page module and the app's code is
+20.0-23.1 KB.
 
 ## Limits
 

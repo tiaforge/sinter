@@ -53,20 +53,7 @@
         </template>
         <template data-sn-for="a in ($url.feed == 'following' ? feed : articles)" data-sn-key="a.slug">
           <div class="article-preview">
-            <article-byline data-sn-prop="{ article: a }">
-              <template data-sn-if="a.favorited">
-                <button class="btn btn-primary btn-sm pull-xs-right" data-sn-delete="https://api.realworld.show/api/articles/{a.slug}/favorite"
-                        data-sn-optimistic="patch(a, {favorited: false, favoritesCount: a.favoritesCount - 1})">
-                  <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
-                </button>
-              </template>
-              <template data-sn-else>
-                <button class="btn btn-outline-primary btn-sm pull-xs-right" data-sn-post="https://api.realworld.show/api/articles/{a.slug}/favorite"
-                        data-sn-optimistic="patch(a, {favorited: true, favoritesCount: a.favoritesCount + 1})">
-                  <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
-                </button>
-              </template>
-            </article-byline>
+            <article-byline data-sn-prop="{ article: a }"><favorite-button class="pull-xs-right" data-sn-prop="{ article: a }"></favorite-button></article-byline>
             <article-preview data-sn-prop="{ article: a }"></article-preview>
           </div>
         </template>

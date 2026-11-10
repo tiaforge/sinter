@@ -2,7 +2,7 @@
 
 **HTML pages that behave like an app.** Add attributes to your HTML to bind the JSON API you already
 have and get live data, instant updates and a first paint with no flicker. Typos fail the build, not
-the page. No components, router or store library to write, and no app JavaScript for typical pages: a small runtime ships with each page (currently under 20 KB).
+the page. Components that need no hydration and no store, no router, and no app JavaScript for typical pages: a small runtime ships with each page (currently under 20 KB).
 
 ```html
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
@@ -212,9 +212,9 @@ Measurements and sources: [`docs/realworld-comparison.md`](docs/realworld-compar
 
 ## When not to use sinter
 
-- You want a SPA: client-side routing, transitions, a component system.
+- You want a SPA: client-side routing and a client-side component runtime.
 - The UI is mostly client-side interaction (editors, canvas, drag and drop). sinter leaves that to
-  islands, which are plain custom elements.
+  the scripts of components, which do the browser work around markup sinter renders.
 - You can't have a build step.
 - Your backend renders HTML, not JSON.
 - You need stability guarantees. sinter is at v0.13.
@@ -237,7 +237,10 @@ The broad concepts:
 - **[Bindings](docs/attributes.md#show-data)** (`data-sn-text`, `data-sn-for`, `data-sn-if`, ...) render data. Expressions are checked at build time.
 - **[Actions](docs/actions.md)** (`data-sn-post`, `data-sn-delete`, ...) send changes; [`data-sn-optimistic`](docs/actions.md#optimistic-updates) shows them at once.
 - **[Sync](docs/sync.md)** (`<sn-sync>`) applies server events to resources.
-- **[Islands](docs/islands.md)** are custom elements for what attributes can't do.
+- **[Components](docs/components.md)** are HTML files in `src/components/`, expanded at build time: props,
+  slots, events and scoped styles, in the first frame with no hydration.
+- **[Components with a script](docs/islands.md)** do what attributes can't (a canvas, a library); plain
+  custom elements work too.
 
 Every attribute is in the [reference](docs/attributes.md). Optional files in `src/`:
 

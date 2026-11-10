@@ -14,7 +14,7 @@ License: MIT. Contributions are accepted under the Developer Certificate of Orig
 - Optimistic updates that stay correct when requests overlap or SSE events arrive mid-flight.
 
 ### Non-goals
-- Routing, a component system, a virtual DOM, transitions.
+- Routing and a virtual DOM. Components are expanded at build time (see Components), not a runtime component system; transitions are view transitions between pages (`data-sn-transition`).
 - HTML responses or `innerHTML` rendering.
 - A runtime interpreter: HTML that never passes through the compiler cannot use directives.
 - Dialogs and popovers: native `<dialog>`, `popover` and `commandfor` cover them.

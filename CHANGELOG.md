@@ -37,6 +37,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   properties, `$el` has the element's class, and `$event.detail` has the type `SinterElementEvents` gives the event on
   that tag (`interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean } }`).
 
+- RealWorld is built with components: header, footer, article meta, byline, preview, error list and one favorite
+  button for the feed, the profile and the article page.
+
 ### Removed
 
 - `patch('name', item, …)` and `remove('name', item)` (breaking): `patch(item, …)` and `remove(item)` act on the item

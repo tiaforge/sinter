@@ -20,7 +20,7 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `editor.html` | new / edit article | `/editor`, `/editor/:slug` |
 | `settings.html` | user settings, logout | `/settings` |
 | `login.html`, `register.html` | auth | `/login`, `/register` |
-| `src/components/` | header, footer, article meta, byline, preview, error list (each page declares the `user` resource the header reads) | |
+| `src/components/` | header, footer, article meta, byline, preview, error list, favorite button (each page declares the `user` resource the header reads); `patch(article, …)` in the favorite button acts on the article where each use got it | |
 | `src/sinter.config.js` | JWT middleware (`localStorage.jwtToken`), current-user error handling | |
 | `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `window.__conduit_debug__` | |
 | `src/markdown.js` | `<conduit-markdown>` (marked + DOMPurify, requested when the module runs; `rendered` once the body is in, and `public/styles.css` keeps what follows it out of the layout until then: no shift), loaded by `article.html` only | |
