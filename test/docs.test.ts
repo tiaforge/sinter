@@ -201,6 +201,63 @@ function customData(): string {
   return JSON.stringify(data, null, 2) + '\n';
 }
 
+
+// Attribute reference for people: the vocabulary grouped by what it does. A new attribute must be placed in a group.
+const ATTRIBUTE_GROUPS: Array<[string, string, string[]]> = [
+  ['Show data', 'Bind values to the page. Details: [rendering](spec.md#rendering).', ['text', 'attr', 'class', 'style', 'show', 'prop', 'for', 'key', 'if', 'else']],
+  ['Keep state', 'Local state next to the markup that uses it. Details: [state](spec.md#state).', ['state', 'let', 'model', 'persist']],
+  ['Send changes', 'Turn an element into a request. Details: [actions](spec.md#actions-events-and-request-layer).', ['get', 'post', 'put', 'patch', 'delete', 'call', 'body', 'trigger', 'debounce', 'encoding', 'concurrency', 'confirm', 'retry', 'apply']],
+  ['After a request', 'What happens on screen around a response. Details: [optimistic updates](spec.md#optimistic-updates).', ['optimistic', 'then', 'catch']],
+  ['React to events', 'Handlers without a request. Details: [events](spec.md#actions-and-events), [key filters](spec.md#key-filters).', ['on-<event>', 'debounce-<event>', 'listbox']],
+  ['Pages and navigation', 'Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [first paint](spec.md#first-paint).', ['path', 'prefetch', 'transition', 'data']],
+];
+const RESOURCE_GROUPS: Array<[string, string[]]> = [
+  ['Where the data comes from', ['name', 'src', 'call', 'each', 'when', 'early']],
+  ['What it looks like', ['key', 'items', 'total', 'order', 'type']],
+  ['How fresh it is', ['cache', 'refresh', 'then']],
+  ['Pagination', ['paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'start-page']],
+];
+
+function attributes(): string {
+  const all = [...ATTRIBUTES, ON_DOC, KEY_ON_DOC, DEBOUNCE_ON_DOC];
+  const placed = new Set<string>(ATTRIBUTE_GROUPS.flatMap((g) => g[2]));
+  const out = [`# Attribute reference
+
+Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element; anything else is a build error with a suggestion. Generated from the compiler's vocabulary (\`npm run docs\`). The full rules are in the [specification](spec.md); \`llms.txt\` has the same list for LLMs.
+`];
+  for (const [title, intro, names] of ATTRIBUTE_GROUPS) {
+    out.push(`## ${title}\n\n${intro}\n\n| Attribute | Value | Meaning |\n| --- | --- | --- |`);
+    for (const n of names) {
+      const a = all.find((x) => x.name === n);
+      if (!a) throw new Error(`unknown attribute ${n} in ATTRIBUTE_GROUPS`);
+      out.push(`| \`data-sn-${a.name}\` | ${a.value ?? ''} | ${a.doc.replace(/\|/g, '\\|')} |`);
+    }
+    out.push('');
+  }
+  const missing = ATTRIBUTES.filter((a) => !placed.has(a.name)).map((a) => a.name);
+  if (missing.length) throw new Error(`attributes without a group: ${missing.join(', ')}`);
+  out.push('## Elements\n');
+  for (const e of ELEMENTS) {
+    if (e.name === 'sn-resource') {
+      const placedR = new Set(RESOURCE_GROUPS.flatMap((g) => g[1]));
+      const missingR = e.attrs.filter((x) => !placedR.has(x));
+      if (missingR.length) throw new Error(`sn-resource attributes without a group: ${missingR.join(', ')}`);
+      out.push(`### \`<sn-resource>\`\n\nA named, page-wide cache of server data. Details: [resources](spec.md#resources-and-store).\n`);
+      for (const [g, names] of RESOURCE_GROUPS) out.push(`- **${g}:** ${names.map((x) => `\`${x}\``).join(', ')}`);
+      out.push('');
+    } else {
+      out.push(`### \`<${e.name}>\`\n\n${e.attrs.map((x) => `\`${x}\``).join(', ')}. ${e.doc.charAt(0).toUpperCase()}${e.doc.slice(1)}.\n`);
+    }
+  }
+  out.push(`## Names available in expressions
+
+- **Magic names:** ${ALL_MAGIC.map((m) => `\`${m}\``).join(', ')}.
+- **Store functions:** ${STORE_FNS.map((f) => `\`${f}()\``).join(', ')}.
+- **Built-in helpers:** ${BUILTIN_HELPERS.map((h) => `\`${h}()\``).join(', ')}.
+`);
+  return out.join('\n');
+}
+
 function check(path: string, content: string) {
   const file = resolve(root, path);
   if (update) { writeFileSync(file, content); return; }
@@ -210,6 +267,7 @@ function check(path: string, content: string) {
 }
 
 test('llms.txt is current', () => check('llms.txt', llms()));
+test('docs/attributes.md is current', () => check('docs/attributes.md', attributes()));
 test('docs/diagnostics.md is current', () => check('docs/diagnostics.md', diagnostics()));
 // a marker a server writes on its error body (sinter-axum), not an attribute developers write: kept out of
 // what tells developers and models which attributes exist

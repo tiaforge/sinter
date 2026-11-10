@@ -224,13 +224,6 @@ Measurements and sources: [`docs/realworld-comparison.md`](docs/realworld-compar
 
 ## Setup
 
-To start from a working app instead, `npm create @tiaforge-ui` creates a small task board with
-sinter, [temper](https://github.com/tiaforge/temper) for the styles and a demo API inside Vite: live
-updates across tabs, optimistic changes that roll back, an island, and the build-time checks
-([`packages/create`](packages/create)).
-
-To add sinter to a project:
-
 ```sh
 npm install @tiaforge-ui/sinter
 ```
@@ -241,21 +234,25 @@ import sinter from '@tiaforge-ui/sinter/vite';
 export default { plugins: [sinter()] };
 ```
 
-Then write `data-sn-*` attributes in your HTML pages. Optional:
+Then write `data-sn-*` attributes and `<sn-*>` elements in your HTML pages. The broad concepts:
 
-- `src/sinter.config.js`: `configure({ request, sessionProbe, onError, locale, origins, urlSchemes, transport })`. Auth headers, error handling, WebSocket (`@tiaforge-ui/sinter/ws`) or SignalR transports.
-- `src/sinter.helpers.js`: functions and namespaces your expressions can call.
-- Messages: with an inlang project (`project.inlang`, `messages/{locale}.json`), `m.key({ param })` in markup and `m` from `@tiaforge-ui/sinter/messages` in code; one small file per page and language, loaded before the first paint; `$locale = 'de'` switches without a reload.
-- `src/sinter.types.ts`: types named by `<sn-resource type="Contact[]">`. Or use `sinter({ openapi: 'openapi.yml' })` to type resources from your API spec.
-- `npx sinter check` type-checks every expression. `sinter({ typecheck: true })` runs it in `vite build`.
-- Loading: concurrent loads share requests, typing waits for a pause, data only dialogs show is fetched with low priority, origins in `src` are preconnected, a bfcache restore refetches, and a link to another page requests that page's data while the pointer rests on it, so the next page shows it at once (`sinter({ prefetch: false })` turns that off). `data-sn-transition="'article-' + a.slug"` on a list row and the same name on the detail page morphs one into the other across the navigation (view transitions). In Chromium the pages also carry Speculation Rules, so the next page's HTML is fetched ahead too, or the whole page prerendered with `sinter({ speculation: 'prerender' })` ([`docs/navigation.md`](docs/navigation.md)). Nothing to configure, except `'inline-speculation-rules'` in a CSP sent as a response header ([what each CSP setup needs](docs/navigation.md#speculation-rules-and-a-content-security-policy)).
-- First paint: page chrome outside data templates shows before the page bundle. Build-time constants (and the base language's messages) go into the HTML; a small classic script first in the head runs `src/sinter.early.ts` (e.g. pick the language) and renders the bindings that need no data, persisted values included, as the parser inserts each element: nothing holds the paint, in any browser. With data embedded in the page (a server fills `data-sn-data`), it renders those bindings and rows too. The build lists the placeholders and their requests in `sinter-embed.json`; [`packages/sinter-axum`](packages/sinter-axum) fills them from a Rust (axum) server, streaming the head first. The build reports its size.
-- `<sn-resource … cache>` shows the last page load's data at once, then revalidates. Call `clearPersisted()` on logout.
-- Serve `<sn-sync>` streams over HTTP/2. Over HTTP/1.1, each tab's stream takes one of six connections per origin.
-- Editors: `npx sinter lsp --stdio`. There is a VS Code extension in [`editors/vscode`](editors/vscode). For Neovim, Helix and Emacs, see [`docs/editors.md`](docs/editors.md).
+- **Resources** (`<sn-resource>`) load and cache server data by name. Templates read them.
+- **Bindings** (`data-sn-text`, `data-sn-for`, `data-sn-if`, ...) render data. Expressions are checked at build time.
+- **Actions** (`data-sn-post`, `data-sn-delete`, ...) send changes; `data-sn-optimistic` shows them at once.
+- **Sync** (`<sn-sync>`) applies server events to resources.
+- **Islands** are custom elements for what attributes can't do.
+
+Everything is listed in the [attribute reference](docs/attributes.md). Optional files in `src/`:
+
+- `sinter.config.js`: auth headers, error handling, transports, retries.
+- `sinter.helpers.js`: functions your expressions can call.
+- `sinter.types.ts`, or `sinter({ openapi: 'openapi.yml' })`: types for `sinter check`.
+
+`npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/spec.md#first-paint) and [navigation](docs/navigation.md) docs.
 
 ## Docs
 
+- [`docs/attributes.md`](docs/attributes.md): every attribute and element, grouped by what it does.
 - [`llms.txt`](llms.txt): attribute reference, scope rules and recipes (each with tests).
 - [`docs/spec.md`](docs/spec.md): the v0.1 specification.
 - [`docs/diagnostics.md`](docs/diagnostics.md): every `SN` error code and how to fix it.
