@@ -2,7 +2,7 @@
 
 **HTML pages that behave like an app.** Add attributes to your HTML to bind the JSON API you already
 have and get live data, instant updates and a first paint with no flicker. Typos fail the build, not
-the page. No components, router or store library to write, and no app JavaScript for typical pages: a small runtime ships with each page (14-16 KB).
+the page. No components, router or store library to write, and no app JavaScript for typical pages: a small runtime ships with each page (currently under 20 KB).
 
 ```html
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
@@ -64,7 +64,7 @@ the pages.
 - **Great ergonomics.** One way to do each thing, all of it visible on the element. 735 lines for
   the RealWorld app, against 2,210 for the official Angular one. Small enough that an LLM writes it
   correctly on the first try (`llms.txt` ships with the package).
-- **Small and safe.** 14-16 KB of JavaScript per page. No `eval`, no `unsafe-eval` in your Content
+- **Small and safe.** Currently under 20 KB of JavaScript per page. No `eval`, no `unsafe-eval` in your Content
   Security Policy, and markup injected at runtime stays inert.
 
 ## Browser support
