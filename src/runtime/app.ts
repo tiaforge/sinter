@@ -399,6 +399,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     U: UNSET,
     t(el: HTMLElement, _n: string, v: any) {
       const t = el.firstChild as Text | null;
+      // an element without content (a new row) takes a number as it is: the DOM converts it, while
+      // converting here would fill V8's number-to-string cache (64 KB after creating 1,000 rows). Not
+      // 0 or NaN: DOM implementations that treat a falsy value as no text (the test DOM) would drop them
+      if (!t && typeof v == 'number' && v) { el.textContent = v as any; return; }
       v = '' + (v ?? '');
       // the same text is not written again: an adopted early row, or a server-rendered one, keeps its text node
       // (a write counts as new content for the browser's paint timing, LCP)
@@ -996,6 +1000,27 @@ export function mount(root: Document | Element, o: MountOptions): App {
     let a = 0, oe = m, ne = n;
     while (a < oe && a < ne && old[a]!.key === keys[a]) reuse(old[a]!, a++);
     while (a < oe && a < ne && old[oe - 1]!.key === keys[ne - 1]) reuse(old[--oe]!, --ne);
+    // each old row owns the nodes from its first node up to the next old row's first node
+    const nodesOf = (o: number) => range(old[o]!.first, old[o + 1]?.first ?? end);
+    // two rows swapped and the rows between them unchanged (swapping two items): two moves, no key map
+    if (oe - a == ne - a && oe - a > 1 && old[a]!.key === keys[ne - 1] && old[oe - 1]!.key === keys[a]) {
+      let j = a + 1;
+      while (j < oe - 1 && old[j]!.key === keys[j]) j++;
+      if (j == oe - 1) {
+        const x = old[a]!, y = old[oe - 1]!, xs = nodesOf(a), ys = nodesOf(oe - 1), after = old[oe]?.first ?? end, parent = end.parentNode!;
+        for (const node of ys) parent.insertBefore(node, xs[0]!);
+        if (oe - a > 2) for (const node of xs) parent.insertBefore(node, after);
+        reuse(y, a);
+        for (let k = a + 1; k < oe - 1; k++) reuse(old[k]!, k);
+        reuse(x, ne - 1);
+        rb.rows = rows;
+        rb.rr = round;
+        rb.pf = true;
+        rb.keys = undefined;
+        rb.sx = undefined;
+        return;
+      }
+    }
     // the middle: match by key, create the rest
     const byKey = new Map<unknown, number>(), used = new Uint8Array(oe - a), seq: number[] = [];
     for (let o = a; o < oe; o++) byKey.set(old[o]!.key, o);
@@ -1004,9 +1029,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (o != null && !used[o - a]) { used[o - a] = 1; seq.push(o); reuse(old[o]!, i); }
       else { seq.push(-1); rows[i] = instantiate(tpl, t, scopes?.[i] ?? setRow(Object.create(rb.s), t, items[i], i), keys[i], items[i], i); }
     }
-    // each old row owns the nodes from its first node up to the next old row's first node;
-    // collect them for rows that go or move before the DOM changes
-    const nodesOf = (o: number) => range(old[o]!.first, old[o + 1]?.first ?? end);
+    // collect the nodes of rows that go or move before the DOM changes
     const keep = lis(seq), moving = new Map<Inst, Node[]>(), gone: number[] = [];
     seq.forEach((o, k) => { if (o >= 0 && !keep.has(k)) moving.set(rows[a + k]!, nodesOf(o)); });
     for (let o = a; o < oe; o++) if (!used[o - a]) gone.push(o);

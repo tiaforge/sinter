@@ -1,5 +1,57 @@
 # js-framework-benchmark results
 
+## 2026-11-10, sinter against itself, with ivi as the reference
+
+`bench/js-framework-benchmark/self.mjs`: builds of this entry's page (and `ivi/`, the same page in ivi
+5.1, written as ivi's own entry is) in headless Chrome for Testing 153 on a 4-core cloud VM, page loads
+alternating, no js-framework-benchmark checkout. Script = from `click()` until the render's microtasks
+are done; total = also laid out (`offsetHeight`); median of 6 page loads × 10 clicks (create 10k: × 3).
+Memory: JS heap after a forced GC. "Before" is main at 813a3b0, "after" has the two changes below.
+
+| operation | before script | total | after script | total | ivi 5.1 script | total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| create 1k | 5.30 | 48.60 | 4.60 | 41.60 | 5.90 | 43.50 |
+| replace 1k | 8.00 | 43.00 | 8.20 | 40.80 | 10.50 | 48.60 |
+| update 10th | 1.00 | 11.90 | 0.90 | 11.80 | 0.80 | 12.30 |
+| select row | 0.60 | 0.60 | 0.60 | 0.60 | 0.50 | 0.50 |
+| swap rows | 0.90 | 6.70 | 0.40 | 5.40 | 0.60 | 5.50 |
+| remove row | 0.60 | 3.40 | 0.70 | 4.00 | 0.70 | 3.80 |
+| append 1k | 3.60 | 42.90 | 3.90 | 48.20 | 5.90 | 49.20 |
+| clear 1k | 4.30 | 4.50 | 4.30 | 4.40 | 4.70 | 4.80 |
+| create 10k | 42.10 | 456.40 | 38.70 | 466.80 | 61.30 | 516.40 |
+| ready MB | 1.93 | | 1.93 | | 1.89 | |
+| 1k rows MB | 2.39 | | 2.34 | | 2.58 | |
+| run-clear x5 MB | 2.19 | | 2.14 | | 2.00 | |
+
+- **Swapping two rows**: after the unchanged ends are trimmed, a middle whose first and last keys
+  traded places, with the rows between them unchanged, is two moves. It used to build a key map,
+  sequence and longest increasing subsequence over the 998 rows between them. Script 0.9 → 0.4 ms.
+- **Numbers in new rows**: the text writer converted every value to a string (`'' + v`); for a number
+  V8 does that through its number-to-string cache, which a heap snapshot after five create-and-clear
+  cycles showed at 64 KB (the largest array that grew; ivi's heap had none). An element without
+  content now takes a non-zero number as it is and the DOM converts it. Heap after the cycles 2.19 →
+  2.14 MB, with 1,000 rows 2.39 → 2.34 MB.
+- What remains of the gap to ivi after the cycles (2.14 against 2.00 MB) is optimized code: 142 KB
+  against 88 KB of `(code)` growth in the same snapshots, from the amount of code that runs.
+- Within the noise of this setup (0.1 ms timer), sinter's script time is level with or below ivi's
+  everywhere except update every 10th (0.9 against 0.8 ms) and select row (0.6 against 0.5 ms).
+
+What ivi does, from its source (`ivi/dist/lib/core.js`) and its README's internals section:
+- **Keyed lists**: trims the common end and start, maps the new middle's keys, and runs its LIS only
+  when a row moved (it tracks whether the old positions are still increasing). sinter does the same,
+  and now also handles the two-row swap without the map.
+- **Small, fixed-shape state**: one 32–36 byte node per template, component, text or list, with
+  preallocated slot arrays and SMI flags, so its call sites stay monomorphic.
+- **Precompiled templates**: a cloned static part plus opcodes that save references to the dynamic
+  nodes on creation; sinter's compiled per-template lookup functions do the same job.
+- **Right-to-left updates**: insertions use the next sibling, so no marker nodes; sinter keeps its
+  `<template>` and an end comment per list.
+- **DOM accessors captured once** (`Node.prototype` getters such as `firstChild`, called directly),
+  `Element.prototype.moveBefore` when the browser has it. Text: `textContent` into an empty element,
+  `nodeValue` of its text node after that, `createTextNode(v)` for text children (values passed as they
+  are: numbers are converted by the DOM).
+
+
 ## 2026-11-08, row creation: what the lookup visits
 
 sinter's own click-to-flush time (`profile.mjs`, median of 25 clicks per page load; create 10k: 5),

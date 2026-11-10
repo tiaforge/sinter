@@ -12,6 +12,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   changes still render in a microtask, taking waiting server changes with them; a hidden page renders server events
   in a microtask. Measured on a live dashboard (bench/live, 4× CPU slowdown): it kept up with 200 events/s before,
   5,000/s now (51 fps); Datastar's signals mode keeps up with 200/s.
+- Lists: swapping two rows (the ends of the changed middle traded places, the rows between unchanged) moves the
+  two rows without building a key map or a longest increasing subsequence (js-framework-benchmark's swap: script
+  0.9 → 0.4 ms).
+- A text binding writes a non-zero number into an element without content as it is, for the DOM to convert, instead
+  of converting it in JavaScript, which filled V8's number-to-string cache (64 KB after creating 1,000 rows).
 - Testing: `render(…, { frames: true })` and `frame()` to test what waits for the next frame (without `frames`, server
   events flush in a microtask as before).
 
