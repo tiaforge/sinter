@@ -42,8 +42,9 @@ src/components/live-clock.ts            ...plus a script: also a custom element 
   like `<sn-include>`, and only its bindings remain.
 - A component **with a script** is also expanded at build time, so it paints early. Its script is
   registered as the custom element of the host tag. The script does browser work (timers, canvas,
-  observers, `fetch` outside resources) and writes the component's state; sinter renders the
-  markup. No `document.createElement`.
+  observers, third-party libraries, `fetch` outside resources) and writes the component's state;
+  sinter renders the markup. No `document.createElement`. See
+  [Components with a script](#components-with-a-script).
 - Islands become "a component with a script". Plain custom elements with no component file keep
   working as they do today.
 
@@ -70,6 +71,11 @@ src/components/live-clock.ts            ...plus a script: also a custom element 
 - `data-sn-component` holds the props type, written in TypeScript and using the names
   `src/sinter.types.ts` exports, like `<sn-resource type>`. An optional prop gets its default
   from `data-sn-state` on the root, or is `undefined`.
+- `data-sn-emits` (optional) declares the events the component emits and their detail types:
+  `data-sn-emits="{ select: Article }"`. An `emit()` in the component with a name not declared there
+  is a build error.
+- Together, these two attributes are the component's whole contract. Nothing else declares it: not
+  the caller, and not the script (see [One contract](#one-contract)).
 - `<style>` is scoped to the component and goes into the app's CSS files: no inline style, no
   CSP change.
 
@@ -92,12 +98,103 @@ src/components/live-clock.ts            ...plus a script: also a custom element 
   server event shows at once. A component that assigns to a prop fails the build. It changes its
   own `data-sn-state` instead, or emits an event.
 - **Events come out with `emit()`**, which exists today. The caller handles them with
-  `data-sn-on-<event>` on the host.
+  `data-sn-on-<event>` on the host, and `$event.detail` has the type `data-sn-emits` gives it.
 - **Slots are resolved at build time**: the default `<slot>`, named slots (`slot="meta"`) and
   fallback content. Slot content keeps the caller's scope. In the example, `a` and `date()` still
   refer to the caller's loop. It is light DOM, so global CSS, forms, labels and ARIA references
   work across the boundary.
 - Other attributes (`class`, `id`, `aria-*`) stay on the host element.
+
+### Components with a script
+
+A component gets a script when it needs the browser or a third-party library. Here a task ring is
+drawn with Chart.js:
+
+```html
+<!-- src/components/task-ring.html: the only contract -->
+<template data-sn-component="{ done: number; open: number }" data-sn-emits="{ pick: 'done' | 'open' }">
+  <figure>
+    <canvas data-sn-ref="canvas" role="img" data-sn-attr="{ 'aria-label': done + ' of ' + (done + open) + ' done' }"></canvas>
+    <figcaption data-sn-text="done + ' / ' + (done + open)"></figcaption>
+  </figure>
+</template>
+```
+
+```ts
+// src/components/task-ring.ts
+import Chart from 'chart.js/auto';                 // any npm package: bundled with the pages that use the component
+import { TaskRingElement } from './task-ring.html'; // generated from the component file, typed
+
+export class TaskRing extends TaskRingElement {
+  #chart?: Chart;
+
+  connected() {                                     // the markup is rendered; refs are set
+    this.#chart = new Chart(this.refs.canvas, {     // HTMLCanvasElement
+      type: 'doughnut',
+      data: { labels: ['Done', 'Open'], datasets: [{ data: [this.props.done, this.props.open] }] },
+      options: { onClick: (_e, [hit]) => hit && this.emit('pick', hit.index ? 'open' : 'done') },
+    });
+  }
+
+  propsChanged() {                                  // a live prop changed: a server event, a filter
+    this.#chart!.data.datasets[0].data = [this.props.done, this.props.open];
+    this.#chart!.update();
+  }
+
+  disconnected() { this.#chart?.destroy(); }
+}
+```
+
+```html
+<!-- any page -->
+<task-ring data-sn-prop="{ done: doneCount(tasks), open: openCount(tasks) }"
+           data-sn-on-pick="show = $event.detail"></task-ring>
+```
+
+- **First frame:** the caption and the `aria-label` are ordinary bindings, so they are in the first
+  frame. The library draws the ring once the page module runs.
+- **External code is an import.** The bundler puts it in the pages that use the component, and
+  nowhere else.
+- **`data-sn-ref="name"`** gives the script an element of its own markup as `this.refs.name`, with
+  the type of its tag. A ref inside a `data-sn-for` or `data-sn-if` template is `undefined` while
+  it is not rendered; the generated type says so.
+- **Lifecycle:**
+  - `connected()` runs after the page module has adopted the component's markup, so refs are set.
+  - `propsChanged()` runs once per flush in which a prop the script reads changed.
+  - `disconnected()` runs when the component leaves the page.
+- **State:** `this.state` is the component's `data-sn-state`. Assigning a field schedules a render,
+  as a handler does.
+- **The script writes only state.** It never writes to nodes sinter renders. A ref is for handing
+  an element to code that owns it (a canvas, a map container, an editor), not for setting its text.
+- The tag is registered by the generated base class from the file name. There is no
+  `customElements.define`.
+
+### One contract
+
+The props, events and refs are declared once, in the component's HTML, because that is the one file
+every component has: a markup-only component has no script to declare them in. The script gets them
+from a **generated base class**, the same way `src/sinter.messages.d.ts` is generated from the
+message files today:
+
+- `import { TaskRingElement } from './task-ring.html'` resolves, through the Vite plugin, to a base
+  class that extends sinter's element base and registers the tag.
+- A generated `task-ring.html.d.ts` types it:
+  - `this.props` from `data-sn-component`
+  - `this.emit(name, detail)` from `data-sn-emits`
+  - `this.refs` from `data-sn-ref`, typed by tag
+  - `this.state` from `data-sn-state`
+- Editors get completion and errors from those types, with no sinter TypeScript plugin.
+
+The compiler checks every edge against that one declaration:
+
+| Where | What is checked |
+| --- | --- |
+| The call site | `data-sn-prop` keys and types; `data-sn-on-<event>` names and the type of `$event.detail`; slot names |
+| The component's markup | bindings read only declared props, the component's state and globals; `emit()` names and details match `data-sn-emits` |
+| The script | TypeScript, through the generated base: a misspelled prop, event or ref, or a wrong detail type, is a type error |
+
+Changing a prop in the HTML updates the types the next time the dev server or `sinter check` runs,
+so a script that still uses the old name fails at once.
 
 ### Scope
 
@@ -158,8 +255,10 @@ the feed, the profile and the article page:
 `sinter check` already types pages against OpenAPI. Props are checked at each use:
 
 - Passing a `Profile` where `article: Article` is expected is an error at the call site.
-- `$event.detail` of a component event is typed from what it emits.
+- `$event.detail` of a component event is typed by `data-sn-emits`.
 - Slot names are checked.
+- A component's script is typed from the same declaration ([One contract](#one-contract)): there
+  is no second copy to drift.
 
 This closes the gaps that exist today for islands: `data-sn-prop` is unchecked, `$el` on a custom
 element is plain `HTMLElement`, and `$event.detail` is `any`.
@@ -167,8 +266,9 @@ element is plain `HTMLElement`, and `$event.detail` is `any`.
 ### 5. CSP-safe, small vocabulary, easy for an LLM to write correctly
 
 - No eval, no runtime templates.
-- The additions are one attribute (`data-sn-component`), native `<slot>` and `slot=""`, and
-  `<style>` in a component file.
+- The additions are three attributes (`data-sn-component`, `data-sn-emits`, `data-sn-ref`), native
+  `<slot>` and `slot=""`, `<style>` in a component file, and for scripts a generated base class
+  with three hooks.
 - Every mistake is a build error with a suggestion.
 - This is the property to protect most carefully when choosing between the open questions below.
 
@@ -242,18 +342,24 @@ has no store code**. `npm run size` must show the core unchanged.
    - first paint through components, with tests
 3. **`patch(row, …)` with the resource resolved per use.**
 4. **Scoped styles** (`@scope`, or a build-time attribute; see below).
-5. **Script components:** the script file, its state handle and lifecycle. Islands become this.
+5. **Script components:**
+   - the generated base class and its `.d.ts`, through the Vite plugin
+   - `data-sn-emits`, `data-sn-ref`
+   - `this.props`, `this.state`, `this.emit`, the three hooks
+   - tag registration from the file name
+
+   Islands become this.
 6. **Recursive and dynamic components:** the runtime path.
 7. **The RealWorld rewrite**, the comparison docs, the spec, README and `llms.txt`.
 
 ## Open questions
 
-1. **The script API.** Choose between:
-   - a class extending a small `SinterElement` base (`this.state`, `this.emit`, props as fields),
-     which stays a plain custom element;
-   - a setup function: `component('live-clock', ({ props, state, emit, onCleanup }) => …)`.
-
-   The class is closer to the platform; the function is shorter. One of them, not both.
+1. **Generated files.** Settled: a class extending a generated base, typed from the HTML (see
+   [One contract](#one-contract)); no setup-function API. Still open:
+   - a `.d.ts` next to each component, or one generated file for the app (as for messages);
+   - whether the generated files are committed;
+   - how the types stay fresh in an editor without the dev server running (`sinter lsp` could
+     write them).
 2. **The host element.** Keep `<article-preview>` in the DOM (a styling hook, the target for
    events, visible in devtools; `display: contents` when unwanted), or replace it with the
    template's content? Keeping it breaks components inside `<table>`, `<ul>` and `<select>`, where
