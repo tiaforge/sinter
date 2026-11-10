@@ -139,3 +139,9 @@ export function languageFile(locale: string, dict: Record<string, string>): stri
  * `data-sn-early`.
  */
 export const I18N_PICKER = `/* sinter i18n */${RENDER_FALLBACK}(function(){try{var e=document.currentScript,c=JSON.parse(e.getAttribute("data-sn-i18n")),K=Symbol.for("sinter.i18n"),g=globalThis[K]||(globalThis[K]={dicts:{}}),L=c.locales,s=null;try{s=localStorage.getItem(c.storage)}catch(x){}function f(l){if(!l)return;l=l.toLowerCase();for(var i=0;i<L.length;i++)if(L[i].toLowerCase()==l)return L[i];for(i=0;i<L.length;i++)if(L[i].toLowerCase()==l.split("-")[0])return L[i]}var n=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language],r=f(s);for(var i=0;!r&&i<n.length;i++)r=f(n[i]);g.locale=r||c.base;g.base=c.base;g.locales=L;g.storage=c.storage;g.files=c.files;g.dicts=g.dicts||{};document.documentElement.lang=g.locale;var t=document.createElement("script");t.type="module";t.src=c.files[g.locale];t.setAttribute("blocking","render");document.head.appendChild(t)}catch(x){}})();\n`;
+
+/**
+ * Prototype (`firstPaint: 'observe'`): the picker without the render-blocking fallback, adding the
+ * language file as a plain module script: it sets `<html lang>` and starts the load, nothing waits.
+ */
+export const I18N_PICKER_OBSERVE = I18N_PICKER.replace(RENDER_FALLBACK, '').replace('t.setAttribute("blocking","render");', '');

@@ -29,7 +29,7 @@ export default defineConfig({
   appType: 'mpa',
   plugins: [
     // the API's origin: every page allows it (no configure({ origins }) needed), and its resources are requested before the page module
-    sinter({ openapi: 'openapi.yml', origins: ['https://api.realworld.show'] }),
+    sinter({ openapi: 'openapi.yml', origins: ['https://api.realworld.show'], ...(process.env.SINTER_FIRST_PAINT === 'observe' ? { firstPaint: 'observe' } : {}) }),
     {
       name: 'conduit-routes',
       configureServer: (server) => () => server.middlewares.use(rewrite),

@@ -9,7 +9,7 @@ import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
 import { project, type ProjectOptions } from './project.js';
-import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
+import { I18N_PICKER, I18N_PICKER_OBSERVE, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT, PAINT_SCRIPT } from './paint-build.js';
 import { loadImages, MIME, type Images } from './images.js';
 import { pageStyles } from './styles.js';
@@ -29,8 +29,10 @@ export interface SinterOptions extends ProjectOptions {
    * first paint (default true): build-time constants are written into the HTML, and each page
    * gets an early chunk (the app's `src/sinter.early.ts`, then the bindings that need no data),
    * loaded render-blocking before the page module. `false`: everything waits for the page module.
+   * `'observe'` (prototype): the early file is a classic script in the page's head script, which
+   * renders each element as the parser inserts it; nothing holds the paint (see `observe` in early.ts).
    */
-  firstPaint?: boolean;
+  firstPaint?: boolean | 'observe';
   /** an early file above this many bytes gzip is a build warning (default 10000) */
   earlyBudget?: number;
   /**
@@ -130,6 +132,16 @@ const FACADE = /^\s*export\s*\{([^}]*)\}\s*from\s*["'`]([^"'`]+)["'`]\s*;?\s*$/;
  * are minified): the early files import the common chunk, and the facade, which nothing imports, is
  * dropped. Rollup puts the modules into the entry itself.
  */
+/**
+ * Prototype (`firstPaint: 'observe'`): the page's early module, started by `observe` instead of
+ * `start`, `run` or `prime` (the same arguments: the page, the messages, the requests).
+ */
+function observeEntry(code: string): string {
+  return code
+    .replace(/import \{ (prime|run|start)(, | \})/, (_, _n, rest) => `import { observe${rest}`)
+    .replace(/^(?:export const render = prime|start|run)\(/m, 'observe(');
+}
+
 function sharedChunk(bundle: Record<string, { type: string; fileName: string; code?: string; exports?: string[] }>, fileName: string) {
   const entry = bundle[fileName];
   if (entry?.type !== 'chunk') return null;
@@ -187,6 +199,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const watched = new Set<string>();
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
+  /** prototype: the early file runs from the head script, observing the parse, with no render-blocking module */
+  const observing = options.firstPaint === 'observe';
   /** pages that use `data-sn-transition`: they get the hold script (paint-build.ts) */
   const holdPages = new Set<string>();
   /**
@@ -503,8 +517,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const out = await vite!.build({
           configFile: false, root, base: r.base, mode: r.mode, logLevel: 'silent', publicDir: false, define: r.define,
           resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions },
-          plugins: [...(shared ? [importShared(shared, posix.relative(r.build.assetsDir, posix.dirname(shared.fileName)), sharedIds)] : []), {
-            name: 'sinter:early-entry', resolveId: (id) => (id === ENTRY ? '\0' + ENTRY : null), load: (id) => (id === '\0' + ENTRY ? code : null),
+          plugins: [...(shared && !observing ? [importShared(shared, posix.relative(r.build.assetsDir, posix.dirname(shared.fileName)), sharedIds)] : []), {
+            name: 'sinter:early-entry', resolveId: (id) => (id === ENTRY ? '\0' + ENTRY : null), load: (id) => (id === '\0' + ENTRY ? (observing ? observeEntry(code) : code) : null),
             transform(src, id) { if (messages && !id.includes('/node_modules/') && /\.[cm]?[jt]sx?$/.test(id)) for (const k of moduleKeys(src, id).keys) keys.add(k); },
           }],
           build: {
@@ -515,7 +529,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
               input: ENTRY,
               // a split early file exports `render` for its stub (an app build drops entry exports by default)
               preserveEntrySignatures: 'strict',
-              output: rolldown ? { format: 'es', codeSplitting: false } : { format: 'es', inlineDynamicImports: true },
+              output: observing ? { format: 'iife', ...(rolldown ? { codeSplitting: false } : { inlineDynamicImports: true }) }
+                : rolldown ? { format: 'es', codeSplitting: false } : { format: 'es', inlineDynamicImports: true },
             },
           },
         });
@@ -526,6 +541,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const chunk = chunks[0]!;
         const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
         const fileName = `${r.build.assetsDir}/${name}-early-${createHash('sha256').update(chunk.code!).digest('base64url').slice(0, 8)}.js`;
+        // observing: the code goes into the page's head script (below), not a file of its own
+        if (observing) { earlyFiles.set(rel, { fileName, code: chunk.code!, modules: chunk.modules ?? {}, shared: false }); continue; }
         this.emitFile({ type: 'asset', fileName, source: chunk.code! });
         // split: the render-blocking stub imports the early file (one module: the `async` tag already runs it) and renders
         let stub: string | undefined;
@@ -549,7 +566,19 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         headFiles.clear();
         const emitted = new Set<string>();
         for (const rel of new Set([...holdPages, ...earlyFiles.keys(), ...languageFiles.keys()])) {
-          const hold = holdPages.has(rel) ? HOLD_SCRIPT : '', second = languageFiles.has(rel) ? I18N_PICKER : earlyFiles.has(rel) ? PAINT_SCRIPT : '';
+          const hold = holdPages.has(rel) ? HOLD_SCRIPT : '';
+          if (observing) {
+            // one file per page: the hold script, the picker (its language file holds nothing) and the early file
+            const early = earlyFiles.get(rel)?.code ?? '', source = [hold, languageFiles.has(rel) ? I18N_PICKER_OBSERVE : '', early].filter(Boolean).join('\n');
+            if (!source) continue;
+            const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
+            const fileName = `${r.build.assetsDir}/sinter-head-${early ? name + '-' : ''}${createHash('sha256').update(source).digest('base64url').slice(0, 8)}.js`;
+            if (!emitted.has(fileName)) this.emitFile({ type: 'asset', fileName, source });
+            emitted.add(fileName);
+            headFiles.set(rel, fileName);
+            continue;
+          }
+          const second = languageFiles.has(rel) ? I18N_PICKER : earlyFiles.has(rel) ? PAINT_SCRIPT : '';
           if (!hold && !second) continue;
           const kind = hold && second ? 'head' : hold ? 'hold' : second === I18N_PICKER ? 'i18n' : 'paint';
           const source = hold && second ? `${hold}\n${second}` : hold || second;
@@ -785,22 +814,23 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const tags: string[] = [];
         // the shared chunk the early file imports, requested with it (not once the early file has arrived)
         const preload = early?.shared ? `<link rel="modulepreload" crossorigin href="${attr(base + shared!.fileName)}">` : '';
-        if (preload && !early!.stub) tags.push(preload);
+        if (preload && !early!.stub && !observing) tags.push(preload);
         // the one classic head script. Its hold part goes before the page module's tag, which it changes as the parser
         // inserts it; its picker part before the early file: it runs while the head is parsed, so the language file it
         // adds blocks the first paint too; it (or, without messages, the paint part) also holds the first paint where
         // `blocking` is not supported
         const head = base + headFiles.get(rel)!;
-        if (langs) tags.push(pickerTag(head, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName])), !!early));
-        else if (early) tags.push(paintTag(head));
-        else if (hold) tags.push(`<script src="${attr(head)}"></script>`);
+        if (langs) tags.push(pickerTag(head, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName])), !!early && !observing));
+        else if (early && !observing) tags.push(paintTag(head));
+        else if (hold || early) tags.push(`<script src="${attr(head)}"></script>`);
         // a split early file renders from its stub, here; the file itself is loaded `async` before the stylesheets (below)
-        if (early) tags.push(`<script type="module" crossorigin src="${attr(base + (early.stub ?? early.fileName))}" blocking="render"></script>`);
+        if (early && !observing) tags.push(`<script type="module" crossorigin src="${attr(base + (early.stub ?? early.fileName))}" blocking="render"></script>`);
         if (early || langs) report(rel, early ?? null, langs ?? null);
-        const at = html.search(/<script type="module"|<link rel="modulepreload"/);
+        // observing: first in the head, before the stylesheets (a classic script waits for the stylesheets before it)
+        const at = observing ? html.search(/<link\b[^>]*\brel=["']?(stylesheet|modulepreload)|<script\b/i) : html.search(/<script type="module"|<link rel="modulepreload"/);
         const block = tags.join('\n    ');
         html = at >= 0 ? html.slice(0, at) + block + '\n    ' + html.slice(at) : html.replace('</head>', `    ${block}\n  </head>`);
-        if (!early?.stub) return html;
+        if (!early?.stub || observing) return html;
         // the split early file first in the head, before the stylesheets and the classic scripts that wait for them, so
         // the parser creates it at once; `async`, so it runs (and starts the page's requests) as soon as it has loaded
         const first = html.search(/<link\b[^>]*\brel=["']?stylesheet|<script\b/i);

@@ -97,6 +97,69 @@ export function run(page: EarlyPage, doc: Document = document): void {
 
 const fail = (e: unknown) => { setTimeout(() => { throw e; }); };
 
+/**
+ * Prototype (`sinter({ firstPaint: 'observe' })`): the early file as a classic script in the head,
+ * run while the head is parsed, before any of the body exists. It starts the early requests at once
+ * and renders each early root as the parser closes it, from a MutationObserver: its callback is a
+ * microtask at the end of the parser's task, so it runs before the browser can paint that element,
+ * in every browser and with no `blocking` attribute. Nothing waits for the network: a message
+ * binding whose dictionary has not arrived is skipped (the language file is loaded without holding
+ * the paint) and tried again if it arrives before the parse ends; else the page module renders it.
+ * At DOMContentLoaded a last pass renders what is left, and the page module may mount.
+ */
+export function observe(page: EarlyPage | null, messages: { use(): void } | null = null, req: EarlyRequests | null = null, doc: Document = document): void {
+  messages?.use();
+  const m = meeting();
+  m.started = true;
+  let p: ReturnType<typeof prepare> | null = null;
+  try { if (page) (p = prepare(page(), req)).fetch(); } catch (e) { fail(e); }
+  if (!p) { m.finish(); return; }
+  const prep = p, I = (globalThis as any)[Symbol.for('sinter.i18n')] as { locale?: string; dicts?: Record<string, unknown>; loaded?: (l: string) => void } | undefined;
+  const waiting = () => !!I?.locale && !I.dicts?.[I.locale];
+  const pass = (all: boolean) => {
+    live = { all, done };
+    // a missing dictionary: `m` throws (its lookup reads this), so those bindings are left for later
+    const trap = waiting() && I!.dicts ? (I!.dicts[I!.locale!] = new Proxy({}, { get() { throw NOT_YET; } })) : null;
+    try { prep.render(doc); } catch (e) { fail(e); }
+    if (trap && I!.dicts![I!.locale!] === trap) delete I!.dicts![I!.locale!];
+    live = null;
+  };
+  const done = new Set<Element>();
+  let ended = false;
+  const o = new MutationObserver(() => { if (!ended) pass(false); });
+  o.observe(doc.documentElement, { childList: true, subtree: true });
+  if (I && waiting()) {
+    const prev = I.loaded;
+    I.loaded = (l) => { prev?.(l); if (!ended && retries.length) { const r = retries.splice(0); for (const f of r) f(); } };
+  }
+  const end = () => {
+    if (ended) return;
+    o.disconnect();
+    pass(true);
+    ended = true;
+    retries.length = 0;
+    m.finish();
+  };
+  if (doc.readyState != 'loading') end(); else doc.addEventListener('DOMContentLoaded', end, { once: true });
+}
+
+const NOT_YET = Symbol('not yet');
+/** during an observing pass: which roots are rendered already, and whether the parse has ended */
+let live: { all: boolean; done: Set<Element> } | null = null;
+/** the bindings skipped for a missing dictionary, tried again when it arrives */
+const retries: Array<() => void> = [];
+
+/** whether the parser has moved past `el`: it, or an ancestor, has a following node */
+const closed = (el: Node) => {
+  for (let n: Node | null = el; n && n.nodeType == 1; n = n.parentNode) if (n.nextSibling) return true;
+  return false;
+};
+/** a root to render now: closed, and the `data-sn-else` template that follows an `if` parsed too */
+const ready = (el: Element) => {
+  const e = el.localName == 'template' ? el.nextElementSibling : null;
+  return closed(el) && (!e || !e.hasAttribute('data-sn-else') || closed(e));
+};
+
 /** The base scope: what is not available before data throws, and the binding (or request) is left to the page module. */
 function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
   return new Proxy(Object.create(null), {
@@ -230,7 +293,12 @@ export function pm(s: any, key: string, set: Fn): void {
 /** the root elements by `data-sn` id, in the order given */
 export function byId(doc: Document, ids: Array<number | undefined>): Array<Element | null> {
   const m = new Map<number, Element>();
-  for (const el of doc.querySelectorAll('[data-sn]')) m.set(+el.getAttribute('data-sn')!, el);
+  for (const el of doc.querySelectorAll('[data-sn]')) {
+    // observing: each root once, when the parser has closed it
+    if (live && (live.done.has(el) || (!live.all && !ready(el)))) continue;
+    live?.done.add(el);
+    m.set(+el.getAttribute('data-sn')!, el);
+  }
   return ids.map((i) => m.get(i!) ?? null);
 }
 
@@ -248,7 +316,11 @@ export function at(nodes: Node[], path: number[], tag: string): Element | null {
 export function w(el: Element | null, f: Fn, s: any, wr: (el: any, v: any, n: string) => void, n = ''): void {
   if (!el) return;
   let v: any;
-  try { v = f(s); } catch { return; }
+  try { v = f(s); } catch (e) {
+    // a message whose dictionary is on its way: tried again when it arrives (observe)
+    if (e === NOT_YET) retries.push(() => w(el, f, s, wr, n));
+    return;
+  }
   wr(el, v, n);
 }
 
