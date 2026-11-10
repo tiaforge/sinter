@@ -435,9 +435,26 @@ Missing any of these loses the comparison regardless of the hallmark:
 
 ## What changes elsewhere
 
-- **`<sn-include>`:** a partial is a component with no props and lexical scope. Under "one way to
-  do each thing", either partials stay as the lexical-scope tool and components are the isolated
-  one, or `<sn-include>` is deprecated. Open question below.
+- **`<sn-include>` is removed (breaking).** A partial is a component without a script, so keeping
+  both would be two ways to do one thing.
+  - **Scope is the one real difference.** A partial sees the scope where it is inserted, while a
+    component sees only its props. A partial that reads outer names, such as a dialog that uses the
+    page's `draft`, takes them as props.
+  - **The migration is checked.** The compiler already checks each partial against each page that
+    includes it, so it knows which outer names a partial reads. `<sn-include>` becomes a build error
+    that lists them: "`contact-dialog` reads `draft`, `save`: add them to `data-sn-component` and
+    pass them with `data-sn-prop`". Moving the file to `src/components/` and renaming the tag
+    completes it.
+  - **IDs inside components.** `showModal('edit')`, `close('edit')` and `run('id')` check their id
+    against the page and, today, its partials (`SN309`, `SN311`). They look inside the components a
+    page uses instead. A component used more than once whose markup has a literal `id` would make
+    duplicate ids: a build error, unless the id is computed from a prop.
+  - **Diagnostics move:** `SN305` (partial not found) and `SN306` (partial cycle) are retired; a
+    component that uses itself is the recursion case under
+    [Limits](#limits-that-come-from-expanding-at-build-time).
+  - **What uses partials today:** the starter template (`partials/header.html`), test fixtures,
+    the LSP, the Vite plugin's file watching and the docs. All move to components with the
+    implementation.
 - **Docs:**
   - `spec.md`: drop the non-goal.
   - README: "No components to write" becomes "components that need no hydration and no store".
@@ -467,6 +484,7 @@ has no store code**. `npm run size` must show the core unchanged.
    - slots
    - diagnostics, `sinter check`, LSP
    - first paint through components, with tests
+   - removing `<sn-include>`: the migration error, ids across components, the template's header
 3. **Store functions:** `patch(item, …)` and `remove(item)` resolved from where the item came from,
    replacing the forms with a resource name; provenance through state assignments and component
    props. This step is useful for pages on its own and can ship before components.
@@ -483,7 +501,6 @@ has no store code**. `npm run size` must show the core unchanged.
 
 ## Open questions
 
-5. **`<sn-include>`.** Keep partials for lexical scope, or deprecate them in favour of components?
 6. **Two-way props.** `data-sn-model` on a component, for a custom input? Events cover it, but
    forms are where people will expect it.
 7. **Exporting.** sinter components are not custom elements. Should a component also build as a
