@@ -141,9 +141,10 @@ RealWorld's lists moved to native pagination (`start-page="$url.page"`), and the
 | Page | sinter static: first paint / LCP | sinter-axum: first paint / LCP |
 | --- | --- | --- |
 | Home | 528 / 960 ms | 576 / **576** ms |
-| Article | 528 / 952 ms | 564 / 1,068 ms |
+| Article, marked and DOMPurify lazy | 524 / 976 ms | 560 / 1,088 ms |
+| Article, marked and DOMPurify with the page | 524 / 948 ms | 548 / **888** ms |
 
-The article page is slower with the server. Its LCP is the Markdown body, which the browser renders after the page module, marked and DOMPurify (loaded lazily, for the page's size budget). With the data in the page, the rest of the article renders during the parse, so the author's avatar is requested at once (512 ms instead of 738). On slow 4G that image shares the link with the page's module chunks, and the module mounts later, with more to do; marked is requested at 719 ms instead of 617. Starting the Markdown chunk earlier on this page would fix it; it runs into the size budget that made it lazy.
+The article page's LCP is the Markdown body, rendered in the browser by marked and DOMPurify. Loaded lazily, they were requested only once the page module ran; with the data in the page that came later (the rest of the article renders during the parse, so the author's avatar shares the slow link with the module chunks), and the server made the page slower. Imported statically by `src/markdown.js` again, they download with the page, and the article page is faster with the server than without. They are RealWorld's own libraries, not sinter: the size check (`scripts/size.mjs`) now leaves the example's dependencies out of the page budgets and reports them apart (marked 13.2 kB, DOMPurify 9.2 kB gzip); the article page is 22.3 kB of its 27 kB budget.
 
 ### Not measured, or not right yet
 

@@ -11,6 +11,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   only the page's URL decides gets a data placeholder (not `call`, `each` or `early="off"`), and is neither preloaded
   nor requested early. `sinter-embed.json` describes simple `when` conditions (`$url` values against strings, `!`,
   `&&`, `||`) and `start-page`.
+- RealWorld: marked and DOMPurify load with the article page again (its LCP is the Markdown body: 1,088 → 888 ms on
+  slow 4G with sinter-axum). The size check leaves the example's own dependencies out of the page budgets and
+  reports them apart.
 - Pagination: `offset-param` in offset mode (the items to skip instead of the page number), and `start-page`
   (offset mode, or keyset with `offset-param`): the page the first load asks for, e.g. `start-page="$url.page"` for
   lists whose page links navigate. RealWorld's lists use both instead of its `offset()` helper.
