@@ -22,6 +22,7 @@ export default defineConfig(async () => ({
   base: `/${variant}/`,
   publicDir: false,
   plugins: [await plugins[variant](), shell],
-  build: { outDir: `../../dist/${variant}`, emptyOutDir: true, modulePreload: { polyfill: false } },
+  // MINIFY=0: readable function names for profile.mjs
+  build: { outDir: `../../dist/${variant}`, emptyOutDir: true, modulePreload: { polyfill: false }, minify: process.env.MINIFY !== '0' },
   server: { fs: { allow: ['../..'] } },
 }));

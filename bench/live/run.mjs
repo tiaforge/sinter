@@ -6,6 +6,8 @@
 //   node build.mjs && CHROME=/path/to/chrome node run.mjs
 //   ONLY also takes datastar-elements (Datastar's HTML morph mode, before signals mode replaced it here)
 //   RATES=50,100,200,500,1000,2000,5000 STEP=3000 WARM=1000 CPU=1 ONLY=sinter,solid CHROME_ARGS=--no-sandbox
+//   QUICK=1: for iterating, ~20 s a variant: both CPU settings, 3 rates each, 1 s steps after 300 ms
+//   (CPU=1,4 also runs several settings in one invocation)
 //
 // Measured per step (the page's harness, shared/harness.js, and the DevTools protocol):
 //   shown/s   ticks the page showed per second (a framework that coalesces shows fewer than were sent)
@@ -21,7 +23,10 @@ import { evaluate, launch, withPage } from '../swap/cdp.mjs';
 
 const env = (k, d) => process.env[k] ?? d;
 const RATES = env('RATES', '50,100,200,500,1000,2000,5000').split(',').map(Number);
-const STEP = +env('STEP', 3000), WARM = +env('WARM', 1000), CPU = +env('CPU', 1);
+const QUICK = !!process.env.QUICK;
+const STEP = +env('STEP', QUICK ? 1000 : 3000), WARM = +env('WARM', QUICK ? 300 : 1000);
+const CPUS = env('CPU', QUICK ? '1,4' : '1').split(',').map(Number);
+const ratesFor = (cpu) => (process.env.RATES ? RATES : QUICK ? (cpu > 1 ? [200, 500, 1000] : [1000, 2000, 5000]) : RATES);
 const VARIANTS = env('ONLY', 'sinter,solid,svelte,vue,datastar,htmx').split(',');
 const idle = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -33,18 +38,20 @@ const control = async (rate) => (await fetch(`${base}/control${rate == null ? ''
 const q = (xs, p) => { if (!xs.length) return NaN; const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
 const metricsOf = async (send) => Object.fromEntries((await send('Performance.getMetrics')).metrics.map((m) => [m.name, m.value]));
 
-const results = {}, heaps = {};
+const results = {}, heaps = {}, names = [];
 const chrome = await launch();
 try {
-  for (const v of VARIANTS) {
+  for (const CPU of CPUS) for (const variant of VARIANTS) {
+    const v = CPUS.length > 1 ? `${variant} @${CPU}x` : variant;
+    names.push(v);
     await control(0);
     const rows = (results[v] = []);
-    await withPage(chrome, `${base}/${v}/`, async (send) => {
+    await withPage(chrome, `${base}/${variant}/`, async (send) => {
       await send('Performance.enable', { timeDomain: 'timeTicks' });
-      await idle(500);
+      await idle(QUICK ? 200 : 500);
       await send('HeapProfiler.collectGarbage');
       const heap0 = (await metricsOf(send)).JSHeapUsedSize;
-      for (const rate of RATES) {
+      for (const rate of ratesFor(CPU)) {
         await control(rate);
         await idle(WARM);
         await evaluate(send, '__live.mark()');
@@ -52,7 +59,7 @@ try {
         await idle(STEP);
         const got = await evaluate(send, '__live.take()');
         const m1 = await metricsOf(send), wall = (performance.now() - t0) / 1000;
-        const sched = (await control(0)).streams.find((s) => s.fmt === (['datastar', 'datastar-elements', 'htmx'].includes(v) ? v : 'json'));
+        const sched = (await control(0)).streams.find((s) => s.fmt === (['datastar', 'datastar-elements', 'htmx'].includes(variant) ? variant : 'json'));
         // when the server had each tick due
         const due = (seq) => { const g = sched.segments.findLast(([first]) => first <= seq); return g[1] + (seq - g[0]) * g[2]; };
         const dom = got.samples.map(([seq, at]) => at - due(seq));
@@ -86,19 +93,23 @@ try {
 }
 
 const f = (x, n = 0) => (Number.isFinite(x) ? x.toFixed(n) : '–');
-console.log(`\nCPU ${CPU}x, ${STEP} ms per step after ${WARM} ms warm-up. Latencies in ms from when the server had the tick due.\n`);
+console.log(`\nCPU ${CPUS.map((c) => c + 'x').join(', ')}, ${STEP} ms per step after ${WARM} ms warm-up. Latencies in ms from when the server had the tick due.\n`);
 // the highest rate each variant kept up with: drained, and the frame p95 under 100 ms
 console.log('| variant | keeps up to (ticks/s) | heap after GC, start → end (MB) |\n| --- | ---: | ---: |');
-for (const v of VARIANTS) {
+for (const v of names) {
   const ok = results[v].filter((r) => r.drainMs != null && r.frame95 < 100);
-  console.log(`| ${v} | ${ok.length ? ok.at(-1).rate : '< ' + RATES[0]} | ${f(heaps[v]?.start, 1)} → ${f(heaps[v]?.end, 1)} |`);
+  console.log(`| ${v} | ${ok.length ? ok.at(-1).rate : '< ' + results[v][0]?.rate} | ${f(heaps[v]?.start, 1)} → ${f(heaps[v]?.end, 1)} |`);
 }
 console.log('\n| variant | rate/s | shown/s | fps | dom p50 / p95 | frame p50 / p95 | busy % | script % | style+layout % | long tasks (ms) | heap MB | drain ms |');
 console.log('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
-for (const v of VARIANTS) for (const r of results[v]) {
+for (const v of names) for (const r of results[v]) {
   console.log(`| ${v} | ${r.rate} | ${f(r.shown)} | ${f(r.fps)} | ${f(r.dom50, 1)} / ${f(r.dom95, 1)} | ${f(r.frame50, 1)} / ${f(r.frame95, 1)} | ${f(r.busy)} | ${f(r.script)} | ${f(r.layout)} | ${r.long} (${f(r.longMs)}) | ${f(r.heap, 1)} | ${r.drainMs == null ? 'no' : f(r.drainMs)} |`);
 }
-mkdirSync('results', { recursive: true });
-const out = `results/${new Date().toISOString().replace(/[:.]/g, '-')}-cpu${CPU}.json`;
-writeFileSync(out, JSON.stringify({ CPU, STEP, WARM, RATES, results, heaps }, null, 1));
-console.log(`\nRaw: ${out}`);
+// quick runs are for iterating: not kept unless asked (OUT=dir)
+const dir = env('OUT', QUICK ? '' : 'results');
+if (dir) {
+  mkdirSync(dir, { recursive: true });
+  const out = `${dir}/${new Date().toISOString().replace(/[:.]/g, '-')}-cpu${CPUS.join('-')}.json`;
+  writeFileSync(out, JSON.stringify({ CPUS, STEP, WARM, rates: Object.fromEntries(CPUS.map((c) => [c, ratesFor(c)])), results, heaps }, null, 1));
+  console.log(`\nRaw: ${out}`);
+}

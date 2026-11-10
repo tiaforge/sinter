@@ -1096,6 +1096,7 @@ sinter updates the DOM fine-grained, without a virtual DOM: every binding knows 
 
 ### Scheduler
 - All changes in one task are collected; one microtask flush evaluates dirty bindings and writes.
+- Changes from server events (`<sn-sync>`: the store changes and state writes of `<sn-event>` mappings and their `then`) are applied when the event arrives, and rendered before the next frame is painted (`requestAnimationFrame`) instead of in a microtask, so a burst of events renders once per frame. Any other change (a handler, a response, a timer) still flushes in a microtask and renders the waiting server changes with it. A hidden page has no frames: there, server events flush in a microtask as before. Islands' `app.on()` listeners run when the event arrives, before that render. (Added 2026-11-10, from bench/live: at 4× CPU slowdown a dashboard kept up with 200 events/s when each one rendered, and with 5,000/s at 51 fps rendering once per frame.)
 - The core never reads layout (`offsetHeight`, `getBoundingClientRect`), so a flush cannot force reflow.
 - Bindings inside a closed `<dialog>` are kept dirty and evaluated on its `toggle` to open.
 
