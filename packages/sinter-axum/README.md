@@ -133,6 +133,27 @@ To have a resource's data embedded, add an empty placeholder with its name to th
 
 The page also works without the layer: the placeholder stays empty and the browser requests the data. With the layer, the data is in the HTML, and the bindings over it, rows included, render while the page is parsed.
 
+### From the source to what the browser receives
+
+The build gives the placeholder a numeric id and lists it in `sinter-embed.json` with its request:
+
+```html
+<!-- dist/index.html -->
+<script type="application/json" data-sn="0"></script>
+```
+
+```json
+{ "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }] }
+```
+
+For a request to `/?tag=rust`, the layer requests `/api/articles?tag=rust` from your API and writes the response body into the placeholder:
+
+```html
+<script type="application/json" data-sn="0">{"articles":[{"slug":"hello","title":"Hello"}],"articlesCount":1}</script>
+```
+
+The body goes in exactly as the API returned it (`items="articles"` picks the list out of it in the browser), except that every `<` is escaped. If the request fails, the placeholder is sent empty, as in `dist/`.
+
 ## Measured
 
 Measured on RealWorld, slow 4G, cold Chromium; details in [docs/first-paint-comparison.md](../../docs/first-paint-comparison.md).
