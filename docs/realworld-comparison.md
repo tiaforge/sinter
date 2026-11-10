@@ -165,8 +165,8 @@ sinter (per state of the button; optimistic, rolled back on failure, signed-out 
 ```html
 <button class="btn btn-outline-primary btn-sm pull-xs-right"
         data-sn-post="https://api.realworld.show/api/articles/{a.slug}/favorite"
-        data-sn-optimistic="patch('articles', a, {favorited: true, favoritesCount: a.favoritesCount + 1})"
-        data-sn-then="patch('articles', a, $result.article)"
+        data-sn-optimistic="patch(a, {favorited: true, favoritesCount: a.favoritesCount + 1})"
+        data-sn-then="patch(a, $result.article)"
         data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
   <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
 </button>

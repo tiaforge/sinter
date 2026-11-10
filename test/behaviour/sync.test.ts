@@ -126,8 +126,8 @@ test('optimistic layers: overlapping actions and server events mid-flight', asyn
     <template data-sn-for="x in m">
       <div>
         <span data-sn-text="[x.subject, x.read ? 'read' : 'unread', x.flagged ? 'flag' : '-'].join(' ')"></span>
-        <button id="read" data-sn-patch="/api/read" data-sn-body="{id: x.id}" data-sn-optimistic="patch('m', x, {read: true})">r</button>
-        <button id="flag" data-sn-patch="/api/flag" data-sn-body="{id: x.id}" data-sn-optimistic="patch('m', x, {flagged: true})">f</button>
+        <button id="read" data-sn-patch="/api/read" data-sn-body="{id: x.id}" data-sn-optimistic="patch(x, {read: true})">r</button>
+        <button id="flag" data-sn-patch="/api/flag" data-sn-body="{id: x.id}" data-sn-optimistic="patch(x, {flagged: true})">f</button>
       </div>
     </template>`, { requests, streams: { '/s': stream } });
   await settle();

@@ -20,7 +20,7 @@
     <time data-sn-text="relative(m.sent_at, $now)"></time>
     <button data-sn-patch="/api/email/message/flags"
             data-sn-body="{account_id: m.account_id, mailbox: m.mailbox, uid: m.uid, flags: ['\\Flagged'], set: !m.is_flagged}"
-            data-sn-optimistic="patch('messages', m, {is_flagged: !m.is_flagged})"
+            data-sn-optimistic="patch(m, {is_flagged: !m.is_flagged})"
             data-sn-catch="emit('toast', $error.message)"
             data-sn-attr="{'aria-pressed': m.is_flagged}">★</button>
   </article>

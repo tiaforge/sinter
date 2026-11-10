@@ -700,8 +700,8 @@ An action is an element with one method attribute; it sends a request when its t
 | --- | --- |
 | `refresh('contacts')`, `refresh('messages', 'unread')` | refetch each named resource (names as in Resource names below; one call, one statement for `SN507`) |
 | `upsert('contacts', $result)` | insert or replace an item |
-| `patch('contacts', item, {…})` | change fields of an item |
-| `remove('contacts', item)` | remove an item |
+| `patch(item, {…})` | change fields of an item, in the resource it came from |
+| `remove(item)` | remove an item from the resource it came from; a single resource becomes `null` |
 | `page('messages', 'next')` | change page: a direction, or a page number where the resource can jump; may be computed (see Pagination) |
 | `showModal('edit')` | open `<dialog id="edit">` as a modal; nothing if it is open |
 | `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
@@ -732,7 +732,9 @@ A mutation's 2xx response is applied to the resources it is about, by the `apply
 - RealWorld (2026-11-08): 12 of 19 `then` handlers went, among them every favorite and follow button and the comment form's `upsert`.
 
 ### Resource names
-`refresh()`, `upsert()`, `patch()`, `remove()` and `page()` take the resource name as an expression whose possible values the compiler can list from the source: a string literal; `c ? x : y` where `x` and `y` are such expressions (the test is any value expression); `x || y` and `x ?? y` where both are; parentheses; and a `data-sn-let` name whose value is such an expression (lets are inlined, so the compiler has their expression). "Page the list shown", where the list is one of two resources:
+`patch(item, …)` and `remove(item)` take no resource name (added 2026-11-10; the forms with one are `SN317`). The compiler resolves where the item came from, as write-through resolves what an action is about: a loop row (for `a in (x ? feed : articles)`, either list; through `filter`, `slice`, `toSorted`, `toReversed`, or a helper that takes exactly one resource or list with a source; a helper that takes two is `SN317`), an element of a list (`list[i]`, `.find()`, `.findLast()`, `.at()`), a single resource, a `data-sn-let` name or a component prop that is one of those, a component event's `$event.detail` when the component emits one of those, `structuredClone()` of one, and a state path a handler on the page assigns one of those (`sel = m`; every assignment counts). It passes those resource names to the runtime ahead of the item; the runtime changes the item in the first that holds its key (a single resource is the item itself). An item with none of these sources is `SN317`, naming what to use instead: write-through for `$result`, `<sn-event resource op>` for a payload, the instance API for an island's event. State that holds a row stays a snapshot: sinter does not rewrite values in state; `patch(sel, …)` finds the item by its key.
+
+`refresh()`, `upsert()` and `page()` take the resource name as an expression whose possible values the compiler can list from the source: a string literal; `c ? x : y` where `x` and `y` are such expressions (the test is any value expression); `x || y` and `x ?? y` where both are; parentheses; and a `data-sn-let` name whose value is such an expression (lets are inlined, so the compiler has their expression). "Page the list shown", where the list is one of two resources:
 ```html
 <div data-sn-let="{ shown: searching ? 'results' : 'messages', list: searching ? results : messages }"
      data-sn-on-list-next="page(shown, 'next')"
@@ -837,7 +839,7 @@ configure({
 ```
 ```html
 <form data-sn-put="/api/notes/{note.id}" data-sn-retry="drafts" data-sn-concurrency="latest"
-      data-sn-optimistic="patch('notes', note, {title, body})">
+      data-sn-optimistic="patch(note, {title, body})">
 ```
 
 | Policy field | Default | Meaning |
@@ -873,7 +875,7 @@ Durations are written as in `refresh` and `cache` (`30s`, `5m`, `1h`, `1d`); `re
 ### Local actions (`data-sn-call`)
 Work that is not one request (crypto, MIME, WebAuthn, other browser APIs) runs in app functions that pages call like requests (added 2026-11-05; decided in the local actions proposal).
 ```html
-<button data-sn-call="mail.archive(msg)" data-sn-optimistic="remove('messages', msg)" data-sn-catch="error = $error.message">Archive</button>
+<button data-sn-call="mail.archive(msg)" data-sn-optimistic="remove(msg)" data-sn-catch="error = $error.message">Archive</button>
 <sn-resource name="body" call="pgp.decrypt(open)" when="open" type="Decrypted"></sn-resource>
 ```
 - The actions module is `src/sinter.actions.js` or `.ts` (`sinter({ actions })` overrides it), read like the helpers module: export names, `export * as ns` namespaces, re-exports followed. Its functions may be async and have side effects.
@@ -890,13 +892,13 @@ Work that is not one request (crypto, MIME, WebAuthn, other browser APIs) runs i
 A handler cannot call an action function (`SN203`), because an action's lifecycle belongs to its element: `aria-busy`, concurrency (never aborted), the optimistic layer and its rollback, `then`/`catch` and the unhandled-error path. `run('id')` starts the action of the element with that id instead, and that lifecycle runs unchanged (added 2026-11-08, for Caley's mark-read after load and for keyboard shortcuts without a visible control; there is still no `app.call()`):
 ```html
 <span hidden id="mark-read" data-sn-call="mail.markRead(open)"
-      data-sn-optimistic="patch('messages', open, {is_read: true})"></span>
+      data-sn-optimistic="patch(open, {is_read: true})"></span>
 <sn-resource name="body" call="mail.body(open)" when="open"
              then="$result && !open.is_read && run('mark-read')"></sn-resource>
 
 <body data-sn-on-keydown-e="run('archive')">
   <button id="archive" data-sn-post="/api/archive?id={open.id}" data-sn-attr="{disabled: !open}"
-          data-sn-optimistic="remove('messages', open)">Archive</button>
+          data-sn-optimistic="remove(open)">Archive</button>
 ```
 - **Target.** The element with that `id` in the mount root (components included). It carries an action: `data-sn-get`, `-post`, `-put`, `-patch`, `-delete` or `data-sn-call`, on any element, forms included. Elements with only `data-sn-on-*` handlers are not targets: their work is state writes the caller can make itself, or a helper both call.
 - **Not a form:** `run()` enters where the trigger event would, so everything after the event happens as for a click: `data-sn-debounce`, `data-sn-confirm` (no means nothing happens), the concurrency policy, `data-sn-optimistic`, `aria-busy`, the request or call, `then`/`catch` and the unhandled-error path. No DOM event is dispatched: the target's own `data-sn-on-*` handlers do not run, nothing bubbles, and no default action happens (a link does not navigate, a checkbox does not toggle).
@@ -941,7 +943,7 @@ An action with `data-sn-optimistic` changes the store before the request is sent
 ```html
 <button data-sn-patch="/api/email/message/flags"
         data-sn-body="{account_id: m.account_id, mailbox: m.mailbox, uid: m.uid, flags: ['\\Flagged'], set: !m.is_flagged}"
-        data-sn-optimistic="patch('messages', m, {is_flagged: !m.is_flagged})"
+        data-sn-optimistic="patch(m, {is_flagged: !m.is_flagged})"
         data-sn-catch="emit('toast', $error.message)"
         data-sn-attr="{'aria-pressed': m.is_flagged}">★</button>
 ```
@@ -969,11 +971,11 @@ This is why rollback is "drop the layer", not "restore a snapshot": with two ove
 
 | Action | Optimistic change |
 | --- | --- |
-| Flag or mark read | `patch('messages', m, {is_flagged: …})` |
-| Delete or move mail | `remove('messages', m)` |
+| Flag or mark read | `patch(m, {is_flagged: …})` |
+| Delete or move mail | `remove(m)` |
 | Bulk mark read | one layer with one `patch` per selected message |
-| Delete contact | `remove('contacts', c)` |
-| Toggle calendar visibility | `patch('calendars', cal, {hidden: !cal.hidden})` |
+| Delete contact | `remove(c)` |
+| Toggle calendar visibility | `patch(cal, {hidden: !cal.hidden})` |
 
 
 ## Pagination
@@ -1222,7 +1224,7 @@ Islands are custom elements that own imperative work (encryption, rich editors, 
 ```html
 <template data-sn-if="selected">
   <mail-reader data-sn-prop="{message: selected, unlocked: vaultUnlocked}"
-                data-sn-on-reader-flag="patch('messages', selected, {is_flagged: $event.detail})"></mail-reader>
+                data-sn-on-reader-flag="patch(selected, {is_flagged: $event.detail})"></mail-reader>
 </template>
 ```
 - `data-sn-prop` assigns JS properties, so islands receive objects, not strings.
@@ -1276,7 +1278,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 | `SN202 forbidden-global` | error | `window` is a browser API; expressions may use JavaScript, not the browser. Use an island |
 | `SN203 side-effect` | error | value expressions cannot assign; move this to `data-sn-on-*` |
 | `SN204 optimistic-scope` | error | `data-sn-optimistic` may only call `patch`, `upsert`, `remove` |
-| `SN205 resource-mutation` | error | `m.is_read = true` mutates a resource. Use `patch('messages', m, {is_read: true})` |
+| `SN205 resource-mutation` | error | `m.is_read = true` mutates a resource. Use `patch(m, {is_read: true})` |
 | `SN206 unknown-namespace-member` | error | `m.inbox_titel` is not exported by namespace `m`. Did you mean `inbox_title`? |
 | `SN207 unsafe-sink` | error | `onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click` |
 | `SN208 type-error` | error | Property 'nmae' does not exist on type 'Contact'. (TS2339) — `sinter check` only |
@@ -1457,7 +1459,7 @@ Endpoints used: `GET /api/contacts` → `{addressbooks, contacts}`, `POST /api/c
         <button data-sn-on-click="draft = structuredClone(c)" commandfor="edit" command="show-modal">Edit</button>
         <button data-sn-delete="/api/contact"
                 data-sn-body="{account_id: c.account_id, uid: c.uid, addressbook_href: c.addressbook_href}"
-                data-sn-optimistic="remove('contacts', c)">Delete</button>
+                data-sn-optimistic="remove(c)">Delete</button>
       </li>
     </template>
   </ul>

@@ -15,11 +15,11 @@
 
   <!-- no visible control: the element only carries the action (data-sn-call works the same) -->
   <span hidden id="mark-read" data-sn-patch="/api/messages/{open.id}" data-sn-body="{is_read: true}"
-        data-sn-optimistic="patch('messages', open, {is_read: true})"
+        data-sn-optimistic="patch(open, {is_read: true})"
         data-sn-catch="error = $error.message"></span>
   <!-- the button and E run one action; while it is disabled, E does nothing either -->
   <button id="archive" data-sn-post="/api/messages/{open.id}/archive" data-sn-attr="{disabled: !open}"
-          data-sn-optimistic="remove('messages', open)" data-sn-then="open = null">Archive (E)</button>
+          data-sn-optimistic="remove(open)" data-sn-then="open = null">Archive (E)</button>
   <p role="alert" data-sn-text="error"></p>
 </body>
 </html>

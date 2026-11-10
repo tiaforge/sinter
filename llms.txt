@@ -93,11 +93,11 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 
 ## Store functions
 
-`refresh()`, `upsert()`, `patch()`, `remove()`, `page()`, `showModal()`, `close()`, `reset()`, `emit()`, `run()`: `refresh('name')` (or several: `refresh('a', 'b')`), `upsert('name', item)`, `patch('name', item, {…})`, `remove('name', item)`, `page('name', 'next' | 'prev' | 'first' | 'last' | n)` (a page number needs offset mode or keyset with `offset-param`, else SN304; a computed direction such as `$event.shiftKey ? 'prev' : 'next'` works everywhere, typed by `sinter check`; `prev` does nothing while `hasPrev` is false and `next` while `hasNext` is false, in every mode, so paging needs no `$meta` guard; `first` and `last` always load), `showModal('id')` opens a dialog by its literal id, `close()` the nearest dialog or `close('id')` that one, `reset()` the nearest form, `emit('event', detail)` (a bubbling, cancelable `CustomEvent`), `run('id')` starts the action of the element with that literal id (SN311), as its trigger would but with `$event` null; a form is submitted (`requestSubmit()`, validation runs); a disabled or inert element does nothing; it returns nothing, results go to the element's `then`/`catch`. The resource name may be chosen from literals: `page(searching ? 'results' : 'messages', 'next')`, `||`/`??` between literals, or a `data-sn-let` name whose value is one (`data-sn-let="{ shown: searching ? 'results' : 'messages' }"`, then `page(shown, 'next')`, `$meta[shown].hasNext`); every name it can take is checked like a literal; a state variable or helper result is SN301 (make it a `?:`).
+`refresh()`, `upsert()`, `patch()`, `remove()`, `page()`, `showModal()`, `close()`, `reset()`, `emit()`, `run()`: `refresh('name')` (or several: `refresh('a', 'b')`), `upsert('name', item)`, `patch(item, {…})`, `remove(item)` (no resource name: they act on the item in the resource it came from, found by key: a row of a `data-sn-for` over a resource, also through `filter`/`toSorted` or a helper given one resource; an element (`list[0]`, `.find(…)`); a single resource; a prop or emitted detail that is one; state assigned one, `sel = m` or `structuredClone(m)`; anything else is SN317), `page('name', 'next' | 'prev' | 'first' | 'last' | n)` (a page number needs offset mode or keyset with `offset-param`, else SN304; a computed direction such as `$event.shiftKey ? 'prev' : 'next'` works everywhere, typed by `sinter check`; `prev` does nothing while `hasPrev` is false and `next` while `hasNext` is false, in every mode, so paging needs no `$meta` guard; `first` and `last` always load), `showModal('id')` opens a dialog by its literal id, `close()` the nearest dialog or `close('id')` that one, `reset()` the nearest form, `emit('event', detail)` (a bubbling, cancelable `CustomEvent`), `run('id')` starts the action of the element with that literal id (SN311), as its trigger would but with `$event` null; a form is submitted (`requestSubmit()`, validation runs); a disabled or inert element does nothing; it returns nothing, results go to the element's `then`/`catch`. The resource name may be chosen from literals: `page(searching ? 'results' : 'messages', 'next')`, `||`/`??` between literals, or a `data-sn-let` name whose value is one (`data-sn-let="{ shown: searching ? 'results' : 'messages' }"`, then `page(shown, 'next')`, `$meta[shown].hasNext`); every name it can take is checked like a literal; a state variable or helper result is SN301 (make it a `?:`).
 
 ## Write-through
 
-A mutation's 2xx response is applied to the store by itself, before `then` runs (the `apply` module, loaded when a page has something to apply). With an OpenAPI spec: an object of a named schema in the response (`{article: Article}`) patches the same-key item in every list of that schema and what the URL named (`{article.slug}` names the single `article`; `{article.author.username}` also names `article.author`, a Profile); a POST to exactly a list's current URL inserts the created item (the response's, else body + returned key, else a refetch; a filtered or paginated list is never inserted into); a PUT/PATCH body patches the entity the URL named. Without a spec: a DELETE of a row's URL (the list's URL plus one segment, from `c.id` with `c in comments`) removes the row, and a PUT/PATCH body patches the row when its keys are fields of the row. Patches merge and skip unchanged fields; `then` writes land on top. So `data-sn-then="patch('articles', a, $result.article)"`, `upsert('comments', $result.comment)` and `remove('comments', c)` are not written (SN510 says so); `data-sn-optimistic` is still how a change shows before the answer. `data-sn-apply="off"` turns it off for one element.
+A mutation's 2xx response is applied to the store by itself, before `then` runs (the `apply` module, loaded when a page has something to apply). With an OpenAPI spec: an object of a named schema in the response (`{article: Article}`) patches the same-key item in every list of that schema and what the URL named (`{article.slug}` names the single `article`; `{article.author.username}` also names `article.author`, a Profile); a POST to exactly a list's current URL inserts the created item (the response's, else body + returned key, else a refetch; a filtered or paginated list is never inserted into); a PUT/PATCH body patches the entity the URL named. Without a spec: a DELETE of a row's URL (the list's URL plus one segment, from `c.id` with `c in comments`) removes the row, and a PUT/PATCH body patches the row when its keys are fields of the row. Patches merge and skip unchanged fields; `then` writes land on top. So `data-sn-then="patch(a, $result.article)"`, `upsert('comments', $result.comment)` and `remove(c)` are not written (SN510 says so); `data-sn-optimistic` is still how a change shows before the answer. `data-sn-apply="off"` turns it off for one element.
 
 ## Retries
 
@@ -105,7 +105,7 @@ Nothing is sent again unless a retry policy says so. Policies are named in the c
 
 ## Diagnostics
 
-`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN209 name-conflict`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN306 component-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN311 unknown-run-target`, `SN312 invalid-component`, `SN313 unknown-prop`, `SN314 unknown-slot`, `SN315 unknown-component-event`, `SN316 include-removed`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`, `SN507 complex-expression`, `SN509 run-cycle`, `SN510 redundant-write`, `SN511 image-too-small`, `SN512 image-stretched`, `SN513 bound-local-image`, `SN514 auto-fit-rows`.
+`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN209 name-conflict`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN306 component-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN311 unknown-run-target`, `SN312 invalid-component`, `SN313 unknown-prop`, `SN314 unknown-slot`, `SN315 unknown-component-event`, `SN316 include-removed`, `SN317 no-item-source`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`, `SN507 complex-expression`, `SN509 run-cycle`, `SN510 redundant-write`, `SN511 image-too-small`, `SN512 image-stretched`, `SN513 bound-local-image`, `SN514 auto-fit-rows`.
 
 ## Recipes
 
@@ -332,7 +332,7 @@ test('a removed person closes the dialog that shows them', async () => {
     <span data-sn-text="m.subject"></span>
     <button data-sn-patch="/api/messages/{m.id}"
             data-sn-body="{is_flagged: !m.is_flagged}"
-            data-sn-optimistic="patch('messages', m, {is_flagged: !m.is_flagged})"
+            data-sn-optimistic="patch(m, {is_flagged: !m.is_flagged})"
             data-sn-attr="{'aria-pressed': m.is_flagged ? 'true' : 'false'}">★</button>
   </article>
 </template>
@@ -390,7 +390,7 @@ test('keeps the flag when the server accepts it', async () => {
   <!-- latest: after reconnecting only the newest draft is sent; the form stays editable -->
   <form data-sn-put="/api/notes/7" data-sn-retry="drafts" data-sn-concurrency="latest"
         data-sn-trigger="input" data-sn-debounce="500"
-        data-sn-optimistic="patch('note', note, draft)">
+        data-sn-optimistic="patch(note, draft)">
     <input name="title" data-sn-model="draft.title">
     <textarea name="body" data-sn-model="draft.body"></textarea>
   </form>
@@ -981,11 +981,11 @@ test('click, Ctrl+click and Shift+click select rows', async () => {
 
   <!-- no visible control: the element only carries the action (data-sn-call works the same) -->
   <span hidden id="mark-read" data-sn-patch="/api/messages/{open.id}" data-sn-body="{is_read: true}"
-        data-sn-optimistic="patch('messages', open, {is_read: true})"
+        data-sn-optimistic="patch(open, {is_read: true})"
         data-sn-catch="error = $error.message"></span>
   <!-- the button and E run one action; while it is disabled, E does nothing either -->
   <button id="archive" data-sn-post="/api/messages/{open.id}/archive" data-sn-attr="{disabled: !open}"
-          data-sn-optimistic="remove('messages', open)" data-sn-then="open = null">Archive (E)</button>
+          data-sn-optimistic="remove(open)" data-sn-then="open = null">Archive (E)</button>
   <p role="alert" data-sn-text="error"></p>
 </body>
 </html>

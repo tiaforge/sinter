@@ -20,7 +20,7 @@ events out through DOM events; sinter does not touch the elements it builds.
 
   <template data-sn-if="selected">
     <mail-reader data-sn-prop="{message: selected, readonly: !selected.can_edit}"
-                 data-sn-on-reader-flag="patch('messages', selected, {is_flagged: $event.detail})"
+                 data-sn-on-reader-flag="patch(selected, {is_flagged: $event.detail})"
                  data-sn-on-reader-note="draft = $event.detail"></mail-reader>
     <p>Note: <span data-sn-text="draft.length"></span> characters</p>
   </template>
@@ -66,7 +66,7 @@ The round trip:
 1. Clicking a row sets `selectedId`; `selected` is derived from the resource, so it is always the current item. `data-sn-prop` assigns `message` and `readonly` on the island, and its setters update the
    elements it built.
 2. Clicking Flag dispatches `reader-flag` with the new value. The template's handler calls
-   `patch('messages', selected, {...})`, which updates the resource, so the `flagged` label in the
+   `patch(selected, {...})`, which updates the resource, so the `flagged` label in the
    list changes, and `selected` is the patched item, which `data-sn-prop` passes to the island again, and it
    re-renders with "Unflag".
 3. Typing dispatches `reader-note` with the text. The handler writes it to the `draft` state, and the

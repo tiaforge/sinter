@@ -21,7 +21,17 @@ export interface LoopEntry {
   of?: string[] | null;
   /** the name the runtime gives it, when not `name`: loops inside a component, so a prop read in them cannot be shadowed */
   rt?: string;
+  /** item: the resources its list is (see `Sources`): where `patch(item, …)` and `remove(item)` act */
+  src?: string[] | null;
 }
+
+/**
+ * Where an item or a list comes from, for `patch(item, …)` and `remove(item)`: resource names, and
+ * references the compiler resolves once the page is compiled: `@$s3.sel` (what handlers assign to
+ * a state path) and `@ev:<use>:<event>` (what a component emits). `!<helper>`: a helper that takes
+ * more than one resource, whose rows have no single source.
+ */
+export type Sources = string[];
 
 export interface StateEntry { sid: number; names: Set<string> }
 
@@ -40,6 +50,9 @@ export interface LetEntry {
   from?: LetEntry[];
   /** a component's prop: the caller's expression */
   prop?: true;
+  /** the item it is (see `Sources`), or the list */
+  src?: Sources | null;
+  list?: Sources | null;
 }
 
 export interface ResourceInfo {
@@ -60,6 +73,8 @@ export interface Scope {
 /** What expressions in a component's markup see of the component. */
 export interface ComponentScope {
   name: string;
+  /** the use, for the sources of its events (`@ev:<id>:<event>`) */
+  id?: number;
   /** the events `data-sn-emits` declares; null: it declares none; absent: a type the compiler cannot list */
   emits?: string[] | null;
   /** names the caller's scope has at the use: reading one is an error that names the prop to add */
@@ -96,6 +111,8 @@ export interface ExprOptions {
   noElement?: string;
   /** parse as `{...}` object literal; returns its entries */
   object?: 'literal-keys' | 'any-keys' | 'state';
+  /** where `$event.detail` comes from (a component's event: `@ev:<use>:<event>`) */
+  detailSource?: string;
   report: (code: Code, message: string, offset: number, hint?: string) => void;
 }
 
@@ -132,6 +149,17 @@ export interface ExprResult {
   nameLets?: LetEntry[];
   /** member chains rooted at a resource or at a row of one (`article.author.username`, `a.slug`): what the expression is about */
   reads?: Read[];
+  /** a value expression: the item it is, or the list, by source (see `Sources`) */
+  itemOf?: Sources | null;
+  listOf?: Sources | null;
+  /** handlers: state paths assigned an item (`sel = p`), with its sources */
+  assigns?: Array<{ path: string; src: Sources }>;
+  /** `emit(event, item)`: the item's sources, by event */
+  emitted?: Array<{ event: string; src: Sources }>;
+  /** every `patch()`/`remove()` call, at its start, with its item's sources */
+  itemCalls?: Array<{ start: number; src: Sources }>;
+  /** `patch()`/`remove()` calls whose item has sources the compiler resolves later (references), at `offset` */
+  srcRefs?: Array<{ fn: string; offset: number; src: Sources; text: string }>;
 }
 
 /** A member chain rooted at a resource (`row` null) or at a loop variable over one (`row`: its name), with the members after the root. */
@@ -203,6 +231,10 @@ export const READ_ONLY = new Set([
   'getTime', 'toISOString', 'toJSON', 'getFullYear', 'getMonth', 'getDate', 'getDay', 'getHours',
   'getMinutes', 'getSeconds', 'test', 'exec',
 ]);
+/** list methods whose result holds the list's own items */
+const LIST_KEEP = new Set(['filter', 'slice', 'toSorted', 'toReversed']);
+/** list methods that return one of its items */
+const ITEM_OF = new Set(['find', 'findLast', 'at']);
 export const MUTATORS = new Set(['push', 'pop', 'splice', 'sort', 'reverse', 'shift', 'unshift', 'fill', 'copyWithin', 'add', 'delete', 'clear', 'set']);
 /** `Object.<static>(target, …)` calls that change their first argument */
 const OBJECT_MUTATORS = new Set(['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf']);
@@ -253,6 +285,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   const runs: NonNullable<ExprResult['runs']> = [];
   const refreshes: NonNullable<ExprResult['refreshes']> = [];
   const nameLets: LetEntry[] = [];
+  const assigns: NonNullable<ExprResult['assigns']> = [];
+  const emitted: NonNullable<ExprResult['emitted']> = [];
+  const srcRefs: NonNullable<ExprResult['srcRefs']> = [];
+  const itemCalls: NonNullable<ExprResult['itemCalls']> = [];
   const mode = opts.mode;
   const magicAllowed = new Set([...EVERYWHERE_MAGIC, ...(opts.magic ?? [])]);
 
@@ -674,7 +710,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     if (cp.resource) {
-      report('SN205', `\`${src.slice(target.start, target.end)}\` mutates a resource. Use \`patch('${cp.resource}', …, {…})\``, at,
+      report('SN205', `\`${src.slice(target.start, target.end)}\` mutates a resource. Use \`patch(${src.slice(target.start, target.end).replace(/\.[^.]*$/, '')}, {…})\``, at,
         'resources are read-only in expressions; copy with structuredClone() to edit');
       return;
     }
@@ -710,7 +746,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           }
           if (!READ_ONLY.has(method)) {
             if (recv.resource && MUTATORS.has(method)) {
-              report('SN205', `\`${src.slice(m.start, m.end)}()\` mutates a resource. Use \`patch('${recv.resource}', …)\` or copy with structuredClone()`, n.start);
+              report('SN205', `\`${src.slice(m.start, m.end)}()\` mutates a resource. Use \`patch(item, …)\` or copy with structuredClone()`, n.start);
             } else if (mode === 'value' && MUTATORS.has(method) && recv.segs && recv.res.kind === 'state') {
               report('SN203', `value expressions cannot change state; move \`${method}()\` to \`data-sn-on-*\``, n.start);
             } else if (mode === 'handler' && recv.segs && recv.res.kind !== 'magic' && !recv.resource) {
@@ -730,7 +766,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           const target = n.arguments[0];
           const cp = OBJECT_MUTATORS.has(method) && target && (target.type === 'Identifier' || target.type === 'MemberExpression') ? chainPath(target as Node, locals) : null;
           if (cp) {
-            if (cp.resource) report('SN205', `\`Object.${method}(${src.slice(target!.start, target!.end)}, …)\` mutates a resource. Use \`patch('${cp.resource}', …)\` or copy with structuredClone()`, n.start);
+            if (cp.resource) report('SN205', `\`Object.${method}(${src.slice(target!.start, target!.end)}, …)\` mutates a resource. Use \`patch(item, …)\` or copy with structuredClone()`, n.start);
             else if (cp.segs && cp.res.kind === 'state') {
               if (mode === 'value') report('SN203', `value expressions cannot change state; move \`Object.${method}()\` to \`data-sn-on-*\``, n.start);
               else if (mode === 'handler') writes.add(track(cp, cp.segs, n).join('.'));
@@ -783,6 +819,15 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       runCall(first, n);
       return;
     }
+    if (name === 'patch' || name === 'remove') {
+      itemCall(name, n, locals);
+      return;
+    }
+    // what a component emits keeps the item's source: the caller's `remove($event.detail)` acts on it
+    if (name === 'emit' && scope.component && first?.type === 'Literal' && typeof first.value === 'string' && n.arguments[1]) {
+      const src = itemSource(n.arguments[1] as Node, locals);
+      if (src?.length) emitted.push({ event: first.value, src });
+    }
     // in a component, the events it emits are the ones `data-sn-emits` declares
     if (name === 'emit' && scope.component && scope.component.emits !== undefined) {
       const c = scope.component;
@@ -807,7 +852,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       for (const a of n.arguments) for (const c of resourcesOf(a as Node, name, locals) ?? []) refreshes.push({ name: c.name, offset: c.at });
       return;
     }
-    if (['upsert', 'patch', 'remove', 'page'].includes(name)) {
+    if (['upsert', 'page'].includes(name)) {
       const cands = first ? resourcesOf(first as Node, name, locals) : (report('SN301', `\`${name}()\` takes a resource name: ${NAME_FORMS}`, n.start), null);
       if (!cands || name !== 'page') return;
       const target = n.arguments[1];
@@ -827,6 +872,122 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (named && !['first', 'prev', 'next', 'last'].includes(named) && !cands.some((c) => c.r.paginate === 'append')) {
         report('SN401', `\`page()\` targets are 'first', 'prev', 'next', 'last' or a page number`, target!.start);
       }
+    }
+  }
+
+  /**
+   * `patch(item, …)`, `remove(item)`: act on the item in the resource it came from, found by its key.
+   * The compiler passes the item's sources as a first argument the runtime reads (resource names;
+   * references are resolved once the page is compiled). The forms with a resource name are removed.
+   */
+  function itemCall(name: 'patch' | 'remove', n: acorn.CallExpression & Node, locals: Locals) {
+    const args = n.arguments as Node[];
+    const first = args[0];
+    const literal = (a: Node | undefined) => !!a && ((a.type === 'Literal' && typeof (a as acorn.Literal).value === 'string') || (a.type === 'TemplateLiteral' && !(a as acorn.TemplateLiteral).expressions.length));
+    if (literal(first) && args.length === (name === 'patch' ? 3 : 2)) {
+      const rest = args.slice(1).map((a) => src.slice(a.start, a.end)).join(', ');
+      report('SN317', `\`${name}()\` takes the item, not a resource name: \`${name}(${rest})\` acts on the resource the item came from`, first!.start,
+        'drop the first argument; to change an item in a list other than its own, use refresh(\'name\') or leave it to write-through and server events');
+      return;
+    }
+    if (!first) { report('SN317', `\`${name}()\` takes the item it ${name === 'patch' ? 'changes, then the fields to set' : 'removes'}`, n.start); return; }
+    const sources = itemSource(first, locals);
+    const text = src.slice(first.start, first.end);
+    if (!sources?.length) {
+      const why = first.type === 'Identifier' && (first as acorn.Identifier).name === '$result'
+        ? 'with a spec, write-through already applies the response; else patch the row with `$result`\'s fields'
+        : opts.payload ? 'a server event\'s payload has no source: use `<sn-event resource op>`, which names its resource'
+        : /\$event\b/.test(text) ? 'an island\'s event detail has no source: change the resource in the island through the instance API, which holds its handle'
+        : 'pass a row of a `data-sn-for` over a resource, an element of one (`list[0]`), a single resource, a prop that is one, or state assigned from one of those';
+      report('SN317', `\`${text}\` has no source: \`${name}()\` acts on an item where it came from, and nothing says which resource \`${text}\` is an item of`, first.start, why);
+      return;
+    }
+    const bad = sources.find((x) => x.startsWith('!'));
+    if (bad) {
+      report('SN317', `\`${text}\` comes from \`${bad.slice(1)}()\`, which takes more than one resource, so its rows have no single source`, first.start, 'pass one resource to the helper, or patch the item through a row of that resource');
+      return;
+    }
+    for (const r of sources) if (!r.startsWith('@')) { const info = page.resources.get(r); if (info) info.used = true; }
+    itemCalls.push({ start: n.start, src: sources });
+    if (sources.some((x) => x.startsWith('@'))) {
+      srcRefs.push({ fn: name, offset: first.start, src: sources, text });
+      edits.push({ start: first.start, end: first.start, text: `/*src*/${JSON.stringify(sources)}/*end*/, ` });
+    } else edits.push({ start: first.start, end: first.start, text: `${JSON.stringify(sources)}, ` });
+  }
+
+  /** two branches' sources: both known, joined (an empty list literal has none and joins any) */
+  function joined(a: Sources | null, b: Sources | null): Sources | null {
+    return a && b ? [...new Set([...a, ...b])] : null;
+  }
+
+  /** The resources a list expression is: a resource, a list `data-sn-let` name, `filter`/`slice`/`toSorted` of one, a helper given one, `?:` between them. */
+  function listSource(e: Node, locals: Locals): Sources | null {
+    const n = e.type === 'ChainExpression' ? (e as acorn.ChainExpression).expression as Node : e;
+    switch (n.type) {
+      case 'Identifier': {
+        const res = resolveQuiet(n.name, locals);
+        if (res?.kind === 'resource') return [n.name];
+        if (res?.kind === 'let') return res.entry.list ?? null;
+        return null;
+      }
+      case 'ArrayExpression': return (n as acorn.ArrayExpression).elements.length ? null : [];
+      case 'ConditionalExpression': return joined(listSource(n.consequent as Node, locals), listSource(n.alternate as Node, locals));
+      case 'LogicalExpression': return n.operator === '&&' ? null : joined(listSource(n.left as Node, locals), listSource(n.right as Node, locals));
+      case 'CallExpression': {
+        const c = n.callee as Node;
+        if (c.type === 'MemberExpression' && !c.computed && c.property.type === 'Identifier' && LIST_KEEP.has(c.property.name)) return listSource(c.object as Node, locals);
+        return helperSource(n as acorn.CallExpression & Node, locals);
+      }
+      default: return null;
+    }
+  }
+
+  /** A helper's result keeps the source of the one resource (or list with a source) it takes; with more, `!<helper>`. */
+  function helperSource(n: acorn.CallExpression & Node, locals: Locals): Sources | null {
+    const c = n.callee as Node;
+    const fn = c.type === 'Identifier' ? c.name : c.type === 'MemberExpression' && !c.computed && c.object.type === 'Identifier' && c.property.type === 'Identifier' && page.namespaces.has(c.object.name) ? `${c.object.name}.${c.property.name}` : null;
+    if (!fn || (c.type === 'Identifier' && resolveQuiet(fn, locals)?.kind !== 'helper')) return null;
+    const given = (n.arguments as Node[]).map((a) => listSource(a, locals)).filter((x): x is Sources => !!x && x.length > 0);
+    if (given.length === 1) return given[0]!;
+    return given.length > 1 ? [`!${fn}`] : null;
+  }
+
+  /** The resources an item expression is an item of (see `Sources`), or null when it has no source. */
+  function itemSource(e: Node, locals: Locals): Sources | null {
+    const n = e.type === 'ChainExpression' ? (e as acorn.ChainExpression).expression as Node : e;
+    switch (n.type) {
+      case 'Identifier': {
+        const res = resolveQuiet(n.name, locals);
+        if (!res) return null;
+        if (res.kind === 'resource') return [n.name];
+        if (res.kind === 'loop') return res.entry.kind === 'item' ? res.entry.src ?? null : null;
+        if (res.kind === 'let') return res.entry.src ?? null;
+        if (res.kind === 'state') return [`@$s${res.sid}.${n.name}`];
+        return null;
+      }
+      case 'MemberExpression': {
+        const m = n as acorn.MemberExpression & Node;
+        if (m.computed) { const l = listSource(m.object as Node, locals); if (l?.length) return l; }
+        if (!m.computed && m.object.type === 'Identifier' && m.object.name === '$event' && m.property.type === 'Identifier' && m.property.name === 'detail' && opts.detailSource) return [opts.detailSource];
+        const cp = chainPath(m, locals);
+        return cp?.res.kind === 'state' && cp.segs ? [`@${cp.segs.join('.')}`] : null;
+      }
+      case 'ConditionalExpression': return joined(itemSource(n.consequent as Node, locals), itemSource(n.alternate as Node, locals));
+      case 'LogicalExpression': {
+        if (n.operator === '&&') return itemSource(n.right as Node, locals);
+        const r = n.right as Node;
+        const none = r.type === 'Literal' && (r as acorn.Literal).value === null;
+        return none ? itemSource(n.left as Node, locals) : joined(itemSource(n.left as Node, locals), itemSource(r, locals));
+      }
+      case 'CallExpression': {
+        const c = n.callee as Node;
+        const args = (n as acorn.CallExpression).arguments as Node[];
+        // a copy keeps its key: `draft = structuredClone(c)`
+        if (c.type === 'Identifier' && c.name === 'structuredClone' && args[0]) return itemSource(args[0], locals);
+        if (c.type === 'MemberExpression' && !c.computed && c.property.type === 'Identifier' && ITEM_OF.has(c.property.name)) return listSource(c.object as Node, locals);
+        return helperSource(n as acorn.CallExpression & Node, locals);
+      }
+      default: return null;
     }
   }
 
@@ -909,6 +1070,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         writePath(n.left as Node, locals, n.start, n);
         visitMemberParts(n.left as Node, locals);
         visit(n.right as Node, locals);
+        // state that holds an item keeps where it came from: `sel = p` with `p` a row of `messages`
+        if (n.operator === '=' && (n.left.type === 'Identifier' || n.left.type === 'MemberExpression')) {
+          const cp = chainPath(n.left as Node, locals);
+          const src = cp?.res.kind === 'state' && cp.segs ? itemSource(n.right as Node, locals) : null;
+          if (src?.length) assigns.push({ path: cp!.segs!.join('.'), src });
+        }
         return;
       }
       case 'UpdateExpression':
@@ -1079,7 +1246,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     if (!resource) { const c = choices(e); if (c && c.length > 1) resources = [...new Set(c)]; }
   }
 
-  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort(), payloadLets: [...payloadLets].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
+  // what the value is an item or a list of, for `patch()` and `remove()` through rows, lets and props
+  const value = body.length === 1 && !opts.object && mode === 'value' && ok ? body[0]! : null;
+  const sources = value ? { itemOf: itemSource(value, root), listOf: listSource(value, root) } : {};
+  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...sources,
+    ...(assigns.length ? { assigns } : {}), ...(emitted.length ? { emitted } : {}), ...(srcRefs.length ? { srcRefs } : {}), ...(itemCalls.length ? { itemCalls } : {}), ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort(), payloadLets: [...payloadLets].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

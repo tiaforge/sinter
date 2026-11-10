@@ -22,6 +22,12 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Removed
 
+- `patch('name', item, …)` and `remove('name', item)` (breaking): `patch(item, …)` and `remove(item)` act on the item
+  in the resource it came from, found by its key: a loop row (also of a `?:` between lists, of `filter`/`toSorted`, of a
+  helper given one resource), an element (`list[0]`, `.find(…)`), a single resource (`remove` makes it `null`), a
+  component prop or emitted detail that is one, or state a handler assigned one (`sel = m`, `structuredClone(m)`). Drop
+  the first argument; the old forms and an item with no source fail with `SN317`.
+
 - `<sn-include>` (breaking): a partial is a component. The build fails with `SN316`, whose message lists the names the
   partial reads from the page (the props it needs). `SN305` is retired; `SN306` is now a component that uses itself
   with no `data-sn-for` or `data-sn-if` template between. The starter template's header and RealWorld's partials are

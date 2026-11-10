@@ -9,7 +9,7 @@
   <!-- latest: after reconnecting only the newest draft is sent; the form stays editable -->
   <form data-sn-put="/api/notes/7" data-sn-retry="drafts" data-sn-concurrency="latest"
         data-sn-trigger="input" data-sn-debounce="500"
-        data-sn-optimistic="patch('note', note, draft)">
+        data-sn-optimistic="patch(note, draft)">
     <input name="title" data-sn-model="draft.title">
     <textarea name="body" data-sn-model="draft.body"></textarea>
   </form>

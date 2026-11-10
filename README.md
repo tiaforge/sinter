@@ -18,7 +18,7 @@ the page. No components, router or store library to write, and no app JavaScript
     <template data-sn-for="c in contacts.filter(c => c.name.includes(q))">
       <li>
         <span data-sn-text="c.name"></span>
-        <button data-sn-delete="/api/contacts/{c.id}" data-sn-optimistic="remove('contacts', c)">Delete</button>
+        <button data-sn-delete="/api/contacts/{c.id}" data-sn-optimistic="remove(c)">Delete</button>
       </li>
     </template>
   </ul>
@@ -97,7 +97,7 @@ contacts.html:11:70 error SN201 unknown-identifier: `qq` is not defined here. Di
 ```
 
 The same pass rejects code that would break at runtime: writing to server data
-(`c.name = 'x'` is `SN205`, use `patch('contacts', c, {...})`) and browser APIs inside expressions
+(`c.name = 'x'` is `SN205`, use `patch(c, {...})`) and browser APIs inside expressions
 (`localStorage` is `SN202`, use an island). With a `type` on the resource or your OpenAPI spec,
 `sinter check` also type-checks fields, request bodies and event payloads, so `article.titel`
 reports `Property 'titel' does not exist on type 'Article'. Did you mean 'title'?`.

@@ -1,7 +1,7 @@
 # Proposal: components
 
-Status: being implemented, step by step (see [Plan](#plan)): done are 1 (typing gaps) and 2
-(markup-only components, [components.md](../components.md)).
+Status: being implemented, step by step (see [Plan](#plan)): done are 1 (typing gaps), 2
+(markup-only components, [components.md](../components.md)) and 3 (store functions).
 
 This reverses a non-goal (`spec.md`: "Routing, a component system, a virtual DOM, transitions";
 "components remain a non-goal"). Once sinter has components, they will be compared with Svelte, Vue

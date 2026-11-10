@@ -43,7 +43,7 @@
           <footer>
             <button type="button" data-variant="secondary"
                     data-sn-patch="/api/tasks/{task.id}" data-sn-body="{ done: !task.done }"
-                    data-sn-optimistic="patch('task', task, { done: !task.done })"
+                    data-sn-optimistic="patch(task, { done: !task.done })"
                     data-sn-text="task.done ? 'Reopen' : 'Mark done'"></button>
             <button>Save</button>
           </footer>

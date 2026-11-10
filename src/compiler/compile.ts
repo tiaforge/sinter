@@ -330,6 +330,11 @@ class Compiler {
   private readonly includeOf = new WeakMap<object, IncludeRec>();
   private readonly includeTop = new WeakMap<object, IncludeRec>();
   private readonly includes: IncludeRec[] = [];
+  /** `patch()`/`remove()` sources: what handlers assign to state paths and components emit, by reference (`@$s3.sel`, `@ev:2:select`) */
+  private readonly srcOf = new Map<string, Set<string>>();
+  /** calls whose sources hold references, resolved after the walk */
+  private readonly srcCalls: Array<{ el: P5Element; attr: string; shift: number; fn: string; offset: number; src: string[]; text: string }> = [];
+  private useIds = 0;
   /** attributes SN507 has measured, so an expression analysed twice is reported once */
   readonly measured = new WeakMap<P5Element, Set<string>>();
   readonly lineStarts = new Map<string, number[]>();
@@ -422,6 +427,7 @@ class Compiler {
     const paths = this.pathPatterns(doc);
     this.pathList = paths;
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
+    this.resolveSources();
     this.reportIncludes();
     // the component's name on its root: in dev builds for devtools (production: components with styles, which scope by it)
     if (this.opts.dev) for (const list of this.uses.values()) for (const u of list) setAttr(u.root, 'data-sn-c', u.name);
@@ -940,7 +946,7 @@ class Compiler {
         passed.add(e.key);
         const v = entryValue(r, e);
         const q = v ? analyze(src.slice(v.start, v.end), caller, this.page, { mode: 'value', report: () => {} }) : null;
-        lets.push({ name: e.key, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, prop: true });
+        lets.push({ name: e.key, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, prop: true, src: q?.itemOf ?? null, list: q?.listOf ?? null });
       }
     }
     // `data-sn-model`: the `value` prop (and the `change` handler, with the other bindings)
@@ -966,7 +972,7 @@ class Compiler {
     }
     const outer = new Set<string>([...(caller.lets ?? []).map((l) => l.name), ...caller.loops.map((l) => l.name), ...caller.states.flatMap((x) => [...x.names])]);
     // no `data-sn-emits`: no events; one the compiler cannot list (an alias): not checked here
-    const cs: ComponentScope = { name, outer, ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
+    const cs: ComponentScope = { name, outer, id: this.useIds++, ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
     use.scope = cs;
     if (this.check) {
       this.frameOf.set(cs, this.check.frames.length);
@@ -1592,7 +1598,16 @@ class Compiler {
 
   expr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, value?: string, shift = 0): ExprResult {
     const src = value ?? attr(el, attrName) ?? '';
+    // a handler on a component's tag: its event's detail has the source of what the component emits
+    const host = this.hostUse.get(el)?.scope;
+    if (host?.id !== undefined) {
+      const ev = attrName.startsWith('data-sn-on-') ? attrName.slice('data-sn-on-'.length) : TRIGGER_TIME.has(attrName) || attrName === 'data-sn-optimistic' || attrName === 'data-sn-then' || attrName === 'data-sn-catch' ? attr(el, 'data-sn-trigger') ?? 'click' : null;
+      if (ev) o = { ...o, detailSource: `@ev:${host.id}:${ev}` };
+    }
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
+    for (const a of r.assigns ?? []) this.addSources(`@${a.path}`, a.src);
+    if (scope.component?.id !== undefined) for (const e of r.emitted ?? []) this.addSources(`@ev:${scope.component.id}:${e.event}`, e.src);
+    for (const c of r.srcRefs ?? []) this.srcCalls.push({ el, attr: attrName, shift, ...c });
     const inc = this.includeOf.get(el);
     if (inc) this.outerNames(src, scope, o, inc);
     this.at = { el, attr: attrName, shift };
@@ -1612,6 +1627,51 @@ class Compiler {
       else this.check.exprs[i]!.broken = true;
     }
     return r;
+  }
+
+  addSources(ref: string, src: string[]) {
+    let set = this.srcOf.get(ref);
+    if (!set) this.srcOf.set(ref, (set = new Set()));
+    for (const x of src) set.add(x);
+  }
+
+  /**
+   * The sources of `patch()`/`remove()` items that are state (`sel`) or a component's event detail:
+   * the resources assigned to them anywhere on the page, followed through other references. A
+   * reference no assignment gives a resource is SN317.
+   */
+  resolveSources() {
+    const resolve = (ref: string, seen: Set<string>): string[] => {
+      if (seen.has(ref)) return [];
+      seen.add(ref);
+      const out: string[] = [];
+      // a state path assigned an item, or any path inside it assigned one (`draft = …`, read as `draft`)
+      for (const [k, set] of this.srcOf) {
+        if (k !== ref) continue;
+        for (const x of set) out.push(...(x.startsWith('@') ? resolve(x, seen) : [x]));
+      }
+      return out;
+    };
+    const resolved = new Map<string, string[]>();
+    for (const c of this.srcCalls) {
+      const names = [...new Set(c.src.flatMap((x) => (x.startsWith('@') ? resolve(x, new Set()) : [x])))];
+      const bad = names.find((x) => x.startsWith('!'));
+      if (!names.length || bad) {
+        const item = c.text;
+        this.report(c.el, c.attr, 'SN317', bad ? `\`${item}\` holds rows of \`${bad.slice(1)}()\`, which takes more than one resource, so they have no single source`
+          : `\`${item}\` has no source: no handler on this page assigns it an item of a resource, so \`${c.fn}()\` cannot know which resource to change`, c.shift + c.offset,
+          'assign it from a row (`sel = m` with `m in messages`), or keep the key in state and derive the row with `data-sn-let`', true);
+        resolved.set(JSON.stringify(c.src), []);
+        continue;
+      }
+      for (const n of names) { const info = this.page.resources.get(n); if (info) info.used = true; }
+      resolved.set(JSON.stringify(c.src), names);
+    }
+    if (!this.srcCalls.length) return;
+    for (let i = 0; i < this.fns.length; i++) {
+      if (!this.fns[i]!.includes('/*src*/')) continue;
+      this.fns[i] = this.fns[i]!.replace(/\/\*src\*\/(\[.*?\])\/\*end\*\//g, (_, j: string) => JSON.stringify(resolved.get(j) ?? JSON.parse(j).filter((x: string) => !x.startsWith('@'))));
+    }
   }
 
   // ---- derived names
@@ -1643,7 +1703,7 @@ class Compiler {
       if (!this.checkNames(el, 'data-sn-let', scope, [name], p.key.start)) continue;
       const v = p.value as import('acorn').Expression & { start: number; end: number };
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value' }, src.slice(v.start, v.end), v.start);
-      const entry: LetEntry = { name, code: r.inner, deps: r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource };
+      const entry: LetEntry = { name, code: r.inner, deps: r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null };
       // the resource names it can be, for store calls and `$meta[…]` that read it as one
       if (r.ok) {
         const lets = scope.lets ?? [], from: LetEntry[] = [];
@@ -2011,9 +2071,9 @@ class Compiler {
   }
 
   /**
-   * `SN510`: a `then` write that write-through makes: `patch('x', item, $result.p)`/`upsert('x', $result.p)`
+   * `SN510`: a `then` write that write-through makes: `patch(item, $result.p)` (an item of `x`)/`upsert('x', $result.p)`
    * where the response's `p` is an object of `x`'s schema (an upsert also needs the action's URL to be the
-   * list's URL, judged by the literal parts), and `remove('x', row)` on a DELETE of that row's URL.
+   * list's URL, judged by the literal parts), and `remove(row)` on a DELETE of that row's URL.
    */
   redundantWrites(el: P5Element, then: ExprResult, ap: ApplyDef, url: UrlTemplate, method: string, opPath: string | null) {
     const lits = (t: UrlTemplate) => t.filter((x): x is string => typeof x === 'string');
@@ -2023,18 +2083,24 @@ class Compiler {
     const fix = 'remove this write, or add `data-sn-apply="off"` to keep it';
     const op = opPath ? `the response of \`${method.toUpperCase()} ${opPath}\`` : 'the response';
     const visit = (n: acorn.AnyNode) => {
-      if (n.type === 'CallExpression' && n.callee.type === 'Identifier' && ['patch', 'upsert', 'remove'].includes(n.callee.name) && n.arguments[0]?.type === 'Literal' && typeof n.arguments[0].value === 'string') {
-        const fn = n.callee.name, name = n.arguments[0].value, r = this.resources.find((x) => x.name === name);
-        const value = n.arguments[fn === 'patch' ? 2 : 1];
+      const fn = n.type === 'CallExpression' && n.callee.type === 'Identifier' ? n.callee.name : null;
+      // upsert names its resource; patch and remove take the item, whose one source is the resource
+      const item = fn === 'patch' || fn === 'remove' ? then.itemCalls?.find((c) => c.start === n.start)?.src : null;
+      const name = fn === 'upsert' && n.type === 'CallExpression' && n.arguments[0]?.type === 'Literal' && typeof n.arguments[0].value === 'string' ? n.arguments[0].value
+        : item?.length === 1 && !item[0]!.startsWith('@') ? item[0]! : null;
+      if (n.type === 'CallExpression' && fn && name) {
+        const r = this.resources.find((x) => x.name === name);
+        const first = n.arguments[0]!, value = n.arguments[fn === 'remove' ? 0 : 1];
+        const itemText = (then.ast && 'start' in first) ? (attr(el, 'data-sn-then') ?? '').slice((first as acorn.Node).start, (first as acorn.Node).end) : '…';
         const resultPath = value && value.type === 'MemberExpression' && !value.computed && value.object.type === 'Identifier' && value.object.name === '$result' && value.property.type === 'Identifier' ? value.property.name
           : value && value.type === 'Identifier' && value.name === '$result' ? '' : null;
         const entry = resultPath != null ? ap.rs?.find((e) => e.p === resultPath && !e.a) : undefined;
         if (r && entry && r.sch === entry.s && fn === 'patch' && (r.key || ap.tg.some((t) => t.r === name && t.s === entry.s))) {
-          this.report(el, 'data-sn-then', 'SN510', `\`patch('${name}', …, $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: ${op} is \`${entry.s}\`, which \`${name}\` holds; ${fix}`, n.start);
+          this.report(el, 'data-sn-then', 'SN510', `\`patch(${itemText}, $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: ${op} is \`${entry.s}\`, which \`${name}\` holds; ${fix}`, n.start);
         } else if (r && entry && r.sch === entry.s && fn === 'upsert' && r.key && sameUrl(name)) {
           this.report(el, 'data-sn-then', 'SN510', `\`upsert('${name}', $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: a POST to \`${name}\`'s URL inserts ${op}'s \`${entry.s}\`; ${fix}`, n.start);
         } else if (r && fn === 'remove' && method === 'delete' && value?.type === 'Identifier' && ap.tg.some((t) => t.r === name && t.v === (value as acorn.Identifier).name && !t.p) && rowUrl(name)) {
-          this.report(el, 'data-sn-then', 'SN510', `\`remove('${name}', ${(value as acorn.Identifier).name})\` is what write-through does: a DELETE of a row's URL removes the row; ${fix}`, n.start);
+          this.report(el, 'data-sn-then', 'SN510', `\`remove(${(value as acorn.Identifier).name})\` is what write-through does: a DELETE of a row's URL removes the row; ${fix}`, n.start);
         }
       }
       for (const k of Object.keys(n)) {
@@ -2067,7 +2133,7 @@ class Compiler {
     const alias = list.path && list.path[0]!.startsWith('$s') ? [...list.path, `{${ii}}`] : null;
     // in a component, the runtime names are the template's own, so a prop read in a row cannot resolve to a row of the component's
     const rt = scope.component ? (n: string) => ({ rt: `${n}$${tid}` }) : () => ({});
-    const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource, ...(list.resources ? { resources: list.resources } : {}), ...rt(item) }];
+    const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource, ...(list.resources ? { resources: list.resources } : {}), ...rt(item), src: list.listOf ?? null }];
     if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias, ...rt(index) });
     if (scope.component) { t.item = `${item}$${tid}`; if (index) t.index = `${index}$${tid}`; }
     if (this.check) {

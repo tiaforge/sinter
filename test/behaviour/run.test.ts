@@ -25,7 +25,7 @@ describe('run(): starting an action from a handler', () => {
       <main data-sn-state="{ open: null, error: '' }">
         <sn-resource name="messages" src="/api/messages" key="id"></sn-resource>
         <span hidden id="mark-read" data-sn-call="mail.markRead(open)"
-              data-sn-optimistic="patch('messages', open, {is_read: true})" data-sn-catch="error = $error.message"></span>
+              data-sn-optimistic="patch(open, {is_read: true})" data-sn-catch="error = $error.message"></span>
         <sn-resource name="body" call="mail.body(open)" when="open"
                      then="$result && !open.is_read && run('mark-read')"></sn-resource>
         <template data-sn-for="m in messages"><li data-sn-class="{unread: !m.is_read}" data-sn-on-click="open = m"></li></template>

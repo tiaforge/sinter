@@ -388,6 +388,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return r;
   };
   const forward = (m: 'upsert' | 'patch' | 'remove') => (n: string, ...a: [any, any?]) => res(n)[m](...a);
+  /**
+   * `patch(item, …)`, `remove(item)`: the compiler passes the resources the item can come from; it is
+   * changed in the one that holds it, by key (a single resource is the item itself)
+   */
+  const byItem = (m: 'patch' | 'remove') => (names: string[], item: any, set?: any) => {
+    for (const n of names) {
+      const r = res(n);
+      if (r.isCollection ? item != null && r.has(item) : true) return void (m == 'patch' ? r.patch(item, set) : r.remove(item));
+    }
+  };
   const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
   /** `rb`: keeps the `$el` scope of a bound binding; a simple row's binding makes one per evaluation */
   const evalB = (b: Binding, s: any, el: Element, rb: RB | null): any => {
@@ -640,8 +650,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       showModal: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
       refresh: (...n: string[]) => { for (const x of n) res(x).refetch(); },
       upsert: forward('upsert'),
-      patch: forward('patch'),
-      remove: forward('remove'),
+      patch: byItem('patch'),
+      remove: byItem('remove'),
       page: (n: string, t: string | number) => app.ext.paginate!.page(n, t),
       close: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
       reset: () => {

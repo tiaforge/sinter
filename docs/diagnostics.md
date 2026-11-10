@@ -282,6 +282,16 @@ Partials became components. A component sees only its props, so the names a part
 
 **Fix:** Move the file to `src/components/<name>.html` (the name needs a `-`), wrap its markup in `<template data-sn-component="{ draft: Contact; … }">` around one root element, and replace the `<sn-include>` by `<name data-sn-prop="{ draft: draft }"></name>`.
 
+## SN317 no-item-source
+
+Error, for example:
+
+> `selected` has no source: `patch()` acts on an item where it came from, and nothing says which resource `selected` is an item of
+
+`patch(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `patch('name', item, …)` and `remove('name', item)`, and a row of a helper that takes more than one resource.
+
+**Fix:** Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or patch the row with its fields; a server event's payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.
+
 ## SN401 parse-error
 
 Error, for example:

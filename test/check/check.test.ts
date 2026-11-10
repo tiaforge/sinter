@@ -165,7 +165,7 @@ declare global {
     // a page number where one of the names is keyset without offset-param
     expect(errors(`{ shown: s ? 'results' : 'messages' }`, `page(shown, n)`)).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add offset-param for page numbers" | Direction'.`]);
     // an item that fits one of the names
-    expect(errors(`{ shown: s ? 'contacts' : 'messages' }`, `upsert(shown, m); remove(s ? 'contacts' : 'messages', contacts[0])`)).toEqual([]);
+    expect(errors(`{ shown: s ? 'contacts' : 'messages' }`, `upsert(shown, m); remove(contacts[0])`)).toEqual([]);
     expect(errors(`{ shown: s ? 'results' : 'messages' }`, `upsert(shown, contacts[0])`)).toHaveLength(1);
   });
 
@@ -368,8 +368,8 @@ export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
   test('loop index, state inside a row and store functions', () => {
     const html = page(`<ul><template data-sn-for="(c, i) in contacts"><li data-sn-state="{ first: i == 0 }">
   <b data-sn-text="first.toFixed()"></b>
-  <button data-sn-on-click="patch('contacts', c, { name: 'x' })">ok</button>
-  <button data-sn-on-click="patch('contacts', c, { nme: 'x' })">typo</button>
+  <button data-sn-on-click="patch(c, { name: 'x' })">ok</button>
+  <button data-sn-on-click="patch(c, { nme: 'x' })">typo</button>
 </li></template></ul>`);
     const r = run(html);
     expect(r.diagnostics.map((d) => [d.message.match(/TS\d+/)![0], d.line, d.col])).toEqual([

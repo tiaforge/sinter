@@ -12,7 +12,7 @@ const LIST = (then: string, attrs = '') => `
     </sn-sync>
     <button id="refresh" data-sn-on-click="refresh('contacts')"></button>
     <button id="q" data-sn-on-click="q = 'b'"></button>
-    <button id="edit" data-sn-patch="/api/contacts/1" data-sn-optimistic="patch('contacts', contacts[0], { name: 'Zed' })"></button>
+    <button id="edit" data-sn-patch="/api/contacts/1" data-sn-optimistic="patch(contacts[0], { name: 'Zed' })"></button>
     <p data-sn-text="n + ' ' + last + ' ' + contacts.length"></p>
   </main>`;
 

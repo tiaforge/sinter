@@ -23,10 +23,10 @@ async function page(attrs = '', extra = '', items: object[] = [ITEM]) {
     <template data-sn-for="x in m">
       <div>
         <span data-sn-text="[x.subject, x.flagged ? 'flag' : '-'].join(' ')"></span>
-        <button id="on" data-sn-call="flag(x.id, true)" data-sn-optimistic="patch('m', x, {flagged: true})" ${attrs}>on</button>
-        <button id="off" data-sn-call="flag(x.id, false)" data-sn-optimistic="patch('m', x, {flagged: false})">off</button>
-        <button id="toggle" data-sn-call="flag(x.id, !x.flagged)" data-sn-optimistic="patch('m', x, {flagged: !x.flagged})" ${attrs}>t</button>
-        <button id="del" data-sn-call="flag(x.id, null)" data-sn-optimistic="remove('m', x)">del</button>
+        <button id="on" data-sn-call="flag(x.id, true)" data-sn-optimistic="patch(x, {flagged: true})" ${attrs}>on</button>
+        <button id="off" data-sn-call="flag(x.id, false)" data-sn-optimistic="patch(x, {flagged: false})">off</button>
+        <button id="toggle" data-sn-call="flag(x.id, !x.flagged)" data-sn-optimistic="patch(x, {flagged: !x.flagged})" ${attrs}>t</button>
+        <button id="del" data-sn-call="flag(x.id, null)" data-sn-optimistic="remove(x)">del</button>
       </div>
     </template>
     <p data-sn-text="$meta.m.pending + ' ' + $meta.m.total + ' ' + m.length"></p>${extra}`,
@@ -57,7 +57,7 @@ describe('a successful request keeps its optimistic change', () => {
   });
 
   test('`then` writes win over the committed change', async () => {
-    const p = await page(`data-sn-then="patch('m', $result, {subject: 'server', flagged: false})"`);
+    const p = await page(`data-sn-then="patch(x, {subject: 'server', flagged: false})"`);
     await p.click('on');
     p.calls[0]!.ok({ id: 1 });
     await p.settle();
@@ -205,7 +205,7 @@ describe('data-sn-attr sets the live form state', () => {
       <sn-resource name="t" src="/api/t" key="id"></sn-resource>
       <template data-sn-for="x in t">
         <input type="checkbox" data-sn-attr="{checked: x.done}" data-sn-trigger="change"
-          data-sn-patch="/api/t/{x.id}" data-sn-body="{done: !x.done}" data-sn-optimistic="patch('t', x, {done: !x.done})" data-sn-catch="0">
+          data-sn-patch="/api/t/{x.id}" data-sn-body="{done: !x.done}" data-sn-optimistic="patch(x, {done: !x.done})" data-sn-catch="0">
       </template>`, { requests });
     await settle();
     const box = root.querySelector('input')!;
@@ -247,8 +247,8 @@ describe('rows of a list sinter cannot trace to a resource (a helper\'s result)'
         <template data-sn-for="t in open(tasks)">
           <li>
             <input type="checkbox" data-sn-patch="/api/tasks/{t.id}" data-sn-body="{ done: !t.done }"
-                   data-sn-optimistic="patch('tasks', t, { done: !t.done })" data-sn-attr="{ checked: t.done }">
-            <button data-sn-delete="/api/tasks/{t.id}" data-sn-optimistic="remove('tasks', t)">Delete</button>
+                   data-sn-optimistic="patch(t, { done: !t.done })" data-sn-attr="{ checked: t.done }">
+            <button data-sn-delete="/api/tasks/{t.id}" data-sn-optimistic="remove(t)">Delete</button>
           </li>
         </template>
       </ul>

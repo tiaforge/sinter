@@ -31,7 +31,7 @@
         <button data-sn-on-click="draft = structuredClone(c)" commandfor="edit" command="show-modal">Edit</button>
         <button data-sn-delete="/api/contact"
                 data-sn-body="{account_id: c.account_id, uid: c.uid, addressbook_href: c.addressbook_href}"
-                data-sn-optimistic="remove('contacts', c)">Delete</button>
+                data-sn-optimistic="remove(c)">Delete</button>
       </li>
     </template>
   </ul>

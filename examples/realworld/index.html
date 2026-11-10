@@ -56,13 +56,13 @@
             <article-byline data-sn-prop="{ article: a }">
               <template data-sn-if="a.favorited">
                 <button class="btn btn-primary btn-sm pull-xs-right" data-sn-delete="https://api.realworld.show/api/articles/{a.slug}/favorite"
-                        data-sn-optimistic="patch('articles', a, {favorited: false, favoritesCount: a.favoritesCount - 1}); patch('feed', a, {favorited: false, favoritesCount: a.favoritesCount - 1})">
+                        data-sn-optimistic="patch(a, {favorited: false, favoritesCount: a.favoritesCount - 1})">
                   <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
                 </button>
               </template>
               <template data-sn-else>
                 <button class="btn btn-outline-primary btn-sm pull-xs-right" data-sn-post="https://api.realworld.show/api/articles/{a.slug}/favorite"
-                        data-sn-optimistic="patch('articles', a, {favorited: true, favoritesCount: a.favoritesCount + 1}); patch('feed', a, {favorited: true, favoritesCount: a.favoritesCount + 1})">
+                        data-sn-optimistic="patch(a, {favorited: true, favoritesCount: a.favoritesCount + 1})">
                   <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
                 </button>
               </template>

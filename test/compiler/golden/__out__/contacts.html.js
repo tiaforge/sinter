@@ -24,7 +24,7 @@ const fns = [
   ($) => {$.$s0.draft = structuredClone($.c)
 },
   ($) => ({account_id: $.c.account_id, uid: $.c.uid, addressbook_href: $.c.addressbook_href}),
-  ($) => {$.$f.remove('contacts', $.c)
+  ($) => {$.$f.remove(["contacts"], $.c)
 },
   ($) => ($.$s0.draft),
   ($) => {$.$f.upsert('contacts', $.$result); $.$s0.draft = null; $.$f.close()
