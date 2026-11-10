@@ -74,7 +74,7 @@ test('each root is rendered once the parser has moved past it, before DOMContent
 test('a message waits for its dictionary without holding anything, and is rendered if it arrives during the parse', async () => {
   const doc = parsing();
   const g = ((globalThis as any)[I18N] = { locale: 'de', base: 'en', dicts: {} as Record<string, any> });
-  observe(page(true));
+  observe(page(true), { use() {}, state: () => g });
   document.body.innerHTML = '<p data-sn="1"></p>\n';
   await tick();
   expect(document.querySelector('p')!.textContent).toBe('');
@@ -88,7 +88,7 @@ test('a message waits for its dictionary without holding anything, and is render
 test('a dictionary arriving after the parse is left to the page module', async () => {
   const doc = parsing();
   const g = ((globalThis as any)[I18N] = { locale: 'de', base: 'en', dicts: {} as Record<string, any> });
-  observe(page(true));
+  observe(page(true), { use() {}, state: () => g });
   document.body.innerHTML = '<p data-sn="1"></p>\n';
   doc.end();
   await tick();

@@ -33,17 +33,15 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   if (map) out.map = map;
   if (parts.images) out.images = parts.images;
   if (parts.remoteWidths) out.remoteWidths = parts.remoteWidths;
-  if (parts.early !== undefined) setEarly(out, parts.early, options, false);
+  if (parts.early !== undefined) setEarly(out, parts.early, options);
   if (parts.unlistedOrigins) out.unlistedOrigins = parts.unlistedOrigins;
-  // a build splits the early file of a page with early requests: loaded `async` first, rendered by a stub (see `prime`)
-  if (options.splitEarly && out.early && parts.early?.ir.res?.length) { setEarly(out, parts.early, options, true); out.earlySplit = true; }
   const ns = Object.entries(options.helpers.namespaces).find(([, v]) => v.module === MESSAGES)?.[0];
   if (ns) out.messages = parts.namespaces[ns] ?? [];
   return out;
 }
 
-function setEarly(out: CompileResult, early: EarlyParts | null, options: CompileOptions, split: boolean) {
-  const lines = earlyLines(early, options, split);
+function setEarly(out: CompileResult, early: EarlyParts | null, options: CompileOptions) {
+  const lines = earlyLines(early, options);
   out.early = lines && lines.text();
   const map = lines && options.sourcemap ? lines.map(early?.sources) : null;
   if (map) out.earlyMap = map; else delete out.earlyMap;
@@ -55,8 +53,8 @@ function setEarly(out: CompileResult, early: EarlyParts | null, options: Compile
  * (with the built-in messages' locale source and wait, if the app has them). Null when there is
  * neither.
  */
-export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early'>, split = false): string | null {
-  return earlyLines(early, options, split)?.text() ?? null;
+export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe'>): string | null {
+  return earlyLines(early, options)?.text() ?? null;
 }
 
 /**
@@ -73,7 +71,8 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${lc ? ', locale' : ''} }`, uses: lc ? [...r.uses, 'locale'].sort() : r.uses };
 }
 
-function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early'>, split: boolean): MappedLines | null {
+function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe'>): MappedLines | null {
+  const observe = !!options.observe;
   const app = options.early?.module ?? null;
   if (!early && !app) return null;
   const lines = new MappedLines();
@@ -81,8 +80,8 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   const req = !!early?.ir.res?.length, pages = !!early?.ir.res?.some((r) => r.q);
   const page = early ? earlyPage(early) : null;
   // a page with nothing to wait for (no requests, no messages, no app early module's dictionary): `run`, one step
-  const simple = !!early && !split && !req && !Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES);
-  lines.push(`import { ${[split ? 'prime' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : []), ...(pages ? ['withParams'] : [])].join(', ')} } from '${PACKAGE}/early';`);
+  const simple = !!early && !observe && !req && !Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES);
+  lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : []), ...(pages ? ['withParams'] : [])].join(', ')} } from '${PACKAGE}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
   if (early) {
@@ -106,16 +105,17 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   // an app with built-in messages: the first paint waits for the dictionary (helpers may call `m` too)
   if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) messages = messagesImport('m', []);
   for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
-  if (messages) lines.push(messages);
+  // observe: the early script reads the dictionary's state (has it arrived?) from the messages module
+  if (messages) lines.push(observe ? messages.replace('ready as $ready }', 'ready as $ready, state as $state }') : messages);
   lines.push('');
   if (early) {
     lines.push('const page = () => {', '  const f = [');
     early.fns.forEach((f, i) => lines.fn('    ', f, ',', early.sources?.fns[i]));
     lines.push('  ];', `  return ${page!.code};`, '};');
   }
-  const args = `${early ? 'page' : 'null'}, ${messages ? '{ use: $use, ready: $ready }' : 'null'}${req ? `, requests(${pages ? 'withParams' : app ? 'undefined' : ''}${app ? ', configured' : ''})` : ''}`;
-  // split: the requests start when the file runs (`async`, before the stylesheets); the stub calls `render` after the parse
-  lines.push(split ? `export const render = prime(${args});` : simple ? 'run(page);' : `start(${args});`);
+  const args = `${early ? 'page' : 'null'}, ${messages ? `{ use: $use, ready: $ready${observe ? ', state: $state' : ''} }` : 'null'}${req ? `, requests(${pages ? 'withParams' : app ? 'undefined' : ''}${app ? ', configured' : ''})` : ''}`;
+  // observe (builds): a classic head script, which starts the requests at once and renders as the parser goes
+  lines.push(observe ? `observe(${args});` : simple ? 'run(page);' : `start(${args});`);
   return lines;
 }
 

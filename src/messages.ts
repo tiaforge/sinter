@@ -30,7 +30,7 @@ export interface I18nState {
 }
 
 const KEY = Symbol.for('sinter.i18n');
-const state = (): I18nState => ((globalThis as any)[KEY] ??= { locale: '', base: '', locales: [], storage: 'locale', files: {}, dicts: {} });
+export const state = (): I18nState => ((globalThis as any)[KEY] ??= { locale: '', base: '', locales: [], storage: 'locale', files: {}, dicts: {} });
 
 /** `{name}` placeholders; a missing parameter stays as written */
 const fill = (s: string, p?: Record<string, unknown>) => (p ? s.replace(/\{(\w+)\}/g, (x, n) => (n in p ? String(p[n]) : x)) : s);

@@ -41,7 +41,7 @@ test('a relative base: every image URL resolves from its page or stylesheet', as
   expect(html).toMatch(/<img src="\.\/assets\/photo-1200-[\w-]+\.jpg"/);
   expect(post).toMatch(/<img src="\.\.\/assets\/photo-1200-[\w-]+\.jpg"/);
   // sinter's own scripts too, and the page bundle is async
-  expect(post).toMatch(/<script src="\.\.\/assets\/sinter-paint-[\w-]+\.js" data-sn-early><\/script>\s*<script type="module" crossorigin src="\.\.\/assets\/blog-post-early-[\w-]+\.js" blocking="render">/);
+  expect(post).toMatch(/<script src="\.\.\/assets\/sinter-head-[\w-]+\.js"><\/script>\s*<script src="\.\.\/assets\/blog-post-head-[\w-]+\.js"><\/script>/);
   expect(post).toMatch(/<script type="module" crossorigin src="\.\.\/assets\/post-[\w-]+\.js" async>/);
   for (const [file, text] of [['index.html', html], ['blog/post.html', post]] as const) {
     const list = urls(text);
@@ -75,7 +75,7 @@ test('a relative base: every image URL resolves from its page or stylesheet', as
       loaded: performance.getEntriesByType('resource').map((e) => e.name.slice(e.name.lastIndexOf('/') + 1)),
     }));
     expect(r.img).toBeGreaterThan(0);
-    expect(r.loaded.some((n) => /^blog-post-early-[\w-]+\.js$/.test(n)), r.loaded.join(', ')).toBe(true);
+    expect(r.loaded.some((n) => /^blog-post-head-[\w-]+\.js$/.test(n)), r.loaded.join(', ')).toBe(true);
     expect(await tab.evaluate(() => document.querySelector('p')!.textContent)).toBe('early');
     expect(r.failed).toEqual([]);
     expect(r.loaded.some((n) => /^photo-1200-[\w-]+\.avif$/.test(n))).toBe(true);

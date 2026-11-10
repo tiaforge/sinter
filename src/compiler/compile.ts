@@ -63,7 +63,7 @@ export interface CompileOptions {
   /** write bindings whose value is a build-time constant (literal state, no helpers) into the HTML */
   prerender?: boolean;
   /**
-   * prototype (`firstPaint: 'observe'`): the base language's messages. With `prerender`, a text binding
+   * builds: the base language's messages. With `prerender`, a text binding
    * that calls `m` is written into the HTML in the base language and marked `data-sn-m`; it is still
    * rendered in the browser (early file, page module), which writes the visitor's language
    */
@@ -85,8 +85,8 @@ export interface CompileOptions {
    * credentials, as the request layer sends cross-origin requests
    */
   origins?: string[];
-  /** builds: a page with early requests gets a split early file (`earlySplit`): see `prime` in `@tiaforge-ui/sinter/early` */
-  splitEarly?: boolean;
+  /** builds: the early module runs as a classic script in the head, started by `observe` (see `@tiaforge-ui/sinter/early`) */
+  observe?: boolean;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
   /** also return where each function in `fns` was written (`CompiledParts.sources`), for the page module's source map */
@@ -118,8 +118,6 @@ export interface CompileResult {
   check?: CheckUnit;
   /** with `early`: the page's early module, or null when the page has nothing to run early */
   early?: string | null;
-  /** with `splitEarly`: the early file exports `render`, and the page loads it `async` first and renders it from a stub */
-  earlySplit?: true;
   /** the built-in message keys the page calls (markup only; modules are collected by the adapter); absent without built-in messages */
   messages?: string[];
   /** with `images` */

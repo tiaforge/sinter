@@ -1,7 +1,8 @@
 // Vite adapter: a thin wrapper around compile(). Every HTML entry is compiled
 // in transformIndexHtml; its page module is served as a virtual module. With
-// first paint on, each page also gets an early chunk: a second entry, loaded
-// render-blocking before the page module, that renders what needs no data.
+// first paint on, each page also gets an early script: classic scripts first in the
+// head (one shared by every page, one of the page's own) that render what needs no
+// data as the parser inserts it, before the first paint, with nothing render-blocking.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { posix, relative, resolve, sep } from 'node:path';
@@ -9,8 +10,8 @@ import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
 import { project, type ProjectOptions } from './project.js';
-import { I18N_PICKER, I18N_PICKER_OBSERVE, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
-import { HOLD_SCRIPT, PAINT_SCRIPT } from './paint-build.js';
+import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
+import { HOLD_SCRIPT } from './paint-build.js';
 import { loadImages, MIME, type Images } from './images.js';
 import { pageStyles } from './styles.js';
 import { detectEngines, type StyleEngine } from './engines.js';
@@ -26,13 +27,12 @@ export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
   typecheck?: boolean;
   /**
-   * first paint (default true): build-time constants are written into the HTML, and each page
-   * gets an early chunk (the app's `src/sinter.early.ts`, then the bindings that need no data),
-   * loaded render-blocking before the page module. `false`: everything waits for the page module.
-   * `'observe'` (prototype): the early file is a classic script in the page's head script, which
-   * renders each element as the parser inserts it; nothing holds the paint (see `observe` in early.ts).
+   * first paint (default true): build-time constants (and the base language's messages) are written
+   * into the HTML, and each page gets an early script (the app's `src/sinter.early.ts`, then the
+   * bindings that need no data): classic scripts first in the head, which render each element as the
+   * parser inserts it (`observe` in early.ts). `false`: everything waits for the page module.
    */
-  firstPaint?: boolean | 'observe';
+  firstPaint?: boolean;
   /** an early file above this many bytes gzip is a build warning (default 10000) */
   earlyBudget?: number;
   /**
@@ -109,73 +109,15 @@ const PREFIX = '/@sinter/';
 const EARLY = `${PREFIX}early/`;
 
 /**
- * The runtime modules the early files share with the page bundle (sinter's own `runtime/<name>`):
- * one chunk both load, so a page does not download them twice and the early files of different
- * pages share them in the cache. Pure functions only: one copy for both is the same as two. Not the
- * handoff (a few lines over globals): an early file that needs nothing else imports nothing, so
- * its first paint waits for no other file.
+ * The early runtime (`@tiaforge-ui/sinter/early`) is in the shared head script, once for every page:
+ * it puts the exports the pages call on this global, and each page's head script takes them from it
+ * (this module stands for the runtime in a page's build).
  */
-const SHARED_MODULES: Record<string, string[]> = {
-  // by module, the exports of `@tiaforge-ui/sinter/early` that use it: shared only when some early file calls one
-  security: ['attr', 'style'],
-  url: ['requests'],
-};
-/** the emitted entry that makes the shared chunk; it re-exports every export of the modules */
-const SHARED = '\0sinter:shared';
-const SHARED_MAP = '\0sinter:shared-map';
-/** a chunk that only re-exports another: `export { t as expand, … } from "./url-….js"` */
-const FACADE = /^\s*export\s*\{([^}]*)\}\s*from\s*["'`]([^"'`]+)["'`]\s*;?\s*$/;
-
-/**
- * The shared chunk in the rendered bundle, with each export's name in it: [export, name in the chunk].
- * Rolldown makes the emitted entry a facade over a common chunk with the modules (whose export names
- * are minified): the early files import the common chunk, and the facade, which nothing imports, is
- * dropped. Rollup puts the modules into the entry itself.
- */
-/**
- * Prototype (`firstPaint: 'observe'`): the page's early module, started by `observe` instead of
- * `start`, `run` or `prime` (the same arguments: the page, the messages, the requests).
- */
-function observeEntry(code: string): string {
-  return code
-    .replace(/import \{ (prime|run|start)(, | \})/, (_, _n, rest) => `import { observe${rest}`)
-    .replace(/^(?:export const render = prime|start|run)\(/m, 'observe(');
-}
-
-function sharedChunk(bundle: Record<string, { type: string; fileName: string; code?: string; exports?: string[] }>, fileName: string) {
-  const entry = bundle[fileName];
-  if (entry?.type !== 'chunk') return null;
-  const m = FACADE.exec(entry.code!);
-  const target = m ? bundle[posix.join(posix.dirname(fileName), m[2]!)] : entry;
-  if (target?.type !== 'chunk') return null;
-  const names = m
-    ? m[1]!.split(',').map((x) => x.trim()).filter(Boolean).map((x) => { const [inner, as] = x.split(/\s+as\s+/); return [as ?? inner!, inner!] as [string, string]; })
-    : entry.exports!.map((e) => [e, e] as [string, string]);
-  if (m) delete bundle[fileName];
-  return { fileName: target.fileName, code: target.code!, names };
-}
-
-/**
- * For an early file's build: the shared modules are imports of the shared chunk (`dir`: its folder,
- * relative to the early file's), so the early file stays one chunk and carries no copy of them.
- */
-function importShared(chunk: { fileName: string; names: Array<[string, string]> }, dir: string, ids: Set<string>): Plugin {
-  const file = `./${posix.join(dir, posix.basename(chunk.fileName))}`;
-  const code = `export { ${chunk.names.map(([as, inner]) => (as == inner ? as : `${inner} as ${as}`)).join(', ')} } from ${JSON.stringify(file)};`;
-  return {
-    name: 'sinter:early-shared',
-    enforce: 'pre',
-    async resolveId(id, importer, o) {
-      if (id === SHARED_MAP) return SHARED_MAP;
-      // the chunk has no side effects: an early file that uses none of it does not import it
-      if (importer === SHARED_MAP) return { id, external: true, moduleSideEffects: false };
-      if (!importer) return null;
-      const r = await this.resolve(id, importer, { ...o, skipSelf: true });
-      return r && ids.has(r.id) ? SHARED_MAP : null;
-    },
-    load: (id) => (id === SHARED_MAP ? code : null),
-  };
-}
+const RT_KEY = 'sinter.early.rt';
+const RT_ID = '\0sinter:early-rt';
+const EARLY_PKG = '@tiaforge-ui/sinter/early';
+/** the runtime's exports a page's early module imports (the compiler names each it calls) */
+const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/early'/.exec(code)?.[1]!.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
 /** dev: where the image variants are served */
@@ -199,32 +141,23 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const watched = new Set<string>();
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
-  /** prototype: the early file runs from the head script, observing the parse, with no render-blocking module */
-  const observing = options.firstPaint === 'observe';
   /** pages that use `data-sn-transition`: they get the hold script (paint-build.ts) */
   const holdPages = new Set<string>();
   /**
-   * build: each page's one classic head script: the hold script, the language picker or paint script,
-   * or both in one file (`sinter-head-<hash>.js`), so the page makes one parser-blocking request, not two
+   * build: the classic head scripts, first in the head. One shared by every page (the language picker, the early
+   * runtime and the app's early module; cached across pages) and each page's own (the hold script, the page's early
+   * bindings and requests): two parallel requests, run in order, before the stylesheets
    */
+  let sharedHead: { fileName: string; code: string; modules: Record<string, { renderedLength: number }> } | null = null;
   const headFiles = new Map<string, string>();
-  /** build: the pages with an early module, and each one's bundled early file */
+  /** build: the pages with an early module, and each one's bundled early script */
   const earlyPages = new Map<string, string>();
-  /** pages whose early file is split (it has early requests): loaded `async` first, rendered by a stub */
-  const splitPages = new Set<string>();
   /** origins of resources that could have been requested early, not listed in `origins` (reported once per build) */
   const unlisted = new Set<string>();
-  /** `shared`: the early file imports the shared chunk (it has early requests, or URL or style checks to make) */
-  const earlyFiles = new Map<string, { fileName: string; code: string; modules: Record<string, { renderedLength: number }>; stub?: string; shared: boolean }>();
+  const earlyFiles = new Map<string, { code: string; modules: Record<string, { renderedLength: number }> }>();
+  /** the app's early module (`src/sinter.early.ts`), which the shared head script runs */
+  let appEarly: string | null = null;
   const budget = options.earlyBudget ?? 10_000;
-  /**
-   * build: the modules the early files share with the page bundle (security checks, URL expansion,
-   * the handoff), as one chunk both load: its resolved ids, the emitted entry that makes the chunk,
-   * and, once the bundle is rendered, the chunk with each export's name in it
-   */
-  const sharedIds = new Set<string>();
-  let sharedRef: string | null = null;
-  let shared: { fileName: string; code: string; names: Array<[string, string]> } | null = null;
   /** built-in messages: keys each module calls (`m.key`), keys each page's markup calls, and each page's language files */
   const moduleMessages = new Map<string, string[]>();
   const markupMessages = new Map<string, string[]>();
@@ -279,13 +212,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const seen = new Set<string>();
   let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null }> | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
-  /**
-   * the picker script's tag: it picks the locale and adds the page's language file before the first paint;
-   * `early`: the page has an early file, so it also holds the first paint where `blocking` is not supported (paint-build.ts)
-   */
-  const pickerTag = (src: string, files: Record<string, string>, early: boolean) => `<script src="${attr(src)}" data-sn-i18n="${attr(JSON.stringify({ base: messages!.base, locales: messages!.locales, storage: 'locale', files }))}"${early ? ' data-sn-early' : ''}></script>`;
-  /** a page with an early file and no messages: the render-blocking fallback alone */
-  const paintTag = (src: string) => `<script src="${attr(src)}" data-sn-early></script>`;
+  /** the tag of the script that starts with the picker: it picks the locale and starts the page's language file */
+  const pickerTag = (src: string, files: Record<string, string>) => `<script src="${attr(src)}" data-sn-i18n="${attr(JSON.stringify({ base: messages!.base, locales: messages!.locales, storage: 'locale', files }))}"></script>`;
   /** `m.key` in a module: collected for the page's language file; any other use of `m` is refused */
   const collect = (ctx: { error(m: string): never }, code: string, id: string) => {
     if (!messages || id.includes('/node_modules/') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return;
@@ -375,9 +303,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
-      ...(observing && !dev && p.messages ? { baseMessages: p.messages.dicts[p.messages.base] ?? {} } : {}),
+      ...(firstPaint && !dev && p.messages ? { baseMessages: p.messages.dicts[p.messages.base] ?? {} } : {}),
       ...(options.origins?.length ? { origins: options.origins } : {}),
-      ...(firstPaint && !dev ? { splitEarly: true } : {}),
+      ...(firstPaint && !dev ? { observe: true } : {}),
     });
     if (out.early) setModule(`${EARLY}${rel}.js`, out.early, out.earlyMap);
     if (out.module.includes(`/transition';`)) holdPages.add(rel); else holdPages.delete(rel);
@@ -444,11 +372,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     /** build: the pages that have something to run early (bundled into one file each in generateBundle) */
     async buildStart(input) {
       unhashedPages = 0;
-      sharedIds.clear();
-      sharedRef = null;
-      shared = null;
+      sharedHead = null;
       earlyPages.clear();
-      splitPages.clear();
       unlisted.clear();
       earlyFiles.clear();
       languageFiles.clear();
@@ -457,6 +382,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (dev) return;
       const p = project(root, options);
       messages = p.messages;
+      appEarly = p.early;
       // a missing translation falls back to the base language: reported once per locale
       if (messages) {
         for (const l of messages.locales) {
@@ -473,28 +399,16 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         try {
           const { out } = build(readFileSync(file, 'utf8'), file, null);
           if (out.early && firstPaint) earlyPages.set(relOf(file), out.early);
-          if (out.earlySplit) splitPages.add(relOf(file));
           for (const o of out.unlistedOrigins ?? []) unlisted.add(o);
         } catch { /* reported when the page itself is compiled */ }
-      }
-      // what the early files share with the page bundle: one chunk, which both import (see generateBundle)
-      const early = earlyPages.size ? await this.resolve('@tiaforge-ui/sinter/early', resolve(root, 'index.html')) : null;
-      if (early && !early.external) {
-        // what the early modules import from the early runtime (the compiler names each writer it calls)
-        const used = new Set([...earlyPages.values()].flatMap((code) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/early'/.exec(code)?.[1]!.split(',').map((x) => x.trim()) ?? []));
-        const want = Object.entries(SHARED_MODULES).filter(([, uses]) => uses.some((u) => used.has(u))).map(([m]) => m);
-        for (const m of want) {
-          const r = await this.resolve(`./runtime/${m}.js`, early.id);
-          if (r && !r.external) sharedIds.add(r.id);
-        }
-        if (want.length && sharedIds.size == want.length) sharedRef = this.emitFile({ type: 'chunk', id: SHARED, name: 'sinter-shared', preserveSignature: 'strict' });
       }
     },
 
     /**
-     * build: each page's early module bundled on its own into one file, whose one import is the
-     * chunk it shares with the page bundle (SHARED_MODULES, preloaded with it). Other modules it
-     * shares with the page bundle are copies: state the app sets early (an i18n library's locale,
+     * build: the early scripts, each one classic script (IIFE): the shared head script (the early
+     * runtime's exports the pages call, and the app's early module) and each page's (its early
+     * bindings and requests, over the runtime the shared script left on a global). What they share
+     * with the page bundle are copies: state the app sets early (an i18n library's locale,
      * configure()) is set again by the page.
      */
     async generateBundle(_, bundle) {
@@ -508,18 +422,25 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           this.emitFile({ type: 'asset', fileName: `${r.build.assetsDir}/${name}`, source: await img.encode(v) });
         }));
       }
-      shared = sharedRef ? sharedChunk(bundle, this.getFileName(sharedRef)) : null;
       const earlyKeys = new Map<string, Set<string>>();
       const vite = earlyPages.size ? await import('vite') : null;
       const rolldown = !!vite && 'rolldownVersion' in vite;
-      for (const [rel, code] of earlyPages) {
-        const keys = new Set<string>();
-        earlyKeys.set(rel, keys);
+      /** one classic script from `code`; `rt`: the runtime's exports it takes from the shared head script's global */
+      const bundleEarly = async (code: string, keys: Set<string>, rt: string[] | null, what: string) => {
         const out = await vite!.build({
           configFile: false, root, base: r.base, mode: r.mode, logLevel: 'silent', publicDir: false, define: r.define,
           resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions },
-          plugins: [...(shared && !observing ? [importShared(shared, posix.relative(r.build.assetsDir, posix.dirname(shared.fileName)), sharedIds)] : []), {
-            name: 'sinter:early-entry', resolveId: (id) => (id === ENTRY ? '\0' + ENTRY : null), load: (id) => (id === '\0' + ENTRY ? (observing ? observeEntry(code) : code) : null),
+          plugins: [{
+            name: 'sinter:early-entry', enforce: 'pre',
+            async resolveId(id, importer, o) {
+              if (id === ENTRY) return '\0' + ENTRY;
+              if (!rt || id === RT_ID) return null;
+              // the runtime, however it is named (an alias may resolve the package to its source)
+              if (id === EARLY_PKG) return RT_ID;
+              const res = await this.resolve(id, importer, { ...o, skipSelf: true });
+              return res && runtimeId && res.id === runtimeId ? RT_ID : null;
+            },
+            load: (id) => (id === '\0' + ENTRY ? code : id === RT_ID ? `const R = globalThis[Symbol.for(${JSON.stringify(RT_KEY)})];\nexport const { ${rt!.join(', ')} } = R;\n` : null),
             transform(src, id) { if (messages && !id.includes('/node_modules/') && /\.[cm]?[jt]sx?$/.test(id)) for (const k of moduleKeys(src, id).keys) keys.add(k); },
           }],
           build: {
@@ -528,64 +449,50 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
             // deprecates `inlineDynamicImports`), Vite 6 and 7 with Rollup, which knows only the latter.
             [rolldown ? 'rolldownOptions' : 'rollupOptions']: {
               input: ENTRY,
-              // a split early file exports `render` for its stub (an app build drops entry exports by default)
-              preserveEntrySignatures: 'strict',
-              output: observing ? { format: 'iife', ...(rolldown ? { codeSplitting: false } : { inlineDynamicImports: true }) }
-                : rolldown ? { format: 'es', codeSplitting: false } : { format: 'es', inlineDynamicImports: true },
+              output: { format: 'iife', ...(rolldown ? { codeSplitting: false } : { inlineDynamicImports: true }) },
             },
           },
         });
-        const output = (Array.isArray(out) ? out[0] : out) as { output: Array<{ type: string; isEntry?: boolean; code?: string; modules?: Record<string, { renderedLength: number }> }> };
+        const output = (Array.isArray(out) ? out[0] : out) as { output: Array<{ type: string; code?: string; modules?: Record<string, { renderedLength: number }> }> };
         const chunks = output.output.filter((c) => c.type === 'chunk');
-        // only the entry is emitted: another chunk would be an import the early file cannot load (the shared chunk is external)
-        if (chunks.length !== 1) this.error(`sinter: the early file of ${rel} came out as ${chunks.length} chunks; it must be one file with nothing imported`);
-        const chunk = chunks[0]!;
-        const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
-        const fileName = `${r.build.assetsDir}/${name}-early-${createHash('sha256').update(chunk.code!).digest('base64url').slice(0, 8)}.js`;
-        // observing: the code goes into the page's head script (below), not a file of its own
-        if (observing) { earlyFiles.set(rel, { fileName, code: chunk.code!, modules: chunk.modules ?? {}, shared: false }); continue; }
-        this.emitFile({ type: 'asset', fileName, source: chunk.code! });
-        // split: the render-blocking stub imports the early file (one module: the `async` tag already runs it) and renders
-        let stub: string | undefined;
-        if (splitPages.has(rel)) {
-          const source = `import{render}from"./${fileName.slice(fileName.lastIndexOf('/') + 1)}";render();\n`;
-          stub = `${r.build.assetsDir}/${name}-render-${createHash('sha256').update(source).digest('base64url').slice(0, 8)}.js`;
-          this.emitFile({ type: 'asset', fileName: stub, source });
+        if (chunks.length !== 1) this.error(`sinter: the early script of ${what} came out as ${chunks.length} chunks; it must be one file with nothing imported`);
+        return { code: chunks[0]!.code!, modules: chunks[0]!.modules ?? {} };
+      };
+      const runtimeId = earlyPages.size ? (await this.resolve(EARLY_PKG, resolve(root, 'index.html')))?.id ?? null : null;
+      if (earlyPages.size) {
+        // the app's early module runs once, from the shared script, before any page's bindings
+        const app = appEarly ? `import ${JSON.stringify(appEarly)};\n` : '';
+        const pages = new Map([...earlyPages].map(([rel, code]) => [rel, app && code.startsWith(app) ? code.slice(app.length) : code]));
+        const names = [...new Set([...pages.values()].flatMap(runtimeNames))].sort();
+        const sharedKeys = new Set<string>();
+        sharedHead = { fileName: '', ...await bundleEarly(`${app}import { ${names.join(', ')} } from '${EARLY_PKG}';\nglobalThis[Symbol.for(${JSON.stringify(RT_KEY)})] = { ${names.join(', ')} };\n`, sharedKeys, null, 'every page') };
+        for (const [rel, code] of pages) {
+          const keys = new Set(sharedKeys);
+          earlyKeys.set(rel, keys);
+          earlyFiles.set(rel, await bundleEarly(code, keys, runtimeNames(code), rel));
         }
-        earlyFiles.set(rel, { fileName, code: chunk.code!, modules: chunk.modules ?? {}, ...(stub ? { stub } : {}), shared: !!shared && chunk.code!.includes(posix.basename(shared.fileName)) });
       }
       if (unlisted.size) resolved?.logger.info(`sinter: resources on ${[...unlisted].join(', ')} are requested when the page module runs; list ${unlisted.size > 1 ? 'these origins' : 'the origin'} in sinter({ origins: [...] }) (instead of configure({ origins }): every page adds them) to request them before it`);
       // Speculation Rules for a response header: one file at the site root, under a fixed name
       const rules = spec()?.delivery === 'header' ? rulesJson() : null;
       rulesWritten = !!rules;
       if (rules) this.emitFile({ type: 'asset', fileName: RULES_FILE, source: rules });
-      // each page's classic head script, once the language files are known (emitted at the end): the hold script
-      // (a morph pending: the first paint waits for the page module; pages that use data-sn-transition), and the
-      // language picker or, on a page with an early file and no messages, the render-blocking fallback; a page with
-      // both gets them in one file (two parser-blocking requests on the first paint's path cost more than ~0.3 kB)
+      // the head scripts, once the language files are known (emitted at the end): the shared one (the picker, the early
+      // runtime, the app's early module) and each page's own (the hold script: a morph pending, the first paint waits for
+      // the page module, on pages that use data-sn-transition; the page's early bindings and requests)
+      const hash = (x: string) => createHash('sha256').update(x).digest('base64url').slice(0, 8);
       const heads = () => {
         headFiles.clear();
-        const emitted = new Set<string>();
-        for (const rel of new Set([...holdPages, ...earlyFiles.keys(), ...languageFiles.keys()])) {
-          const hold = holdPages.has(rel) ? HOLD_SCRIPT : '';
-          if (observing) {
-            // one file per page: the hold script, the picker (its language file holds nothing) and the early file
-            const early = earlyFiles.get(rel)?.code ?? '', source = [hold, languageFiles.has(rel) ? I18N_PICKER_OBSERVE : '', early].filter(Boolean).join('\n');
-            if (!source) continue;
-            const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
-            const fileName = `${r.build.assetsDir}/sinter-head-${early ? name + '-' : ''}${createHash('sha256').update(source).digest('base64url').slice(0, 8)}.js`;
-            if (!emitted.has(fileName)) this.emitFile({ type: 'asset', fileName, source });
-            emitted.add(fileName);
-            headFiles.set(rel, fileName);
-            continue;
-          }
-          const second = languageFiles.has(rel) ? I18N_PICKER : earlyFiles.has(rel) ? PAINT_SCRIPT : '';
-          if (!hold && !second) continue;
-          const kind = hold && second ? 'head' : hold ? 'hold' : second === I18N_PICKER ? 'i18n' : 'paint';
-          const source = hold && second ? `${hold}\n${second}` : hold || second;
-          const fileName = `${r.build.assetsDir}/sinter-${kind}-${createHash('sha256').update(source).digest('base64url').slice(0, 8)}.js`;
-          if (!emitted.has(fileName)) this.emitFile({ type: 'asset', fileName, source });
-          emitted.add(fileName);
+        const common = [languageFiles.size ? I18N_PICKER : '', sharedHead?.code ?? ''].filter(Boolean).join('\n');
+        if (common) {
+          sharedHead = { code: common, modules: sharedHead?.modules ?? {}, fileName: `${r.build.assetsDir}/sinter-head-${hash(common)}.js` };
+          this.emitFile({ type: 'asset', fileName: sharedHead.fileName, source: common });
+        }
+        for (const rel of new Set([...holdPages, ...earlyFiles.keys()])) {
+          const source = [holdPages.has(rel) ? HOLD_SCRIPT : '', earlyFiles.get(rel)?.code ?? ''].filter(Boolean).join('\n');
+          const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
+          const fileName = `${r.build.assetsDir}/${name}-head-${hash(source)}.js`;
+          this.emitFile({ type: 'asset', fileName, source });
           headFiles.set(rel, fileName);
         }
       };
@@ -624,7 +531,6 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     resolveId(id) {
-      if (id === SHARED) return SHARED;
       // a build with source maps: page modules keep a plain id, as Rolldown drops the map of a `\0` module
       if (id.startsWith(PREFIX) && !dev && maps.has(id)) return id;
       if (id.startsWith(PREFIX)) return '\0' + id;
@@ -632,11 +538,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     load(id) {
-      if (id === SHARED) return [...sharedIds].map((m) => `export * from ${JSON.stringify(m)};`).join('\n');
       if (id.startsWith(`\0${IMG_CSS}`)) return imageCss.get(id.slice(IMG_CSS.length + 1, -4)) ?? '';
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
-      if (id === `\0${PREFIX}paint.js`) return PAINT_SCRIPT;
       if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;
       if (id === `\0${PREFETCH}`) return prefetchModule(prefetchPages(), project(root, options).helpers);
       const lang = id.startsWith(`\0${PREFIX}messages/`) && messages ? id.slice(`\0${PREFIX}messages/`.length, -3) : null;
@@ -718,17 +622,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (rules && !dev && !hasCspMeta(checked)) unhashedPages++;
         if (dev && out.messages && messages) {
           for (const f of Object.values(messages.files)) watch(f);
-          const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])), early);
+          const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])));
           return page.replace(/<head[^>]*>/, (h) => h + tag);
         }
-        if (dev && early) return page.replace(/<head[^>]*>/, (h) => h + paintTag(`${base}${PREFIX.slice(1)}paint.js`));
         return page;
       },
     },
   };
 
-  // After bundling: the early file's tag (render-blocking, before the page module, where Vite's
-  // HTML processing cannot merge it into the page entry) and its size.
   // CSS backgrounds (docs/images.md, step 3). Dev: a normal-order plugin sees each stylesheet after
   // Vite's CSS compiler (Sass, PostCSS, url() rebased to root paths) and before its post-processing.
   const STYLE_ID = /\.(css|scss|sass|less|styl|stylus|pcss|postcss|sss)(\?|$)/;
@@ -804,53 +705,39 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     transformIndexHtml: {
       order: 'post',
       handler(html, ctx) {
-        const rel = relOf(ctx.filename), early = earlyFiles.get(rel), langs = languageFiles.get(rel);
+        const rel = relOf(ctx.filename), early = earlyFiles.get(rel), langs = languageFiles.get(rel), own = headFiles.get(rel);
         // a relative base: URLs relative to the page, as Vite writes its own (`../assets/…` from `blog/post.html`)
         const base = pageBase(resolved?.base ?? '/', rel);
         // the page bundle is `async`: it does not wait for the stylesheets as a deferred module does,
-        // and mounts once the document is parsed and the early file has rendered (see the page module)
+        // and mounts once the document is parsed and the early script has rendered (see the page module)
         if (ctx.chunk) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');
-        const hold = holdPages.has(rel);
-        if (!early && !langs && !hold) return html;
+        if (!early && !langs && !own) return html;
         const tags: string[] = [];
-        // the shared chunk the early file imports, requested with it (not once the early file has arrived)
-        const preload = early?.shared ? `<link rel="modulepreload" crossorigin href="${attr(base + shared!.fileName)}">` : '';
-        if (preload && !early!.stub && !observing) tags.push(preload);
-        // the one classic head script. Its hold part goes before the page module's tag, which it changes as the parser
-        // inserts it; its picker part before the early file: it runs while the head is parsed, so the language file it
-        // adds blocks the first paint too; it (or, without messages, the paint part) also holds the first paint where
-        // `blocking` is not supported
-        const head = base + headFiles.get(rel)!;
-        if (langs) tags.push(pickerTag(head, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName])), !!early && !observing));
-        else if (early && !observing) tags.push(paintTag(head));
-        else if (hold || early) tags.push(`<script src="${attr(head)}"></script>`);
-        // a split early file renders from its stub, here; the file itself is loaded `async` before the stylesheets (below)
-        if (early && !observing) tags.push(`<script type="module" crossorigin src="${attr(base + (early.stub ?? early.fileName))}" blocking="render"></script>`);
-        if (early || langs) report(rel, early ?? null, langs ?? null);
-        // observing: first in the head, before the stylesheets (a classic script waits for the stylesheets before it)
-        const at = observing ? html.search(/<link\b[^>]*\brel=["']?(stylesheet|modulepreload)|<script\b/i) : html.search(/<script type="module"|<link rel="modulepreload"/);
-        const block = tags.join('\n    ');
-        html = at >= 0 ? html.slice(0, at) + block + '\n    ' + html.slice(at) : html.replace('</head>', `    ${block}\n  </head>`);
-        if (!early?.stub || observing) return html;
-        // the split early file first in the head, before the stylesheets and the classic scripts that wait for them, so
-        // the parser creates it at once; `async`, so it runs (and starts the page's requests) as soon as it has loaded
-        const first = html.search(/<link\b[^>]*\brel=["']?stylesheet|<script\b/i);
-        const tag = `${preload ? preload + '\n  ' : ''}<script type="module" crossorigin src="${attr(base + early.fileName)}" async></script>`;
-        return first < 0 ? html.replace('</head>', `  ${tag}\n</head>`) : html.slice(0, first) + tag + '\n  ' + html.slice(first);
+        // the shared head script (with the picker, its data on the tag), then the page's: classic scripts, run in order
+        if ((early || langs) && sharedHead) {
+          tags.push(langs ? pickerTag(base + sharedHead.fileName, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName]))) : `<script src="${attr(base + sharedHead.fileName)}"></script>`);
+        }
+        if (own) tags.push(`<script src="${attr(base + own)}"></script>`);
+        if (early || langs) report(rel, early ? { fileName: own!, ...early } : null, langs ?? null);
+        // first in the head, before the stylesheets (a classic script waits for the stylesheets before it) and the page
+        // module (which the hold script changes as the parser inserts it): the early requests leave at once
+        const at = html.search(/<link\b[^>]*\brel=["']?(stylesheet|modulepreload)|<script\b/i);
+        const block = tags.join('\n  ');
+        return at >= 0 ? html.slice(0, at) + block + '\n  ' + html.slice(at) : html.replace('</head>', `  ${block}\n</head>`);
       },
     },
   };
 
   /** One line per page: the early file's size (gzip) and its language files'; over the budget a warning naming the largest modules. */
-  function report(rel: string, early: { fileName: string; code: string; modules: Record<string, { renderedLength: number }>; shared: boolean } | null, langs: Record<string, { code: string }> | null) {
+  function report(rel: string, early: { fileName: string; code: string; modules: Record<string, { renderedLength: number }> } | null, langs: Record<string, { code: string }> | null) {
     const kb = (n: number) => `${(n / 1000).toFixed(1)} kB`;
-    // the shared chunk is on the first paint's path too: it counts toward the budget
-    const own = early ? gzipSync(early.code).length : 0, common = early?.shared ? gzipSync(shared!.code).length : 0, gz = own + common;
+    // the shared head script is on the first paint's path too: it counts toward the budget
+    const own = early ? gzipSync(early.code).length : 0, common = early && sharedHead ? gzipSync(sharedHead.code).length : 0, gz = own + common;
     const files = langs ? `, messages ${Object.entries(langs).map(([l, f]) => `${l} ${kb(gzipSync(f.code).length)}`).join(', ')} gzip` : '';
-    const line = `sinter: early file of ${rel}: ${early ? `${early.fileName} ${kb(own)} gzip${common ? ` + ${shared!.fileName} ${kb(common)} gzip (shared)` : ''}` : 'none'}${files}`;
+    const line = `sinter: early script of ${rel}: ${early ? `${early.fileName} ${kb(own)} gzip${common ? ` + ${sharedHead!.fileName} ${kb(common)} gzip (shared)` : ''}` : 'none'}${files}`;
     const logger = resolved?.logger;
     if (!early || gz <= budget) { logger?.info(line); return; }
-    const top = Object.entries(early.modules).sort((a, b) => b[1].renderedLength - a[1].renderedLength).slice(0, 5)
+    const top = Object.entries({ ...sharedHead?.modules, ...early.modules }).sort((a, b) => b[1].renderedLength - a[1].renderedLength).slice(0, 5)
       .map(([id, m]) => `${id.includes(PREFIX) ? `the early bindings of ${rel}` : relative(root, id.replace(/^\0/, '')).split(sep).join('/')} ${kb(m.renderedLength)}`);
     const msg = `${line}, over the early budget of ${kb(budget)}. It renders before the first paint: keep heavy imports out of src/sinter.early.ts and of the helpers early bindings call. Largest (before gzip): ${top.join(', ')}`;
     if (logger) logger.warn(msg); else console.warn(msg);
