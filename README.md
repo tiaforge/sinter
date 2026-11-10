@@ -247,18 +247,6 @@ Everything is listed in the [attribute reference](docs/attributes.md). Optional 
 
 `npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/spec.md#first-paint) and [navigation](docs/navigation.md) docs.
 
-## Docs
-
-- [`docs/attributes.md`](docs/attributes.md): every attribute and element, grouped by what it does.
-- [`llms.txt`](llms.txt): attribute reference, scope rules and recipes (each with tests).
-- [`docs/spec.md`](docs/spec.md): the v0.1 specification.
-- [`docs/diagnostics.md`](docs/diagnostics.md): every `SN` error code and how to fix it.
-- [`docs/navigation.md`](docs/navigation.md): between pages: next-page data, Speculation Rules (and a Content Security Policy), page transitions.
-- [`docs/retry.md`](docs/retry.md): retry policies: writes that survive a dropped connection, idempotency keys, what the server needs.
-- [`examples/realworld`](examples/realworld): a complete multi-page app.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md): the imports each package exports, development commands, how to contribute.
-- [`docs/progress.md`](docs/progress.md): implementation status and decisions.
-
 ## Contributing and license
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). MIT license.
