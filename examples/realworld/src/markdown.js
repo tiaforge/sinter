@@ -17,8 +17,12 @@ customElements.define('conduit-markdown', class extends HTMLElement {
       this.source = md;
     }
   }
+  // `rendered` once the body is in: public/styles.css keeps what follows the body out of the layout
+  // until then, so the body arriving does not push the tags and comments down. If the renderer
+  // fails to load, the source shows as text, and the rest of the page with it.
   set source(md) {
     this.#md = md;
-    renderer.then((html) => { if (this.#md === md) this.innerHTML = html(md); });
+    const show = (fill) => { if (this.#md === md) { fill(); this.toggleAttribute('rendered', true); } };
+    renderer.then((html) => show(() => { this.innerHTML = html(md); }), () => show(() => { this.textContent = md ?? ''; }));
   }
 });

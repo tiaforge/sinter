@@ -1545,3 +1545,12 @@ footer > .container {
 main {
   min-height: calc(100vh - 56px);
 }
+
+/* The article's body is Markdown, rendered by <conduit-markdown> once marked and DOMPurify have
+ * loaded, after the first paint. Until it is rendered, what follows it (tags, actions, comments)
+ * takes no space: otherwise it is painted under an empty body and pushed down when the body comes
+ * in (Lighthouse mobile: CLS 0.415). It appears below the body instead, which is not a shift. */
+conduit-markdown:not([rendered]) ~ *,
+.article-page .page:has(conduit-markdown:not([rendered])) > .article-content ~ * {
+  display: none;
+}

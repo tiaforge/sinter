@@ -23,7 +23,7 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `partials/` | header (declares the `user` resource), footer, article meta, preview, errors | |
 | `src/sinter.config.js` | JWT middleware (`localStorage.jwtToken`), current-user error handling | |
 | `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `window.__conduit_debug__` | |
-| `src/markdown.js` | `<conduit-markdown>` (marked + DOMPurify, requested when the module runs), loaded by `article.html` only | |
+| `src/markdown.js` | `<conduit-markdown>` (marked + DOMPurify, requested when the module runs; `rendered` once the body is in, and `public/styles.css` keeps what follows it out of the layout until then: no shift), loaded by `article.html` only | |
 | `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ openapi, origins })` (the API's origin: allowed on every page, its requests start before the stylesheets) | |
 | `openapi.yml` | the Conduit API spec ([realworld-apps/realworld](https://github.com/realworld-apps/realworld), MIT), which types every resource for `npx sinter check` | |
 
