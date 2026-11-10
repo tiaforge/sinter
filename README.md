@@ -259,36 +259,9 @@ Everything is listed in the [attribute reference](docs/attributes.md). Optional 
 - [`docs/navigation.md`](docs/navigation.md): between pages: next-page data, Speculation Rules (and a Content Security Policy), page transitions.
 - [`docs/retry.md`](docs/retry.md): retry policies: writes that survive a dropped connection, idempotency keys, what the server needs.
 - [`examples/realworld`](examples/realworld): a complete multi-page app.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): the imports each package exports, development commands, how to contribute.
 - [`docs/progress.md`](docs/progress.md): implementation status and decisions.
 
-## Packages
+## Contributing and license
 
-| Import | Contents |
-| --- | --- |
-| `@tiaforge-ui/sinter` | `mount`, store, renderer, actions, request layer, instance API, `configure` |
-| `@tiaforge-ui/sinter/sse` | `<sn-sync>`, SSE transport |
-| `@tiaforge-ui/sinter/ws` | WebSocket transport for `<sn-sync>` |
-| `@tiaforge-ui/sinter/optimistic` | optimistic layers |
-| `@tiaforge-ui/sinter/paginate` | keyset, offset, append |
-| `@tiaforge-ui/sinter/each` | fan-out resources (`each="a in accounts"`) |
-| `@tiaforge-ui/sinter/persist` | `data-sn-persist` |
-| `@tiaforge-ui/sinter/prefetch` | next-page data (added by the Vite plugin) |
-| `@tiaforge-ui/sinter/compiler` | `compile()` |
-| `@tiaforge-ui/sinter/vite` | Vite plugin |
-| `@tiaforge-ui/sinter/check` | `check()` (used by `sinter check`), `checkPage()` for tests |
-| `@tiaforge-ui/sinter/testing` | `render`, `mockRequests`, `mockStream` |
-
-## Development
-
-```sh
-npm test          # vitest (happy-dom); CI runs typecheck, build and tests on every push (Node 22/24/26)
-npm run typecheck
-npm run build     # dist/
-npm run size      # size per page and module, with budgets
-npm run bench     # store and flush benchmarks (docs/benchmark.md)
-npm run docs      # regenerate llms.txt, html-custom-data.json (also the VS Code extension's) and docs/diagnostics.md
-npm run release -- 0.3.0   # bump versions, date the changelog, commit "Release 0.3.0", tag v0.3.0 (not pushed)
-```
-
-License: MIT. Contributions are accepted under the Developer Certificate of Origin
-(`Signed-off-by` in each commit, `git commit -s`); no CLA.
+See [CONTRIBUTING.md](CONTRIBUTING.md). MIT license.
