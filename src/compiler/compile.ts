@@ -108,6 +108,12 @@ export interface CompileOptions {
    * whose condition the first pass found constant (state nothing writes), and its value
    */
   decided?: Map<string, boolean>;
+  /**
+   * internal, set by `compileParts` for its second pass: the `data-sn-for` templates (by `file:offset`
+   * and the components they are in) whose list the first pass found constant, and its length: each is
+   * unrolled into that many rows, the item and index given to each as constants
+   */
+  unrolled?: Map<string, number>;
   /** every component of the app: the candidates of `<sn-component use>` a helper chooses (default: the components the page names) */
   componentNames?: string[];
   /** the module the page module imports for a component's scoped styles (`CompiledParts.styles`), so the bundler puts them in the page's stylesheet */
@@ -385,8 +391,11 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
   const first = new Compiler(options);
   const out = first.run(html);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
-  if (!options.prerender || options.decided || !first.decided.size) return out;
-  return new Compiler({ ...options, decided: first.decided }).run(html);
+  if (!options.prerender || options.decided || options.unrolled) return out;
+  // loops over constants: unrolled only when the first pass is clean (the second one compiles the rows with their item)
+  const unrolled = first.unrolls.size && !out.diagnostics.some((d) => d.severity === 'error') ? first.unrolls : null;
+  if (!first.decided.size && !unrolled) return out;
+  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}) }).run(html);
 }
 
 class Compiler {
@@ -418,6 +427,11 @@ class Compiler {
   /** `data-sn-if` templates whose condition is constant, by `file:offset`, for a second pass (null: the uses disagree) */
   readonly decided = new Map<string, boolean>();
   private readonly undecided = new Set<string>();
+  /** `data-sn-for` templates whose list is constant and whose rows need nothing at run time, by `unrollKey`, with the list's length */
+  readonly unrolls = new Map<string, number>();
+  private readonly notUnrolled = new Set<string>();
+  /** the second pass: the top-level elements of each unrolled row, with what their item and index are */
+  private readonly rowOf = new WeakMap<P5Element, { tpl: P5Element; item: string; index: string | null; list: string; offset: number; k: number }>();
   /** a layout's `<body>`, which takes the handlers of the page's tag */
   private readonly layoutBody = new WeakMap<P5Element, Use>();
   /** text forwarded into a component's named slot by a slot with `slot="…"` (elements carry the attribute) */
@@ -546,6 +560,7 @@ class Compiler {
     this.head = findHead(doc);
     this.expandComponents(doc, []);
     if (this.opts.decided?.size) this.foldDecided(doc);
+    if (this.opts.unrolled?.size) this.unrollLoops(doc);
     this.checkHead();
     this.componentIds();
     const layout = this.layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
@@ -1895,6 +1910,18 @@ class Compiler {
 
   element(el: P5Element, ctx: Ctx, index: number, prevIf: { node: NodeDef; binding: Binding } | null): { node: NodeDef; binding: Binding } | null {
     this.at = { el, attr: null, shift: 0 };
+    // a row of an unrolled loop: its item and index, as derived names over the constant list (before a
+    // component's root takes its props from this scope)
+    const row = this.rowOf.get(el);
+    if (row) {
+      const r = this.expr(row.tpl, 'data-sn-for', ctx.scope, { mode: 'value' }, row.list, row.offset);
+      if (r.ok) {
+        const fixed = { usesEl: false, usesIndex: false, resource: null, src: null };
+        const lets: LetEntry[] = [{ name: row.item, code: `(${r.inner})[${row.k}]`, deps: r.deps, ...fixed }];
+        if (row.index) lets.push({ name: row.index, code: String(row.k), deps: [], ...fixed });
+        ctx = { ...ctx, scope: { ...ctx.scope, lets: [...(ctx.scope.lets ?? []), ...lets] } };
+      }
+    }
     const base = ctx.scope;
     // slot content sees the scope of the caller that wrote it
     const slot = this.slotOf.get(el);
@@ -3407,8 +3434,8 @@ class Compiler {
    * constant: those bindings render in the browser (early chunk or page module).
    */
   prerender() {
-    /** `tpl`: in a template's content, written there only when it can never change; `if`: a condition decided for a second pass */
-    type Cand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true };
+    /** `tpl`: in a template's content, written there only when it can never change; `if`: a condition decided for a second pass; `for`: a loop unrolled in it */
+    type Cand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
     const cands: Cand[] = [];
     const written = this.writtenState();
     const fixed = (ds: PathRef[] | undefined) => strs(ds).every((d) => {
@@ -3427,7 +3454,17 @@ class Compiler {
       if (this.opts.decided || b.k !== 'if' || b.f === undefined || !fixed(b.d) || !this.siteKey(el)) return;
       cands.push({ el, b, f: b.f, if: true });
     };
-    for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); decide(el, b); }
+    // a loop over a constant list whose rows need nothing at run time: each row's bindings read only the item, its
+    // index, constants and state nothing writes (no handler, model, state, nested template, `$el`, component script)
+    const ROW = new Set(['text', 'attr', 'class', 'style', 'show']);
+    const unroll = (el: P5Element, b: Binding) => {
+      if (this.opts.unrolled || b.k !== 'for' || b.f === undefined || b.e || !fixed(b.d) || !this.unrollKey(el)) return;
+      const t = this.templates[b.x!];
+      if (!t) return;
+      if (!t.nodes.every((n) => n.state === undefined && n.sid === undefined && n.b.every((x) => ROW.has(x.k) && !x.e && !x.w?.length && fixed(x.d)))) return;
+      cands.push({ el, b, f: b.f, for: true });
+    };
+    for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); decide(el, b); unroll(el, b); }
     for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
     if (!cands.length) return;
     // everything the page could call is shadowed: what is not a constant throws
@@ -3492,6 +3529,14 @@ class Compiler {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
       usedMessage = false;
       const v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
+      if (c.for) {
+        // the same template in two uses (a component's markup on one line): unrolled only when they agree
+        const key = this.unrollKey(c.el)!;
+        const n = Array.isArray(v) && v.length <= MAX_UNROLL && v.every((x) => plainData(x)) ? v.length : -1;
+        if (n < 0 || usedMessage || this.notUnrolled.has(key) || (this.unrolls.has(key) && this.unrolls.get(key) !== n)) { this.unrolls.delete(key); this.notUnrolled.add(key); continue; }
+        this.unrolls.set(key, n);
+        continue;
+      }
       if (c.if) {
         // the same template in every use (a component's markup): decided only when they agree
         const key = this.siteKey(c.el)!;
@@ -3534,6 +3579,63 @@ class Compiler {
       this.foldDecided(c);
       if (c.tagName === 'template') this.foldDecided((c as P5Template).content);
     }
+  }
+
+  /**
+   * A `data-sn-for` template, the same in both passes: where it was written and the uses of the components
+   * it is in (a component used on two lines of a page has two), or null for one the compiler made.
+   */
+  unrollKey(el: P5Element): string | null {
+    const at = this.siteKey(el);
+    return at && `${at}|${(this.origins.get(el)?.chain ?? []).join('<')}`;
+  }
+
+  /**
+   * The second pass: each unrolled `data-sn-for` template becomes its rows, one copy of its content per
+   * item. The top-level elements of each copy get the item and index as derived names (`rowOf`), so
+   * their bindings are constants, written into the HTML and left out of the page module.
+   */
+  unrollLoops(parent: P5Parent) {
+    for (let i = 0; i < parent.childNodes.length; i++) {
+      const c = parent.childNodes[i]!;
+      if (!isElement(c)) continue;
+      const value = c.tagName === 'template' ? attr(c, 'data-sn-for') : undefined;
+      const key = value !== undefined ? this.unrollKey(c) : null;
+      const n = key ? this.opts.unrolled!.get(key) : undefined;
+      const m = n !== undefined ? /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-Za-z_][\w]*))\s+in\s+/.exec(value!) : null;
+      if (m) {
+        const rows: P5Node[] = [];
+        for (let k = 0; k < n!; k++) {
+          for (const x of (c as P5Template).content.childNodes) {
+            const copy = this.cloneTree(x, parent);
+            if (isElement(copy)) this.rowOf.set(copy, { tpl: c, item: (m[1] ?? m[3])!, index: m[2] ?? null, list: value!.slice(m[0].length), offset: m[0].length, k });
+            rows.push(copy);
+          }
+        }
+        parent.childNodes.splice(i, 1, ...(rows as never[]));
+        mergeText(parent);
+        i += rows.length - 1;
+        continue;
+      }
+      this.unrollLoops(c);
+      if (c.tagName === 'template') this.unrollLoops((c as P5Template).content);
+    }
+  }
+
+  /** A copy of markup that compiles as the original: its source locations, origins, slot content and component uses. */
+  cloneTree(node: P5Node, parent: P5Parent): P5Node {
+    const copy = { ...node, parentNode: parent } as P5Node;
+    for (const map of [this.origins, this.slotOf, this.useOf] as Array<WeakMap<object, unknown>>) if (map.has(node)) map.set(copy, map.get(node));
+    if (!('childNodes' in node)) return copy;
+    const el = copy as P5Element;
+    if ('attrs' in node) el.attrs = (node as P5Element).attrs.map((a) => ({ ...a }));
+    el.childNodes = (node as P5Element).childNodes.map((x) => this.cloneTree(x, el)) as never[];
+    if ((node as P5Element).nodeName === 'template') {
+      const content = { ...(node as P5Template).content } as P5Template['content'];
+      content.childNodes = (node as P5Template).content.childNodes.map((x) => this.cloneTree(x, content)) as never[];
+      (el as P5Template).content = content;
+    }
+    return copy;
   }
 
   /** Where an element was written, the same in both passes: its file and offset, or null for one the compiler made. */
@@ -3619,6 +3721,7 @@ class Compiler {
     for (const r of this.resources) if (r.deps) r.deps = strip(r.deps);
     // a state field nothing writes and no function reads anymore (its readers were written into the markup): out of the state
     const code = this.fns.filter((c) => c !== '0');
+    const emptied = new Set<NodeDef>();
     for (const n of nodes) {
       if (n.sid === undefined || n.state === undefined) continue;
       const st = this.stateInits.find((x) => x.sid === n.sid);
@@ -3631,8 +3734,44 @@ class Compiler {
       if (keep.length === st.fields.length || !keep.every((x) => x.code.startsWith('($) => ('))) continue;
       this.fnUses[n.state]!--;
       if (this.fnUses[n.state] === 0) this.fns[n.state] = '0';
+      if (!keep.length) { emptied.add(n); continue; }
       n.state = this.fn(`($) => ({ ${keep.map((x) => `${JSON.stringify(x.key)}: (${x.code.slice('($) => ('.length, -1)})`).join(', ')} })`);
     }
+    this.dropEmptyStates(emptied);
+  }
+
+  /**
+   * A page-level `data-sn-state` none of whose fields are left (nothing writes or reads them) is no
+   * scope at all: its node goes when nothing else is bound there, with its `data-sn` id, and the nodes
+   * inside take the scope around it. A branch's or row's state stays, with no fields.
+   */
+  dropEmptyStates(emptied: Set<NodeDef>) {
+    const gone = new Set<NodeDef>();
+    for (const n of emptied) {
+      const i = this.roots.indexOf(n);
+      if (i < 0 || n.b.length) { n.state = this.fn('($) => ({})'); continue; }
+      gone.add(n);
+      for (const m of this.roots) if (m.p === i) m.p = n.p;
+      const el = this.paints.find((x) => x.node === n)?.el;
+      if (el) el.attrs = el.attrs.filter((a) => a.name !== 'data-sn');
+    }
+    if (!gone.size) return;
+    // a resource or stream declared in it: in the scope around it
+    for (const r of [...this.resources, ...this.syncs]) {
+      const s = r.scope === undefined ? undefined : this.roots[r.scope];
+      if (s && gone.has(s)) r.scope = s.p;
+    }
+    const at = new Map<number, number>();
+    this.roots.forEach((n, i) => { if (!gone.has(n)) at.set(i, at.size); });
+    const re = (i: number | undefined) => (i === undefined || i < 0 ? i : at.get(i)!);
+    const kept = this.roots.filter((n) => !gone.has(n));
+    for (const n of kept) {
+      if (n.p !== undefined) n.p = re(n.p);
+      for (const b of n.b) if (b.y !== undefined) b.y = re(b.y);
+    }
+    for (const r of this.resources) if (r.scope !== undefined) r.scope = re(r.scope);
+    for (const x of this.syncs) if (x.scope !== undefined) x.scope = re(x.scope);
+    this.roots.splice(0, this.roots.length, ...kept);
   }
 
   /**
@@ -4301,6 +4440,8 @@ function deepFreeze<T extends object>(v: T): T {
 
 /** a binding that cannot be written ahead */
 const FAIL: unique symbol = Symbol('first paint: runtime-only');
+/** the most rows a constant loop is unrolled into at build time; a longer list stays a template */
+const MAX_UNROLL = 1000;
 
 const isPrimitive = (v: unknown) => v == null || ['string', 'number', 'boolean'].includes(typeof v);
 
