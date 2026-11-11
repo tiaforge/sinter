@@ -29,7 +29,7 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   const css = (parts.images?.css && options.images?.stylesheet ? `import ${JSON.stringify(options.images.stylesheet)};\n` : '')
     + (options.componentCss ? parts.styles.map((x) => `import ${JSON.stringify(options.componentCss!(x.name))};\n`).join('') : '')
     // components with a script: their modules, which the `cmp` bindings hand to the components feature
-    + parts.scripts.map((x) => `import * as ${x.local} from ${JSON.stringify(x.module)};\n`).join('');
+    + parts.scripts.map((x) => `import { ${x.export} as ${x.local} } from ${JSON.stringify(x.module)};\n`).join('');
   const page = pageLines(parts, options);
   const out: CompileResult = { html: parts.html, module: css + page.text(), diagnostics: parts.diagnostics, files: parts.files, styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}) };
   if (parts.check) out.check = parts.check;

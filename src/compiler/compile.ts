@@ -238,8 +238,8 @@ export interface CompiledParts {
   unlistedOrigins?: string[];
   /** the scoped styles of the components the page uses, by component */
   styles: Array<{ name: string; css: string }>;
-  /** the scripts of the components the page uses: the module, imported as `local` (`import * as local`) */
-  scripts: Array<{ name: string; module: string; local: string }>;
+  /** the scripts of the components the page uses: the module, its class `export` imported as `local` */
+  scripts: Array<{ name: string; module: string; local: string; export: string }>;
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
@@ -274,6 +274,8 @@ interface Use {
   chain: string[];
   /** `data-sn-early="off"` on its tag: this use is left out of the early script */
   late?: boolean;
+  /** the root's state id: a script's refs reach their instance through it */
+  sid?: number;
   /** what the component's markup sees of it */
   scope?: ComponentScope;
   /** the caller's scope at the use: its attributes on the tag and its slot content see it */
@@ -288,6 +290,8 @@ interface ComponentFile {
   css?: string | null;
   /** the script beside it (`/src/components/task-ring.ts`), imported by the page modules that use it */
   script?: string | null;
+  /** the class it exports: `TaskRing` for `task-ring`, else `default`; null when it exports neither */
+  exported?: string | null;
 }
 
 /** An `<sn-include>`, kept only to name what the partial reads from the page in its migration error. */
@@ -353,9 +357,7 @@ class Compiler {
   /** every use, by component name */
   readonly uses = new Map<string, Use[]>();
   /** the scripts of the components the page uses: module and local name in the page module */
-  readonly scripts = new Map<string, { module: string; local: string }>();
-  /** refs by element, set on it once its other attributes are stripped */
-  private readonly refEls: Array<[P5Element, string]> = [];
+  readonly scripts = new Map<string, { module: string; local: string; name: string }>();
   /** nodes that came from an `<sn-include>`, and the top-level ones */
   private readonly includeOf = new WeakMap<object, IncludeRec>();
   private readonly includeTop = new WeakMap<object, IncludeRec>();
@@ -475,9 +477,7 @@ class Compiler {
     this.reportIncludes();
     // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
     // which start at the roots and stop at other components' roots and at slot content (`data-sn-s`)
-    // a script's refs belong to its own markup, found by these marks too
-    const styled = [...this.uses.keys()].filter((n) => this.componentFiles.get(n)?.css || this.componentFiles.get(n)?.script);
-    for (const [el, name] of this.refEls) setAttr(el, 'data-sn-r', name);
+    const styled = [...this.uses.keys()].filter((n) => this.componentFiles.get(n)?.css);
     if (this.opts.dev || styled.length) for (const list of this.uses.values()) for (const u of list) setAttr(u.root, 'data-sn-c', u.name);
     if (styled.length) for (const x of this.slotEls) if (attr(x.el, 'data-sn-c') === undefined) setAttr(x.el, 'data-sn-s', x.caller);
 
@@ -542,7 +542,7 @@ class Compiler {
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
       styles: [...this.uses.keys()].sort().flatMap((n) => { const css = this.componentFiles.get(n)?.css; return css ? [{ name: n, css }] : []; }),
-      scripts: [...this.scripts].sort(([a], [b]) => a.localeCompare(b)).map(([name, x]) => ({ name, ...x })),
+      scripts: [...this.scripts].sort(([a], [b]) => a.localeCompare(b)).map(([name, x]) => ({ name, module: x.module, local: x.local, export: x.name })),
     };
   }
 
@@ -790,8 +790,13 @@ class Compiler {
       const root = normalize(this.opts.root).replace(/\/$/, '');
       for (const ext of ['.ts', '.js', '.mts', '.mjs']) {
         const f = file.replace(/\.html$/, ext);
-        try { this.opts.readFile(f); } catch { continue; }
+        let text: string;
+        try { text = this.opts.readFile(f); } catch { continue; }
         c.script = f.startsWith(root + '/') ? f.slice(root.length) : f;
+        // the class: imported by its name, so the runtime looks nothing up
+        const pascal = pascalName(tag);
+        c.exported = new RegExp(`export\\s+(?:abstract\\s+)?class\\s+${pascal}\\b|export\\s*\\{[^}]*\\b${pascal}\\b[^}]*\\}`).test(text) ? pascal
+          : /export\s+default\b|export\s*\{[^}]*\bas\s+default\b/.test(text) ? 'default' : null;
         break;
       }
     }
@@ -1549,6 +1554,8 @@ class Compiler {
       }
     }
 
+    // a component's root: its state, where its script's refs find the instance
+    if (use && node.sid !== undefined) use.sid = node.sid;
     // derived names: the element and its subtree read them like state
     if (has('let')) scope = this.lets(el, scope);
 
@@ -1579,14 +1586,20 @@ class Compiler {
     const script = use ? this.componentFiles.get(use.name)?.script : null;
     if (use && script) {
       const local = `$cm$${use.name.replace(/-/g, '_')}`;
-      this.scripts.set(use.name, { module: script, local });
+      const exported = this.componentFiles.get(use.name)!.exported;
+      if (exported === null) this.report(use.template, null, 'SN312', `the script of \`<${use.name}>\` (\`${script}\`) exports no class \`${pascalName(use.name)}\` and no default export`, 0, `\`export class ${pascalName(use.name)} extends ${pascalName(use.name)}Component { … }\``);
+      this.scripts.set(use.name, { module: script, local, name: exported ?? 'default' });
       this.features.add('components');
       const props = (scope.lets ?? []).filter((l) => l.prop);
-      const code = `($) => [${local}, { ${props.map((l) => `${JSON.stringify(l.name)}: (${l.code})`).join(', ')} }, ${JSON.stringify(pascalName(use.name))}]`;
-      node.b.push(this.binding({ k: 'cmp', f: this.fn(code, { el, attr: null, shift: 0 }), d: [...new Set(props.flatMap((l) => l.deps))].sort() }));
+
+      // what the script can write: each field of the root's state (`this.state.n = …` marks that one), its names in the order of `w`
+      const keys = node.sid !== undefined ? [...stateKeys(attr(use.root, 'data-sn-state') ?? '{}')] : [];
+      const writes = keys.map((k) => `$s${node.sid}.${k}`);
+      const code = `($) => [${local}, { ${props.map((l) => `${JSON.stringify(l.name)}: (${l.code})`).join(', ')} }, ${JSON.stringify(keys)}]`;
+      node.b.push(this.binding({ k: 'cmp', f: this.fn(code, { el, attr: null, shift: 0 }), d: [...new Set(props.flatMap((l) => l.deps))].sort(), ...(writes.length ? { w: writes } : {}) }));
     }
     // `data-sn-ref="name"`: an element of a component's markup, for its script (`this.refs.name`)
-    if (has('ref')) this.ref(el, scope);
+    if (has('ref')) this.ref(el, scope, node);
 
     // templates
     let content: { tid: number; scope: Scope } | null = null;
@@ -1916,8 +1929,12 @@ class Compiler {
     return r;
   }
 
-  /** `data-sn-ref="name"` in a component's markup: kept on the element as `data-sn-r`, which the script's `this.refs` finds */
-  ref(el: P5Element, scope: Scope) {
+  /**
+   * `data-sn-ref="name"` in a component's markup: a `cmp` binding on the element that gives it to its
+   * instance's `this.refs`, found through the root's state (`[state, name]`); nothing for a component
+   * without a script, which has no `this.refs`
+   */
+  ref(el: P5Element, scope: Scope, node: NodeDef) {
     const name = attr(el, 'data-sn-ref') ?? '';
     const use = scope.component?.id !== undefined ? this.useById.get(scope.component.id) : undefined;
     if (!use || this.useOf.get(el) === use) {
@@ -1925,7 +1942,8 @@ class Compiler {
       return;
     }
     if (!IDENT.test(name)) { this.report(el, 'data-sn-ref', 'SN401', '`data-sn-ref` takes a name, as the script reads it: `this.refs.canvas`', 0); return; }
-    this.refEls.push([el, name]);
+    if (use.sid === undefined || !this.componentFiles.get(use.name)?.script) return;
+    node.b.push(this.binding({ k: 'cmp', f: this.fn(`($) => [$.$s${use.sid}, ${JSON.stringify(name)}]`, { el, attr: 'data-sn-ref', shift: 0 }) }));
   }
 
   addSources(ref: string, src: string[]) {

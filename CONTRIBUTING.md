@@ -27,6 +27,8 @@ Origin). It isn't enforced and there is no CLA.
 
 ```sh
 npm test          # vitest (happy-dom); CI runs typecheck, build and tests on every push (Node 22/24/26)
+                  # browser checks run in Chromium, and in Firefox and WebKit too when Playwright has them
+                  # (`npx playwright install firefox webkit`, or SINTER_FIREFOX / SINTER_WEBKIT=<executable>)
 npm run typecheck
 npm run build     # dist/
 npm run size      # size per page and module, with budgets

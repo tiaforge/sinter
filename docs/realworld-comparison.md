@@ -207,7 +207,7 @@ definitions out of the core into modules only the pages that use them load):
 | shared chunk of the app (core, config, write-through) | +133 B | the two rows above |
 | page modules | +4 to +39 B | the source names in `patch()` calls, the components' wrapper elements |
 | other modules | 0 to +5 B | no source change: `npm run size` leaves their runtime imports external, so their output holds the checkout's absolute path, one character longer here than in the `main` checkout measured |
-| new modules | `components` 719 B, `nested` 881 B, `defs` 175 B | only on pages with a component script, nested changes, shared definitions |
+| new modules | `components` 676 B, `nested` 881 B, `defs` 175 B | only on pages with a component script, nested changes, shared definitions |
 | HTML | −125 to −236 B | a component file's comments stay in the file |
 
 `data-sn-early="off"` on the home page's header and error list (a test, not in the app) takes its

@@ -88,8 +88,8 @@ src/components/live-clock.ts            ...plus a script, run per instance by si
   without `:scope` matches only below the scope root, so `.preview` alone would not match the root. The
   compiler adds a copy of each selector whose first compound may be the root,
   `.preview, :where(:scope):is(.preview)`, with the same specificity. Making the root's parent the scope
-  root through `:has()` was tried first and dropped: adding and removing list rows took 3.7× as long in
-  Chromium, and sibling instances shared a scope.)
+  root through `:has()` was tried first and dropped: adding and removing 200 list rows took 62 ms
+  against 18 in Chromium, and 1,365 ms against 32 in Firefox, and sibling instances shared a scope.)
   - The root of each instance carries `data-sn-c` with the component's name, in production too
     (only for components that have styles; others keep it in dev builds only).
   - The `to` boundary stops the styles at nested components, and at slot content, which the

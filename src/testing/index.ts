@@ -345,7 +345,7 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
   }
   const files: Record<string, string> = { ...options.files };
   for (const [name, text] of Object.entries(options.components ?? {})) files[`src/components/${name}.html`] = text;
-  for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= '';
+  for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= 'export default class {}';
   const parts = compileParts(html, {
     file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank', componentNames: Object.keys(options.components ?? {}),
     readFile: (p) => {
@@ -403,7 +403,9 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   for (const x of parts.scripts) {
     const m = options.scripts?.[x.name];
     names.push(x.local);
-    values.push(typeof m === 'function' ? { default: m } : m ?? {});
+    // the class: given itself, or the module's export the compiler found (testing's files are empty, so: the module's one class)
+    const mod = m as Record<string, unknown> | undefined;
+    values.push(typeof m === 'function' ? m : mod?.[x.export] ?? mod?.default ?? Object.values(mod ?? {}).find((v) => typeof v === 'function'));
   }
   // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
   const fns = new Function(...names, `"use strict"; return [\n${parts.fns.join(',\n')}\n];`)(...values);

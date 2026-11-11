@@ -63,3 +63,17 @@ test('a default export works; the refs of a nested component and of slot content
   // a ref outside any component's markup
   await expect(render('<p data-sn-ref="x"></p>')).rejects.toThrow(/SN102 wrong-element: `data-sn-ref` names an element of a component's markup/);
 }, 10_000);
+
+test('a script without the class named after the component, or a default export, fails the build', async () => {
+  const { compile } = await import('../../src/compiler/index.js');
+  const files: Record<string, string> = {
+    '/p/src/components/task-ring.html': '<template data-sn-component=""><figure></figure></template>',
+    '/p/src/components/task-ring.ts': 'export class Ring {}',
+  };
+  const d = compile('<task-ring></task-ring>', { file: '/p/i.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: (f) => { if (f in files) return files[f]!; throw new Error('missing'); } }).diagnostics;
+  expect(d.map((x) => `${x.code} ${x.message}`)).toEqual([expect.stringMatching(/^SN312 the script of `<task-ring>` \(`\/src\/components\/task-ring.ts`\) exports no class `TaskRing` and no default export/)]);
+  files['/p/src/components/task-ring.ts'] = 'export class TaskRing {}';
+  const ok = compile('<task-ring></task-ring>', { file: '/p/i.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: (f) => { if (f in files) return files[f]!; throw new Error('missing'); } });
+  expect(ok.diagnostics).toEqual([]);
+  expect(ok.module).toContain("import { TaskRing as $cm$task_ring } from \"/src/components/task-ring.ts\";");
+});

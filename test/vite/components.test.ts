@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { build } from 'vite';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
-import { chromium } from '../browser.js';
+import { engines } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
 const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
@@ -56,13 +56,13 @@ test('a build: scoped styles in the page\'s stylesheet, roots and slot content m
   // slot content: the page's, and the one x-page passes into x-card
   expect(html).toContain('<p class="page" data-sn-s="">');
   expect(html).toContain('<p class="mine" data-sn-s="x-page">');
-  if (!chromium) return;
-  const browser = await chromium.launch();
+  for (const engine of await engines()) {
+  const browser = await engine.type.launch(engine.executablePath ? { executablePath: engine.executablePath } : {});
   try {
     const tab = await browser.newPage();
     await tab.setContent(html.replace(/<link rel="stylesheet"[^>]*>/, `<style>${css}</style>`).replace(/<script[\s\S]*?<\/script>/g, ''));
     const style = (sel: string) => tab.$eval(sel, (el) => { const s = getComputedStyle(el); return { color: s.color, weight: s.fontWeight, deco: s.textDecorationLine, pad: s.padding }; });
-    expect((await style('.card')).pad).toBe('7px');
+    expect((await style('.card')).pad, engine.name).toBe('7px');
     expect((await style('.own')).color).toBe('rgb(0, 0, 255)');
     // a nested component and slot content are not the card's
     expect((await style('.nested')).color).not.toBe('rgb(0, 0, 255)');
@@ -72,11 +72,12 @@ test('a build: scoped styles in the page\'s stylesheet, roots and slot content m
     expect((await style('.mine')).weight).not.toBe('900');
     expect((await style('x-page .own, main .own')).deco).not.toBe('underline');
     // instances are isolated: a sibling instance is outside the first one's scope
-    expect(await tab.$eval('.second', (el) => getComputedStyle(el).outlineStyle)).toBe('none');
+    expect(await tab.$eval('.second', (el) => getComputedStyle(el).outlineStyle), engine.name).toBe('none');
   } finally {
     await browser.close();
   }
-}, 60_000);
+  }
+}, 120_000);
 
 test('a component with a script: its base class from its HTML, the generated types, and the built page running it', async () => {
   const app = mkdtempSync(join(tmpdir(), 'sinter-component-script-'));
@@ -120,10 +121,10 @@ export class TaskRing extends TaskRingComponent {
     expect(tsc()).toBe('');
     writeFileSync(join(app, 'src/components/task-ring.ts'), readFileSync(join(app, 'src/components/task-ring.ts'), 'utf8').replace("this.emit('pick', 'done')", "this.emit('pik', 'done')"));
     expect(tsc()).toMatch(/Argument of type '"pik"' is not assignable/);
-    if (!chromium) return;
     const { preview } = await import('vite');
     const server = await preview({ root: app, logLevel: 'silent', preview: { port: 0 }, build: { outDir: out } });
-    const browser = await chromium.launch();
+    for (const engine of await engines()) {
+    const browser = await engine.type.launch(engine.executablePath ? { executablePath: engine.executablePath } : {});
     try {
       const tab = await browser.newPage();
       await tab.goto(server.resolvedUrls!.local[0]!);
@@ -136,9 +137,10 @@ export class TaskRing extends TaskRingComponent {
       await tab.waitForFunction(() => document.querySelector('output')?.textContent === 'done');
     } finally {
       await browser.close();
-      await new Promise((r) => server.httpServer.close(r));
     }
+    }
+    await new Promise((r) => server.httpServer.close(r));
   } finally {
     rmSync(app, { recursive: true, force: true });
   }
-}, 60_000);
+}, 120_000);
