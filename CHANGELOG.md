@@ -48,6 +48,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- A build with sinter linked into the app (`npm link`, a symlinked checkout) no longer hangs after "built in" when the
+  app uses Sass: the plugin loads the app's own Vite instead of a second copy from sinter's `node_modules`, whose
+  `preprocessCSS` started a Sass compiler the build never closed. Installs from npm were not affected.
+
 - A build-time constant in `data-sn-attr` for `indeterminate`, or for `value` on a `<select>` or `<textarea>`, is no longer
   written into the HTML as an attribute, which sets nothing there (the checkbox was not indeterminate, the select showed
   its first option, the textarea was empty). The binding stays and sets the property.

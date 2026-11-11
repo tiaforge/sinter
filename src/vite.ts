@@ -7,6 +7,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
 import { lazyOf, project, staticPages, type ProjectOptions } from './project.js';
@@ -213,7 +215,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    */
   const earlyScript = async (code: string, keys: Set<string>, rt: string[] | null, what: string, runtimeId: string | null = null, map?: SourceMap) => {
         const r = resolved!, ENTRY = `${PREFIX}early-entry.js`, entryId = map ? ENTRY : '\0' + ENTRY;
-        const vite = await import('vite'), rolldown = 'rolldownVersion' in vite;
+        const vite = await appVite(), rolldown = 'rolldownVersion' in vite;
         const out = await vite.build({
           configFile: false, root, base: r.base, mode: dev ? 'development' : r.mode, logLevel: 'silent', publicDir: false, define: r.define,
           resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions },
@@ -257,6 +259,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!js) devEarly.set(code, (js = earlyScript(code, new Set(), null, key.slice(EARLY.length, -3), null, maps.get(key))));
     return js;
   };
+  /**
+   * The app's own Vite, the one running this build: resolved from the root, so a sinter linked into the
+   * app (`npm link`, a symlinked checkout) does not use a second copy from its own node_modules, whose
+   * `preprocessCSS` would start a Sass compiler the build never closes (the process would not exit)
+   */
+  let viteModule: Promise<typeof import('vite')> | null = null;
+  const appVite = () => (viteModule ??= (async () => {
+    try { return (await import(pathToFileURL(createRequire(resolve(root, 'package.json')).resolve('vite')).href)) as typeof import('vite'); } catch { return import('vite'); }
+  })());
   const watched = new Set<string>();
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
@@ -337,7 +348,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** a stylesheet as Vite compiles it: Sass, Less, Stylus, the project's PostCSS, `@import` */
   const failedCss = new Set<string>();
   const compileCss = async (code: string, file: string) => {
-    const { preprocessCSS } = await import('vite');
+    const { preprocessCSS } = await appVite();
     try {
       const out = await preprocessCSS(code, file, resolved!);
       return { code: out.code, deps: [...(out.deps ?? [])] };
