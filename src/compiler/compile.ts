@@ -3485,9 +3485,10 @@ class Compiler {
     let readsUrl = false;
     const known = (deps: string[]) => deps.every((d) => {
       if (d === '$locale') return true;
-      // with embedded data, the URL too (the browser knows it as the head is parsed), and any resource: one without
-      // data throws when it is read, which leaves that binding to the page module (`($url.feed ? feed : articles)`)
-      if (embedded.size && (d === '$url' || d.startsWith('$url.'))) return (readsUrl = true);
+      // the URL: the browser knows it as the head is parsed
+      if (d === '$url' || d.startsWith('$url.')) return (readsUrl = true);
+      // with embedded data, any resource: one without data throws when it is read, which leaves that
+      // binding to the page module (`($url.feed ? feed : articles)`)
       const r = /^\$r\.([^.]+)/.exec(d);
       if (r) { if (!embedded.size) return false; if (embedded.has(r[1]!)) usedEmb.add(r[1]!); return true; }
       const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);

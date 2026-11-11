@@ -10,7 +10,7 @@ What can be in the first frame depends on where the value comes from:
 | The value comes from | In the first frame | How |
 | --- | --- | --- |
 | A literal `data-sn-state` field | yes, even without scripts | [Build-time constants](#build-time-constants) |
-| Messages, persisted values, helpers, `$locale` | yes | [The early script](#the-early-script) |
+| Messages, persisted values, helpers, `$locale`, the URL (`$url`) | yes | [The early script](#the-early-script) |
 | Your API, with the server layer | yes | [Embedded data](#embedded-data) |
 | Your API, without it | after one round trip, started before the page script runs | [Requests start early](#requests-start-early) |
 
@@ -42,6 +42,7 @@ the first paint:
 - messages, in the language picked from the visitor's saved choice or browser settings
 - persisted values (`data-sn-persist`)
 - state fields initialized by helpers or `$locale`
+- the URL: `$url`'s query and its `data-sn-path` parameters (the current nav item, a tab from `?feed=`)
 - `data-sn-if` branches over that state
 - your own code in `src/sinter.early.ts`
 

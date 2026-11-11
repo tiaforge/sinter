@@ -71,19 +71,19 @@ test('early state: fields that need no data, persisted values, and the branch of
       <template data-sn-else><p data-sn-text="week"></p></template>
       <template data-sn-if="q"><p>search</p></template>
     </body></html>`, {}, ['monday']);
-  // state: only `here` is known before data (the clock and the URL are not)
-  expect(early).toContain('($) => ({ "here": (\'/c/\') })');
+  // state: `here` and the URL's `q` are known before data (the clock is not)
+  expect(early).toContain('($) => ({ "here": (\'/c/\'), "q": ($.$url.q) })');
   expect(early).toContain('($) => ({ "view": (\'week\') })');
-  expect(ir.roots.map((n: { tag: string; b: Array<{ k: string }> }) => [n.tag, n.b.map((b) => b.k)])).toEqual([['html', []], ['body', []], ['template', ['if']], ['template', ['else']]]);
+  expect(ir.roots.map((n: { tag: string; b: Array<{ k: string }> }) => [n.tag, n.b.map((b) => b.k)])).toEqual([['html', []], ['body', []], ['template', ['if']], ['template', ['else']], ['template', ['if']]]);
   expect(ir.roots[0].persist).toBe('view');
   // the if branch: its `here` text, not the row template inside it; the else branch: `week` is not known
   expect(ir.templates[0].nodes.map((n: { tag: string; path: number[] }) => [n.tag, n.path])).toEqual([['div', [0]]]);
   expect(ir.templates[2].nodes).toEqual([]);
   expect(early).not.toContain('monday');
   // compiled: the persisted state, the branch with its one text binding, no renderer for the empty else branch
-  expect(early).toContain('s[0] = sp($, f[2], 0, "view");');
+  expect(early).toContain('s[0] = sp($, f[3], 0, "view");');
   // a node that opens no state has its ancestor's scope (no slot of its own): the template reads `$s1`'s
-  expect(early).toContain('s[1] = st(s[0], f[3], 1); return s;');
+  expect(early).toContain('s[1] = st(s[0], f[4], 1); return s;');
   expect(early).toContain('w(n[2], f[0], s[1], (t, v) => iff(t, v, n[3], (ns, b) => { const n = [at(ns, [0], "div")]; w(n[0], f[1], b, text); }, 0, s[1]));');
   expect(early).toContain("import { run, $k, at, byId, iff, sp, st, text, w } from '@tiaforge-ui/sinter/early';");
 });

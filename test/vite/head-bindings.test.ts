@@ -39,7 +39,14 @@ beforeAll(async () => {
 </body>
 </html>
 `);
-  await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()], build: { outDir: out, emptyOutDir: true, minify: false } });
+  // no embedded data, no early request: the early script renders the URL on its own
+  writeFileSync(join(root, 'plain.html'), `<!doctype html>
+<html lang="en" data-sn-path="/tag/:tag">
+<head><meta charset="utf-8"><title data-sn-text="'Tag ' + $url.tag + ($url.q ? ' ' + $url.q : '')">Tags</title></head>
+<body><p id="here" data-sn-text="$url.tag"></p></body>
+</html>
+`);
+  await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()], build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input: { index: join(root, 'index.html'), plain: join(root, 'plain.html') } } } });
 }, 60_000);
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -56,13 +63,15 @@ test('the build: bindings on <title> and <meta content>, the literal content kep
 test('in every engine: the early script renders the head (helpers, embedded data, $url) without the page module; other data when it arrives', async () => {
   const html = readFileSync(join(out, 'index.html'), 'utf8');
   const page = /src="(\/assets\/index-[\w-]+\.js)" async/.exec(html)![1]!;
+  const plainHtml = readFileSync(join(out, 'plain.html'), 'utf8');
+  const plainPage = /src="(\/assets\/plain-[\w-]+\.js)" async/.exec(plainHtml)![1]!;
   let block = false;
   const site = http((req, res) => {
     const path = (req.url ?? '/').split('?')[0]!;
     if (path === '/api/other') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ other: { text: 'From the API' } })); }
-    if (block && path === page) { res.statusCode = 404; return res.end(); }
+    if (block && (path === page || path === plainPage)) { res.statusCode = 404; return res.end(); }
     try {
-      const body = readFileSync(join(out, path === '/' ? 'index.html' : path));
+      const body = readFileSync(join(out, path === '/' ? 'index.html' : path.startsWith('/tag/') ? 'plain.html' : path));
       res.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : 'text/html');
       res.end(body);
     } catch { res.statusCode = 404; res.end(); }
@@ -83,6 +92,10 @@ test('in every engine: the early script renders the head (helpers, embedded data
         expect(await meta('meta[property="og:title"]'), engine.name).toBe('Embedded now');
         expect(await meta('meta[property="og:description"]'), engine.name).toBe('Blog');
         expect(await tab.$$eval('head title', (x) => x.length)).toBe(1);
+        // the URL, on a page with no embedded data and no early request
+        await tab.goto(`http://127.0.0.1:${port}/tag/css?q=grid`, { waitUntil: 'load' });
+        expect(await tab.title(), engine.name).toBe('Tag css grid');
+        expect(await tab.textContent('#here'), engine.name).toBe('css');
         // with it: data from a request fills what reads it
         block = false;
         await tab.goto(`http://127.0.0.1:${port}/`);

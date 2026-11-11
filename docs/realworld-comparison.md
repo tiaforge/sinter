@@ -243,3 +243,11 @@ and its binding stays, as every prerendered binding does), and the page's state 
 instead of a `<div>`. The shared head script does not change (3,233 B). Scrapers that run no script
 see the constant titles as before; the article and profile pages, whose titles come from data, show
 `Conduit` to them until a server writes the head ([what a crawler sees](layouts.md#what-a-crawler-sees)).
+
+The early script then learned `$url` on every page (before, only on pages with embedded data). On
+`/tag/css`, the home page's `css` tab is in the first frame, active (checked in Chromium with the page
+module blocked); before, it appeared when the page module ran and shifted the tabs. The profile
+page's own nav link reads `$url` too, but it is shown only for a signed-in user, whose data is not
+there early, so nothing visible changes there. Cost, gzip: the shared head script 3,233 → 3,325 B (the attribute and text
+writers, which an early binding now uses; the URL reader was already in it), the home page's head
+script 856 → 950 B and the profile page's 792 → 889 B; the others within 1 B.
