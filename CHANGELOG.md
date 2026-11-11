@@ -26,7 +26,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   reads the page, so the early scripts, preloads, embedded data, Google Fonts and Vite's bundling of the layout's
   scripts and stylesheets work on the merged head. The layout's relative URLs are relative to its file. New
   diagnostics `SN318` (an invalid layout), `SN319` (a page that is more than the tag, a layout tag anywhere else) and
-  `SN321` (a second `<title>`, `<meta name="description">`, `og:title`… in the head, on every page).
+  `SN321` (a second `<title>`, `<meta name="description">`, `og:title`… in the head, on every page: a page that has
+  two `<title>`s, which browsers tolerate, no longer builds).
 - Slot forwarding: a `<slot>` that is itself slot content of a component's tag (`<seo-tags><slot name="seo"
   slot="extra"></slot></seo-tags>`) passes what fills it on into that slot, with its fallback when it is left empty.
   Slot content keeps its first caller's scope through any number of components (before, content a component passed
