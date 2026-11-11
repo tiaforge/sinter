@@ -91,16 +91,17 @@ event such as `click`. `sinter check` types `$event.detail` from the declaration
 ## Leaving a component out of the early script
 
 Every component renders in the first frame by default: the early script renders its bindings as the
-page is parsed. A component that can accept the layout changing when it renders (a widget below the
-fold, a sidebar box) can opt out, so the early script stays small:
+page is parsed. A use that can accept the layout changing when it renders (a widget below the fold, a
+sidebar box) can opt out on its tag, so the early script stays small:
 
 ```html
-<template data-sn-component="{ tags: string[] }" data-sn-early="off">
+<tag-cloud data-sn-early="off" data-sn-prop="{ tags }"></tag-cloud>
 ```
 
-Its bindings are left out of the early script, at any depth (components inside it too, not the slot
-content its caller passes in), and render when the page module runs. Build-time constants are still
-written into the HTML; they cost no script.
+That use's bindings are left out of the early script, at any depth (components inside it too, not the
+slot content the tag passes in), and render when the page module runs. Other uses of the component
+still render early. Build-time constants are still written into the HTML; they cost no script.
+`<sn-component>` takes it too.
 
 ## Styles
 

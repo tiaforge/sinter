@@ -178,7 +178,7 @@
     },
     {
       "name": "data-sn-early",
-      "description": "on the <template data-sn-component>: the component is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for components that may shift the layout when they render, to keep the early script small (off)"
+      "description": "on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for uses that may shift the layout when they render, to keep the early script small (off)"
     },
     {
       "name": "data-sn-ref",

@@ -272,7 +272,7 @@ interface Use {
   emitsText: string | null;
   /** the components it is inside, outer first, `#` for a `data-sn-for` or `data-sn-if` template between */
   chain: string[];
-  /** `data-sn-early="off"` on its template: left out of the early script */
+  /** `data-sn-early="off"` on its tag: this use is left out of the early script */
   late?: boolean;
   /** what the component's markup sees of it */
   scope?: ComponentScope;
@@ -861,7 +861,7 @@ class Compiler {
       detach(el);
     };
     for (const a of el.attrs) {
-      if (a.name !== 'use' && a.name !== 'data-sn-prop') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-component>\`; it takes \`use\` and \`data-sn-prop\``, 0);
+      if (a.name !== 'use' && a.name !== 'data-sn-prop' && a.name !== 'data-sn-early') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-component>\`; it takes \`use\`, \`data-sn-prop\` and \`data-sn-early\``, 0);
     }
     let ast: ReturnType<typeof parseExpressionAt> | null = null;
     try { ast = use ? parseExpressionAt(use, 0, { ecmaVersion: 'latest' }) : null; } catch { ast = null; }
@@ -950,8 +950,8 @@ class Compiler {
       }
     }
     for (const a of template.attrs) {
-      if (a.name === 'data-sn-early') { if (a.value.trim() !== 'off') this.report(template, a.name, 'SN401', '`data-sn-early` takes `off`: the component renders when the page module runs, not in the early script', 0); }
-      else if (a.name !== 'data-sn-component' && a.name !== 'data-sn-emits') this.report(template, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<template data-sn-component>\`; it takes \`data-sn-component\`, \`data-sn-emits\` and \`data-sn-early\``, 0);
+      if (a.name === 'data-sn-early') this.report(template, a.name, 'SN102', '`data-sn-early` goes on a use of the component, its tag: `<' + name + ' data-sn-early="off">`', 0);
+      else if (a.name !== 'data-sn-component' && a.name !== 'data-sn-emits') this.report(template, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<template data-sn-component>\`; it takes \`data-sn-component\` and \`data-sn-emits\``, 0);
     }
     const content = (template as P5Template).content.childNodes;
     const text = content.find((c) => c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
@@ -971,7 +971,7 @@ class Compiler {
     const emitsText = attr(template, 'data-sn-emits') ?? null;
     const emits = emitsText === null ? [] : typeMembers(emitsText);
     if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
-    const use: Use = { name, file: def.file, host, root, template, props, propsText, emits, emitsText, chain, ...(attr(template, 'data-sn-early')?.trim() === 'off' ? { late: true } : {}) };
+    const use: Use = { name, file: def.file, host, root, template, props, propsText, emits, emitsText, chain, ...(this.lateTag(host) ? { late: true } : {}) };
 
     // the table rule: a tag the parser moved out of its table
     const next = host.parentNode?.childNodes.slice(host.parentNode.childNodes.indexOf(host as never) + 1).find(isElement);
@@ -1055,6 +1055,14 @@ class Compiler {
     if (!this.uses.has(name)) this.uses.set(name, []);
     this.uses.get(name)!.push(use);
     return root;
+  }
+
+  /** `data-sn-early="off"` on a component's tag: this use renders when the page module runs, not in the early script */
+  lateTag(host: P5Element): boolean {
+    const v = attr(host, 'data-sn-early');
+    if (v === undefined) return false;
+    if (v.trim() !== 'off') { this.report(host, 'data-sn-early', 'SN401', '`data-sn-early` takes `off`: this use renders when the page module runs, not in the early script', 0); return false; }
+    return true;
   }
 
   /** A literal `id` in the markup of a component used more than once would be on the page more than once. */
@@ -1180,7 +1188,7 @@ class Compiler {
     const code = pick ? `($) => ((${pick.ok ? pick.inner : 'undefined'}) === ${JSON.stringify(choice!.name)} ? ${props} : [])` : `($) => ${props}`;
     const deps = [...new Set([...lets.flatMap((l) => l.deps), ...(pick?.deps ?? [])])].sort();
     const node: NodeDef = { tag: 'template', p: ctx.stateIdx, b: [this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-prop', shift: 0 }), d: deps, x: def.tid })] };
-    if (ctx.scope.component?.late || def.use.late) this.lateNodes.add(node);
+    if (ctx.scope.component?.late || this.lateTag(host)) this.lateNodes.add(node);
     // the tag becomes the empty template the definition is cloned into
     const t = host as unknown as P5Template;
     host.tagName = host.nodeName = 'template';
@@ -1428,9 +1436,10 @@ class Compiler {
       this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
     }
 
-    for (const n of ['component', 'emits', 'early']) {
+    for (const n of ['component', 'emits']) {
       if (has(n)) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` belongs on the \`<template>\` of a component file (\`src/components/<name>.html\`)`, 0);
     }
+    if (has('early') && !this.useOf.get(el)) this.report(el, 'data-sn-early', 'SN102', '`data-sn-early` goes on a component\'s tag, `<tag-cloud data-sn-early="off">`', 0);
     if (has('path') && el.tagName !== 'html') this.report(el, 'data-sn-path', 'SN102', '`data-sn-path` belongs on `<html>`', 0);
     if (has('prefetch')) {
       if (el.tagName !== 'html') this.report(el, 'data-sn-prefetch', 'SN102', '`data-sn-prefetch` belongs on `<html>`: it keeps other pages from prefetching or prerendering this one', 0);

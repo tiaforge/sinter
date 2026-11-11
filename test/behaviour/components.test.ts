@@ -159,25 +159,26 @@ describe('component diagnostics', () => {
 });
 
 describe('data-sn-early="off"', () => {
-  const CLOCK = (early: string) => `<template data-sn-component="{ time: string }"${early}><time data-sn-text="time"></time></template>`;
+  const CLOCK = '<template data-sn-component="{ time: string }"><time data-sn-text="time"></time></template>';
   // a helper: not a build-time constant, so only the early script renders it before the page module
-  const PAGE = `<div data-sn-state="{ now: label() }"><live-clock data-sn-prop="{ time: now }"></live-clock><b data-sn-text="now"></b></div>`;
+  const PAGE = (early: string) => `<div data-sn-state="{ now: label() }"><live-clock data-sn-prop="{ time: now }"${early}></live-clock><b data-sn-text="now"></b></div>`;
   const helpers = { label: () => '--:--' };
 
-  test('the component is left out of the early script and renders when the page module runs', async () => {
-    const early = await firstPaint(PAGE, { helpers, components: { 'live-clock': CLOCK(' data-sn-early="off"') } });
-    expect(early.root.querySelector('time')!.textContent).toBe('');
+  test('a use with it is left out of the early script and renders when the page module runs; another use is not', async () => {
+    const both = `${PAGE(' data-sn-early="off"')}${PAGE('')}`;
+    const early = await firstPaint(both, { helpers, components: { 'live-clock': CLOCK } });
+    expect([...early.root.querySelectorAll('time')].map((t) => t.textContent)).toEqual(['', '--:--']);
     // the page's own binding still renders early
     expect(early.root.querySelector('b')!.textContent).toBe('--:--');
-    const { root } = await render(PAGE, { helpers, components: { 'live-clock': CLOCK(' data-sn-early="off"') } });
-    expect(root.querySelector('time')!.textContent).toBe('--:--');
+    const { root } = await render(both, { helpers, components: { 'live-clock': CLOCK } });
+    expect([...root.querySelectorAll('time')].map((t) => t.textContent)).toEqual(['--:--', '--:--']);
   });
 
-  test('the early module holds less', () => {
-    const early = (c: string) => compile(PAGE, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: '/h.js', names: ['label'], namespaces: {} }, early: { module: null },
-      readFile: (p) => { if (p === '/p/src/components/live-clock.html') return c; throw new Error('missing'); } }).early ?? '';
-    expect(early(CLOCK(' data-sn-early="off"')).length).toBeLessThan(early(CLOCK('')).length);
-    expect(compile(PAGE, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: '/h.js', names: ['label'], namespaces: {} },
-      readFile: () => CLOCK(' data-sn-early="later"') }).diagnostics.map((d) => d.code)).toEqual(['SN401']);
+  test('the early module holds less; the attribute belongs on the tag', () => {
+    const out = (page: string, c = CLOCK) => compile(page, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: '/h.js', names: ['label'], namespaces: {} }, early: { module: null },
+      readFile: (p) => { if (p === '/p/src/components/live-clock.html') return c; throw new Error('missing'); } });
+    expect((out(PAGE(' data-sn-early="off"')).early ?? '').length).toBeLessThan((out(PAGE('')).early ?? '').length);
+    expect(out(PAGE(' data-sn-early="later"')).diagnostics.map((d) => d.code)).toEqual(['SN401']);
+    expect(out(PAGE(''), CLOCK.replace('<template ', '<template data-sn-early="off" ')).diagnostics.map((d) => d.code)).toEqual(['SN102']);
   });
 });

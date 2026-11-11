@@ -73,7 +73,7 @@ Key filters (\`data-sn-on-keydown-<modifiers->key\`, \`data-sn-on-keyup-…\`): 
 - A component with a script: \`src/components/<name>.ts\` beside its HTML, \`export class TaskRing extends TaskRingComponent\` (imported from \`./task-ring.html\`, typed by the generated \`src/sinter.components.d.ts\`). sinter creates it per instance and calls \`connected()\` (markup rendered, refs set), \`propsChanged()\` and \`disconnected()\`; it reads \`this.props\`, writes \`this.state\` (renders), uses \`this.refs.<name>\` (\`data-sn-ref\` in its markup), \`this.root\` and \`this.emit()\`. It writes only state, never nodes sinter renders. Use it for browser work (canvas, libraries, timers) instead of a custom element.
 - A component may use itself (a tree: comments and replies) when the inner use is inside a \`data-sn-for\` or \`data-sn-if\` template (else SN306): \`<template data-sn-for="r in comment.replies" data-sn-key="r.id"><comment-thread data-sn-prop="{ comment: r }"></comment-thread></template>\`. \`patch(r, …)\` and \`remove(r)\` change a nested item along its path at any depth; \`upsert(comment.replies, x)\` adds to a nested list. Nested loops need \`data-sn-key\`.
 - \`<sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }">\` picks a component per item: a template string, a map in the markup (\`use="{ hero: 'hero-block' }[b.type]"\`) or a helper; it must fit \`ComponentName\` (\`b.type + '-block'\` is a \`string\`: write the template string); a \`data-sn-else\` template after it renders for a value outside the candidates.
-- \`data-sn-early="off"\` on a component's \`<template data-sn-component>\` leaves it out of the early script (smaller head script; it renders when the page module runs, so it may shift the layout then).
+- \`data-sn-early="off"\` on a component's tag (\`<tag-cloud data-sn-early="off">\`) leaves that use out of the early script (smaller head script; it renders when the page module runs, so it may shift the layout then).
 - \`<sn-include>\` is removed (SN316): a partial is a component.
 
 ## What belongs in markup
@@ -221,7 +221,7 @@ const ATTRIBUTE_GROUPS: Array<[string, string, string[]]> = [
   ['Send changes', 'Turn an element into a request. Details: [actions](actions.md).', ['get', 'post', 'put', 'patch', 'delete', 'call', 'body', 'trigger', 'debounce', 'encoding', 'concurrency', 'confirm', 'retry', 'apply']],
   ['After a request', 'What happens on screen around a response. Details: [optimistic updates](actions.md#optimistic-updates).', ['optimistic', 'then', 'catch']],
   ['React to events', 'Handlers without a request. Details: [events](actions.md), [key filters](actions.md).', ['on-<event>', 'debounce-<event>', 'listbox']],
-  ['Components', 'In a component file in `src/components/`. Details: [components](components.md).', ['component', 'emits', 'early', 'ref']],
+  ['Components', 'In a component file in `src/components/`, and on a component\'s tag (`early`). Details: [components](components.md).', ['component', 'emits', 'early', 'ref']],
   ['Pages and navigation', 'Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [first paint](first-paint.md).', ['path', 'prefetch', 'transition', 'data']],
 ];
 const RESOURCE_GROUPS: Array<[string, string[]]> = [
