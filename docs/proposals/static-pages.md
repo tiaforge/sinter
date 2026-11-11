@@ -1,6 +1,6 @@
 # Proposal: pages without JavaScript
 
-Status: draft, every question settled (see [Decisions](#decisions)). Nothing here is implemented. It builds on
+Status: draft, for discussion (see [Open questions](#open-questions) and [Decisions](#decisions)). Nothing here is implemented. It builds on
 [layouts](../layouts.md) and on constants left out of the page module, both merged in
 [#26](https://github.com/tiaforge/sinter/pull/26). Every measurement below is from `main` at 5e6c1c8.
 
@@ -238,7 +238,8 @@ stored. The build rewrites:
   ```
 - Each head gets `<link rel="alternate" hreflang="…">` for every language's URL of the page, and
   `x-default` for the root (`/`), which sends a visitor to a language, so search engines index and
-  link each language.
+  link each language. Search engines want these URLs absolute, so they are written from
+  `sinter({ site })` (step 5); without it the build writes none and says so once.
 - It is a choice for the whole site, and it applies to every page, not only static ones. Without
   `localePrefix` nothing changes: one HTML file per page, the language picked in the browser and
   `$locale = 'de'` switching in place, keeping the page's state. The two models do not mix in one
@@ -266,6 +267,42 @@ nor `de/about.html` is a file. The plugin would replace each page's input with o
 language whose content is the source page, compile it with the locale taken from its path, and add
 the root `index.html`. The dev server does the same: it serves `/{locale}/…` and the root as the build
 writes them, and an unprefixed page path is not found there either.
+
+### 5. Canonical URLs
+
+A static page has no way to state its canonical URL today, other than writing it by hand:
+
+- `<link rel="canonical" href="https://example.com/about.html">` written literally works, on a page
+  written by hand or through a layout's head slot (`<link slot="head" rel="canonical" href="…">`), one
+  per page, kept in sync with the file's name by hand.
+- A layout cannot write it for its pages: bindings on `<link>` are `SN207`, since a value from data
+  could load a stylesheet or a script.
+- Nothing could compute it anyway: the build knows each page's path (the source path, the locale
+  prefix, Vite's `base`), but not the site's origin. `$url` is the browser's, at run time: a binding
+  over it needs JavaScript, and a crawler that does not run it never sees the value.
+- `og:url` is a `<meta property>`, which binds, but has the same two gaps.
+
+**Proposed: the site's origin is an option, and the build writes the canonical URL into every page
+whose path it knows.**
+
+```js
+sinter({ site: 'https://example.com' })
+```
+
+- Every page with a fixed path gets `<link rel="canonical" href="https://example.com/en/about.html">`
+  in its head: the origin, Vite's `base`, the locale prefix with `localePrefix`, and the page's path.
+  No query and no hash. A page or layout that writes its own `<link rel="canonical">` keeps it (a page
+  whose content lives at another URL); `SN321` already allows only one.
+- `$canonical` is that URL as a build-time constant, for what else needs it:
+  `<meta property="og:url" data-sn-attr="{ content: $canonical }">` in a head component is written into
+  the HTML of every page, and costs nothing at run time.
+- The same origin makes `hreflang` and `x-default` absolute (step 4).
+- Without `site`, nothing is written, as today.
+
+A page whose path is a pattern (`data-sn-path="/article/:slug"`) is one HTML file for many URLs, so
+the build cannot know its canonical URL. It is not static anyway: it reads `$url`. With embedded data
+(`embed: true`), the server layer that writes the JSON into the page knows the request's path and writes
+the canonical link too. Without it, the page has none; the build report lists such pages once.
 
 ## What changes on a page that ships no JavaScript
 
@@ -333,6 +370,11 @@ These are the behaviours a static page loses.
   any language; an app page imports only its language's file and has no picker; assigning `$locale`
   is a build error; `data-sn-path`, Speculation Rules and next-page data carry the prefix. The dev
   server serves `/en/…`, `/de/…` and the root as the build writes them, and no unprefixed page.
+- Canonical URLs: with `site`, every page with a fixed path has one canonical link, absolute, with
+  `base` and the locale prefix; a page's own canonical link wins; `$canonical` in a `<meta content>` is
+  written into the HTML; `hreflang` and `x-default` are absolute; a pattern page gets its canonical
+  link from the embed layer (Node and sinter-axum) and has none without it; without `site`, nothing is
+  written.
 - Browser (Chromium, Firefox, WebKit): each static fixture renders the same with JavaScript
   disabled (`javaScriptEnabled: false`) as with it.
 - RealWorld: no page should stop shipping JavaScript (they all read data). The page module sizes
@@ -350,17 +392,26 @@ These are the behaviours a static page loses.
 6. Locale URLs (step 4): fixed-locale compilation, messages in attributes, build-time `date()` and
    `number()`, `localeUrl()`, `hreflang`, link rewriting, the root `index.html`, the prefix in
    everything that knows page paths, sinter-axum's router.
-7. Docs: a guide, `docs/static-pages.md` (what ships no JavaScript and why, the report line, the
+7. Canonical URLs (step 5): `site`, the canonical link, `$canonical`, absolute `hreflang`, and the
+   embed layer's canonical link for pattern pages, in Node and in sinter-axum.
+8. Docs: a guide, `docs/static-pages.md` (what ships no JavaScript and why, the report line, the
    matcher, next-page data, the config module, multilingual sites and first-visit redirects on common
-   hosts), linked from `layouts.md` and `first-paint.md`; the config module's rule in
-   `configuration.md`; locale URLs in the messages section; the README line "a small runtime ships with each page" becomes "with each page
-   that needs one", and a CHANGELOG entry.
+   hosts, canonical URLs), linked from `layouts.md` and `first-paint.md`; the config module's rule in
+   `configuration.md`; locale URLs in the messages section; the README line "a small runtime ships
+   with each page" becomes "with each page that needs one", and a CHANGELOG entry.
 
 ## Open questions
 
-None left. Worth watching once it is used: locale URLs may turn out to be the better model for
-apps in general, not only an optimization for static sites. If they do, making them the only model
-is a separate, breaking change.
+1. **The URL's form**: the build writes the path as the file is named, with `index.html` as its
+   directory (`/en/about.html`, `/en/`). Hosts that serve clean URLs (`/en/about`) need the
+   other form: an option (`site: { url, cleanUrls: true }`), or always clean URLs, since Speculation
+   Rules already match both?
+2. **A sitemap**: with `site` and the list of pages known, the build could write `sitemap.xml`, with
+   each page's languages as alternates. In scope here, or later?
+
+Worth watching once it is used: locale URLs may turn out to be the better model for apps in general,
+not only an optimization for static sites. If they do, making them the only model is a separate,
+breaking change.
 
 ## Decisions
 
