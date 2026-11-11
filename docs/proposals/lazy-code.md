@@ -77,22 +77,33 @@ export async function encryptTo(keys: PrivateKey[], text: string) {
   - `instanceof`, `new`, reading a constant or setting (`openpgp.enums`, `openpgp.config.x = …`);
   - passing the namespace or a function as a value (`keys.map(openpgp.readKey)`);
   - `import 'openpgp'` for its side effects, `export … from 'openpgp'`.
-- **Only async functions.** A stub returns a Promise, so a sync function would change its meaning
-  without notice. `sinter check` reads the package's types and reports `SN324` for each called export
-  whose return type is not a Promise. Dev builds check the same at each first call, in case nothing ran
-  `sinter check`.
+- **Every call is awaited.** A stub returns a Promise, also for a function that is sync in the package
+  (`marked.parse(md)`, `DOMPurify.sanitize(html)`, a library's `renderGraph(el, data)`). So a call is
+  allowed only where its result is waited for: the operand of `await`, returned, or chained with
+  `.then`. Any other call is `SN324`. Without the rule, a forgotten `await` would leave a Promise where
+  TypeScript sees a string. With it, sync and async exports are both allowed (`const html = await
+  marked.parse(md)`), the check is syntactic (the plugin, `sinter check` and the LSP run the same
+  one), and nothing reads the package's types.
+- **What the calls return is real.** `const key = await openpgp.readKey(…)` is the package's own
+  object, so its methods (`key.getFingerprint()`) are ordinary sync calls.
+- **Not in helpers.** Helpers run synchronously while a binding renders, so they cannot wait for a
+  download: a helper module that imports a lazy package is `SN324` at the import. Compute the value in
+  an action or a `<sn-resource call>`, or do not make the package lazy: when the first content needs it,
+  loading it with the page was faster (RealWorld above).
+- **Blocking work still blocks.** Lazy loading moves the download, not the CPU time a call takes once
+  the package is there.
 - **Subpaths.** `lazy: ['openpgp']` covers `openpgp/lightweight` too; each subpath is its own chunk.
 - **Everything else is unchanged.** The app's own modules around the package (Caley's `lib/pgp/*`) stay
   in the page bundle; they are small, and the build log shows them. The page module and the actions
   module are not touched: an action that awaits openpgp now waits for the download the first time, and
   its element is busy meanwhile.
 - **Tests.** With the plugin (vitest with the Vite config), tests get the stubs; without it, the real
-  package. Both behave the same, since everything called is async.
+  package. Both behave the same, since every call is awaited.
 - **The app's own heavy modules.** These are not covered, and a plain `import()` stays the way to split
   them. The guardrail and the stale check (sections 4 and 5) apply to those `import()`s too.
 
 For Caley: `sinter({ lazy: ['openpgp'] })`, then delete `loadPgp`, `lazyModule`, `modules.ts`, the 13
-awaits and the CLAUDE.md rule. Its runtime uses of openpgp are all calls of async functions
+awaits and the CLAUDE.md rule. Its runtime uses of openpgp are all awaited or returned calls
 (`createMessage`, `encrypt`, `decrypt`, `decryptKey`, `sign`, `verify`, `readKey(s)`,
 `readPrivateKey`, `readMessage`, `readSignature`, `generateKey`, `reformatKey`,
 `createCleartextMessage`), and `PrivateKey`, `PublicKey`, `Key` and `Message` appear only as types
@@ -165,7 +176,7 @@ export class TaskRing extends TaskRingComponent {
   Write the markup so that it reads well without them, as it should for a browser without JavaScript.
 - Timings: by default, when the first instance is rendered. `data-sn-preload="chart.js"` in the
   component's or the page's markup preloads the package and the script.
-- A script that only calls async functions of the package (Caley's components that call openpgp) is
+- A script that only calls the package's functions (Caley's components that call openpgp) is
   loaded the same way, since the rule is about imports. Should that be a problem (a script that has
   other work to do at once), the script can move the openpgp calls into a module of their own that it
   awaits; see decision 3.
@@ -235,7 +246,7 @@ open across a deploy.
 1. **Attribute names:** `data-sn-import` (run when rendered) and `data-sn-preload` (fetch with the
    page), recommended: they name the two steps of loading a module. Alternatives: `data-sn-load` for
    the first; one attribute with a timing value (`data-sn-import="openpgp: page"`).
-2. **Uses other than calls:** an error outside component scripts (recommended). The alternative is to
+2. **Uses other than awaited calls:** an error outside component scripts (recommended). The alternative is to
    let a constant through (`openpgp.enums`) by loading the package with the page wherever one is read.
    It is never needed in Caley, and it would quietly undo the split.
 3. **Which component scripts load with the package:**
@@ -246,8 +257,8 @@ open across a deploy.
 
 ## Plan
 
-1. `sinter({ lazy })`, the generated module and the transform; `SN324` for uses other than calls in
-   the plugin, and for sync exports in `sinter check`, with the dev check at first call.
+1. `sinter({ lazy })`, the generated module and the transform; `SN324` (a use other than an awaited
+   call, a helper module importing the package) in the plugin, `sinter check` and the LSP.
 2. `data-sn-import` and `data-sn-preload` (build and dev); `sinter check` and the LSP read the list.
 3. Component scripts that load with the package: the compiler's script imports, the runtime's
    lifecycle while loading, testing's `render()` (which awaits the scripts before it returns).
