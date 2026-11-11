@@ -409,6 +409,82 @@ components:
     expect(d![0]!.uri).toBe(e.uri('src/components/x-row.html'));
   });
 
+  describe('layouts and slots', () => {
+    const LAYOUT = `<!doctype html>
+<html data-sn-layout="{ title?: string }">
+<head>
+  <meta charset="utf-8">
+  <slot name="head"></slot>
+  <slot name="seo"><meta name="robots" content="all"></slot>
+</head>
+<body>
+  <main><slot></slot></main>
+  <footer><slot name="footer">© me</slot></footer>
+</body>
+</html>
+`;
+    const files = {
+      'src/layouts/site-layout.html': LAYOUT,
+      'src/components/seo-tags.html': '<template data-sn-head="{ title?: string }"><title data-sn-text="title ?? \'x\'">x</title></template>\n',
+      'src/components/x-card.html': '<template data-sn-component="{ n: number }"><div><slot name="side"></slot><slot></slot></div></template>\n',
+    };
+
+    test('slot="…" completes the layout\'s head slots on a head element, its body slots on the rest', async () => {
+      const page = '<site-layout>\n  <meta slot="" name="x" content="y">\n  <p slot="">x</p>\n</site-layout>\n';
+      const root = project({ ...files, 'index.html': page });
+      const e = await editor(root);
+      e.open('index.html', page);
+      const head = await e.completion('index.html', 1, 14);
+      expect(head!.items.map((i) => i.label)).toEqual(['head', 'seo']);
+      expect(head!.items[0]!.textEdit!.newText).toBe('head');
+      const body = await e.completion('index.html', 2, 11);
+      expect(body!.items.map((i) => i.label)).toEqual(['footer']);
+    });
+
+    test('slot="…" completes a component\'s slots; go to definition lands on the <slot>', async () => {
+      const page = '<div><x-card data-sn-prop="{ n: 1 }"><b slot="side">x</b></x-card></div>\n';
+      const root = project({ ...files, 'index.html': page });
+      const e = await editor(root);
+      e.open('index.html', page);
+      expect((await e.completion('index.html', 0, 47))!.items.map((i) => i.label)).toEqual(['side']);
+      const d = await e.definition('index.html', 0, 47);
+      expect(d!.map((x) => [x.uri.split('/').pop(), x.range.start.line, x.range.start.character])).toEqual([['x-card.html', 0, 49]]);
+    });
+
+    test('tags: layouts at the top of an empty page, head components in a head, components in a body', async () => {
+      const root = project({ ...files, 'index.html': '<' });
+      const e = await editor(root);
+      e.open('index.html', '<');
+      expect((await e.completion('index.html', 0, 1))!.items.map((i) => i.label)).toEqual(['site-layout']);
+      const doc = '<!doctype html><html><head>\n  <\n</head><body>\n  <\n</body></html>\n';
+      e.change('index.html', doc);
+      expect((await e.completion('index.html', 1, 3))!.items.map((i) => i.label)).toEqual(['seo-tags']);
+      expect((await e.completion('index.html', 3, 3))!.items.map((i) => i.label)).toEqual(['x-card']);
+    });
+
+    test('hover on a layout\'s tag lists its props and slots; go to definition opens the layout', async () => {
+      const page = '<site-layout data-sn-prop="{ title: \'a\' }"><p>x</p></site-layout>\n';
+      const root = project({ ...files, 'index.html': page });
+      const e = await editor(root);
+      e.open('index.html', page);
+      const h = await e.hover('index.html', 0, 3);
+      expect(h!.contents.value).toContain('**`<site-layout>`** layout · `src/layouts/site-layout.html`');
+      expect(h!.contents.value).toContain('Props: `{ title?: string }`');
+      expect(h!.contents.value).toMatch(/- `head` \(head\)\n- `seo` \(head\), with fallback\n- default \(body\)\n- `footer` \(body\), with fallback/);
+      expect((await e.definition('index.html', 0, 3))![0]!.uri).toBe(e.uri('src/layouts/site-layout.html'));
+    });
+
+    test('a layout and a head component no page uses are checked on their own', async () => {
+      const root = project({ ...files, 'index.html': '<p>x</p>\n' });
+      const e = await editor(root);
+      const bad = LAYOUT.replace('<main>', '<main data-sn-text="nope">');
+      e.open('src/layouts/site-layout.html', bad);
+      expect((await e.diagnostics('src/layouts/site-layout.html', (d) => d.length > 0)).map((x) => x.code)).toEqual(['SN201 unknown-identifier']);
+      e.open('src/components/seo-tags.html', files['src/components/seo-tags.html']);
+      expect((await e.diagnostics('src/components/seo-tags.html')).filter((x) => x.severity === 1)).toEqual([]);
+    });
+  });
+
   test('quick fixes apply the suggestion of compiler and type errors', async () => {
     const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
     const e = await editor(root);

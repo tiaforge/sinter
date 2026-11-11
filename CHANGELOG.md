@@ -7,6 +7,54 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Heads keep every element where it is written: sinter parses the content of a page's `<head>` as template content,
+  so a component's tag or a `<slot>` there no longer ends the head, and the elements after it stay in it. After
+  expansion, a head holds only head elements: anything else is the new `SN320` (before, the browser moved it, and every
+  head element after it, into the body without a word). `<sn-resource>` and `<sn-sync>` go in the body: in a head they
+  are `SN320` too.
+- Head components: a file in `src/components/` declared with `<template data-sn-head="{ …props }">` holds any number of
+  head elements (`<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>`, `<template>`, slots and
+  other head components), inlined at its use in a head with no wrapper: an SEO component, for example. Props, slots,
+  constants deciding `data-sn-if` at build time and `sinter check` work as for components; its tag takes only
+  `data-sn-prop` and slot content. A head component in a body, or a component in a head, is `SN320`; head elements in a
+  `data-sn-component` are `SN312` with the hint to declare it with `data-sn-head`.
+- Layouts: a file `src/layouts/<name>.html` is a whole document whose `<html data-sn-layout="{ …props }">` declares its
+  props, with any number of slots in its head and body. A page that is only the layout's tag gets the layout's
+  document: the tag's content fills the slots (head elements with `slot="…"` for a head slot), its attributes go onto
+  `<html>` (replacing the layout's: `lang`, `data-sn-path`; `class` is joined), its handlers onto the layout's `<body>`
+  (DOM events, `sn-error` and `dismiss`: the page's `<body>` handlers), and `data-sn-state` on it is the page's
+  state, which the props and the slot content see and the layout does not. The merge happens before anything else
+  reads the page, so the early scripts, preloads, embedded data, Google Fonts and Vite's bundling of the layout's
+  scripts and stylesheets work on the merged head. The layout's relative URLs are relative to its file. New
+  diagnostics `SN318` (an invalid layout), `SN319` (a page that is more than the tag, a layout tag anywhere else) and
+  `SN321` (a second `<title>`, `<meta name="description">`, `og:title`… in the head, on every page: a page that has
+  two `<title>`s, which browsers tolerate, no longer builds).
+- Slot forwarding: a `<slot>` that is itself slot content of a component's tag (`<seo-tags><slot name="seo"
+  slot="extra"></slot></seo-tags>`) passes what fills it on into that slot, with its fallback when it is left empty.
+  Slot content keeps its first caller's scope through any number of components (before, content a component passed
+  on into another component's slot took the scope of the component in between).
+- Head bindings: a `<meta>` with a literal `name`, `property` or `itemprop` binds its `content`
+  (`data-sn-attr="{ content: … }"`), for a per-page description or `og:title`; every other binding on a `<meta>`, and
+  any on `http-equiv` or `charset`, stays `SN207`. With `<title data-sn-text>` and `data-sn-if` templates over head
+  elements, what needs no request (constants, helpers, embedded data) renders as the head is parsed.
+- Types and editors for layouts: `src/sinter.components.d.ts` has `LayoutName` and `LayoutProps`, and leaves head
+  components out of `ComponentName`. `sinter check` checks a layout's props at the page's tag and its markup through
+  each page. `sinter lsp` completes `slot="…"` with the slots of the tag the element is in (a layout's head slots on
+  head elements, its body slots on the rest), completes tags after `<` (layouts at the top of an empty page, head
+  components in a head, components elsewhere), goes from a `slot="…"` value to its `<slot>` and from a layout's tag to
+  its file, shows a tag's props and slots on hover, and checks a layout or head component no page uses on its own.
+- A binding written into the HTML at build time that reads nothing that can change (a literal, a component prop given as
+  one, a state field nothing on the page writes) is left out of the page module, with its function and, when nothing
+  else is bound there, its node and `data-sn` id.
+  A dependency on a state field nothing writes is left out of every binding (in rows and branches too): the runtime
+  subscribes to nothing for it.
+  Inside templates, such a binding is written into the template's markup and left out, and a state field nothing
+  writes or reads anymore leaves the state. A `data-sn-if` over state nothing writes is decided at build time: its
+  branch, or its `data-sn-else`, is page markup.
+- The early script renders bindings that read `$url` (its query and `data-sn-path` parameters) on every page, so the
+  current nav item or a tab chosen by the URL is right in the first frame; before, only on pages with embedded data.
+- docs/layouts.md; the RealWorld example's seven pages share one layout and a `conduit-seo` head component, with the
+  HTML, head scripts and page modules level (docs/realworld-comparison.md, Layouts).
 - Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
   is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
   costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots

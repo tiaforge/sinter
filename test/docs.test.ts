@@ -75,6 +75,16 @@ Key filters (\`data-sn-on-keydown-<modifiers->key\`, \`data-sn-on-keyup-…\`): 
 - \`<sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }">\` picks a component per item: a template string, a map in the markup (\`use="{ hero: 'hero-block' }[b.type]"\`) or a helper; it must fit \`ComponentName\` (\`b.type + '-block'\` is a \`string\`: write the template string); a \`data-sn-else\` template after it renders for a value outside the candidates.
 - \`data-sn-early="off"\` on a component's tag (\`<tag-cloud data-sn-early="off">\`) leaves that use out of the early script (smaller head script; it renders when the page module runs, so it may shift the layout then).
 - \`<sn-include>\` is removed (SN316): a partial is a component.
+- A head component is a file \`src/components/<name>.html\` with \`<template data-sn-head="{ title?: string }">\` instead of \`data-sn-component\`: it holds any number of head elements (\`<title>\`, \`<meta>\`, \`<link>\`, \`<script>\`, \`<style>\`, \`<noscript>\`, \`<base>\`, \`<template data-sn-if>\`, slots, other head components), inlined at its use in a \`<head>\` with no wrapper. Its tag takes only \`data-sn-prop\` and slot content. A head component in a body, a component in a head, a body element in a head component: SN320.
+- In a head, \`<title data-sn-text>\` binds, and a \`<meta>\` with a literal \`name\`, \`property\` or \`itemprop\` binds its \`content\`: \`<meta name="description" content="Fallback" data-sn-attr="{ content: post?.summary ?? 'Fallback' }">\`. Nothing else in a head binds (SN207). Constants are written into the HTML at build time; values from data render when it arrives, so scrapers that run no script see the literal content. A second \`<title>\`, \`<meta name="description">\`, \`og:title\`… in one head is SN321.
+- A slot that is slot content of a component's tag forwards what fills it: \`<seo-tags><slot name="seo" slot="extra"></slot></seo-tags>\` puts the caller's \`slot="seo"\` content into \`seo-tags\`'s \`extra\` slot, in the caller's scope.
+
+## Layouts
+
+- A layout is a whole document \`src/layouts/<name>.html\` (the name has a \`-\`) whose \`<html>\` declares its props: \`<!doctype html><html lang="en" data-sn-layout="{ title?: string; nav: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>\`. It has any number of named slots in its head and body; the default slot is in the body (a default slot in the head: SN318). No script beside it, no \`data-sn-emits\`.
+- A page that uses it is only its tag: \`<site-layout data-sn-path="/post/:slug" data-sn-state="{ tab: 'all' }" data-sn-prop="{ nav: 'post', title: post?.title }">…</site-layout>\` (anything else on the page, or the tag anywhere else: SN319). Children fill the slots; a head element goes to a head slot with \`slot="head"\` (a \`<title>\`/\`<meta>\`/\`<link>\` for a body slot: SN320). Plain attributes on the tag replace the layout's on \`<html>\` (\`lang\`, \`dir\`; \`class\` is joined); \`data-sn-path\` and \`data-sn-prefetch\` go onto \`<html>\`. Handlers on the tag are the page's \`<body>\` handlers (on the layout's \`<body>\`, ahead of its own): DOM events, \`sn-error\` and \`dismiss\` only (SN315), e.g. \`data-sn-on-sn-error\` and \`data-sn-on-keydown-shift-n\`.
+- \`data-sn-state\` on the tag is the page's state: the props and all slot content see it, the layout's markup does not. The layout's markup sees its props, its own state, the page's resources and the globals.
+- The merge happens before anything reads the page: early scripts, preloads, embedded data, Google Fonts and Vite's bundling of the layout's \`<script type="module">\` and stylesheets work on the merged document. Relative URLs in the layout (\`./site.css\`) are relative to the layout file. Layouts are not pages: leave \`src/layouts/\` out of the build's inputs (SN318).
 
 ## What belongs in markup
 
@@ -221,7 +231,7 @@ const ATTRIBUTE_GROUPS: Array<[string, string, string[]]> = [
   ['Send changes', 'Turn an element into a request. Details: [actions](actions.md).', ['get', 'post', 'put', 'patch', 'delete', 'call', 'body', 'trigger', 'debounce', 'encoding', 'concurrency', 'confirm', 'retry', 'apply']],
   ['After a request', 'What happens on screen around a response. Details: [optimistic updates](actions.md#optimistic-updates).', ['optimistic', 'then', 'catch']],
   ['React to events', 'Handlers without a request. Details: [events](actions.md), [key filters](actions.md).', ['on-<event>', 'debounce-<event>', 'listbox']],
-  ['Components', 'In a component file in `src/components/`, and on a component\'s tag (`early`). Details: [components](components.md).', ['component', 'emits', 'early', 'ref']],
+  ['Components', 'In a component file in `src/components/`, and on a component\'s tag (`early`). Details: [components](components.md).', ['component', 'head', 'emits', 'early', 'ref', 'layout']],
   ['Pages and navigation', 'Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [first paint](first-paint.md).', ['path', 'prefetch', 'transition', 'data']],
 ];
 const RESOURCE_GROUPS: Array<[string, string[]]> = [

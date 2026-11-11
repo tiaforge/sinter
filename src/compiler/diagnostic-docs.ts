@@ -64,7 +64,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN207: {
     example: '`onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click`',
-    means: 'The binding could run script or inject markup from data: event-handler attributes, `style`, `srcdoc`, `innerHTML`, bindings on `<script>` and similar elements, URL templates that do not start with a literal path (or with a literal origin that lacks its `/` before a value), persisted password fields, or `constructor`, `__proto__` and `prototype` named in an expression.',
+    means: 'The binding could run script or inject markup from data: event-handler attributes, `style`, `srcdoc`, `innerHTML`, bindings on `<script>`, `<link>`, `<base>` and similar elements, any binding on a `<meta>` but `data-sn-attr="{ content: … }"` on one with a literal `name`, `property` or `itemprop` (never `http-equiv` or `charset`), URL templates that do not start with a literal path (or with a literal origin that lacks its `/` before a value), persisted password fields, or `constructor`, `__proto__` and `prototype` named in an expression.',
     fix: 'Use the safe equivalent the message names: `data-sn-on-*` for events, `data-sn-style` for styles, a literal `/path` (or `https://host/`) at the start of a URL template.',
   },
   SN208: {
@@ -129,8 +129,8 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN312: {
     example: 'a component has one root element; `<article-preview>` has 2 elements at the top of its template',
-    means: 'A file in `src/components/` is not a valid component: it needs one `<template data-sn-component="{ …props }">` (and optionally a `<style>`) with exactly one root element in it, and the root cannot be a `<template>`, a `<slot>` or another component. Also reported: two slots with the same name.',
-    fix: 'Wrap the markup in one element inside `<template data-sn-component>`: the caller\'s classes, attributes and handlers land on it.',
+    means: 'A file in `src/components/` is not a valid component: it needs one `<template data-sn-component="{ …props }">` (and optionally a `<style>`) with exactly one root element in it, and the root cannot be a `<template>`, a `<slot>` or another component. A head component is declared with `<template data-sn-head>` instead, and holds any number of head elements. Also reported: two slots with the same name, a template with both declarations, a head component with a script, and `<sn-component use>` naming a head component.',
+    fix: 'Wrap the markup in one element inside `<template data-sn-component>`: the caller\'s classes, attributes and handlers land on it. For head elements (`<title>`, `<meta>`, …), declare the component with `<template data-sn-head>`.',
   },
   SN313: {
     example: '`artcle` is not a prop of `<article-preview>`; its props are `article`, `compact`. Did you mean `article`?',
@@ -156,6 +156,26 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: '`selected` has no source: `patch()` acts on an item where it came from, and nothing says which resource `selected` is an item of',
     means: '`patch(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `patch(\'name\', item, …)` and `remove(\'name\', item)`, and a row of a helper that takes more than one resource.',
     fix: 'Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or patch the row with its fields; a server event\'s payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.',
+  },
+  SN318: {
+    example: '`src/layouts/site-layout.html` is not a layout: a layout is a whole document whose `<html>` declares its props, `<html data-sn-layout="{ …props }">`',
+    means: 'A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-layout` with its props type. Also reported: `data-sn-layout` anywhere else, a default slot in the layout\'s head (the default slot is the page\'s body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page.',
+    fix: 'Write the layout as a document: `<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`. Name head slots; leave `src/layouts/` out of the build\'s inputs (a glob over every `.html` picks it up).',
+  },
+  SN319: {
+    example: 'a page that uses the layout `<site-layout>` is only its tag: `<p>` belongs inside it',
+    means: 'A page that uses a layout is the layout\'s tag at its top level and nothing else (a doctype and comments are allowed): its content goes into the layout\'s slots, the attributes of `<html>` on the tag. A layout\'s tag anywhere else (inside a component, another layout, or other markup) is reported too, and so is `data-sn-early` on it.',
+    fix: 'Move the content inside the tag, with `slot="…"` for a named slot; write `lang`, `data-sn-path` and the like on the tag.',
+  },
+  SN320: {
+    example: '`<div>` cannot be in the `<head>`: the browser would move it, and everything after it, into the body',
+    means: 'After components are expanded, a head holds only head elements: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>` and `<template>`. `<sn-resource>` and `<sn-sync>` go in the body: they are page-wide wherever they are written, and their requests start in the head anyway. The browser ends the head at anything else and moves it, with every element after it, into the body. sinter parses heads so that a component\'s tag stays where it is written: the element it expands to must be head content.',
+    fix: 'Move the element into the body. In a head, use head components (`<template data-sn-head>`).',
+  },
+  SN321: {
+    example: 'a second `<title>` in the head: the page would have two',
+    means: 'After a layout, its slots and its head components are merged, the head has two of an element a page has once: `<title>`, `<base>`, `<meta charset>`, `<link rel="canonical">`, and the `<meta>` with `name` `viewport`, `description` or `robots`, or `property` `og:title`, `og:description`, `og:url`, `og:type`, `twitter:card`, `twitter:title` or `twitter:description`. Elements inside `data-sn-if`, `data-sn-else` and `data-sn-for` templates count: two in the branches of one `data-sn-if` / `data-sn-else` are one, one at the top level and one in a branch are two, and one in a `data-sn-for` template is one per row.',
+    fix: 'Keep one: pass the value to the one that is there (a prop of the layout or head component), or replace a slot\'s fallback with the page\'s own element.',
   },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',

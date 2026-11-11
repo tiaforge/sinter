@@ -17,6 +17,8 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'component', value: 'props type', doc: 'on the <template> of a component file (src/components/<name>.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }' },
   { name: 'early', value: 'off', doc: 'on a component\'s tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for uses that may shift the layout when they render, to keep the early script small' },
   { name: 'ref', value: 'name', doc: 'in a component\'s markup: the element its script reads as this.refs.<name>, typed by its tag' },
+  { name: 'layout', value: 'props type', doc: 'on the <html> of a layout file (src/layouts/<name>.html): the props it takes; a page that is only the layout\'s tag fills its slots, in the head and the body' },
+  { name: 'head', value: 'props type', doc: 'on the <template> of a head component (src/components/<name>.html): its props, as data-sn-component; it holds any number of head elements (<title>, <meta>, <link>, …), inlined at its use in a head' },
   { name: 'emits', value: 'events type', doc: 'on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article }' },
   { name: 'model', value: 'state path', doc: 'two-way binding for form controls' },
   { name: 'for', value: 'item in list | (item, i) in list', doc: 'repeats a <template> per item' },

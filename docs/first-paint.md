@@ -10,7 +10,7 @@ What can be in the first frame depends on where the value comes from:
 | The value comes from | In the first frame | How |
 | --- | --- | --- |
 | A literal `data-sn-state` field | yes, even without scripts | [Build-time constants](#build-time-constants) |
-| Messages, persisted values, helpers, `$locale` | yes | [The early script](#the-early-script) |
+| Messages, persisted values, helpers, `$locale`, the URL (`$url`) | yes | [The early script](#the-early-script) |
 | Your API, with the server layer | yes | [Embedded data](#embedded-data) |
 | Your API, without it | after one round trip, started before the page script runs | [Requests start early](#requests-start-early) |
 
@@ -34,6 +34,14 @@ constants. Fields count one by one: in `{ here: '/mail/', at: $now }`, `here` is
 Helpers, `$locale` and persisted values are not constants (the early script handles those). A
 refused URL or style is left out.
 
+A binding that reads nothing that can change, such as a component's prop given as a literal
+(`<seo-tags data-sn-prop="{ title: 'About' }">`) or a state field that nothing on the page writes
+(`nav: 'home'` read by a nav link's class), is only in the HTML: the page script carries nothing for
+it. One that reads state a handler, a model, a `then` or a component's script writes stays bound.
+The same holds inside templates: such a binding is written into the template's markup, so every
+row or branch is cloned with it. And a `data-sn-if` over state nothing writes is decided at build
+time: its branch (or its `data-sn-else`) is page markup, written and painted like the rest.
+
 ## The early script
 
 Anything that needs a little code, but no data, is rendered by an early script that runs before
@@ -42,6 +50,7 @@ the first paint:
 - messages, in the language picked from the visitor's saved choice or browser settings
 - persisted values (`data-sn-persist`)
 - state fields initialized by helpers or `$locale`
+- the URL: `$url`'s query and its `data-sn-path` parameters (the current nav item, a tab from `?feed=`)
 - `data-sn-if` branches over that state
 - your own code in `src/sinter.early.ts`
 
@@ -242,6 +251,16 @@ Options: `helpers`, `files`, `storage` (a `Storage` holding persisted values, ke
 To test the takeover, pass `firstPaint` to `render`: `render(html, { firstPaint: { early, afterEarly } })`
 mounts over that first paint, and `afterEarly` runs in between, so a test can assert what mounting
 changes (it should be nothing).
+
+## The head
+
+Bindings in the head follow the same rules: in a page's head, a [layout's](layouts.md) or a head
+component's, `<title data-sn-text>` and the `content` of a `<meta name|property|itemprop>` are
+written into the HTML when they are build-time constants and rendered by the early script when it
+knows their inputs, as the head is parsed. A value from a request renders when it arrives. Scrapers
+that run no script (most link previews) see what is in the HTML: the constants, and the literal
+content of the rest, so give each bound element a good fallback: `<title data-sn-text="…">My
+Blog</title>`.
 
 ## Related
 

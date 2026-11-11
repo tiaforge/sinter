@@ -213,3 +213,64 @@ definitions out of the core into modules only the pages that use them load):
 
 `data-sn-early="off"` on the home page's header and error list (a test, not in the app) takes its
 head script from 837 to 717 B (gzip); the page module and the shared head script do not change.
+
+## Layouts
+
+The seven pages now share one [layout](layouts.md), `src/layouts/conduit-layout.html`: the head
+(charset, viewport, icon, the Ionicons, Google Fonts and app stylesheets), the header and the footer.
+Each page is the layout's tag with its state, `data-sn-on-sn-error` and its title and description as
+props, which the `conduit-seo` head component (`<template data-sn-head>`) binds into the `<title>` and
+the description `<meta>`. Every title is a constant, as before (`title: 'Article'`), so it is written
+into the HTML; the article page's Markdown script goes into the layout's head slot. The page files lost their
+heads and the header and footer tags: 7 to 11 lines each.
+
+Measured on 2026-11-11, one machine, `vite build` of the example before and after:
+
+| page | HTML (B, gz) before → after | page head script (B, gz) | page module (`npm run size`, B gz) |
+| --- | --- | --- | --- |
+| article | 2,159 → 2,162 | 755 → 756 | 22,698 → 22,796 |
+| editor | 1,780 → 1,783 | 460 → 461 | 20,992 → 21,063 |
+| index | 2,194 → 2,195 | 855 → 856 | 22,897 → 23,001 |
+| login | 1,623 → 1,621 | 418 → 419 | 19,884 → 19,943 |
+| profile | 2,035 → 2,033 | 792 → 792 | 22,895 → 22,994 |
+| register | 1,649 → 1,649 | 421 → 423 | 19,884 → 19,955 |
+| settings | 1,810 → 1,806 | 372 → 373 | 20,097 → 20,180 |
+
+The HTML and the head scripts are level: the merged document is the document the pages wrote by
+hand, and the layout's comment stays in its file. The page modules grew by 60 to 104 B (gzip): the
+title and description were bindings, and a constant one, written into the HTML at build time, kept
+its binding, as every prerendered binding did. The build now leaves a binding that reads nothing out
+of the page module (see [first-paint.md](first-paint.md#build-time-constants)), which brings the
+pages with constant titles back to level:
+
+| page module (gzip) | before layouts | with layouts | without constant bindings |
+| --- | ---: | ---: | ---: |
+| editor | 20,992 | 21,063 | 20,997 |
+| index | 22,897 | 23,001 | 22,904 |
+| login | 19,884 | 19,943 | 19,886 |
+| register | 19,884 | 19,955 | 19,888 |
+| settings | 20,097 | 20,180 | 20,099 |
+| article | 22,698 | 22,796 | 22,712 |
+| profile | 22,895 | 22,994 | 22,911 |
+
+(A first version of the conversion took the article and profile titles from data, which cost those
+two pages about 60 to 100 B and showed `Conduit` to link previews; the example went back to constant
+titles, since it is not where that feature is shown.) Every page is within 16 B (gzip) of the build
+before layouts, and scrapers that run no script see the same titles as before. The shared head script
+does not change (3,233 B). Leaving out, too, the bindings that read only state nothing writes (the
+pages' `nav`, read by the header's Home link) takes 8 to 16 B more off six of the page modules
+(login 19,886 → 19,871); the header's other links are inside `data-sn-if` templates, which the build
+does not write into the HTML, so their bindings stay. Their dependency on `nav`, which never fires, is left out: 3 to
+7 B more (login 19,871 → 19,864). Writing those header bindings into their templates' markup instead, and
+leaving `nav` out of the state once nothing reads it, takes the page modules 55 to 58 B further
+(login 19,864 → 19,808) and the page head scripts 48 to 80 B (login 419 → 339, editor 461 → 387);
+profile, whose `nav` comes from the URL, does not change. Checked in Chromium for a guest and a
+signed-in visitor: the active link is the same on every page.
+
+The early script then learned `$url` on every page (before, only on pages with embedded data). On
+`/tag/css`, the home page's `css` tab is in the first frame, active (checked in Chromium with the page
+module blocked); before, it appeared when the page module ran and shifted the tabs. The profile
+page's own nav link reads `$url` too, but it is shown only for a signed-in user, whose data is not
+there early, so nothing visible changes there. Cost, gzip: the shared head script 3,233 → 3,325 B (the attribute and text
+writers, which an early binding now uses; the URL reader was already in it), the home page's head
+script 856 → 950 B and the profile page's 792 → 889 B; the others within 1 B.

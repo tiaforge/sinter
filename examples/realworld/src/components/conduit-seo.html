@@ -1,0 +1,6 @@
+<!-- The title and description of a page. A constant is written into the HTML at build time, so link
+     previews show it; one from data (an article's title) follows once the data is there. -->
+<template data-sn-head="{ title: string; description: string }">
+  <title data-sn-text="title + ' — Conduit'">Conduit</title>
+  <meta name="description" content="Conduit, a place to share your knowledge." data-sn-attr="{ content: description }">
+</template>
