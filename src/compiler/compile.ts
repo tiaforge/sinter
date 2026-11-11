@@ -106,6 +106,12 @@ export interface CompileOptions {
   /** Vite's `base`, which the pages' URLs start with (default `/`); for SN515 */
   base?: string;
   /**
+   * `sinter({ site })`: `$site` (the site's root URL), the page's `$canonical` (null for a page whose path
+   * is a pattern: computed in the browser from `origin`), and `link` to write the canonical link into a
+   * page that has none (docs/static-pages.md#canonical-urls)
+   */
+  urls?: { site: string; canonical: string | null; origin: string };
+  /**
    * internal, set by `compileParts` for its second pass: the `data-sn-if` templates (by `file:offset`)
    * whose condition the first pass found constant (state nothing writes), and its value
    */
@@ -585,6 +591,7 @@ class Compiler {
     this.head = findHead(doc);
     this.expandComponents(doc, []);
     if (this.opts.decided?.size) this.foldDecided(doc);
+    if (this.opts.urls) this.canonical(doc);
     if (this.opts.unrolled?.size) this.unrollLoops(doc);
     this.checkHead();
     this.componentIds();
@@ -1552,6 +1559,32 @@ class Compiler {
     if (v === undefined) return false;
     if (v.trim() !== 'off') { this.report(host, 'data-sn-early', 'SN401', '`data-sn-early` takes `off`: this use renders when the page module runs, not in the early script', 0); return false; }
     return true;
+  }
+
+  /**
+   * `sinter({ site })`: the page's canonical URL. A `<link rel="canonical">` the page writes (in the head
+   * after its layout and head components) is `$canonical`, and must be absolute (SN323); without one, a page
+   * whose URL is known gets one with `$canonical`, last in its head.
+   */
+  canonical(doc: DefaultTreeAdapterMap['document']) {
+    const u = this.opts.urls!;
+    const head = findHead(doc);
+    const own = head?.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'link' && (attr(n, 'rel') ?? '').toLowerCase().split(/\s+/).includes('canonical'));
+    this.page.urls = { ...u };
+    if (own) {
+      const href = attr(own, 'href') ?? '';
+      if (/^https?:\/\//i.test(href)) this.page.urls.canonical = href;
+      else this.report(own, 'href', 'SN323', `a canonical link is an absolute URL, and \`${href}\` is not: \`$canonical\` is what it names`, 0, `write \`${u.canonical ?? u.site + '/…'}\`, or leave the link out and the build writes it`);
+      return;
+    }
+    if (!head) return;
+    const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+    // a page whose path is a pattern, filled by a server (embedded data): sinter-axum writes the request's URL into
+    // it; without `href`, a crawler ignores it where nothing fills it
+    if (u.canonical === null && !this.opts.embed) return;
+    const link = parse5.parseFragment(u.canonical === null ? `<link rel="canonical" data-sinter-canonical="${esc(u.origin)}">` : `<link rel="canonical" href="${esc(u.canonical)}">`).childNodes[0] as P5Element;
+    link.parentNode = head;
+    head.childNodes.push(link as never);
   }
 
   /** A literal `id` in the markup of a component used more than once would be on the page more than once. */
@@ -3516,7 +3549,8 @@ class Compiler {
     const NOT = new Error('not a build-time constant');
     const stub = new Proxy(function () {}, { apply() { throw NOT; }, get() { throw NOT; } });
     const params = new Map<string, unknown>([['$k', $k]]);
-    for (const h of ['Date', 'Intl', 'Math', 'date', 'time', 'datetime', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
+    // (`location`: the browser's, as in a pattern page's `$canonical`; a test environment may have one)
+    for (const h of ['Date', 'Intl', 'Math', 'location', 'date', 'time', 'datetime', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, stub);
     // the base language's text, for a text binding: the binding is marked and stays the browser's
     const base = this.opts.baseMessages;

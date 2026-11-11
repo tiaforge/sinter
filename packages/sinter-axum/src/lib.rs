@@ -467,6 +467,20 @@ enum Fill {
     Failed(StatusCode),
 }
 
+/// A page whose path is a pattern has a canonical link for the server to fill (`data-sinter-canonical`, the
+/// site's origin, from `sinter({ site })`): the origin and this request's path, without a trailing slash.
+fn canonical(part: &Bytes, path: &str) -> Bytes {
+    const MARK: &str = r#"<link rel="canonical" data-sinter-canonical=""#;
+    let Ok(text) = std::str::from_utf8(part) else { return part.clone() };
+    let Some(at) = text.find(MARK) else { return part.clone() };
+    let from = at + MARK.len();
+    let Some(len) = text[from..].find('"') else { return part.clone() };
+    let origin = &text[from..from + len];
+    let path = path.trim_end_matches('/');
+    let path = path.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;");
+    Bytes::from(format!(r#"{}<link rel="canonical" href="{origin}{path}"{}"#, &text[..at], &text[from + len + 1..]))
+}
+
 async fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bool) -> Response<Body> {
     let res = Response::builder()
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
@@ -500,7 +514,7 @@ async fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bo
         })
         .collect();
     let n = fills.len().max(1);
-    let parts = page.parts.clone();
+    let parts: Vec<Bytes> = page.parts.iter().map(|p| canonical(p, req.uri.path())).collect();
     if embed.0.stream {
         // the head up to the first placeholder at once; the rest as the data comes in, in order. A
         // failed placeholder ends the page there: still in the head, inside that placeholder's `<script>`

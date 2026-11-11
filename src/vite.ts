@@ -73,6 +73,12 @@ export interface SinterOptions extends ProjectOptions {
    */
   redirects?: boolean;
   /**
+   * The site's origin (`'https://example.com'`, no path: a site under a path sets Vite's `base`). With it,
+   * `$site` and `$canonical` work in expressions and every page whose URL is known gets a canonical link
+   * (docs/static-pages.md#canonical-urls)
+   */
+  site?: string;
+  /**
    * next-page data (default true): when a link to another page of the app is about to be followed,
    * that page's data is requested, and the page shows it at once (then revalidates). `false`: off.
    */
@@ -245,6 +251,22 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const watched = new Set<string>();
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
+  /** `site`: the origin, checked (no path, no query) */
+  const siteOrigin = (() => {
+    if (options.site == null) return null;
+    let u: URL;
+    try { u = new URL(options.site); } catch { throw new Error(`sinter({ site }): \`${options.site}\` is not a URL; write the origin, e.g. 'https://example.com'`); }
+    if (!/^https?:$/.test(u.protocol) || u.pathname !== '/' || u.search || u.hash) throw new Error(`sinter({ site }): \`${options.site}\` is not an origin; write it without a path (a site served under a path sets Vite's \`base\`), e.g. '${u.origin}'`);
+    return u.origin;
+  })();
+  /** the page's `$site`, `$canonical` (null for a page whose paths all have parameters) and origin */
+  const urlsOf = (rel: string, patterns: string[]) => {
+    const b = resolved?.base?.startsWith('/') ? resolved.base : '/';
+    const url = pageUrl(rel, b, patterns);
+    return { site: siteOrigin! + b.replace(/\/$/, ''), canonical: url === null ? null : siteOrigin! + url, origin: siteOrigin! };
+  };
+  /** a page's `data-sn-path` patterns, from its description */
+  const out0Path = (file: string) => describe(file).path;
   /** pages that use `data-sn-transition`: they get the hold script (paint-build.ts) */
   const holdPages = new Set<string>();
   /**
@@ -428,6 +450,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
       ...(p.isStatic(file) ? { static: true } : {}),
       ...(resolved?.base?.startsWith('/') ? { base: resolved.base } : {}),
+      ...(siteOrigin ? { urls: urlsOf(rel, out0Path(file)) } : {}),
     });
     runtimeOf.set(rel, out.runtime);
     for (const x of out.styles) {

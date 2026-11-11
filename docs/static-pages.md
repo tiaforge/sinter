@@ -220,3 +220,35 @@ redirect files; pages with `data-sn-path` then need the host's own rewrites.
 A link your page builds at run time is not rewritten: write it as the URL
 (`data-sn-attr="{ href: '/task/?id=' + t.id }"`). The build warns when a page's code still names a page
 by its file (`'/task.html?id='`), which works, but through the redirect.
+
+## Canonical URLs
+
+Tell the build the site's origin, and every page gets a canonical link, and expressions get two names:
+
+```js
+// vite.config.js
+export default { base: '/docs/', plugins: [sinter({ site: 'https://example.com' })] };
+```
+
+| Name | What it is | `guide/install.html`, opened as `/docs/guide/install/?tab=npm` |
+| --- | --- | --- |
+| `$site` | the site's root URL: the origin, then Vite's `base`, no trailing slash | `https://example.com/docs` |
+| `$canonical` | the page's URL: `$site` and the page's path, no query | `https://example.com/docs/guide/install/` |
+| `$url` | unchanged: the query and the `data-sn-path` parameters | `{ tab: 'npm' }` |
+
+```html
+<meta property="og:url" data-sn-attr="{ content: $canonical }">
+<meta property="og:image" data-sn-attr="{ content: $site + '/og/install.png' }">
+```
+
+On a page with a fixed path both are constants, written into the HTML at build time, so the page still
+ships no JavaScript. Each such page gets `<link rel="canonical" href="…">` with `$canonical`, last in its
+head. A page that writes its own canonical link keeps it (content that lives at another URL), and
+`$canonical` is then that link's URL; it must be absolute. On a page whose path is a pattern
+(`/article/:slug`), `$canonical` is the origin and the browser's path without a trailing slash, rendered
+by the early script; with embedded data (`embed: true`), [sinter-axum](../packages/sinter-axum/README.md)
+writes the page's canonical link into the HTML for each request.
+
+`site` is an origin only: a site served under a path sets Vite's `base`. Without `site`, reading
+`$site` or `$canonical` is [SN323](diagnostics.md#sn323-needs-site), and no canonical link is written.
+

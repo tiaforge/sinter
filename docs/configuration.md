@@ -45,6 +45,8 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | `typecheck` | `false` | run `sinter check` at the end of `vite build` and fail the build on type errors. Needs TypeScript |
 | `complexity` | see [below](#what-belongs-in-markup) | limits for the `SN507` warning, and its level |
 | `checkCycles` | `false` | report `then`/`catch` handlers that start each other through `run()` (`SN509`) |
+| `site` | none | the site's origin (`'https://example.com'`, no path): every page whose URL is known gets a canonical link, and expressions get `$site` and `$canonical` ([docs/static-pages.md](static-pages.md#canonical-urls)) |
+| `redirects` | `true` | write `_redirects` (Netlify, Cloudflare Pages) with the pages' URLs ([docs/static-pages.md](static-pages.md#redirects-and-rewrites)) |
 | `static` | none | pages that must ship no JavaScript, by path from the root (`['about.html', 'docs/**']`), or `true` for all: one that needs the runtime is `SN322` ([docs/static-pages.md](static-pages.md)) |
 
 ### First paint and loading
