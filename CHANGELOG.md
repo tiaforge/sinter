@@ -20,8 +20,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   is known gets `<link rel="canonical">`, and expressions get `$site` (the origin and Vite's `base`) and `$canonical`
   (the page's URL), build-time constants on a page with a fixed path (`og:url`, `og:image` in a head component, with no
   JavaScript). A page's own canonical link must be absolute and becomes `$canonical`. On a page whose path is a
-  pattern, `$canonical` is computed by the early script, and with embedded data sinter-axum writes the page's canonical
-  link per request. Without `site`, `$site` and `$canonical` are the new error `SN323`.
+  pattern, `$canonical` and the page's canonical link are written by the early script from the address, when the
+  page ships JavaScript anyway. Without `site`, `$site` and `$canonical` are the new error `SN323`.
 - Pages without JavaScript (docs/static-pages.md): a page with nothing left to run in the browser gets no script at all,
   no page module, no early script and no runtime, and links its components' and images' stylesheets instead. A site
   built from a layout, components and text ships no `.js` file; on a mixed site only the pages that need the runtime

@@ -37,21 +37,25 @@ describe('$site and $canonical', () => {
     expect(out.html).not.toContain('rel="canonical"');
   });
 
-  test('a page whose path is a pattern: $canonical is computed in the browser, by the early script; no link', () => {
+  test('a page whose path is a pattern: the link and $canonical are written by the early script, from the address', () => {
     const out = compile('<!doctype html><html data-sn-path="/article/:slug"><head><title>x</title><meta property="og:url" data-sn-attr="{ content: $canonical }"></head><body></body></html>', {
       file: '/p/article.html', root: '/p', dev: false, prerender: true, early: { module: null, src: null }, observe: true,
       helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); }, urls: { ...urls, canonical: null },
     });
     expect(out.diagnostics).toEqual([]);
-    expect(out.html).not.toContain('rel="canonical"');
+    expect(out.html).toMatch(/<link rel="canonical" data-sn="\d+">/);
+    expect(out.html).not.toContain('href=');
     expect(out.early).toContain('"https://example.com" + location.pathname.replace(/\\/+$/, \'\')');
+    // the link is not why the page runs: the og:url binding is
+    expect(out.runtime.map((r) => r.what)).toEqual(['`data-sn-attr`']);
   });
 });
 
-test('a page whose path is a pattern, with embedded data: a link for the server to fill', () => {
-  const out = compile('<!doctype html><html data-sn-path="/article/:slug"><head><title>x</title></head><body></body></html>', {
+test('a page whose path is a pattern with nothing to run: no canonical link, no script (one file answers every URL)', () => {
+  const out = compile('<!doctype html><html data-sn-path="/article/:slug"><head><title>x</title></head><body><p>Hello</p></body></html>', {
     file: '/p/article.html', root: '/p', dev: false, prerender: true, embed: true,
     helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); }, urls: { ...urls, canonical: null },
   });
-  expect(out.html).toContain('<link rel="canonical" data-sinter-canonical="https://example.com"></head>');
+  expect(out.html).not.toContain('rel="canonical"');
+  expect(out.runtime).toEqual([]);
 });

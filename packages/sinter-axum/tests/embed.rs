@@ -400,27 +400,6 @@ async fn follows_the_sites_rules_301s_and_rewrites() {
     assert_eq!(text(a, get_("/about/")).await.2, "file /about/");
 }
 
-/// A page whose path is a pattern gets its canonical link from the request: the origin the build wrote, and
-/// the path without a trailing slash.
-#[tokio::test]
-async fn writes_the_canonical_link_of_a_page_whose_path_is_a_pattern() {
-    let dir = build(
-        "canonical",
-        r#"{ "version": 1, "pages": [
-      { "file": "article.html", "paths": ["/article/:slug"], "data": [
-        { "id": 0, "resource": "article", "src": ["/api/articles/", { "url": "slug" }] } ] } ] }"#,
-        &[(
-            "article.html",
-            &format!(
-                r#"{HEAD}<link rel="canonical" data-sinter-canonical="https://example.com"><script type="application/json" data-sn="0"></script></head><body></body></html>"#
-            ),
-        )],
-    );
-    let a = app(Embed::from_dir(dir).api(api()).build().unwrap());
-    let (_, _, html) = text(a, get_("/article/hello/?ref=x")).await;
-    assert!(html.contains(r#"<link rel="canonical" href="https://example.com/article/hello">"#), "{html}");
-}
-
 /// A site with languages: an unprefixed URL goes to the visitor's language, by the `locale` cookie the pages
 /// set, else Accept-Language, else the base; temporary (302), as it differs per visitor; after Vite's base.
 #[tokio::test]

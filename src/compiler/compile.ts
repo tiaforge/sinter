@@ -95,6 +95,8 @@ export interface CompileOptions {
    * requested early; not `call`, `each`, or `early="off"` (a request a middleware changes)
    */
   embed?: boolean;
+  /** internal: false when a page whose path is a pattern has nothing else to run, so it gets no canonical link (`compileParts`) */
+  canonicalLink?: false;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
   /** also return where each function in `fns` was written (`CompiledParts.sources`), for the page module's source map */
@@ -423,6 +425,13 @@ function constantProps(src: string | undefined, props: Member[] | null): Map<str
 const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-prop`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
+  const out = compilePasses(html, options);
+  // a page whose path is a pattern gets its canonical link from the early script: only when it runs something anyway
+  if (out.canonicalOnly) return compilePasses(html, { ...options, canonicalLink: false });
+  return out;
+}
+
+function compilePasses(html: string, options: CompileOptions): CompiledParts & { canonicalOnly?: boolean } {
   const first = new Compiler(options);
   const out = first.run(html);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
@@ -437,6 +446,8 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
 class Compiler {
   readonly diagnostics: Diagnostic[] = [];
   readonly files = new Set<string>();
+  /** the canonical link `canonical()` added to a page whose path is a pattern: bound to `$canonical`, not a reason to run */
+  canonicalLink: P5Element | null = null;
   readonly fns: string[] = [];
   readonly fnIndex = new Map<string, number>();
   /** how many times each function's index was handed out: a function no longer used by anything is left out (`dropConstants`) */
@@ -596,7 +607,7 @@ class Compiler {
     }
   }
 
-  run(html: string): CompiledParts {
+  run(html: string): CompiledParts & { canonicalOnly?: boolean } {
     let doc = parseDocument(html);
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
@@ -688,7 +699,7 @@ class Compiler {
     if (/"w":\[[^\]]*"\$url[".]/.test(JSON.stringify(ir))) this.features.add('location');
     return {
       html: parse5.serialize(doc),
-      runtime, ...(isStatic ? { static: true as const } : {}),
+      runtime, ...(isStatic ? { static: true as const } : {}), ...(isStatic && this.canonicalLink ? { canonicalOnly: true } : {}),
       ir, fns: this.fns,
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs'].filter((f) => this.features.has(f))],
@@ -1595,10 +1606,10 @@ class Compiler {
     }
     if (!head) return;
     const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
-    // a page whose path is a pattern, filled by a server (embedded data): sinter-axum writes the request's URL into
-    // it; without `href`, a crawler ignores it where nothing fills it
-    if (u.canonical === null && !this.opts.embed) return;
-    const link = parse5.parseFragment(u.canonical === null ? `<link rel="canonical" data-sinter-canonical="${esc(u.origin)}">` : `<link rel="canonical" href="${esc(u.canonical)}">`).childNodes[0] as P5Element;
+    // a page whose path is a pattern: one file for every URL, so the early script writes it from the address
+    if (u.canonical === null && this.opts.canonicalLink === false) return;
+    const link = parse5.parseFragment(u.canonical === null ? '<link rel="canonical" data-sn-attr="{ href: $canonical }">' : `<link rel="canonical" href="${esc(u.canonical)}">`).childNodes[0] as P5Element;
+    if (u.canonical === null) this.canonicalLink = link;
     link.parentNode = head;
     head.childNodes.push(link as never);
   }
@@ -2088,7 +2099,8 @@ class Compiler {
     // a `<meta name|property|itemprop>`: its `content` binds (a per-page description, `og:title`); nothing else of a meta does
     const meta = el.tagName === 'meta' && sn.length ? this.metaBindable(el, sn) : null;
     if (meta === false) { stripSn(el); return null; }
-    if (sn.length && !meta && UNSAFE_ELEMENTS.has(el.tagName.toLowerCase())) {
+    // the canonical link of a page whose path is a pattern, which the compiler adds (`canonical()`): its `href` is `$canonical`
+    if (sn.length && !meta && el !== this.canonicalLink && UNSAFE_ELEMENTS.has(el.tagName.toLowerCase())) {
       this.report(el, sn[0]!.name, 'SN207', `\`<${el.tagName}>\` cannot carry sinter bindings`, 0);
       stripSn(el);
       return null;
@@ -4176,6 +4188,7 @@ class Compiler {
    */
   runtimeReasons(): RuntimeReason[] {
     const out: Array<RuntimeReason & { at: number }> = [];
+    const self = this.canonicalLink;
     const at = (el: P5Element, attrName: string | null) => ({ ...this.locOf(el, attrName), at: el.sourceCodeLocation?.startOffset ?? 0 });
     const BY_KIND: Record<string, string> = { text: 'data-sn-text', attr: 'data-sn-attr', class: 'data-sn-class', style: 'data-sn-style', show: 'data-sn-show', model: 'data-sn-model', if: 'data-sn-if', for: 'data-sn-for' };
     const written = (el: P5Element) => Object.keys(el.sourceCodeLocation?.attrs ?? {});
@@ -4189,7 +4202,7 @@ class Compiler {
     for (const n of this.roots) {
       if (!n.b.length && n.state === undefined) continue;
       const el = elOf.get(n);
-      if (!el) continue;
+      if (!el || el === self) continue;
       const b = n.b.find((x) => x.k === 'cmp') ?? n.b[0];
       if (b?.k === 'cmp') { out.push({ what: `the script of \`<${this.useOf.get(el)?.name ?? el.tagName}>\``, ...at(el, null) }); continue; }
       const name = nameOf(el, b);

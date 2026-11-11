@@ -245,9 +245,12 @@ On a page with a fixed path both are constants, written into the HTML at build t
 ships no JavaScript. Each such page gets `<link rel="canonical" href="…">` with `$canonical`, last in its
 head. A page that writes its own canonical link keeps it (content that lives at another URL), and
 `$canonical` is then that link's URL; it must be absolute. On a page whose path is a pattern
-(`/article/:slug`), `$canonical` is the origin and the browser's path without a trailing slash, rendered
-by the early script; with embedded data (`embed: true`), [sinter-axum](../packages/sinter-axum/README.md)
-writes the page's canonical link into the HTML for each request.
+(`/article/:slug`), one file answers every URL, so `$canonical` is the origin and the browser's path
+without a trailing slash (each article is its own canonical URL; the query is left out), written by the
+early script in the head before the first paint, and so is the page's canonical link, when the page
+ships JavaScript anyway (a page that reads `$url` does). Search engines that run JavaScript read it; a
+crawler or preview bot that does not sees no canonical link (a URL is then its own) and no `og:url`.
+A server never fills it: sinter's middlewares route and serve files, they do not rewrite pages.
 
 `site` is an origin only: a site served under a path sets Vite's `base`. Without `site`, reading
 `$site` or `$canonical` is [SN323](diagnostics.md#sn323-needs-site), and no canonical link is written.
