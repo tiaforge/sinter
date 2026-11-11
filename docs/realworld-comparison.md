@@ -15,8 +15,9 @@ mobile score is within a few points of the best.
 | Angular | 2210 | 123.0 | 77 |
 
 A dash means the number could not be measured (see the notes under each table below). sinter's source
-lines are for its version with components (2026-11-10); its download size and Lighthouse score were
-measured before components and not measured again (they need the live API), see Components below. Scripts:
+lines are for its version with components (2026-11-10); its download size and Lighthouse score in
+these tables are from before components; [Components](#components) compares the two builds on one
+machine. Scripts:
 [`bench/realworld/loc.mjs`](../bench/realworld/loc.mjs) (source lines),
 [`bench/realworld/weight.mjs`](../bench/realworld/weight.mjs) (what the browser downloads),
 [`bench/realworld/lighthouse.mjs`](../bench/realworld/lighthouse.mjs) (Lighthouse).
@@ -183,17 +184,16 @@ page), and write-through applies the response. There is no store code: no `patch
 
 The app has seven components: the header, footer, article meta, byline, preview, error list and the
 favorite button. They are expanded at build time, so every page still renders in the first frame with
-its data (the head script renders their bindings like the rest of the page: no hydration). `npm run
-size` (gzip): the core went from 13.9 to 14.1 KB (the hooks for item sources, scripts, nested items and
-shared definitions); with components, a RealWorld page with its page module and the app's code is
-20.0-23.1 KB.
+its data (the head script renders their bindings like the rest of the page: no hydration). Measured on 2026-11-11 on one machine, `main` (partials) against the build with components, both served
+by `bench/realworld/serve.mjs` against the live API:
 
-## Limits
+| build | JS, home (gz KB) | JS, home + article (gz KB) | Lighthouse mobile perf (range of 3) | FCP | LCP | desktop perf |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| main | 26.2 | 50.3 | 98 (98-98) | 1.73 s | 2.14 s | 98 |
+| components | 26.5 | 50.6 | 98 (98-99) | 1.54 s | 2.29 s | 98 |
 
-- Line counts measure volume, not difficulty; sinter's HTML lines carry the logic the others write in
-  components and services.
-- The implementations differ in scope: SvelteKit renders on the server (its line count includes server
-  routes); Angular includes typed models and route guards.
-- Download sizes of the others come from live demos, not same-commit local builds: building them runs
-  their dependencies' install and build code, which the measuring environment blocks by default.
-- Lighthouse numbers depend on each demo's host and on what the demo serves that day.
+Components cost 0.3 KB of JS (gz) on these pages, and the scores do not move. Mobile FCP is 0.19 s
+earlier and LCP 0.15 s later; with three runs each, neither is read as a change here. (Both builds load
+more JS than the 13.8 KB in the tables above, which were measured on an earlier version of the app.) `npm run size` (gzip):
+the core went from 13.9 to 14.1 KB (the hooks for item sources, scripts, nested items and shared
+definitions).
