@@ -404,7 +404,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * changed in the one that holds it, by key (a single resource is the item itself)
    */
   const byItem = (m: 'patch' | 'remove') => (names: string[], item: any, set?: any) => {
-    // a source under a row (`comments>replies`): the nested module, loaded with it, does it all
+    // a source under a row (`comments>replies`): the nested module, loaded with it, does it all (the rows too:
+    // a few bytes there, which pages without nested lists do not load, rather than in the core)
     if (app.ext.nested) return app.ext.nested.change(res, m, names, item, set);
     for (const n of names) {
       const r = res(n);

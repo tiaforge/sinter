@@ -4,10 +4,10 @@
 // along its path are replaced, and the row is patched. Loaded only by pages that change nested items.
 import type { App, Feature } from './runtime/app.js';
 import type { Resource } from './runtime/store.js';
+import { at, changed, isObj, nest } from './apply.js';
 
 type Obj = Record<string, any>;
 
-const isObj = (v: unknown): v is Obj => !!v && typeof v == 'object' && !Array.isArray(v);
 
 const feature: Feature = {
   name: 'nested',
@@ -45,13 +45,8 @@ const feature: Feature = {
     /** `patch(item, …)`/`remove(item)` from these sources: a nested one with the same object first, then a row by key, then a nested one by key */
     const byItem = (res: (n: string) => Resource, op: 'patch' | 'remove', names: string[], item: unknown, set?: Obj) => {
       const nested = (byId: boolean) => names.some((n) => { const [r, f] = n.split('>'); return f != null && apply(res(r!), f.split(','), op, item, set, byId); });
-      if (nested(true)) return;
-      for (const n of names) {
-        if (n.includes('>')) continue;
-        const r = res(n);
-        if (r.isCollection ? item != null && r.has(item as Obj) : true) return void (op == 'patch' ? r.patch(item as Obj, set!) : r.remove(item as Obj));
-      }
-      nested(false);
+      const row = () => names.some((n) => { const r = !n.includes('>') && res(n); return !!r && (r.isCollection ? item != null && r.has(item as Obj) : true) && (op == 'patch' ? r.patch(item as Obj, set!) : r.remove(item as Obj), true); });
+      nested(true) || row() || nested(false);
     };
     // write-through to nested items (`ap.nt`): after the write-through module, the same rules
     const base = app.ext.apply;
@@ -60,20 +55,15 @@ const feature: Feature = {
       const ap = a.ap!, nt = ap.nt, m = a.method, done: string[] = [];
       if (!nt) return;
       const log = (name: string, what: string) => done.push(`${name}: ${what}`);
-      /** the item a target names: a row, or a shared definition's prop (a path in scope) */
-      const at = (o: any, p: string[]) => p.reduce((x: any, k) => x?.[k], o);
       const wt = (t: (typeof nt)[number], fields: unknown) => {
         const r = app.resource(t.r), item = at(s, t.v!.split('.'));
         if (!isObj(item)) return;
         if (fields === null) { if (apply(r, t.n!, 'remove', item, undefined, false)) log(t.r, 'remove nested'); return; }
         if (!isObj(fields)) return;
+        // (the write-through module's helpers: the same diff and nesting as for rows)
         // only the fields that differ, at the target's sub-path inside the item
-        const p = t.p ?? [], cur = at(item, p);
-        let diff: Obj | null = null;
-        for (const k of Object.keys(fields)) if (!isObj(cur) || !(k in cur) || JSON.stringify(cur[k]) !== JSON.stringify(fields[k])) (diff ??= {})[k] = fields[k];
-        if (!diff) return;
-        const nest = (x: any, q: string[]): Obj => (q.length ? { [q[0]!]: { ...(isObj(x?.[q[0]!]) ? x[q[0]!] : {}), ...nest(x?.[q[0]!], q.slice(1)) } } : diff!);
-        if (apply(r, t.n!, 'patch', item, nest(item, p), false)) log(t.r, `patch ${t.n!.join(',')}${p.length ? ' .' + p.join('.') : ''}`);
+        const p = t.p ?? [], diff = changed(item, p, fields);
+        if (diff && apply(r, t.n!, 'patch', item, nest(item, p, diff), false)) log(t.r, `patch ${t.n!.join(',')}${p.length ? ' .' + p.join('.') : ''}`);
       };
       // 3 update: the body describes the item the URL named
       if ((m == 'PUT' || m == 'PATCH') && isObj(body)) {

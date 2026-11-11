@@ -39,18 +39,14 @@ const feature: Feature = {
     const live = new Map<Element, Inst>();
     /** by root state: the refs of its instance (the elements its markup's ref bindings gave) */
     const refsOf = new WeakMap<object, Record<string, Element>>();
+    const refs = (st: object) => refsOf.get(st) ?? (refsOf.set(st, {}), refsOf.get(st)!);
     const run = (el: Element, i: Inst, hook: Hook) => {
       try { i.o[hook]?.(); } catch (e) { app.warn('component', hook, el, e); }
     };
     app.ext.components = ({ el, b: { w } }, v) => {
       const [a, b, keys] = v as [any, any, string[] | undefined];
       // a ref: `[the root's state, its name]`
-      if (!keys) {
-        let r = refsOf.get(a);
-        if (!r) refsOf.set(a, (r = {}));
-        r[b] = el;
-        return;
-      }
+      if (!keys) return void (refs(a)[b] = el);
       const i = live.get(el);
       if (i) {
         // after the render: `propsChanged()` once, when a prop is another value
@@ -62,9 +58,7 @@ const feature: Feature = {
       const obj = (el as Tagged)[STATE]![1], state = {}, o = new a(), x: Inst = { o, p: b, c: 0 };
       // the root's state, each field written through: an assignment marks that field (`w`: its path, by the order of `keys`)
       keys.forEach((k, j) => Object.defineProperty(state, k, { get: () => obj[k], set: (v) => { obj[k] = v; app.mark(w![j] as number); } }));
-      let refs = refsOf.get(obj);
-      if (!refs) refsOf.set(obj, (refs = {}));
-      Object.defineProperties(o, { props: { get: () => x.p }, state: { value: state }, refs: { value: refs }, root: { value: el } });
+      Object.defineProperties(o, { props: { get: () => x.p }, state: { value: state }, refs: { value: refs(obj) }, root: { value: el } });
       live.set(el, x);
     };
     // after each render: new instances connect, changed ones hear of it, removed ones end; refs that left the page go
