@@ -2,74 +2,98 @@
 
 Status: proposal (2026-11-11), for review. Nothing is implemented.
 
-Decided with the user: sinter solves this itself (a guardrail alone is not enough); when code loads is
-said per page, in the markup; deploy skew is detected, not prevented by keeping old assets on the
-server.
+Decided with the user:
+- sinter solves this itself; a guardrail alone is not enough.
+- When code loads is said per page, in the markup.
+- Deploy skew is detected, not prevented by keeping old assets on the server.
+- Heavy code is declared by naming the package in the config (`sinter({ lazy })`), not in the actions
+  module.
 
 ## The case
 
-Caley's mail, settings and calendar pages call openpgp (132 kB gzip). None of them may ship it in the
+Caley's mail, settings and calendar pages use openpgp (132 kB gzip). None of them may ship it in the
 page bundle. Settings and calendar load it on first use; the mail pages fetch it right after takeover
 (measured on a throttled network with 4x CPU: no slower page, and openpgp ready 300–1400 ms sooner than
 with an idle callback). Today this is all app code:
 
-- `loadPgp = lazyModule(() => import('./modules.ts'))`, awaited in 13 actions;
+- `loadPgp = lazyModule(() => import('./modules.ts'))`, awaited in 13 actions, and a second lazy entry
+  (`vault-steps.ts`);
 - a rule in Caley's CLAUDE.md that nothing checks: no static import of openpgp, or of a module that
   imports it, from page code;
 - `<pgp-preload>`, a component whose script calls `loadPgp()` on connect;
 - deploy skew (an open tab asks for a chunk the new deploy removed) handled for openpgp only.
 
 The opposite case matters too. In RealWorld with `embed`, loading marked and DOMPurify lazily made the
-article slower (LCP 888 → 1,088 ms), because the first content needs them. So whether code is lazy is
-decided by the module, but when it loads depends on the page.
+article slower (LCP 888 → 1,088 ms), because the first content needs them. So the package is what is
+lazy, but when it loads depends on the page.
+
+Heavy code in a web app is nearly always a package: openpgp, a markdown parser, a sanitizer, a chart
+or map library, a PDF renderer. The app's own modules around it are small. So the split is made at the
+package.
 
 ## What sinter has to build on
 
-- The compiler writes each page's imports and imports only the actions the page calls, each namespace
-  from the module that declares it (`src/compiler/index.ts`). Making one of them lazy changes one
-  import line and one runner.
 - Actions and `call` resources are async in the markup already: `aria-busy`, `$meta`, `then`/`catch`
   and `$error` cover the time a load takes. sinter needs no new loading state (Solid's `lazy()` needs
   Suspense; sinter does not).
-- The build already logs each page's chunk and imports in gzip, and `earlyBudget` already names the
-  largest modules of the early files.
+- The plugin already transforms app modules, and `sinter check` and the LSP already read the plugin's
+  options from the Vite config (`viteProject`).
+- The build already logs each page's chunk and imports in gzip.
 
 ## Design
 
-### 1. A lazy namespace, declared in the actions module
+### 1. A lazy package, named in the config
 
 ```ts
-// src/sinter.actions.ts
-import { lazy } from '@tiaforge-ui/sinter';
-export * as mail from './actions/mail.ts';
-export const pgp = lazy(() => import('./actions/pgp.ts'));
+// vite.config.ts
+sinter({ lazy: ['openpgp'] })
 ```
 
-```html
-<button data-sn-call="pgp.encrypt(draft)">Send encrypted</button>
-<sn-resource name="body" call="pgp.decrypt(open)" when="open"></sn-resource>
+App code imports the package as it always has:
+
+```ts
+// src/lib/pgp/compose.ts
+import * as openpgp from 'openpgp';
+import type { PrivateKey } from 'openpgp';
+
+export async function encryptTo(keys: PrivateKey[], text: string) {
+  const message = await openpgp.createMessage({ text });
+  return openpgp.encrypt({ message, encryptionKeys: keys });
+}
 ```
 
-- The markup is the same as for an eager namespace. The first call loads the module; the load is part
-  of the action, so `aria-busy` and `$meta.body.loading` are true while it runs.
-- `lazy()` returns an object with one async function per export of the module. App code uses it too:
-  an action in `mail.ts` that needs openpgp awaits `pgp.decrypt(…)` instead of importing it. That
-  removes the 13 `await loadPgp()` calls, and tests call the same object.
-- The module reader recognises exactly this shape: an exported `const` initialised with `lazy(() =>
-  import('<literal>'))`. Its members are the target module's exported functions, read as for
-  `export * as`. An export that is not a function cannot be lazy: it is a compile error naming the
-  export.
-- Types: `lazy<M>(load: () => Promise<M>): Lazy<M>`, where `Lazy<M>` maps each function to the same
-  parameters returning `Promise<Awaited<R>>`. `sinter check` types arguments and `$result` from that,
-  with nothing sinter-specific.
-- The page module imports `pgp` from the actions module as it imports other actions; the target
-  module is reached only through the `import()`, so Rolldown puts it in its own chunk.
-- The load is cached. A failed load is not, so the next call tries again (Caley's `lazyModule` today).
+- **The transform.** In every app module (not in `node_modules`), the plugin points imports of
+  `openpgp` at a module it generates, `virtual:sinter-lazy/openpgp`. That module exports, under the
+  package's own export names, one async stub per export: `encrypt = (...a) => load().then((m) =>
+  m.encrypt(...a))`. `load()` is one `import('openpgp')` shared by every stub, so Rolldown puts the
+  package in its own chunk, and it is loaded once. A namespace import (`import * as openpgp`) and named
+  imports (`import { encrypt }`) both work, since the generated module has the same names.
+- **Allowed uses.** A value imported from a lazy package may only be called: `openpgp.encrypt(…)`,
+  `encrypt(…)`. Type-only uses are erased and allowed (`import type`, a type annotation). Anything else
+  is `SN324` at its line, since it needs the package loaded at once:
+  - `instanceof`, `new`, reading a constant or setting (`openpgp.enums`, `openpgp.config.x = …`);
+  - passing the namespace or a function as a value (`keys.map(openpgp.readKey)`);
+  - `import 'openpgp'` for its side effects, `export … from 'openpgp'`.
+- **Only async functions.** A stub returns a Promise, so a sync function would change its meaning
+  without notice. `sinter check` reads the package's types and reports `SN324` for each called export
+  whose return type is not a Promise. Dev builds check the same at each first call, in case nothing ran
+  `sinter check`.
+- **Subpaths.** `lazy: ['openpgp']` covers `openpgp/lightweight` too; each subpath is its own chunk.
+- **Everything else is unchanged.** The app's own modules around the package (Caley's `lib/pgp/*`) stay
+  in the page bundle; they are small, and the build log shows them. The page module and the actions
+  module are not touched: an action that awaits openpgp now waits for the download the first time, and
+  its element is busy meanwhile.
+- **Tests.** With the plugin (vitest with the Vite config), tests get the stubs; without it, the real
+  package. Both behave the same, since everything called is async.
+- **The app's own heavy modules.** These are not covered, and a plain `import()` stays the way to split
+  them. The guardrail and the stale check (sections 3 and 4) apply to those `import()`s too.
 
-Why here rather than in `sinter({ lazy: [...] })`: a config entry would make only the markup's calls
-lazy. App code calling openpgp from another action would still need its own `import()`. `sinter check`
-and the LSP would also have to read the Vite config. The `lazy()` value is plain JavaScript: it works the
-same in dev, the build, vitest and the type checker.
+For Caley: `sinter({ lazy: ['openpgp'] })`, then delete `loadPgp`, `lazyModule`, `modules.ts`, the 13
+awaits and the CLAUDE.md rule. Its runtime uses of openpgp are all calls of async functions
+(`createMessage`, `encrypt`, `decrypt`, `decryptKey`, `sign`, `verify`, `readKey(s)`,
+`readPrivateKey`, `readMessage`, `readSignature`, `generateKey`, `reformatKey`,
+`createCleartextMessage`), and `PrivateKey`, `PublicKey`, `Key` and `Message` appear only as types
+(checked 2026-11-11, tests excluded).
 
 ### 2. When it loads: in the markup, per page
 
@@ -77,41 +101,45 @@ There are three timings. The default needs nothing; the two others are written w
 
 | When | Markup | What the build or runtime does |
 | --- | --- | --- |
-| on first call (default) | nothing | `import()` when an action or resource first calls a member |
-| when an element is rendered | `data-sn-import="pgp"` on that element | the runtime starts the load when it renders the element: at takeover for an element outside templates; when its `data-sn-if` branch or row is first rendered otherwise |
-| with the page | `<link rel="modulepreload" data-sn-import="pgp">` in the head | the build fills `href` with the chunk, plus one link for each chunk it imports; in dev, the source module |
+| on first call (default) | nothing | the first stub called loads the package |
+| when an element is rendered | `data-sn-import="openpgp"` on that element | the runtime starts the load when it renders the element: at takeover for an element outside templates; when its `data-sn-if` branch or row is first rendered otherwise |
+| with the page | `<link rel="modulepreload" data-sn-import="openpgp">` in the head | the build fills `href` with the package's chunk, plus one link for each chunk it imports; in dev, the package's pre-bundled module |
 
-For Caley: settings and calendar write nothing. `<mail-reader>`'s markup gets `data-sn-import="pgp"` on
-its root, which replaces `<pgp-preload>`, and every page using the component inherits it. Whether the
-mail pages would be faster with the head link (fetched in parallel with the page bundle instead of
-after takeover) is worth measuring then; it is one line to switch.
+For Caley: settings and calendar write nothing. `<mail-reader>`'s markup gets
+`data-sn-import="openpgp"` on its root, which replaces `<pgp-preload>`, and every page using the
+component inherits it. Whether the mail pages would be faster with the head link (fetched in parallel
+with the page bundle instead of after takeover) is worth measuring then; switching is one line.
 
-- The value is a list of lazy namespaces: `data-sn-import="pgp, charts"`. A name that is not exported
-  is `SN310`. A namespace that is not lazy is an error too, since writing it would do nothing.
+- The value is a list of packages from `sinter({ lazy })`: `data-sn-import="openpgp, marked"`. Any
+  other name is an error with a suggestion (`sinter check` and the LSP read the list from the Vite
+  config).
 - The attribute takes no expression. A condition is expressed by where the element is, inside a
   `data-sn-if`.
-- A load the attribute starts that fails is silent. The call that needs the module reports it (below).
-- The head link is evaluated by the browser only when the first call imports the module: it fetches
-  and compiles, but runs nothing.
+- A load the attribute starts that fails is silent. The call that needs the package reports it
+  (section 4).
+- The head link is only fetched and compiled. It runs when the first call imports the package.
 
 These follow Astro's island directives (`client:idle`, `client:visible`), which say on the element
-when its code loads. Here they are about a namespace, not a component.
+when its code loads. Here they are about a package, not a component.
 
 ### 3. The guardrail
 
-The build fails when a page's static graph (its entry chunk and every chunk it imports, and its early
-files) contains a heavy module that a lazy namespace reaches, and prints the import chain:
+The transform makes every import of the package from app code lazy, so app code cannot undo the split.
+Two ways remain, and the build fails on both with the import chain (`SN325`, at `generateBundle`, from
+Rolldown's module graph):
 
-```
-SN324 src/pages/mail.html: the page bundle imports openpgp (131.8 kB gzip), which `pgp` loads lazily
-  src/pages/mail.html → src/components/mail-reader.ts → src/lib/pgp/format.ts → openpgp
-```
+- **Another package imports it.** A page's static graph (its entry chunk, every chunk it imports, its
+  early files) contains the lazy package because some other package depends on it:
 
-It runs at `generateBundle`, from Rolldown's module graph. It runs in builds only: in dev, Vite has no
-chunks to compare.
+  ```
+  SN325 src/pages/mail.html: the page bundle contains openpgp (131.8 kB gzip), which sinter({ lazy }) loads lazily
+    src/pages/mail.html → src/lib/pgp/autocrypt.ts → some-autocrypt-lib → openpgp
+  ```
 
-What counts as heavy is open (decision 3). A lazy module and a page may share small modules (a
-formatter, a type guard), and that must not fail the build.
+  The fix is to add that package to `lazy` as well, or to load it with `import()`.
+- **An app module the app loads with `import()` is also imported statically by a page.** Vite already
+  warns about this ("dynamically imported by … but also statically imported by …, dynamic import will
+  not move module into another chunk"). For pages, sinter makes it an error.
 
 The per-page log line gains each page's lazy chunks and their gzip sizes, so the cost a page defers
 shows next to what it ships.
@@ -121,10 +149,11 @@ shows next to what it ships.
 An open tab whose deploy has been replaced asks for a chunk that no longer exists. sinter turns that
 into an error the page can show:
 
-1. A lazy load fails.
-2. The runtime requests the chunk's URL again (`cache: 'no-store'`). The plugin gives `lazy()` its
-   chunk's URL at `renderChunk`, since the browser's error does not always say which URL failed (Safari
-   names none).
+1. A lazy load fails: a stub's `import()`, or an `import()` in app code, through Vite's
+   `vite:preloadError`.
+2. The runtime requests the chunk's URL again (`cache: 'no-store'`). The plugin writes each lazy
+   package's chunk URL into its generated module at `renderChunk`, since the browser's error does not
+   always say which URL failed (Safari names none).
    - A 404 or 410, or a 200 that is not JavaScript (a host serving `200.html` for every missing path),
      means stale.
    - A network error means the network: `status: 0`, as for any request.
@@ -132,48 +161,46 @@ into an error the page can show:
 3. The action fails with `$error.stale = true` and the message "this page is out of date: reload it".
    The markup shows it with the action's `catch`, or the unhandled-error path shows it.
 
-sinter never reloads by itself: the page may hold a draft. Since every navigation in a sinter app loads
-a page, skew only affects a tab that stayed open across a deploy.
+sinter never reloads by itself: the page may hold a draft. A failed load is not cached, so the next
+call tries again. Every navigation in a sinter app loads a page, so skew only affects a tab that stayed
+open across a deploy.
 
 - No build id and no server-side file: the probe needs only the chunk's URL, and keeps nothing old on
   the server.
 - `sinter-axum` needs no change: `ServeDir` already answers 404 for a removed file.
-- The same probe works for Vite's own `import()` calls in app code, through `vite:preloadError`. Caley's
-  `vault-steps.ts` keeps working that way until it moves to `lazy()`.
 
 ## Not in this proposal
 
-- Lazy component scripts (an island's module loaded when the element first renders). The islands
-  runtime already handles an element defined late, and `data-sn-import` could later take a component
-  name. Caley has no heavy component yet.
-- Running a namespace in a worker (calls through `postMessage`). This would also take decryption off
-  the main thread, but arguments must be cloneable and `ctx.request` does not cross. Keep it for when
-  decryption time, not download time, is the problem.
-- Splitting every handler automatically (Qwik, Marko). sinter already ships only what a page uses, and
-  heavy code arrives as a few whole libraries, which a declaration describes better.
+- **The app's own heavy modules.** These stay a plain `import()`, with the guardrail and the stale
+  check. A `.lazy.ts` file convention, with the same stubs, could be added if a case comes up.
+- **Lazy component scripts:** an island's module loaded when the element first renders. The islands
+  runtime already handles an element defined late. Caley has no heavy component yet.
+- **Running a package in a worker** (calls through `postMessage`). This would also take decryption off
+  the main thread, but arguments must be cloneable. Keep it for when decryption time, not download
+  time, is the problem.
+- **Splitting every handler automatically** (Qwik, Marko). sinter already ships only what a page uses,
+  and heavy code arrives as a few whole packages, which a list describes better.
+- **`import defer`** (standards track) delays running a module, not downloading it.
 
 ## Decisions for review
 
-1. **Declaration:** `lazy(() => import(…))` in the actions module (recommended), or
-   `sinter({ lazy: [...] })` in the config.
-2. **Markup:** `data-sn-import` on an element (when it is rendered) plus the `<link rel="modulepreload"
-   data-sn-import>` head form (with the page). Other names to consider: `data-sn-preload`,
-   `data-sn-load`.
-3. **What counts as heavy for the guardrail:**
-   - (a) any module of the lazy namespace's graph over a size (say 10 kB minified), recommended;
-   - (b) only packages from `node_modules`;
-   - (c) anything at all, with an allowlist.
-4. **The stale error:** `$error.stale` (recommended: it adds one field), or a general `$error.kind`
+1. **Attribute name:** `data-sn-import` (recommended). Alternatives: `data-sn-preload`, `data-sn-load`.
+2. **Uses other than calls:** an error (recommended). The alternative is to let a constant through
+   (`openpgp.enums`) by loading the package with the page wherever one is read. It is never needed in
+   Caley, and it would quietly undo the split.
+3. **The stale error:** `$error.stale` (recommended: it adds one field), or a general `$error.kind`
    (`'http' | 'network' | 'action' | 'stale'`), which would touch every error path.
-5. **Scope:** lazy actions and resources only (recommended), or lazy component scripts in the same step.
+4. **Scope:** lazy packages, the `import()` guardrail and the stale check (recommended); or lazy
+   component scripts in the same step.
 
 ## Plan
 
-1. `lazy()` and `Lazy<M>`; the module reader, the compiler and `sinter check` for lazy namespaces;
-   testing's `render()` with a lazy namespace.
-2. `data-sn-import` on elements, then the head link (build and dev).
-3. The guardrail and the log line.
-4. The stale probe and `$error.stale`, with `vite:preloadError`.
-5. Docs (actions.md, a section in first-paint.md on the three timings), the changelog. Move Caley's
-   openpgp to `pgp = lazy(…)` with `data-sn-import` on `<mail-reader>` (in the Caley session), and
-   measure the mail pages with the after-takeover and the with-the-page timings.
+1. `sinter({ lazy })`, the generated module and the transform; `SN324` for uses other than calls in
+   the plugin, and for sync exports in `sinter check`, with the dev check at first call.
+2. `data-sn-import` on elements, then the head link (build and dev); `sinter check` and the LSP read
+   the list.
+3. The guardrail (`SN325`) and the log line.
+4. The stale probe and `$error.stale`, for stubs and for `vite:preloadError`.
+5. Docs (a guide page; first-paint.md on the three timings; diagnostics), the changelog. Move Caley to
+   `lazy: ['openpgp']` with `data-sn-import` on `<mail-reader>` (in the Caley session), and measure the
+   mail pages with the after-takeover and the with-the-page timings.
