@@ -75,3 +75,17 @@ describe('head bindings', () => {
     expect(out.html).toMatch(/<title( data-sn="\d+")?>T<\/title>/);
   });
 });
+
+describe('SN321 inside templates', () => {
+  const codes = (head: string) => run(`<!doctype html><html><head>${head}</head><body></body></html>`).diagnostics.filter((d) => d.code === 'SN321').map((d) => d.message);
+  test('the branches of one if/else are one; a duplicate of a branch at the top level, or in one branch, is not', () => {
+    expect(codes('<template data-sn-if="1"><title>a</title></template><template data-sn-else><title>b</title></template>')).toEqual([]);
+    expect(codes('<title>t</title><template data-sn-if="1"><title>a</title></template>')).toEqual([expect.stringMatching(/^a second `<title>` in the head/)]);
+    expect(codes('<template data-sn-if="1"><title>a</title><title>b</title></template>')).toEqual([expect.stringMatching(/^a second `<title>` in the head/)]);
+    expect(codes('<template data-sn-if="1"><meta name="description" content="a"></template><template data-sn-else><title>b</title></template><title>c</title>')).toEqual([expect.stringMatching(/^a second `<title>`/)]);
+  });
+  test('in a data-sn-for template, one per row', () => {
+    expect(codes('<template data-sn-for="x in [1, 2]"><meta property="og:title" content="a"></template>')).toEqual([expect.stringMatching(/^`<meta property="og:title">` in a `data-sn-for` template: the head would have one per row/)]);
+    expect(codes('<template data-sn-for="x in [1, 2]"><meta property="og:image" content="a"></template>')).toEqual([]);
+  });
+});

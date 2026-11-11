@@ -1303,19 +1303,49 @@ class Compiler {
       }
     };
     walk(head, head);
-    // SN321: what a page has once
-    const seen = new Map<string, P5Element>();
-    for (const c of head.childNodes) {
-      if (!isElement(c)) continue;
-      const key = onceKey(c);
-      if (!key) continue;
-      if (seen.has(key.id)) {
-        this.report(c, null, 'SN321', `a second ${key.label} in the head: the page would have two`, 0,
-          'keep one: pass the value to the one that is there (a prop of the layout or head component), or put this one in place of a slot\'s fallback');
-        continue;
+    // SN321: what a page has once, also inside templates; the branches of one if/else are one
+    type Once = { id: string; label: string; el: P5Element };
+    const real = (n: P5Node) => isElement(n) || (n.nodeName === '#text' && (n as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
+    const unique = (list: Once[]): Once[] => {
+      const seen = new Set<string>(), out: Once[] = [];
+      for (const x of list) {
+        if (seen.has(x.id)) {
+          this.report(x.el, null, 'SN321', `a second ${x.label} in the head: the page would have two`, 0,
+            'keep one: pass the value to the one that is there (a prop of the layout or head component), or put this one in place of a slot\'s fallback');
+          continue;
+        }
+        seen.add(x.id);
+        out.push(x);
       }
-      seen.set(key.id, c);
-    }
+      return out;
+    };
+    const collect = (nodes: P5Node[]): Once[] => {
+      const out: Once[] = [];
+      for (let i = 0; i < nodes.length; i++) {
+        const c = nodes[i]!;
+        if (!isElement(c)) continue;
+        if (c.tagName === 'template') {
+          const inner = (t: P5Element) => collect((t as P5Template).content.childNodes);
+          if (attr(c, 'data-sn-for') !== undefined) {
+            for (const x of inner(c)) this.report(x.el, null, 'SN321', `${x.label} in a \`data-sn-for\` template: the head would have one per row`, 0, 'move it out of the loop');
+          } else if (attr(c, 'data-sn-if') !== undefined) {
+            let j = i + 1;
+            while (j < nodes.length && !real(nodes[j]!)) j++;
+            const next = nodes[j];
+            const other = next && isElement(next) && next.tagName === 'template' && attr(next, 'data-sn-else') !== undefined ? next : null;
+            const a = unique(inner(c)), b = other ? unique(inner(other)) : [];
+            if (other) i = j;
+            // one of the two branches renders: an element in both is one
+            out.push(...a, ...b.filter((x) => !a.some((y) => y.id === x.id)));
+          }
+          continue;
+        }
+        const key = onceKey(c);
+        if (key) out.push({ ...key, el: c });
+      }
+      return out;
+    };
+    unique(collect(head.childNodes));
   }
 
   /**

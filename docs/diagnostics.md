@@ -328,7 +328,7 @@ Error, for example:
 
 > a second `<title>` in the head: the page would have two
 
-After a layout, its slots and its head components are merged, the head has two of an element a page has once: `<title>`, `<base>`, `<meta charset>`, `<link rel="canonical">`, and the `<meta>` with `name` `viewport`, `description` or `robots`, or `property` `og:title`, `og:description`, `og:url`, `og:type`, `twitter:card`, `twitter:title` or `twitter:description`. Two in the branches of one `data-sn-if` / `data-sn-else` are one.
+After a layout, its slots and its head components are merged, the head has two of an element a page has once: `<title>`, `<base>`, `<meta charset>`, `<link rel="canonical">`, and the `<meta>` with `name` `viewport`, `description` or `robots`, or `property` `og:title`, `og:description`, `og:url`, `og:type`, `twitter:card`, `twitter:title` or `twitter:description`. Elements inside `data-sn-if`, `data-sn-else` and `data-sn-for` templates count: two in the branches of one `data-sn-if` / `data-sn-else` are one, one at the top level and one in a branch are two, and one in a `data-sn-for` template is one per row.
 
 **Fix:** Keep one: pass the value to the one that is there (a prop of the layout or head component), or replace a slot's fallback with the page's own element.
 

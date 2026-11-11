@@ -126,7 +126,9 @@ page's, or a head slot's content. See [components](components.md#head-components
 A head has one `<title>`, one `<base>`, one `<meta charset>`, one `<link rel="canonical">`, and one
 `<meta>` with `name` `viewport`, `description` or `robots`, or `property` `og:title`,
 `og:description`, `og:url`, `og:type`, `twitter:card`, `twitter:title` or `twitter:description`. A
-second one in the merged head is `SN321`.
+second one in the merged head is `SN321`. Templates count: the two branches of one `data-sn-if` /
+`data-sn-else` are one element, a branch's and one at the top level are two, and one inside a
+`data-sn-for` would be one per row.
 
 ### What a crawler sees
 
