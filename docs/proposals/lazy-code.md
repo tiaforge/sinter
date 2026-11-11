@@ -153,10 +153,28 @@ A component script is app code, so the transform applies to it: a script that ca
 That is not enough for a component built around a library's classes, the usual heavy component:
 `new Chart(…)` in [islands.md](../islands.md)'s `task-ring` is a use other than a call (`SN324`). So:
 
-**A component script that imports a lazy package, directly or through app modules, is loaded with the
-package.** The page module does not import it; the runtime does, when an instance is first rendered.
-Inside such a script any use of the package is allowed, since the package is loaded before the script
-runs.
+**A component script that imports a lazy package, directly or through app modules, becomes lazy
+too.** The page module does not import it; the runtime does, when an instance is first rendered, and
+the script runs once both it and the package have arrived. Inside such a script any use of the package
+is allowed, since the package is there before the script runs.
+
+The script and the package stay apart. The build puts each lazy package in a chunk of its own (one
+chunk group per package) and each lazy script in its own small chunk:
+
+```
+task-ring-<hash>.js     2 kB   ─┐
+burndown-<hash>.js      3 kB   ─┼─▶  chart.js-<hash>.js   68 kB   (one copy, shared)
+kpi-spark-<hash>.js     1 kB   ─┘
+```
+
+- Three very different components on one page download chart.js once; the first one rendered starts
+  it, the others find it loaded or loading.
+- A page with only `task-ring` downloads task-ring's chunk and chart.js, not the other components'
+  scripts.
+- The two downloads start together: the build lists the package's chunk as a dependency of the
+  script's chunk, so the browser does not wait for the script to learn it needs the package.
+- A deploy that changes a component's script but not the package changes only the script's chunk: a
+  visitor's cached copy of the package stays good.
 
 ```ts
 // src/components/task-ring.ts: unchanged; `lazy: ['chart.js']` in the config
@@ -175,7 +193,7 @@ export class TaskRing extends TaskRingComponent {
 - Until then the script's own effects are missing: its `this.state` writes, its events, what it draws.
   Write the markup so that it reads well without them, as it should for a browser without JavaScript.
 - Timings: by default, when the first instance is rendered. `data-sn-preload="chart.js"` in the
-  component's or the page's markup preloads the package and the script.
+  component's or the page's markup preloads the package and the lazy scripts of the page's components that import it.
 - A script that only calls the package's functions (Caley's components that call openpgp) is
   loaded the same way, since the rule is about imports. Should that be a problem (a script that has
   other work to do at once), the script can move the openpgp calls into a module of their own that it
