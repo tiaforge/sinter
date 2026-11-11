@@ -383,7 +383,7 @@ by the maintainer (kept as built), *open* (to be decided), or *fixed* (built as 
 
 | Topic | The text | Built | Why | Status |
 | --- | --- | --- | --- | --- |
-| RealWorld's size | level with the build before layouts | HTML and head scripts level (within ±5 B gzip per page); page modules 60 to 104 B (gzip) larger ([realworld-comparison.md](../realworld-comparison.md#layouts)) | the title and description are bindings now (a constant one is written into the HTML and its binding stays, as for every prerendered binding), and the page's state is on `<html>` instead of a `<div>` | open |
+| RealWorld's size | level with the build before layouts | HTML and head scripts level; page modules within 7 B (gzip) on the five pages with constant titles, once the build left constant bindings out of page modules (a binding that reads nothing); the article and profile pages 99 and 59 B larger: their titles come from data ([realworld-comparison.md](../realworld-comparison.md#layouts)) | a title from data is a binding the page needs | open: follows RealWorld's titles |
 | RealWorld's titles | not covered | the article and profile pages take their titles from data; scrapers that run no script see `Conduit` there, where they saw `Article — Conduit` | the example shows a title from data; a server writing the head is an [open question](#open-questions) | open |
 | Every engine | head bindings checked in Chromium, Firefox and WebKit | the test runs in every engine Playwright has; locally only Chromium was installed, so Firefox and WebKit run in CI | the development machine had no Firefox or WebKit | open (CI) |
 

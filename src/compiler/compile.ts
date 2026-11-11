@@ -385,6 +385,8 @@ class Compiler {
   readonly files = new Set<string>();
   readonly fns: string[] = [];
   readonly fnIndex = new Map<string, number>();
+  /** how many times each function's index was handed out: a function no longer used by anything is left out (`dropConstants`) */
+  private readonly fnUses: number[] = [];
   /** where each function in `fns` was first written: the expression that compiled to it, else the element being compiled */
   readonly fnAt: Array<Site | null> = [];
   /** the element or expression being compiled: the site of functions the compiler writes itself */
@@ -563,7 +565,7 @@ class Compiler {
     if (this.opts.checkCycles) this.runCycles();
     for (const el of this.remove) detach(el);
     this.markLowPriority();
-    if (this.opts.prerender) this.prerender();
+    if (this.opts.prerender) { this.prerender(); this.dropConstants(); }
     const early = this.opts.early ? this.earlyParts() : undefined;
     if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
     this.injectScript(doc, early !== undefined && (early !== null || !!this.opts.early!.module) ? this.opts.early!.src ?? null : null);
@@ -2322,6 +2324,7 @@ class Compiler {
       this.fnIndex.set(code, (i = this.fns.push(code) - 1));
       this.fnAt[i] = this.codeAt.get(code) ?? (site !== undefined ? site : this.at);
     }
+    this.fnUses[i] = (this.fnUses[i] ?? 0) + 1;
     if (this.opts.dev) this.callAt.set(i, site !== undefined ? site : this.at);
     return i;
   }
@@ -3465,6 +3468,40 @@ class Compiler {
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) this.painted.add(c.b);
     }
+  }
+
+  /**
+   * A binding `prerender()` wrote into the HTML that reads nothing (no state, data, URL or language)
+   * can never change: the page module leaves it out, with its function when nothing else uses it,
+   * and its node when nothing else is bound there (`data-sn` too). The roots after it are renumbered.
+   */
+  dropConstants() {
+    const drop = (b: Binding) => this.painted.has(b) && !strs(b.d).length && !b.w?.length && b.k !== 'model';
+    const gone = new Set<NodeDef>();
+    for (const { el, node } of this.paints) {
+      const keep = node.b.filter((b) => !drop(b));
+      if (keep.length === node.b.length) continue;
+      for (const b of node.b) if (drop(b) && b.f !== undefined) this.fnUses[b.f]!--;
+      node.b = keep;
+      if (!keep.length && node.state === undefined && node.sid === undefined) {
+        gone.add(node);
+        el.attrs = el.attrs.filter((a) => a.name !== 'data-sn');
+      }
+    }
+    // a function nothing uses: a placeholder keeps the others' indexes
+    for (let i = 0; i < this.fns.length; i++) if (this.fnUses[i] === 0) this.fns[i] = '0';
+    if (!gone.size) return;
+    const at = new Map<number, number>();
+    this.roots.forEach((n, i) => { if (!gone.has(n)) at.set(i, at.size); });
+    const re = (i: number | undefined) => (i === undefined || i < 0 ? i : at.get(i)!);
+    const kept = this.roots.filter((n) => !gone.has(n));
+    for (const n of kept) {
+      if (n.p !== undefined) n.p = re(n.p);
+      for (const b of n.b) if (b.y !== undefined) b.y = re(b.y);
+    }
+    for (const r of this.resources) if (r.scope !== undefined) r.scope = re(r.scope);
+    for (const x of this.syncs) if (x.scope !== undefined) x.scope = re(x.scope);
+    this.roots.splice(0, this.roots.length, ...kept);
   }
 
   /**

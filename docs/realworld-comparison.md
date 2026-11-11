@@ -237,10 +237,24 @@ Measured on 2026-11-11, one machine, `vite build` of the example before and afte
 | settings | 1,810 → 1,806 | 372 → 373 | 20,097 → 20,180 |
 
 The HTML and the head scripts are level: the merged document is the document the pages wrote by
-hand, and the layout's comment stays in its file. The page modules grow by 60 to 104 B (gzip): the
-title and description are bindings now (a constant one is still written into the HTML at build time,
-and its binding stays, as every prerendered binding does), and the page's state is on `<html>`
-instead of a `<div>`. The shared head script does not change (3,233 B). Scrapers that run no script
+hand, and the layout's comment stays in its file. The page modules grew by 60 to 104 B (gzip): the
+title and description were bindings, and a constant one, written into the HTML at build time, kept
+its binding, as every prerendered binding did. The build now leaves a binding that reads nothing out
+of the page module (see [first-paint.md](first-paint.md#build-time-constants)), which brings the
+pages with constant titles back to level:
+
+| page module (gzip) | before layouts | with layouts | without constant bindings |
+| --- | ---: | ---: | ---: |
+| editor | 20,992 | 21,063 | 20,997 |
+| index | 22,897 | 23,001 | 22,904 |
+| login | 19,884 | 19,943 | 19,886 |
+| register | 19,884 | 19,955 | 19,888 |
+| settings | 20,097 | 20,180 | 20,099 |
+| article | 22,698 | 22,796 | 22,797 |
+| profile | 22,895 | 22,994 | 22,954 |
+
+The article and profile pages keep about 60 to 100 B: their titles come from data, so they are
+bindings the page needs. The shared head script does not change (3,233 B). Scrapers that run no script
 see the constant titles as before; the article and profile pages, whose titles come from data, show
 `Conduit` to them until a server writes the head ([what a crawler sees](layouts.md#what-a-crawler-sees)).
 
