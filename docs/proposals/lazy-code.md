@@ -1,6 +1,6 @@
 # Proposal: lazy code
 
-Status: proposal (2026-11-11), reviewed by the Caley session. Nothing is implemented.
+Status: accepted (2026-11-11), reviewed by the Caley session. Nothing is implemented yet.
 
 Decided with the user:
 - sinter solves this itself; a guardrail alone is not enough.
@@ -14,6 +14,10 @@ Decided with the user:
 - A use of a lazy package other than an awaited call is an error outside component scripts.
 - Every component script that imports a lazy package becomes lazy (one rule, nothing for the type
   checker to explain).
+- A stale chunk is `$error.stale = true`, not a status and not a general `$error.kind`. `status`
+  cannot carry it: the chunk's 404 would read like an API's 404 (no such item), an invented status
+  would be a magic number in a field that holds HTTP statuses, and a host's `200.html` answer has no
+  meaningful status at all. `0` (network) and `null` (thrown) keep their meaning for lazy loads.
 
 ## The case
 
@@ -273,11 +277,6 @@ open across a deploy.
 - **Splitting every handler automatically** (Qwik, Marko). sinter already ships only what a page uses,
   and heavy code arrives as a few whole packages, which a list describes better.
 - **`import defer`** (standards track) delays running a module, not downloading it.
-
-## Open decision
-
-**The stale error:** `$error.stale` (recommended: it adds one field), or a general `$error.kind`
-(`'http' | 'network' | 'action' | 'stale'`), which would touch every error path.
 
 ## Plan
 
