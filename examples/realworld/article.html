@@ -1,7 +1,7 @@
 <conduit-layout data-sn-path="/article/:slug"
   data-sn-state="{ nav: '', error: null, guest: signedOut(), commentError: null }"
   data-sn-on-sn-error="$event.detail.error.status == 401 ? emit('navigate', '/login') : error = $event.detail.error; $event.preventDefault()"
-  data-sn-prop="{ nav, guest, title: article ? article.title : 'Article', description: article ? article.description : 'An article on Conduit, with its comments.' }">
+  data-sn-prop="{ nav, guest, title: 'Article', description: 'An article on Conduit, with its comments.' }">
 <!-- <conduit-markdown>: only this page renders Markdown -->
 <script slot="head" type="module" src="/src/markdown.js"></script>
 <!-- early="off": the auth middleware answers this request without a token, and adds one otherwise:

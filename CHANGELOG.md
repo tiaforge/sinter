@@ -47,8 +47,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   of the page module, with its function and, when nothing else is bound there, its node and `data-sn` id.
 - The early script renders bindings that read `$url` (its query and `data-sn-path` parameters) on every page, so the
   current nav item or a tab chosen by the URL is right in the first frame; before, only on pages with embedded data.
-- docs/layouts.md; the RealWorld example's seven pages share one layout and a `conduit-seo` head component (the article
-  page's title is the article's), with the HTML and head scripts level (docs/realworld-comparison.md, Layouts).
+- docs/layouts.md; the RealWorld example's seven pages share one layout and a `conduit-seo` head component, with the
+  HTML, head scripts and page modules level (docs/realworld-comparison.md, Layouts).
 - Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
   is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
   costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots

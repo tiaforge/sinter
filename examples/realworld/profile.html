@@ -1,7 +1,7 @@
 <conduit-layout data-sn-path="/profile/:username /profile/:username/:tab"
   data-sn-state="{ nav: 'profile:' + $url.username, error: null, guest: signedOut() }"
   data-sn-on-sn-error="$event.detail.error.status == 401 ? emit('navigate', '/login') : error = $event.detail.error; $event.preventDefault()"
-  data-sn-prop="{ nav, guest, title: profile ? profile.username : 'Profile', description: 'A Conduit author\'s profile: their articles and favorites.' }">
+  data-sn-prop="{ nav, guest, title: 'Profile', description: 'A Conduit author\'s profile: their articles and favorites.' }">
 <!-- early="off": the auth middleware answers this request without a token, and adds one otherwise:
      a request sent before the page module would go unused -->
 <sn-resource cache name="user" src="https://api.realworld.show/api/user" items="user" then="guest = !$result" early="off"></sn-resource>

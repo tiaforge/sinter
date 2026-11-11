@@ -220,8 +220,8 @@ The seven pages now share one [layout](layouts.md), `src/layouts/conduit-layout.
 (charset, viewport, icon, the Ionicons, Google Fonts and app stylesheets), the header and the footer.
 Each page is the layout's tag with its state, `data-sn-on-sn-error` and its title and description as
 props, which the `conduit-seo` head component (`<template data-sn-head>`) binds into the `<title>` and
-the description `<meta>`. The article page's title is the article's (`article ? article.title :
-'Article'`), and its Markdown script goes into the layout's head slot. The page files lost their
+the description `<meta>`. Every title is a constant, as before (`title: 'Article'`), so it is written
+into the HTML; the article page's Markdown script goes into the layout's head slot. The page files lost their
 heads and the header and footer tags: 7 to 11 lines each.
 
 Measured on 2026-11-11, one machine, `vite build` of the example before and after:
@@ -250,13 +250,14 @@ pages with constant titles back to level:
 | login | 19,884 | 19,943 | 19,886 |
 | register | 19,884 | 19,955 | 19,888 |
 | settings | 20,097 | 20,180 | 20,099 |
-| article | 22,698 | 22,796 | 22,797 |
-| profile | 22,895 | 22,994 | 22,954 |
+| article | 22,698 | 22,796 | 22,712 |
+| profile | 22,895 | 22,994 | 22,911 |
 
-The article and profile pages keep about 60 to 100 B: their titles come from data, so they are
-bindings the page needs. The shared head script does not change (3,233 B). Scrapers that run no script
-see the constant titles as before; the article and profile pages, whose titles come from data, show
-`Conduit` to them until a server writes the head ([what a crawler sees](layouts.md#what-a-crawler-sees)).
+(A first version of the conversion took the article and profile titles from data, which cost those
+two pages about 60 to 100 B and showed `Conduit` to link previews; the example went back to constant
+titles, since it is not where that feature is shown.) Every page is within 16 B (gzip) of the build
+before layouts, and scrapers that run no script see the same titles as before. The shared head script
+does not change (3,233 B).
 
 The early script then learned `$url` on every page (before, only on pages with embedded data). On
 `/tag/css`, the home page's `css` tab is in the first frame, active (checked in Chromium with the page
