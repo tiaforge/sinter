@@ -35,13 +35,14 @@ import call from '../call.js';
 import debounce from '../debounce.js';
 import components from '../components.js';
 import nested from '../nested.js';
+import defs from '../defs.js';
 import confirm from '../confirm.js';
 import models from '../models.js';
 import sse from '../sse.js';
 import { prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { components, nested, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, nested, defs, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, call, debounce, confirm, models, transition };
 
 // ---- requests
 

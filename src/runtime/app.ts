@@ -179,9 +179,14 @@ export interface App {
     select?: (inner: Inner) => (rb: BoundBinding, free: boolean) => number;
     /** nested items (nested.ts): changes an item under a resource's rows, through `fields`; the list `upsert(c.replies, x)` gives */
     nested?: {
+      /** applies one change to an item from `names`; for write-through, one under `r` through `fields` (true when found) */
+      change(res: (n: string) => Resource, op: 'patch' | 'remove', names: string[], item: unknown, set: any): void;
       apply(r: Resource, fields: string[], op: 'patch' | 'remove', item: unknown, set: any, byId: boolean): boolean;
-      upsert(list: unknown, item: unknown, key: Resource | null): unknown[];
+      /** `upsert(c.replies, x)`: `owner` (from `names`) gets its list `field` with `item` in it */
+      upsert(res: (n: string) => Resource, names: string[], owner: any, field: string, item: unknown): void;
     };
+    /** shared definitions (defs.ts): an empty `<template data-sn-def>` gets its definition before it is first cloned */
+    defs?: (tpl: HTMLTemplateElement) => void;
     /** components with a script (components.ts): a root's `cmp` binding, `v` its class module, props and class name */
     components?: (rb: BoundBinding, v: unknown) => void;
     fields?: { sent(el: Element, a: ActionDef): ((error: SinterError, request: { url: string; method: string }) => boolean) | undefined };
@@ -358,13 +363,6 @@ const ROW = Symbol('sinter.row');
 type RowNode = Node & { [ROW]?: Inst };
 const rowNodes = (x: Inst) => x.nodes ?? [x.first!];
 
-/** A component used inside itself: its template is empty, and gets the shared definition (in the head) on first use. */
-export function defined(tpl: HTMLTemplateElement): HTMLTemplateElement {
-  const id = tpl.getAttribute('data-sn-def');
-  if (id && !tpl.content.firstChild) tpl.content.append((tpl.ownerDocument.getElementById(id) as HTMLTemplateElement).content.cloneNode(true));
-  return tpl;
-}
-
 /** The instance mount() created on `root`; throws if none. */
 export function instance(root: Document | Element): App {
   const app = instances.get(root);
@@ -401,20 +399,17 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (!r) throw Error(`sinter: no resource ${name}`);
     return r;
   };
-  const forward = (m: 'upsert' | 'patch' | 'remove') => (n: string, ...a: [any, any?]) => res(n)[m](...a);
   /**
    * `patch(item, …)`, `remove(item)`: the compiler passes the resources the item can come from; it is
    * changed in the one that holds it, by key (a single resource is the item itself)
    */
   const byItem = (m: 'patch' | 'remove') => (names: string[], item: any, set?: any) => {
-    // `comments>replies`: under a row, through nested lists (nested.ts); the same object first, then by key
-    const nested = (byId: boolean) => names.some((n) => { const [r, f] = n.split('>'); return f != null && app.ext.nested!.apply(res(r!), f.split(','), m, item, set, byId); });
-    if (nested(true)) return;
+    // a source under a row (`comments>replies`): the nested module, loaded with it, does it all
+    if (app.ext.nested) return app.ext.nested.change(res, m, names, item, set);
     for (const n of names) {
-      const r = n.includes('>') ? null : res(n);
-      if (r && (r.isCollection ? item != null && r.has(item) : true)) return void (m == 'patch' ? r.patch(item, set) : r.remove(item));
+      const r = res(n);
+      if (r.isCollection ? item != null && r.has(item) : true) return void (m == 'patch' ? r.patch(item, set) : r.remove(item));
     }
-    nested(false);
   };
   const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
   /** `rb`: keeps the `$el` scope of a bound binding; a simple row's binding makes one per evaluation */
@@ -669,7 +664,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       showModal: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
       refresh: (...n: string[]) => { for (const x of n) res(x).refetch(); },
       // `upsert(c.replies, x)`: the item that holds the list gets it as a patch
-      upsert: (n: string | string[], a: any, f?: string, x?: any) => Array.isArray(n) ? byItem('patch')(n, a, { [f!]: app.ext.nested!.upsert(a?.[f!], x, res(n[0]!.split('>')[0]!)) }) : res(n).upsert(a),
+      upsert: (n: string | string[], a: any, f?: string, x?: any) => Array.isArray(n) ? app.ext.nested!.upsert(res, n, a, f!, x) : res(n).upsert(a),
       patch: byItem('patch'),
       remove: byItem('remove'),
       page: (n: string, t: string | number) => app.ext.paginate!.page(n, t),
@@ -1126,7 +1121,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** `pre`: nodes the early chunk already rendered from this template, bound instead of a clone. */
   function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number, pre?: Node[]): Inst {
-    const content = defined(tpl).content, one = prepared.get(tpl) ?? oneElement(tpl);
+    app.ext.defs?.(tpl);
+    const content = tpl.content, one = prepared.get(tpl) ?? oneElement(tpl);
     const top: Node = pre ? (one ? pre[0]! : content) : one ? content.firstChild!.cloneNode(true) : content.cloneNode(true);
     const first = pre ? pre[0] ?? null : one ? top : top.firstChild;
     const defs = t.nodes, rbs: RB[] = [];
@@ -1193,7 +1189,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * and no fragment. Not a nested <template>: an anchor needs a parent for its end marker.
    */
   function oneElement(tpl: HTMLTemplateElement): boolean {
-    const content = defined(tpl).content, f = content.firstChild;
+    app.ext.defs?.(tpl);
+    const content = tpl.content, f = content.firstChild;
     const one = !!f && f == content.lastChild && f.nodeType == 1 && (f as Element).localName != 'template';
     prepared.set(tpl, one);
     return one;

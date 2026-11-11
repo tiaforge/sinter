@@ -75,6 +75,12 @@ export interface ComponentScope {
   name: string;
   /** `data-sn-early="off"` on it or a component around it: its markup renders when the page module runs, not in the early script */
   late?: boolean;
+  /**
+   * the loop names the runtime scope has around the component (the caller's, outer components'), or
+   * `all` inside a shared definition (instantiated anywhere): a loop of the component with one of them
+   * gets its own runtime name, so a prop read in its rows cannot resolve to the component's row
+   */
+  runtime?: Set<string> | 'all';
   /** the use, for the sources of its events (`@ev:<id>:<event>`) */
   id?: number;
   /** the events `data-sn-emits` declares; null: it declares none; absent: a type the compiler cannot list */

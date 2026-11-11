@@ -194,6 +194,18 @@ by `bench/realworld/serve.mjs` against the live API:
 
 Components cost 0.3 KB of JS (gz) on these pages, and the scores do not move. Mobile FCP is 0.19 s
 earlier and LCP 0.15 s later; with three runs each, neither is read as a change here. (Both builds load
-more JS than the 13.8 KB in the tables above, which were measured on an earlier version of the app.) `npm run size` (gzip):
-the core went from 13.9 to 14.1 KB (the hooks for item sources, scripts, nested items and shared
-definitions).
+more JS than the 13.8 KB in the tables above, which were measured on an earlier version of the app.) 
+
+Where the bytes go, per file, gzip, `main` against components (after moving nested items and shared
+definitions out of the core into modules only the pages that use them load):
+
+| file | change | what it is |
+| --- | ---: | --- |
+| core (`npm run size`) | +93 B (13,925 → 14,018) | `patch()`/`remove()` finding the item in the resource it came from 54, `upsert` into a nested list 9, the script hook 12, the shared-definition hook 10, cycle guards 6 |
+| write-through module | +95 B | nested targets: the response applied to an item at any depth |
+| shared chunk of the app (core, config, write-through) | +182 B | the two rows above |
+| page modules | +1 to +40 B | the source names in `patch()` calls, the components' wrapper elements |
+| HTML | −125 to −236 B | a component file's comments stay in the file |
+
+`data-sn-early="off"` on the home page's header and error list (a test, not in the app) takes its
+head script from 837 to 717 B (gzip); the page module and the shared head script do not change.

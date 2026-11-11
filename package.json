@@ -60,6 +60,7 @@
     "./messages": "./dist/messages.js",
     "./components": "./dist/components.js",
     "./nested": "./dist/nested.js",
+    "./defs": "./dist/defs.js",
     "./compiler": "./dist/compiler/index.js",
     "./vite": "./dist/vite.js",
     "./check": "./dist/check/index.js",

@@ -35,16 +35,30 @@ const feature: Feature = {
       }
       return null;
     };
+    const apply = (r: Resource, fields: string[], op: 'patch' | 'remove', item: unknown, set: Obj | undefined, byId: boolean) => {
+      const c = change(r, fields, op, item, set, byId);
+      if (c) r.patch(c[0] as Obj, c[1]);
+      return !!c;
+    };
+    /** `patch(item, …)`/`remove(item)` from these sources: a nested one with the same object first, then a row by key, then a nested one by key */
+    const byItem = (res: (n: string) => Resource, op: 'patch' | 'remove', names: string[], item: unknown, set?: Obj) => {
+      const nested = (byId: boolean) => names.some((n) => { const [r, f] = n.split('>'); return f != null && apply(res(r!), f.split(','), op, item, set, byId); });
+      if (nested(true)) return;
+      for (const n of names) {
+        if (n.includes('>')) continue;
+        const r = res(n);
+        if (r.isCollection ? item != null && r.has(item as Obj) : true) return void (op == 'patch' ? r.patch(item as Obj, set!) : r.remove(item as Obj));
+      }
+      nested(false);
+    };
     app.ext.nested = {
-      apply(r, fields, op, item, set, byId) {
-        const c = change(r, fields, op, item, set, byId);
-        if (c) r.patch(c[0] as Obj, c[1]);
-        return !!c;
-      },
-      upsert(list: unknown, item: unknown, key: Resource | null) {
-        const l = Array.isArray(list) ? list : [];
-        const i = key?.key && item && typeof item == 'object' ? l.findIndex((x) => x && key.keyOf(x) === key.keyOf(item as Obj)) : -1;
-        return i < 0 ? [...l, item] : l.with(i, item);
+      change: byItem,
+      apply,
+      upsert(res, names, owner, field, item) {
+        const key = res(names[0]!.split('>')[0]!);
+        const l: unknown[] = Array.isArray(owner?.[field]) ? owner[field] : [];
+        const i = key.key && item && typeof item == 'object' ? l.findIndex((x) => x && key.keyOf(x as Obj) === key.keyOf(item as Obj)) : -1;
+        byItem(res, 'patch', names, owner, { [field]: i < 0 ? [...l, item] : l.with(i, item) });
       },
     };
   },

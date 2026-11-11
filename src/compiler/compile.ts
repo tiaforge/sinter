@@ -530,7 +530,7 @@ class Compiler {
       html: parse5.serialize(doc),
       ir, fns: this.fns,
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -1103,7 +1103,9 @@ class Compiler {
       : this.propLets(use, caller);
     const outer = new Set<string>([...(caller.lets ?? []).map((l) => l.name), ...caller.loops.map((l) => l.name), ...caller.states.flatMap((x) => [...x.names])]);
     // no `data-sn-emits`: no events; one the compiler cannot list (an alias): not checked here
-    const cs: ComponentScope = { name, outer, id: this.useIds, ...(use.late || caller.component?.late ? { late: true } : {}), ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
+    const around = caller.component?.runtime;
+    const runtime: Set<string> | 'all' = def || around === 'all' ? 'all' : new Set([...(around ?? []), ...caller.loops.map((l) => l.rt ?? l.name)]);
+    const cs: ComponentScope = { name, outer, runtime, id: this.useIds, ...(use.late || caller.component?.late ? { late: true } : {}), ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
     use.scope = cs;
     this.useById.set(this.useIds++, use);
     if (this.check) {
@@ -1239,6 +1241,7 @@ class Compiler {
     if (!root || !use) { this.defs.set(name, null); return null; }
     const entry = { tid, id: `sn-def-${name}`, use };
     this.defs.set(name, entry);
+    this.features.add('defs');
     if (!use.props) this.report(use.template, 'data-sn-component', 'SN312', `\`<${name}>\` uses itself, so its props must be a type literal the compiler can list (\`{ comment: Comment }\`), not a named type`, 0);
     // in the head, so the parser has it before the body: the early script clones it while the body arrives
     const head = this.head;
@@ -2483,10 +2486,13 @@ class Compiler {
     const resInfo = list.resource ? this.page.resources.get(list.resource) : undefined;
     const alias = list.path && list.path[0]!.startsWith('$s') ? [...list.path, `{${ii}}`] : null;
     // in a component, the runtime names are the template's own, so a prop read in a row cannot resolve to a row of the component's
-    const rt = scope.component ? (n: string) => ({ rt: `${n}$${tid}` }) : () => ({});
+    // (only where a loop around it has the name: a row's functions stay the same across uses and pages)
+    const taken = scope.component?.runtime, clash = (n: string) => taken === 'all' || !!taken?.has(n) || scope.loops.some((l) => (l.rt ?? l.name) === n);
+    const rt = (n: string) => (scope.component && clash(n) ? { rt: `${n}$${tid}` } : {});
     const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource, ...(list.resources ? { resources: list.resources } : {}), ...rt(item), src: list.listOf ?? null }];
     if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias, ...rt(index) });
-    if (scope.component) { t.item = `${item}$${tid}`; if (index) t.index = `${index}$${tid}`; }
+    if (scope.component && clash(item)) t.item = `${item}$${tid}`;
+    if (scope.component && index && clash(index)) t.index = `${index}$${tid}`;
     if (this.check) {
       for (const l of loops.slice(scope.loops.length)) this.frameOf.set(l, this.check.frames.length);
       const itemAt = value.indexOf(item, value.indexOf('(') >= 0 && value.indexOf('(') < m[0].length ? value.indexOf('(') : 0);
