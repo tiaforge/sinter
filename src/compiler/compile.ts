@@ -103,6 +103,11 @@ export interface CompileOptions {
   components?: string;
   /** where the app's layouts are (default `<root>/src/layouts`): `<name>.html` is the layout `<name>`, a page's only tag */
   layouts?: string;
+  /**
+   * internal, set by `compileParts` for its second pass: the `data-sn-if` templates (by `file:offset`)
+   * whose condition the first pass found constant (state nothing writes), and its value
+   */
+  decided?: Map<string, boolean>;
   /** every component of the app: the candidates of `<sn-component use>` a helper chooses (default: the components the page names) */
   componentNames?: string[];
   /** the module the page module imports for a component's scoped styles (`CompiledParts.styles`), so the bundler puts them in the page's stylesheet */
@@ -377,7 +382,11 @@ function constantProps(src: string | undefined, props: Member[] | null): Map<str
 const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-prop`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
-  return new Compiler(options).run(html);
+  const first = new Compiler(options);
+  const out = first.run(html);
+  // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
+  if (!options.prerender || options.decided || !first.decided.size) return out;
+  return new Compiler({ ...options, decided: first.decided }).run(html);
 }
 
 class Compiler {
@@ -402,6 +411,13 @@ class Compiler {
   private readonly earlySites = new Map<string, Site>();
   private readonly stateAt = new Map<number, { site: Site; fields: Map<string, Site> }>();
   readonly origins = new WeakMap<object, Origin>();
+  /** template nodes and their elements (in template content), for constants written into templates */
+  private readonly tplEls = new Map<NodeDef, P5Element>();
+  /** bindings in templates `prerender()` wrote into the template's markup: the page module leaves them out */
+  private readonly tplPainted = new Set<Binding>();
+  /** `data-sn-if` templates whose condition is constant, by `file:offset`, for a second pass (null: the uses disagree) */
+  readonly decided = new Map<string, boolean>();
+  private readonly undecided = new Set<string>();
   /** a layout's `<body>`, which takes the handlers of the page's tag */
   private readonly layoutBody = new WeakMap<P5Element, Use>();
   /** text forwarded into a component's named slot by a slot with `slot="…"` (elements carry the attribute) */
@@ -529,6 +545,7 @@ class Compiler {
     this.expandIncludes(doc, [this.opts.file]);
     this.head = findHead(doc);
     this.expandComponents(doc, []);
+    if (this.opts.decided?.size) this.foldDecided(doc);
     this.checkHead();
     this.componentIds();
     const layout = this.layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
@@ -2074,7 +2091,10 @@ class Compiler {
         node.id = this.nextId++;
         setAttr(el, 'data-sn', String(node.id));
         this.paints.push({ el, node });
-      } else node.path = [...ctx.path, index];
+      } else {
+        node.path = [...ctx.path, index];
+        this.tplEls.set(node, el);
+      }
       if (this.opts.dev) (node as NodeDef & { src?: string }).src = this.position(el);
       ctx.list.push(node);
     }
@@ -3387,17 +3407,28 @@ class Compiler {
    * constant: those bindings render in the browser (early chunk or page module).
    */
   prerender() {
-    type Cand = { el: P5Element; b: Binding; f: number };
+    /** `tpl`: in a template's content, written there only when it can never change; `if`: a condition decided for a second pass */
+    type Cand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true };
     const cands: Cand[] = [];
-    for (const { el, node } of this.paints) {
-      for (const b of node.b) {
-        if (b.f === undefined || b.e || !['text', 'attr', 'class', 'style', 'show', 'model'].includes(b.k)) continue;
-        if (b.k === 'class' && !b.n) continue;
-        if (b.k === 'text' && el.childNodes.some(isElement)) continue;
-        if (b.k === 'model' && !['checkbox', 'radio', 'text', 'number'].includes(b.n!)) continue;
-        cands.push({ el, b, f: b.f });
-      }
-    }
+    const written = this.writtenState();
+    const fixed = (ds: PathRef[] | undefined) => strs(ds).every((d) => {
+      const m = /^\$s(\d+)\.([^.]+)/.exec(d);
+      return !!m && m[2] !== '*' && m[2] !== '**' && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`);
+    });
+    const value = (el: P5Element, b: Binding, tpl: boolean) => {
+      if (b.f === undefined || b.e || !['text', 'attr', 'class', 'style', 'show', 'model'].includes(b.k)) return;
+      if (b.k === 'class' && !b.n) return;
+      if (b.k === 'text' && el.childNodes.some(isElement)) return;
+      if (b.k === 'model' && (tpl || !['checkbox', 'radio', 'text', 'number'].includes(b.n!))) return;
+      if (tpl && (b.w?.length || !fixed(b.d))) return;
+      cands.push({ el, b, f: b.f, ...(tpl ? { tpl: true as const } : {}) });
+    };
+    const decide = (el: P5Element, b: Binding) => {
+      if (this.opts.decided || b.k !== 'if' || b.f === undefined || !fixed(b.d) || !this.siteKey(el)) return;
+      cands.push({ el, b, f: b.f, if: true });
+    };
+    for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); decide(el, b); }
+    for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
     if (!cands.length) return;
     // everything the page could call is shadowed: what is not a constant throws
     const NOT = new Error('not a build-time constant');
@@ -3461,14 +3492,54 @@ class Compiler {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
       usedMessage = false;
       const v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
+      if (c.if) {
+        // the same template in every use (a component's markup): decided only when they agree
+        const key = this.siteKey(c.el)!;
+        if (v === FAIL || usedMessage) { this.decided.delete(key); this.undecided.add(key); continue; }
+        if (this.undecided.has(key)) continue;
+        if (this.decided.has(key) && this.decided.get(key) !== !!v) { this.decided.delete(key); this.undecided.add(key); continue; }
+        this.decided.set(key, !!v);
+        continue;
+      }
+      if (c.tpl && (v === FAIL || usedMessage)) continue;
       if (usedMessage && c.b.k !== 'text') continue;
       const w = v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes);
       if (w === FAIL) continue;
       writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
+      if (c.tpl) { this.tplPainted.add(c.b); continue; }
       if (usedMessage) { setAttr(c.el, 'data-sn-m', ''); continue; }
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) this.painted.add(c.b);
     }
+  }
+
+  /** The second pass: each decided `data-sn-if` template becomes its branch (or the `data-sn-else` after it), or nothing. */
+  foldDecided(parent: P5Parent) {
+    const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
+    for (let i = 0; i < parent.childNodes.length; i++) {
+      const c = parent.childNodes[i]!;
+      if (!isElement(c)) continue;
+      const key = c.tagName === 'template' && attr(c, 'data-sn-if') !== undefined ? this.siteKey(c) : null;
+      const v = key ? this.opts.decided!.get(key) : undefined;
+      if (v !== undefined) {
+        const j = parent.childNodes.findIndex((x, k) => k > i && real(x));
+        const other = j >= 0 && isElement(parent.childNodes[j]!) && (parent.childNodes[j] as P5Element).tagName === 'template' && attr(parent.childNodes[j] as P5Element, 'data-sn-else') !== undefined ? parent.childNodes[j] as P5Element : null;
+        const keep = [...(v ? (c as P5Template).content.childNodes : other ? (other as P5Template).content.childNodes : [])];
+        for (const n of keep) (n as { parentNode: P5Parent }).parentNode = parent;
+        parent.childNodes.splice(i, (other ? j : i) - i + 1, ...(keep as never[]));
+        mergeText(parent);
+        i--;
+        continue;
+      }
+      this.foldDecided(c);
+      if (c.tagName === 'template') this.foldDecided((c as P5Template).content);
+    }
+  }
+
+  /** Where an element was written, the same in both passes: its file and offset, or null for one the compiler made. */
+  siteKey(el: P5Element): string | null {
+    const at = el.sourceCodeLocation?.startOffset;
+    return at === undefined ? null : `${this.origins.get(el)?.file ?? this.opts.file}:${at}`;
   }
 
   /**
@@ -3494,6 +3565,25 @@ class Compiler {
       if (!keep.length && node.state === undefined && node.sid === undefined) {
         gone.add(node);
         el.attrs = el.attrs.filter((a) => a.name !== 'data-sn');
+      }
+    }
+    // in templates: what was written into the template's markup, and nodes left with nothing
+    for (const t of this.templates) {
+      const out = new Set<NodeDef>();
+      for (const node of t.nodes) {
+        if (!node.b.some((b) => this.tplPainted.has(b))) continue;
+        for (const b of node.b) if (this.tplPainted.has(b) && b.f !== undefined) this.fnUses[b.f]!--;
+        node.b = node.b.filter((b) => !this.tplPainted.has(b));
+        if (!node.b.length && node.state === undefined && node.sid === undefined) out.add(node);
+      }
+      if (!out.size) continue;
+      const at = new Map<number, number>();
+      t.nodes.forEach((n, i) => { if (!out.has(n)) at.set(i, at.size); });
+      const re = (i: number | undefined) => (i === undefined || i < 0 ? i : at.get(i)!);
+      t.nodes = t.nodes.filter((n) => !out.has(n));
+      for (const n of t.nodes) {
+        if (n.p !== undefined) n.p = re(n.p);
+        for (const b of n.b) if (b.y !== undefined) b.y = re(b.y);
       }
     }
     // a function nothing uses: a placeholder keeps the others' indexes
@@ -3524,8 +3614,25 @@ class Compiler {
       return !!m && m[2] !== '*' && m[2] !== '**' && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`);
     };
     const strip = (ds: PathRef[] | undefined) => (ds?.some(fixed) ? ds.filter((d) => !fixed(d)) : ds);
-    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) if (b.d) b.d = strip(b.d)!;
+    const nodes = [...this.roots, ...this.templates.flatMap((t) => t.nodes)];
+    for (const n of nodes) for (const b of n.b) if (b.d) b.d = strip(b.d)!;
     for (const r of this.resources) if (r.deps) r.deps = strip(r.deps);
+    // a state field nothing writes and no function reads anymore (its readers were written into the markup): out of the state
+    const code = this.fns.filter((c) => c !== '0');
+    for (const n of nodes) {
+      if (n.sid === undefined || n.state === undefined) continue;
+      const st = this.stateInits.find((x) => x.sid === n.sid);
+      if (!st || st.persist) continue;
+      const sid = n.sid, own = this.fns[n.state]!;
+      // the whole object read (`$s0[k]`, passed on): every field stays
+      if (code.some((c) => c !== own && new RegExp(`\\$s${sid}(?![\\w$.])`).test(c))) continue;
+      const unread = (k: string) => !written.has(`$s${sid}.${k}`) && !code.some((c) => c !== own && new RegExp(`\\$s${sid}\\.${k.replace(/\$/g, '\\$')}(?![\\w$])`).test(c));
+      const keep = st.fields.filter((x) => !unread(x.key));
+      if (keep.length === st.fields.length || !keep.every((x) => x.code.startsWith('($) => ('))) continue;
+      this.fnUses[n.state]!--;
+      if (this.fnUses[n.state] === 0) this.fns[n.state] = '0';
+      n.state = this.fn(`($) => ({ ${keep.map((x) => `${JSON.stringify(x.key)}: (${x.code.slice('($) => ('.length, -1)})`).join(', ')} })`);
+    }
   }
 
   /**

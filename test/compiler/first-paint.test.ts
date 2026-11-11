@@ -38,7 +38,9 @@ test('build-time constants: literal state fields and constants, not helpers, res
   expect(body).toContain('<input type="checkbox" data-sn="7" checked="">');
   expect(body).toContain('<a data-sn="8" title="ok">c</a>');
   expect(body).toContain('<p data-sn="9">f</p>');
-  expect(body).toContain('<template data-sn="10"><b></b></template>');
+  // a `data-sn-if` over state nothing writes is decided at build time: its branch is page markup
+  expect(body).toContain('<b>/a/</b>');
+  expect(body).not.toContain('<template');
 });
 
 test('the early module: the app\'s early module first, then the bindings that need no data, with only the helpers they call', () => {
@@ -67,7 +69,7 @@ test('the early module: the app\'s early module first, then the bindings that ne
 
 test('early state: fields that need no data, persisted values, and the branch of a data-sn-if that reads them', () => {
   const { early, ir } = build(`<!doctype html><html data-sn-state="{ view: 'week' }" data-sn-persist="view"><head></head>
-    <body data-sn-state="{ here: '/c/', week: monday($now), q: $url.q }">
+    <body data-sn-state="{ here: '/c/', week: monday($now), q: $url.q }" data-sn-on-dblclick="here = '/d/'">
       <template data-sn-if="view === 'week'"><div data-sn-text="here"></div><template data-sn-for="d in here.split('/')" data-sn-key="d"><i data-sn-text="d"></i></template></template>
       <template data-sn-else><p data-sn-text="week"></p></template>
       <template data-sn-if="q"><p>search</p></template>

@@ -48,6 +48,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   else is bound there, its node and `data-sn` id.
   A dependency on a state field nothing writes is left out of every binding (in rows and branches too): the runtime
   subscribes to nothing for it.
+  Inside templates, such a binding is written into the template's markup and left out, and a state field nothing
+  writes or reads anymore leaves the state. A `data-sn-if` over state nothing writes is decided at build time: its
+  branch, or its `data-sn-else`, is page markup.
 - The early script renders bindings that read `$url` (its query and `data-sn-path` parameters) on every page, so the
   current nav item or a tab chosen by the URL is right in the first frame; before, only on pages with embedded data.
 - docs/layouts.md; the RealWorld example's seven pages share one layout and a `conduit-seo` head component, with the

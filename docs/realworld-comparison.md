@@ -261,7 +261,11 @@ does not change (3,233 B). Leaving out, too, the bindings that read only state n
 pages' `nav`, read by the header's Home link) takes 8 to 16 B more off six of the page modules
 (login 19,886 → 19,871); the header's other links are inside `data-sn-if` templates, which the build
 does not write into the HTML, so their bindings stay. Their dependency on `nav`, which never fires, is left out: 3 to
-7 B more (login 19,871 → 19,864).
+7 B more (login 19,871 → 19,864). Writing those header bindings into their templates' markup instead, and
+leaving `nav` out of the state once nothing reads it, takes the page modules 55 to 58 B further
+(login 19,864 → 19,808) and the page head scripts 48 to 80 B (login 419 → 339, editor 461 → 387);
+profile, whose `nav` comes from the URL, does not change. Checked in Chromium for a guest and a
+signed-in visitor: the active link is the same on every page.
 
 The early script then learned `$url` on every page (before, only on pages with embedded data). On
 `/tag/css`, the home page's `css` tab is in the first frame, active (checked in Chromium with the page

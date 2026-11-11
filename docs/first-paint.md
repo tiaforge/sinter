@@ -38,6 +38,9 @@ A binding that reads nothing that can change, such as a component's prop given a
 (`<seo-tags data-sn-prop="{ title: 'About' }">`) or a state field that nothing on the page writes
 (`nav: 'home'` read by a nav link's class), is only in the HTML: the page script carries nothing for
 it. One that reads state a handler, a model, a `then` or a component's script writes stays bound.
+The same holds inside templates: such a binding is written into the template's markup, so every
+row or branch is cloned with it. And a `data-sn-if` over state nothing writes is decided at build
+time: its branch (or its `data-sn-else`) is page markup, written and painted like the rest.
 
 ## The early script
 

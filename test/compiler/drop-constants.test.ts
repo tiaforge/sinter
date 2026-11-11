@@ -54,6 +54,41 @@ describe('constant bindings', () => {
     expect(ir.ps.x['$s0.nav']).toBeUndefined();
   });
 
+  test('in a template, a binding over state nothing writes is written into the template\'s markup', () => {
+    const out = build('<div data-sn-state="{ nav: \'home\', open: false }"><button data-sn-on-click="open = !open"></button><template data-sn-if="open"><a data-sn-class="{ active: nav == \'home\' }">x</a><b data-sn-text="open"></b></template></div>');
+    expect(out.html).toMatch(/<template data-sn="\d+"><a class="active">x<\/a><b><\/b><\/template>/);
+    expect(out.module).not.toContain("== 'home'");
+    // and `nav`, read by nothing else now, is out of the state
+    expect(out.module).toContain('($) => ({ "open": (false) })');
+    // in rows too, unless the binding reads the row
+    const rows = build('<div data-sn-state="{ c: \'x\', list: [1, 2] }"><button data-sn-on-click="list = [3]"></button><template data-sn-for="i in list"><i data-sn-class="{ on: c == \'x\' }" data-sn-text="i"></i></template></div>');
+    expect(rows.html).toContain('<i class="on"></i>');
+    expect(rows.module).toContain('($) => ($.i)');
+  });
+
+  test('a data-sn-if over state nothing writes is decided at build time: its branch, or the else, is page markup', () => {
+    const out = build(`<div data-sn-state="{ nav: 'home', n: 0 }"><button data-sn-on-click="n++"></button>
+      <template data-sn-if="nav == 'home'"><p data-sn-text="n">home</p></template><template data-sn-else><p>other</p></template>
+      <template data-sn-if="nav == 'login'"><i>login</i></template></div>`);
+    expect(out.html).not.toContain('<template');
+    expect(out.html).toMatch(/<p data-sn="\d+">0<\/p>/);
+    expect(out.html).not.toContain('other');
+    expect(out.html).not.toContain('login');
+    expect(out.module).toContain('($) => ($.$s0.n)');
+    // a written condition stays a template
+    expect(build('<div data-sn-state="{ o: false }"><button data-sn-on-click="o = true"></button><template data-sn-if="o"><i>x</i></template></div>').html).toContain('<template');
+  });
+
+  test('a component used with different values: its data-sn-if stays, as the uses disagree', () => {
+    const files: Record<string, string> = { '/p/src/components/x-tab.html': '<template data-sn-component="{ on: boolean }"><span><template data-sn-if="on"><b>on</b></template></span></template>' };
+    const out = compile('<!doctype html><html><head></head><body><div data-sn-state="{ a: true, b: false }"><x-tab data-sn-prop="{ on: a }"></x-tab><x-tab data-sn-prop="{ on: b }"></x-tab></div></body></html>', {
+      file: '/p/index.html', root: '/p', dev: false, prerender: true,
+      helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error('missing'); },
+    });
+    expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+    expect(out.html.match(/<template/g)?.length).toBe(2);
+  });
+
   test('a value from state stays bound: a handler can change it', () => {
     const out = build('<div data-sn-state="{ n: 0 }"><p data-sn-text="n"></p><button data-sn-on-click="n++">+</button></div>');
     expect(out.html).toMatch(/<p data-sn="\d+">0<\/p>/);
