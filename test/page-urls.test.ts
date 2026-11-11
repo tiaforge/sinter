@@ -1,7 +1,7 @@
 // Page URLs: links to the app's pages become their URLs, and a page that moves into a directory keeps
 // its relative URLs pointing where they did (docs/static-pages.md, step 6 of the proposal).
 import { describe, expect, test } from 'vitest';
-import { relocateHtml, redirectHtml } from '../src/page-urls.js';
+import { pageRoutes, redirectHtml, redirectsFile, relocateHtml } from '../src/page-urls.js';
 import { movesToDirectory, pageFile, pagePaths, pageUrl } from '../src/prefetch-build.js';
 
 const pages = [
@@ -68,4 +68,37 @@ test('the redirect file at the old path', () => {
   expect(html).toContain('<meta http-equiv="refresh" content="0; url=/about/">');
   expect(html).toContain('<link rel="canonical" href="/about/">');
   expect(html).toContain('<meta name="robots" content="noindex">');
+});
+
+describe('the rules: _redirects and the servers that follow it', () => {
+  const site = [
+    { rel: 'index.html', patterns: ['/', '/tag/:tag'] },
+    { rel: 'about.html', patterns: [] },
+    { rel: 'contact.html', patterns: ['/contact/'] },
+    { rel: 'login.html', patterns: ['/login'] },
+    { rel: 'article.html', patterns: ['/article/:slug'] },
+    { rel: 'editor.html', patterns: ['/editor', '/editor/:slug'] },
+    { rel: 'help.html', patterns: ['/help', '/support', '/faq'] },
+  ];
+  test('301 from a moved page\'s file URL, a rewrite per declared path but the one a host serves anyway; fixed paths first', () => {
+    expect(pageRoutes(site, '/').map((r) => `${r.from} ${r.to} ${r.status}${r.file ? ' ' + r.file : ''}`)).toEqual([
+      '/about.html /about/ 301',
+      '/contact.html /contact/ 301',
+      '/support /help 200 help.html',
+      '/faq /help 200 help.html',
+      '/tag/:tag / 200 index.html',
+      '/article/:slug /article 200 article.html',
+      '/editor/:slug /editor 200 editor.html',
+    ]);
+  });
+
+  test('under a base', () => {
+    expect(pageRoutes([{ rel: 'about.html', patterns: [] }, { rel: 'article.html', patterns: ['/docs/article/:slug'] }], '/docs/').map((r) => `${r.from} ${r.to}`))
+      .toEqual(['/docs/about.html /docs/about/', '/docs/article/:slug /docs/article']);
+  });
+
+  test('the file: the app\'s own rules first', () => {
+    const text = redirectsFile(pageRoutes(site.slice(1, 2), '/'), '/old  /new  301\n');
+    expect(text).toBe('/old  /new  301\n\n# written by sinter: the pages\' URLs (docs/static-pages.md#page-urls)\n/about.html  /about/  301\n');
+  });
 });

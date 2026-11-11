@@ -138,12 +138,85 @@ What the build does with it:
   scripts on it keeps the query and fragment: `/task.html?id=3` arrives at `/task/?id=3`.
 - **`index.html`, `404.html` and `200.html` stay as they are**: hosts look for them by name.
 - **Two files for one URL fail the build**: `docs.html` and `docs/index.html` would both be `/docs/`.
-- **A page with `data-sn-path` stays where it is**: a server or host rewrite serves it, at exactly its
-  paths. Use it for patterns (`/article/:slug`), and for a page whose URL must have no trailing slash
-  (`data-sn-path="/login"`, when a spec or existing links say `/login`). Patterns match with or without
-  a trailing slash.
+
+### Which URLs a page answers at
+
+A page without `data-sn-path` answers at its directory URL, as above. A page with `data-sn-path`
+answers at exactly the paths it lists, and its file stays where it is:
+
+```html
+<!-- article.html: /article/hello -->      <html data-sn-path="/article/:slug">
+<!-- editor.html: /editor, /editor/x -->    <html data-sn-path="/editor /editor/:slug">
+<!-- index.html: /, /tag/news -->           <html data-sn-path="/ /tag/:tag">
+<!-- login.html: /login, no slash -->       <html data-sn-path="/login">
+<!-- help.html: three paths -->             <html data-sn-path="/help /support /faq">
+```
+
+Paths are absolute, from the site's root (with Vite's `base`, as in `/docs/article/:slug`), and a
+pattern also matches with a trailing slash. `$url` has the `:name` segments. A `data-sn-path` that
+names only the URL a page has anyway (`/contact/` on `contact.html`) is
+[SN515](diagnostics.md#sn515-redundant-path), and ignored. Any other URL scheme is your reverse
+proxy's business.
+
+### Redirects and rewrites
+
+The build writes the rules for your pages into `_redirects`, the file Netlify and Cloudflare Pages
+read, after your own rules from `public/_redirects`:
+
+```
+/about.html  /about/  301
+/support  /help  200
+/faq  /help  200
+/tag/:tag  /  200
+/article/:slug  /article  200
+/editor/:slug  /editor  200
+```
+
+A 301 for each page's old file URL, and a rewrite for each path a page declares, except the one a host
+serves its file at anyway (`/login` for `login.html`, `/editor` for `editor.html`). Rewrites point to the
+file's own path (`/article`), which both hosts serve from `article.html`. `sinter({ redirects: false })`
+leaves the file out. Cloudflare Pages reads at most 2,000 fixed rules and 100 with patterns; the build
+warns above that.
+
+The same rules are followed by `vite dev`, by `vite preview` (which reads the built `_redirects`), and
+by [sinter-axum](../packages/sinter-axum/README.md), which has them from the build's manifest: a 301 for
+an old file URL with its query, a declared path served from its page's file, with its data embedded.
+
+On Netlify a rule does not apply where a file exists, and `about.html` exists: it is the redirect
+file, so an old URL arrives through its refresh rather than a 301 there. (A forced rule, `301!`, would
+be ignored by Cloudflare Pages, which reads one file with Netlify.) Search engines treat an instant
+refresh as a permanent redirect.
+
+For other servers, write the same rules in their syntax, one per line of `_redirects`:
+
+```nginx
+# nginx
+location = /about.html { return 301 /about/$is_args$args; }
+location ~ ^/article/[^/]+/?$ { try_files /article.html =404; }
+```
+
+```apache
+# Apache (.htaccess)
+Redirect 301 /about.html /about/
+RewriteEngine On
+RewriteRule ^article/[^/]+/?$ /article.html [L]
+```
+
+```
+# Caddy
+redir /about.html /about/ permanent
+rewrite /article/* /article.html
+```
+
+```json
+// Vercel (vercel.json)
+{ "redirects": [{ "source": "/about.html", "destination": "/about/", "permanent": true }],
+  "rewrites": [{ "source": "/article/:slug", "destination": "/article.html" }] }
+```
+
+A host that reads no rules still serves every page at its directory URL, and old file URLs through the
+redirect files; pages with `data-sn-path` then need the host's own rewrites.
 
 A link your page builds at run time is not rewritten: write it as the URL
 (`data-sn-attr="{ href: '/task/?id=' + t.id }"`). The build warns when a page's code still names a page
 by its file (`'/task.html?id='`), which works, but through the redirect.
-

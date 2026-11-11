@@ -3,7 +3,7 @@
 // HTML for that: links to the app's pages become their URL (`/about.html` → `/about/`), and on a page that
 // moved one folder down, every other relative URL is rebased so that it still points where it did.
 import { posix } from 'node:path';
-import { movesToDirectory, pageUrl } from './prefetch-build.js';
+import { directoryUrl, movesToDirectory, pageUrl } from './prefetch-build.js';
 
 /** One page of the app: its file relative to the root, and its `data-sn-path` patterns. */
 export interface PageEntry { rel: string; patterns: string[] }
@@ -100,3 +100,41 @@ export function redirectHtml(to: string): string {
 </head><body><a href="${u}">${u}</a></body></html>
 `;
 }
+
+/**
+ * One rule of the site's URLs: `301` sends an old file URL to the page's URL; `200` serves a page's file
+ * at a path it declares (`data-sn-path`). `file` is the page's file in the output, for a server that
+ * rewrites to it (sinter-axum, `vite preview`); `to` is the path a host serves that file at.
+ */
+export interface Route { from: string; to: string; status: 301 | 200; file?: string }
+
+const bare = (p: string) => p.replace(/\/+$/, '') || '/';
+
+/**
+ * The rules for every page (docs/static-pages.md#page-urls): a 301 from a moved page's file URL
+ * (`/about.html`) to its URL (`/about/`), and a 200 rewrite from each path a page declares to its file,
+ * except the path a host serves the file at anyway (`/login` for `login.html`). Fixed paths first, then
+ * patterns (hosts read them in order, and Cloudflare Pages counts them apart).
+ */
+export function pageRoutes(pages: PageEntry[], base: string): Route[] {
+  const b = rootOf(base), out: Route[] = [];
+  for (const p of pages) {
+    if (movesToDirectory(p.rel, base, p.patterns)) { out.push({ from: b + p.rel, to: directoryUrl(p.rel, base), status: 301 }); continue; }
+    const index = /(^|\/)index\.html?$/.exec(p.rel);
+    // where a host serves the file without a rule: `/login` for login.html, `/docs/` for docs/index.html
+    const natural = index ? b + p.rel.slice(0, index.index + index[1]!.length) : b + p.rel.replace(/\.html?$/, '');
+    for (const path of p.patterns) {
+      if (bare(path) === bare(natural)) continue;
+      out.push({ from: path, to: natural, status: 200, file: p.rel });
+    }
+  }
+  const dynamic = (r: Route) => /[:*]/.test(r.from);
+  return [...out.filter((r) => !dynamic(r)), ...out.filter(dynamic)];
+}
+
+/** `_redirects` (Netlify, Cloudflare Pages): the app's own rules first, then the pages' */
+export function redirectsFile(routes: Route[], own: string | null): string {
+  const lines = routes.map((r) => `${r.from}  ${r.to}  ${r.status}`);
+  return `${own ? own.replace(/\s*$/, '\n\n') : ''}# written by sinter: the pages' URLs (docs/static-pages.md#page-urls)\n${lines.join('\n')}\n`;
+}
+

@@ -28,6 +28,7 @@ const files: Record<string, string> = {
   'login.html': page('Sign in', '<form data-sn-post="/api/login"><button>Sign in</button></form>', '<html lang="en" data-sn-path="/login">'),
   '404.html': page('Not found', NAV),
   'img/logo.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>',
+  'public/_redirects': '/old-blog/*  https://blog.example.com/:splat  301\n',
 };
 const input = Object.keys(files).filter((f) => f.endsWith('.html')).map((f) => join(root, f));
 
@@ -55,6 +56,26 @@ test('links name the pages\' URLs; a page that moved keeps its relative URLs poi
   expect(about).toMatch(/<img src="\/assets\/logo-[\w-]+\.svg" alt="">/);
   expect(about).toContain('<a href="../contact.pdf">Card</a>');
   expect(read('docs/getting-started/index.html')).toContain('<a href="../../about/">About</a><a href="../">Docs</a>');
+});
+
+test('_redirects: the app\'s own rules, then a 301 per old file URL and a rewrite per declared path the host does not serve anyway', () => {
+  expect(read('_redirects')).toBe(`/old-blog/*  https://blog.example.com/:splat  301
+
+# written by sinter: the pages' URLs (docs/static-pages.md#page-urls)
+/about.html  /about/  301
+/docs/getting-started.html  /docs/getting-started/  301
+/article/:slug  /article  200
+`);
+});
+
+test('sinter({ redirects: false }): no _redirects of sinter\'s', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sinter-page-urls-off-'));
+  try {
+    writeFileSync(join(dir, 'about.html'), page('About', '<p>a</p>'));
+    await build({ root: dir, logLevel: 'silent', resolve: { alias }, plugins: [sinter({ redirects: false })], build: { outDir: join(dir, 'dist'), rollupOptions: { input: join(dir, 'about.html') } } });
+    expect(existsSync(join(dir, 'dist/_redirects'))).toBe(false);
+    expect(existsSync(join(dir, 'dist/about/index.html'))).toBe(true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('Speculation Rules name the new URLs, and patterns with or without a trailing slash', () => {
@@ -101,8 +122,13 @@ test('the dev server serves /about/ from about.html and redirects /about and /ab
       expect(r.status, from).toBe(301);
       expect(r.headers.get('location'), from).toBe(from.includes('?') ? '/about/?x=1' : '/about/');
     }
-    // pages that stay are served where they are
+    const login = await fetch(`${base}/login/`, { redirect: 'manual' });
+    expect([login.status, login.headers.get('location')]).toEqual([301, '/login']);
+    // pages that stay are served where they are; a declared path is its page
     expect((await fetch(`${base}/login.html`, { redirect: 'manual' })).status).toBe(200);
+    const article = await fetch(`${base}/article/hello`, { redirect: 'manual' });
+    expect(article.status).toBe(200);
+    expect(await article.text()).toContain('<title>Article</title>');
     expect((await fetch(`${base}/docs/`, { redirect: 'manual' })).status).toBe(200);
   } finally {
     await server.close();
@@ -116,9 +142,18 @@ test('vite preview serves the built URLs: /about/, and /about redirected to it',
     const about = await fetch(`${base}/about/`);
     expect(about.status).toBe(200);
     expect(await about.text()).toContain('<title>About</title>');
-    const r = await fetch(`${base}/about`, { redirect: 'manual' });
-    expect(r.status).toBe(301);
-    expect(r.headers.get('location')).toBe('/about/');
+    for (const [from, to] of [['/about', '/about/'], ['/about.html', '/about/'], ['/about.html?x=1', '/about/?x=1']]) {
+      const r = await fetch(base + from, { redirect: 'manual' });
+      expect(r.status, from).toBe(301);
+      expect(r.headers.get('location'), from).toBe(to);
+    }
+    // a page that stays in its file: `/login/` to `/login`, as hosts do
+    const login = await fetch(`${base}/login/`, { redirect: 'manual' });
+    expect([login.status, login.headers.get('location')]).toEqual([301, '/login']);
+    // a declared path is its page, as _redirects says
+    const article = await fetch(`${base}/article/hello`);
+    expect(article.status).toBe(200);
+    expect(await article.text()).toContain('<title>Article</title>');
   } finally {
     await new Promise<void>((r) => server.httpServer.close(() => r()));
   }

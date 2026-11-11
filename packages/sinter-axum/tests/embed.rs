@@ -367,3 +367,35 @@ async fn when_and_start_page_are_evaluated_from_the_url() {
     let (_, _, html) = text(a, get_("/?feed=following")).await;
     assert!(html.contains(r#"<script type="application/json" data-sn="0"></script>"#), "{html}");
 }
+
+/// The build's `_redirects`, from its manifest: 301s from old file URLs (with the query), and a path a
+/// page declares rewritten to its file when the page has no embedded data (the page with data answers itself).
+#[tokio::test]
+async fn follows_the_sites_rules_301s_and_rewrites() {
+    let dir = build(
+        "routes",
+        r#"{ "version": 1, "pages": [
+      { "file": "article.html", "paths": ["/article/:slug"], "data": [
+        { "id": 0, "resource": "article", "src": ["/api/articles/", { "url": "slug" }] } ] } ],
+      "routes": [
+        { "from": "/about.html", "to": "/about/", "status": 301 },
+        { "from": "/support", "to": "/help", "status": 200, "file": "help.html" },
+        { "from": "/article/:slug", "to": "/article", "status": 200, "file": "article.html" } ] }"#,
+        &[("article.html", &format!(r#"{HEAD}<script type="application/json" data-sn="0"></script></head><body></body></html>"#))],
+    );
+    // the inner service echoes the path it is asked for, as ServeDir would serve that file
+    let a = Router::new()
+        .merge(api())
+        .fallback(|uri: axum::http::Uri| async move { format!("file {}", uri) })
+        .layer(Embed::from_dir(dir).api(api()).build().unwrap());
+    let (s, h, _) = text(a.clone(), get_("/about.html?x=1")).await;
+    assert_eq!(s, StatusCode::MOVED_PERMANENTLY);
+    assert_eq!(h[header::LOCATION], "/about/?x=1");
+    assert_eq!(text(a.clone(), get_("/support?q=2")).await.2, "file /help.html?q=2");
+    // a page with data: answered by the layer, data embedded
+    let (s, _, html) = text(a.clone(), get_("/article/hello")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(html.contains(r#"{"article":{"slug":"hello"}}"#), "{html}");
+    // anything else: as it was
+    assert_eq!(text(a, get_("/about/")).await.2, "file /about/");
+}

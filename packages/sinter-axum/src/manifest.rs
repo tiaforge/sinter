@@ -9,6 +9,20 @@ use std::{fmt, path::Path};
 pub(crate) struct Manifest {
     pub version: u32,
     pub pages: Vec<PageDesc>,
+    /// the site's URLs, as the build's `_redirects` has them: 301s and rewrites to a page's file
+    #[serde(default)]
+    pub routes: Vec<Route>,
+}
+
+/// One rule of the site's URLs: `301` from an old file URL to a page's URL; `200` from a path a page
+/// declares (`data-sn-path`) to its `file` in the build's output.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct Route {
+    pub from: String,
+    pub to: String,
+    pub status: u16,
+    #[serde(default)]
+    pub file: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,7 +166,7 @@ pub(crate) fn parse(text: &str) -> Result<Manifest, Error> {
 
 /// Reads the manifest of a build; with `compiled`, the one the binary was compiled against (`embed!`),
 /// which the build must still have.
-pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<Vec<Page>, Error> {
+pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<(Vec<Page>, Vec<Route>), Error> {
     let at = dir.join(FILE);
     let text = std::fs::read_to_string(&at).map_err(|e| {
         Error(format!("{}: {e} (built with sinter's Vite plugin, with `embed: true` or a `data-sn-data` placeholder?)", at.display()))
@@ -167,7 +181,8 @@ pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<Vec<Page>, Erro
             )));
         }
     }
-    m.pages
+    let pages = m
+        .pages
         .into_iter()
         .map(|p| {
             let file = dir.join(&p.file);
@@ -176,7 +191,8 @@ pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<Vec<Page>, Erro
                 .map(|pg| Page { file: p.file.clone(), ..pg })
                 .map_err(|e| Error(format!("{}: {}", file.display(), e.0)))
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((pages, m.routes))
 }
 
 /// Cuts the page at each placeholder, in document order; a placeholder that is missing or already

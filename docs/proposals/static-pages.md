@@ -321,18 +321,13 @@ dist/about.html               (redirect file → /about/)
 ```
 
 ```
-# _redirects
+# _redirects (no rule for /en/login, /de/login or /login: hosts serve those files at them)
 /about.html           /about/              301
 /en/about.html        /en/about/           301
 /de/about.html        /de/about/           301
-/en/login             /en/login.html       200
-/de/login             /de/login.html       200
-/en/login/            /en/login            301
-/de/login/            /de/login            301
-/en/article/:slug     /en/article.html     200
-/de/article/:slug     /de/article.html     200
-/login                /login.html          200
-/article/:slug        /article.html        200
+/en/article/:slug     /en/article          200
+/de/article/:slug     /de/article          200
+/article/:slug        /article             200
 ```
 
 ```json
@@ -532,20 +527,22 @@ The build writes the rules for every page into `_redirects`, the file Netlify an
 
 ```
 /about.html       /about/          301
-/login            /login.html      200
-/login/           /login           301
-/article/:slug    /article.html    200
-/editor           /editor.html     200
-/editor/:slug     /editor.html     200
-/tag/:tag         /index.html      200
-/help             /help.html       200
-/support          /help.html       200
-/faq              /help.html       200
+/support          /help            200
+/faq              /help            200
+/tag/:tag         /                200
+/article/:slug    /article         200
+/editor/:slug     /editor          200
 ```
 
-- **Status codes**: 301 for a page's old file URL and for the other form of an exact path's trailing
-  slash; 200 rewrites for the paths a page declares; 302 where a server chooses a language for a visitor
-  (step 4).
+(As built in part B, after reading both hosts' documentation and Cloudflare's parser: no rule for a path
+a host serves the file at anyway, `/login` for `login.html` or `/editor` for `editor.html`; rewrites
+point to that path (`/article`), not to the file, since Cloudflare Pages strips `.html` itself; no
+trailing-slash rules, since Netlify matches rules with or without one and says rules cannot add or
+remove one, and Cloudflare Pages redirects `/login/` to `/login` itself; fixed rules first, as
+Cloudflare Pages requires.)
+
+- **Status codes**: 301 for a page's old file URL; 200 rewrites for the paths a page declares; 302 where
+  a server chooses a language for a visitor (step 4).
 - **The same rules everywhere**: the build puts them in its manifest, and sinter-axum follows them (301s,
   rewrites, then the embedded data); `vite preview` follows them on the built site, and `vite dev` on
   the source pages. RealWorld's hand-written route list in `vite.config.js` goes.
@@ -554,9 +551,9 @@ The build writes the rules for every page into `_redirects`, the file Netlify an
   instant refresh as a permanent redirect.
 - **Hosts the build cannot write rules for** (nginx, Apache, Caddy, Vercel): the guide shows the rules in
   their syntax. Above 2,000 rules (Cloudflare Pages' limit for fixed redirects) the build warns.
-- The exact syntax each host accepts (Netlify serves an existing file before a rule unless the rule is
-  forced with `!`; whether Cloudflare Pages accepts that) is checked against their documentation when
-  this is built.
+- On Netlify a rule does not apply where a file exists unless it is forced (`301!`), and Cloudflare
+  Pages ignores a line with `301!`; since one file serves both, the rule is not forced, and on Netlify an
+  old file URL arrives through its redirect file. Cloudflare Pages applies rules before files.
 
 ## What changes on a page that ships no JavaScript
 

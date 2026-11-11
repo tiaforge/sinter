@@ -4,7 +4,7 @@
 // head (one shared by every page, one of the page's own) that render what needs no
 // data as the parser inserts it, before the first paint, with nothing render-blocking.
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
@@ -21,7 +21,7 @@ import { resolveRemote, type RemoteImages } from './remote.js';
 import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, RuntimeReason, StyleSheet } from './compiler/index.js';
 import { hasCspMeta, movesToDirectory, pageFile, pagePaths, pageUrl, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
-import { relocateHtml, redirectHtml, type PageEntry } from './page-urls.js';
+import { pageRoutes, redirectHtml, redirectsFile, relocateHtml, type PageEntry, type Route } from './page-urls.js';
 import { faceName, faceOf, fontDownloader, inlineFonts, preloadFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
 import { COMPONENT_NAME } from './compiler/components.js';
@@ -67,6 +67,12 @@ export interface SinterOptions extends ProjectOptions {
    */
   speculation?: 'prefetch' | 'prerender' | false | { mode: 'prefetch' | 'prerender'; delivery?: 'inline' | 'header' };
   /**
+   * `_redirects` in the build (Netlify, Cloudflare Pages): a 301 from each moved page's old file URL and a
+   * rewrite from each path a page declares with `data-sn-path`, after the app's own `public/_redirects`.
+   * Default `true`; `false` leaves the file out (docs/static-pages.md#page-urls)
+   */
+  redirects?: boolean;
+  /**
    * next-page data (default true): when a link to another page of the app is about to be followed,
    * that page's data is requested, and the page shows it at once (then revalidates). `false`: off.
    */
@@ -110,6 +116,35 @@ export interface SinterOptions extends ProjectOptions {
 }
 
 type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin, Plugin, Plugin, Plugin];
+
+/** dev: the pages under the root (not in node_modules, the output, `public/`, hidden folders, or the components' and layouts' folders) */
+function htmlPages(root: string, config: ResolvedConfig | null): string[] {
+  const skip = new Set(['node_modules', resolve(root, config?.build.outDir ?? 'dist'), config?.publicDir ?? resolve(root, 'public'), resolve(root, 'src/components'), resolve(root, 'src/layouts')].map((x) => resolve(root, x)));
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    let names: string[];
+    try { names = readdirSync(dir); } catch { return; }
+    for (const n of names) {
+      const f = join(dir, n);
+      if (n.startsWith('.') || n === 'node_modules' || skip.has(f)) continue;
+      let st;
+      try { st = statSync(f); } catch { continue; }
+      if (st.isDirectory()) walk(f);
+      else if (n.endsWith('.html')) out.push(f);
+    }
+  };
+  walk(root);
+  return out.sort();
+}
+
+/** `_redirects` lines: `from to [status]` (302 when left out), comments and blank lines skipped */
+function parseRedirects(text: string): Array<{ from: string; to: string; status: number }> {
+  return text.split('\n').map((l) => l.replace(/\s+#.*$/, '').trim()).filter((l) => l && !l.startsWith('#')).flatMap((l) => {
+    const [from, to, status] = l.split(/\s+/);
+    const n = Number((status ?? '302').replace(/!$/, ''));
+    return from && to && n ? [{ from, to, status: n }] : [];
+  });
+}
 
 /** a base Vite resolves per file (`./`, ''): its URLs are relative to the page or stylesheet */
 const relativeBase = (base: string) => base === '' || base.startsWith('.');
@@ -311,6 +346,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const input = b?.rolldownOptions?.input ?? b?.rollupOptions?.input;
     const list = typeof input === 'string' ? [input] : Array.isArray(input) ? input : input && typeof input === 'object' ? Object.values(input) : [];
     const files = (list as unknown[]).filter((f): f is string => typeof f === 'string' && f.endsWith('.html')).map((f) => resolve(root, f));
+    // dev without a build input: every page under the root, as the dev server serves any of them
+    if (!files.length && dev) files.push(...htmlPages(root, resolved));
     if (!files.length && existsSync(resolve(root, 'index.html'))) files.push(resolve(root, 'index.html'));
     return [...new Set([...files, ...seen])].sort();
   };
@@ -390,6 +427,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(options.embed && !dev ? { embed: true } : {}),
       componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
       ...(p.isStatic(file) ? { static: true } : {}),
+      ...(resolved?.base?.startsWith('/') ? { base: resolved.base } : {}),
     });
     runtimeOf.set(rel, out.runtime);
     for (const x of out.styles) {
@@ -520,7 +558,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // the placeholders a server fills (data-sn-data), next to the pages: what a middleware reads to know each page's requests
       if (embedPages.size) {
         const pages = [...embedPages].sort(([a], [b]) => a.localeCompare(b)).map(([, p]) => ({ file: p.file, paths: p.paths, data: p.data }));
-        this.emitFile({ type: 'asset', fileName: EMBED_FILE, source: JSON.stringify({ version: 1, pages }, null, 2) + '\n' });
+        // the site's URLs, which sinter-axum follows as a host follows _redirects: 301s, and rewrites to a page's file
+        const b = resolved?.base ?? '/';
+        const routes = b.startsWith('/') ? pageRoutes(pageEntries(), b).map((x) => (x.file ? { ...x, file: pageFile(x.file, b, describe(resolve(root, x.file)).path) } : x)) : [];
+        this.emitFile({ type: 'asset', fileName: EMBED_FILE, source: JSON.stringify({ version: 1, pages, ...(routes.length ? { routes } : {}) }, null, 2) + '\n' });
       }
       if (remoteConfig?.url.startsWith('/_vercel/image') && remoteWidths.size) {
         r.logger.info(`sinter: images from the API use these widths; Vercel resizes only the ones in vercel.json: "images": { "sizes": [${[...remoteWidths].sort((a, b) => a - b).join(', ')}], "remotePatterns": [...] }`);
@@ -953,12 +994,30 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!file.startsWith(root + sep) || !existsSync(file)) return null;
     return movesToDirectory(relOf(file), base(), describe(file).path) ? file : null;
   };
-  /** dev: `/about/` is `about.html`; `/about` and `/about.html` redirect to `/about/`, as a host does with the built site */
+  /** a rule's path against a request's: literal segments, `:name` for any one, a trailing slash either way */
+  const matches = (from: string, path: string) => {
+    const a = from.split('/').filter(Boolean), b = path.split('/').filter(Boolean);
+    return a.length === b.length && a.every((s, i) => s[0] === ':' || s === b[i]);
+  };
+  /** the page whose file a declared path rewrites to (`/article/hello` → article.html), as `_redirects` says */
+  const rewrite = (path: string): Route | undefined => pageRoutes(pageEntries(), base()).find((r) => r.status === 200 && matches(r.from, path));
+  /** dev: `/about/` is `about.html`; `/about` and `/about.html` redirect to `/about/`; a declared path is its page, as a host does with the built site */
   const devPages = (req: { url?: string }, res: { statusCode: number; setHeader(k: string, v: string): void; end(): void }, next: () => void) => {
     const [path, query = ''] = (req.url ?? '/').split(/\?(.*)/s, 2) as [string, string?];
     const q = query ? `?${query}` : '';
     const file = movedPage(path);
-    if (!file) return next();
+    // `/login/` for login.html (a page that stays in its file): to `/login`, as hosts do
+    if (!file && path.length > 1 && path.endsWith('/') && base().startsWith('/') && path.startsWith(base()) && !existsSync(join(root, path.slice(base().length), 'index.html')) && existsSync(join(root, `${path.slice(base().length, -1)}.html`))) {
+      res.statusCode = 301;
+      res.setHeader('Location', `${path.slice(0, -1)}${q}`);
+      res.end();
+      return;
+    }
+    if (!file) {
+      const r = !/\.[a-z\d]+$/i.test(path) && base().startsWith('/') ? rewrite(path) : undefined;
+      if (r) req.url = `${base().replace(/\/?$/, '/')}${r.file}${q}`;
+      return next();
+    }
     if (path.endsWith('/')) { req.url = `${path.replace(/\/$/, '')}.html${q}`; return next(); }
     res.statusCode = 301;
     res.setHeader('Location', `${path.replace(/\.html?$/, '')}/${q}`);
@@ -969,14 +1028,20 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     enforce: 'post',
     configureServer(s) { s.middlewares.use(devPages); },
     configurePreviewServer(s) {
-      // the built site: `/about` redirects to `/about/` (served from about/index.html), as a host does
+      // the built site as a host serves it: the build's _redirects (301s from old file URLs, a declared path
+      // rewritten to its page), and `/about` to `/about/` when about/index.html is there
       s.middlewares.use((req, res, next) => {
         const [path, query] = (req.url ?? '/').split(/\?(.*)/s, 2) as [string, string?];
-        const out = resolve(root, resolved!.build.outDir);
-        if (/\.[a-z\d]+$/i.test(path) || path.endsWith('/') || !existsSync(join(out, path, 'index.html'))) return next();
-        res.statusCode = 301;
-        res.setHeader('Location', `${path}/${query ? `?${query}` : ''}`);
-        res.end();
+        const q = query ? `?${query}` : '', out = resolve(root, resolved!.build.outDir);
+        let rules: Array<{ from: string; to: string; status: number }> = [];
+        try { rules = parseRedirects(readFileSync(join(out, '_redirects'), 'utf8')); } catch { /* none */ }
+        const rule = rules.find((r) => !/^[a-z][a-z\d+.-]*:/i.test(r.to) && matches(r.from, path) && (r.from.includes(':') || r.from.includes('*') || r.from === path || r.from.replace(/\/$/, '') === path.replace(/\/$/, '')));
+        if (rule && rule.status !== 200) { res.statusCode = rule.status; res.setHeader('Location', rule.to + q); res.end(); return; }
+        if (rule) { req.url = rule.to + q; return next(); }
+        if (!/\.[a-z\d]+$/i.test(path) && !path.endsWith('/') && existsSync(join(out, path, 'index.html'))) { res.statusCode = 301; res.setHeader('Location', `${path}/${q}`); res.end(); return; }
+        // `/login/` for login.html: to `/login`, as hosts do
+        if (path.length > 1 && path.endsWith('/') && !existsSync(join(out, path, 'index.html')) && existsSync(join(out, `${path.slice(0, -1)}.html`))) { res.statusCode = 301; res.setHeader('Location', `${path.slice(0, -1)}${q}`); res.end(); return; }
+        next();
       });
     },
     // dev: the page as served at its URL (the build does this in generateBundle, once Vite has written every URL)
@@ -1017,6 +1082,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const url = relativeBase(base()) ? `./${posix.basename(to, '/index.html')}/` : pageUrl(page.rel, base(), page.patterns)!;
         this.emitFile({ type: 'asset', fileName: page.rel, source: redirectHtml(url) });
       }
+      // _redirects: the same rules for hosts that read them (Netlify, Cloudflare Pages), after the app's own
+      if (options.redirects === false) return;
+      if (relativeBase(base())) { resolved?.logger.info('sinter: no _redirects with a relative base: the build does not know the paths the site is served at'); return; }
+      const routes = pageRoutes(all, base());
+      if (!routes.length) return;
+      const pub = resolved?.publicDir ? resolve(resolved.publicDir, '_redirects') : null;
+      let own: string | null = null;
+      try { own = pub ? readFileSync(pub, 'utf8') : null; } catch { /* the app has none */ }
+      const fixed = routes.filter((r) => !/[:*]/.test(r.from)).length, patterns = routes.length - fixed;
+      if (fixed > 2000 || patterns > 100) resolved?.logger.warn(`sinter: _redirects has ${fixed} fixed rules and ${patterns} with patterns; Cloudflare Pages reads at most 2,000 and 100 (Netlify has no such limit). Move the rest to the host's bulk redirects, or turn the file off with sinter({ redirects: false })`);
+      this.emitFile({ type: 'asset', fileName: '_redirects', source: redirectsFile(routes, own) });
     },
   };
   return [main, post, cssImages, fonts, fontCheck, pages];
