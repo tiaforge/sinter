@@ -13,8 +13,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   load it. The build prints one line per page: `no JavaScript`, or the page's and the shared chunks' size (gzip) and the
   first few things that run, where they were written. `sinter({ static: ['about.html', 'docs/**'] })` (or `true`) lists
   pages that must stay so: one that needs the runtime is `SN322` at each cause, in the build, `sinter check` and the
-  editor, and a pattern that matches no page fails the build. On such a page the config module and the app's early
-  module do not run, and next-page data is not prefetched (Speculation Rules still are).
+  editor, and a pattern that matches no page fails the build. On such a page the app's global modules (the config
+  module and the early module) do not run, and next-page data is not prefetched (Speculation Rules still are); a script
+  the page or its layout writes ships as written, a plain module script.
 - A `data-sn-for` over a constant list (a literal, a prop given as one, state nothing writes) whose rows read only the
   item, its index, constants and such state is unrolled at build time: its rows are in the HTML, also with JavaScript
   off, and the page module carries no template for them. Before, a component's nav or footer list built from a

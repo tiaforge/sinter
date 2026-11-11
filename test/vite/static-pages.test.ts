@@ -101,6 +101,8 @@ test('a script the page writes is the page\'s own: it stays, and it is the only 
   const scripts = read('index.html').match(/<script(?! type="speculationrules")[^>]*>/g) ?? [];
   expect(scripts).toHaveLength(1);
   expect(scripts[0]).toMatch(/src="\/assets\/index-[^"]+\.js"/);
+  // a plain module script, as written: not made async as sinter's page module is
+  expect(scripts[0]).not.toContain('async');
 });
 
 test('in the browser, a static page is the same with JavaScript off as with it on', async () => {

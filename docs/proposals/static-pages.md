@@ -467,9 +467,12 @@ These are the behaviours a static page loses.
   would stop running on static pages. The docs say so: the config module configures sinter and runs
   on the pages that run sinter; code for every page goes in a script the layout includes, as the
   [layouts guide](../layouts.md) does with `./main.ts`. `configuration.md` gets the same sentence.
-- **The early module (`src/sinter.early.ts`) is already like this.** It runs from the shared head
-  script, which the build adds only to pages with early bindings or languages; a page with nothing
-  early does not run it today.
+- **The early module (`src/sinter.early.ts`) does not run either.** It is one module for the whole
+  app, bundled into the shared head script. (This text said it already did not run on pages with
+  nothing early; in fact it ran on every page whenever the app had one. Corrected in the review of
+  part A.) Code for one page or its layout is written in that page or layout, and always ships:
+  a module script for code after the parse, an inline classic script in the layout's head for code
+  before the first paint (see Future work for a bundled form).
 - **Next-page data is not prefetched from that page.** Two features prefetch the next page, and only
   one of them is JavaScript:
   - *Speculation Rules* are written at build time (a `<script type="speculationrules">` with JSON, or
@@ -579,6 +582,13 @@ None at the moment.
 
 ## Future work
 
+- **A bundled pre-paint script**: `<script data-sn-early src="./theme.ts">` in a page or layout,
+  bundled by sinter into one classic script (TypeScript and imports allowed), written inline where it
+  stands, with its hash added to a CSP `<meta>` as the Speculation Rules' is. It keeps an inline
+  script's speed (no request before the first paint) and closes its gaps (no TypeScript, imports or
+  minifying, the CSP hash by hand); unlike the global early module it is scoped to where it is
+  written. Not an external file: that would add a blocking request to the first paint of a first
+  visit. Decided in the review of part A to leave it out of that pull request.
 - **A sitemap**: with `site` and every page and language known, the build could write `sitemap.xml`,
   with each page's languages as alternates. Not part of this proposal.
 - **A default language other than the base**: a site whose texts are written in English but whose
@@ -611,3 +621,4 @@ Settled in review, in the order they were discussed:
 | One model or two | Both, chosen per site: the in-browser switch stays the default, `localePrefix` makes the whole site use locale URLs. Revisit once locale URLs have been used | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | A page's URL | `$site` is the site's root URL (the origin from `sinter({ site })` and Vite's `base`); `$canonical` is the page's full URL built on it (locale prefix, path), or the URL of a canonical link the page writes itself. Reading either without `site` is a build error (`SN323`) that says to set it. `$url` stays the query and path parameters, read in the browser | [Canonical URLs](#5-canonical-urls) |
 | The URL form | Every page with a fixed path is a directory's index (`about/index.html` at `/about/`): no host configuration, the same in dev and preview, `$canonical` with a trailing slash; old `.html` URLs get redirect files; `data-sn-path` is only for patterns | [Page URLs](#6-page-urls-a-directory-per-page) |
+| The global early module on static pages | Left out: it is the app's global module, not the page's. A script the page or its layout writes is the page's own and always ships, and is no `SN322`; pre-paint code is an inline classic script in the layout's head. A bundled, inlined `data-sn-early` script is future work | [What changes](#what-changes-on-a-page-that-ships-no-javascript) |

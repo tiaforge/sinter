@@ -792,7 +792,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const base = pageBase(resolved?.base ?? '/', rel);
         // the page bundle is `async`: it does not wait for the stylesheets as a deferred module does,
         // and mounts once the document is parsed and the early script has rendered (see the page module)
-        if (ctx.chunk) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');
+        // (on a page with nothing to run, the chunk is the page's own script: it stays a plain, deferred module script)
+        if (ctx.chunk && runtimeOf.get(rel)?.length !== 0) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');
         // the embedded-data placeholders last in the head, after the tags Vite added (the page module, its
         // preloads, the stylesheets): a server that streams the page up to the first one sends all of those first
         const slots = embedPages.get(rel)?.data;

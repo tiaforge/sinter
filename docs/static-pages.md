@@ -84,14 +84,30 @@ that renaming a page cannot drop it from the check unnoticed.
 - **The config module does not run.** `src/sinter.config.ts` configures sinter (request middleware,
   `onError`, `locale`, …), and sinter does not run on the page, so neither does it. Code meant for
   every page, such as an analytics snippet, goes in a script the layout includes.
-- **The early module does not run either.** `src/sinter.early.ts` runs before sinter renders; on a
-  page where sinter renders nothing, it is left out.
+- **The early module does not run either.** `src/sinter.early.ts` is shared by every page of the app
+  and runs before sinter renders; on a page where sinter renders nothing, it is left out.
 - **Next-page data is not prefetched.** When a visitor rests the pointer on a link to a page with
   data, sinter's runtime requests that page's data, so it shows at once. A static page has no runtime,
   so a data page opened from it loads its data after one round trip, as on a first visit. Speculation
   Rules still work, since they are not JavaScript: the browser fetches the next page's HTML, and with
   `sinter({ speculation: 'prerender' })` Chromium loads the whole next page, data included, before the
   click ([navigation](navigation.md)).
+
+## Your own scripts
+
+A static page ships no script of sinter's, and the app's global modules (the config module and the
+early module) stay out. A script the page or its layout writes is the page's own: it always ships,
+and it does not count against `sinter({ static })`.
+
+| Code that should run | Write it as |
+| --- | --- |
+| after the page is parsed: analytics, a widget, a small interaction | `<script type="module" src="./about.ts">`, bundled by Vite: in the layout's head for every page, or in one page through the layout's head slot (`<script slot="head" type="module" src="./about.ts">`) |
+| before the first paint: a theme class from `localStorage`, so the page does not flash | a classic script inline in the layout's head: `<script>document.documentElement.dataset.theme = localStorage.theme ?? 'light'</script>` |
+
+A module script runs after the page is parsed, too late for code that must change the first paint,
+and Vite bundles only module scripts; so pre-paint code is inline (or a classic script from
+`public/`, served as written). With a Content Security Policy, an inline script needs its hash (or
+`'unsafe-inline'`) in `script-src`.
 
 The dev server serves the same pages as the build: no page module on a static page, its components'
 styles as a stylesheet.
