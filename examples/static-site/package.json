@@ -1,0 +1,17 @@
+{
+  "name": "sinter-static-site",
+  "private": true,
+  "type": "module",
+  "description": "A small site of plain pages built with sinter: three ship no JavaScript, one loads data",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4174"
+  },
+  "dependencies": {
+    "@tiaforge-ui/sinter": "file:../.."
+  },
+  "devDependencies": {
+    "vite": "8.3.5"
+  }
+}

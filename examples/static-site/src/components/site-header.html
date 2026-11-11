@@ -1,0 +1,15 @@
+<template data-sn-component="{ nav: string }">
+  <header class="site-header">
+    <a class="brand" href="/">Fieldnotes</a>
+    <nav-list data-sn-prop="{ current: nav, items: [
+      { id: 'home', href: '/', label: 'Home' },
+      { id: 'about', href: '/about.html', label: 'About' },
+      { id: 'docs', href: '/docs/getting-started.html', label: 'Docs' },
+      { id: 'status', href: '/status.html', label: 'Status' },
+    ] }"></nav-list>
+  </header>
+</template>
+<style>
+  .site-header { display: flex; gap: 2rem; align-items: baseline; padding: 1rem 0; border-bottom: 1px solid #ddd; }
+  .brand { font-weight: 700; text-decoration: none; color: inherit; }
+</style>
