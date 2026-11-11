@@ -8,6 +8,7 @@ const files: Record<string, string> = {
   '/p/src/components/x-bad.html': '<template data-sn-component=""><p>\n  <b data-sn-txt="x"></b></p></template>',
   '/p/src/components/x-card.html': '<template data-sn-component="{ title: string }" data-sn-emits="{ pick: number }"><div><slot name="foot"></slot></div></template>',
   '/p/partials/old.html': '<p></p>',
+  '/p/src/layouts/x-shell.html': '<!doctype html><html data-sn-layout=""><head></head><body><slot></slot></body></html>',
   '/p/src/components/x-two.html': '<template data-sn-component=""><p></p><p></p></template>',
 };
 
@@ -65,6 +66,9 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN315', '<x-card data-sn-prop="{ title: \'a\' }" data-sn-on-pik="1"></x-card>', /`<x-card>` does not emit `pik`/],
   ['SN316', '<sn-include src="./partials/old.html"></sn-include>', /`<sn-include>` is removed: a partial is a component/],
   ['SN317', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="remove('messages', m)"></button></template>`, /`remove\(\)` takes the item, not a resource name/],
+  ['SN318', '<p data-sn-layout=""></p>', /`data-sn-layout` belongs on the `<html>` of a layout file/],
+  ['SN319', '<p>x</p><x-shell></x-shell>', /a page that uses the layout `<x-shell>` is only its tag/],
+  ['SN321', '<!doctype html><html><head><title>a</title><title>b</title></head><body></body></html>', /a second `<title>` in the head/],
   ['SN320', '<!doctype html><html><head><title>t</title><div></div></head><body></body></html>', /`<div>` cannot be in the `<head>`/],
   ['SN401', '<p data-sn-text="a +"></p>', /Unexpected token/],
   ['SN501', R + '<p data-sn-text="messages.length"></p>', /resource `contacts` is declared but never read/],

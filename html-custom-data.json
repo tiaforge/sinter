@@ -185,6 +185,10 @@
       "description": "in a component's markup: the element its script reads as this.refs.<name>, typed by its tag (name)"
     },
     {
+      "name": "data-sn-layout",
+      "description": "on the <html> of a layout file (src/layouts/<name>.html): the props it takes; a page that is only the layout's tag fills its slots, in the head and the body (props type)"
+    },
+    {
       "name": "data-sn-head",
       "description": "on the <template> of a head component (src/components/<name>.html): its props, as data-sn-component; it holds any number of head elements (<title>, <meta>, <link>, …), inlined at its use in a head (props type)"
     },

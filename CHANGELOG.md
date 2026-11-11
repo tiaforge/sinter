@@ -17,6 +17,15 @@ Attribute names, function names and diagnostic codes are public API. Before
   constants deciding `data-sn-if` at build time and `sinter check` work as for components; its tag takes only
   `data-sn-prop` and slot content. A head component in a body, or a component in a head, is `SN320`; head elements in a
   `data-sn-component` are `SN312` with the hint to declare it with `data-sn-head`.
+- Layouts: a file `src/layouts/<name>.html` is a whole document whose `<html data-sn-layout="{ …props }">` declares its
+  props, with any number of slots in its head and body. A page that is only the layout's tag gets the layout's
+  document: the tag's content fills the slots (head elements with `slot="…"` for a head slot), its attributes go onto
+  `<html>` (replacing the layout's: `lang`, `data-sn-path`; `class` is joined), and `data-sn-state` on it is the page's
+  state, which the props and the slot content see and the layout does not. The merge happens before anything else
+  reads the page, so the early scripts, preloads, embedded data, Google Fonts and Vite's bundling of the layout's
+  scripts and stylesheets work on the merged head. The layout's relative URLs are relative to its file. New
+  diagnostics `SN318` (an invalid layout), `SN319` (a page that is more than the tag, a layout tag anywhere else) and
+  `SN321` (a second `<title>`, `<meta name="description">`, `og:title`… in the head, on every page).
 - Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
   is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
   costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots

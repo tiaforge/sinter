@@ -9,7 +9,7 @@ const SEO = `<template data-sn-head="{ title?: string; image?: string }">
   <og-tags data-sn-prop="{ t: title }"><meta name="x" content="in-og"></og-tags>
   <slot name="extra"></slot>
 </template>`;
-const OG = '<template data-sn-head="{ t?: string }"><title data-sn-text="t">og</title><slot></slot></template>';
+const OG = '<template data-sn-head="{ t?: string }"><template data-sn-if="t"><meta property="og:title" content="og"></template><slot></slot></template>';
 
 function run(html: string, components: Record<string, string> = {}) {
   const files: Record<string, string> = {};
@@ -28,10 +28,10 @@ describe('head components', () => {
     expect(head).not.toMatch(/seo-tags|og-tags|<slot/);
     // the constant `image: false` dropped its branch at build time
     expect(head).not.toContain('image_src');
-    expect(head).toMatch(/<title data-sn="\d+">Blog<\/title>[\s\S]*<title data-sn="\d+">og<\/title><meta name="x" content="in-og">[\s\S]*<meta name="robots" content="noindex">[\s\S]*<link rel="stylesheet" href="\/a.css">/);
+    expect(head).toMatch(/<title data-sn="\d+">Blog<\/title>[\s\S]*<template data-sn="\d+"><meta property="og:title" content="og"><\/template><meta name="x" content="in-og">[\s\S]*<meta name="robots" content="noindex">[\s\S]*<link rel="stylesheet" href="\/a.css">/);
     // the inner component's prop is the outer one's, which is the page's
     expect(out.module).toContain("($) => (($.$r.post?.title) ? ($.$r.post?.title) + ' · Blog' : 'Blog')");
-    expect(out.module).toContain('($) => ((($.$r.post?.title)))');
+    expect(out.module).toContain('($.$r.post?.title)');
   });
 
   test('a constant prop that is true keeps its branch', () => {

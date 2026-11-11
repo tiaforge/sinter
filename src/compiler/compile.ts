@@ -101,6 +101,8 @@ export interface CompileOptions {
   sourcemap?: boolean;
   /** where the app's components are (default `<root>/src/components`): `<name>.html` is the component `<name>` */
   components?: string;
+  /** where the app's layouts are (default `<root>/src/layouts`): `<name>.html` is the layout `<name>`, a page's only tag */
+  layouts?: string;
   /** every component of the app: the candidates of `<sn-component use>` a helper chooses (default: the components the page names) */
   componentNames?: string[];
   /** the module the page module imports for a component's scoped styles (`CompiledParts.styles`), so the bundler puts them in the page's stylesheet */
@@ -285,6 +287,8 @@ interface Use {
   head?: { roots: P5Element[]; parent: Use | null };
   /** what its markup sees, computed once (a head component's elements share it) */
   markup?: Scope;
+  /** a layout (`<html data-sn-layout>`): the page is its tag, its root the layout's `<html>` */
+  layout?: true;
 }
 
 /** A component file, read once: its text, scoped styles and script. */
@@ -320,6 +324,23 @@ interface Ctx {
   dialog?: boolean;
   /** inside a `<form>` (template content included): a control's action there reports field errors on it */
   form?: boolean;
+}
+
+const ONCE_NAMES = new Set(['viewport', 'description', 'robots']);
+const ONCE_PROPERTIES = new Set(['og:title', 'og:description', 'og:url', 'og:type', 'twitter:card', 'twitter:title', 'twitter:description']);
+
+/** An element a head has once (SN321): what identifies it, and how a message names it. */
+function onceKey(el: P5Element): { id: string; label: string } | null {
+  const a = (n: string) => el.attrs.find((x) => x.name === n)?.value;
+  if (el.tagName === 'title' || el.tagName === 'base') return { id: el.tagName, label: `\`<${el.tagName}>\`` };
+  if (el.tagName === 'link' && a('rel')?.trim().toLowerCase() === 'canonical') return { id: 'canonical', label: '`<link rel="canonical">`' };
+  if (el.tagName !== 'meta' || a('media') !== undefined) return null;
+  if (a('charset') !== undefined) return { id: 'charset', label: '`<meta charset>`' };
+  const name = a('name')?.trim().toLowerCase();
+  if (name && ONCE_NAMES.has(name)) return { id: `name:${name}`, label: `\`<meta name="${name}">\`` };
+  const prop = a('property')?.trim().toLowerCase();
+  if (prop && ONCE_PROPERTIES.has(prop)) return { id: `property:${prop}`, label: `\`<meta property="${prop}">\`` };
+  return null;
 }
 
 /** a prop's value that is a build-time constant, and those of them that are falsy */
@@ -374,6 +395,8 @@ class Compiler {
   private readonly earlySites = new Map<string, Site>();
   private readonly stateAt = new Map<number, { site: Site; fields: Map<string, Site> }>();
   readonly origins = new WeakMap<object, Origin>();
+  /** layout files by tag, read once (null: no such layout) */
+  private readonly layoutFiles = new Map<string, { file: string; text: string } | null>();
   /** component files by tag, read once (null: no such component, a plain custom element) */
   private readonly componentFiles = new Map<string, ComponentFile | null>();
   /** by component id (`ComponentScope.id`): the use, for the refs of its markup */
@@ -488,8 +511,10 @@ class Compiler {
   }
 
   run(html: string): CompiledParts {
-    const doc = parseDocument(html);
+    let doc = parseDocument(html);
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
+    if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
+    else doc = this.mergeLayout(doc) ?? doc;
     this.expandIncludes(doc, [this.opts.file]);
     this.head = findHead(doc);
     this.expandComponents(doc, []);
@@ -838,6 +863,147 @@ class Compiler {
     return c;
   }
 
+  // ---- layouts
+
+  /** where the app's layouts are */
+  layoutDir(): string {
+    return normalize(this.opts.layouts ?? `${normalize(this.opts.root).replace(/\/$/, '')}/src/layouts`).replace(/\/$/, '');
+  }
+
+  isLayoutFile(file: string): boolean {
+    return normalize(file).startsWith(this.layoutDir() + '/');
+  }
+
+  /** The layout file for a tag (null: no such layout). */
+  layoutFile(tag: string): { file: string; text: string } | null {
+    if (!COMPONENT_NAME.test(tag) || tag.startsWith('sn-')) return null;
+    let l = this.layoutFiles.get(tag);
+    if (l !== undefined) return l;
+    const file = normalize(`${this.layoutDir()}/${tag}.html`);
+    try { l = { file, text: this.opts.readFile(file) }; } catch { l = null; }
+    this.layoutFiles.set(tag, l);
+    return l;
+  }
+
+  /**
+   * A page that is a layout's tag: the layout's document, its slots filled with the tag's content, the
+   * tag's attributes on its `<html>`. From here on it is the page. Null when the page uses no layout.
+   */
+  mergeLayout(doc: DefaultTreeAdapterMap['document']): DefaultTreeAdapterMap['document'] | null {
+    const html = doc.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'html');
+    const head = html?.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'head');
+    const body = html?.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'body');
+    if (!html || !head || !body) return null;
+    const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
+    const top = body.childNodes.filter(real);
+    const host = top.find((c): c is P5Element => isElement(c) && !this.componentFile(c.tagName) && !!this.layoutFile(c.tagName));
+    if (!host) return null;
+    const name = host.tagName;
+    const lf = this.layoutFile(name)!;
+    const pageOrigin = this.origins.get(host)!;
+    // the page is the tag, and nothing else
+    for (const c of [...head.childNodes.filter(real), ...top.filter((c) => c !== host)]) {
+      const el = isElement(c) ? c : host;
+      this.report(el, null, 'SN319', `a page that uses the layout \`<${name}>\` is only its tag: ${isElement(c) ? `\`<${c.tagName}>\`` : 'this text'} belongs inside it`, 0,
+        `put it in one of the layout's slots: \`<${name}>…</${name}>\` (a head element with \`slot="…"\` for a head slot)`);
+    }
+    if (html.sourceCodeLocation?.startTag && html.attrs.length) {
+      this.report(html, html.attrs[0]!.name, 'SN319', `a page that uses the layout \`<${name}>\` writes the attributes of \`<html>\` on its tag: \`<${name} ${html.attrs[0]!.name}="…">\``, 0);
+    }
+    const lroot = normalize(this.opts.root).replace(/\/$/, '');
+    for (const ext of ['.ts', '.js', '.mts', '.mjs']) {
+      const f = lf.file.replace(/\.html$/, ext);
+      try { this.opts.readFile(f); } catch { continue; }
+      this.diagnostics.push({ severity: 'error', code: 'SN318', message: `the layout \`<${name}>\` has a script (\`${f.startsWith(lroot + '/') ? f.slice(lroot.length + 1) : f}\`); layouts have none, its components may`, file: lf.file, line: 1, col: 1 });
+    }
+    const ldoc = parseDocument(lf.text);
+    const at = host.sourceCodeLocation ? this.lineCol(pageOrigin.src, host.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
+    this.tag(ldoc, { file: lf.file, src: lf.text, chain: [`${basename(this.opts.file)}:${at.line}`] });
+    this.files.add(lf.file);
+    const lhtml = ldoc.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'html')!;
+    const lhead = lhtml.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'head')!;
+    const decl = attr(lhtml, 'data-sn-layout');
+    if (decl === undefined || !lhtml.sourceCodeLocation?.startTag) {
+      this.diagnostics.push({ severity: 'error', code: 'SN318', message: `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``, file: lf.file, line: 1, col: 1, hint: '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>`' });
+      detach(host);
+      return null;
+    }
+    const props = typeMembers(decl.trim() === '' ? '{}' : decl);
+    for (const a of lhtml.attrs) if (a.name === 'data-sn-emits') this.report(lhtml, a.name, 'SN318', 'a layout emits no events: nothing is above it to receive them', 0);
+    // the layout's own relative URLs are relative to its file
+    this.rebaseUrls(ldoc, lf.file);
+    // its slots: a default slot is in the body
+    const headSlots = new Set<string>();
+    const inHead = (n: P5Parent) => {
+      for (const c of [...n.childNodes]) {
+        if (!isElement(c)) continue;
+        if (c.tagName === 'slot') {
+          const k = attr(c, 'name');
+          if (!k) { this.report(c, null, 'SN318', 'the default slot of a layout is in its body: content without `slot="…"` is the page\'s body', 0, 'name the head slot: `<slot name="head"></slot>`'); detach(c); continue; }
+          headSlots.add(k);
+        }
+        inHead(c);
+        if (c.tagName === 'template') inHead((c as P5Template).content);
+      }
+    };
+    inHead(lhead);
+    const use: Use = { name, file: lf.file, host, root: lhtml, template: lhtml, props, propsText: decl, emits: [], emitsText: null, chain: [], layout: true };
+    // a head element given to a body slot: the browser would keep it, but it belongs in a head slot
+    for (const c of [...host.childNodes]) {
+      if (!isElement(c) || !['title', 'meta', 'link', 'base'].includes(c.tagName) || headSlots.has(attr(c, 'slot') ?? '')) continue;
+      const k = attr(c, 'slot');
+      this.report(c, k === undefined ? null : 'slot', 'SN320', `\`<${c.tagName}>\` is a head element: ${k === undefined ? 'content without `slot` goes into the layout\'s body' : `\`${k}\` is not a head slot of \`<${name}>\``}`, 0,
+        headSlots.size ? `give it a head slot: ${[...headSlots].map((x) => `\`slot="${x}"\``).join(', ')}` : `add a head slot to the layout: \`<slot name="head"></slot>\` in its \`<head>\``);
+      detach(c);
+    }
+    this.fillSlots(use, ldoc);
+    // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
+    for (const a of host.attrs) {
+      if (a.name === 'data-sn-prop' || a.name === 'data-sn-state') continue;
+      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch') { setAttr(lhtml, a.name, a.value); continue; }
+      if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN319', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
+      if (a.name.startsWith('data-sn-')) {
+        if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-prop`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path` and `data-sn-prefetch`, and the attributes of `<html>`');
+        continue;
+      }
+      if (a.name === 'class') { const own = attr(lhtml, 'class'); setAttr(lhtml, 'class', own ? `${own} ${a.value}` : a.value); }
+      else setAttr(lhtml, a.name, a.value);
+    }
+    if (attr(host, 'data-sn-state') !== undefined && attr(lhtml, 'data-sn-state') !== undefined) {
+      this.report(host, 'data-sn-state', 'SN209', `\`data-sn-state\` is set both here and on the \`<html>\` of \`<${name}>\`; the page's state and the layout's would be one`, 0, 'keep the layout\'s state on an element inside it, such as its `<body>`');
+    }
+    this.useOf.set(lhtml, use);
+    this.hostUse.set(host, use);
+    this.head = lhead;
+    return ldoc;
+  }
+
+  /** A layout's relative URLs (`./main.ts`, `styles/site.css`) are relative to its file: rewritten to root-relative ones. */
+  rebaseUrls(doc: P5Parent, file: string) {
+    const root = normalize(this.opts.root).replace(/\/$/, '');
+    const dir = dirname(file);
+    const ATTRS_OF: Record<string, string[]> = { link: ['href'], script: ['src'], img: ['src', 'srcset'], source: ['src', 'srcset'], video: ['src', 'poster'], audio: ['src'], track: ['src'], input: ['src'] };
+    const relative = (u: string) => u.trim() !== '' && !/^([a-z][a-z0-9+.-]*:|\/|#|\?|\{)/i.test(u.trim());
+    const rebase = (u: string) => {
+      const abs = resolvePath(dir, u.trim());
+      return abs.startsWith(root + '/') ? abs.slice(root.length) : u;
+    };
+    const walk = (n: P5Parent) => {
+      for (const c of n.childNodes) {
+        if (!isElement(c)) continue;
+        for (const a of ATTRS_OF[c.tagName] ?? []) {
+          const v = attr(c, a);
+          if (v === undefined) continue;
+          if (a === 'srcset') setAttr(c, a, v.split(',').map((part) => { const [u, ...d] = part.trim().split(/\s+/); return u && relative(u) ? [rebase(u), ...d].join(' ') : part.trim(); }).join(', '));
+          else if (relative(v)) setAttr(c, a, rebase(v));
+        }
+        walk(c);
+        if (c.tagName === 'template') walk((c as P5Template).content);
+      }
+    };
+    walk(doc);
+  }
+
   /**
    * Expands every component tag, at any depth, into the component's markup: the root element
    * takes the tag's place, the caller's content fills the slots. `chain`: the components this
@@ -850,6 +1016,16 @@ class Compiler {
       const ch = this.slotOf.get(child)?.chain ?? chain;
       if (child.tagName === 'sn-component') { this.choice(child); continue; }
       const def = this.componentFile(child.tagName);
+      if (!def && this.layoutFile(child.tagName)) {
+        this.report(child, null, 'SN319', `\`<${child.tagName}>\` is a layout: it is the only tag of a page, at its top level`, 0, 'a layout cannot be inside a component, another layout or other markup');
+        detach(child);
+        continue;
+      }
+      if (def && this.layoutFile(child.tagName)) {
+        this.report(child, null, 'SN318', `\`<${child.tagName}>\` is both a layout (\`src/layouts/${child.tagName}.html\`) and a component (\`src/components/${child.tagName}.html\`); rename one`, 0);
+        detach(child);
+        continue;
+      }
       if (def) {
         const name = child.tagName;
         // a head component goes in a head, a component in a body
@@ -1106,6 +1282,19 @@ class Compiler {
       }
     };
     walk(head, head);
+    // SN321: what a page has once
+    const seen = new Map<string, P5Element>();
+    for (const c of head.childNodes) {
+      if (!isElement(c)) continue;
+      const key = onceKey(c);
+      if (!key) continue;
+      if (seen.has(key.id)) {
+        this.report(c, null, 'SN321', `a second ${key.label} in the head: the page would have two`, 0,
+          'keep one: pass the value to the one that is there (a prop of the layout or head component), or put this one in place of a slot\'s fallback');
+        continue;
+      }
+      seen.set(key.id, c);
+    }
   }
 
   /**
@@ -1268,7 +1457,7 @@ class Compiler {
     this.useById.set(this.useIds++, use);
     if (this.check) {
       this.frameOf.set(cs, this.check.frames.length);
-      this.check.frames.push({ kind: 'props', component: name, type: { kind: 'ts', text: use.propsText.trim() || '{}', loc: this.locOf(use.template, use.head ? 'data-sn-head' : 'data-sn-component') }, names: declared ?? [...passed] });
+      this.check.frames.push({ kind: 'props', component: name, type: { kind: 'ts', text: use.propsText.trim() || '{}', loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') }, names: declared ?? [...passed] });
     }
     return { loops: [], states: [], lets, component: cs };
   }
@@ -1289,6 +1478,33 @@ class Compiler {
     return base;
   }
 
+  /** `data-sn-state` on `el`, compiled onto `node`: the scope its subtree sees. */
+  stateOf(el: P5Element, node: NodeDef, scope: Scope): Scope {
+    const r = this.expr(el, 'data-sn-state', scope, { mode: 'value', object: 'state' });
+    if (r.ok) {
+      const sid = this.nextSid++;
+      node.state = this.fn(r.code);
+      node.sid = sid;
+      const entry = { sid, names: new Set(r.entries!.map((e) => e.key)) };
+      if (this.check) {
+        this.frameOf.set(entry, this.check.frames.length);
+        const first = [...entry.names].map((n) => r.entries!.find((e) => e.key === n)!);
+        const locs = first.map((e) => this.locOf(el, 'data-sn-state', e.offset));
+        this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs });
+      }
+      this.checkNames(el, 'data-sn-state', scope, [...entry.names]);
+      scope = { ...scope, states: [...scope.states, entry] };
+      if (attr(el, 'data-sn-persist') !== undefined && attr(el, 'data-sn-model') === undefined) {
+        node.persist = attr(el, 'data-sn-persist')!;
+        this.features.add('persist');
+      }
+      this.stateInits.push({ sid, fields: r.entries!.map((e) => ({ key: e.key, code: e.code, deps: e.deps })), persist: node.persist ?? null });
+      const site: Site = { el, attr: 'data-sn-state', shift: 0 };
+      this.stateAt.set(sid, { site, fields: new Map(r.entries!.map((e) => [e.key, { ...site, shift: e.offset }])) });
+    }
+    return scope;
+  }
+
   /** A use's props: each the caller's expression (checked against the declaration), as `data-sn-let` names. */
   propLets(use: Use, caller: Scope): { lets: LetEntry[]; passed: Set<string> } {
     const host = use.host, name = use.name;
@@ -1299,7 +1515,7 @@ class Compiler {
     if (src !== undefined) {
       const r = this.expr(host, 'data-sn-prop', caller, { mode: 'value', object: 'literal-keys' });
       // a missing prop the compiler reports itself; TypeScript checks the types of those given
-      if (this.check) this.typeLast({ returns: { kind: 'ts', text: use.props ? `Partial<${use.propsText.trim() || '{}'}>` : use.propsText, loc: this.locOf(use.template, use.head ? 'data-sn-head' : 'data-sn-component') } });
+      if (this.check) this.typeLast({ returns: { kind: 'ts', text: use.props ? `Partial<${use.propsText.trim() || '{}'}>` : use.propsText, loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') } });
       for (const e of r.entries ?? []) {
         if (declared && !declared.includes(e.key)) {
           this.report(host, 'data-sn-prop', 'SN313', `\`${e.key}\` is not a prop of \`<${name}>\`; ${declared.length ? `its props are ${declared.map((x) => `\`${x}\``).join(', ')}` : 'it declares none'}.${didYouMean(e.key, declared)}`, e.offset);
@@ -1604,7 +1820,7 @@ class Compiler {
     // a component's root: its markup sees the props only
     const use = this.useOf.get(el);
     const callerCtx = use ? ctx : null;
-    if (use) ctx = { ...ctx, scope: use.head ? this.headMarkup(use, base) : this.componentScope(use, ctx.scope) };
+    if (use && !use.layout) ctx = { ...ctx, scope: use.head ? this.headMarkup(use, base) : this.componentScope(use, ctx.scope) };
     switch (el.tagName) {
       case 'sn-resource': this.resource(el, ctx); return null;
       case 'sn-sync': this.sync(el, ctx); return null;
@@ -1625,6 +1841,7 @@ class Compiler {
       this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
     }
 
+    if (has('layout') && !use?.layout) this.report(el, 'data-sn-layout', 'SN318', '`data-sn-layout` belongs on the `<html>` of a layout file (`src/layouts/<name>.html`)', 0);
     for (const n of ['component', 'head', 'emits']) {
       if (has(n)) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` belongs on the \`<template>\` of a component file (\`src/components/<name>.html\`)`, 0);
     }
@@ -1668,34 +1885,16 @@ class Compiler {
     if (inDialog) node.dl = 1;
     const inForm = ctx.form || el.tagName === 'form';
     const nodeIdx = ctx.list.length;
+    // a layout's `<html>`: the page's state (on the tag) is the caller's, which its props and slot content see
+    if (use?.layout) {
+      const caller = attr(use.host, 'data-sn-state') !== undefined ? this.stateOf(use.host, node, ctx.scope) : ctx.scope;
+      ctx = { ...ctx, scope: this.componentScope(use, caller) };
+    }
     let scope = ctx.scope;
     let result: { node: NodeDef; binding: Binding } | null = null;
 
     // state
-    if (has('state')) {
-      const r = this.expr(el, 'data-sn-state', scope, { mode: 'value', object: 'state' });
-      if (r.ok) {
-        const sid = this.nextSid++;
-        node.state = this.fn(r.code);
-        node.sid = sid;
-        const entry = { sid, names: new Set(r.entries!.map((e) => e.key)) };
-        if (this.check) {
-          this.frameOf.set(entry, this.check.frames.length);
-          const first = [...entry.names].map((n) => r.entries!.find((e) => e.key === n)!);
-          const locs = first.map((e) => this.locOf(el, 'data-sn-state', e.offset));
-          this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs });
-        }
-        this.checkNames(el, 'data-sn-state', scope, [...entry.names]);
-        scope = { ...scope, states: [...scope.states, entry] };
-        if (has('persist') && !has('model')) {
-          node.persist = get('persist')!;
-          this.features.add('persist');
-        }
-        this.stateInits.push({ sid, fields: r.entries!.map((e) => ({ key: e.key, code: e.code, deps: e.deps })), persist: node.persist ?? null });
-        const site: Site = { el, attr: 'data-sn-state', shift: 0 };
-        this.stateAt.set(sid, { site, fields: new Map(r.entries!.map((e) => [e.key, { ...site, shift: e.offset }])) });
-      }
-    }
+    if (has('state')) scope = this.stateOf(el, node, scope);
 
     // a form whose markup reads `$error`: the form's last failed send, as a state field of the form
     // (merged into its own `data-sn-state`); the runtime sets it when the send fails, null when sent again
@@ -1752,7 +1951,7 @@ class Compiler {
 
     this.bindings(el, node, scope, ctx);
     // a component's root: the caller's attributes on its tag, in the caller's scope
-    if (use && !use.head) this.bindings(use.host, node, use.caller!, callerCtx!, use);
+    if (use && !use.head) this.bindings(use.host, node, use.caller!, { ...callerCtx!, scope: use.caller! }, use);
     // a component with a script: its object, created per instance with the live props
     const script = use ? this.componentFiles.get(use.name)?.script : null;
     if (use && script) {

@@ -82,6 +82,7 @@ In a component file in `src/components/`, and on a component's tag (`early`). De
 | `data-sn-emits` | events type | on the &lt;template data-sn-component&gt;: the events emit() sends and their detail types, e.g. { select: Article } |
 | `data-sn-early` | off | on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for uses that may shift the layout when they render, to keep the early script small |
 | `data-sn-ref` | name | in a component's markup: the element its script reads as this.refs.&lt;name&gt;, typed by its tag |
+| `data-sn-layout` | props type | on the &lt;html&gt; of a layout file (src/layouts/&lt;name&gt;.html): the props it takes; a page that is only the layout's tag fills its slots, in the head and the body |
 
 ## Pages and navigation
 
