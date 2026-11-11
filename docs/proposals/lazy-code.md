@@ -198,10 +198,10 @@ export class TaskRing extends TaskRingComponent {
   Write the markup so that it reads well without them, as it should for a browser without JavaScript.
 - Timings: by default, when the first instance is rendered. `data-sn-preload="chart.js"` in the
   component's or the page's markup preloads the package and the lazy scripts of the page's components that import it.
-- A script that only calls the package's functions (Caley's components that call openpgp) is
-  loaded the same way, since the rule is about imports. Should that be a problem (a script that has
-  other work to do at once), the script can move the openpgp calls into a module of their own that it
-  awaits; decided: such a script becomes lazy too.
+- A script that only calls the package's functions (Caley's components that call openpgp) becomes
+  lazy the same way: the rule is about imports (decided). A script with other work to do at once keeps
+  running at once by reaching the package only through `await import('./its-pgp-calls.ts')`, which is
+  not an import in this sense.
 - Islands (custom elements the app defines) are imported by the app, not by sinter, so they keep the
   stubs and `SN324`; the message suggests `await import()` in the element, or a component with a script.
 
