@@ -1,7 +1,7 @@
 # Proposal: layouts
 
-Status: proposal (2026-11-11). The four decisions in [Decisions](#decisions) were settled before this
-text was written; [Open questions](#open-questions) lists what is still open.
+Status: proposal (2026-11-11). The choices in [Decisions](#decisions) were settled with the maintainer
+while drafting; [Open questions](#open-questions) lists what is still open.
 
 Components cannot hold a page's `<html>` or `<head>`: a component is a `<template>`, and inside a
 `<template>` the HTML parser drops `<html>`, `<head>` and `<body>` tags (a `<template
@@ -45,8 +45,9 @@ merged document exactly as it does on a hand-written one.
 <!-- src/components/seo-tags.html: a head component -->
 <template data-sn-head="{ title?: string; description?: string }">
   <title data-sn-text="title ? title + ' — Conduit' : 'Conduit'">Conduit</title>
-  <meta name="description" data-sn-attr="{ content: description ?? 'A place to share your knowledge.' }">
-  <meta property="og:title" data-sn-attr="{ content: title ?? 'Conduit' }">
+  <meta name="description" content="A place to share your knowledge."
+        data-sn-attr="{ content: description ?? 'A place to share your knowledge.' }">
+  <meta property="og:title" content="Conduit" data-sn-attr="{ content: title ?? 'Conduit' }">
   <slot name="extra"></slot>
 </template>
 ```
@@ -113,6 +114,8 @@ its props type. Nothing is inferred from the file's contents or its folder.
   props, its own state, its own resources and the globals (`$url`, helpers, messages), and none of the
   page's state: the same rule as for a component, with the same error naming the prop to add.
 - A layout has no script beside it (`site-layout.ts`). Its components may have scripts.
+- A layout is not a page: a file in `src/layouts/` listed as a Vite input (a glob over every `.html`)
+  is an error that names it.
 
 ### The page
 
@@ -121,6 +124,9 @@ its props type. Nothing is inferred from the file's contents or its folder.
   (`SN319`). A page without a layout tag is an ordinary page, as today.
 - The tag's children fill the slots, as for a component: `slot="seo"` goes into `<slot name="seo">`,
   the rest into the default `<slot>`. A slot name the layout does not have is `SN314`.
+- A slot takes every child that names it, in the order they are written: two `<meta slot="seo">` both
+  go into `seo`. A `<template data-sn-if>` or `data-sn-for` with a `slot` attribute goes into that slot
+  as one piece. The `slot` attribute is not in the output.
 - `data-sn-prop` passes the layout's props (`SN313` for an unknown or a missing one), and props are
   evaluated in the page's scope, so they can read the page's resources: `title: article?.title`.
 - **The page's scope.** The slot content and the props see the page's resources (declared anywhere in
@@ -138,7 +144,8 @@ its props type. Nothing is inferred from the file's contents or its folder.
   German page). `class` is joined. Handlers (`data-sn-on-*`) on the tag go onto `<html>` in the page's
   scope.
 - A layout tag inside a component, inside another layout, or below the top level of a page is an
-  error. So is `<sn-component use>` naming a layout.
+  error. So is `<sn-component use>` naming a layout, and `data-sn-early` on a layout tag (a layout is
+  the whole page; leave its parts out of the early script on their own tags).
 
 ### The merge
 
@@ -211,7 +218,7 @@ of head elements, inlined at the use, with no wrapper:
   one beside the `<template>` in the file.
 - Anything else in a `data-sn-head` is `SN320`, naming the element.
 - It is used in a head, a layout's or a page's, and in a head slot's content. Used in a body, it is
-  `SN320` with the fix (a body component needs one root element).
+  `SN320`, saying that a head component goes in a head.
 - Its tag takes `data-sn-prop` and slot content, nothing else: there is no root for other attributes
   to move onto. A `<style>` beside it in the file is an error, since head elements render nothing to
   scope; put the CSS in a stylesheet.
@@ -325,9 +332,10 @@ the merged page.
    early script renders head bindings as the head is parsed (its `MutationObserver` watches the
    document, but every early root so far is in the body), in Chromium, Firefox and WebKit.
 6. **Types and editor.** `LayoutName` and props in the generated types, `sinter check` through pages,
-   slot-name and tag completion, go to definition and hover in the LSP.
+   slot-name and tag completion, go to definition and hover in the LSP; `data-sn-head` and
+   `data-sn-layout` in `html-custom-data.json` for editors' HTML completion.
 7. **Docs and proof.** `docs/layouts.md`, head components in `components.md`, the crawler note in
-   `first-paint.md`, the diagnostics, README and CHANGELOG. The RealWorld example moves to one layout
+   `first-paint.md`, the diagnostics, `llms.txt`, README and CHANGELOG. The RealWorld example moves to one layout
    with a `seo-tags` component; measured against the current build (HTML bytes per page, first paint,
    early script size), which should be level.
 
@@ -340,11 +348,12 @@ the merged page.
 - **Head values for scrapers.** With `sinter({ embed: true })` the server already fills embedded data
   into the page. It could also fill the `<title>` and `<meta content>` that read only embedded
   resources, so link previews get the article's title. Needs a design of its own.
-- **Required slots.** A slot the page must fill (`<slot name="title" required>`).
+- **Required slots.** A slot the page must fill (`<slot name="actions" required>`), for markup that must
+  be there; a required value is a required prop. Left out for now (2026-11-11).
 
 ## Decisions
 
-Settled with the maintainer on 2026-11-11, before this text:
+Settled with the maintainer on 2026-11-11:
 
 | Question | Decision |
 | --- | --- |
