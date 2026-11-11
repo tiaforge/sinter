@@ -280,8 +280,11 @@ In each language's page:
 
 - **Its text is in the HTML.** `m.title()`, `$locale`, and anything built from them and constants are
   written at build time, in text and attributes (`<title>`, `<meta content>`, `aria-label`), so a page
-  with nothing else to run ships no JavaScript in any language. A message over data
-  (`m.inbox_count({ count: inbox.unread })`) renders in the browser, from that language's file only.
+  with nothing else to run ships no JavaScript in any language. A page that runs loads no language file
+  either: a message its code still needs (`m.inbox_count({ count: inbox.unread })`, or `m.loading()` in an
+  expression over data) is compiled into its script as that language's text, and the messages your own
+  modules call (`m.hello()` in a helper) are written into the page, in `<script type="application/json"
+  data-sn-messages>`.
 - **Switching language is a link.** `localeUrl('de')` is this page's URL in German:
 
   ```html

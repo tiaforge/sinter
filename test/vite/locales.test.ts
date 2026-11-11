@@ -1,7 +1,7 @@
 // @vitest-environment node
 // Languages in the URL (`sinter({ localePrefix: true })`, docs/static-pages.md#languages): each page once per
 // language under its prefix, its text in the HTML; a chooser at each unprefixed URL; hreflang; the rules.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { build, createServer } from 'vite';
@@ -22,7 +22,9 @@ const files: Record<string, string> = {
   'messages/de.json': JSON.stringify({ title: 'Über uns', desc: 'Wer wir sind', hello: 'Hallo' }),
   'index.html': `<!doctype html><html lang="en"><head>${head}</head><body>${switcher}<p data-sn-text="m.hello()"></p><img src="img/logo.svg" alt=""></body></html>`,
   'about.html': `<!doctype html><html lang="en"><head>${head}</head><body>${switcher}<h1 data-sn-text="m.title()"></h1></body></html>`,
-  'article.html': `<!doctype html><html lang="en" data-sn-path="/article/:slug"><head>${head}</head><body>${switcher}<h1 data-sn-text="$url.slug"></h1></body></html>`,
+  'article.html': `<!doctype html><html lang="en" data-sn-path="/article/:slug"><head>${head}</head><body>${switcher}<h1 data-sn-text="$url.slug"></h1><p data-sn-text="greet()"></p><p data-sn-text="$url.slug ? m.title() : \'\'"></p></body></html>`,
+  // an app module that calls a message
+  'src/sinter.helpers.js': "import { m } from '@tiaforge-ui/sinter/messages';\nexport const greet = () => m.hello();\n",
   'img/logo.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>',
 };
 beforeAll(async () => {
@@ -64,6 +66,16 @@ describe('each page in each language', () => {
     const de = read('de/article.html');
     expect(de).toMatch(/^<!DOCTYPE html><html lang="de">/);
     expect(de).toContain('<script');
+  });
+
+  test('a page that runs: its messages compiled in, the app modules\' in the page; no picker, no language file', () => {
+    const de = read('de/article.html');
+    expect(de).not.toContain('data-sn-i18n');
+    expect(de).toContain('<script type="application/json" data-sn-messages>{"hello":"Hallo"}</script>');
+    expect(readdirSync(join(out, 'assets')).filter((f) => /-(en|de)-[\w-]+\.js$/.test(f))).toEqual([]);
+    const js = readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.js')).map((f) => read(`assets/${f}`)).join('\n');
+    expect(js).toContain('Über uns');
+    expect(js).not.toContain('Wer wir sind');
   });
 });
 

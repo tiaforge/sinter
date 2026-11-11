@@ -80,8 +80,8 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${lc ? ', locale' : ''} }`, uses: lc ? [...r.uses, 'locale'].sort() : r.uses };
 }
 
-function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe'>): MappedLines | null {
-  const observe = !!options.observe;
+function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'baseMessages'>): MappedLines | null {
+  const observe = !!options.observe, fixed = isFixed(options);
   const app = options.early?.module ?? null;
   if (!early && !app) return null;
   const lines = new MappedLines();
@@ -89,7 +89,7 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   const req = !!early?.ir.res?.length, pages = !!early?.ir.res?.some((r) => r.q);
   const page = early ? earlyPage(early) : null;
   // a page with nothing to wait for (no requests, no messages, no app early module's dictionary): `run`, one step
-  const simple = !!early && !observe && !req && !Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES);
+  const simple = !!early && !observe && !req && (fixed || !Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES));
   lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : []), ...(pages ? ['withParams'] : [])].join(', ')} } from '${PACKAGE}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
@@ -104,7 +104,7 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
     }
     for (const [ns, members] of Object.entries(early.namespaces)) {
       const info = options.helpers.namespaces[ns]!;
-      if (info.module === MESSAGES) { messages = messagesImport(ns, members); continue; }
+      if (info.module === MESSAGES) { messages = fixed ? fixedMessages(ns, members, options) : messagesImport(ns, members); continue; }
       for (const m of members) {
         const o = info.from?.[m];
         add(o?.module ?? info.module, `${o?.name ?? m} as ${ns}$${m}`);
@@ -112,10 +112,12 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
     }
   }
   // an app with built-in messages: the first paint waits for the dictionary (helpers may call `m` too)
-  if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) messages = messagesImport('m', []);
+  if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) messages = fixed ? fixedMessages('m', [], options) : messagesImport('m', []);
   for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
   // observe: the early script reads the dictionary's state (has it arrived?) from the messages module
-  if (messages) lines.push(observe ? messages.replace('ready as $ready }', 'ready as $ready, state as $state }') : messages);
+  if (messages) lines.push(observe && !fixed ? messages.replace('ready as $ready }', 'ready as $ready, state as $state }') : messages);
+  // a page in one language: its text is compiled in, nothing to wait for
+  if (fixed) messages = null;
   lines.push('');
   if (early) {
     lines.push('const page = () => {', '  const f = [');
@@ -148,15 +150,17 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   let messages = false;
   for (const [ns, members] of Object.entries(parts.namespaces)) {
     const mod = options.helpers.namespaces[ns]!.module;
-    if (mod === MESSAGES) { lines.push(messagesImport(ns, members)); messages = true; continue; }
+    if (mod === MESSAGES) { lines.push(isFixed(options) ? fixedMessages(ns, members, options) : messagesImport(ns, members)); messages = true; continue; }
     lines.push(`import { ${members.map((m) => `${m} as ${ns}$${m}`).join(', ')} } from ${JSON.stringify(mod)};`);
   }
   // an app with built-in messages: the page's modules (helpers, actions, islands) may call `m` although
   // its markup does not, so every page waits for the dictionary (and sinter is the locale source)
   if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) {
-    lines.push(messagesImport('m', []));
+    lines.push(isFixed(options) ? fixedMessages('m', [], options) : messagesImport('m', []));
     messages = true;
   }
+  // a page in one language: the locale is fixed and its messages compiled in, so nothing waits for a dictionary
+  if (isFixed(options)) messages = false;
   // actions (`data-sn-call`): imported as `$a$name` / `$a$ns$member`, only those the page calls
   const acts = options.actions;
   if (acts?.module) {
@@ -192,6 +196,26 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
     lines.push('$use();', 'await $ready();', `$use(mount(document, { ir, fns, features: [${features.join(', ')}] }));`);
   } else lines.push(`mount(document, { ir, fns, features: [${features.join(', ')}] });`);
   return lines;
+}
+
+/** a page built in one language, with that language's text (`localePrefix`) */
+const isFixed = (o: Pick<CompileOptions, 'locale' | 'baseMessages'>) => !!o.locale && !!o.baseMessages;
+
+/**
+ * A page in one language: each message it calls is a function of that language's text (`m$title = () => "Über uns"`,
+ * `m$hi = (p = {}) => "Hallo " + …`), so no dictionary is loaded; `fixed` sets the locale (for `date()`, `number()`,
+ * and the app's modules, whose messages the build writes into the page).
+ */
+function fixedMessages(ns: string, members: string[], options: Pick<CompileOptions, 'locale' | 'baseMessages'>): string {
+  const d = options.baseMessages!;
+  const fn = (s: string) => {
+    const parts = s.split(/\{(\w+)\}/);
+    if (parts.length === 1) return `() => ${JSON.stringify(s)}`;
+    // a parameter missing at run time stays as written, as `t()` does
+    return `(p = {}) => ${parts.map((x, i) => (i % 2 ? `(${JSON.stringify(x)} in p ? p[${JSON.stringify(x)}] : ${JSON.stringify(`{${x}}`)})` : JSON.stringify(x))).join(' + ')}`;
+  };
+  const imp = `import { fixed as $fixed } from '${MESSAGES}';\n$fixed(${JSON.stringify(options.locale!.name)});`;
+  return members.length ? `${imp}\nconst ${members.map((m) => `${ns}$${m} = ${fn(d[m] ?? m)}`).join(', ')};` : imp;
 }
 
 /** The built-in messages a module calls: `m.key` bound to the names compiled code uses (`m$key`). */

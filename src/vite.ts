@@ -298,6 +298,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const moduleMessages = new Map<string, string[]>();
   const markupMessages = new Map<string, string[]>();
   const languageFiles = new Map<string, Record<string, { fileName: string; code: string }>>();
+  /** `localePrefix`: a page's messages its app modules call (its own are compiled in), written into its head */
+  const pageMessages = new Map<string, string>();
+  const messagesTag = (dict: Record<string, string>) => `<script type="application/json" data-sn-messages>${JSON.stringify(dict).replace(/</g, '\\u003c')}</script>`;
   let messages: MessagesProject | null = null;
   let images: Images | null = null;
   // a template or origin that cannot work fails before Vite starts
@@ -496,7 +499,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
-      ...(firstPaint && p.messages ? { baseMessages: lang ?? p.messages.dicts[p.messages.base] ?? {} } : {}),
+      ...((firstPaint || lang) && p.messages ? { baseMessages: lang ?? p.messages.dicts[p.messages.base] ?? {} } : {}),
       ...(v ? { locale: { name: v.locale, urls: localeUrls(src), base: resolved?.base ?? '/' } } : {}),
       ...(options.origins?.length ? { origins: options.origins } : {}),
       ...(firstPaint ? { observe: true } : {}),
@@ -610,6 +613,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       unlisted.clear();
       earlyFiles.clear();
       languageFiles.clear();
+      pageMessages.clear();
       described.clear();
       pagesCache = null;
       if (dev) return;
@@ -711,7 +715,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // a page with nothing to run (its messages written into the HTML in its language): no picker, no language file
         if (runtimeOf.get(rel)?.length === 0) continue;
         const entry = Object.values(bundle).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
-        const keys = new Set([...own, ...(earlyKeys.get(rel) ?? [])]);
+        // a page in one language: its markup's messages are compiled into it, so only the app's modules' are needed
+        const one = virtual.get(resolve(root, rel))?.locale;
+        const keys = new Set([...(one ? [] : own), ...(earlyKeys.get(rel) ?? [])]);
         const seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
         while (todo.length) {
           const c = bundle[todo.pop()!];
@@ -721,6 +727,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           todo.push(...c.imports, ...c.dynamicImports);
         }
         if (!keys.size) continue;
+        if (one) {
+          const dict: Record<string, string> = {};
+          for (const k of [...keys].sort()) dict[k] = messages.dicts[one]?.[k] ?? messages.dicts[messages.base]![k]!;
+          pageMessages.set(rel, messagesTag(dict));
+          continue;
+        }
         const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
         const files: Record<string, { fileName: string; code: string }> = {};
         for (const l of virtual.has(resolve(root, rel)) ? [virtual.get(resolve(root, rel))!.locale] : messages.locales) {
@@ -848,6 +860,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // Speculation Rules for links to the app's pages: the browser fetches (or prerenders) the next page
         const rules = speculationTag(), page = rules ? withRulesHash(checked.replace('</head>', `  ${rules}\n</head>`), speculationHash!) : checked;
         if (rules && !dev && !hasCspMeta(checked)) unhashedPages++;
+        // dev, a page in one language: its messages compiled in; the app's modules may call any of that language's
+        const one = virtual.get(file)?.locale;
+        if (dev && one && messages) {
+          for (const f of Object.values(messages.files)) watch(f);
+          const tag = messagesTag({ ...messages.dicts[messages.base], ...messages.dicts[one] });
+          return page.replace(/<head[^>]*>/, (h) => h + tag);
+        }
         if (dev && out.messages && messages) {
           for (const f of Object.values(messages.files)) watch(f);
           const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])), virtual.get(file)?.locale);
@@ -952,8 +971,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           }
           html = html.replace('</head>', `${tags.map((t) => `  ${t}\n`).join('')}</head>`);
         }
-        if (!early && !langs && !own) return html;
-        const tags: string[] = [];
+        const inline = pageMessages.get(rel);
+        if (!early && !langs && !own && !inline) return html;
+        // a page in one language: the messages its app modules call, before any script that reads them
+        const tags: string[] = inline ? [inline] : [];
         // the shared head script (with the picker, its data on the tag), then the page's: classic scripts, run in order
         if ((early || langs) && sharedHead) {
           tags.push(langs ? pickerTag(base + sharedHead.fileName, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName])), virtual.get(resolve(root, rel))?.locale) : `<script src="${attr(base + sharedHead.fileName)}"></script>`);

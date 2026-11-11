@@ -71,6 +71,24 @@ export async function setLocale(locale: string): Promise<void> {
   for (const f of s.subs ?? []) f();
 }
 
+/**
+ * A page built in one language (`sinter({ localePrefix: true })`): the locale is fixed, and the page's own
+ * messages are compiled into it. The messages the app's modules call (`m.key()` in a helper) are in the page,
+ * in `<script type="application/json" data-sn-messages>`: nothing is loaded. The page module and the early
+ * script call it before anything renders; an app's own `configure({ locale })` wins.
+ */
+export function fixed(locale: string): void {
+  const s = state();
+  s.locale = s.base = locale;
+  s.locales = [locale];
+  if (!s.dicts[locale]) {
+    let d: Record<string, string> = {};
+    try { const e = document.querySelector('script[data-sn-messages]'); if (e?.textContent) d = JSON.parse(e.textContent); } catch { /* none */ }
+    s.dicts[locale] = d;
+  }
+  config.locale ??= { get: () => locale, set: () => {} };
+}
+
 let mounted: { mark(path: string): void } | null = null;
 
 /**

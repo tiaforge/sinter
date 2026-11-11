@@ -22,6 +22,17 @@ describe('a page in one language', () => {
     expect(out.static).toBe(true);
   });
 
+  test('a message over data: a function of the language\'s text in the page module; no dictionary, no wait', () => {
+    const out = build(page('', '<p data-sn-text="m.greeting({ name: $url.who })"></p><p data-sn-text="$url.who ? m.title() : \'\'"></p>', '<html lang="de" data-sn-path="/hi/:who">'), { name: 'de', urls: null, base: '/' }, '/p/hi.html');
+    expect(out.diagnostics).toEqual([]);
+    expect(out.module).toContain("import { fixed as $fixed } from '@tiaforge-ui/sinter/messages';\n$fixed(\"de\");");
+    expect(out.module).toContain('m$greeting = (p = {}) => "Hallo " + ("name" in p ? p["name"] : "{name}") + ""');
+    expect(out.module).toContain('m$title = () => "Über uns"');
+    expect(out.module).not.toContain('$ready');
+    expect(out.module).not.toContain('$m.');
+    expect(out.messages).toEqual(['greeting', 'title']);
+  });
+
   test('localeUrl(): this page in another language', () => {
     const out = build(page('', '<a hreflang="en" data-sn-attr="{ href: localeUrl(\'en\') }">English</a>'));
     expect(out.html).toContain('<a hreflang="en" href="/en/about/">English</a>');
