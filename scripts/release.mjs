@@ -1,7 +1,8 @@
 // Cuts a release of the published packages, all at one version so that equal versions are known
 // to work together: `npm run release -- 0.3.0` bumps every place a version is written, dates the
-// changelog's Unreleased section, commits "Release 0.3.0" and tags it v0.3.0 (annotated), then
-// prints the commands that push and publish. Nothing is pushed or published.
+// changelog's Unreleased section, commits "Release 0.3.0" and tags it v0.3.0 (annotated), runs
+// every publish as a dry run, then prints the commands that push and publish. Nothing is pushed
+// or published. If a dry run fails, the commit and the tag are taken back.
 //
 // - @tiaforge-ui/sinter (the repository root).
 // - @tiaforge-ui/create (packages/create, the starter): its template depends on ^0.3.0, the
@@ -12,7 +13,7 @@
 // `--dry-run` prints the edits without writing; `--no-check` skips the typecheck and the tests
 // (npm and cargo) that run before the commit.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
@@ -123,8 +124,32 @@ git('add', ...changed.map(([file]) => file));
 git('commit', '-m', `Release ${version}`);
 git('tag', '-a', tag, '-m', `sinter ${version}`);
 
+// Every publish as a dry run, from the tagged commit. sinter's prepublishOnly (a clean build and the
+// tests) is done here as a build only: the tests ran above, or were skipped with --no-check.
+// `cargo publish --workspace` publishes the macros first and checks sinter-axum against them,
+// which on its own would fail until the macros at this version are on crates.io.
+const dryRuns = [
+  ['@tiaforge-ui/sinter', () => {
+    rmSync(resolve(root, 'dist'), { recursive: true, force: true });
+    execFileSync('npm', ['run', 'build'], { cwd: root, stdio: 'inherit' });
+    execFileSync('npm', ['publish', '--dry-run', '--ignore-scripts'], { cwd: root, stdio: 'inherit' });
+  }],
+  ['@tiaforge-ui/create', () => execFileSync('npm', ['publish', '--dry-run'], { cwd: resolve(root, 'packages/create'), stdio: 'inherit' })],
+  ['sinter-axum and sinter-axum-macros', () => cargo(['publish', '--workspace', '--dry-run'])],
+];
+for (const [name, run] of dryRuns) {
+  console.log(`\nrelease: publish dry run of ${name}`);
+  try {
+    run();
+  } catch {
+    git('tag', '-d', tag);
+    git('reset', '--hard', 'HEAD~1');
+    fail(`the publish dry run of ${name} failed; took back the commit and the tag ${tag}`);
+  }
+}
+
 console.log(`
-Released: commit "Release ${version}", tag ${tag}.
+Released: commit "Release ${version}", tag ${tag}. The publish dry runs passed.
 All at ${version}: @tiaforge-ui/sinter, @tiaforge-ui/create (new apps get @tiaforge-ui/sinter ^${version}
 and @tiaforge-ui/temper ^${temper}), sinter-axum and sinter-axum-macros.
 
@@ -134,4 +159,4 @@ Push:
 Publish, in this order (the starter needs sinter ${version} on npm, sinter-axum needs its macros on crates.io):
   npm publish
   (cd packages/create && npm publish)
-  (cd packages/sinter-axum && cargo publish -p sinter-axum-macros && cargo publish -p sinter-axum)`);
+  (cd packages/sinter-axum && cargo publish --workspace)`);
