@@ -193,3 +193,32 @@ test('a data-sn-if on a constant prop is decided at build time: dropped when the
   expect(b!.querySelector('template')).toBeNull();
   expect(b!.querySelector('b')!.textContent).toBe('new');
 });
+
+describe('slot content the build decides or unrolls stays its writer\'s', () => {
+  // the box: a component whose slot the outer component fills, with styles of its own
+  const box = '<template data-sn-component=""><div><slot></slot></div></template><style>p { color: red }</style>';
+
+  test('a `data-sn-if` the first paint decides: its branch emits the writer\'s events and is outside the box\'s styles', async () => {
+    const outer = `<template data-sn-component="{ on: boolean }" data-sn-emits="{ ping: void }">
+  <section><x-box><template data-sn-if="!on"><p class="mine" data-sn-on-click="emit('ping')">p</p></template></x-box></section></template>`;
+    const r = await render('<main data-sn-state="{ n: 0 }"><x-outer data-sn-prop="{ on: false }" data-sn-on-ping="n++"></x-outer><b data-sn-text="n"></b></main>',
+      { components: { 'x-box': box, 'x-outer': outer }, firstPaint: true });
+    await r.flush();
+    const p = r.root.querySelector<HTMLElement>('.mine')!;
+    expect(p.parentElement!.tagName).toBe('DIV');
+    expect(p.getAttribute('data-sn-s')).toBe('x-outer');
+    p.click(); await r.flush();
+    expect(r.root.querySelector('b')!.textContent).toBe('1');
+  });
+
+  test('a loop over a constant list the first paint unrolls: its rows see the writer\'s state and their item', async () => {
+    const outer = `<template data-sn-component=""><section data-sn-state="{ label: 'a' }"><x-box>
+  <template data-sn-for="x in [1, 2]" data-sn-key="x"><p class="row" data-sn-text="label + x"></p></template></x-box></section></template>`;
+    const r = await render('<main><x-outer></x-outer></main>', { components: { 'x-box': box, 'x-outer': outer }, firstPaint: true });
+    await r.flush();
+    const rows = [...r.root.querySelectorAll('.row')];
+    expect(rows.map((p) => p.textContent)).toEqual(['a1', 'a2']);
+    expect(rows.map((p) => p.getAttribute('data-sn-s'))).toEqual(['x-outer', 'x-outer']);
+    expect(r.root.querySelector('template')).toBeNull();
+  });
+});

@@ -11,6 +11,13 @@ Attribute names, function names and diagnostic codes are public API. Before
   a page that is only a layout's tag can be tested.
 - The starter template's `AGENTS.md` says where the shared markup lives (`src/layouts/app-layout.html`).
 
+### Fixed
+
+- Slot content whose `data-sn-if` the build decides (a condition over a constant prop or state nothing writes) or
+  whose `data-sn-for` it unrolls stays its writer's: an `emit()` in the branch is checked against the writer's
+  `data-sn-emits` (not the slot's component, `SN315`), the rows see the writer's state, and both stay outside the slot
+  component's scoped styles. `render()` shows it with `firstPaint`, which runs the build's second pass.
+
 ## 0.14.0 (2026-11-11)
 
 ### Upgrading from 0.13

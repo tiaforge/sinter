@@ -2019,8 +2019,12 @@ class Compiler {
 
   element(el: P5Element, ctx: Ctx, index: number, prevIf: { node: NodeDef; binding: Binding } | null): { node: NodeDef; binding: Binding } | null {
     this.at = { el, attr: null, shift: 0 };
-    // a row of an unrolled loop: its item and index, as derived names over the constant list (before a
-    // component's root takes its props from this scope)
+    // slot content sees the scope of the caller that wrote it
+    const slot = this.slotOf.get(el);
+    if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
+    if (slot?.caller) ctx = { ...ctx, scope: slot.caller };
+    // a row of an unrolled loop: its item and index, as derived names over the constant list (on the
+    // scope of the loop's writer, slot content's caller; before a component's root takes its props from this scope)
     const row = this.rowOf.get(el);
     if (row) {
       const r = this.expr(row.tpl, 'data-sn-for', ctx.scope, { mode: 'value' }, row.list, row.offset);
@@ -2032,10 +2036,6 @@ class Compiler {
       }
     }
     const base = ctx.scope;
-    // slot content sees the scope of the caller that wrote it
-    const slot = this.slotOf.get(el);
-    if (slot?.head && !slot.caller) this.headMarkup(slot, base);
-    if (slot?.caller) ctx = { ...ctx, scope: slot.caller };
     // the partial an `<sn-include>` inserted: what the page's scope has there
     const inc = this.includeTop.get(el);
     if (inc && !inc.site) inc.site = new Set<object>([...ctx.scope.loops, ...ctx.scope.states, ...(ctx.scope.lets ?? [])]);
@@ -3696,6 +3696,7 @@ class Compiler {
         const other = j >= 0 && isElement(parent.childNodes[j]!) && (parent.childNodes[j] as P5Element).tagName === 'template' && attr(parent.childNodes[j] as P5Element, 'data-sn-else') !== undefined ? parent.childNodes[j] as P5Element : null;
         const keep = [...(v ? (c as P5Template).content.childNodes : other ? (other as P5Template).content.childNodes : [])];
         for (const n of keep) (n as { parentNode: P5Parent }).parentNode = parent;
+        this.inheritSlot(c, keep);
         parent.childNodes.splice(i, (other ? j : i) - i + 1, ...(keep as never[]));
         mergeText(parent);
         i--;
@@ -3737,6 +3738,7 @@ class Compiler {
             rows.push(copy);
           }
         }
+        this.inheritSlot(c, rows);
         parent.childNodes.splice(i, 1, ...(rows as never[]));
         mergeText(parent);
         i += rows.length - 1;
@@ -3744,6 +3746,22 @@ class Compiler {
       }
       this.unrollLoops(c);
       if (c.tagName === 'template') this.unrollLoops((c as P5Template).content);
+    }
+  }
+
+  /**
+   * Nodes that take the place of `from` (a decided `data-sn-if`'s branch, an unrolled loop's rows): when
+   * `from` was slot content, so are they, in the scope of the caller that wrote them and outside the
+   * component's scoped styles.
+   */
+  inheritSlot(from: P5Element, nodes: P5Node[]) {
+    const use = this.slotOf.get(from);
+    if (!use) return;
+    const el = this.slotEls.find((x) => x.el === from);
+    for (const n of nodes) {
+      if (this.slotOf.has(n)) continue;
+      this.slotOf.set(n, use);
+      if (el && isElement(n)) this.slotEls.push({ ...el, el: n });
     }
   }
 
