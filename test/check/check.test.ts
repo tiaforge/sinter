@@ -129,9 +129,8 @@ declare global {
   <title data-sn-text="contact.name"></title>
 </template>` };
     const html = (use: string) => `<!doctype html><html><head>
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
 ${use}
-</head><body></body></html>`;
+</head><body><sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource></body></html>`;
     expect(run(html('<seo-tags data-sn-prop="{ contact: contacts[0] }"></seo-tags>'), seo).diagnostics).toEqual([]);
     one(html(`<seo-tags data-sn-prop="{ contact: contacts[0], count: 'x' }"></seo-tags>`), /Type 'string' is not assignable to type 'number'/, "count: 'x'", seo);
     const typo = { 'src/components/seo-tags.html': seo['src/components/seo-tags.html'].replace('contact.name', 'contact.nmae') };

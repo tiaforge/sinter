@@ -46,10 +46,10 @@ describe('the compiled head', () => {
     expect(run('<!doctype html><html><head><x-a></x-a>hello</head><body></body></html>').diagnostics.map((x) => x.code)).toContain('SN320');
   });
 
-  test('sinter elements may sit in the head, and the head elements after them stay there', () => {
+  test('a resource or a stream in the head is SN320: they go in the body; the rest of the page still sees the resource', () => {
     const out = run('<!doctype html><html><head><sn-resource name="a" src="/api/a"></sn-resource><link rel="stylesheet" href="/a.css"></head><body><p data-sn-text="a"></p></body></html>');
-    expect(out.diagnostics).toEqual([]);
-    expect(out.html).toMatch(/<head>.*<link rel="stylesheet" href="\/a.css">.*<\/head>/s);
+    expect(out.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual(['SN320 `<sn-resource>` goes in the body, not the `<head>`']);
+    expect(run('<!doctype html><html><head><sn-sync src="/api/events"></sn-sync></head><body></body></html>').diagnostics.map((d) => d.code)).toEqual(['SN320']);
   });
 });
 

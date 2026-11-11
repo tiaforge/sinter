@@ -169,7 +169,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN320: {
     example: '`<div>` cannot be in the `<head>`: the browser would move it, and everything after it, into the body',
-    means: 'After components are expanded, a head holds only head elements: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>` and `<template>` (sinter\'s `<sn-resource>` and `<sn-sync>` too, which the build removes). The browser ends the head at anything else and moves it, with every element after it, into the body. sinter parses heads so that a component\'s tag stays where it is written: the element it expands to must be head content.',
+    means: 'After components are expanded, a head holds only head elements: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>` and `<template>`. `<sn-resource>` and `<sn-sync>` go in the body: they are page-wide wherever they are written, and their requests start in the head anyway. The browser ends the head at anything else and moves it, with every element after it, into the body. sinter parses heads so that a component\'s tag stays where it is written: the element it expands to must be head content.',
     fix: 'Move the element into the body. In a head, use head components (`<template data-sn-head>`).',
   },
   SN321: {

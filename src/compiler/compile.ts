@@ -1293,6 +1293,12 @@ class Compiler {
           continue;
         }
         if (!isElement(c)) continue;
+        // a resource or a stream: page-wide wherever it is written, so it goes in the body (it stays declared, for the rest of the page)
+        if (c.tagName === 'sn-resource' || c.tagName === 'sn-sync') {
+          this.report(c, null, 'SN320', `\`<${c.tagName}>\` goes in the body, not the \`<head>\``, 0,
+            `${c.tagName === 'sn-resource' ? 'a resource is page-wide: the head reads it from the body too' : 'a stream is page-wide: put it in the body'}, and its requests still start in the head`);
+          continue;
+        }
         if (!HEAD_ELEMENTS.has(c.tagName)) {
           this.report(c, null, 'SN320', `\`<${c.tagName}>\` cannot be in the \`<head>\`: the browser would move it, and everything after it, into the body`, 0,
             'only head elements go in the head: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>`, `<template>` and head components');
@@ -1361,7 +1367,7 @@ class Compiler {
         def.bad = true; detach(host); return null;
       }
       if (!isElement(c)) continue;
-      const ok = (HEAD_ELEMENTS.has(c.tagName) && !c.tagName.startsWith('sn-')) || c.tagName === 'slot' || this.componentFile(c.tagName)?.head;
+      const ok = HEAD_ELEMENTS.has(c.tagName) || c.tagName === 'slot' || this.componentFile(c.tagName)?.head;
       if (!ok) {
         this.report(c, null, 'SN320', `a head component holds head elements: \`<${c.tagName}>\` cannot be in \`<${name}>\``, 0,
           'head elements are `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>`, `<template>` and head components; a component for the body is a `<template data-sn-component>` with one root');

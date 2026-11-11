@@ -13,8 +13,8 @@ type P5Document = DefaultTreeAdapterMap['document'];
 
 const OPTS = { sourceCodeLocationInfo: true } as const;
 
-/** What a head may hold after expansion: what the browser keeps in it, and sinter's own elements, which the build removes. */
-export const HEAD_ELEMENTS = new Set(['title', 'meta', 'link', 'script', 'style', 'noscript', 'base', 'template', 'sn-resource', 'sn-sync']);
+/** What a head may hold after expansion: what the browser keeps in it. */
+export const HEAD_ELEMENTS = new Set(['title', 'meta', 'link', 'script', 'style', 'noscript', 'base', 'template']);
 
 /**
  * Parses a document, with the content of a written `<head>…</head>` parsed as template content at

@@ -17,7 +17,7 @@ function run(html: string, components: Record<string, string> = {}) {
   return compile(html, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error('missing'); } });
 }
 const page = (head: string, body = '<p data-sn-text="post.title"></p>') =>
-  `<!doctype html><html><head><meta charset="utf-8"><sn-resource name="post" src="/api/post"></sn-resource>${head}<link rel="stylesheet" href="/a.css"></head><body>${body}</body></html>`;
+  `<!doctype html><html><head><meta charset="utf-8">${head}<link rel="stylesheet" href="/a.css"></head><body><sn-resource name="post" src="/api/post"></sn-resource>${body}</body></html>`;
 const codes = (html: string, c?: Record<string, string>) => run(html, c).diagnostics.filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
 
 describe('head components', () => {

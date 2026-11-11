@@ -28,13 +28,15 @@ beforeAll(async () => {
   <title data-sn-text="site() + ' · Blog'">Blog</title>
   <meta name="description" content="Notes" data-sn-attr="{ content: 'About ' + site() }">
   <template data-sn-if="withImage()"><meta property="og:image" data-sn-attr="{ content: '/img/' + site() + '.png' }"></template>
-  <sn-resource name="post" src="/api/post" items="post" type="any"></sn-resource>
-  <sn-resource name="other" src="/api/other" items="other" type="any"></sn-resource>
   <script type="application/json" data-sn-data="post">{ "post": { "title": "Embedded" } }</script>
   <meta property="og:title" content="Blog" data-sn-attr="{ content: post ? post.title + ($url.q ? ' ' + $url.q : '') : 'Blog' }">
   <meta property="og:description" content="Blog" data-sn-attr="{ content: other ? other.text : 'Blog' }">
 </head>
-<body><p id="t" data-sn-text="post ? post.title : ''"></p></body>
+<body>
+  <sn-resource name="post" src="/api/post" items="post" type="any"></sn-resource>
+  <sn-resource name="other" src="/api/other" items="other" type="any"></sn-resource>
+  <p id="t" data-sn-text="post ? post.title : ''"></p>
+</body>
 </html>
 `);
   await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()], build: { outDir: out, emptyOutDir: true, minify: false } });
