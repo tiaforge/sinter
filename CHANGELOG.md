@@ -20,7 +20,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 - Layouts: a file `src/layouts/<name>.html` is a whole document whose `<html data-sn-layout="{ …props }">` declares its
   props, with any number of slots in its head and body. A page that is only the layout's tag gets the layout's
   document: the tag's content fills the slots (head elements with `slot="…"` for a head slot), its attributes go onto
-  `<html>` (replacing the layout's: `lang`, `data-sn-path`; `class` is joined), and `data-sn-state` on it is the page's
+  `<html>` (replacing the layout's: `lang`, `data-sn-path`; `class` is joined), its handlers onto the layout's `<body>`
+  (DOM events, `sn-error` and `dismiss`: the page's `<body>` handlers), and `data-sn-state` on it is the page's
   state, which the props and the slot content see and the layout does not. The merge happens before anything else
   reads the page, so the early scripts, preloads, embedded data, Google Fonts and Vite's bundling of the layout's
   scripts and stylesheets work on the merged head. The layout's relative URLs are relative to its file. New

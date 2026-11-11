@@ -81,9 +81,14 @@ hand. Nothing of the layout is left at run time.
   ```
 
 - The tag's attributes go onto `<html>`. A plain one (`lang`, `dir`, `data-theme`) replaces the
-  layout's, which is its default; `class` is joined. `data-sn-path`, `data-sn-prefetch`, handlers and
-  `data-sn-class`, `-attr`, `-style` go onto `<html>` in the page's scope. A handler there hears every
-  event that bubbles up the page: `data-sn-on-sn-error` handles the page's failed requests.
+  layout's, which is its default; `class` is joined. `data-sn-path`, `data-sn-prefetch` and
+  `data-sn-class`, `-attr`, `-style` go onto `<html>` in the page's scope.
+- The tag's handlers are the page's `<body>` handlers, as before layouts: they go onto the layout's
+  `<body>`, in the page's scope, ahead of the layout's own handlers there. They take DOM events and
+  sinter's `sn-error` and `dismiss` (anything else is `SN315`): page-wide shortcuts
+  (`data-sn-on-keydown-shift-n`, heard even when nothing has focus) and the page's failed actions
+  (`data-sn-on-sn-error`). A component's event is handled on an element around it, in the page's
+  content.
 
 ## Head components
 

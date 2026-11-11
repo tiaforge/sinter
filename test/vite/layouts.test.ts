@@ -49,11 +49,12 @@ const files: Record<string, string> = {
   <h1>Welcome</h1>
 </site-layout>
 `,
-  'blog/post.html': `<site-layout data-sn-path="/blog/post" data-sn-state="{ n: 0 }" data-sn-prop="{ nav: 'post', title: post ? post.title + (n ? ' (' + n + ')' : '') : undefined }">
+  'blog/post.html': `<site-layout data-sn-path="/blog/post" data-sn-state="{ n: 0 }" data-sn-on-sn-error="n = 99; $event.preventDefault()" data-sn-on-keydown-shift-n="n = 7" data-sn-prop="{ nav: 'post', title: post ? post.title + (n ? ' (' + n + ')' : '') : undefined }">
   <sn-resource name="post" src="/api/post" items="post" type="any"></sn-resource>
   <link slot="head" rel="stylesheet" href="../src/styles/site.css">
   <h1 data-sn-text="post ? post.title : ''"></h1>
-  <button data-sn-on-click="n++">more</button>
+  <button id="more" data-sn-on-click="n++">more</button>
+  <button id="fail" data-sn-post="/api/fail">fail</button>
 </site-layout>
 `,
 };
@@ -90,6 +91,7 @@ test('the merged head is what the build sees: the layout\'s script and styleshee
 test.runIf(!!chromium)('in Chromium: the title follows the page\'s data and its state, the layout\'s script ran, the header is the layout\'s', async () => {
   const site = http((req, res) => {
     const path = (req.url ?? '/').split('?')[0]!;
+    if (path === '/api/fail') { res.statusCode = 500; res.setHeader('Content-Type', 'application/json'); return res.end('{}'); }
     if (path === '/api/post') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ post: { title: 'Hello' } })); }
     try {
       const body = readFileSync(join(out, path === '/' ? 'index.html' : path.endsWith('/post') ? 'blog/post.html' : path));
@@ -108,8 +110,14 @@ test.runIf(!!chromium)('in Chromium: the title follows the page\'s data and its 
     expect(await tab.textContent('h1')).toBe('Hello');
     expect(await tab.getAttribute('html', 'data-main')).toBe('yes');
     expect(await tab.$$eval('header.site-header', (x) => x.length)).toBe(1);
-    await tab.click('button');
+    await tab.click('#more');
     await tab.waitForFunction(() => document.title === 'Hello (1) · Blog');
+    // the tag's handlers are on <body>: a failed action of the page's content, and a shortcut with nothing focused
+    await tab.click('#fail');
+    await tab.waitForFunction(() => document.title === 'Hello (99) · Blog');
+    await tab.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await tab.keyboard.press('Shift+N');
+    await tab.waitForFunction(() => document.title === 'Hello (7) · Blog');
     expect(await tab.$$eval('head title', (x) => x.length)).toBe(1);
     await tab.goto(`http://127.0.0.1:${port}/`);
     await tab.waitForFunction(() => document.title === 'Home · Blog');

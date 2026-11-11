@@ -2,22 +2,8 @@
 
 Status: implemented (2026-11-11), steps 1 to 7 of the [Plan](#plan); the guide is
 [layouts.md](../layouts.md). The choices in [Decisions](#decisions) were settled with the maintainer
-while drafting; [Open questions](#open-questions) lists what is still open. Where the implementation
-departs from this text or adds to it:
-
-- Go to definition goes from a `slot="…"` value to the `<slot>` it names (not from a `<slot>` to the
-  pages that fill it).
-- A handler on a layout's tag is not checked against declared events: it is on `<html>`, which hears
-  every event that bubbles up the page (RealWorld's `data-sn-on-sn-error`).
-- Comments outside a layout's `<html>` document the layout file and are not copied into the pages.
-- `SN321` counts a fixed list of elements a head has once (the [guide](../layouts.md#what-binds-in-a-head)
-  lists them); repeatable metas such as `og:image`, and any `<meta media>`, are not counted.
-- A head the browser's parser would cut short is parsed again only when it would be: other pages
-  parse exactly as before. A page with an `<sn-resource>` in its head now keeps the head elements
-  after it in the head (before, the parser moved them into the body).
-- Slot content keeps its first caller's scope through any number of components; before, content a
-  component passed on into another component's slot took the scope of the component in between.
-- RealWorld: the measurements are in [realworld-comparison.md](../realworld-comparison.md#layouts).
+while drafting; [Open questions](#open-questions) lists what is still open, and
+[Deviations](#deviations) where the implementation departs from this text.
 
 Components cannot hold a page's `<html>` or `<head>`: a component is a `<template>`, and inside a
 `<template>` the HTML parser drops `<html>`, `<head>` and `<body>` tags (a `<template
@@ -157,8 +143,9 @@ its props type. Nothing is inferred from the file's contents or its folder.
 - **Attributes on the tag go onto `<html>`.** `lang`, `dir`, `data-sn-path`, `class` and the like are
   written on the tag. Unlike a component, an attribute on the tag *replaces* the layout's value instead
   of being an error: the layout's attributes on `<html>` are its defaults (`lang="en"`, overridden by a
-  German page). `class` is joined. Handlers (`data-sn-on-*`) on the tag go onto `<html>` in the page's
-  scope.
+  German page). `class` is joined. Handlers (`data-sn-on-*`) on the tag are the page's `<body>`
+  handlers: they go onto the layout's `<body>` in the page's scope, ahead of its own, for DOM events
+  and sinter's `sn-error` and `dismiss` (`SN315` otherwise).
 - A layout tag inside a component, inside another layout, or below the top level of a page is an
   error. So is `<sn-component use>` naming a layout, and `data-sn-early` on a layout tag (a layout is
   the whole page; leave its parts out of the early script on their own tags).
@@ -269,7 +256,7 @@ A per-page title and description from data need bindings in the head.
   error (`SN321`), unless they are in two branches of one `data-sn-if`/`data-sn-else`.
 
 **What a crawler sees.** Values that are build-time constants, or that the early script knows
-(`$url`, messages, helpers), are in the HTML or rendered as the head is parsed. A value from API data
+(`$url`, messages, helpers; see [Deviations](#deviations) for `$url`), are in the HTML or rendered as the head is parsed. A value from API data
 is rendered when the data arrives: at once with embedded data, otherwise after the request. Google
 renders JavaScript and sees it. Scrapers that do not run scripts (most link previews: Slack, iMessage,
 X, Facebook) see the element's literal content and the constants: `<title>Conduit</title>`. The guide
@@ -367,6 +354,38 @@ the merged page.
 - **Required slots.** A slot the page must fill (`<slot name="actions" required>`), for markup that must
   be there; a required value is a required prop. Left out for now (2026-11-11).
 
+## Deviations
+
+Where the implementation (2026-11-11) departs from the text above, or goes further than it. The text
+above is left as designed; each entry says what it said, what was built, and why.
+
+### Behaviour
+
+| Topic | The text | Built | Why |
+| --- | --- | --- | --- |
+| Relative URLs in a layout | every relative `src` or `href` is rebased to the layout's file | only the URLs of what the page loads: `href` of `<link>`, `src` of `<script>`, `<img>`, `<source>`, `<video>`, `<audio>`, `<track>`, `<input type="image">`, `srcset` and `poster`. An `<a href>` stays as written | a link's relative URL is relative to the page the browser shows, as on any page; rebasing it to `src/layouts/` would break it |
+| Comments around the layout's `<html>` | not covered | dropped: they document the layout file and are not copied into the pages | measured on RealWorld: the layout's leading comment made every page 230 B larger |
+| `SN321` | two `<title>`s, or two `<meta>`s with one `name` or `property` | a fixed list of elements a head has once: `<title>`, `<base>`, `<meta charset>`, `<link rel="canonical">`, `<meta name>` `viewport`, `description`, `robots`, `<meta property>` `og:title`, `og:description`, `og:url`, `og:type`, `twitter:card`, `twitter:title`, `twitter:description`; a `<meta media>` is not counted. It applies to every page, not only to merged heads | `og:image`, `article:tag`, `og:locale:alternate` and `theme-color` with `media` repeat legitimately |
+| Parsing the head | every head is parsed as template content | a head is parsed again that way only when the browser's parser would cut it short (an element written in it ends up outside it); other pages parse exactly as before | plain pages build byte for byte as before (the golden tests) |
+| Head content | an element that does not end up as head content is `SN320` | as written, on every page, with `<sn-resource>` and `<sn-sync>` allowed (the build removes them). A page with an `<sn-resource>` in its head keeps the head elements after it in the head; before, the parser moved them into the body | a behaviour change for existing pages, listed in the changelog |
+| Slot content's scope | slot content keeps the page's scope through forwarding | slot content keeps its first caller's scope through any number of components, forwarded or not | before, content a component passed on into another component's slot took the scope of the component in between: a bug the forwarding work found |
+| `$url` in the head | the early script knows `$url` | it renders `$url` only on pages with embedded data, as everywhere else ([first-paint.md](../first-paint.md)): without it, a binding that reads `$url` renders when the page module runs | the early script's rule, unchanged; the text was wrong |
+| Handlers on the layout's tag | onto `<html>`, in the page's scope | onto the layout's `<body>` (the page's `<body>` handlers, as before layouts), ahead of its own, for DOM events, `sn-error` and `dismiss` (`SN315` otherwise). Decided with the maintainer; see [Decisions](#decisions) | page-wide shortcuts and the page's failed actions are what they are for, and both reach `<body>`. A first implementation put them on `<html>` without a name check, which the decision replaced |
+
+### Editor
+
+| Topic | The text | Built | Why |
+| --- | --- | --- | --- |
+| Go to definition of a slot | from a `<slot>`'s name to where pages fill it | from a `slot="…"` value to the `<slot>` it names | the direction that answers "what is this slot"; the other one is a search over pages, left for later |
+
+### Proof
+
+| Topic | The text | Built | Why |
+| --- | --- | --- | --- |
+| RealWorld's size | level with the build before layouts | HTML and head scripts level (within ±5 B gzip per page); page modules 60 to 104 B (gzip) larger ([realworld-comparison.md](../realworld-comparison.md#layouts)) | the title and description are bindings now (a constant one is written into the HTML and its binding stays, as for every prerendered binding), and the page's state is on `<html>` instead of a `<div>` |
+| RealWorld's titles | not covered | the article and profile pages take their titles from data; scrapers that run no script see `Conduit` there, where they saw `Article — Conduit` | the example shows a title from data; a server writing the head is an [open question](#open-questions) |
+| Every engine | head bindings checked in Chromium, Firefox and WebKit | the test runs in every engine Playwright has; locally only Chromium was installed, so Firefox and WebKit run in CI | the development machine had no Firefox or WebKit |
+
 ## Decisions
 
 Settled with the maintainer on 2026-11-11:
@@ -378,6 +397,7 @@ Settled with the maintainer on 2026-11-11:
 | Where a layout's declaration sits | On its `<html>`: the declaration sits on the file's root element, `<template>` for a fragment, `<html>` for a document. (Rejected: `<template data-sn-layout>` around the document, since the parser drops `<html>`, `<head>` and `<body>` inside a template; sinter would need its own parser for the whole file, and editors, formatters and LLMs would read it differently from the build.) |
 | How a file says its kind | One declaration attribute per kind: `data-sn-component`, `data-sn-head`, `data-sn-layout`, each holding the props type. (Rejected: one `data-sn-component` for all, with the kind from the folder and the contents.) |
 | Head bindings | `<title>` text and `<meta name|property> content` bind at run time; constants are in the HTML; `http-equiv`, `charset`, `<link>`, `<base>` stay unbindable. (Rejected: build time only; title only.) |
+| Handlers on the layout's tag | The page's `<body>` handlers: on the layout's `<body>`, in the page's scope, ahead of its own; DOM events, `sn-error` and `dismiss` only (`SN315`). They cover page-wide shortcuts and the page's failed actions. (Rejected: on `<html>` with no name check, a first draft of the implementation; on the page content's first element, which is not one element.) |
 | Passing values to the head | Both: typed props for values, slots for markup, and slots forwarded from a layout into its components; the LSP completes slot names. (Rejected: slots only.) |
 
 Defaults chosen while writing, open to review: an attribute on the layout tag replaces the layout's

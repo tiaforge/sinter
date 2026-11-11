@@ -62,10 +62,21 @@ describe('the merge', () => {
     expect(errors(inLayout)).toEqual([expect.stringMatching(/^SN201 `tab` is not defined/)]);
   });
 
-  test('a handler on the tag is on <html>, for any event that bubbles up the page, in the page\'s scope', () => {
-    const out = run('<site-layout data-sn-state="{ err: null }" data-sn-prop="{ nav: \'x\' }" data-sn-on-sn-error="err = $event.detail.error"><p>x</p></site-layout>');
+  test('the tag\'s handlers are the page\'s <body> handlers: on the layout\'s <body>, first, in the page\'s scope', () => {
+    const shell = '<!doctype html><html data-sn-layout="{ nav: string }"><head></head><body data-sn-state="{ k: 0 }" data-sn-on-keydown-escape="k++"><slot></slot></body></html>';
+    const out = run('<site-layout data-sn-state="{ err: null }" data-sn-prop="{ nav: \'x\' }" data-sn-on-sn-error="err = $event.detail.error" data-sn-on-keydown-shift-n="err = null"><p>x</p></site-layout>',
+      { '/p/src/layouts/site-layout.html': shell });
     expect(errors(out)).toEqual([]);
-    expect(out.module).toMatch(/"tag":"html","b":\[\{"k":"on","f":\d+,"n":"sn-error"/);
+    expect(out.html).toMatch(/<html data-sn="0"><head>.*<\/head><body data-sn="1">/s);
+    const body = /\{"tag":"body"[^}]*"b":\[(.*?)\],"state"/.exec(out.module)![1]!;
+    expect(body.match(/"n":"[^"]+"/g)).toEqual(['"n":"sn-error"', '"n":"keydown"', '"n":"keydown"']);
+    expect(out.module).toContain('$.$s0.err = $.$event.detail.error');
+  });
+
+  test('a layout\'s tag takes handlers for DOM events, sn-error and dismiss: anything else is SN315', () => {
+    expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }" data-sn-on-click="1" data-sn-on-dismiss="1"><p>x</p></site-layout>'))).toEqual([]);
+    expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }" data-sn-on-sn-eror="1"><p>x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN315 `sn-eror` is not an event the page's `<body>` hears: .*Did you mean `sn-error`\?/)]);
+    expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }" data-sn-on-pick="1"><p>x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN315 `pick` is not an event/)]);
   });
 
   test('fallback content stays when the page leaves a slot empty', () => {

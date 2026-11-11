@@ -289,6 +289,8 @@ interface Use {
   markup?: Scope;
   /** a layout (`<html data-sn-layout>`): the page is its tag, its root the layout's `<html>` */
   layout?: true;
+  /** a layout's tag's handlers, compiled on the layout's `<body>` (the page's `<body>` handlers, as before layouts) */
+  bodyHandlers?: P5Element;
 }
 
 /** A component file, read once: its text, scoped styles and script. */
@@ -343,6 +345,9 @@ function onceKey(el: P5Element): { id: string; label: string } | null {
   return null;
 }
 
+/** the events the runtime itself sends, which bubble up the page */
+const SINTER_EVENTS = ['sn-error', 'dismiss'];
+
 /** a prop's value that is a build-time constant, and those of them that are falsy */
 const CONST_PROP = /^(true|false|null|undefined|-?\d+(\.\d+)?|'[^'\\]*'|"[^"\\]*")$/;
 const FALSY_PROP = ['false', 'null', 'undefined', '0', "''", '""'];
@@ -395,6 +400,8 @@ class Compiler {
   private readonly earlySites = new Map<string, Site>();
   private readonly stateAt = new Map<number, { site: Site; fields: Map<string, Site> }>();
   readonly origins = new WeakMap<object, Origin>();
+  /** a layout's `<body>`, which takes the handlers of the page's tag */
+  private readonly layoutBody = new WeakMap<P5Element, Use>();
   /** text forwarded into a component's named slot by a slot with `slot="…"` (elements carry the attribute) */
   private readonly forwarded = new WeakMap<object, string>();
   /** layout files by tag, read once (null: no such layout) */
@@ -972,6 +979,16 @@ class Compiler {
       }
       if (a.name === 'class') { const own = attr(lhtml, 'class'); setAttr(lhtml, 'class', own ? `${own} ${a.value}` : a.value); }
       else setAttr(lhtml, a.name, a.value);
+    }
+    // the tag's handlers are the page's `<body>` handlers: on the layout's `<body>`, ahead of its own
+    const lbody = lhtml.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'body');
+    const handler = (n: string) => n.startsWith('data-sn-on-') || n.startsWith('data-sn-debounce-');
+    if (lbody && host.attrs.some((a) => handler(a.name))) {
+      const h: P5Element = { ...host, attrs: host.attrs.filter((a) => handler(a.name)) };
+      this.origins.set(h, pageOrigin);
+      host.attrs = host.attrs.filter((a) => !handler(a.name));
+      use.bodyHandlers = h;
+      this.layoutBody.set(lbody, use);
     }
     if (attr(host, 'data-sn-state') !== undefined && attr(lhtml, 'data-sn-state') !== undefined) {
       this.report(host, 'data-sn-state', 'SN209', `\`data-sn-state\` is set both here and on the \`<html>\` of \`<${name}>\`; the page's state and the layout's would be one`, 0, 'keep the layout\'s state on an element inside it, such as its `<body>`');
@@ -1968,6 +1985,9 @@ class Compiler {
     }
     if (has('key') && !(isTemplate && has('for'))) this.report(el, 'data-sn-key', 'SN102', '`data-sn-key` belongs on a `<template data-sn-for>`', 0);
 
+    // a layout's `<body>`: first the handlers of the page's tag, in the page's scope
+    const page = this.layoutBody.get(el);
+    if (page?.bodyHandlers && page.caller) this.bindings(page.bodyHandlers, node, page.caller, { ...ctx, scope: page.caller }, page);
     this.bindings(el, node, scope, ctx);
     // a component's root: the caller's attributes on its tag, in the caller's scope
     if (use && !use.head) this.bindings(use.host, node, use.caller!, { ...callerCtx!, scope: use.caller! }, use);
@@ -2098,8 +2118,11 @@ class Compiler {
         this.report(el, a.name, 'SN101', `event names are lowercase kebab-case: \`${a.name}\``, 0);
         continue;
       }
-      // a layout's tag is on `<html>`, which hears every event that bubbles up the page
-      if (use && !use.layout && !kf && use.emits && !DOM_EVENTS.has(event) && !use.emits.some((m) => m.name === event)) {
+      // a layout's tag: the page's `<body>` handlers, for DOM events and sinter's own
+      if (use?.layout && !kf && !DOM_EVENTS.has(event) && !SINTER_EVENTS.includes(event)) {
+        this.report(el, a.name, 'SN315', `\`${event}\` is not an event the page's \`<body>\` hears: a layout's tag takes handlers for DOM events and sinter's \`sn-error\` and \`dismiss\`.${didYouMean(event, [...SINTER_EVENTS, ...DOM_EVENTS])}`, 0,
+          'handle a component\'s event on an element around it, in the page\'s content');
+      } else if (use && !use.layout && !kf && use.emits && !DOM_EVENTS.has(event) && !use.emits.some((m) => m.name === event)) {
         const names = use.emits.map((m) => m.name);
         this.report(el, a.name, 'SN315', `\`<${use.name}>\` does not emit \`${event}\`; ${names.length ? `it declares ${names.map((x) => `\`${x}\``).join(', ')}` : 'it declares no events'}.${didYouMean(event, names)}`, 0);
       }
