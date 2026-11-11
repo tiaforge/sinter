@@ -5,6 +5,7 @@
 // `data-sn-ref` element one (the root's state, the ref's name). Loaded only by pages that use such
 // a component.
 import { STATE, type App, type Feature, type Tagged } from './runtime/app.js';
+import type { SinterError } from './runtime/config.js';
 
 /**
  * The base of a component's script. A component's script extends the class generated from its HTML
@@ -37,6 +38,8 @@ const feature: Feature = {
   name: 'components',
   install(app: App) {
     const live = new Map<Element, Inst>();
+    /** roots whose script loads with lazy packages (`a.l`): the latest props until it has loaded */
+    const waiting = new Map<Element, { p: Record<string, unknown> }>();
     /** by root state: the refs of its instance (the elements its markup's ref bindings gave) */
     const refsOf = new WeakMap<object, Record<string, Element>>();
     const refs = (st: object) => refsOf.get(st) ?? (refsOf.set(st, {}), refsOf.get(st)!);
@@ -54,12 +57,31 @@ const feature: Feature = {
         i.p = b;
         return;
       }
+      // a script that loads with lazy packages: the instance starts once it has loaded, with the props
+      // of that moment, and connects at once (the markup is rendered); one that left the page meanwhile never starts
+      if (a.l) {
+        const x = waiting.get(el);
+        if (x) return void (x.p = b);
+        waiting.set(el, { p: b });
+        a().then((cls: any) => {
+          const x = waiting.get(el);
+          if (!x || !waiting.delete(el) || !el.isConnected) return;
+          const i = create(el, cls, x.p, keys, w);
+          i.c = 1;
+          run(el, i, 'connected');
+        }, (e: SinterError) => { waiting.delete(el); app.unhandled(e, el); });
+        return;
+      }
       // `a`: the class, which the compiler imported
+      create(el, a, b, keys, w);
+    };
+    const create = (el: Element, a: any, b: Record<string, unknown>, keys: string[], w: unknown[] | undefined) => {
       const obj = (el as Tagged)[STATE]![1], state = {}, o = new a(), x: Inst = { o, p: b, c: 0 };
       // the root's state, each field written through: an assignment marks that field (`w`: its path, by the order of `keys`)
       keys.forEach((k, j) => Object.defineProperty(state, k, { get: () => obj[k], set: (v) => { obj[k] = v; app.mark(w![j] as number); } }));
       Object.defineProperties(o, { props: { get: () => x.p }, state: { value: state }, refs: { value: refs(obj) }, root: { value: el } });
       live.set(el, x);
+      return x;
     };
     // after each render: new instances connect, changed ones hear of it, removed ones end; refs that left the page go
     app.afterFlush.push(() => {
@@ -71,7 +93,7 @@ const feature: Feature = {
         else if (i.c == 2) { i.c = 1; run(el, i, 'propsChanged'); }
       }
     });
-    app.addCleanup(() => { for (const [el, i] of live) if (i.c) run(el, i, 'disconnected'); live.clear(); });
+    app.addCleanup(() => { for (const [el, i] of live) if (i.c) run(el, i, 'disconnected'); live.clear(); waiting.clear(); });
   },
 };
 export default feature;

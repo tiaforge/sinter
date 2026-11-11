@@ -10,7 +10,7 @@ import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
 import { lazyOf, project, staticPages, type ProjectOptions } from './project.js';
-import { CHUNK_MARK, helperProblem, isComponentScript, LAZY, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
+import { CHUNK_MARK, chainText, helperProblem, isComponentScript, LAZY, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { loadImages, MIME, type Images } from './images.js';
@@ -263,8 +263,21 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** `lazy`: the packages loaded on first call (checked before Vite starts), and each one's resolved id (its chunk's facade) */
   const lazyPkgs = lazyOf(options.lazy);
   const lazyIds = new Map<string, string>();
-  /** each page's `data-sn-preload` packages, by its path relative to the root */
+  /** each page's `data-sn-preload` packages, and its component scripts that load with lazy packages, by its path relative to the root */
   const preloadOf = new Map<string, string[]>();
+  const lazyScriptsOf = new Map<string, Array<{ module: string; lazy: string[] }>>();
+  /** builds: the component scripts that load with lazy packages, logged once each with the chain that made them lazy */
+  const loggedScripts = new Set<string>();
+  /** the lazy packages a component script reaches (`/src/components/x.ts`); a build logs why it loads with them */
+  const lazyScript = (module: string): string[] => {
+    const file = resolve(root, '.' + module);
+    const r = reachLazy(file, lazyPkgs, root);
+    if (r.length && !dev && !loggedScripts.has(module)) {
+      loggedScripts.add(module);
+      resolved?.logger.info(`sinter: ${relOf(file)} loads with ${r.map((x) => x.spec).join(', ')}, when its component first renders: ${r.map((x) => chainText(root, x)).join('; ')}`);
+    }
+    return r.map((x) => x.spec);
+  };
   /** `site`: the origin, checked (no path, no query) */
   const siteOrigin = (() => {
     if (options.site == null) return null;
@@ -502,6 +515,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const out = compile(html, {
       file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
       check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles, lazy: p.lazy,
+      ...(lazyPkgs.length ? { lazyScript } : {}),
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
@@ -519,6 +533,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (v) out.html = rebaseHtml(out.html, '/' + posix.dirname(relOf(src)).replace(/^\.$/, ''), '/' + posix.dirname(rel));
     runtimeOf.set(rel, out.runtime);
     if (out.preload.length) preloadOf.set(rel, out.preload); else preloadOf.delete(rel);
+    if (out.lazyScripts) lazyScriptsOf.set(rel, out.lazyScripts); else lazyScriptsOf.delete(rel);
     for (const x of out.styles) {
       if (componentCss.get(x.name) === x.css) continue;
       componentCss.set(x.name, x.css);
@@ -1044,8 +1059,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     type C = { type: string; fileName: string; facadeModuleId?: string | null; imports?: string[] };
     const chunks = Object.values(bundle) as C[];
     const files: string[] = [];
-    for (const spec of specs) {
-      const id = lazyIds.get(spec), c = id ? chunks.find((x) => x.type === 'chunk' && x.facadeModuleId === id) : undefined;
+    // the packages, and the page's component scripts that load with them
+    const ids = specs.map((spec) => ({ spec, id: lazyIds.get(spec) }));
+    for (const x of lazyScriptsOf.get(rel) ?? []) if (x.lazy.some((s) => specs.includes(s))) ids.push({ spec: x.module, id: resolve(root, '.' + x.module) });
+    for (const { spec, id } of ids) {
+      const c = id ? chunks.find((x) => x.type === 'chunk' && x.facadeModuleId === id) : undefined;
       if (!c) { warnOnce(`sinter: ${rel} preloads ${spec} (data-sn-preload), but no module of the app imports it: there is nothing to preload`); continue; }
       const todo = [c.fileName];
       while (todo.length) {

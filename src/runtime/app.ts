@@ -196,6 +196,8 @@ export interface App {
   readonly isDirty: boolean;
   /** dev hooks: dev-only checks on, warnings by code (or text), and item preparation (freezing) */
   dev: boolean;
+  /** for feature modules: the unhandled-error path (`sn-error` from `el`, then `onError`, then the dev console) */
+  unhandled(error: SinterError, el: Element | null): void;
   /** dev builds: returns true for a handler's error (code 24) it reported; the core logs it otherwise */
   warn(code: number | string, ...args: unknown[]): unknown;
   prep?: <T>(item: T) => T;
@@ -575,6 +577,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     get isDirty() { return dirty.length > 0 || scheduled; },
     dev: false,
     warn() {},
+    unhandled,
     page: {
       $r: {}, $meta: {}, $url: readUrl(), $now: new Date(env.now()),
       $m: (el: unknown, v: unknown) => (marked.add(el), v),

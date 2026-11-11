@@ -25,7 +25,26 @@ beforeAll(async () => {
 export async function encrypt(t) { return 'enc(' + t + ')'; }
 export function parse(t) { return 'parse(' + t + ')' + body.length; }
 export const enums = { aes: 1 };
+export class Thing { say(n) { return 'thing ' + n; } }
 `);
+  // a component built around one of the package's classes: its script loads with the package
+  put('src/components/x-ring.html', `<template data-sn-component="{ n: number }"><p data-sn-state="{ said: '' }"><span data-sn-text="said"></span></p></template>\n`);
+  put('src/components/x-ring.ts', `import { XRingComponent } from './x-ring.html';
+import { Thing } from 'fakepgp';
+export class XRing extends XRingComponent {
+  t = new Thing();
+  connected() { this.state.said = this.t.say(this.props.n); (window as any).__conn = ((window as any).__conn ?? 0) + 1; }
+  propsChanged() { this.state.said = this.t.say(this.props.n); }
+}
+`);
+  put('comp.html', `<!doctype html><html><head><title>comp</title></head><body>
+<div data-sn-state="{ n: 1, show: true }" data-sn-preload="fakepgp">
+  <template data-sn-if="show"><div id="a"><x-ring data-sn-prop="{ n }"></x-ring></div></template>
+  <div id="b"><x-ring data-sn-prop="{ n }"></x-ring></div>
+  <button id="inc" data-sn-on-click="n = n + 1">inc</button>
+  <button id="hide" data-sn-on-click="show = false">hide</button>
+</div>
+</body></html>`);
   put('src/sinter.actions.ts', `export * as pgp from './actions/pgp.ts';\n`);
   put('src/actions/pgp.ts', `import * as fake from 'fakepgp';
 import type { enums } from 'fakepgp';
@@ -45,12 +64,18 @@ export async function seal(t: string) { return (await fake.encrypt(t)) + ':' + (
   put('preload.html', `<!doctype html><html><head><title>preload</title></head><body>
 <div data-sn-state="{ out: '' }"><button id="go" data-sn-call="pgp.seal('hi')" data-sn-then="out = $result" data-sn-preload="fakepgp">go</button><output id="out" data-sn-text="out"></output></div>
 </body></html>`);
-  const input = { index: join(root, 'index.html'), import: join(root, 'import.html'), preload: join(root, 'preload.html') };
+  const input = { index: join(root, 'index.html'), import: join(root, 'import.html'), preload: join(root, 'preload.html'), comp: join(root, 'comp.html') };
   await build({ root, logLevel: 'silent', plugins: [sinter({ lazy: ['fakepgp'] })], resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input } } });
 }, 60_000);
 
 const assets = () => readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.js'));
 const read = (f: string) => readFileSync(join(out, 'assets', f), 'utf8');
+/** the chunk the loader imports (and asks the server about when a load fails), and the one with the package's code */
+const lazyChunks = () => {
+  const code = assets().map(read).join('\n');
+  const target = /lazy\(\(\) => __vitePreload\(\(\) => import\("\.\/([^"]+)"\)/.exec(code)![1]!;
+  return { target, body: assets().find((f) => read(f).includes(MARK))! };
+};
 
 test('the package is a chunk of its own, which the page bundle does not import statically', () => {
   const html = readFileSync(join(out, 'index.html'), 'utf8');
@@ -62,15 +87,16 @@ test('the package is a chunk of its own, which the page bundle does not import s
     statics.add(f);
     for (const m of read(f).matchAll(/^import\s[^'"]*["']\.\/([^"']+)["']/gm)) todo.push(m[1]!);
   }
-  const withPkg = assets().filter((f) => read(f).includes(MARK));
-  expect(withPkg).toHaveLength(1);
-  expect(statics.has(withPkg[0]!)).toBe(false);
+  expect(assets().filter((f) => read(f).includes(MARK))).toHaveLength(1);
+  const { target, body } = lazyChunks();
+  expect(statics.has(target) || statics.has(body)).toBe(false);
   // nor a modulepreload of it
-  expect(html).not.toContain(withPkg[0]);
+  expect(html).not.toContain(target);
+  expect(html).not.toContain(body);
   // the loader knows the chunk's URL, for the stale check
   const code = assets().map(read).join('\n');
   expect(code).not.toMatch(/["']__SN_CHUNK__[/\\]/);
-  expect(code).toMatch(new RegExp(`lazy\\(\\(\\) => [\\s\\S]{0,200}"\\./${withPkg[0]!.replace(/[.]/g, '\\.')}", import\\.meta\\.url\\)`));
+  expect(code).toMatch(new RegExp(`lazy\\(\\(\\) => [\\s\\S]{0,200}"\\./${target.replace(/[.]/g, '\\.')}", import\\.meta\\.url\\)`));
 });
 
 test.skipIf(!chromium)('the first call loads the package; a removed chunk is a stale page', async () => {
@@ -79,7 +105,7 @@ test.skipIf(!chromium)('the first call loads the package; a removed chunk is a s
   try {
     server = await preview({ root, logLevel: 'silent', preview: { port: 0 }, build: { outDir: out } });
     const url = server.resolvedUrls!.local[0]!;
-    const pkg = assets().find((f) => read(f).includes(MARK))!;
+    const { target: pkg, body } = lazyChunks();
     const tab = await browser.newPage();
     const requested: string[] = [];
     tab.on('request', (r) => requested.push(r.url()));
@@ -93,8 +119,8 @@ test.skipIf(!chromium)('the first call loads the package; a removed chunk is a s
     expect(requested.some((u) => u.endsWith(pkg))).toBe(true);
 
     // a deploy removed the chunk: a fresh tab of the old page fails with `stale`
-    const kept = read(pkg);
-    unlinkSync(join(out, 'assets', pkg));
+    const kept = [pkg, body].map((f) => [f, read(f)] as const);
+    for (const [f] of kept) unlinkSync(join(out, 'assets', f));
     try {
       const tab2 = await browser.newPage();
       await tab2.goto(url);
@@ -103,7 +129,7 @@ test.skipIf(!chromium)('the first call loads the package; a removed chunk is a s
       await tab2.waitForFunction(() => document.querySelector('#err')?.textContent !== '');
       expect(await tab2.textContent('#err')).toBe('stale: this page is out of date: reload it');
     } finally {
-      writeFileSync(join(out, 'assets', pkg), kept);
+      for (const [f, text] of kept) writeFileSync(join(out, 'assets', f), text);
     }
   } finally {
     await browser.close();
@@ -112,9 +138,10 @@ test.skipIf(!chromium)('the first call loads the package; a removed chunk is a s
 }, 60_000);
 
 test('data-sn-preload: a modulepreload link for the package\'s chunk, in the page\'s head', () => {
-  const pkg = assets().find((f) => read(f).includes(MARK))!;
+  const { target: pkg, body } = lazyChunks();
   const html = readFileSync(join(out, 'preload/index.html'), 'utf8');
-  expect(html).toMatch(new RegExp(`<link rel="modulepreload" crossorigin href="/assets/${pkg.replace(/[.]/g, '\\.')}">\\s*</head>`));
+  // the chunk the loader imports, then the chunks it imports, at the end of the head
+  expect(html).toMatch(new RegExp(`<link rel="modulepreload" crossorigin href="/assets/${pkg.replace(/[.]/g, '\\.')}">\\s*<link rel="modulepreload" crossorigin href="/assets/${body.replace(/[.]/g, '\\.')}">\\s*</head>`));
   expect(html).not.toContain('data-sn-preload');
   expect(readFileSync(join(out, 'import/index.html'), 'utf8')).not.toContain(pkg);
 });
@@ -123,13 +150,51 @@ test.skipIf(!chromium)('data-sn-import: the package loads once the page has take
   const server = await preview({ root, logLevel: 'silent', preview: { port: 0 }, build: { outDir: out } });
   const browser = await chromium!.launch();
   try {
-    const pkg = assets().find((f) => read(f).includes(MARK))!;
+    const { target: pkg } = lazyChunks();
     const tab = await browser.newPage();
     const requested: string[] = [];
     tab.on('request', (r) => requested.push(r.url()));
     await tab.goto(server.resolvedUrls!.local[0]! + 'import.html');
     await tab.waitForFunction((p) => performance.getEntriesByType('resource').some((e) => e.name.endsWith(p)), pkg);
     expect(requested.some((u) => u.endsWith(pkg))).toBe(true);
+  } finally {
+    await browser.close();
+    await new Promise((r) => server.httpServer.close(r));
+  }
+}, 60_000);
+
+test('a component script that imports a lazy package is a chunk of its own, beside the package\'s', () => {
+  const html = readFileSync(join(out, 'comp/index.html'), 'utf8');
+  const entry = /<script type="module" crossorigin src="\/assets\/([^"]+)"/.exec(html)![1]!;
+  const script = assets().find((f) => f.startsWith('x-ring-'))!;
+  expect(script).toBeDefined();
+  expect(read(script)).not.toContain(MARK);
+  // data-sn-preload: the package, and the page's component scripts that load with it
+  expect(html).toContain(`<link rel="modulepreload" crossorigin href="/assets/${script}">`);
+  expect(html).toContain(`<link rel="modulepreload" crossorigin href="/assets/${lazyChunks().body}">`);
+  expect(read(entry)).toMatch(new RegExp(`later\\(\\(\\) => __vitePreload\\(\\(\\) => import\\("\\./${script.replace(/[.]/g, '\\.')}"[\\s\\S]{0,200}"\\./${script.replace(/[.]/g, '\\.')}", import\\.meta\\.url\\)`));
+});
+
+test.skipIf(!chromium)('a lazy component script: the instance starts once it and the package have loaded, with the latest props; one removed meanwhile never does', async () => {
+  const server = await preview({ root, logLevel: 'silent', preview: { port: 0 }, build: { outDir: out } });
+  const browser = await chromium!.launch();
+  try {
+    const tab = await browser.newPage();
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const pkg = assets().find((f) => read(f).includes(MARK))!;
+    await tab.route(`**/assets/${pkg}`, async (route) => { await held; await route.continue(); });
+    await tab.goto(server.resolvedUrls!.local[0]! + 'comp/');
+    await tab.waitForTimeout(200);
+    await tab.click('#inc');
+    await tab.click('#hide');
+    expect(await tab.textContent('#b span')).toBe('');
+    release();
+    await tab.waitForFunction(() => document.querySelector('#b span')?.textContent === 'thing 2');
+    expect(await tab.evaluate(() => (window as any).__conn)).toBe(1);
+    expect(await tab.$('#a')).toBeNull();
+    await tab.click('#inc');
+    await tab.waitForFunction(() => document.querySelector('#b span')?.textContent === 'thing 3');
   } finally {
     await browser.close();
     await new Promise((r) => server.httpServer.close(r));

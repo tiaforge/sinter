@@ -62,6 +62,11 @@ export interface CompileOptions {
   actions?: HelperManifest;
   /** `sinter({ lazy })`: the packages `data-sn-import` and `data-sn-preload` may name (`true`: any, for testing) */
   lazy?: readonly string[] | true;
+  /**
+   * the lazy packages a component's script reaches through its imports (by its module, `/src/components/x.ts`),
+   * or none: a script that reaches one loads with it, apart from the page bundle (docs/lazy.md)
+   */
+  lazyScript?: (module: string) => string[];
   /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
@@ -175,6 +180,8 @@ export interface CompileResult {
   styles: Array<{ name: string; css: string }>;
   /** lazy packages the page fetches with itself (`data-sn-preload`): the build writes their modulepreload links */
   preload: string[];
+  /** component scripts that load with lazy packages: the module and the packages */
+  lazyScripts?: Array<{ module: string; lazy: string[] }>;
   /** with `sourcemap`: the page module's source map, from each function back to the markup (null-free; absent when nothing maps) */
   map?: SourceMap;
   /** with `sourcemap`: the early module's source map */
@@ -306,8 +313,8 @@ export interface CompiledParts {
   unlistedOrigins?: string[];
   /** the scoped styles of the components the page uses, by component */
   styles: Array<{ name: string; css: string }>;
-  /** the scripts of the components the page uses: the module, its class `export` imported as `local` */
-  scripts: Array<{ name: string; module: string; local: string; export: string }>;
+  /** the scripts of the components the page uses: the module, its class `export` imported as `local`; `lazy`: the packages it loads with */
+  scripts: Array<{ name: string; module: string; local: string; export: string; lazy?: string[] }>;
   /** lazy packages the page module loads itself (`data-sn-import`): the package, and its loader's local name */
   lazy: Array<{ spec: string; local: string }>;
   /** lazy packages the page fetches with itself (`data-sn-preload`) */
@@ -525,7 +532,7 @@ class Compiler {
   /** every use, by component name */
   readonly uses = new Map<string, Use[]>();
   /** the scripts of the components the page uses: module and local name in the page module */
-  readonly scripts = new Map<string, { module: string; local: string; name: string }>();
+  readonly scripts = new Map<string, { module: string; local: string; name: string; lazy?: string[] }>();
   /** `data-sn-import`: each lazy package's loader, by package, with its local name in the page module */
   readonly lazyLoads = new Map<string, string>();
   /** `data-sn-preload`: the lazy packages the build preloads with the page */
@@ -744,7 +751,7 @@ class Compiler {
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
       styles: [...this.uses.keys()].sort().flatMap((n) => { const css = this.componentFiles.get(n)?.css; return css ? [{ name: n, css }] : []; }),
-      scripts: [...this.scripts].sort(([a], [b]) => a.localeCompare(b)).map(([name, x]) => ({ name, module: x.module, local: x.local, export: x.name })),
+      scripts: [...this.scripts].sort(([a], [b]) => a.localeCompare(b)).map(([name, x]) => ({ name, module: x.module, local: x.local, export: x.name, ...(x.lazy ? { lazy: x.lazy } : {}) })),
       lazy: [...this.lazyLoads].map(([spec, local]) => ({ spec, local })),
       preload: [...this.preloads].sort(),
     };
@@ -2220,7 +2227,8 @@ class Compiler {
       const local = `$cm$${use.name.replace(/-/g, '_')}`;
       const exported = this.componentFiles.get(use.name)!.exported;
       if (exported === null) this.report(use.template, null, 'SN312', `the script of \`<${use.name}>\` (\`${script}\`) exports no class \`${pascalName(use.name)}\` and no default export`, 0, `\`export class ${pascalName(use.name)} extends ${pascalName(use.name)}Component { … }\``);
-      this.scripts.set(use.name, { module: script, local, name: exported ?? 'default' });
+      const lazy = this.opts.lazyScript?.(script) ?? [];
+      this.scripts.set(use.name, { module: script, local, name: exported ?? 'default', ...(lazy.length ? { lazy } : {}) });
       this.features.add('components');
       const props = (scope.lets ?? []).filter((l) => l.prop);
 

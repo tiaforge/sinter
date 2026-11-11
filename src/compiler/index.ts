@@ -31,13 +31,16 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   const css = (parts.images?.css && options.images?.stylesheet ? `import ${JSON.stringify(options.images.stylesheet)};\n` : '')
     + (options.componentCss ? parts.styles.map((x) => `import ${JSON.stringify(options.componentCss!(x.name))};\n`).join('') : '')
     // components with a script: their modules, which the `cmp` bindings hand to the components feature
-    + parts.scripts.map((x) => `import { ${x.export} as ${x.local} } from ${JSON.stringify(x.module)};\n`).join('');
+    + parts.scripts.filter((x) => !x.lazy).map((x) => `import { ${x.export} as ${x.local} } from ${JSON.stringify(x.module)};\n`).join('')
+    + lazyScripts(parts, options);
   const page = pageLines(parts, options);
   const out: CompileResult = {
     html: parts.html, module: css + page.text(), runtime: parts.runtime, preload: parts.preload, ...(parts.static ? { static: true as const } : {}),
     diagnostics: parts.diagnostics, files: parts.files, styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}),
   };
   if (parts.check) out.check = parts.check;
+  const lazy = parts.scripts.filter((x) => x.lazy);
+  if (lazy.length) out.lazyScripts = lazy.map((x) => ({ module: x.module, lazy: x.lazy! }));
   const map = options.sourcemap ? page.map(parts.sources, css.split('\n').length - 1) : null;
   if (map) out.map = map;
   if (parts.images) out.images = parts.images;
@@ -49,6 +52,22 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   const ns = Object.entries(options.helpers.namespaces).find(([, v]) => v.module === MESSAGES)?.[0];
   if (ns) out.messages = parts.namespaces[ns] ?? [];
   return out;
+}
+
+/**
+ * Component scripts that reach lazy packages: imported when an instance is first rendered, with the
+ * packages, apart from the page bundle (`later`: the module and the packages' loaders at once, and the
+ * script chunk's URL for the stale check, which the build writes in place of the mark).
+ */
+function lazyScripts(parts: CompiledParts, options: CompileOptions): string {
+  const list = parts.scripts.filter((x) => x.lazy);
+  if (!list.length) return '';
+  const specs = [...new Set(list.flatMap((x) => x.lazy!))].sort();
+  const loader = (s: string) => `$ls$${specs.indexOf(s)}`;
+  const file = (m: string) => `${options.root.replace(/\/$/, '')}${m}`;
+  return `import { later as $later } from '${PACKAGE}/lazy';\n`
+    + specs.map((s) => `import { load as ${loader(s)} } from ${JSON.stringify(`${LAZY_PREFIX}${s}.js`)};\n`).join('')
+    + list.map((x) => `const ${x.local} = $later(() => import(${JSON.stringify(x.module)}).then((m) => m[${JSON.stringify(x.export)}]), [${x.lazy!.map(loader).join(', ')}], ${options.dev ? 'null' : JSON.stringify(`__SN_CHUNK__${file(x.module)}__`)}, import.meta.url);\n`).join('');
 }
 
 function setEarly(out: CompileResult, early: EarlyParts | null, options: CompileOptions) {

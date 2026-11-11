@@ -20,6 +20,15 @@ export function lazy<M>(load: () => Promise<M>, file: string | null, base: strin
   }));
 }
 
+/**
+ * A component script that loads with lazy packages (docs/lazy.md): the script's module and the
+ * packages' loaders, at once; resolves to the class. The components feature starts the instance
+ * once it has it (`l` marks such a loader).
+ */
+export function later(load: () => Promise<unknown>, pkgs: Array<() => Promise<unknown>>, file: string | null, base: string): (() => Promise<unknown>) & { l: 1 } {
+  return Object.assign(lazy(() => Promise.all([load(), ...pkgs.map((p) => p())]).then(([m]) => m), file, base), { l: 1 as const });
+}
+
 /** The `$error` of a failed load: stale (a 404 or 410, or a host's HTML page), the network, or what the module threw. */
 export async function loadError(e: unknown, url: string | null): Promise<SinterError> {
   if (e instanceof SinterError) return e;
