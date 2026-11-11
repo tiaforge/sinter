@@ -6,8 +6,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CODES, docsUrl, type Diagnostic } from '../compiler/index.js';
 import { check, findTsc, typeExports } from '../check/index.js';
 import { Connection } from './rpc.js';
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import { HEAD_DECL } from '../components-build.js';
+import { offsetOf, slotCompletions, slotDefinition, tagCompletions, tagHover, type TagFile } from './markup.js';
 import { didYouMeanEdit } from './quickfix.js';
 import { editFor, fixPlans, plans, type ExtractContext, type Plan } from './extract.js';
 import { TypeScriptBridge, typescriptMajor, type Target } from './typescript.js';
@@ -149,7 +151,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
         // full text on every change
         textDocumentSync: { openClose: true, change: 1, save: { includeText: false } },
         hoverProvider: true,
-        completionProvider: { triggerCharacters: ['.'], resolveProvider: true },
+        completionProvider: { triggerCharacters: ['.', '"', '<'], resolveProvider: true },
         definitionProvider: true,
         codeActionProvider: { codeActionKinds: ['quickfix', 'refactor.extract'], resolveProvider: true },
       },
@@ -201,9 +203,41 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     for (const f of files) await workspace.fileChanged(f);
   });
 
+  /** The component or layout a tag names in a project, with its file's text (open buffers first). */
+  const tagFile = (root: string, tag: string): TagFile | null => {
+    for (const [dir, layout] of [['src/components', false], ['src/layouts', true]] as const) {
+      const file = join(root, dir, `${tag}.html`);
+      let text: string;
+      try { text = workspace.read(file); } catch { continue; }
+      return { kind: layout ? 'layout' : HEAD_DECL.test(text) ? 'head' : 'component', file, text };
+    }
+    return null;
+  };
+  /** every component and layout of a project */
+  const tagFiles = (root: string) => {
+    const out: Array<{ name: string } & Omit<TagFile, 'text'>> = [];
+    for (const dir of ['src/components', 'src/layouts']) {
+      let names: string[] = [];
+      try { names = readdirSync(join(root, dir)).filter((f) => /^[a-z][a-z0-9]*(-[a-z0-9]+)+\.html$/.test(f)).map((f) => f.slice(0, -5)); } catch { /* none */ }
+      for (const n of names) { const t = tagFile(root, n); if (t) out.push({ name: n, kind: dir === 'src/layouts' ? 'layout' : t.kind, file: t.file }); }
+    }
+    return out;
+  };
+  const rangeAt = (text: string, from: number, to: number) => {
+    const pos = (o: number) => { const before = text.slice(0, o).split('\n'); return { line: before.length - 1, character: before[before.length - 1]!.length }; };
+    return { start: pos(from), end: pos(to) };
+  };
+
   conn.onRequest('textDocument/hover', async (p: any) => {
     if (!local(p.textDocument.uri)) return null;
     const file = uriToPath(p.textDocument.uri);
+    // a component's or layout's tag: its props and slots
+    const tag = componentAt(workspace.read(file), p.position.line, p.position.character);
+    if (tag !== null) {
+      const root = (await workspace.projectFor(file)).root;
+      const t = tagFile(root, tag);
+      if (t) return { contents: { kind: 'markdown', value: tagHover(tag, t, relative(root, t.file).split('\\').join('/')) } };
+    }
     const state = await workspace.projectFor(file);
     const mode = modeOf(state.root);
     if (!(mode instanceof TypeScriptBridge)) return null;
@@ -224,6 +258,14 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
   conn.onRequest('textDocument/completion', async (p: any) => {
     if (!local(p.textDocument.uri)) return null;
     const file = uriToPath(p.textDocument.uri);
+    // `slot="…"` and tags: sinter's own, from the components' and layouts' files
+    const text = workspace.read(file);
+    const offset = offsetOf(text, p.position.line, p.position.character);
+    const root = (await workspace.projectFor(file)).root;
+    const slots = slotCompletions(text, offset, (t) => tagFile(root, t));
+    if (slots) return { isIncomplete: false, items: slots.map((s) => ({ label: s.label, kind: 12, detail: s.detail, ...(s.documentation ? { documentation: { kind: 'markdown', value: s.documentation } } : {}), textEdit: { range: rangeAt(text, s.from, s.to), newText: s.label } })) };
+    const tags = tagCompletions(text, offset, tagFiles(root));
+    if (tags?.length) return { isIncomplete: false, items: tags.map((t) => ({ label: t.label, kind: 7, detail: t.detail, textEdit: { range: rangeAt(text, t.from, t.to), newText: t.label } })) };
     const b = await bridgeFor(file);
     return b ? b.bridge.completion(file, p.position.line + 1, p.position.character + 1, p.context) : null;
   });
@@ -245,12 +287,18 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
   conn.onRequest('textDocument/definition', async (p: any) => {
     if (!local(p.textDocument.uri)) return null;
     const file = uriToPath(p.textDocument.uri);
-    // a component's tag opens the component
-    const tag = componentAt(workspace.read(file), p.position.line, p.position.character);
+    // a component's or layout's tag opens its file; a `slot="…"` value, the `<slot>` it names
+    const text = workspace.read(file);
+    const root = (await workspace.projectFor(file)).root;
+    const tag = componentAt(text, p.position.line, p.position.character);
     if (tag !== null) {
-      const target = join((await workspace.projectFor(file)).root, 'src/components', `${tag}.html`);
-      if (existsSync(target)) return [{ uri: pathToUri(target), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } }];
+      for (const dir of ['src/components', 'src/layouts']) {
+        const target = join(root, dir, `${tag}.html`);
+        if (existsSync(target)) return [{ uri: pathToUri(target), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } }];
+      }
     }
+    const slot = slotDefinition(text, offsetOf(text, p.position.line, p.position.character), (t) => tagFile(root, t));
+    if (slot) return [{ uri: pathToUri(slot.file), range: { start: { line: slot.line - 1, character: slot.col - 1 }, end: { line: slot.line - 1, character: slot.col - 1 } } }];
     const b = await bridgeFor(file);
     if (!b) return null;
     const targets = await b.bridge.definition(file, p.position.line + 1, p.position.character + 1, b.state.project);

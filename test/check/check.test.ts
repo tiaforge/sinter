@@ -140,6 +140,25 @@ ${use}
     expect(r.diagnostics[0]!.file).toMatch(/src\/components\/seo-tags.html$/);
   });
 
+  test('layouts: props typed by data-sn-layout at the page\'s tag and inside the layout, the page\'s state in its slots', () => {
+    const layout = { 'src/layouts/site-layout.html': `<!doctype html>
+<html data-sn-layout="{ contact: Contact; count?: number }">
+<head><title data-sn-text="contact.name"></title><slot name="head"></slot></head>
+<body><slot></slot></body>
+</html>` };
+    const html = (tag: string, body = '') => `<site-layout ${tag}>
+<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
+${body}
+</site-layout>`;
+    expect(run(html('data-sn-prop="{ contact: contacts[0] }"'), layout).diagnostics).toEqual([]);
+    one(html(`data-sn-prop="{ contact: contacts[0], count: 'x' }"`), /Type 'string' is not assignable to type 'number'/, "count: 'x'", layout);
+    one(html('data-sn-state="{ n: 0 }" data-sn-prop="{ contact: contacts[0] }"', '<p data-sn-text="n.toFixed(1).nope"></p>'), /Property 'nope' does not exist on type 'string'/, 'nope', layout);
+    const typo = { 'src/layouts/site-layout.html': layout['src/layouts/site-layout.html'].replace('contact.name', 'contact.nmae') };
+    const r = run(html('data-sn-prop="{ contact: contacts[0] }"'), typo);
+    expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Property 'nmae' does not exist on type 'Contact'/)]);
+    expect(r.diagnostics[0]!.file).toMatch(/src\/layouts\/site-layout.html$/);
+  });
+
   test('<sn-component use>: the name must fit ComponentName; props are checked per candidate, narrowed by the key', () => {
     const types = `export interface Hero { id: number; type: 'hero'; title: string }
 export interface Text { id: number; type: 'text'; body: string }

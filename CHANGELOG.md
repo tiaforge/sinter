@@ -34,6 +34,12 @@ Attribute names, function names and diagnostic codes are public API. Before
   (`data-sn-attr="{ content: … }"`), for a per-page description or `og:title`; every other binding on a `<meta>`, and
   any on `http-equiv` or `charset`, stays `SN207`. With `<title data-sn-text>` and `data-sn-if` templates over head
   elements, what needs no request (constants, helpers, embedded data) renders as the head is parsed.
+- Types and editors for layouts: `src/sinter.components.d.ts` has `LayoutName` and `LayoutProps`, and leaves head
+  components out of `ComponentName`. `sinter check` checks a layout's props at the page's tag and its markup through
+  each page. `sinter lsp` completes `slot="…"` with the slots of the tag the element is in (a layout's head slots on
+  head elements, its body slots on the rest), completes tags after `<` (layouts at the top of an empty page, head
+  components in a head, components elsewhere), goes from a `slot="…"` value to its `<slot>` and from a layout's tag to
+  its file, shows a tag's props and slots on hover, and checks a layout or head component no page uses on its own.
 - Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
   is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
   costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots
