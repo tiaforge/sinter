@@ -122,6 +122,19 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- Page URLs (breaking; docs/static-pages.md#page-urls): every page without `data-sn-path` is written as a directory's
+  index, `about.html` as `about/index.html`, served at `/about/` on any static server without configuration (it
+  redirects `/about` there). `about.html` remains as a redirect to `/about/` (a refresh with a canonical link and
+  `noindex`, and a script that keeps the query and fragment), so old links arrive. Links in the markup to a page, by
+  its file or its URL, are written as its URL; a moved page's relative URLs are rebased. `index.html`, `404.html` and
+  `200.html` stay. A page with `data-sn-path` answers at exactly the paths it lists, with or without parameters
+  (`/article/:slug`, `/ /tag/:tag`, `/login`), and stays in its file; a pattern also matches with a trailing slash; a
+  `data-sn-path` that is only the page's directory URL is the new warning `SN515`. The build writes `_redirects`
+  (Netlify, Cloudflare Pages), after the app's `public/_redirects`: a 301 for each old file URL and a rewrite for each
+  declared path; `sinter({ redirects: false })` turns it off. `vite dev`, `vite preview` and sinter-axum (from the
+  manifest's new `routes`) follow the same rules, so RealWorld's hand-written routes are gone. Two pages for one URL
+  fail the build; a link built at run time that names a moved page's file is a build warning. The starter template's
+  task link is `/task/?id=…`.
 - Changes from server events render once per frame: `<sn-event>` mappings and their `then` still apply when each
   event arrives, but the render waits for the next frame (`requestAnimationFrame`), so a burst renders once. Other
   changes still render in a microtask, taking waiting server changes with them; a hidden page renders server events

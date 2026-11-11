@@ -61,7 +61,7 @@
                      data-sn-attr="{ checked: t.done }">
               <!-- The title morphs into the heading of the task's page (view transition). -->
               <div data-grow data-layout="stack" data-gap="none">
-                <a data-truncate data-sn-attr="{ href: '/task.html?id=' + t.id }"
+                <a data-truncate data-sn-attr="{ href: '/task/?id=' + t.id }"
                    data-sn-transition="'task-' + t.id" data-sn-text="t.title"></a>
                 <small data-muted data-sn-text="relative(t.createdAt)"></small>
               </div>

@@ -106,7 +106,7 @@ configure({
   request: [
     credentials('same-origin'),
     header('X-Sinter', '1'),
-    onUnauthorized(loginRedirect({ to: '/login.html', returnUrl: { allow: ['/app/'] } })),
+    onUnauthorized(loginRedirect({ to: '/login/', returnUrl: { allow: ['/app/'] } })),
   ],
   sessionProbe: '/api/user',
   onError: (error) => showToast(error.message),

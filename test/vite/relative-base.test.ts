@@ -37,13 +37,14 @@ test('a relative base: every image URL resolves from its page or stylesheet', as
     build: { outDir: out, emptyOutDir: true, rollupOptions: { input: { index: join(root, 'index.html'), post: join(root, 'blog/post.html') } } },
   });
   const urls = (text: string) => [...text.matchAll(/(?:src|srcset)="([^"]+)"|url\("?([^")]+)"?\)/g)].flatMap((m) => (m[1] ?? m[2])!.split(', ').map((c) => c.split(' ')[0]!)).filter((u) => /\.(avif|webp|jpg|png)$/.test(u));
-  const html = readFileSync(join(out, 'index.html'), 'utf8'), post = readFileSync(join(out, 'blog/post.html'), 'utf8');
+  const html = readFileSync(join(out, 'index.html'), 'utf8'), post = readFileSync(join(out, 'blog/post/index.html'), 'utf8');
   expect(html).toMatch(/<img src="\.\/assets\/photo-1200-[\w-]+\.jpg"/);
-  expect(post).toMatch(/<img src="\.\.\/assets\/photo-1200-[\w-]+\.jpg"/);
+  // the post is a directory's index (blog/post/index.html): one folder deeper
+  expect(post).toMatch(/<img src="\.\.\/\.\.\/assets\/photo-1200-[\w-]+\.jpg"/);
   // sinter's own scripts too, and the page bundle is async
-  expect(post).toMatch(/<script src="\.\.\/assets\/sinter-head-[\w-]+\.js"><\/script>\s*<script src="\.\.\/assets\/blog-post-head-[\w-]+\.js"><\/script>/);
-  expect(post).toMatch(/<script type="module" crossorigin src="\.\.\/assets\/post-[\w-]+\.js" async>/);
-  for (const [file, text] of [['index.html', html], ['blog/post.html', post]] as const) {
+  expect(post).toMatch(/<script src="\.\.\/\.\.\/assets\/sinter-head-[\w-]+\.js"><\/script>\s*<script src="\.\.\/\.\.\/assets\/blog-post-head-[\w-]+\.js"><\/script>/);
+  expect(post).toMatch(/<script type="module" crossorigin src="\.\.\/\.\.\/assets\/post-[\w-]+\.js" async>/);
+  for (const [file, text] of [['index.html', html], ['blog/post/index.html', post]] as const) {
     const list = urls(text);
     expect(list.length).toBeGreaterThan(2);
     for (const u of list) expect(existsSync(resolve(dirname(join(out, file)), u)), `${file}: ${u}`).toBe(true);
@@ -58,8 +59,8 @@ test('a relative base: every image URL resolves from its page or stylesheet', as
   const server = http((req, res) => {
     const path = decodeURIComponent((req.url ?? '/').split('?')[0]!).replace(/^\/site\//, '/');
     try {
-      const body = readFileSync(join(out, path));
-      res.setHeader('Content-Type', { html: 'text/html', css: 'text/css', js: 'text/javascript', avif: 'image/avif', jpg: 'image/jpeg' }[path.split('.').pop()!] ?? 'application/octet-stream');
+      const body = readFileSync(join(out, path.endsWith('/') ? path + 'index.html' : path));
+      res.setHeader('Content-Type', { html: 'text/html', css: 'text/css', js: 'text/javascript', avif: 'image/avif', jpg: 'image/jpeg' }[path.endsWith('/') ? 'html' : path.split('.').pop()!] ?? 'application/octet-stream');
       res.end(body);
     } catch { res.statusCode = 404; res.end(); }
   });
@@ -67,7 +68,7 @@ test('a relative base: every image URL resolves from its page or stylesheet', as
   const browser = await chromium.launch();
   try {
     const tab = await browser.newPage({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 2 });
-    await tab.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/site/blog/post.html`);
+    await tab.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/site/blog/post/`);
     await tab.waitForFunction(() => { const i = document.querySelector('img')!; return i.complete; });
     const r = await tab.evaluate(() => ({
       img: document.querySelector('img')!.naturalWidth,

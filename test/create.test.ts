@@ -132,7 +132,9 @@ describe('the template builds', () => {
 
   test('with both checkers on', async () => {
     await run();
-    expect(readdirSync(join(dir, 'dist')).sort()).toEqual(['assets', 'index.html', 'task.html']);
+    // task.html is a directory's index (task/index.html at /task/); task.html redirects there
+    expect(readdirSync(join(dir, 'dist')).sort()).toEqual(['_redirects', 'assets', 'index.html', 'task', 'task.html']);
+    expect(readFileSync(join(dir, 'dist/_redirects'), 'utf8')).toContain('/task.html  /task/  301');
   }, 60_000);
 
   test.each([

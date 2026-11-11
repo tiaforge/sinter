@@ -103,6 +103,8 @@ export interface CompileOptions {
   components?: string;
   /** where the app's layouts are (default `<root>/src/layouts`): `<name>.html` is the layout `<name>`, a page's only tag */
   layouts?: string;
+  /** Vite's `base`, which the pages' URLs start with (default `/`); for SN515 */
+  base?: string;
   /**
    * internal, set by `compileParts` for its second pass: the `data-sn-if` templates (by `file:offset`)
    * whose condition the first pass found constant (state nothing writes), and its value
@@ -1920,6 +1922,13 @@ class Compiler {
         s[0] === ':' ? !IDENT.test(s.slice(1)) || BAD_PARAM.test(s.slice(1)) : (s === '' && i < segs.length - 1) || /[?#:]/.test(s));
       if (bad) this.report(html!, 'data-sn-path', 'SN401', `\`${p}\` is not a path pattern; use literal segments and \`:name\`, e.g. \`/article/:slug\``, value.indexOf(p));
       for (const s of segs) if (s[0] === ':') this.page.pathParams.add(s.slice(1));
+    }
+    // only the URL the page has anyway: it is a directory's index without data-sn-path (docs/static-pages.md#page-urls)
+    const root = this.opts.root.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/', file = this.opts.file.replace(/\\/g, '/');
+    const rel = file.startsWith(root) ? file.slice(root.length) : null;
+    const b = (this.opts.base ?? '/').startsWith('/') ? (this.opts.base ?? '/').replace(/\/?$/, '/') : '/';
+    if (rel && /\.html?$/.test(rel) && !/(^|\/)(index|404|200)\.html?$/.test(rel) && patterns.length === 1 && patterns[0] === b + rel.replace(/\.html?$/, '/')) {
+      this.report(html!, 'data-sn-path', 'SN515', `\`data-sn-path="${patterns[0]}"\` is the URL this page has anyway, as a directory's index`, 0, 'remove it: `data-sn-path` lists the paths a page answers at besides that, such as `/article/:slug` or `/login`');
     }
     return patterns;
   }

@@ -252,4 +252,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'With `auto-fit`, a grid\'s empty columns collapse: a list shorter than a row stretches its items. The rows of a `data-sn-for` exist only at runtime, so the build cannot tell how wide each item is, and the image gets `sizes` from an upper bound (its container), which may fetch larger files than needed. With `auto-fill` the columns stay the same whatever the number of items, and the build writes exact `sizes`.',
     fix: 'Use `repeat(auto-fill, minmax(…, 1fr))` unless short lists should stretch. Otherwise write `sizes` on the image, which silences this.',
   },
+  SN515: {
+    example: '`data-sn-path="/contact/"` is the URL this page has anyway, as a directory\'s index',
+    means: 'A page without `data-sn-path` is written as a directory\'s index (`contact.html` as `contact/index.html`, served at `/contact/`), so a `data-sn-path` that names only that URL says nothing. The page is built as if it had none.',
+    fix: 'Remove `data-sn-path`. It lists the paths a page answers at instead: patterns such as `/article/:slug`, or a fixed path such as `/login`, each served by a rewrite to the page\'s file.',
+  },
 };

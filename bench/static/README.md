@@ -13,6 +13,14 @@ node bench/static/measure.mjs --repo ../sinter-main --label main
 
 Results, the build and a screenshot of each page with JavaScript off go to `bench/static/out/<label>/`.
 
+`urls.mjs` serves such a build with Python's `http.server` (a static server with no configuration: it serves
+a directory's `index.html` and redirects `/x` to `/x/`, nothing else) and requests each page as `/x`, `/x/`
+and `/x.html`, then follows every internal link:
+
+```sh
+node bench/static/urls.mjs --label branch
+```
+
 ## Results
 
 2026-11-11, one machine, Chromium with a 4× CPU slowdown and slow 4G (150 ms latency, 1.6 Mbit/s),
@@ -39,3 +47,24 @@ the branch of [#27](https://github.com/tiaforge/sinter/pull/27).
   `main` takes the runtime from the HTTP cache, so the saving there is parsing and running it.
 - Layout shift is 0 to 0.004 on both: the stylesheet arrives about when `main`'s script does, so the
   empty nav is rarely painted. Script time is small in both; it is not where the difference is.
+
+## Page URLs
+
+2026-11-11, `urls.mjs` on the builds above: `main` at 30e3705 (pages without JavaScript, before page URLs)
+and the branch of page URLs. Python's `http.server`, no configuration.
+
+| request | main | branch |
+| --- | --- | --- |
+| `/about` | 404 | 301 → `/about/`, 200 |
+| `/about/` | 404 | 200 |
+| `/about.html` | 200 | redirect file → `/about/`, 200 |
+| `/docs/getting-started` | 404 | 301 → `/docs/getting-started/`, 200 |
+| `/docs/getting-started/` | 404 | 200 |
+| `/docs/getting-started.html` | 200 | redirect file → `/docs/getting-started/`, 200 |
+| `/`, `/index.html` | 200 | 200 |
+| internal links (20) | all arrive at once | all arrive at once |
+
+With page URLs, every page answers at its clean URL with a trailing slash on a server that knows nothing
+about the site, `/about` reaches it through the server's own redirect, and the old `.html` URLs still
+arrive. The pages' own links name the new URLs, so following them costs no redirect.
+

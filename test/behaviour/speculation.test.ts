@@ -11,7 +11,8 @@ test('rules: the app\'s paths as URL patterns with any query and fragment; downl
   const rules = JSON.parse(speculationRules('prefetch', ['/article/:slug', '/login.html', '/a*b', '/article/:slug'])!);
   const rule = rules.prefetch[0];
   expect(rule.eagerness).toBe('moderate');
-  expect(rule.where.and[0].href_matches).toEqual(['/article/:slug\\?*#*', '/login.html\\?*#*', '/a\\*b\\?*#*']);
+  // a pattern with or without a trailing slash
+  expect(rule.where.and[0].href_matches).toEqual(['/article/:slug\\?*#*', '/article/:slug/\\?*#*', '/login.html\\?*#*', '/a\\*b\\?*#*']);
   expect(rule.where.and[1].not.selector_matches).toContain('[download]');
   expect(Object.keys(JSON.parse(speculationRules('prerender', ['/'])!))).toEqual(['prerender']);
   expect(speculationRules('prefetch', [])).toBeNull();

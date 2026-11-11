@@ -255,7 +255,7 @@ impl Embed {
     /// [`Embed::api`] or `Embed::upstream`, an absolute URL its origin allowed). Every problem
     /// is in the error, one line each.
     pub fn build(self) -> Result<EmbedLayer, Error> {
-        let pages = manifest::load(&self.dir, self.compiled)?;
+        let (pages, routes) = manifest::load(&self.dir, self.compiled)?;
         let mut problems = Vec::new();
         let names: HashSet<String> =
             pages.iter().flat_map(|p| p.slots.iter().flat_map(|s| [s.resource.clone(), format!("{}:{}", p.file, s.resource)])).collect();
@@ -283,6 +283,7 @@ impl Embed {
         }
         Ok(EmbedLayer(Arc::new(Inner {
             pages,
+            routes,
             resolvers: self.resolvers,
             skips: self.skips,
             api: self.api,
@@ -341,6 +342,8 @@ impl Embed {
 
 struct Inner {
     pages: Vec<Page>,
+    /// the build's `_redirects`, as its manifest has them
+    routes: Vec<manifest::Route>,
     resolvers: HashMap<String, Resolver>,
     skips: HashSet<String>,
     api: Option<Api>,
@@ -366,6 +369,10 @@ pub struct EmbedLayer(Arc<Inner>);
 impl EmbedLayer {
     fn page(&self, path: &str) -> Option<usize> {
         self.0.pages.iter().position(|p| p.paths.iter().any(|pat| url::matches(pat, path)))
+    }
+    /// the rule for a path: a 301 for exactly its `from`, a rewrite for a path its pattern matches
+    fn route(&self, path: &str) -> Option<&manifest::Route> {
+        self.0.routes.iter().find(|r| if r.status == 200 { url::matches(&r.from, path) } else { r.from == path })
     }
 }
 
@@ -403,13 +410,35 @@ where
         if read && req.uri().path().strip_prefix('/') == Some(manifest::FILE) {
             return async { Ok(Response::builder().status(StatusCode::NOT_FOUND).body(Body::empty()).unwrap()) }.boxed();
         }
+        // an old file URL: a permanent redirect to the page's URL, with the query
+        if let Some(r) = self.embed.route(req.uri().path()).filter(|r| read && r.status != 200) {
+            let to = match req.uri().query() {
+                Some(q) => format!("{}?{q}", r.to),
+                None => r.to.clone(),
+            };
+            let status = StatusCode::from_u16(r.status).unwrap_or(StatusCode::MOVED_PERMANENTLY);
+            return async move { Ok(Response::builder().status(status).header(header::LOCATION, to).body(Body::empty()).unwrap()) }.boxed();
+        }
         match self.embed.page(req.uri().path()).filter(|_| read) {
             Some(i) => {
                 let (embed, head) = (self.embed.clone(), req.method() == Method::HEAD);
                 let (parts, _) = req.into_parts();
                 async move { Ok(render(embed, i, parts, head).await) }.boxed()
             }
-            None => self.inner.call(req).boxed(),
+            None => {
+                // a path a page declares, for a page without embedded data: its file, as a host's rewrite serves it
+                let mut req = req;
+                if let Some(file) = self.embed.route(req.uri().path()).filter(|r| read && r.status == 200).and_then(|r| r.file.clone()) {
+                    let pq = match req.uri().query() {
+                        Some(q) => format!("/{file}?{q}"),
+                        None => format!("/{file}"),
+                    };
+                    if let Ok(uri) = pq.parse() {
+                        *req.uri_mut() = uri;
+                    }
+                }
+                self.inner.call(req).boxed()
+            }
         }
     }
 }

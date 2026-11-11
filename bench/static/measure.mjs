@@ -46,7 +46,8 @@ const origin = `http://localhost:${server.address().port}`;
 const browser = await chromium.launch();
 const rows = [];
 for (const page of pages) {
-  const url = `${origin}/${page}`;
+  const dir = page.replace(/(^|\/)index\.html$/, '$1').replace(/\.html$/, '/');
+  const url = `${origin}/${statSync(join(dist, dir, 'index.html'), { throwIfNoEntry: false }) ? dir : page}`;
   // JavaScript on: what is downloaded and run
   const on = await browser.newContext();
   const tab = await on.newPage();

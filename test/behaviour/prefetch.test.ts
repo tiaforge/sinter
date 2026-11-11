@@ -216,7 +216,8 @@ test('the compiler describes only resources whose request the URL decides; helpe
 });
 
 test('a page without data-sn-path answers at its file\'s paths', () => {
-  expect(pagePaths('login.html', '/', [])).toEqual(['/login.html', '/login']);
+  // a page with a fixed path is a directory's index: /login/, and /login redirected there
+  expect(pagePaths('login.html', '/', [])).toEqual(['/login/', '/login']);
   expect(pagePaths('docs/index.html', '/app/', [])).toEqual(['/app/docs/', '/app/docs/index.html']);
   expect(pagePaths('index.html', '/', [])).toEqual(['/', '/index.html']);
   expect(pagePaths('a.html', '/', ['/x/:id'])).toEqual(['/x/:id']);
