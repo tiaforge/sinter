@@ -302,7 +302,8 @@ At an unprefixed URL (`/about/`, `/article/hello`, typed, bookmarked or linked f
 sends the visitor to a language. Without JavaScript, or on a site where no page ships any, to the base
 language. On a site where pages ship JavaScript, those pages record their language in a `locale` cookie,
 and the chooser follows it, else the first of the browser's languages the site has (`de-AT` is `de`), else
-the base, keeping the path (`/article/hello` → `/de/article/hello`). The choosers are `noindex`.
+the base, keeping the path (`/article/hello` → `/de/article/hello`). The choosers are `noindex`. An
+old file URL (`/about.html`) is a chooser too, so it reaches `/de/about/` in one hop.
 
 The rules for hosts follow the same shape: `_redirects` has each language's rules and the choosers'.
 [sinter-axum](../packages/sinter-axum/README.md) answers an unprefixed URL with a 302 to the visitor's

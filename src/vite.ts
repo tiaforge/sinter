@@ -1094,14 +1094,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   /**
    * The site's rules: each page's (`pageRoutes`), and with `localePrefix` the language choosers' at the unprefixed
-   * paths: a 301 from a source page's old file URL to its chooser, and a rewrite from a source page's paths to its
-   * chooser (`choose`: a server picks the language itself, by the `locale` cookie, else `Accept-Language`)
+   * paths: a rewrite from a source page's paths and its old file URL to its chooser, so `/about.html` is one hop from
+   * `/de/about/` (`choose`: a server picks the language itself, by the `locale` cookie, else `Accept-Language`)
    */
   const siteRoutes = (): Array<Route & { choose?: true }> => {
     const b = base();
     const pages = pageRoutes(pageEntries(), b);
     if (!locales) return pages;
-    const choosers = pageRoutes(sourceEntries().map((f) => ({ rel: relOf(f), patterns: describeSource(f).path })), b).map((r) => (r.status === 200 ? { ...r, choose: true as const } : r));
+    const choosers = pageRoutes(sourceEntries().map((f) => ({ rel: relOf(f), patterns: describeSource(f).path })), b).map((r) => ({ ...r, status: 200 as const, file: r.file ?? r.from.slice((b.startsWith('/') ? b.replace(/\/?$/, '/') : '/').length), choose: true as const }));
     const dynamic = (r: Route) => /[:*]/.test(r.from);
     const all = [...pages, ...choosers];
     return [...all.filter((r) => !dynamic(r)), ...all.filter(dynamic)];
@@ -1232,7 +1232,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         this.emitFile({ type: 'asset', fileName: page.rel, source: redirectHtml(url) });
       }
       // languages: at each source page's unprefixed URL, a chooser (404.html and 200.html: the base language's page,
-      // which hosts look for there); at a moved source page's old file URL, a redirect to its chooser
+      // which hosts look for there); at a moved source page's old file URL, the chooser too (one hop to a language)
       if (locales) {
         const script = [...runtimeOf.values()].some((r) => r.length);
         for (const src of sourceEntries()) {
@@ -1243,7 +1243,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
             continue;
           }
           this.emitFile({ type: 'asset', fileName: file, source: chooserFor(src, script) });
-          if (file !== rel) this.emitFile({ type: 'asset', fileName: rel, source: redirectHtml(chooserUrl(src)) });
+          if (file !== rel) this.emitFile({ type: 'asset', fileName: rel, source: chooserFor(src, script) });
         }
       }
       // _redirects: the same rules for hosts that read them (Netlify, Cloudflare Pages), after the app's own

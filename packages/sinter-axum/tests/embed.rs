@@ -408,6 +408,7 @@ async fn sends_an_unprefixed_url_to_the_visitors_language() {
         "locales",
         r#"{ "version": 1, "pages": [],
       "routes": [
+        { "from": "/docs/about.html", "to": "/docs/about/", "status": 200, "file": "about.html", "choose": true },
         { "from": "/docs/about/", "to": "/docs/about/", "status": 200, "file": "about/index.html", "choose": true },
         { "from": "/docs/article/:slug", "to": "/docs/article", "status": 200, "file": "article.html", "choose": true } ],
       "locales": { "base": "en", "list": ["en", "de"], "at": "/docs/" } }"#,
@@ -431,6 +432,9 @@ async fn sends_an_unprefixed_url_to_the_visitors_language() {
     assert_eq!(h[header::LOCATION], "/docs/de/about/");
     let (_, h, _) = text(a.clone(), go(None, Some("fr"), "/docs/about/")).await;
     assert_eq!(h[header::LOCATION], "/docs/en/about/");
+    // the old file URL: straight to the page in the language, one hop
+    let (_, h, _) = text(a.clone(), go(Some("locale=de"), None, "/docs/about.html?x=1")).await;
+    assert_eq!(h[header::LOCATION], "/docs/de/about/?x=1");
     // a page in a language: not a chooser
     assert_eq!(text(a, get_("/docs/de/about/")).await.2, "static file");
 }

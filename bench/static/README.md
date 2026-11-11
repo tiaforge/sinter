@@ -84,6 +84,7 @@ node bench/static/locales.mjs
 | `/` | chooser → `/en/` | en | 0 |
 | `/about/` | chooser → `/en/about/` | en | 0 |
 | `/about` | 301 → `/about/`, chooser → `/en/about/` | en | 0 |
+| `/about.html` | chooser → `/en/about/` | en | 0 |
 | `/de/about/` | 200, "Über uns · Feldnotizen" | de | 0 |
 | `/de/about` | 301 → `/de/about/` | de | 0 |
 | `/de/about.html` | redirect file → `/de/about/` | de | 0 |

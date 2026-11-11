@@ -414,10 +414,11 @@ where
             return async { Ok(Response::builder().status(StatusCode::NOT_FOUND).body(Body::empty()).unwrap()) }.boxed();
         }
         // an unprefixed URL of a site with languages: to the visitor's (the `locale` cookie the pages set, else
-        // Accept-Language, else the base), the same path under its prefix; temporary, as it differs per visitor
-        if let (Some(l), Some(_)) = (self.embed.0.locales.as_ref(), self.embed.route(req.uri().path()).filter(|r| read && r.choose)) {
+        // Accept-Language, else the base), the page's path under its prefix (a fixed rule's target: `/about.html` goes
+        // straight to `/de/about/`; a pattern's, the request's); temporary, as it differs per visitor
+        if let (Some(l), Some(r)) = (self.embed.0.locales.as_ref(), self.embed.route(req.uri().path()).filter(|r| read && r.choose)) {
             let lang = choose(l, req.headers());
-            let path = req.uri().path();
+            let path = if r.from.contains([':', '*']) { req.uri().path() } else { r.to.as_str() };
             let rest = path.strip_prefix(l.at.as_str()).unwrap_or(path.trim_start_matches('/'));
             let to = format!("{}{lang}/{rest}{}", l.at, req.uri().query().map(|q| format!("?{q}")).unwrap_or_default());
             return async move {

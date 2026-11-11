@@ -76,14 +76,16 @@ describe('the unprefixed URLs and the rules', () => {
     // the article page ships JavaScript, so the site records the language: the choosers follow it
     expect(c).toContain('locale=([^;]*)');
     expect(read('article.html')).toContain('<meta http-equiv="refresh" content="0; url=/en/">');
-    expect(read('about.html')).toContain('url=/about/');
+    // the old file URL is the chooser too: one hop to a language, which it names directly
+    expect(read('about.html')).toContain('<meta http-equiv="refresh" content="0; url=/en/about/">');
+    expect(read('about.html')).toContain('location.replace({"en":"/en/about/","de":"/de/about/"}[l]');
   });
 
   test('_redirects: each language\'s rules, then the choosers\'', () => {
     expect(read('_redirects').split('\n').filter((l) => l && !l.startsWith('#'))).toEqual([
       '/en/about.html  /en/about/  301',
       '/de/about.html  /de/about/  301',
-      '/about.html  /about/  301',
+      '/about.html  /about/  200',
       '/en/article/:slug  /en/article  200',
       '/de/article/:slug  /de/article  200',
       '/article/:slug  /article  200',
