@@ -223,8 +223,8 @@ is what makes routing on a server simple:
 - `data-sn-path` patterns are written without the prefix (`/article/:slug`) and match under each
   language (`/de/article/:slug`); `$url` does not include it. With a Vite `base`, patterns include it as
   they do today (`/docs/article/:slug`), and the language's segment is taken out after it before
-  matching (`/docs/de/article/hello` matches). sinter-axum's manifest lists the
-  languages, and its router mounts each page under every prefix.
+  matching (`/docs/de/article/hello` matches). The rules of step 6 are written once per language
+  (below).
 - No page is written at its own path in a language: the source `about.html` is `/en/about/` and
   `/de/about/`, and the source `index.html` is `/en/` and `/de/`. At the unprefixed path (`/about/`,
   and `/` for the root) the build writes a redirect file instead, described under "Remembering the
@@ -305,6 +305,55 @@ language has to be chosen again, and the redirect file at that path does it:
 What it does not do:
 
 - **Translate paths** (`/de/ueber-uns`) or let a language have different markup. Messages only.
+
+**The rules of step 6, per language, with embedded data.** With `localePrefix: true`, languages `en` and
+`de`, and `embed: true`, for `about.html`, `login.html` (`data-sn-path="/login"`) and `article.html`
+(`data-sn-path="/article/:slug"`):
+
+```
+dist/en/about/index.html      dist/de/about/index.html
+dist/en/login.html            dist/de/login.html
+dist/en/article.html          dist/de/article.html
+dist/about/index.html         (language chooser: cookie, else navigator.languages, else the base)
+dist/login.html               (language chooser)
+dist/article.html             (language chooser, keeps the rest of the path: /article/hello → /de/article/hello)
+dist/about.html               (redirect file → /about/)
+```
+
+```
+# _redirects
+/about.html           /about/              301
+/en/about.html        /en/about/           301
+/de/about.html        /de/about/           301
+/en/login             /en/login.html       200
+/de/login             /de/login.html       200
+/en/login/            /en/login            301
+/de/login/            /de/login            301
+/en/article/:slug     /en/article.html     200
+/de/article/:slug     /de/article.html     200
+/login                /login.html          200
+/article/:slug        /article.html        200
+```
+
+```json
+// sinter-embed.json: one entry per page and language
+{ "file": "de/article.html", "paths": ["/de/article/:slug"], "data": [ … ] }
+{ "file": "de/login.html",   "paths": ["/de/login"],         "data": [ … ] }
+{ "file": "de/about/index.html", "paths": ["/de/about/", "/de/about"], "data": [ … ] }
+```
+
+```
+# sinter-axum, from the manifest and the same rules
+GET /de/article/hello        → de/article.html, data embedded           200
+GET /article/hello           → 302 /de/article/hello (locale cookie, else Accept-Language)
+GET /de/about                → 301 /de/about/
+GET /about.html              → 301 /about/
+```
+
+On Netlify and Cloudflare Pages an unprefixed path is a 200 rewrite to its language chooser, whose
+script picks the language; sinter-axum answers it with a 302 itself. (Netlify's `Language=` and
+`Cookie=` conditions could make it a server redirect there too; Cloudflare Pages has no conditions, so
+the chooser is the rule that works on both.)
 
 The risk to try first: Vite builds the HTML files it is given as inputs, and neither
 `en/about/index.html` nor `de/about/index.html` is a file. The plugin would replace each page's input with one virtual input per
@@ -440,16 +489,74 @@ What the build does with it:
   single-page fallback), so a page named so is written as it is.
 - **Collisions are a build error**: `docs.html` and `docs/index.html` in the source would be the same
   URL; the error names both files.
-- **Pages with a pattern** (`/article/:slug`) are one file that a server or host rewrite serves, so where
-  the file is matters only to that rewrite; sinter-axum reads it from the build's manifest. Patterns
-  match with or without a trailing slash, so `/article/hello` and `/article/hello/` are the same page.
-  Their URLs have no slash and fixed pages' URLs do: two shapes, visible but harmless.
-- **`data-sn-path` is only for patterns.** The build knows the URL of every page with a fixed path, so
-  `data-sn-path="/login"` on `login.html` says nothing new. A `data-sn-path` without a `:name` segment is
-  a warning that names the page's URL (`/login/`) and suggests removing it.
-
 This changes the URL of every page of every site (`/about.html` becomes `/about/`), which is breaking
 and goes in the CHANGELOG; the redirect files keep old links working.
+
+#### Which URLs a page answers at: `data-sn-path`
+
+(Settled in the review of part B; it replaces "`data-sn-path` is only for patterns".)
+
+1. **No `data-sn-path`**: the page is a directory's index (`about.html` at `/about/`), and its old
+   file URL gets a 301.
+2. **With `data-sn-path`**: the page answers at exactly the paths listed, with or without parameters.
+   Its file stays where it is, and each path is a 200 rewrite to that file. Patterns are absolute,
+   from the site's root (Vite's `base` included, as today), and a pattern also matches with a trailing
+   slash.
+3. **A listed path the page has anyway** (`/contact/` on `contact.html`) is redundant: a warning
+   (`SN515`), and the page is treated as having no `data-sn-path`.
+
+```html
+<!-- about.html: no data-sn-path -->
+<!-- login.html -->     <html data-sn-path="/login">
+<!-- article.html -->   <html data-sn-path="/article/:slug">
+<!-- editor.html -->    <html data-sn-path="/editor /editor/:slug">
+<!-- index.html -->     <html data-sn-path="/ /tag/:tag">
+<!-- help.html -->      <html data-sn-path="/help /support /faq">
+<!-- contact.html -->   <html data-sn-path="/contact/">   <!-- SN515: without it, it is at /contact/ -->
+```
+
+```
+dist/about/index.html     dist/about.html (redirect file)
+dist/login.html           dist/article.html     dist/editor.html
+dist/index.html           dist/help.html        dist/contact/index.html
+```
+
+A page that must keep a URL without a trailing slash (`/login`, because a spec or existing links say
+so) declares it here; any other path is the app's reverse proxy's business.
+
+#### Redirects and rewrites: `_redirects`, and the servers that follow it
+
+The build writes the rules for every page into `_redirects`, the file Netlify and Cloudflare Pages read
+(other hosts ignore it), after the app's own rules from `public/_redirects`. On by default;
+`sinter({ redirects: false })` leaves it out. For the pages above:
+
+```
+/about.html       /about/          301
+/login            /login.html      200
+/login/           /login           301
+/article/:slug    /article.html    200
+/editor           /editor.html     200
+/editor/:slug     /editor.html     200
+/tag/:tag         /index.html      200
+/help             /help.html       200
+/support          /help.html       200
+/faq              /help.html       200
+```
+
+- **Status codes**: 301 for a page's old file URL and for the other form of an exact path's trailing
+  slash; 200 rewrites for the paths a page declares; 302 where a server chooses a language for a visitor
+  (step 4).
+- **The same rules everywhere**: the build puts them in its manifest, and sinter-axum follows them (301s,
+  rewrites, then the embedded data); `vite preview` follows them on the built site, and `vite dev` on
+  the source pages. RealWorld's hand-written route list in `vite.config.js` goes.
+- **The redirect file stays**: a host that reads no rules still sends an old file URL on (a refresh, a
+  canonical link, `noindex`, and a script that keeps the query and fragment); search engines treat an
+  instant refresh as a permanent redirect.
+- **Hosts the build cannot write rules for** (nginx, Apache, Caddy, Vercel): the guide shows the rules in
+  their syntax. Above 2,000 rules (Cloudflare Pages' limit for fixed redirects) the build warns.
+- The exact syntax each host accepts (Netlify serves an existing file before a rule unless the rule is
+  forced with `!`; whether Cloudflare Pages accepts that) is checked against their documentation when
+  this is built.
 
 ## What changes on a page that ships no JavaScript
 
@@ -536,8 +643,11 @@ These are the behaviours a static page loses.
 - Page URLs: `about.html` is written as `about/index.html`, with a redirect file at `about.html`;
   `index.html`, `404.html` and `200.html` stay; links to pages, written as the source path or the URL,
   are written as `/about/`; relative URLs are rebased and resolve as before; `docs.html` with
-  `docs/index.html` fails the build; a fixed `data-sn-path` warns; patterns match with and without a
-  trailing slash; `vite dev` and `vite preview` serve `/about/` and redirect `/about`.
+  `docs/index.html` fails the build; a page with `data-sn-path` stays in its file and answers at
+  exactly its paths (patterns also with a trailing slash), a path it has anyway is `SN515`; `_redirects`
+  has a 301 per old file URL and per exact path's other slash form and a 200 rewrite per declared path,
+  after the app's own rules, and none with `redirects: false`; `vite dev`, `vite preview` and
+  sinter-axum answer as `_redirects` says.
 - Browser (Chromium, Firefox, WebKit): each static fixture renders the same with JavaScript
   disabled (`javaScriptEnabled: false`) as with it.
 - RealWorld: no page should stop shipping JavaScript (they all read data). The page module sizes
@@ -559,8 +669,9 @@ review of where it departed from this text:
 3. `module: null` and the plugin changes, including the CSS path (step 2).
 4. The build report line, and `sinter({ static })` / `SN322` (step 3).
 5. Page URLs (step 6): the directory form, link rewriting and rebasing, the redirect files for old
-   URLs, the files that stay, collisions, the `data-sn-path` warning, dev and preview. RealWorld's
-   fixed `data-sn-path`s go.
+   URLs, the files that stay, collisions, `data-sn-path` as the exact paths of a page and `SN515`,
+   `_redirects` and the same rules in dev, preview and sinter-axum. RealWorld keeps its exact paths
+   and loses its hand-written routes.
 6. Canonical URLs (step 5): `site`, `$site`, `$canonical`, `SN323`, the canonical link,
    `$canonical` in the early script and the embed layer's canonical link for pattern pages, in Node
    and in sinter-axum.
@@ -595,10 +706,10 @@ None at the moment.
   visitors are mostly German would want the fallback for missing translations and the default for
   visitors to differ. That would be one option (`localePrefix: { default: 'de' }`), added when a site
   needs it.
-- **Routes from `data-sn-path`**: a multi-page app with patterns needs rewrites on its server, and
-  RealWorld's `vite.config.js` writes them by hand for `vite dev` and `vite preview`, mirroring the
-  pages' `data-sn-path`. The plugin could serve them from the patterns, as sinter-axum's layer
-  already finds a page by the paths in the build's manifest.
+- **Patterns relative to the file**: `data-sn-path=":slug"` on `article.html` for `/article/:slug`, so
+  that the file gives the fixed part and the attribute only the parameters. It does not fit pages whose
+  shapes do not start with their file's name (`index.html` for `/tag/:tag`); considered in the review of
+  part B and left for later.
 - **Locale URLs as the only model**: they may turn out to be the better model for apps in general,
   not only an optimization for static sites. If they do, making them the only model is a separate,
   breaking change.
@@ -620,5 +731,9 @@ Settled in review, in the order they were discussed:
 | The option's name | `sinter({ localePrefix: true })`: it says what the build does | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | One model or two | Both, chosen per site: the in-browser switch stays the default, `localePrefix` makes the whole site use locale URLs. Revisit once locale URLs have been used | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | A page's URL | `$site` is the site's root URL (the origin from `sinter({ site })` and Vite's `base`); `$canonical` is the page's full URL built on it (locale prefix, path), or the URL of a canonical link the page writes itself. Reading either without `site` is a build error (`SN323`) that says to set it. `$url` stays the query and path parameters, read in the browser | [Canonical URLs](#5-canonical-urls) |
-| The URL form | Every page with a fixed path is a directory's index (`about/index.html` at `/about/`): no host configuration, the same in dev and preview, `$canonical` with a trailing slash; old `.html` URLs get redirect files; `data-sn-path` is only for patterns | [Page URLs](#6-page-urls-a-directory-per-page) |
+| The URL form | Every page with a fixed path is a directory's index (`about/index.html` at `/about/`): no host configuration, the same in dev and preview, `$canonical` with a trailing slash; old `.html` URLs get redirect files | [Page URLs](#6-page-urls-a-directory-per-page) |
 | The global early module on static pages | Left out: it is the app's global module, not the page's. A script the page or its layout writes is the page's own and always ships, and is no `SN322`; pre-paint code is an inline classic script in the layout's head. A bundled, inlined `data-sn-early` script is future work | [What changes](#what-changes-on-a-page-that-ships-no-javascript) |
+| `data-sn-path` | A page answers at exactly the paths it lists (with or without parameters, absolute, a pattern also with a trailing slash), and its file stays; without it, the page is a directory's index; a listed path it has anyway is `SN515` and ignored. Other paths are the reverse proxy's business | [Page URLs](#which-urls-a-page-answers-at-data-sn-path) |
+| Redirects and rewrites | The build writes `_redirects` (on by default, after the app's own rules): 301 for old file URLs and an exact path's other slash form, 200 rewrites for declared paths. sinter-axum, `vite preview` and `vite dev` follow the same rules; the redirect file stays as the fallback; other hosts get documented rules | [Page URLs](#redirects-and-rewrites-_redirects-and-the-servers-that-follow-it) |
+| With languages and embedded data | The same rules once per language; an unprefixed path is a language chooser (a 200 rewrite on hosts, a 302 from sinter-axum by cookie, then `Accept-Language`); the embed manifest has one entry per page and language | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
+
