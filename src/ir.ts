@@ -251,10 +251,12 @@ export interface ActionDef {
 /** What a mutation is about and what its response holds, for the `apply` feature (write-through). */
 export interface ApplyDef {
   /**
-   * provenance: what the URL and body read. `r`: the resource; `v`: the loop variable when it is a
-   * row of that list; `p`: a sub-path inside the item (`['author']`); `s`: the named schema there
+   * provenance: what the URL and body read. `r`: the resource; `v`: the row's name in scope (a loop
+   * variable, or a dotted path), when it is a row of that list; `n`: when the row is nested, the lists
+   * it is found under at any depth (`['replies']`); `p`: a sub-path inside the item (`['author']`);
+   * `s`: the named schema there
    */
-  tg: Array<{ r: string; v?: string; p?: string[]; s?: string }>;
+  tg: Array<{ r: string; v?: string; p?: string[]; s?: string; n?: string[] }>;
   /** response paths holding an object of a named schema (`''`: the response itself; `a`: an array of them) */
   rs?: Array<{ p: string; s: string; a?: 1 }>;
   /** the request body's wrapper property, when the request schema is `{ wrapper: {…} }` */

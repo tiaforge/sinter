@@ -96,3 +96,71 @@ describe('<sn-component use>: a component chosen by data', () => {
     expect(errs("b.type + '-block'")).toEqual([expect.stringMatching(/^SN312 `use` built with `\+` is a `string` to TypeScript.*template string/)]);
   });
 });
+
+describe('write-through at any depth', () => {
+  const SPEC = { openapi: '3.0.3', paths: {
+    '/api/c': { get: { responses: { '200': { description: 'ok', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Comment' } } } } } } } },
+    '/api/c/{id}': {
+      put: { requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { body: { type: 'string' } } } } } },
+        responses: { '200': { description: 'ok', content: { 'application/json': { schema: { type: 'object', properties: { comment: { $ref: '#/components/schemas/Comment' } } } } } } } },
+      delete: { responses: { '204': { description: 'gone' } } },
+    },
+  }, components: { schemas: { Comment: { type: 'object', properties: { id: { type: 'integer' }, body: { type: 'string' }, replies: { type: 'array', items: { $ref: '#/components/schemas/Comment' } } } } } } };
+  const NODE = `<template data-sn-component="{ comment: { id: number; body: string; replies: any[] } }">
+  <li>
+    <p data-sn-text="comment.body"></p>
+    <button class="edit" data-sn-put="/api/c/{comment.id}" data-sn-body="{ body: 'edited' }"></button>
+    <button class="del" data-sn-delete="/api/c/{comment.id}"></button>
+    <ul><template data-sn-for="r in comment.replies" data-sn-key="r.id"><comment-node data-sn-prop="{ comment: r }"></comment-node></template></ul>
+  </li>
+</template>`;
+
+  test('the response patches the nested item it is about; a DELETE of its URL removes it', async () => {
+    const requests = mockRequests({
+      'GET /api/c': TREE,
+      'PUT /api/c/3': { comment: { id: 3, body: 'from the server', replies: [{ id: 4, body: 'd', replies: [] }] } },
+      'DELETE /api/c/4': { status: 204 },
+    });
+    const { root, settle } = await render(`<sn-resource name="comments" src="/api/c" key="id"></sn-resource>
+      <ul><template data-sn-for="c in comments"><comment-node data-sn-prop="{ comment: c }"></comment-node></template></ul>`,
+    { requests, openapi: SPEC, components: { 'comment-node': NODE } });
+    await settle();
+    const li = (t: string) => [...root.querySelectorAll('p')].find((x) => x.textContent === t)!.parentElement!;
+    (li('c').querySelector('.edit') as HTMLButtonElement).click();
+    await settle();
+    expect(bodies(root)).toEqual(['a', 'b', 'from the server', 'd', 'e']);
+    (li('d').querySelector('.del') as HTMLButtonElement).click();
+    await settle();
+    expect(bodies(root)).toEqual(['a', 'b', 'from the server', 'e']);
+  });
+});
+
+test('<sn-component use>: dev builds warn about a value outside the candidates, once per value; not with data-sn-else', async () => {
+  const { vi } = await import('vitest');
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const C = { 'hero-block': '<template data-sn-component="{ block: { title: string } }"><h1 data-sn-text="block.title"></h1></template>' };
+    const { root, app, flush } = await render(`<div data-sn-state="{ blocks: [{ id: 1, type: 'hero', title: 'Hi' }, { id: 2, type: 'image', title: '' }, { id: 3, type: 'image', title: '' }] }">
+      <template data-sn-for="b in blocks" data-sn-key="b.id"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }"></sn-component></template></div>`, { components: C });
+    const calls = () => warn.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('<sn-component use>'));
+    expect(calls()).toEqual([expect.stringMatching(/^sinter: <sn-component use> at .*page\.html:\d+:\d+ is "image-block", not one of its components \(hero-block\): nothing is rendered/)]);
+    app.state(root.querySelector('div')!).update((s) => { s.blocks.push({ id: 4, type: 'video', title: '' }); });
+    await flush();
+    expect(calls()).toHaveLength(2);
+    expect(calls()[1]).toContain('"video-block"');
+    warn.mockClear();
+    await render(`<div data-sn-state="{ b: { type: 'image' } }"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }"></sn-component><template data-sn-else><i>other</i></template></div>`, { components: C });
+    expect(calls()).toEqual([]);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test('<sn-component use>: production builds carry no warning code', () => {
+  const C = '<template data-sn-component="{ block: { title: string } }"><h1 data-sn-text="block.title"></h1></template>';
+  const page = `<div data-sn-state="{ b: { type: 'image' } }"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }"></sn-component></div>`;
+  const out = (dev: boolean) => compile(page, { file: '/p/i.html', root: '/p', dev, helpers: { module: null, names: [], namespaces: {} }, componentNames: ['hero-block'],
+    readFile: (f) => { if (f === '/p/src/components/hero-block.html') return C; throw new Error('missing'); } }).module;
+  expect(out(true)).toContain('console.warn');
+  expect(out(false)).not.toContain('console.warn');
+});

@@ -165,7 +165,14 @@ export interface ExprResult {
 }
 
 /** A member chain rooted at a resource (`row` null) or at a loop variable over one (`row`: its name), with the members after the root. */
-export interface Read { resource: string; row: string | null; path: string[] }
+export interface Read {
+  resource: string;
+  /** the row's name in the runtime scope (a loop variable, `$p3.comment` for a shared definition's prop), or null for the resource itself */
+  row: string | null;
+  path: string[];
+  /** the row's sources, when it is not simply a row of `resource`: nested (`comments>replies`) or references the compiler resolves later */
+  src?: Sources;
+}
 
 /**
  * The resource names an expression can take, each with where it is written: a string literal, `?:`
@@ -623,12 +630,21 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     // dependency of the whole chain (minus the method name when it is called)
     if (mode !== 'optimistic' || true) {
       const cp = chainPath(n, locals);
+      const path = cp ? (isCallee && n.type === 'MemberExpression' ? cp.props.slice(0, -1) : cp.props) : [];
+      const nestedSrc = (src: Sources | null | undefined) => src?.some((x) => x.includes('>') || x.startsWith('@')) ? src : null;
       if (cp && (cp.res.kind === 'resource' || (cp.res.kind === 'loop' && cp.res.entry.kind === 'item'))) {
-        const path = isCallee && n.type === 'MemberExpression' ? cp.props.slice(0, -1) : cp.props;
-        const row = cp.res.kind === 'loop' ? cp.root : null;
-        for (const resource of cp.resource ? [cp.resource] : cp.res.kind === 'loop' ? cp.res.entry.resources ?? [] : []) {
+        const row = cp.res.kind === 'loop' ? cp.res.entry.rt ?? cp.root : null;
+        // a row of a nested list (`r in comment.replies`): about the item at its path, not a row of the resource
+        const src = cp.res.kind === 'loop' ? nestedSrc(cp.res.entry.src) : null;
+        if (src) {
+          if (!reads.some((x) => x.row === row && x.path.join('.') === path.join('.'))) reads.push({ resource: '', row, path, src });
+        } else for (const resource of cp.resource ? [cp.resource] : cp.res.kind === 'loop' ? cp.res.entry.resources ?? [] : []) {
           if (!reads.some((x) => x.resource === resource && x.row === row && x.path.join('.') === path.join('.'))) reads.push({ resource, row, path });
         }
+      } else if (cp && cp.res.kind === 'let' && cp.res.entry.src?.length && /^\$\.[\w$]+(\.[\w$]+)*$/.test(cp.res.entry.code)) {
+        // a prop that is a value of the scope (a caller's row, a shared definition's prop): about that item
+        const row = cp.res.entry.code.slice(2), src = cp.res.entry.src;
+        if (!src.some((x) => x.startsWith('!')) && !reads.some((x) => x.row === row && x.path.join('.') === path.join('.'))) reads.push({ resource: '', row, path, src });
       }
       if (cp && cp.segs) {
         const segs = isCallee && n.type === 'MemberExpression' ? cp.segs.slice(0, -1) : cp.segs;

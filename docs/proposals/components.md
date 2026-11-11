@@ -2,9 +2,7 @@
 
 Status: implemented (2026-11-10), steps 1 to 7 of the [Plan](#plan); the guide is
 [components.md](../components.md). Where the implementation departs from this text: scoped styles use
-the root's parent as the `@scope` root (see Defining a component); a value of `<sn-component use>`
-outside the candidates renders nothing without a dev warning; write-through still patches nested
-entities at the fixed depth the URL names; the comparison docs compare the RealWorld builds before and
+the root's parent as the `@scope` root (see Defining a component); the comparison docs compare the RealWorld builds before and
 after components on one machine (`realworld-comparison.md`, Components) instead of re-running every
 implementation.
 

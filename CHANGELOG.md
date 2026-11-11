@@ -24,11 +24,12 @@ Attribute names, function names and diagnostic codes are public API. Before
 - A component may use itself (a comment thread, a file tree) when every cycle passes through a `data-sn-for` or
   `data-sn-if` template: it compiles once to a shared definition in the head, which the runtime and the early script
   instantiate per item, so a tree renders at any depth, early too. Nested items change along their path: `patch(r, …)`
-  and `remove(r)` for `r in comment.replies` at any depth, and `upsert(c.replies, x)` (the `nested` module).
+  and `remove(r)` for `r in comment.replies` at any depth, and `upsert(c.replies, x)` (the `nested` module), and
+  write-through applies a response to the nested item an action is about, at any depth.
 - `<sn-component use="…">`: a component chosen by data, named by a template string (``use="`${b.type}-block`"``), a map in
   the markup (`use="{ hero: 'hero-block' }[b.type]"`) or a helper. `sinter check` checks the name against the generated
   `ComponentName` (a type the data can have and no component has is an error) and each candidate's props with the item
-  narrowed; a value outside the candidates renders the `data-sn-else` template after it.
+  narrowed; a value outside the candidates renders the `data-sn-else` template after it, or warns in dev builds.
 - `data-sn-early="off"` on a component's tag leaves that use out of the early script, for uses that may shift the layout
   when they render later: the head script stays small.
 - Scoped styles: a `<style>` in a component file goes into the page's stylesheet, wrapped in native `@scope` from the

@@ -198,6 +198,9 @@ tree, a nested menu.
   replaced, and every view of that row updates. Nested items are matched by the resource's key, so
   give nested loops `data-sn-key`. `upsert(c.replies, x)` adds `x` to a nested list (or replaces the item
   with its key); a resource name stays the form for top-level lists.
+- **Write-through follows the same paths.** An action inside the tree is about the nested item it reads
+  (`data-sn-put="/api/comments/{comment.id}"`): its response patches that item at its depth, and a
+  DELETE of the item's URL removes it from its list.
 
 ## Choosing a component at runtime
 
@@ -227,8 +230,8 @@ A list of mixed blocks (a CMS page, dashboard widgets, a form builder) picks a c
 - Props are checked per candidate. For the convention and the map, each candidate's props are checked
   with the item narrowed to its type (`hero-block` can declare `{ block: HeroBlock }` for
   `Block = HeroBlock | TextBlock`). A helper hides that link, so its candidates take the whole union.
-- A value outside the candidates renders nothing, or the `data-sn-else` template that follows the
-  element.
+- A value outside the candidates renders nothing, with a warning in dev builds (once per value), or the
+  `data-sn-else` template that follows the element.
 - Each candidate compiles to a shared definition in the head (as for [recursion](#a-component-inside-itself)).
   A convention or a map compiles only its candidates; a helper compiles every component of the app,
   since only TypeScript knows its return type.

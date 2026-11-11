@@ -16,7 +16,7 @@ import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
-import { matchOperation, matchResource, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
+import { deref, matchOperation, matchResource, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { withParams } from '../runtime/url.js';
@@ -363,12 +363,14 @@ class Compiler {
   /** `patch()`/`remove()` sources: what handlers assign to state paths and components emit, by reference (`@$s3.sel`, `@ev:2:select`) */
   private readonly srcOf = new Map<string, Set<string>>();
   /** calls whose sources hold references, resolved after the walk */
+  /** write-through targets whose row's source is a reference: added once it is resolved */
+  private readonly pendingTargets: Array<{ ap: () => ApplyDef | null; rd: Read; ref: string }> = [];
   private readonly srcCalls: Array<{ el: P5Element; attr: string; shift: number; fn: string; offset: number; src: string[]; text: string }> = [];
   private useIds = 0;
   /** components used inside themselves: their tags (recursion points), and the definition each compiles to */
   private readonly points = new WeakMap<P5Element, string>();
   /** `<sn-component use>`: one point per candidate, rendered when `use` is its name; `key`: the value of the data that names it, for narrowing */
-  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; first: boolean; keys?: string[] }>();
+  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; first: boolean; keys?: string[]; hasElse?: boolean }>();
   private readonly defs = new Map<string, { tid: number; id: string; use: Use } | null>();
   /** the synthetic tag of a shared definition, whose props are the row's item `rt` */
   private readonly defHosts = new WeakMap<P5Element, { rt: string }>();
@@ -913,6 +915,7 @@ class Compiler {
     if (next && isElement(next) && next.tagName === 'template' && attr(next, 'data-sn-else') !== undefined) {
       next.attrs = next.attrs.filter((a) => a.name !== 'data-sn-else');
       next.attrs.push({ name: 'data-sn-if', value: `!${JSON.stringify(names)}.includes(${use})` });
+      for (const c of clones) this.choices.get(c)!.hasElse = true;
     }
   }
 
@@ -1185,7 +1188,14 @@ class Compiler {
     if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) this.check.exprs[this.lastExpr]!.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
     for (const l of lets) if (l.src?.length) this.addSources(`@def:${name}:${l.name}`, l.src);
     const props = `[{ ${lets.map((l) => `${JSON.stringify(l.name)}: (${l.code})`).join(', ')} }]`;
-    const code = pick ? `($) => ((${pick.ok ? pick.inner : 'undefined'}) === ${JSON.stringify(choice!.name)} ? ${props} : [])` : `($) => ${props}`;
+    // dev builds: a value outside the candidates, with no `data-sn-else` to show, is reported (once per value and place)
+    const warn = pick && choice!.first && !choice!.hasElse && this.opts.dev
+      ? `if (!${JSON.stringify(choice!.names)}.includes(v) && !(($.$f.$snw ??= new Set()).has(${JSON.stringify(this.position(host))} + v))) { $.$f.$snw.add(${JSON.stringify(this.position(host))} + v); console.warn(${JSON.stringify(`sinter: <sn-component use> at ${this.position(host)} is `)} + JSON.stringify(v) + ${JSON.stringify(`, not one of its components (${choice!.names.join(', ')}): nothing is rendered. Add the component, or a <template data-sn-else> after the element`)}); } `
+      : '';
+    const code = pick
+      ? (warn ? `($) => { const v = (${pick.ok ? pick.inner : 'undefined'}); ${warn}return v === ${JSON.stringify(choice!.name)} ? ${props} : []; }`
+        : `($) => ((${pick.ok ? pick.inner : 'undefined'}) === ${JSON.stringify(choice!.name)} ? ${props} : [])`)
+      : `($) => ${props}`;
     const deps = [...new Set([...lets.flatMap((l) => l.deps), ...(pick?.deps ?? [])])].sort();
     const node: NodeDef = { tag: 'template', p: ctx.stateIdx, b: [this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-prop', shift: 0 }), d: deps, x: def.tid })] };
     if (ctx.scope.component?.late || this.lateTag(host)) this.lateNodes.add(node);
@@ -1940,6 +1950,28 @@ class Compiler {
       }
       return out;
     };
+    // write-through targets about a prop of a shared definition, or state that holds a row
+    for (const t of this.pendingTargets) {
+      const ap = t.ap();
+      if (!ap) continue;
+      for (const name of resolve(t.ref, new Set())) {
+        if (name.startsWith('!')) continue;
+        const [base, fields] = name.split('>') as [string, string | undefined];
+        const k = (x: ApplyDef['tg'][number]) => `${x.r}\0${x.v ?? ''}\0${(x.p ?? []).join('.')}\0${(x.n ?? []).join(',')}`;
+        const add = (x: ApplyDef['tg'][number]) => { if (!ap.tg.some((y) => k(y) === k(x))) ap.tg.push(x); };
+        const info0 = this.itemSchema.get(base), doc = info0 ? this.opts.openapi![info0.spec]!.doc : null;
+        const n = fields ? fields.split(',') : null;
+        const sch = info0 ? (n ? nestedSchema(doc, info0.schema, n) : info0.schema) : null;
+        const root = sch ? namedSchema(doc, sch) : null;
+        add({ r: base, ...(t.rd.row ? { v: t.rd.row } : {}), ...(n ? { n } : {}), ...(root ? { s: root.name } : {}) });
+        for (let i = 1; sch && i < t.rd.path.length; i++) {
+          const sn = namedAt(doc, sch, t.rd.path.slice(0, i));
+          if (sn) add({ r: base, ...(t.rd.row ? { v: t.rd.row } : {}), ...(n ? { n } : {}), p: t.rd.path.slice(0, i), s: sn });
+        }
+        if (n) this.features.add('nested');
+        this.features.add('apply');
+      }
+    }
     const resolved = new Map<string, string[]>();
     for (const c of this.srcCalls) {
       const names = [...new Set(c.src.flatMap((x) => (x.startsWith('@') ? resolve(x, new Set()) : [x])))];
@@ -2324,10 +2356,37 @@ class Compiler {
    */
   applyDef(reads: Read[], typed: { spec: number; body: unknown; request: unknown } | null): ApplyDef | null {
     const tg: ApplyDef['tg'] = [];
+    const apBox: { ap: ApplyDef | null } = { ap: null };
+    const apRef = () => apBox.ap!;
+    const ap0 = apRef;
     const seen = new Set<string>();
     const add = (t: ApplyDef['tg'][number]) => { const k = `${t.r}\0${t.v ?? ''}\0${(t.p ?? []).join('.')}`; if (!seen.has(k)) { seen.add(k); tg.push(t); } };
+    // rows with a source of their own: nested (`comments>replies`) at once, references once the page is compiled
+    const direct: Read[] = [];
     for (const rd of reads) {
-      const info = this.itemSchema.get(rd.resource), doc = info ? this.opts.openapi![info.spec]!.doc : null;
+      if (!rd.src) { direct.push(rd); continue; }
+      for (const x of rd.src) {
+        if (x.startsWith('@')) { this.pendingTargets.push({ ap: ap0, rd, ref: x }); continue; }
+        direct.push({ ...rd, resource: x });
+      }
+    }
+    for (const rd0 of direct) {
+      const [base, fields] = rd0.resource.split('>') as [string, string | undefined];
+      const rd = { ...rd0, resource: base };
+      const n = fields ? fields.split(',') : null;
+      const info0 = this.itemSchema.get(base), doc = info0 ? this.opts.openapi![info0.spec]!.doc : null;
+      // a nested item's schema: the item schema of its list, under the row's
+      const info = info0 && n ? (() => { const s = nestedSchema(doc, info0.schema, n); return s ? { ...info0, schema: s } : null; })() : info0;
+      if (n) {
+        const root = info ? namedSchema(doc, info.schema) : null;
+        add({ r: base, ...(rd.row ? { v: rd.row } : {}), n, ...(root ? { s: root.name } : {}) });
+        for (let i = 1; info && i < rd.path.length; i++) {
+          const s = namedAt(doc, info.schema, rd.path.slice(0, i));
+          if (s) add({ r: base, ...(rd.row ? { v: rd.row } : {}), n, p: rd.path.slice(0, i), s });
+        }
+        this.features.add('nested');
+        continue;
+      }
       const root = info ? namedSchema(doc, info.schema) : null;
       add({ r: rd.resource, ...(rd.row ? { v: rd.row } : {}), ...(root ? { s: root.name } : {}) });
       // the named entities along the path: `article.author.username` is also about `article.author`, a Profile
@@ -2336,8 +2395,9 @@ class Compiler {
         if (s) add({ r: rd.resource, ...(rd.row ? { v: rd.row } : {}), p: rd.path.slice(0, i), s });
       }
     }
-    if (!tg.length && !typed) return null;
+    if (!tg.length && !typed && !this.pendingTargets.some((x) => x.ap === ap0)) return null;
     const ap: ApplyDef = { tg };
+    apBox.ap = ap;
     if (typed) {
       const doc = this.opts.openapi![typed.spec]!.doc;
       ap.t = 1;
@@ -3218,6 +3278,17 @@ function binding(b: Binding): Binding {
   }
   if (out.d && out.d.length === 0) delete out.d;
   return out;
+}
+
+/** The item schema of a nested list: the list under `fields` of an item of `schema` (any of them), its items. */
+function nestedSchema(doc: unknown, schema: unknown, fields: string[]): unknown {
+  for (const f of fields) {
+    const props = properties(doc, schema);
+    if (!props.has(f)) continue;
+    const list = deref(doc, props.get(f)) as { items?: unknown } | null;
+    if (list?.items) return list.items;
+  }
+  return null;
 }
 
 function findHead(doc: P5Parent): P5Element | null {
