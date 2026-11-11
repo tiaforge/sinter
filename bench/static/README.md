@@ -88,7 +88,7 @@ node bench/static/locales.mjs
 | `/de/about/` | 200, "Über uns · Feldnotizen" | de | 0 |
 | `/de/about` | 301 → `/de/about/` | de | 0 |
 | `/de/about.html` | redirect file → `/de/about/` | de | 0 |
-| `/de/status/` | 200 (the page with data) | de | 2 |
+| `/de/status/` | 200 (the page with data) | de | 1 |
 
 - The 20 internal links on the German pages all stay under `/de/` (the switcher's `hreflang` links aside).
 - `/de/about/` has `og:url` and its canonical link at `https://example.com/de/about/`, and `hreflang` for `en`, `de`
