@@ -35,9 +35,8 @@ npm run build     # dist/
 npm run size      # size per page and module, with budgets
 npm run bench     # store and flush benchmarks (docs/benchmark.md)
 npm run docs      # regenerate llms.txt, html-custom-data.json (also the VS Code extension's), docs/diagnostics.md and docs/attributes.md
-npm run release -- 0.3.0   # bump sinter, the create starter and sinter-axum, date the changelog, commit "Release 0.3.0",
-                           # tag v0.3.0 and sinter-axum-v<version>, print the push and publish commands (nothing pushed)
-                           # sinter-axum takes the same kind of bump unless named: --axum=0.2.0
+npm run release -- 0.3.0   # sinter, the create starter and sinter-axum all to 0.3.0, date the changelog,
+                           # commit "Release 0.3.0", tag v0.3.0, print the push and publish commands (nothing pushed)
 ```
 
 ## Packages and imports

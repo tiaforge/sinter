@@ -1,14 +1,12 @@
-// Cuts a release of the three published packages: `npm run release -- 0.3.0` bumps every place
-// a version is written, dates the changelog's Unreleased section, commits "Release 0.3.0" and
-// tags it (annotated), then prints the commands that push and publish. Nothing is pushed or
-// published.
+// Cuts a release of the published packages, all at one version so that equal versions are known
+// to work together: `npm run release -- 0.3.0` bumps every place a version is written, dates the
+// changelog's Unreleased section, commits "Release 0.3.0" and tags it v0.3.0 (annotated), then
+// prints the commands that push and publish. Nothing is pushed or published.
 //
-// - @tiaforge-ui/sinter (the repository root): 0.3.0, tagged v0.3.0.
-// - @tiaforge-ui/create (packages/create, the starter): the same version, and its template
-//   depends on ^0.3.0, the sinter about to be published, so publish sinter first.
-// - sinter-axum and sinter-axum-macros (packages/sinter-axum, the middleware crates): versioned
-//   on their own, tagged sinter-axum-v<version>. By default they take the same kind of bump as
-//   sinter (major, minor or patch); `--axum=0.2.0` names the version.
+// - @tiaforge-ui/sinter (the repository root).
+// - @tiaforge-ui/create (packages/create, the starter): its template depends on ^0.3.0, the
+//   sinter about to be published, so publish sinter first.
+// - sinter-axum and sinter-axum-macros (packages/sinter-axum, the middleware crates).
 //
 // `--dry-run` prints the edits without writing; `--no-check` skips the typecheck and the tests
 // (npm and cargo) that run before the commit.
@@ -21,8 +19,7 @@ const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const check = !args.includes('--no-check');
 const version = args.find((a) => !a.startsWith('--'))?.replace(/^v/, '');
-const axumArg = args.find((a) => a.startsWith('--axum='))?.slice('--axum='.length).replace(/^v/, '');
-const unknown = args.filter((a) => a.startsWith('--') && !['--dry-run', '--no-check'].includes(a) && !a.startsWith('--axum='));
+const unknown = args.filter((a) => a.startsWith('--') && !['--dry-run', '--no-check'].includes(a));
 
 function fail(message) {
   console.error(`release: ${message}`);
@@ -34,30 +31,21 @@ const axumDir = resolve(root, 'packages/sinter-axum');
 const cargo = (a, stdio = 'inherit') => execFileSync('cargo', a, { cwd: axumDir, stdio });
 
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/;
-const USAGE = 'usage: npm run release -- <x.y.z> [--axum=<x.y.z>] [--dry-run] [--no-check]';
-if (!version || !SEMVER.test(version) || unknown.length) fail(USAGE);
-if (axumArg !== undefined && !SEMVER.test(axumArg)) fail(USAGE);
+if (!version || !SEMVER.test(version) || unknown.length) fail('usage: npm run release -- <x.y.z> [--dry-run] [--no-check]');
 
 const current = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version;
 const parts = (v) => SEMVER.exec(v).slice(1, 4).map(Number);
 const cmp = (a, b) => parts(a).reduce((r, n, i) => r || n - parts(b)[i], 0);
 if (cmp(version, current) < 0 || version === current) fail(`${version} is not newer than ${current}`);
 
-// The middleware: the same kind of bump as sinter's, unless named.
+// The middleware's current version; until the first release in step with sinter it may differ.
 const axumToml = readFileSync(resolve(axumDir, 'Cargo.toml'), 'utf8');
 const axumCurrent = /^\[package\][^[]*?^version = "([^"]*)"/m.exec(axumToml)?.[1];
 if (!axumCurrent) fail('no [package] version in packages/sinter-axum/Cargo.toml');
-const bumped = (v, i) => parts(v).map((n, j) => (j < i ? n : j === i ? n + 1 : 0)).join('.');
-const level = parts(version).findIndex((n, i) => n !== parts(current)[i]);
-const axumVersion = axumArg ?? (level === -1 ? axumCurrent : bumped(axumCurrent, level));
-if (cmp(axumVersion, axumCurrent) < 0 || axumVersion === axumCurrent) {
-  fail(`sinter-axum ${axumVersion} is not newer than ${axumCurrent}; name one with --axum=<x.y.z>`);
-}
-const [axumMajor, axumMinor] = parts(axumVersion);
+if (cmp(version, axumCurrent) <= 0) fail(`${version} is not newer than sinter-axum's ${axumCurrent}`);
 
 const tag = `v${version}`;
-const axumTag = `sinter-axum-v${axumVersion}`;
-for (const t of [tag, axumTag]) if (git('tag', '--list', t)) fail(`tag ${t} already exists`);
+if (git('tag', '--list', tag)) fail(`tag ${tag} already exists`);
 if (!dryRun && git('status', '--porcelain')) fail('the working tree is not clean; commit or stash first');
 
 const now = new Date();
@@ -76,13 +64,13 @@ const edits = [
   ['bench/js-framework-benchmark/package.json', (s) => s.replace(/("frameworkVersion": )"[^"]*"/, `$1"${version}"`)],
   ['README.md', (s) => s.replace(/sinter is at v\d+\.\d+/, `sinter is at v${major}.${minor}`)],
   // The middleware crates: both packages, the dependency between them, and the lockfile.
-  ['packages/sinter-axum/Cargo.toml', (s) => s.replace(/^(\[package\][^[]*?^version = )"[^"]*"/m, `$1"${axumVersion}"`)
-    .replace(/^(sinter-axum-macros = \{ version = )"[^"]*"/m, `$1"${axumVersion}"`)],
-  ['packages/sinter-axum/macros/Cargo.toml', (s) => s.replace(/^(\[package\][^[]*?^version = )"[^"]*"/m, `$1"${axumVersion}"`)],
-  ['packages/sinter-axum/Cargo.lock', (s) => s.replace(/(\nname = "sinter-axum"\nversion = )"[^"]*"/, `$1"${axumVersion}"`)
-    .replace(/(\nname = "sinter-axum-macros"\nversion = )"[^"]*"/, `$1"${axumVersion}"`)],
+  ['packages/sinter-axum/Cargo.toml', (s) => s.replace(/^(\[package\][^[]*?^version = )"[^"]*"/m, `$1"${version}"`)
+    .replace(/^(sinter-axum-macros = \{ version = )"[^"]*"/m, `$1"${version}"`)],
+  ['packages/sinter-axum/macros/Cargo.toml', (s) => s.replace(/^(\[package\][^[]*?^version = )"[^"]*"/m, `$1"${version}"`)],
+  ['packages/sinter-axum/Cargo.lock', (s) => s.replace(/(\nname = "sinter-axum"\nversion = )"[^"]*"/, `$1"${version}"`)
+    .replace(/(\nname = "sinter-axum-macros"\nversion = )"[^"]*"/, `$1"${version}"`)],
   // `sinter-axum = "0.1"` and `sinter-axum = { version = "0.1", ... }` in its README
-  ['packages/sinter-axum/README.md', (s) => s.replace(/(sinter-axum = (?:\{ version = )?)"[^"]*"/g, `$1"${axumMajor}.${axumMinor}"`)],
+  ['packages/sinter-axum/README.md', (s) => s.replace(/(sinter-axum = (?:\{ version = )?)"[^"]*"/g, `$1"${major}.${minor}"`)],
   ['CHANGELOG.md', (s) => s.replace(/^## Unreleased$/m, `## ${version} (${date})`)],
 ];
 
@@ -93,7 +81,7 @@ for (const [file, edit] of edits) {
   const after = edit(before);
   // A README names only major.minor, so a patch release leaves it as it is.
   const sameMinor = file === 'README.md' ? major === parts(current)[0] && minor === parts(current)[1]
-    : file === 'packages/sinter-axum/README.md' ? axumMajor === parts(axumCurrent)[0] && axumMinor === parts(axumCurrent)[1]
+    : file === 'packages/sinter-axum/README.md' ? major === parts(axumCurrent)[0] && minor === parts(axumCurrent)[1]
     : false;
   if (after === before && !sameMinor) {
     fail(file === 'CHANGELOG.md' ? 'CHANGELOG.md has no "## Unreleased" section' : `nothing to bump in ${file}`);
@@ -102,10 +90,11 @@ for (const [file, edit] of edits) {
 }
 
 if (dryRun) {
-  console.log(`release (dry run): sinter and create ${current} → ${version}, sinter-axum ${axumCurrent} → ${axumVersion}`);
+  const from = axumCurrent === current ? current : `${current} (sinter-axum ${axumCurrent})`;
+  console.log(`release ${from} → ${version} (dry run)`);
   console.log('would change:');
   for (const [file] of changed) console.log(`  ${file}`);
-  console.log(`then commit "Release ${version}" and tag ${tag} and ${axumTag}`);
+  console.log(`then commit "Release ${version}" and tag ${tag}`);
   process.exit(0);
 }
 
@@ -120,18 +109,16 @@ for (const [, path, after] of changed) writeFileSync(path, after);
 // The lockfile edit must agree with the manifests: --locked fails if cargo would change it.
 cargo(['metadata', '--locked', '--offline', '--format-version', '1', '--no-deps'], ['ignore', 'ignore', 'inherit']);
 git('add', ...changed.map(([file]) => file));
-git('commit', '-m', `Release ${version}`, '-m', `sinter-axum ${axumVersion}`);
+git('commit', '-m', `Release ${version}`);
 git('tag', '-a', tag, '-m', `sinter ${version}`);
-git('tag', '-a', axumTag, '-m', `sinter-axum ${axumVersion}`);
 
 console.log(`
-Released: commit "Release ${version}", tags ${tag} and ${axumTag}.
-  @tiaforge-ui/sinter  ${version}
-  @tiaforge-ui/create  ${version} (new apps get @tiaforge-ui/sinter ^${version})
-  sinter-axum          ${axumVersion} (and sinter-axum-macros)
+Released: commit "Release ${version}", tag ${tag}.
+All at ${version}: @tiaforge-ui/sinter, @tiaforge-ui/create (new apps get @tiaforge-ui/sinter ^${version}),
+sinter-axum and sinter-axum-macros.
 
 Push:
-  git push origin HEAD ${tag} ${axumTag}
+  git push origin HEAD ${tag}
 
 Publish, in this order (the starter needs sinter ${version} on npm, sinter-axum needs its macros on crates.io):
   npm publish
