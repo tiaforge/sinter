@@ -7,6 +7,7 @@ import { relative, resolve } from 'node:path';
 import { check } from './check/index.js';
 import { compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
 import { project, staticPages, viteProject, type ProjectOptions } from './project.js';
+import { lazyDiagnostics, resolveFile } from './lazy-build.js';
 
 const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [page.html …]\n       sinter lsp [--stdio]';
 
@@ -44,6 +45,12 @@ async function main(argv: string[]): Promise<number> {
   // a `static` pattern that matches no page (with the pages from the Vite config)
   if (!pages.length && Array.isArray(options.static)) {
     for (const m of staticPages(root, options.static).unmatched(files)) diagnostics.push({ severity: 'error', code: 'SN322', message: `sinter({ static }): no page matches \`${m}\``, file: resolve(root, 'vite.config'), line: 1, col: 1 });
+  }
+  // lazy packages: uses a stub cannot serve, in the app's modules (SN324)
+  if (p.lazy.length) {
+    const mod = (url: string | null) => (url ? resolveFile(url, resolve(root, 'index.html'), root) : null);
+    const scripts = p.componentNames.map((n) => resolveFile(`/src/components/${n}.ts`, root, root) ?? resolveFile(`/src/components/${n}.js`, root, root)).filter((f): f is string => !!f);
+    diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], p.helpersFile, scripts));
   }
   const r = check({ root, units, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes });
   diagnostics.push(...r.diagnostics);

@@ -92,10 +92,12 @@ const CHECK_ONLY = ['SN208', 'SN307'];
 const IMAGES_ONLY = ['SN511', 'SN512', 'SN514'];
 /** Codes for pages listed in `sinter({ static })`. Fixtures in test/compiler/static.test.ts. */
 const STATIC_ONLY = ['SN322'];
+/** Lazy packages (`sinter({ lazy })`): the app's modules and the build. Fixtures in test/lazy.test.ts and test/vite/lazy.test.ts. */
+const LAZY_ONLY = ['SN324', 'SN325'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
-    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY])).toEqual(new Set(Object.keys(CODES)));
+    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY])).toEqual(new Set(Object.keys(CODES)));
   });
   for (const [code, html, message, check] of cases) {
     test(code, () => {

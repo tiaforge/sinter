@@ -352,6 +352,26 @@ Error, for example:
 
 **Fix:** Set `sinter({ site: 'https://example.com' })` in vite.config (an origin, no path: a site under a path sets Vite's `base`). For a canonical link of your own, write it absolute, e.g. `$site + '/en/about/'` is what the build would write.
 
+## SN324 lazy-package-use
+
+Error, for example:
+
+> `openpgp.encrypt(…)` is not awaited: `sinter({ lazy })` loads openpgp on first call, so every call returns a Promise
+
+The package is in `sinter({ lazy })`, so the app's imports of it are stubs that load it on first call: each call returns a Promise, and nothing else of the package is there before it has loaded. So a value imported from it may only be called, and each call must be waited for (`await`, `return`, `.then`, `void`, or `Promise.all`). Refused: a call nothing waits for, `new`, `instanceof`, reading a constant or setting (`openpgp.enums`, `openpgp.config`), passing a function or the namespace as a value, `import 'pkg'` for its side effects, and re-exporting it. Also: the helpers module reaches a lazy package through its imports (helpers run while a binding renders and cannot wait); and in markup, `data-sn-import` or `data-sn-preload` names a package that is not in `lazy`.
+
+**Fix:** Await the call. For classes and constants, load the package where they are needed with `await import('pkg')`, or move that code into a component script, which loads with the package. Compute what a helper needed in an action or a `<sn-resource call>`. In markup, name a package of `lazy`, or add it there.
+
+## SN325 lazy-package-bundled
+
+Error, for example:
+
+> the page bundle of mail.html contains openpgp, which `sinter({ lazy })` loads lazily: mail.html → src/lib/autocrypt.ts → some-lib → openpgp
+
+A page's bundle (its own chunk and the chunks it imports, or its early file) contains a lazy package after all, so the page downloads it with itself: another package imports it (the app's imports of it are stubs, a package's are not), or the early module reaches it. Also: an app module that some module of the page loads with `import()` is imported statically by the page too, so the split does nothing for that page.
+
+**Fix:** Add the other package to `lazy` as well, or load it with `import()`. For the app's own split, import the module only with `import()` where the page reaches it, or not lazily at all.
+
 ## SN401 parse-error
 
 Error, for example:

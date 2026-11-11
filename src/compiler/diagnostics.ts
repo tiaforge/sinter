@@ -48,6 +48,8 @@ export const CODES = {
   SN321: 'duplicate-head',
   SN322: 'ships-javascript',
   SN323: 'needs-site',
+  SN324: 'lazy-package-use',
+  SN325: 'lazy-package-bundled',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',

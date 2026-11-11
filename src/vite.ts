@@ -9,7 +9,8 @@ import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
-import { project, staticPages, type ProjectOptions } from './project.js';
+import { lazyOf, project, staticPages, type ProjectOptions } from './project.js';
+import { CHUNK_MARK, helperProblem, isComponentScript, LAZY, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { loadImages, MIME, type Images } from './images.js';
@@ -259,6 +260,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const watched = new Set<string>();
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
+  /** `lazy`: the packages loaded on first call (checked before Vite starts), and each one's resolved id (its chunk's facade) */
+  const lazyPkgs = lazyOf(options.lazy);
+  const lazyIds = new Map<string, string>();
   /** `site`: the origin, checked (no path, no query) */
   const siteOrigin = (() => {
     if (options.site == null) return null;
@@ -530,6 +534,30 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (m) server!.moduleGraph.invalidateModule(m);
   };
 
+  /**
+   * Lazy packages in an app module (docs/lazy.md): its imports of one point at stubs, after the uses
+   * a stub cannot serve were refused (SN324). A component script keeps its imports (it loads with the
+   * package). The helpers module may not reach a lazy package at all.
+   */
+  const lazyTransform = (ctx: { error(e: string | { message: string; id?: string; loc?: { line: number; column: number } }): never }, code: string, id: string) => {
+    if (!lazyPkgs.length || id.startsWith('\0') || id.includes('/node_modules/') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return null;
+    const file = id.replace(/[?#].*$/, '');
+    const helpers = project(root, options).helpersFile;
+    if (helpers && file === helpers) {
+      const r = reachLazy(file, lazyPkgs, root)[0];
+      if (r) { const d = helperProblem(root, r, file); ctx.error({ message: `sinter: SN324 ${d.message}`, id: file, loc: { line: 1, column: 0 } }); }
+    }
+    if (!mentions(code, lazyPkgs)) return null;
+    const s = scanLazy(code, file, lazyPkgs);
+    if (!s.lazy.length && !s.problems.length) return null;
+    if (isComponentScript(root, file)) return null;
+    if (s.problems.length) {
+      const at = lineCol(code, s.problems[0]!.offset);
+      ctx.error({ message: `sinter: ${s.problems.map((p) => { const l = lineCol(code, p.offset); return `SN324 ${relOf(file)}:${l.line}:${l.col} ${p.message}`; }).join('\n')}`, id: file, loc: { line: at.line, column: at.col - 1 } });
+    }
+    return { code: rewriteLazy(code, s), map: null };
+  };
+
   const main: SinterPlugins[0] = {
     name: 'sinter',
     enforce: 'pre',
@@ -542,9 +570,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      * modules, one import after the other.
      */
     config(user) {
+      // dev: the lazy packages are pre-bundled at startup (no page imports them statically, so the scan would not find them)
+      const deps = lazyPkgs.length ? { optimizeDeps: { include: lazyPkgs } } : {};
       const mp = user.build?.modulePreload;
-      if (mp === false || (typeof mp === 'object' && mp.polyfill !== undefined)) return;
-      return { build: { modulePreload: { polyfill: false } } };
+      if (mp === false || (typeof mp === 'object' && mp.polyfill !== undefined)) return deps;
+      return { ...deps, build: { modulePreload: { polyfill: false } } };
     },
 
     async configResolved(config) {
@@ -750,7 +780,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     transform(code, id) {
       collect(this, code, id);
-      return null;
+      return lazyTransform(this, code, id);
     },
 
     resolveId(id, importer) {
@@ -775,6 +805,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (css.startsWith(`\0${IMG_CSS}`)) return imageCss.get(css.slice(IMG_CSS.length + 1, -4)) ?? '';
       if (css.startsWith(`\0${COMPONENT_CSS}`)) return componentCss.get(css.slice(COMPONENT_CSS.length + 1, -4)) ?? '';
       if (id.startsWith(`\0${COMPONENT_BASE}`)) return componentBase(id.slice(COMPONENT_BASE.length + 1, -3));
+      // lazy packages: the loader (one `import()` of the package) and each importer's stubs
+      const lz = id.startsWith(`\0${LAZY}`) ? parseLazyId(id.slice(1)) : null;
+      if (lz && lazyPackage(lz.spec, lazyPkgs)) {
+        if (lz.names) return stubModule(lz.spec, lz.names);
+        if (dev) return loaderModule(lz.spec, null);
+        const r = await this.resolve(lz.spec, resolve(root, 'index.html'));
+        if (r) lazyIds.set(lz.spec, r.id);
+        return loaderModule(lz.spec, r?.id ?? null);
+      }
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
       if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;
@@ -910,6 +949,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     apply: 'build',
     /** builds: the finished stylesheets, whose url()s name the build's copies of the images (their `originalFileNames` the sources) */
     async generateBundle(_, bundle) {
+      patchChunkUrls(bundle);
       if (!images) return;
       const img = images, r = resolved!;
       const byName = new Map<string, string>();
@@ -989,6 +1029,27 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       },
     },
   };
+
+  /**
+   * Builds: each lazy loader learns its chunk's URL (relative to the loader's own chunk), so a failed
+   * load can ask the server whether the chunk is still there (lazy.ts): the mark becomes the path.
+   */
+  function patchChunkUrls(bundle: Record<string, { type: string; fileName: string; code?: string; facadeModuleId?: string | null }>) {
+    const byFacade = new Map<string, string>();
+    for (const c of Object.values(bundle)) if (c.type === 'chunk' && c.facadeModuleId) byFacade.set(c.facadeModuleId, c.fileName);
+    const mark = new RegExp(`(["'\`])${CHUNK_MARK}(.+?)__\\1`, 'g');
+    for (const c of Object.values(bundle)) {
+      if (c.type !== 'chunk' || !c.code?.includes(CHUNK_MARK)) continue;
+      c.code = c.code.replace(mark, (_, _q: string, raw: string) => {
+        let id = raw;
+        try { id = JSON.parse(`"${raw}"`) as string; } catch { /* as written */ }
+        const target = byFacade.get(id);
+        if (!target) return 'null';
+        const rel = posix.relative(posix.dirname(c.fileName), target);
+        return JSON.stringify(rel.startsWith('.') ? rel : `./${rel}`);
+      });
+    }
+  }
 
   /**
    * One line per page: no JavaScript, or the page's module and the chunks it imports (gzip), and why it

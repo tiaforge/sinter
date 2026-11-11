@@ -54,8 +54,10 @@ export class SinterError extends Error {
   /**
    * @param detail what went wrong in words: the server's message or text, or a thrown error's
    *   message; null when there is none (`message` then falls back to the HTTP status)
+   * @param stale the page is out of date: code it loads lazily is gone from the server (a deploy
+   *   replaced it), so only a reload helps (docs/lazy.md)
    */
-  constructor(readonly status: number | null, readonly body: unknown, message: string, readonly detail: string | null = null) {
+  constructor(readonly status: number | null, readonly body: unknown, message: string, readonly detail: string | null = null, readonly stale: boolean = false) {
     super(message);
     this.name = 'SinterError';
   }

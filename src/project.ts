@@ -37,6 +37,12 @@ export interface ProjectOptions {
    * that needs the runtime fails the build, `sinter check` and the editor; a pattern no page matches too.
    */
   static?: string[] | true;
+  /**
+   * Packages loaded on first call instead of with the page (docs/lazy.md): every import of one in the
+   * app's modules gets async stubs that share one `import()`, so the package is a chunk of its own.
+   * Only awaited calls of its exports work (SN324); component scripts that import it load with it.
+   */
+  lazy?: string[];
 }
 
 /** A path pattern of `static`: `**` any folders, `*` within one name, `?` one character. */
@@ -95,6 +101,8 @@ export interface Project {
   checkCycles: boolean;
   /** `static`: the pages that must ship no JavaScript (SN322) */
   isStatic: (file: string) => boolean;
+  /** `lazy`: the packages loaded on first call (docs/lazy.md) */
+  lazy: string[];
 }
 
 export function project(root: string, options: ProjectOptions = {}): Project {
@@ -169,6 +177,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   return {
     root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
     isStatic: staticPages(root, options.static).has,
+    lazy: lazyOf(options.lazy),
     componentNames: componentNames(root),
     messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile),
     config: configRel ? url(configRel) : null,
@@ -210,4 +219,14 @@ export function complexityOf(c: ComplexityOptions | undefined): ComplexityOption
     else if (typeof v !== 'number' || !(v >= 0)) bad(`\`${k}\` takes a number of 0 or more`);
   }
   return c;
+}
+
+/** The `lazy` option, checked: package names (`openpgp`, `@scope/pkg`), not paths. */
+export function lazyOf(list: unknown): string[] {
+  if (list == null) return [];
+  if (!Array.isArray(list)) throw new Error('sinter({ lazy }): takes a list of package names, e.g. `lazy: [\'openpgp\']`');
+  for (const x of list) {
+    if (typeof x !== 'string' || !/^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i.test(x)) throw new Error(`sinter({ lazy }): \`${String(x)}\` is not a package name; list packages from node_modules, e.g. \`'openpgp'\` (a subpath such as \`openpgp/lightweight\` is covered by its package)`);
+  }
+  return [...new Set(list as string[])];
 }
