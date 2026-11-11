@@ -1,0 +1,15 @@
+{
+  "site": "Fieldnotes",
+  "nav_home": "Home",
+  "nav_about": "About",
+  "nav_docs": "Docs",
+  "nav_status": "Status",
+  "home_title": "Notes from the field",
+  "home_text": "A site of plain pages, in two languages.",
+  "about_title": "About",
+  "about_text": "Fieldnotes is written by a small team.",
+  "docs_title": "Getting started",
+  "docs_text": "Start with the newest note and work back.",
+  "status_title": "Status",
+  "status_loading": "Checking…"
+}

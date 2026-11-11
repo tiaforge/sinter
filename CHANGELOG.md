@@ -7,6 +7,15 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Languages in the URL (docs/static-pages.md#languages): `sinter({ localePrefix: true })` builds each page once per
+  language of the inlang project, under its prefix (`/en/about/`, `/de/about/`), with `<html lang>` and that language's
+  messages and `$locale` written into the HTML, in attributes too, so a page with nothing else to run ships no
+  JavaScript in any language. `localeUrl('de')` gives a page's URL in another language; links to the app's pages stay
+  in the page's language; `data-sn-path` is written without the prefix. With `site`, each page gets `hreflang` links and
+  `x-default`. Each unprefixed URL is a language chooser: the base language without JavaScript; on a site that ships
+  JavaScript, the `locale` cookie its pages set, else the browser's languages. `_redirects` has each language's rules
+  and the choosers'; sinter-axum answers an unprefixed URL with a 302 to the visitor's language; `vite dev` serves it
+  all. `baseLocale` must be set and among `locales`. Assigning `$locale` in a page built in one language is `SN203`.
 - Canonical URLs (docs/static-pages.md#canonical-urls): `sinter({ site: 'https://example.com' })`. Every page whose URL
   is known gets `<link rel="canonical">`, and expressions get `$site` (the origin and Vite's `base`) and `$canonical`
   (the page's URL), build-time constants on a page with a fixed path (`og:url`, `og:image` in a head component, with no

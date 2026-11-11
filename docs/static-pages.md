@@ -252,3 +252,60 @@ writes the page's canonical link into the HTML for each request.
 `site` is an origin only: a site served under a path sets Vite's `base`. Without `site`, reading
 `$site` or `$canonical` is [SN323](diagnostics.md#sn323-needs-site), and no canonical link is written.
 
+## Languages
+
+With [messages](configuration.md#messages) in more than one language, `localePrefix` builds each page once
+per language, under that language's prefix, with its text in the HTML:
+
+```js
+// vite.config.js
+sinter({ localePrefix: true, site: 'https://example.com' })
+```
+
+```
+dist/en/about/index.html    /en/about/    <html lang="en">, English in the HTML
+dist/de/about/index.html    /de/about/    <html lang="de">, German in the HTML
+dist/about/index.html       /about/       a language chooser
+dist/index.html             /             a language chooser
+```
+
+The languages come from the inlang project: `locales` are the prefixes, and `baseLocale` (which must be
+set, and among `locales`) is the language a visitor without a choice gets. Every language is prefixed,
+the base too, so a server routes on the first segment alone.
+
+In each language's page:
+
+- **Its text is in the HTML.** `m.title()`, `$locale`, and anything built from them and constants are
+  written at build time, in text and attributes (`<title>`, `<meta content>`, `aria-label`), so a page
+  with nothing else to run ships no JavaScript in any language. A message over data
+  (`m.inbox_count({ count: inbox.unread })`) renders in the browser, from that language's file only.
+- **Switching language is a link.** `localeUrl('de')` is this page's URL in German:
+
+  ```html
+  <a hreflang="de" data-sn-attr="{ href: localeUrl('de'), 'aria-current': $locale === 'de' ? 'true' : null }">Deutsch</a>
+  ```
+
+  `$locale` cannot be assigned (`SN203`): each language is its own page.
+- **Links stay in the language.** A link to one of your pages (`/about.html`, `/about/`) is written as that
+  page in the same language (`/de/about/`). A link with `hreflang` names a language on purpose and is left
+  as it is.
+- **`data-sn-path` is written without the prefix** (`/article/:slug`) and matches under each language
+  (`/de/article/hello`); `$url` does not include it.
+- **Search engines see every language.** With `site`, each page's head has `<link rel="alternate"
+  hreflang>` for each language's URL and `x-default` for its chooser, and its canonical link is its own
+  language's URL.
+
+At an unprefixed URL (`/about/`, `/article/hello`, typed, bookmarked or linked from elsewhere), the chooser
+sends the visitor to a language. Without JavaScript, or on a site where no page ships any, to the base
+language. On a site where pages ship JavaScript, those pages record their language in a `locale` cookie,
+and the chooser follows it, else the first of the browser's languages the site has (`de-AT` is `de`), else
+the base, keeping the path (`/article/hello` → `/de/article/hello`). The choosers are `noindex`.
+
+The rules for hosts follow the same shape: `_redirects` has each language's rules and the choosers'.
+[sinter-axum](../packages/sinter-axum/README.md) answers an unprefixed URL with a 302 to the visitor's
+language itself (the cookie, else `Accept-Language`). `vite dev` serves the language pages and the
+choosers as the build writes them.
+
+A page your app links to by a URL built at run time is not rewritten into the language: use `localeUrl()`,
+or build it with `$locale` (`'/' + $locale + '/task/?id=' + t.id`).
+
