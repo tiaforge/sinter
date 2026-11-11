@@ -137,18 +137,93 @@ The reasons list the first few things from the table in step 2, with locations, 
 component or layout file they are in.
 
 And an assertion for pages that must stay static, so that adding `data-sn-on-click` to the footer
-does not quietly put the runtime back on every page of a docs site. On a page written by hand it
-goes on `<html>`. On a layout page, the tag's plain attributes go onto `<html>`, so it goes on the
-tag, or on the layout's `<html>` for every page that uses it:
+does not quietly put the runtime back on every page of a docs site. It is a matcher in the plugin's
+options, over page paths relative to the root:
 
-```html
-<site-layout data-sn-static data-sn-prop="{ title: 'About', nav: 'about' }">…</site-layout>
+```js
+sinter({ static: ['index.html', 'about.html', 'docs/**'] })
+sinter({ static: true })                                     // every page
 ```
 
-A page with `data-sn-static` that needs the runtime fails the build with a new diagnostic (`SN322`,
-after #26's `SN318`–`SN321`): "about.html must ship no JavaScript (`data-sn-static`), but
-`data-sn-on-click` in src/components/site-footer.html:4 runs in the browser". It is checked in
-`sinter check` and the LSP too, through the component or layout that caused it.
+A matched page that needs the runtime fails the build with a new diagnostic (`SN322`, after #26's
+`SN318`–`SN321`): "about.html must ship no JavaScript (`sinter({ static })`), but `data-sn-on-click`
+in src/components/site-footer.html:4 runs in the browser". It is checked in `sinter check` and the
+LSP too, at the element that caused it, in the page, component or layout. A pattern that matches no
+page is a build error too, so that renaming a page does not silently drop it from the check.
+
+The matcher is the only place for it. A page attribute would be a second way to say the same thing,
+and with layouts it would have to be repeated on every page tag; on the layout it would make every
+page that uses the layout static, which is not what a layout is about. A single page is a matcher
+with one entry.
+
+### 4. Multilingual static sites: one HTML file per language
+
+Today a page with messages has one HTML file. The base language's text is in it; a script in the
+head picks the visitor's language before the first paint (the stored choice, else
+`navigator.languages`, else the base), loads that language's file for the page, and the runtime
+renders the messages. For another language the message elements stay hidden until it has, up to 3 s.
+Switching is `$locale = 'de'`, without a reload.
+
+That needs the runtime. The layout site above, with the title and one paragraph from messages
+(`en`, `de`):
+
+```
+dist/assets/messages-*.js     35.1 kB   the runtime with the messages module (14.7 kB gzip)
+dist/assets/sinter-head-*.js   5.2 kB   the language picker and the early runtime (2.4 kB gzip)
+dist/assets/about-head-*.js    1.4 kB   the page's early bindings (0.8 kB gzip)
+dist/assets/about-en-*.js, about-de-*.js   the page's messages, one file per language
+```
+
+And the HTML is not complete in any language: `<meta name="description">` gets its content from a
+message, and messages are written into the HTML only as text, so the description is empty until the
+runtime fills it. A crawler sees English text with no description, and never sees the German page.
+
+**Proposed: the language is part of the URL, and each page is built once per language.**
+
+```js
+sinter({ localeUrls: true })
+```
+
+```
+dist/about.html        en (the base): <html lang="en">, English in the HTML
+dist/de/about.html     de: <html lang="de">, German in the HTML
+```
+
+- Each file is compiled with the locale fixed. `$locale` is a build-time constant, and every message
+  call over constants is written into the HTML in that language, in text and in attributes
+  (`<title>`, `<meta content>`, `aria-label`). After that the page is static by the same rule as any
+  other: nothing in the table of step 2 is left, so it ships no JavaScript.
+- `date()` and `number()` over constants are formatted at build time with Node's `Intl` in that
+  locale. (Node and the browser may use different ICU versions; this is text written once, as a
+  server would.)
+- Switching language is a link. A built-in `localeUrl('de')` is the URL of this page in German; it is a
+  constant in each file, so a language switcher is plain markup:
+
+  ```html
+  <a data-sn-attr="{ href: localeUrl('de'), 'aria-current': $locale === 'de' ? 'true' : null }" hreflang="de">Deutsch</a>
+  ```
+- Each head gets `<link rel="alternate" hreflang="…">` for every language and `x-default` for the
+  base, so search engines index and link each language.
+- It applies to every page, not only static ones: one model per site. An app page gets its text in
+  the first frame in every language, with nothing hidden, and needs no picker. Messages over data
+  (`m.inbox_count({ count: inbox.unread })`) still render in the browser, from that language's file,
+  which the page module imports directly. `$locale` cannot be assigned (a build error): switching is
+  navigation.
+- Everything that knows page paths learns the prefix: `data-sn-path` patterns, Speculation Rules,
+  next-page data, embedded data's page paths and sinter-axum's manifest.
+- A missing translation falls back to the base language, as today.
+
+What it does not do:
+
+- **Choose the language on the first visit.** Without JavaScript, a visitor who opens `/about.html`
+  gets the base language and a switcher. Visitors from a search engine land on their language's URL
+  through `hreflang`. A host that can redirect on `Accept-Language` can do it there; the guide shows
+  how for common static hosts, without sinter shipping anything.
+- **Translate paths** (`/de/ueber-uns`) or let a language have different markup. Messages only.
+
+The risk to try first: Vite builds the HTML files it is given as inputs, and `de/about.html` is not a
+file. The plugin would add one virtual input per page and language whose content is the source page,
+and compile it with the locale taken from its path; the dev server serves `/de/…` the same way.
 
 ## What changes on a page that ships no JavaScript
 
@@ -191,7 +266,9 @@ These are the behaviours a static page loses.
   - In Chromium, `speculation: 'prerender'` loads that page's data before the click.
 
   What remains is Firefox and Safari: a data page opened from a static page shows its data one round
-  trip after it opens, as on a first visit, instead of at once.
+  trip after it opens, as on a first visit, instead of at once. Decided: static pages do without it,
+  and the static pages guide says so, with `speculation: 'prerender'` as the way to get the data
+  there before the click in Chromium.
 - **Dev matches the build.** The dev server also omits the page module on such a page, so a
   developer sees the same page. Vite's own client is still injected in dev, as it is for any page.
 
@@ -203,8 +280,13 @@ These are the behaviours a static page loses.
   page is unchanged.
 - Compiler tests: a constant loop is expanded with its bindings evaluated per row, in a component
   and through a layout prop; a loop over written state is untouched; a state with no fields left has
-  no node; `data-sn-static` with a handler in a nested component fails with `SN322` at the
-  component's line, and on the layout tag and the layout's `<html>`.
+  no node; a page matched by `sinter({ static })` with a handler in a nested component or the layout
+  fails with `SN322` at that element; a pattern that matches no page fails the build.
+- Locale URLs: each page is built once per language with the text, attributes and head in that
+  language, `lang`, `hreflang` links and `localeUrl()` written in; a static page ships no JavaScript in
+  any language; an app page imports only its language's file and has no picker; assigning `$locale`
+  is a build error; `data-sn-path`, Speculation Rules and next-page data carry the prefix. In the dev
+  server, `/de/…` serves the German page.
 - Browser (Chromium, Firefox, WebKit): each static fixture renders the same with JavaScript
   disabled (`javaScriptEnabled: false`) as with it.
 - RealWorld: no page should stop shipping JavaScript (they all read data). The page module sizes
@@ -216,22 +298,27 @@ These are the behaviours a static page loses.
    lists on app pages, so it is worth doing even without the rest.
 2. Clean up #26's leftovers: no `fns` placeholders, no node for an empty state (step 2).
 3. `module: null` and the plugin changes, including the CSS path (step 2).
-4. The build report line, and `data-sn-static` / `SN322` (step 3).
-5. Docs: a "Static pages" section in `layouts.md` (where static sites start) linked from
-   `first-paint.md`, the config module's rule in `configuration.md`, the README line "a small runtime ships with each page" becomes "with each page
+4. The build report line, and `sinter({ static })` / `SN322` (step 3).
+5. A prototype of the virtual per-language inputs in Vite, build and dev, before the rest of step 4.
+6. Locale URLs (step 4): fixed-locale compilation, messages in attributes, build-time `date()` and
+   `number()`, `localeUrl()`, `hreflang`, the prefix in everything that knows page paths.
+7. Docs: a guide, `docs/static-pages.md` (what ships no JavaScript and why, the report line, the
+   matcher, next-page data, the config module, multilingual sites and first-visit redirects on common
+   hosts), linked from `layouts.md` and `first-paint.md`; the config module's rule in
+   `configuration.md`; locale URLs in the messages section; the README line "a small runtime ships with each page" becomes "with each page
    that needs one", and a CHANGELOG entry.
 
 ## Open questions
 
-1. **Next-page data from static pages**: drop it (proposed; the loss is a round trip in Firefox and
-   Safari, on links from a static page to a data page), or ship a small prefetch-only script on static
-   pages that link to data pages? Such a script needs the request layer and the app's middleware; its
-   size is not measured.
-2. **Where the assertion goes**: on the page (or layout tag), on the layout's `<html>` for all its
-   pages, or also a `sinter({ static: ['docs/**'] })` option for a whole section?
-3. **i18n**: a static page with messages still needs the picker to switch language in the browser.
-   Building one HTML file per locale would make such sites static too. In scope here, or a separate
-   proposal?
+1. **The option's name and shape**: `localeUrls: true`, or part of the messages option
+   (`messages: { urls: 'prefix' }`)? And the base language unprefixed (`/about.html`, proposed) or
+   prefixed like the others (`/en/about.html`, with `/` left to the host)?
+2. **Both models, or only locale URLs**: with `localeUrls` on, the in-browser switch is gone for the
+   whole site (proposed). Should the in-browser model stay the default for apps that want switching
+   without a reload, or should locale URLs become the only model?
+3. **The stored choice**: without JavaScript nothing remembers that a visitor picked German. Is that
+   acceptable for static sites (proposed), or should pages that ship JavaScript anyway keep
+   redirecting to the stored language?
 
 ## Decisions
 
@@ -240,4 +327,7 @@ Settled in review, in the order they were discussed:
 | Question | Decision | Section |
 | --- | --- | --- |
 | The config module on static pages | It does not run: everything `configure()` sets applies only while the runtime runs. The docs say code for every page goes in a script the layout includes | [What changes](#what-changes-on-a-page-that-ships-no-javascript) |
-| Automatic or opt-in | Automatic: every page with nothing to run ships no JavaScript, with no option to ask for it. `data-sn-static` is an optional assertion that fails the build (`SN322`) when a page would need the runtime | [Seeing why a page ships JavaScript](#3-seeing-why-a-page-ships-javascript) |
+| Automatic or opt-in | Automatic: every page with nothing to run ships no JavaScript, with no option to ask for it. `sinter({ static })` is an optional assertion that fails the build (`SN322`) when a matched page would need the runtime | [Seeing why a page ships JavaScript](#3-seeing-why-a-page-ships-javascript) |
+| Next-page data on static pages | Dropped; the static pages guide says so and points to `speculation: 'prerender'` | [What changes](#what-changes-on-a-page-that-ships-no-javascript) |
+| Where the assertion goes | Only in the plugin's options, `sinter({ static: [...] \| true })`: no page attribute, nothing on layouts | [Seeing why a page ships JavaScript](#3-seeing-why-a-page-ships-javascript) |
+| Multilingual static sites | In scope: one HTML file per page and language | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
