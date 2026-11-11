@@ -158,12 +158,29 @@ These are the behaviours a static page loses. They are the decisions to make bef
   not run.** They configure sinter (error handling, request middleware), and sinter does not run
   on the page. An app that needs a script on every page (analytics, say) puts it in the layout, as
   the [layouts guide](../layouts.md) does with `./main.ts`.
-- **Next-page data is not prefetched from that page.** Hovering a link from a static page to a page
-  with data no longer requests that page's data. Speculation Rules still prefetch the HTML, and
-  `speculation: 'prerender'` loads the data too in Chromium. Elsewhere, the data page loads its data
-  after one round trip, as on a first visit. The alternative is a small standalone prefetch script on
-  static pages that link to data pages. Its size is not measured yet; it imports the store and URL
-  helpers, not the runtime.
+- **Next-page data is not prefetched from that page.** Two features prefetch the next page, and only
+  one of them is JavaScript:
+  - *Speculation Rules* are written at build time (a `<script type="speculationrules">` with JSON, or
+    a response header) and run nothing: the browser prefetches the next page's HTML, or prerenders the
+    whole page with `speculation: 'prerender'`. Chromium only. Static pages keep them unchanged.
+  - *Next-page data* (`src/prefetch.ts`, in the page bundle) is the runtime's. When the pointer rests on
+    a link (65 ms), it has focus, or a press or touch starts on it, it matches the link to one of the
+    app's pages, works out that page's resource URLs from the link's `$url`, requests them through the
+    app's request layer (the middleware of `sinter.config.ts`, so auth headers apply) and keeps the
+    responses in sessionStorage for 30 s. The next page's runtime shows them at once and revalidates.
+    Every browser. Markup cannot do this: Speculation Rules fetch documents, not data, and
+    `<link rel="prefetch">` only fills the HTTP cache, which API responses often bypass (`no-store`,
+    auth headers); the hand-off also needs the runtime on both pages.
+
+  A static page loses only the second, and less than it sounds:
+  - A site that is static throughout loses nothing: the build only adds next-page data when some
+    page has resources to prefetch.
+  - It matters only for links from a static page to a data page (a marketing page linking into the
+    app).
+  - In Chromium, `speculation: 'prerender'` loads that page's data before the click.
+
+  What remains is Firefox and Safari: a data page opened from a static page shows its data one round
+  trip after it opens, as on a first visit, instead of at once.
 - **Dev matches the build.** The dev server also omits the page module on such a page, so a
   developer sees the same page. Vite's own client is still injected in dev, as it is for any page.
 
@@ -195,8 +212,10 @@ These are the behaviours a static page loses. They are the decisions to make bef
 
 ## Open questions
 
-1. **Prefetch from static pages**: drop it (proposed), or ship a small prefetch-only script when a
-   static page links to a page with data?
+1. **Next-page data from static pages**: drop it (proposed; the loss is a round trip in Firefox and
+   Safari, on links from a static page to a data page), or ship a small prefetch-only script on static
+   pages that link to data pages? Such a script needs the request layer and the app's middleware; its
+   size is not measured.
 2. **Config module**: skip it on static pages (proposed), or treat "the app has a config module" as a
    reason to ship the runtime? Skipping is what makes static pages possible in an app that has one,
    which is most apps made with the starter template.
