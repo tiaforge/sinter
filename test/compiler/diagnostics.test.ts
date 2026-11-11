@@ -88,10 +88,12 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
 const CHECK_ONLY = ['SN208', 'SN307'];
 /** Codes that need an image host (the adapter's file analysis). Fixtures in test/compiler/images.test.ts. */
 const IMAGES_ONLY = ['SN511', 'SN512', 'SN514'];
+/** Codes for pages listed in `sinter({ static })`. Fixtures in test/compiler/static.test.ts. */
+const STATIC_ONLY = ['SN322'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
-    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY])).toEqual(new Set(Object.keys(CODES)));
+    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY])).toEqual(new Set(Object.keys(CODES)));
   });
   for (const [code, html, message, check] of cases) {
     test(code, () => {

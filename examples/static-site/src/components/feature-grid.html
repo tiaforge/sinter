@@ -1,0 +1,10 @@
+<template data-sn-component="{ features: { title: string; text: string }[] }">
+  <section class="features">
+    <template data-sn-for="(f, n) in features">
+      <article><h2 data-sn-text="(n + 1) + '. ' + f.title"></h2><p data-sn-text="f.text"></p></article>
+    </template>
+  </section>
+</template>
+<style>
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; }
+</style>

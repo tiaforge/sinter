@@ -46,6 +46,7 @@ export const CODES = {
   SN319: 'layout-use',
   SN320: 'head-content',
   SN321: 'duplicate-head',
+  SN322: 'ships-javascript',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',

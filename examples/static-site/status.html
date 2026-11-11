@@ -1,0 +1,6 @@
+<!-- The one page with data: it loads the status and refreshes it, so it keeps sinter's runtime. -->
+<site-layout data-sn-prop="{ title: 'Status', description: 'Is everything up?', nav: 'status' }">
+  <sn-resource name="status" src="/api/status.json" type="any" refresh="30s"></sn-resource>
+  <h1>Status</h1>
+  <template data-sn-if="status"><p data-sn-text="status.message"></p></template>
+</site-layout>

@@ -2,7 +2,7 @@
 // way by the Vite plugin and by `sinter check`.
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, resolve, sep } from 'node:path';
+import { dirname, relative, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
@@ -31,6 +31,35 @@ export interface ProjectOptions {
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()`, in the build, `sinter check` and `sinter lsp` (default off; `sinter check --check-cycles` for one run) */
   checkCycles?: boolean;
+  /**
+   * SN322: pages that must ship no JavaScript, by their paths relative to the root (`'about.html'`,
+   * `'docs/**'`; `*` within one folder, `**` across folders), or `true` for every page. A matched page
+   * that needs the runtime fails the build, `sinter check` and the editor; a pattern no page matches too.
+   */
+  static?: string[] | true;
+}
+
+/** A path pattern of `static`: `**` any folders, `*` within one name, `?` one character. */
+export function staticPattern(pattern: string): RegExp {
+  let re = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i]!;
+    if (c === '*' && pattern[i + 1] === '*') { re += pattern[i + 2] === '/' ? '(?:.*/)?' : '.*'; i += pattern[i + 2] === '/' ? 2 : 1; }
+    else if (c === '*') re += '[^/]*';
+    else if (c === '?') re += '[^/]';
+    else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${re}$`);
+}
+
+/** Whether `file` must ship no JavaScript (`static`), and the patterns no page of `pages` matches. */
+export function staticPages(root: string, option: ProjectOptions['static']) {
+  const rel = (f: string) => relative(root, f).split(sep).join('/');
+  const list = option === true ? null : (option ?? []).map((p) => ({ p, re: staticPattern(p.replace(/^\.\//, '')) }));
+  return {
+    has: (file: string) => list === null || list.some((x) => x.re.test(rel(file))),
+    unmatched: (pages: string[]) => (list ?? []).filter((x) => !pages.some((f) => x.re.test(rel(f)))).map((x) => x.p),
+  };
 }
 
 export interface Project {
@@ -64,6 +93,8 @@ export interface Project {
   /** the `complexity` option, checked */
   complexity: ComplexityOptions;
   checkCycles: boolean;
+  /** `static`: the pages that must ship no JavaScript (SN322) */
+  isStatic: (file: string) => boolean;
 }
 
 export function project(root: string, options: ProjectOptions = {}): Project {
@@ -137,6 +168,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   }
   return {
     root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
+    isStatic: staticPages(root, options.static).has,
     componentNames: componentNames(root),
     messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile),
     config: configRel ? url(configRel) : null,

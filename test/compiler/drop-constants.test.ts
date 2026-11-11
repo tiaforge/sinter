@@ -115,3 +115,24 @@ describe('constant bindings', () => {
     expect(out.html).toContain('<p>x</p>');
   });
 });
+
+describe('a state with no fields left', () => {
+  test('its node goes, with its data-sn id; the nodes inside take the scope around it', () => {
+    const out = compile('<!doctype html><html><head></head><body><main data-sn-state="{ year: 2026 }"><p data-sn-text="\'© \' + year"></p></main></body></html>', {
+      file: '/p/index.html', root: '/p', dev: false, prerender: true,
+      helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); },
+    });
+    expect(out.html).toContain('<main><p>© 2026</p></main>');
+    const ir = JSON.parse(/const ir = (\{.*\});/.exec(out.module)![1]!);
+    expect(ir.roots).toEqual([]);
+  });
+
+  test('a state that keeps a node (something else bound there) or a field stays', () => {
+    const out = compile('<!doctype html><html><head></head><body><main data-sn-state="{ year: 2026, n: 0 }"><p data-sn-text="\'© \' + year"></p><b data-sn-text="n"></b><button data-sn-on-click="n++"></button></main></body></html>', {
+      file: '/p/index.html', root: '/p', dev: false, prerender: true,
+      helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); },
+    });
+    expect(out.module).toContain('"n": (0)');
+    expect(out.module).not.toContain('2026');
+  });
+});

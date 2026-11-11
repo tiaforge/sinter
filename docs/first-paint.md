@@ -40,7 +40,12 @@ A binding that reads nothing that can change, such as a component's prop given a
 it. One that reads state a handler, a model, a `then` or a component's script writes stays bound.
 The same holds inside templates: such a binding is written into the template's markup, so every
 row or branch is cloned with it. And a `data-sn-if` over state nothing writes is decided at build
-time: its branch (or its `data-sn-else`) is page markup, written and painted like the rest.
+time: its branch (or its `data-sn-else`) is page markup, written and painted like the rest. A
+`data-sn-for` over a constant list (a literal, a prop given as one, state nothing writes) whose rows read
+only the item, its index and constants is unrolled at build time: its rows are page markup too.
+
+A page where all of it is constant has nothing left to run, and ships no JavaScript at all: see
+[pages without JavaScript](static-pages.md).
 
 ## The early script
 

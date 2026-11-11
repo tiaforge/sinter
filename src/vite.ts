@@ -9,7 +9,7 @@ import { dirname, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
-import { project, type ProjectOptions } from './project.js';
+import { project, staticPages, type ProjectOptions } from './project.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { loadImages, MIME, type Images } from './images.js';
@@ -19,7 +19,7 @@ import { IMAGE_CHECK } from './image-check.js';
 import { rewriteCssImages, type CssImageHost } from './css-images.js';
 import { resolveRemote, type RemoteImages } from './remote.js';
 import { devRemote, remoteMiddleware } from './remote-dev.js';
-import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, StyleSheet } from './compiler/index.js';
+import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, RuntimeReason, StyleSheet } from './compiler/index.js';
 import { hasCspMeta, pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { faceName, faceOf, fontDownloader, inlineFonts, preloadFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
@@ -281,6 +281,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** build: the pages with inline rules and no CSP <meta>, whose CSP (if any) comes from a response header */
   let unhashedPages = 0;
   const seen = new Set<string>();
+  /** build: why each page needs the runtime, by its path relative to the root (empty: it ships none) */
+  const runtimeOf = new Map<string, RuntimeReason[]>();
   let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null }> | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
   /** the tag of the script that starts with the picker: it picks the locale and starts the page's language file */
@@ -379,7 +381,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(firstPaint ? { observe: true } : {}),
       ...(options.embed && !dev ? { embed: true } : {}),
       componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
+      ...(p.isStatic(file) ? { static: true } : {}),
     });
+    runtimeOf.set(rel, out.runtime);
     for (const x of out.styles) {
       if (componentCss.get(x.name) === x.css) continue;
       componentCss.set(x.name, x.css);
@@ -607,8 +611,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     async load(id) {
-      if (id.startsWith(`\0${IMG_CSS}`)) return imageCss.get(id.slice(IMG_CSS.length + 1, -4)) ?? '';
-      if (id.startsWith(`\0${COMPONENT_CSS}`)) return componentCss.get(id.slice(COMPONENT_CSS.length + 1, -4)) ?? '';
+      // a stylesheet a page links (one with nothing to run) comes with a query in dev (`?direct`)
+      const css = id.replace(/\?.*$/, '');
+      if (css.startsWith(`\0${IMG_CSS}`)) return imageCss.get(css.slice(IMG_CSS.length + 1, -4)) ?? '';
+      if (css.startsWith(`\0${COMPONENT_CSS}`)) return componentCss.get(css.slice(COMPONENT_CSS.length + 1, -4)) ?? '';
       if (id.startsWith(`\0${COMPONENT_BASE}`)) return componentBase(id.slice(COMPONENT_BASE.length + 1, -3));
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
@@ -639,6 +645,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     async buildEnd(error) {
+      // a `static` pattern that matches no page: a renamed page would drop out of the check unnoticed
+      const missing = !error && !dev && Array.isArray(options.static) ? staticPages(root, options.static).unmatched([...seen]) : [];
+      if (missing.length) this.error(`sinter({ static }): no page matches ${missing.map((m) => `\`${m}\``).join(', ')} (paths relative to the root, such as \`about.html\` or \`docs/**\`)`);
       if (error || !options.typecheck || dev || !units.size) return;
       const { check } = await import('./check/index.js');
       const p = project(root, options);
@@ -778,11 +787,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       order: 'post',
       handler(html, ctx) {
         const rel = relOf(ctx.filename), early = earlyFiles.get(rel), langs = languageFiles.get(rel), own = headFiles.get(rel);
+        reportRuntime(rel, ctx.chunk, ctx.bundle);
         // a relative base: URLs relative to the page, as Vite writes its own (`../assets/…` from `blog/post.html`)
         const base = pageBase(resolved?.base ?? '/', rel);
         // the page bundle is `async`: it does not wait for the stylesheets as a deferred module does,
         // and mounts once the document is parsed and the early script has rendered (see the page module)
-        if (ctx.chunk) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');
+        // (on a page with nothing to run, the chunk is the page's own script: it stays a plain, deferred module script)
+        if (ctx.chunk && runtimeOf.get(rel)?.length !== 0) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');
         // the embedded-data placeholders last in the head, after the tags Vite added (the page module, its
         // preloads, the stylesheets): a server that streams the page up to the first one sends all of those first
         const slots = embedPages.get(rel)?.data;
@@ -810,6 +821,33 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       },
     },
   };
+
+  /**
+   * One line per page: no JavaScript, or the page's module and the chunks it imports (gzip), and why it
+   * needs them (the first few things that run in the browser, where they were written).
+   */
+  function reportRuntime(rel: string, chunk: { fileName: string; code: string; imports: string[] } | undefined, bundle: Record<string, unknown> | undefined) {
+    const reasons = runtimeOf.get(rel);
+    if (!reasons) return;
+    const logger = resolved?.logger;
+    if (!reasons.length) { logger?.info(`sinter: ${rel}: no JavaScript`); return; }
+    const kb = (n: number) => `${(n / 1000).toFixed(1)} kB`;
+    let shared = 0;
+    const done = new Set<string>(), todo = [...(chunk?.imports ?? [])];
+    while (todo.length) {
+      const f = todo.pop()!;
+      if (done.has(f)) continue;
+      done.add(f);
+      const c = bundle?.[f] as { type?: string; code?: string; imports?: string[] } | undefined;
+      if (c?.type !== 'chunk' || c.code === undefined) continue;
+      shared += gzipSync(c.code).length;
+      todo.push(...(c.imports ?? []));
+    }
+    const size = chunk ? `${kb(gzipSync(chunk.code).length)} gzip${shared ? ` + ${kb(shared)} gzip shared` : ''}` : 'runtime';
+    const where = (r: RuntimeReason) => `${r.what} (${relative(root, r.file).split(sep).join('/') || r.file}:${r.line})`;
+    const list = reasons.slice(0, 3).map(where).join(', ') + (reasons.length > 3 ? `, and ${reasons.length - 3} more` : '');
+    logger?.info(`sinter: ${rel}: JavaScript ${size}: ${list}`);
+  }
 
   /** One line per page: the early file's size (gzip) and its language files'; over the budget a warning naming the largest modules. */
   function report(rel: string, early: { fileName: string; code: string; modules: Record<string, { renderedLength: number }> } | null, langs: Record<string, { code: string }> | null) {
