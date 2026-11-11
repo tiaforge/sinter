@@ -263,6 +263,12 @@ export interface ApplyDef {
   rq?: string;
   /** index in `tg` of the entity the request body describes (its fields are fields of that schema) */
   u?: number;
+  /**
+   * targets that are nested items (`n` set), apart from `tg`: the nested module applies them, so the
+   * write-through module of a page without nested lists is unchanged; `nu`: the one the body describes
+   */
+  nt?: Array<{ r: string; v?: string; p?: string[]; s?: string; n?: string[] }>;
+  nu?: number;
   /** the operation matched an OpenAPI spec (rules that need schemas apply) */
   t?: 1;
 }

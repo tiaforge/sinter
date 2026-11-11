@@ -7,6 +7,8 @@ import type { Resource } from './runtime/store.js';
 
 type Obj = Record<string, any>;
 
+const isObj = (v: unknown): v is Obj => !!v && typeof v == 'object' && !Array.isArray(v);
+
 const feature: Feature = {
   name: 'nested',
   install(app: App) {
@@ -51,24 +53,49 @@ const feature: Feature = {
       }
       nested(false);
     };
-    const isObj = (v: unknown): v is Obj => !!v && typeof v == 'object' && !Array.isArray(v);
-    app.ext.nested = {
-      change: byItem,
-      apply,
-      // write-through (apply.ts): the item the target names (a row, or a shared definition's prop: a path in scope)
-      wt(t, s, fields, log) {
-        const r = app.resource(t.r), item = t.v!.split('.').reduce((x: any, k) => x?.[k], s);
+    // write-through to nested items (`ap.nt`): after the write-through module, the same rules
+    const base = app.ext.apply;
+    if (base) app.ext.apply = (a, s, url, body, result) => {
+      base(a, s, url, body, result);
+      const ap = a.ap!, nt = ap.nt, m = a.method, done: string[] = [];
+      if (!nt) return;
+      const log = (name: string, what: string) => done.push(`${name}: ${what}`);
+      /** the item a target names: a row, or a shared definition's prop (a path in scope) */
+      const at = (o: any, p: string[]) => p.reduce((x: any, k) => x?.[k], o);
+      const wt = (t: (typeof nt)[number], fields: unknown) => {
+        const r = app.resource(t.r), item = at(s, t.v!.split('.'));
         if (!isObj(item)) return;
         if (fields === null) { if (apply(r, t.n!, 'remove', item, undefined, false)) log(t.r, 'remove nested'); return; }
         if (!isObj(fields)) return;
         // only the fields that differ, at the target's sub-path inside the item
-        const p = t.p ?? [], cur = p.reduce((x: any, k) => x?.[k], item);
+        const p = t.p ?? [], cur = at(item, p);
         let diff: Obj | null = null;
         for (const k of Object.keys(fields)) if (!isObj(cur) || !(k in cur) || JSON.stringify(cur[k]) !== JSON.stringify(fields[k])) (diff ??= {})[k] = fields[k];
         if (!diff) return;
-        const at = (x: any, q: string[]): Obj => (q.length ? { [q[0]!]: { ...(isObj(x?.[q[0]!]) ? x[q[0]!] : {}), ...at(x?.[q[0]!], q.slice(1)) } } : diff!);
-        if (apply(r, t.n!, 'patch', item, at(item, p), false)) log(t.r, `patch ${t.n!.join(',')}${p.length ? ' .' + p.join('.') : ''}`);
-      },
+        const nest = (x: any, q: string[]): Obj => (q.length ? { [q[0]!]: { ...(isObj(x?.[q[0]!]) ? x[q[0]!] : {}), ...nest(x?.[q[0]!], q.slice(1)) } } : diff!);
+        if (apply(r, t.n!, 'patch', item, nest(item, p), false)) log(t.r, `patch ${t.n!.join(',')}${p.length ? ' .' + p.join('.') : ''}`);
+      };
+      // 3 update: the body describes the item the URL named
+      if ((m == 'PUT' || m == 'PATCH') && isObj(body)) {
+        const b = ap.rq && isObj(body) ? body[ap.rq] : body;
+        if (ap.nu != null) wt(nt[ap.nu]!, b);
+        else if (!ap.t && isObj(b)) for (const t of nt) { const item = at(s, t.v!.split('.')); if (!t.p && isObj(item) && Object.keys(b).every((k) => k in item)) wt(t, b); }
+      }
+      // 1 confirm: objects of a named schema go to the items of that schema the URL named
+      for (const e of ap.rs ?? []) {
+        const v = at(result, e.p ? e.p.split('.') : []);
+        for (const o of e.a ? (Array.isArray(v) ? v : []) : [v]) if (isObj(o)) for (const t of nt) if (t.s == e.s) wt(t, o);
+      }
+      // 4 delete: the item whose URL this was (its list's URL plus one segment)
+      if (m == 'DELETE') for (const t of nt) {
+        const lu = app.resource(t.r).loader?.url?.(), i = url.lastIndexOf('/');
+        if (!t.p?.length && lu != null && i > 0 && url.slice(0, i) == lu) wt(t, null);
+      }
+      if (done.length) app.warn(21, `${m} ${url}`, done.join(', '));
+    };
+    app.ext.nested = {
+      change: byItem,
+      apply,
       upsert(res, names, owner, field, item) {
         const key = res(names[0]!.split('>')[0]!);
         const l: unknown[] = Array.isArray(owner?.[field]) ? owner[field] : [];

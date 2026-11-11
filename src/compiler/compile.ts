@@ -1604,7 +1604,10 @@ class Compiler {
     // templates
     let content: { tid: number; scope: Scope } | null = null;
     if (isTemplate && has('for')) content = this.forTemplate(el, node, scope, get('for')!, get('key'));
-    else if (isTemplate && has('if')) {
+    else if (isTemplate && has('if') && this.neverTrue(el, scope)) {
+      // `data-sn-if` on a prop the use leaves out (`undefined`): the branch never renders, so it is dropped
+      (el as P5Template).content.childNodes = [];
+    } else if (isTemplate && has('if')) {
       const r = this.expr(el, 'data-sn-if', scope, { mode: 'value' });
       const tid = this.newTemplate();
       const b = this.binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
@@ -1745,6 +1748,15 @@ class Compiler {
     if (!h.ok) return;
     const f = this.fn(`($) => { if ($.$event instanceof CustomEvent) (${h.code})($); }`, { el: host, attr: 'data-sn-model', shift: 0 });
     node.b.push(this.binding({ k: 'on', n: 'change', f, w: h.writes }));
+  }
+
+  /** A component's `data-sn-if` on a prop its use leaves out (no `data-sn-else` after it): always false. */
+  neverTrue(el: P5Element, scope: Scope): boolean {
+    const src = (attr(el, 'data-sn-if') ?? '').trim();
+    const l = scope.component && IDENT.test(src) ? (scope.lets ?? []).findLast((x) => x.name === src) : undefined;
+    if (!l?.prop || l.code !== 'undefined') return false;
+    const next = el.parentNode?.childNodes.slice(el.parentNode.childNodes.indexOf(el as never) + 1).find((c) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== ''));
+    return !(next && isElement(next) && next.tagName === 'template' && attr(next, 'data-sn-else') !== undefined);
   }
 
   /**
@@ -2007,6 +2019,17 @@ class Compiler {
       }
       for (const n of names) { const info = this.page.resources.get(n); if (info) info.used = true; }
       resolved.set(JSON.stringify(c.src), names);
+    }
+    // write-through: nested targets in a list of their own (`nt`), which the nested module applies
+    for (const a of this.actions) {
+      const ap = a.ap;
+      if (!ap?.tg.some((t) => t.n)) continue;
+      const u = ap.u !== undefined ? ap.tg[ap.u] : undefined;
+      ap.nt = ap.tg.filter((t) => t.n);
+      ap.tg = ap.tg.filter((t) => !t.n);
+      delete ap.u;
+      if (u?.n) ap.nu = ap.nt.indexOf(u);
+      else if (u) ap.u = ap.tg.indexOf(u);
     }
     // a change under a row (`comments>replies`): the nested module
     const nested = () => { if (this.fns.some((f) => /\$\.\$f\.(?:patch|remove|upsert)\(\[[^\]]*>/.test(f))) this.features.add('nested'); };

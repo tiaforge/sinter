@@ -203,11 +203,11 @@ definitions out of the core into modules only the pages that use them load):
 | file | change | what it is |
 | --- | ---: | --- |
 | core (`npm run size`) | +93 B (13,925 → 14,018) | `patch()`/`remove()` finding the item in the resource it came from 54, `upsert` into a nested list 9, the script hook 12, the shared-definition hook 10, cycle guards 6 |
-| write-through module | +40 B (1,055 → 1,095) | two hooks: a nested target goes to the `nested` module, which only pages with nested lists load |
-| shared chunk of the app (core, config, write-through) | +133 B | the two rows above |
-| page modules | +4 to +39 B | the source names in `patch()` calls, the components' wrapper elements |
+| write-through module | 0 (1,055) | nested targets are in a list of their own, which the `nested` module applies (only pages with nested lists load it) |
+| shared chunk of the app (core, config, write-through) | +100 B | the core |
+| page modules | -3 to +38 B | the source names in `patch()` calls and the components' wrapper elements; a `data-sn-if` on a prop a use leaves out is dropped at build time |
 | other modules | 0 to +5 B | no source change: `npm run size` leaves their runtime imports external, so their output holds the checkout's absolute path, one character longer here than in the `main` checkout measured |
-| new modules | `components` 676 B, `nested` 881 B, `defs` 175 B | only on pages with a component script, nested changes, shared definitions |
+| new modules | `components` 676 B, `nested` 1,197 B, `defs` 175 B | only on pages with a component script, nested changes, shared definitions |
 | HTML | −125 to −236 B | a component file's comments stay in the file |
 
 `data-sn-early="off"` on the home page's header and error list (a test, not in the app) takes its

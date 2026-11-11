@@ -182,8 +182,6 @@ export interface App {
       /** applies one change to an item from `names`; for write-through, one under `r` through `fields` (true when found) */
       change(res: (n: string) => Resource, op: 'patch' | 'remove', names: string[], item: unknown, set: any): void;
       apply(r: Resource, fields: string[], op: 'patch' | 'remove', item: unknown, set: any, byId: boolean): boolean;
-      /** write-through to a nested item (apply.ts): `fields` merged into it (only those that differ), or with null removed; `log` what was done */
-      wt(t: { r: string; v?: string; p?: string[]; n?: string[] }, s: any, fields: unknown, log: (name: string, what: string) => void): void;
       /** `upsert(c.replies, x)`: `owner` (from `names`) gets its list `field` with `item` in it */
       upsert(res: (n: string) => Resource, names: string[], owner: any, field: string, item: unknown): void;
     };

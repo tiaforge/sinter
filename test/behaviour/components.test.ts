@@ -182,3 +182,12 @@ describe('data-sn-early="off"', () => {
     expect(out(PAGE(''), CLOCK.replace('<template ', '<template data-sn-early="off" ')).diagnostics.map((d) => d.code)).toEqual(['SN102']);
   });
 });
+
+test('a data-sn-if on a prop the use leaves out is dropped at build time; one the use passes renders', async () => {
+  const BADGE = '<template data-sn-component="{ label?: string }"><span><template data-sn-if="label"><b data-sn-text="label"></b></template>x</span></template>';
+  const { root } = await render('<x-badge></x-badge><x-badge data-sn-prop="{ label: \'new\' }"></x-badge>', { components: { 'x-badge': BADGE } });
+  const [a, b] = root.querySelectorAll('span');
+  expect(a!.querySelector('b')).toBeNull();
+  expect((a!.querySelector('template') as HTMLTemplateElement).content.childNodes).toHaveLength(0);
+  expect(b!.querySelector('b')!.textContent).toBe('new');
+});
