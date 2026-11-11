@@ -14,7 +14,7 @@ The server layer is optional: without it, sinter pages fetch their data in the b
 
 ```toml
 [dependencies]
-sinter-axum = "0.1"
+sinter-axum = "0.14"
 ```
 
 **3. Add the layer** in front of the static files, and give it your API router:
@@ -72,7 +72,7 @@ The build records each page's API requests, including the first page of a pagina
 `build()` also checks this: a same-origin path with neither `.api` nor `.upstream`, or an origin not allowed, is an error at startup. The `upstream` feature adds an HTTP client (reqwest, with rustls). You need it only for the two rows that call another server:
 
 ```toml
-sinter-axum = { version = "0.1", features = ["upstream"] }
+sinter-axum = { version = "0.14", features = ["upstream"] }
 ```
 
 ### Resolvers: your own code for one resource
