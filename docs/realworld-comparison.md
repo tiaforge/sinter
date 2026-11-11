@@ -213,3 +213,33 @@ definitions out of the core into modules only the pages that use them load):
 
 `data-sn-early="off"` on the home page's header and error list (a test, not in the app) takes its
 head script from 837 to 717 B (gzip); the page module and the shared head script do not change.
+
+## Layouts
+
+The seven pages now share one [layout](layouts.md), `src/layouts/conduit-layout.html`: the head
+(charset, viewport, icon, the Ionicons, Google Fonts and app stylesheets), the header and the footer.
+Each page is the layout's tag with its state, `data-sn-on-sn-error` and its title and description as
+props, which the `conduit-seo` head component (`<template data-sn-head>`) binds into the `<title>` and
+the description `<meta>`. The article page's title is the article's (`article ? article.title :
+'Article'`), and its Markdown script goes into the layout's head slot. The page files lost their
+heads and the header and footer tags: 7 to 11 lines each.
+
+Measured on 2026-11-11, one machine, `vite build` of the example before and after:
+
+| page | HTML (B, gz) before → after | page head script (B, gz) | page module (`npm run size`, B gz) |
+| --- | --- | --- | --- |
+| article | 2,159 → 2,162 | 755 → 756 | 22,698 → 22,796 |
+| editor | 1,780 → 1,783 | 460 → 461 | 20,992 → 21,063 |
+| index | 2,194 → 2,195 | 855 → 856 | 22,897 → 23,001 |
+| login | 1,623 → 1,621 | 418 → 419 | 19,884 → 19,943 |
+| profile | 2,035 → 2,033 | 792 → 792 | 22,895 → 22,994 |
+| register | 1,649 → 1,649 | 421 → 423 | 19,884 → 19,955 |
+| settings | 1,810 → 1,806 | 372 → 373 | 20,097 → 20,180 |
+
+The HTML and the head scripts are level: the merged document is the document the pages wrote by
+hand, and the layout's comment stays in its file. The page modules grow by 60 to 104 B (gzip): the
+title and description are bindings now (a constant one is still written into the HTML at build time,
+and its binding stays, as every prerendered binding does), and the page's state is on `<html>`
+instead of a `<div>`. The shared head script does not change (3,233 B). Scrapers that run no script
+see the constant titles as before; the article and profile pages, whose titles come from data, show
+`Conduit` to them until a server writes the head ([what a crawler sees](layouts.md#what-a-crawler-sees)).

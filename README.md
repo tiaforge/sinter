@@ -152,8 +152,12 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   for a canvas or a library; sinter renders the markup.
 - **Trees and mixed lists.** A component can use itself (comments and their replies, at any depth), and
   ``<sn-component use="`${b.type}-block`">`` picks one per item.
+- **Layouts.** A document in `src/layouts/` with slots in its head and body: a page is only its tag,
+  and passes its title and SEO tags in through props, head slots and head components
+  (`<template data-sn-head>`). The merge happens at build time, so the early scripts, preloads and
+  bundled scripts and fonts work on the merged head.
 
-[Components](docs/components.md), [components with a script](docs/islands.md)
+[Components](docs/components.md), [layouts](docs/layouts.md), [components with a script](docs/islands.md)
 
 ## Features
 

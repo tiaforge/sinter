@@ -1,7 +1,23 @@
 # Proposal: layouts
 
-Status: proposal (2026-11-11). The choices in [Decisions](#decisions) were settled with the maintainer
-while drafting; [Open questions](#open-questions) lists what is still open.
+Status: implemented (2026-11-11), steps 1 to 7 of the [Plan](#plan); the guide is
+[layouts.md](../layouts.md). The choices in [Decisions](#decisions) were settled with the maintainer
+while drafting; [Open questions](#open-questions) lists what is still open. Where the implementation
+departs from this text or adds to it:
+
+- Go to definition goes from a `slot="…"` value to the `<slot>` it names (not from a `<slot>` to the
+  pages that fill it).
+- A handler on a layout's tag is not checked against declared events: it is on `<html>`, which hears
+  every event that bubbles up the page (RealWorld's `data-sn-on-sn-error`).
+- Comments outside a layout's `<html>` document the layout file and are not copied into the pages.
+- `SN321` counts a fixed list of elements a head has once (the [guide](../layouts.md#what-binds-in-a-head)
+  lists them); repeatable metas such as `og:image`, and any `<meta media>`, are not counted.
+- A head the browser's parser would cut short is parsed again only when it would be: other pages
+  parse exactly as before. A page with an `<sn-resource>` in its head now keeps the head elements
+  after it in the head (before, the parser moved them into the body).
+- Slot content keeps its first caller's scope through any number of components; before, content a
+  component passed on into another component's slot took the scope of the component in between.
+- RealWorld: the measurements are in [realworld-comparison.md](../realworld-comparison.md#layouts).
 
 Components cannot hold a page's `<html>` or `<head>`: a component is a `<template>`, and inside a
 `<template>` the HTML parser drops `<html>`, `<head>` and `<body>` tags (a `<template

@@ -922,6 +922,8 @@ class Compiler {
     const at = host.sourceCodeLocation ? this.lineCol(pageOrigin.src, host.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
     this.tag(ldoc, { file: lf.file, src: lf.text, chain: [`${basename(this.opts.file)}:${at.line}`] });
     this.files.add(lf.file);
+    // comments around the layout's `<html>` document the layout file, not the page
+    ldoc.childNodes = ldoc.childNodes.filter((c) => c.nodeName !== '#comment');
     const lhtml = ldoc.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'html')!;
     const lhead = lhtml.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'head')!;
     const decl = attr(lhtml, 'data-sn-layout');
@@ -2096,7 +2098,8 @@ class Compiler {
         this.report(el, a.name, 'SN101', `event names are lowercase kebab-case: \`${a.name}\``, 0);
         continue;
       }
-      if (use && !kf && use.emits && !DOM_EVENTS.has(event) && !use.emits.some((m) => m.name === event)) {
+      // a layout's tag is on `<html>`, which hears every event that bubbles up the page
+      if (use && !use.layout && !kf && use.emits && !DOM_EVENTS.has(event) && !use.emits.some((m) => m.name === event)) {
         const names = use.emits.map((m) => m.name);
         this.report(el, a.name, 'SN315', `\`<${use.name}>\` does not emit \`${event}\`; ${names.length ? `it declares ${names.map((x) => `\`${x}\``).join(', ')}` : 'it declares no events'}.${didYouMean(event, names)}`, 0);
       }

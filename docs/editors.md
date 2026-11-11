@@ -6,10 +6,11 @@ always matches the compiler the build uses.
 
 | Feature | Needs |
 | --- | --- |
-| sinter's diagnostics as you type, in pages and components | any TypeScript, or none |
+| sinter's diagnostics as you type, in pages, components and [layouts](layouts.md) | any TypeScript, or none |
 | Type errors (`SN208`) as you type, hover types, completion in expressions, go to definition | TypeScript 7 in the project |
 | Type errors on save | TypeScript 5 or 6 |
 | Did-you-mean quick fix | any |
+| `slot="…"` completion (the slots of the tag the element is in; a layout's head slots on head elements), tag completion after `<`, go from a `slot` value to its `<slot>` and from a tag to its component or layout, hover with a tag's props and slots | any TypeScript, or none |
 | Extract to helper / action (refactoring, and the quick fix for `SN507`) | any; parameter types need TypeScript 7 |
 
 The server finds pages and plugin options (`openapi`, `types`, …) in the Vite config, like

@@ -243,6 +243,16 @@ To test the takeover, pass `firstPaint` to `render`: `render(html, { firstPaint:
 mounts over that first paint, and `afterEarly` runs in between, so a test can assert what mounting
 changes (it should be nothing).
 
+## The head
+
+Bindings in the head follow the same rules: in a page's head, a [layout's](layouts.md) or a head
+component's, `<title data-sn-text>` and the `content` of a `<meta name|property|itemprop>` are
+written into the HTML when they are build-time constants and rendered by the early script when it
+knows their inputs, as the head is parsed. A value from a request renders when it arrives. Scrapers
+that run no script (most link previews) see what is in the HTML: the constants, and the literal
+content of the rest, so give each bound element a good fallback: `<title data-sn-text="…">My
+Blog</title>`.
+
 ## Related
 
 - [navigation.md](navigation.md): next-page data, Speculation Rules and page transitions, for the

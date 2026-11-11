@@ -3,7 +3,8 @@
 import { describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 
-const LAYOUT = `<!doctype html>
+const LAYOUT = `<!-- the site's document: not part of any page -->
+<!doctype html>
 <html lang="en" class="site" data-sn-layout="{ title?: string; nav: string }">
 <head>
   <meta charset="utf-8">
@@ -46,7 +47,7 @@ describe('the merge', () => {
     expect(head).toMatch(/<meta charset="utf-8">\s*<title data-sn="\d+">Blog<\/title>\s*<link rel="stylesheet" href="\/src\/layouts\/site.css">\s*<script type="module" src="\/src\/main.ts"><\/script>\s*<meta name="robots" content="noindex">/);
     expect(out.html).toMatch(/<main>\s*<article><h1 data-sn="\d+"><\/h1><\/article>\s*<\/main>/);
     expect(out.html).toContain('<footer><p>mine</p></footer>');
-    expect(out.html).not.toMatch(/site-layout|<slot|data-sn-layout|data-sn-path/);
+    expect(out.html).not.toMatch(/site-layout|<slot|data-sn-layout|data-sn-path|not part of any page/);
     expect(out.path).toEqual(['/post/:slug']);
     // a component's relative URL is not rebased: only the layout's own
     expect(out.html).toContain('<a href="./about">');
@@ -59,6 +60,12 @@ describe('the merge', () => {
     expect(out.module).toContain('($) => ($.$r.post.title + $.$s0.tab)');
     const inLayout = run(PAGE, { '/p/src/layouts/site-layout.html': LAYOUT.replace('<main>', '<main data-sn-text="tab">') });
     expect(errors(inLayout)).toEqual([expect.stringMatching(/^SN201 `tab` is not defined/)]);
+  });
+
+  test('a handler on the tag is on <html>, for any event that bubbles up the page, in the page\'s scope', () => {
+    const out = run('<site-layout data-sn-state="{ err: null }" data-sn-prop="{ nav: \'x\' }" data-sn-on-sn-error="err = $event.detail.error"><p>x</p></site-layout>');
+    expect(errors(out)).toEqual([]);
+    expect(out.module).toMatch(/"tag":"html","b":\[\{"k":"on","f":\d+,"n":"sn-error"/);
   });
 
   test('fallback content stays when the page leaves a slot empty', () => {

@@ -40,6 +40,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   head elements, its body slots on the rest), completes tags after `<` (layouts at the top of an empty page, head
   components in a head, components elsewhere), goes from a `slot="…"` value to its `<slot>` and from a layout's tag to
   its file, shows a tag's props and slots on hover, and checks a layout or head component no page uses on its own.
+- docs/layouts.md; the RealWorld example's seven pages share one layout and a `conduit-seo` head component (the article
+  page's title is the article's), with the HTML and head scripts level (docs/realworld-comparison.md, Layouts).
 - Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
   is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
   costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots
