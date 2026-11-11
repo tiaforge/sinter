@@ -481,15 +481,25 @@ These are the behaviours a static page loses.
 ## Open questions
 
 1. **The URL's form**: `$canonical` ends in the path as the file is named, with `index.html` as its
-   directory (`/en/about.html`, `/en/`). Hosts that serve clean URLs (`/en/about`) need the
-   other form: an option (`site: { url, cleanUrls: true }`), or always clean URLs, since Speculation
-   Rules already match both?
-2. **A sitemap**: with `site` and the list of pages known, the build could write `sitemap.xml`, with
-   each page's languages as alternates. In scope here, or later?
+   directory (`/en/about.html`, `/en/`). Hosts that serve clean URLs (`/en/about`) need the other form:
+   an option (`sinter({ cleanUrls: true })`), or always clean URLs, since Speculation Rules already
+   match both? The answer also decides whether a page with a fixed path still needs
+   `data-sn-path`: today `login.html` declares `data-sn-path="/login"` because it is served at
+   `/login`. If the build knows the URL form, it derives `/login` from the file name, and
+   `data-sn-path` is only for patterns (`/article/:slug`). `site` itself cannot replace it: it is the
+   origin, and says nothing about paths.
 
-Worth watching once it is used: locale URLs may turn out to be the better model for apps in general,
-not only an optimization for static sites. If they do, making them the only model is a separate,
-breaking change.
+## Future work
+
+- **A sitemap**: with `site` and every page and language known, the build could write `sitemap.xml`,
+  with each page's languages as alternates. Not part of this proposal.
+- **Routes from `data-sn-path`**: a multi-page app with patterns needs rewrites on its server, and
+  RealWorld's `vite.config.js` writes them by hand for `vite dev` and `vite preview`, mirroring the
+  pages' `data-sn-path`. The plugin could serve them from the patterns, as sinter-axum's layer
+  already finds a page by the paths in the build's manifest.
+- **Locale URLs as the only model**: they may turn out to be the better model for apps in general,
+  not only an optimization for static sites. If they do, making them the only model is a separate,
+  breaking change.
 
 ## Decisions
 
