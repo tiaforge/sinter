@@ -8,9 +8,9 @@ const locale = () => config.locale?.get();
 // options, reused. A locale switch reads another key, so nothing needs clearing.
 const cache = new Map<string, Intl.DateTimeFormat | Intl.RelativeTimeFormat | Intl.NumberFormat>();
 function fmt<T extends Intl.DateTimeFormat | Intl.RelativeTimeFormat | Intl.NumberFormat>(
-  make: new (l: string | undefined, o: any) => T, kind: string, o?: object, l: string | undefined = locale(),
+  make: new (l: string | undefined, o: any) => T, kind: string, o?: object,
 ): T {
-  const key = `${kind}\0${l ?? ''}\0${o ? JSON.stringify(o) : ''}`;
+  const l = locale(), key = `${kind}\0${l ?? ''}\0${o ? JSON.stringify(o) : ''}`;
   let f = cache.get(key) as T | undefined;
   if (!f) {
     // a bounded map: options from markup are few, but a helper fed computed options must not grow it forever
@@ -28,17 +28,15 @@ const toDate = (v: unknown): Date | null => {
 
 type Style = 'full' | 'long' | 'medium' | 'short';
 
-/** a calendar date (`2026-11-11`): the same day for every visitor, so it is formatted in UTC, where it was parsed */
-export const isCalendarDate = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+/**
+ * A calendar date (`2026-11-11`): JavaScript reads it as midnight UTC (a date-time without an offset is local),
+ * so it is the same day for every visitor only when it is shown in UTC too
+ */
+export const isCalendarDate = (v: unknown): v is string => typeof v == 'string' && /^\d{4}-\d\d-\d\d$/.test(v);
 
 export function date(v: unknown, style: Style = 'medium'): string {
-  return dateIn(locale(), v, style);
-}
-
-/** `date()` in a given locale: the build writes a calendar date this way in a page built in one language */
-export function dateIn(l: string | undefined, v: unknown, style: Style = 'medium'): string {
   const d = toDate(v);
-  return d ? fmt(Intl.DateTimeFormat, 'd', isCalendarDate(v) ? { dateStyle: style, timeZone: 'UTC' } : { dateStyle: style }, l).format(d) : '';
+  return d ? fmt(Intl.DateTimeFormat, 'd', { dateStyle: style, timeZone: isCalendarDate(v) ? 'UTC' : undefined }).format(d) : '';
 }
 
 export function time(v: unknown, style: Style = 'short'): string {
@@ -68,26 +66,16 @@ export function relative(v: unknown, now: unknown = Date.now()): string {
 }
 
 export function number(v: unknown, opts?: Intl.NumberFormatOptions): string {
-  return numberIn(locale(), v, opts);
-}
-
-/** `number()` in a given locale (the build, in a page built in one language) */
-export function numberIn(l: string | undefined, v: unknown, opts?: Intl.NumberFormatOptions): string {
   if (v == null || v === '' || Number.isNaN(Number(v))) return '';
-  return fmt(Intl.NumberFormat, 'n', opts, l).format(Number(v));
+  return fmt(Intl.NumberFormat, 'n', opts).format(Number(v));
 }
 
 const BYTE_UNITS = ['byte', 'kilobyte', 'megabyte', 'gigabyte', 'terabyte'];
 
 export function bytes(v: unknown): string {
-  return bytesIn(locale(), v);
-}
-
-/** `bytes()` in a given locale (the build, in a page built in one language) */
-export function bytesIn(l: string | undefined, v: unknown): string {
   let n = Number(v);
   if (v == null || v === '' || Number.isNaN(n)) return '';
   let i = 0;
   while (Math.abs(n) >= 1024 && i < BYTE_UNITS.length - 1) { n /= 1024; i++; }
-  return fmt(Intl.NumberFormat, 'n', { style: 'unit', unit: BYTE_UNITS[i], unitDisplay: 'short', maximumFractionDigits: i ? 1 : 0 }, l).format(n);
+  return fmt(Intl.NumberFormat, 'n', { style: 'unit', unit: BYTE_UNITS[i], unitDisplay: 'short', maximumFractionDigits: i ? 1 : 0 }).format(n);
 }

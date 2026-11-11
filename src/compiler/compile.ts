@@ -22,7 +22,8 @@ import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Pagi
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
-import { bytesIn, dateIn, isCalendarDate, numberIn } from '../runtime/helpers.js';
+import { bytes, date, isCalendarDate, number } from '../runtime/helpers.js';
+import { config } from '../runtime/config.js';
 
 /** the compiler's IR holds paths as strings (the page module's holds node ids) */
 const strs = (x: PathRef[] | undefined) => (x ?? []) as string[];
@@ -3588,9 +3589,11 @@ class Compiler {
     // date (`2026-11-11`) is the same day everywhere; a moment (`…T09:00Z`) is the visitor's time zone's
     const lang = this.opts.locale?.name;
     if (lang) {
-      params.set('number', (v: unknown, o?: Intl.NumberFormatOptions) => numberIn(lang, v, o));
-      params.set('bytes', (v: unknown) => bytesIn(lang, v));
-      params.set('date', (v: unknown, style?: 'full' | 'long' | 'medium' | 'short') => { if (!isCalendarDate(v)) throw NOT; return dateIn(lang, v, style); });
+      // the browser's own formatters, with the page's language as the locale for the call
+      const inLang = <T>(f: () => T): T => { const was = config.locale; config.locale = { get: () => lang, set: () => {} }; try { return f(); } finally { config.locale = was; } };
+      params.set('number', (v: unknown, o?: Intl.NumberFormatOptions) => inLang(() => number(v, o)));
+      params.set('bytes', (v: unknown) => inLang(() => bytes(v)));
+      params.set('date', (v: unknown, style?: 'full' | 'long' | 'medium' | 'short') => { if (!isCalendarDate(v)) throw NOT; return inLang(() => date(v, style)); });
     }
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, stub);
     // the base language's text, for a text binding: the binding is marked and stays the browser's
