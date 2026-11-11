@@ -304,31 +304,55 @@ A static page has no way to state its canonical URL today, other than writing it
 **Proposed: the site's origin is an option, and two names build on it.**
 
 ```js
-sinter({ site: 'https://example.com' })
+// vite.config.js
+export default { base: '/docs/', plugins: [sinter({ site: 'https://example.com', localePrefix: true })] };
 ```
 
-| Name | What it is | Example |
-| --- | --- | --- |
-| `$site` | the site's origin, as configured | `https://example.com` |
-| `$canonical` | the page's canonical URL: `$site`, Vite's `base`, the locale prefix with `localePrefix`, and the page's path; no query, no hash | `https://example.com/en/about.html` |
+| Name | What it is |
+| --- | --- |
+| `$site` | the site's root URL: the origin from `site`, then Vite's `base`, with no trailing slash |
+| `$canonical` | the page's canonical URL: `$site`, the locale prefix with `localePrefix`, and the page's path; no query, no hash. If the page writes its own canonical link, that link's URL |
 
-- On a page with a fixed path both are build-time constants, written into the HTML: `og:url` in a head
-  component is `<meta property="og:url" data-sn-attr="{ content: $canonical }">`, at no cost at run
-  time. `$site` is for the other absolute URLs a head needs (`og:image`:
-  `$site + '/og/about.png'`).
+What they hold, with the config above, for the German build of the source page `guide/install.html`,
+opened as `/docs/de/guide/install.html?tab=npm`:
+
+```
+$site       https://example.com/docs
+$canonical  https://example.com/docs/de/guide/install.html
+$url        { tab: 'npm' }                                   (unchanged: the query and path parameters)
+```
+
+The same page with `<link rel="canonical" href="https://example.com/docs/en/guide/install.html">` written
+in its head (the German page only translates the English one):
+
+```
+$canonical  https://example.com/docs/en/guide/install.html
+```
+
+The source `index.html`, German build: `$canonical` is `https://example.com/docs/de/`.
+
+- On a page with a fixed path both are build-time constants, written into the HTML. Every absolute URL
+  a head needs is one of them, or `$site` and a path:
+
+  ```html
+  <meta property="og:url" data-sn-attr="{ content: $canonical }">
+  <meta property="og:image" data-sn-attr="{ content: $site + '/og/install.png' }">
+  ```
 - Without `sinter({ site })`, reading either is a build error (`SN323`) that names the fix: "`$canonical`
   is the page's absolute URL, and the build does not know the site's origin: set
   `sinter({ site: 'https://…' })` in vite.config" (and the same for `$site`). It is reported where the
   name is read, in the page, component or layout, in `sinter check` and the LSP too. Without the error,
   the value would silently be missing from the HTML.
-- `site` is an origin only (`https://example.com`, no path, no trailing slash). A site served under a
-  path sets Vite's `base`, which `$canonical` includes after the origin. A path in `site` is a build
-  error, so the path is never in two places.
+- The `site` option is an origin only (`https://example.com`, no path, no trailing slash). A site served
+  under a path sets Vite's `base`, and `$site` takes it from there. A path in `site` is a build error, so
+  the path is never in two places.
 - With `site`, every page with a fixed path gets `<link rel="canonical" href="…">` with `$canonical` in
-  its head. A page or layout that writes its own `<link rel="canonical">` keeps it (a page whose
-  content lives at another URL); `SN321` already allows only one. The redirect files of `localePrefix`
-  are not pages and get none. Without `site`, no canonical link is written, as today.
-- The same origin makes `hreflang` and `x-default` absolute (step 4).
+  its head. A page or layout that writes its own `<link rel="canonical">` keeps it, for a page whose
+  content lives at another URL, and `$canonical` is then that link's URL, so the canonical link and
+  `og:url` always agree. A link written by hand must be a literal absolute URL. `SN321` already allows
+  only one. The redirect files of `localePrefix` are not pages and get none. Without `site`, no
+  canonical link is written, as today.
+- The same root makes `hreflang` and `x-default` absolute (step 4).
 - `$url` stays what it is: the query and the path parameters, known only in the browser, so a page
   that reads `$url` ships JavaScript, `site` or not. On a page matched by `sinter({ static })` that is
   `SN322`, and when the binding is one that wants the page's own address (`$url` in an `og:url`
@@ -336,11 +360,19 @@ sinter({ site: 'https://example.com' })
 
 A page whose path is a pattern (`data-sn-path="/article/:slug"`) is one HTML file for many URLs, so
 the build cannot know its path. It is not static anyway: it reads `$url`. There `$canonical` is not a
-constant: the early script computes it from `$site`, Vite's `base` and the browser's path (no query),
-so a layout's `og:url` binding works on both kinds of page. For crawlers that
-run no JavaScript, the server layer of embedded data (`embed: true`), which knows the request's path,
-writes the canonical link and the bindings over `$canonical` into the HTML. Without it, such a page has
-no canonical link in its HTML; the build report lists such pages once.
+constant: the early script computes it from `$site`, the locale prefix and the browser's path (no
+query), so a layout's `og:url` binding works on both kinds of page. Opened as
+`/docs/de/article/hello?ref=feed`:
+
+```
+$site       https://example.com/docs                         (still a build-time constant)
+$canonical  https://example.com/docs/de/article/hello        (computed by the early script)
+$url        { ref: 'feed', slug: 'hello' }
+```
+
+For crawlers that run no JavaScript, the server layer of embedded data (`embed: true`), which knows the
+request's path, writes the canonical link and the bindings over `$canonical` into the HTML. Without
+it, such a page has no canonical link in its HTML; the build report lists such pages once.
 
 ## What changes on a page that ships no JavaScript
 
@@ -412,8 +444,9 @@ These are the behaviours a static page loses.
   is a build error; `data-sn-path`, Speculation Rules and next-page data carry the prefix. The dev
   server serves `/en/…`, `/de/…` and the redirect files as the build writes them.
 - Canonical URLs: with `site`, every page with a fixed path has one canonical link, absolute, with
-  `base` and the locale prefix; a page's own canonical link wins; `$site` and `$canonical` (the origin,
-  `base`, the prefix and the path) in a `<meta content>` are written into the HTML; `hreflang` and
+  `base` and the locale prefix; `$site` is the origin and `base`; `$canonical` is `$site`, the prefix
+  and the path, or the URL of a canonical link the page writes itself; both in a `<meta content>` are
+  written into the HTML; `hreflang` and
   `x-default` are absolute; on a pattern page the early script renders `$canonical` and the embed layer
   (Node and sinter-axum) writes the link and its bindings, with none in the HTML without it; without
   `site`, no canonical link is written and reading `$site` or `$canonical` fails with `SN323` at the
@@ -474,4 +507,4 @@ Settled in review, in the order they were discussed:
 | Remembering the language | On a site that ships JavaScript, its pages record their language in a `locale` cookie, and the redirect file at each unprefixed path (`/about.html`, `/`) sends the visitor to it; on a site without any JavaScript, the redirect files go to the base language | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | The option's name | `sinter({ localePrefix: true })`: it says what the build does | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | One model or two | Both, chosen per site: the in-browser switch stays the default, `localePrefix` makes the whole site use locale URLs. Revisit once locale URLs have been used | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
-| A page's URL | `$site` is the origin from `sinter({ site })`; `$canonical` is the page's full URL built on it (origin, `base`, locale prefix, path). Reading either without `site` is a build error (`SN323`) that says to set it. `$url` stays the query and path parameters, read in the browser | [Canonical URLs](#5-canonical-urls) |
+| A page's URL | `$site` is the site's root URL (the origin from `sinter({ site })` and Vite's `base`); `$canonical` is the page's full URL built on it (locale prefix, path), or the URL of a canonical link the page writes itself. Reading either without `site` is a build error (`SN323`) that says to set it. `$url` stays the query and path parameters, read in the browser | [Canonical URLs](#5-canonical-urls) |
