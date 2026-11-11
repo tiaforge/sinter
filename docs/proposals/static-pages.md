@@ -181,13 +181,41 @@ runtime fills it. A crawler sees English text with no description, and never see
 **Proposed: the language is part of the URL, and each page is built once per language.**
 
 ```js
-sinter({ localeUrls: true })
+sinter({ localePrefix: true })
 ```
 
 ```
-dist/about.html        en (the base): <html lang="en">, English in the HTML
-dist/de/about.html     de: <html lang="de">, German in the HTML
+dist/en/about.html     <html lang="en">, English in the HTML
+dist/de/about.html     <html lang="de">, German in the HTML
+dist/index.html        the root: sends the visitor to the base language (below)
 ```
+
+Every language is prefixed, the base too. Every page URL then has one shape, `/{locale}/{path}`, which
+is what makes routing on a server simple:
+
+- A server or host routes on the first segment alone: `/de/*` is German, with no list of which paths
+  are pages of the base language. Nothing can collide, such as a base-language page or folder named
+  `de`.
+- Changing the base language, or adding one, changes no existing URL.
+- `data-sn-path` patterns are written without the prefix (`/article/:slug`) and match under each
+  language (`/de/article/:slug`); `$url` does not include it. sinter-axum's manifest lists the
+  languages, and its router mounts each page under every prefix.
+- The root has no language of its own. The build writes a `dist/index.html` that sends the visitor
+  to the base language without JavaScript (`<meta http-equiv="refresh" content="0; url=/en/">`, a link to
+  each language, and the `hreflang` links). A host that redirects on `Accept-Language` takes over
+  before it.
+
+**Links stay in their language.** A link to one of the app's pages is written with the page's path, as
+today (`<a href="/about.html">`), and each language's file links to that language: the German build
+writes `/de/about.html`. So a visitor who is on a German page stays on German pages, with nothing
+stored. The build rewrites:
+
+- every root-relative `href` that matches one of the app's pages (the same match Speculation Rules
+  use), in markup and in bindings the build evaluates (constants, `data-sn-attr` over props);
+- relative links need nothing: `about.html` from `/de/index.html` stays under `/de/`;
+- `href`s bound at run time on app pages (from data) get the prefix from the runtime, by the same
+  match;
+- a link with `hreflang` points to a language on purpose (a language switcher) and is left as it is.
 
 - Each file is compiled with the locale fixed. `$locale` is a build-time constant, and every message
   call over constants is written into the HTML in that language, in text and in attributes
@@ -197,7 +225,8 @@ dist/de/about.html     de: <html lang="de">, German in the HTML
   locale. (Node and the browser may use different ICU versions; this is text written once, as a
   server would.)
 - Switching language is a link. A built-in `localeUrl('de')` is the URL of this page in German; it is a
-  constant in each file, so a language switcher is plain markup:
+  constant in each file, so a language switcher is plain markup (the `hreflang` keeps its link out of
+  the rewrite above):
 
   ```html
   <a data-sn-attr="{ href: localeUrl('de'), 'aria-current': $locale === 'de' ? 'true' : null }" hreflang="de">Deutsch</a>
@@ -209,14 +238,15 @@ dist/de/about.html     de: <html lang="de">, German in the HTML
   (`m.inbox_count({ count: inbox.unread })`) still render in the browser, from that language's file,
   which the page module imports directly. `$locale` cannot be assigned (a build error): switching is
   navigation.
-- Everything that knows page paths learns the prefix: `data-sn-path` patterns, Speculation Rules,
-  next-page data, embedded data's page paths and sinter-axum's manifest.
+- Everything else that knows page paths learns the prefix: Speculation Rules, next-page data and
+  embedded data's page paths.
 - A missing translation falls back to the base language, as today.
 
 What it does not do:
 
-- **Choose the language on the first visit.** Without JavaScript, a visitor who opens `/about.html`
-  gets the base language and a switcher. Visitors from a search engine land on their language's URL
+- **Choose the language on the first visit, or remember it.** Without JavaScript, a visitor who opens
+  `/` gets the base language and a switcher; from then on the links keep them in the language they
+  are in. Nothing is stored: a visitor who comes back to `/` gets the base language again. Visitors from a search engine land on their language's URL
   through `hreflang`. A host that can redirect on `Accept-Language` can do it there; the guide shows
   how for common static hosts, without sinter shipping anything.
 - **Translate paths** (`/de/ueber-uns`) or let a language have different markup. Messages only.
@@ -283,7 +313,9 @@ These are the behaviours a static page loses.
   no node; a page matched by `sinter({ static })` with a handler in a nested component or the layout
   fails with `SN322` at that element; a pattern that matches no page fails the build.
 - Locale URLs: each page is built once per language with the text, attributes and head in that
-  language, `lang`, `hreflang` links and `localeUrl()` written in; a static page ships no JavaScript in
+  language, `lang`, `hreflang` links and `localeUrl()` written in; links to the app's pages carry the
+  page's language (root-relative ones rewritten, bound ones from the runtime, `hreflang` links left);
+  the root `index.html` sends a visitor without JavaScript to the base language; a static page ships no JavaScript in
   any language; an app page imports only its language's file and has no picker; assigning `$locale`
   is a build error; `data-sn-path`, Speculation Rules and next-page data carry the prefix. In the dev
   server, `/de/…` serves the German page.
@@ -301,7 +333,8 @@ These are the behaviours a static page loses.
 4. The build report line, and `sinter({ static })` / `SN322` (step 3).
 5. A prototype of the virtual per-language inputs in Vite, build and dev, before the rest of step 4.
 6. Locale URLs (step 4): fixed-locale compilation, messages in attributes, build-time `date()` and
-   `number()`, `localeUrl()`, `hreflang`, the prefix in everything that knows page paths.
+   `number()`, `localeUrl()`, `hreflang`, link rewriting, the root `index.html`, the prefix in
+   everything that knows page paths, sinter-axum's router.
 7. Docs: a guide, `docs/static-pages.md` (what ships no JavaScript and why, the report line, the
    matcher, next-page data, the config module, multilingual sites and first-visit redirects on common
    hosts), linked from `layouts.md` and `first-paint.md`; the config module's rule in
@@ -310,15 +343,11 @@ These are the behaviours a static page loses.
 
 ## Open questions
 
-1. **The option's name and shape**: `localeUrls: true`, or part of the messages option
-   (`messages: { urls: 'prefix' }`)? And the base language unprefixed (`/about.html`, proposed) or
-   prefixed like the others (`/en/about.html`, with `/` left to the host)?
-2. **Both models, or only locale URLs**: with `localeUrls` on, the in-browser switch is gone for the
+1. **The option's name**: `localePrefix: true` (proposed: it says what the build does, every page
+   under its language's prefix), or a key of the messages option (`messages: { prefix: true }`)?
+2. **Both models, or only locale URLs**: with `localePrefix` on, the in-browser switch is gone for the
    whole site (proposed). Should the in-browser model stay the default for apps that want switching
    without a reload, or should locale URLs become the only model?
-3. **The stored choice**: without JavaScript nothing remembers that a visitor picked German. Is that
-   acceptable for static sites (proposed), or should pages that ship JavaScript anyway keep
-   redirecting to the stored language?
 
 ## Decisions
 
@@ -331,3 +360,5 @@ Settled in review, in the order they were discussed:
 | Next-page data on static pages | Dropped; the static pages guide says so and points to `speculation: 'prerender'` | [What changes](#what-changes-on-a-page-that-ships-no-javascript) |
 | Where the assertion goes | Only in the plugin's options, `sinter({ static: [...] \| true })`: no page attribute, nothing on layouts | [Seeing why a page ships JavaScript](#3-seeing-why-a-page-ships-javascript) |
 | Multilingual static sites | In scope: one HTML file per page and language | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
+| Locale URLs | Every language prefixed, the base too (`/en/…`, `/de/…`): one URL shape for servers; the root sends visitors to the base language | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
+| Staying in a language | Nothing is stored; each language's files link to that language's pages, so a visitor stays in the language they are in | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
