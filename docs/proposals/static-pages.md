@@ -191,6 +191,23 @@ dist/about.html        a redirect to the visitor's language (below)
 dist/index.html        the same for the root
 ```
 
+**The languages and the default come from the inlang project, as today.** `localePrefix` adds no
+setting of its own:
+
+```json
+// project.inlang/settings.json
+{ "baseLocale": "en", "locales": ["en", "de"] }
+```
+
+- `locales` is the list of languages: one build of each page per entry, and the prefixes are these
+  names as written (`/en/`, `/de/`, `/pt-BR/`).
+- `baseLocale` is the default. It has two jobs, which are the same language on most sites: it is the
+  language a missing translation falls back to (as today), and the one a visitor is sent to when
+  nothing else decides (the redirect files, below). Its URLs are prefixed like every other language's.
+- Today a project without `baseLocale` silently defaults to `en`. With `localePrefix` that choice
+  decides where every visitor without a cookie lands, so a missing `baseLocale`, or one that is not in
+  `locales`, is a build error.
+
 Every language is prefixed, the base too. Every page URL then has one shape, `/{locale}/{path}`, which
 is what makes routing on a server simple:
 
@@ -496,6 +513,10 @@ These are the behaviours a static page loses.
 
 - **A sitemap**: with `site` and every page and language known, the build could write `sitemap.xml`,
   with each page's languages as alternates. Not part of this proposal.
+- **A default language other than the base**: a site whose texts are written in English but whose
+  visitors are mostly German would want the fallback for missing translations and the default for
+  visitors to differ. That would be one option (`localePrefix: { default: 'de' }`), added when a site
+  needs it.
 - **Routes from `data-sn-path`**: a multi-page app with patterns needs rewrites on its server, and
   RealWorld's `vite.config.js` writes them by hand for `vite dev` and `vite preview`, mirroring the
   pages' `data-sn-path`. The plugin could serve them from the patterns, as sinter-axum's layer
