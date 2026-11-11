@@ -81,6 +81,11 @@ describe('sinter check', () => {
 </div>`), /Type 'number' is not assignable to type 'Contact'/, 'editing = 5');
   });
 
+  test('$error.stale is a boolean: the catch text for a stale page typechecks', () => {
+    const r = run(page(`<div data-sn-state="{ msg: '' }"><button data-sn-post="/api/x" data-sn-catch="msg = $error.stale ? 'reload' : $error.message"></button><button data-sn-post="/api/y" data-sn-catch="msg = $error.stale"></button></div>`));
+    expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Type 'boolean' is not assignable to type 'string'/)]);
+  });
+
   test('$event and $el have the DOM types of the event and element', () => {
     one(page(`<div data-sn-state="{ q: '' }">
   <input data-sn-on-input="q = $el.value">
