@@ -199,7 +199,9 @@ is what makes routing on a server simple:
   `de`.
 - Changing the base language, or adding one, changes no existing URL.
 - `data-sn-path` patterns are written without the prefix (`/article/:slug`) and match under each
-  language (`/de/article/:slug`); `$url` does not include it. sinter-axum's manifest lists the
+  language (`/de/article/:slug`); `$url` does not include it. With a Vite `base`, patterns include it as
+  they do today (`/docs/article/:slug`), and the language's segment is taken out after it before
+  matching (`/docs/de/article/hello` matches). sinter-axum's manifest lists the
   languages, and its router mounts each page under every prefix.
 - No page is written at its own path in a language: the source `about.html` is `/en/about.html` and
   `/de/about.html`, and the source `index.html` is `/en/` and `/de/`. At the unprefixed path
@@ -319,7 +321,8 @@ opened as `/docs/de/guide/install.html?tab=npm`:
 ```
 $site       https://example.com/docs
 $canonical  https://example.com/docs/de/guide/install.html
-$url        { tab: 'npm' }                                   (unchanged: the query and path parameters)
+$url        { tab: 'npm' }                                   (unchanged: the query, and the path parameters of
+                                                             `data-sn-path`, of which this page has none)
 ```
 
 The same page with `<link rel="canonical" href="https://example.com/docs/en/guide/install.html">` written
@@ -358,10 +361,10 @@ The source `index.html`, German build: `$canonical` is `https://example.com/docs
   `SN322`, and when the binding is one that wants the page's own address (`$url` in an `og:url`
   `<meta>`), the message points to `$canonical`.
 
-A page whose path is a pattern (`data-sn-path="/article/:slug"`) is one HTML file for many URLs, so
-the build cannot know its path. It is not static anyway: it reads `$url`. There `$canonical` is not a
-constant: the early script computes it from `$site`, the locale prefix and the browser's path (no
-query), so a layout's `og:url` binding works on both kinds of page. Opened as
+A page whose path is a pattern (`data-sn-path="/docs/article/:slug"`, with the config's `base`) is one
+HTML file for many URLs, so the build cannot know its path. It is not static anyway: it reads `$url`.
+There `$canonical` is not a constant: the early script computes it from the origin and the browser's
+path (no query), so a layout's `og:url` binding works on both kinds of page. Opened as
 `/docs/de/article/hello?ref=feed`:
 
 ```
