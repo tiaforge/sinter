@@ -35,7 +35,8 @@ npm run build     # dist/
 npm run size      # size per page and module, with budgets
 npm run bench     # store and flush benchmarks (docs/benchmark.md)
 npm run docs      # regenerate llms.txt, html-custom-data.json (also the VS Code extension's), docs/diagnostics.md and docs/attributes.md
-npm run release -- 0.3.0   # sinter, the create starter and sinter-axum all to 0.3.0, date the changelog,
+npm run release -- 0.3.0   # sinter, the create starter and sinter-axum all to 0.3.0, the starter's temper to the
+                           # latest on npm, date the changelog,
                            # commit "Release 0.3.0", tag v0.3.0, print the push and publish commands (nothing pushed)
 ```
 
