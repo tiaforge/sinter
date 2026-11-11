@@ -60,6 +60,8 @@ export interface CompileOptions {
   openapi?: OpenApiSpec[];
   /** the actions module (`data-sn-call`, `<sn-resource call>`), same shape as helpers */
   actions?: HelperManifest;
+  /** `sinter({ lazy })`: the packages `data-sn-import` and `data-sn-preload` may name (`true`: any, for testing) */
+  lazy?: readonly string[] | true;
   /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
@@ -171,6 +173,8 @@ export interface CompileResult {
   static?: true;
   /** the scoped styles of the components the page uses (the adapter serves them at `componentCss(name)`) */
   styles: Array<{ name: string; css: string }>;
+  /** lazy packages the page fetches with itself (`data-sn-preload`): the build writes their modulepreload links */
+  preload: string[];
   /** with `sourcemap`: the page module's source map, from each function back to the markup (null-free; absent when nothing maps) */
   map?: SourceMap;
   /** with `sourcemap`: the early module's source map */
@@ -304,6 +308,10 @@ export interface CompiledParts {
   styles: Array<{ name: string; css: string }>;
   /** the scripts of the components the page uses: the module, its class `export` imported as `local` */
   scripts: Array<{ name: string; module: string; local: string; export: string }>;
+  /** lazy packages the page module loads itself (`data-sn-import`): the package, and its loader's local name */
+  lazy: Array<{ spec: string; local: string }>;
+  /** lazy packages the page fetches with itself (`data-sn-preload`) */
+  preload: string[];
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
@@ -518,6 +526,10 @@ class Compiler {
   readonly uses = new Map<string, Use[]>();
   /** the scripts of the components the page uses: module and local name in the page module */
   readonly scripts = new Map<string, { module: string; local: string; name: string }>();
+  /** `data-sn-import`: each lazy package's loader, by package, with its local name in the page module */
+  readonly lazyLoads = new Map<string, string>();
+  /** `data-sn-preload`: the lazy packages the build preloads with the page */
+  readonly preloads = new Set<string>();
   /** nodes that came from an `<sn-include>`, and the top-level ones */
   private readonly includeOf = new WeakMap<object, IncludeRec>();
   private readonly includeTop = new WeakMap<object, IncludeRec>();
@@ -733,6 +745,8 @@ class Compiler {
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
       styles: [...this.uses.keys()].sort().flatMap((n) => { const css = this.componentFiles.get(n)?.css; return css ? [{ name: n, css }] : []; }),
       scripts: [...this.scripts].sort(([a], [b]) => a.localeCompare(b)).map(([name, x]) => ({ name, module: x.module, local: x.local, export: x.name })),
+      lazy: [...this.lazyLoads].map(([spec, local]) => ({ spec, local })),
+      preload: [...this.preloads].sort(),
     };
   }
 
@@ -2218,6 +2232,9 @@ class Compiler {
     }
     // `data-sn-ref="name"`: an element of a component's markup, for its script (`this.refs.name`)
     if (has('ref')) this.ref(el, scope, node);
+    // lazy packages: loaded when the element is rendered, fetched with the page
+    if (has('import')) this.lazyImport(el, node);
+    if (has('preload')) for (const spec of this.lazyNames(el, 'data-sn-preload')) this.preloads.add(spec);
 
     // templates
     let content: { tid: number; scope: Scope } | null = null;
@@ -2611,6 +2628,40 @@ class Compiler {
     if (!IDENT.test(name)) { this.report(el, 'data-sn-ref', 'SN401', '`data-sn-ref` takes a name, as the script reads it: `this.refs.canvas`', 0); return; }
     if (use.sid === undefined || !this.componentFiles.get(use.name)?.script) return;
     node.b.push(this.binding({ k: 'cmp', f: this.fn(`($) => [$.$s${use.sid}, ${JSON.stringify(name)}]`, { el, attr: 'data-sn-ref', shift: 0 }) }));
+  }
+
+  /** the lazy packages an attribute names (`openpgp, marked`), each one of `sinter({ lazy })` (SN324) */
+  lazyNames(el: P5Element, name: 'data-sn-import' | 'data-sn-preload'): string[] {
+    const text = attr(el, name) ?? '', list = this.opts.lazy ?? [];
+    const out: string[] = [];
+    let at = 0;
+    for (const part of text.split(',')) {
+      const spec = part.trim(), offset = at + part.indexOf(spec);
+      at += part.length + 1;
+      if (!spec) { this.report(el, name, 'SN401', `\`${name}\` takes the lazy packages to load, separated by commas: \`${name}="openpgp"\``, 0); continue; }
+      if (list !== true && !list.some((p) => spec === p || spec.startsWith(p + '/'))) {
+        this.report(el, name, 'SN324', `\`${spec}\` is not a lazy package: \`${name}\` names packages of \`sinter({ lazy })\`${list.length ? ` (${list.map((p) => `\`${p}\``).join(', ')})` : ', which lists none'}${didYouMean(spec, [...list]) ? '.' + didYouMean(spec, [...list]) : ''}`, offset);
+        continue;
+      }
+      out.push(spec);
+    }
+    return out;
+  }
+
+  /**
+   * `data-sn-import="openpgp"`: the page module loads the package when it renders the element (at
+   * mount for an element outside templates, so never before the page has taken over). A binding whose
+   * function starts the load; a failed load is reported by the call that needs the package.
+   */
+  lazyImport(el: P5Element, node: NodeDef) {
+    const specs = this.lazyNames(el, 'data-sn-import');
+    if (!specs.length) return;
+    const locals = specs.map((spec) => {
+      let local = this.lazyLoads.get(spec);
+      if (!local) this.lazyLoads.set(spec, (local = `$l$${this.lazyLoads.size}`));
+      return local;
+    });
+    node.b.push(this.binding({ k: 'imp', f: this.fn(`() => { ${locals.map((l) => `${l}().catch(() => {});`).join(' ')} }`, { el, attr: 'data-sn-import', shift: 0 }) }));
   }
 
   addSources(ref: string, src: string[]) {

@@ -95,6 +95,15 @@ Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [fi
 | `data-sn-transition` | value expression (a name) | the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too) |
 | `data-sn-data` | resource name | on &lt;script type="application/json"&gt; in &lt;head&gt;: initial data for a resource |
 
+## Lazy packages
+
+When a package of `sinter({ lazy })` loads, on any element of a page, a layout or a component. Without either, on first call. Details: [lazy packages](lazy.md).
+
+| Attribute | Value | Meaning |
+| --- | --- | --- |
+| `data-sn-import` | lazy packages, comma-separated | loads packages of sinter({ lazy }) when the element is rendered (at takeover outside templates, when its branch or row first renders inside one), instead of on first call |
+| `data-sn-preload` | lazy packages, comma-separated | the build preloads packages of sinter({ lazy }) with the page (&lt;link rel="modulepreload"&gt; in its head): fetched in parallel with the page bundle, run on first call or by data-sn-import |
+
 ## Elements
 
 ### `<sn-resource>`

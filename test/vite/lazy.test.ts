@@ -38,7 +38,15 @@ export async function seal(t: string) { return (await fake.encrypt(t)) + ':' + (
   <output id="err" data-sn-text="err"></output>
 </div>
 </body></html>`);
-  await build({ root, logLevel: 'silent', plugins: [sinter({ lazy: ['fakepgp'] })], resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false } });
+  // loaded when an element renders, and fetched with the page
+  put('import.html', `<!doctype html><html><head><title>import</title></head><body>
+<main data-sn-import="fakepgp"><p>reader</p></main>
+</body></html>`);
+  put('preload.html', `<!doctype html><html><head><title>preload</title></head><body>
+<div data-sn-state="{ out: '' }"><button id="go" data-sn-call="pgp.seal('hi')" data-sn-then="out = $result" data-sn-preload="fakepgp">go</button><output id="out" data-sn-text="out"></output></div>
+</body></html>`);
+  const input = { index: join(root, 'index.html'), import: join(root, 'import.html'), preload: join(root, 'preload.html') };
+  await build({ root, logLevel: 'silent', plugins: [sinter({ lazy: ['fakepgp'] })], resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input } } });
 }, 60_000);
 
 const assets = () => readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.js'));
@@ -85,16 +93,46 @@ test.skipIf(!chromium)('the first call loads the package; a removed chunk is a s
     expect(requested.some((u) => u.endsWith(pkg))).toBe(true);
 
     // a deploy removed the chunk: a fresh tab of the old page fails with `stale`
+    const kept = read(pkg);
     unlinkSync(join(out, 'assets', pkg));
-    const tab2 = await browser.newPage();
-    await tab2.goto(url);
-    await tab2.waitForTimeout(300);
-    await tab2.click('#go');
-    await tab2.waitForFunction(() => document.querySelector('#err')?.textContent !== '');
-    expect(await tab2.textContent('#err')).toBe('stale: this page is out of date: reload it');
+    try {
+      const tab2 = await browser.newPage();
+      await tab2.goto(url);
+      await tab2.waitForTimeout(300);
+      await tab2.click('#go');
+      await tab2.waitForFunction(() => document.querySelector('#err')?.textContent !== '');
+      expect(await tab2.textContent('#err')).toBe('stale: this page is out of date: reload it');
+    } finally {
+      writeFileSync(join(out, 'assets', pkg), kept);
+    }
   } finally {
     await browser.close();
     if (server) await new Promise((r) => server!.httpServer.close(r));
+  }
+}, 60_000);
+
+test('data-sn-preload: a modulepreload link for the package\'s chunk, in the page\'s head', () => {
+  const pkg = assets().find((f) => read(f).includes(MARK))!;
+  const html = readFileSync(join(out, 'preload/index.html'), 'utf8');
+  expect(html).toMatch(new RegExp(`<link rel="modulepreload" crossorigin href="/assets/${pkg.replace(/[.]/g, '\\.')}">\\s*</head>`));
+  expect(html).not.toContain('data-sn-preload');
+  expect(readFileSync(join(out, 'import/index.html'), 'utf8')).not.toContain(pkg);
+});
+
+test.skipIf(!chromium)('data-sn-import: the package loads once the page has taken over, with no call', async () => {
+  const server = await preview({ root, logLevel: 'silent', preview: { port: 0 }, build: { outDir: out } });
+  const browser = await chromium!.launch();
+  try {
+    const pkg = assets().find((f) => read(f).includes(MARK))!;
+    const tab = await browser.newPage();
+    const requested: string[] = [];
+    tab.on('request', (r) => requested.push(r.url()));
+    await tab.goto(server.resolvedUrls!.local[0]! + 'import.html');
+    await tab.waitForFunction((p) => performance.getEntriesByType('resource').some((e) => e.name.endsWith(p)), pkg);
+    expect(requested.some((u) => u.endsWith(pkg))).toBe(true);
+  } finally {
+    await browser.close();
+    await new Promise((r) => server.httpServer.close(r));
   }
 }, 60_000);
 

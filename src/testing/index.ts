@@ -362,6 +362,8 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
   for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= 'export default class {}';
   const parts = compileParts(html, {
     file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank', componentNames: Object.keys(options.components ?? {}),
+    // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
+    lazy: true,
     readFile: (p) => {
       const rel = p.startsWith('/test/') ? p.slice('/test/'.length) : p;
       const hit = files[rel] ?? files[`./${rel}`] ?? files[p];
@@ -415,6 +417,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     values.push(b === undefined ? actions[a] : (actions[a] as Record<string, unknown>)[b]);
   }
   if (parts.remote) { names.push('$ri'); values.push(remote(parts.remote)); }
+  for (const x of parts.lazy) { names.push(x.local); values.push(() => Promise.resolve()); }
   for (const x of parts.scripts) {
     const m = options.scripts?.[x.name];
     names.push(x.local);

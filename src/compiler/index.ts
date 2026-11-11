@@ -18,6 +18,8 @@ export { compileParts };
 export { COMPLEXITY_DEFAULTS, type ComplexityLimits, type ComplexityOptions } from './complexity.js';
 
 export const PACKAGE = '@tiaforge-ui/sinter';
+/** lazy packages' generated modules (lazy-build.ts): `<pkg>.js` is the loader */
+const LAZY_PREFIX = '/@sinter/lazy/';
 /** the built-in messages: a helper namespace with this module is sinter's `m` */
 export const MESSAGES = `${PACKAGE}/messages`;
 
@@ -32,7 +34,7 @@ export function compile(html: string, options: CompileOptions): CompileResult {
     + parts.scripts.map((x) => `import { ${x.export} as ${x.local} } from ${JSON.stringify(x.module)};\n`).join('');
   const page = pageLines(parts, options);
   const out: CompileResult = {
-    html: parts.html, module: css + page.text(), runtime: parts.runtime, ...(parts.static ? { static: true as const } : {}),
+    html: parts.html, module: css + page.text(), runtime: parts.runtime, preload: parts.preload, ...(parts.static ? { static: true as const } : {}),
     diagnostics: parts.diagnostics, files: parts.files, styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}),
   };
   if (parts.check) out.check = parts.check;
@@ -175,6 +177,8 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
       lines.push(`import { ${members.map((x) => `${x} as $a$${ns}$${x}`).join(', ')} } from ${JSON.stringify(acts.namespaces[ns]!.module)};`);
     }
   }
+  // lazy packages the markup loads when an element is rendered (`data-sn-import`): their loaders
+  for (const x of parts.lazy) lines.push(`import { load as ${x.local} } from ${JSON.stringify(`${LAZY_PREFIX}${x.spec}.js`)};`);
   if (options.config) lines.push(`import ${JSON.stringify(options.config)};`);
   // the build's origins join the runtime's allowlist, after the app's config module (imports run first): listed once
   if (options.origins?.length) lines.push(`import { $origins } from '${PACKAGE}';`, `$origins(${JSON.stringify(options.origins)});`);

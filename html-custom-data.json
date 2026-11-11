@@ -181,6 +181,14 @@
       "description": "on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for uses that may shift the layout when they render, to keep the early script small (off)"
     },
     {
+      "name": "data-sn-import",
+      "description": "loads packages of sinter({ lazy }) when the element is rendered (at takeover outside templates, when its branch or row first renders inside one), instead of on first call (lazy packages, comma-separated)"
+    },
+    {
+      "name": "data-sn-preload",
+      "description": "the build preloads packages of sinter({ lazy }) with the page (<link rel=\"modulepreload\"> in its head): fetched in parallel with the page bundle, run on first call or by data-sn-import (lazy packages, comma-separated)"
+    },
+    {
       "name": "data-sn-ref",
       "description": "in a component's markup: the element its script reads as this.refs.<name>, typed by its tag (name)"
     },

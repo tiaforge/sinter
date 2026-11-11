@@ -263,6 +263,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** `lazy`: the packages loaded on first call (checked before Vite starts), and each one's resolved id (its chunk's facade) */
   const lazyPkgs = lazyOf(options.lazy);
   const lazyIds = new Map<string, string>();
+  /** each page's `data-sn-preload` packages, by its path relative to the root */
+  const preloadOf = new Map<string, string[]>();
   /** `site`: the origin, checked (no path, no query) */
   const siteOrigin = (() => {
     if (options.site == null) return null;
@@ -427,7 +429,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!described.has(file)) {
       const p = project(root, options), v = virtual.get(file);
       try {
-        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile, ...(v ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
+        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile, lazy: p.lazy, ...(v ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
       } catch { described.set(file, { parts: null, path: [], off: false }); }
     }
@@ -437,7 +439,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const describeSource = (source: string) => {
     if (!sourceDescribed.has(source)) {
       const p = project(root, options);
-      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile }).path); }
+      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile, lazy: p.lazy }).path); }
       catch { sourceDescribed.set(source, []); }
     }
     return { path: sourceDescribed.get(source)! };
@@ -499,7 +501,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
       file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
-      check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles,
+      check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles, lazy: p.lazy,
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
@@ -516,6 +518,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // a page in a language is written into its language's folder: its relative URLs follow
     if (v) out.html = rebaseHtml(out.html, '/' + posix.dirname(relOf(src)).replace(/^\.$/, ''), '/' + posix.dirname(rel));
     runtimeOf.set(rel, out.runtime);
+    if (out.preload.length) preloadOf.set(rel, out.preload); else preloadOf.delete(rel);
     for (const x of out.styles) {
       if (componentCss.get(x.name) === x.css) continue;
       componentCss.set(x.name, x.css);
@@ -1011,6 +1014,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           }
           html = html.replace('</head>', `${tags.map((t) => `  ${t}\n`).join('')}</head>`);
         }
+        // `data-sn-preload`: the lazy packages' chunks, fetched with the page
+        const pre = preloadOf.get(rel);
+        if (pre && ctx.bundle) html = withPreloads(html, rel, pre, ctx.bundle, base);
         const inline = pageMessages.get(rel);
         if (!early && !langs && !own && !inline) return html;
         // a page in one language: the messages its app modules call, before any script that reads them
@@ -1029,6 +1035,30 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       },
     },
   };
+
+  /**
+   * Builds, `data-sn-preload`: a modulepreload link for each lazy package's chunk and the chunks it
+   * imports, at the end of the head (the browser fetches and compiles them; the first call runs them).
+   */
+  function withPreloads(html: string, rel: string, specs: string[], bundle: Record<string, unknown>, base: string): string {
+    type C = { type: string; fileName: string; facadeModuleId?: string | null; imports?: string[] };
+    const chunks = Object.values(bundle) as C[];
+    const files: string[] = [];
+    for (const spec of specs) {
+      const id = lazyIds.get(spec), c = id ? chunks.find((x) => x.type === 'chunk' && x.facadeModuleId === id) : undefined;
+      if (!c) { warnOnce(`sinter: ${rel} preloads ${spec} (data-sn-preload), but no module of the app imports it: there is nothing to preload`); continue; }
+      const todo = [c.fileName];
+      while (todo.length) {
+        const f = todo.shift()!;
+        if (files.includes(f)) continue;
+        files.push(f);
+        const x = bundle[f] as C | undefined;
+        if (x?.type === 'chunk') todo.push(...(x.imports ?? []));
+      }
+    }
+    const tags = files.filter((f) => !html.includes(`"${base}${f}"`)).map((f) => `<link rel="modulepreload" crossorigin href="${attr(base + f)}">`);
+    return tags.length ? html.replace('</head>', `  ${tags.join('\n  ')}\n</head>`) : html;
+  }
 
   /**
    * Builds: each lazy loader learns its chunk's URL (relative to the loader's own chunk), so a failed

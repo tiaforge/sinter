@@ -143,3 +143,37 @@ describe('the app\'s imports', () => {
     expect(() => lazyOf(['openpgp/lightweight'])).toThrow(/covered by its package/);
   });
 });
+
+describe('in markup: data-sn-import and data-sn-preload', () => {
+  const page = async (html: string, lazy: string[] | undefined = ['openpgp']) => {
+    const { compile } = await import('../src/compiler/index.js');
+    return compile(html, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('none'); }, ...(lazy ? { lazy } : {}) });
+  };
+
+  test('data-sn-import: the page module imports the loader, and a binding starts it when the element renders', async () => {
+    const out = await page('<main data-sn-import="openpgp, openpgp/lightweight"><p>x</p></main>');
+    expect(out.diagnostics).toEqual([]);
+    expect(out.module).toContain('import { load as $l$0 } from "/@sinter/lazy/openpgp.js";');
+    expect(out.module).toContain('import { load as $l$1 } from "/@sinter/lazy/openpgp/lightweight.js";');
+    expect(out.module).toContain('() => { $l$0().catch(() => {}); $l$1().catch(() => {}); }');
+    expect(out.module).toMatch(/"k":"imp"/);
+    expect(out.html).not.toContain('data-sn-import');
+    expect(out.runtime.map((r) => r.what)).toEqual(['`data-sn-import`']);
+  });
+
+  test('data-sn-preload: listed for the build, and nothing to run', async () => {
+    const out = await page('<!doctype html><html><head><title>t</title></head><body><template data-sn-if="false"><p data-sn-preload="openpgp">x</p></template><p>y</p></body></html>');
+    expect(out.diagnostics).toEqual([]);
+    expect(out.preload).toEqual(['openpgp']);
+    expect(out.html).not.toContain('data-sn-preload');
+  });
+
+  test('a package that is not lazy is SN324, with the list', async () => {
+    const d = (await page('<p data-sn-import="openpgg">x</p><p data-sn-preload="marked">y</p>')).diagnostics;
+    expect(d.map((x) => `${x.code} ${x.message}`)).toEqual([
+      'SN324 `openpgg` is not a lazy package: `data-sn-import` names packages of `sinter({ lazy })` (`openpgp`). Did you mean `openpgp`?',
+      'SN324 `marked` is not a lazy package: `data-sn-preload` names packages of `sinter({ lazy })` (`openpgp`)',
+    ]);
+    expect((await page('<p data-sn-import="openpgp">x</p>', [])).diagnostics[0]!.message).toContain('which lists none');
+  });
+});
