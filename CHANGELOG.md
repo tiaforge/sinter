@@ -11,6 +11,12 @@ Attribute names, function names and diagnostic codes are public API. Before
   `<slot>`, an `<sn-resource>`) is parsed as template content, so the elements after it stay in the head. After
   expansion, a head holds only head elements: anything else is the new `SN320` (before, the browser moved it, and every
   head element after it, into the body without a word).
+- Head components: a file in `src/components/` declared with `<template data-sn-head="{ …props }">` holds any number of
+  head elements (`<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>`, `<template>`, slots and
+  other head components), inlined at its use in a head with no wrapper: an SEO component, for example. Props, slots,
+  constants deciding `data-sn-if` at build time and `sinter check` work as for components; its tag takes only
+  `data-sn-prop` and slot content. A head component in a body, or a component in a head, is `SN320`; head elements in a
+  `data-sn-component` are `SN312` with the hint to declare it with `data-sn-head`.
 - Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
   is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
   costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots

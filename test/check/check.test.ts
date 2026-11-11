@@ -124,6 +124,22 @@ declare global {
     expect(r.diagnostics[0]!.file).toMatch(/src\/components\/contact-card.html$/);
   });
 
+  test('head components: props typed by data-sn-head at the call site and inside', () => {
+    const seo = { 'src/components/seo-tags.html': `<template data-sn-head="{ contact: Contact; count?: number }">
+  <title data-sn-text="contact.name"></title>
+</template>` };
+    const html = (use: string) => `<!doctype html><html><head>
+<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
+${use}
+</head><body></body></html>`;
+    expect(run(html('<seo-tags data-sn-prop="{ contact: contacts[0] }"></seo-tags>'), seo).diagnostics).toEqual([]);
+    one(html(`<seo-tags data-sn-prop="{ contact: contacts[0], count: 'x' }"></seo-tags>`), /Type 'string' is not assignable to type 'number'/, "count: 'x'", seo);
+    const typo = { 'src/components/seo-tags.html': seo['src/components/seo-tags.html'].replace('contact.name', 'contact.nmae') };
+    const r = run(html('<seo-tags data-sn-prop="{ contact: contacts[0] }"></seo-tags>'), typo);
+    expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Property 'nmae' does not exist on type 'Contact'/)]);
+    expect(r.diagnostics[0]!.file).toMatch(/src\/components\/seo-tags.html$/);
+  });
+
   test('<sn-component use>: the name must fit ComponentName; props are checked per candidate, narrowed by the key', () => {
     const types = `export interface Hero { id: number; type: 'hero'; title: string }
 export interface Text { id: number; type: 'text'; body: string }

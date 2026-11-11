@@ -238,9 +238,9 @@ Error, for example:
 
 > a component has one root element; `<article-preview>` has 2 elements at the top of its template
 
-A file in `src/components/` is not a valid component: it needs one `<template data-sn-component="{ …props }">` (and optionally a `<style>`) with exactly one root element in it, and the root cannot be a `<template>`, a `<slot>` or another component. Also reported: two slots with the same name.
+A file in `src/components/` is not a valid component: it needs one `<template data-sn-component="{ …props }">` (and optionally a `<style>`) with exactly one root element in it, and the root cannot be a `<template>`, a `<slot>` or another component. A head component is declared with `<template data-sn-head>` instead, and holds any number of head elements. Also reported: two slots with the same name, a template with both declarations, a head component with a script, and `<sn-component use>` naming a head component.
 
-**Fix:** Wrap the markup in one element inside `<template data-sn-component>`: the caller's classes, attributes and handlers land on it.
+**Fix:** Wrap the markup in one element inside `<template data-sn-component>`: the caller's classes, attributes and handlers land on it. For head elements (`<title>`, `<meta>`, …), declare the component with `<template data-sn-head>`.
 
 ## SN313 unknown-prop
 
