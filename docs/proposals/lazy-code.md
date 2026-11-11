@@ -1,6 +1,6 @@
 # Proposal: lazy code
 
-Status: accepted (2026-11-11), reviewed by the Caley session. Nothing is implemented yet.
+Status: implemented (2026-11-11), steps 1 to 5 of the [Plan](#plan); the guide is [lazy.md](../lazy.md). Where the implementation departs from this text: `vite dev` writes no preload links; `void` counts as waiting for a call; a failed `import()` of the app's is probed through the URL the browser's error names (Chromium, Firefox), not `vite:preloadError`; the static-and-dynamic rule of `SN325` applies to every app. Caley's migration and the mail-page measurements (step 6) are for the Caley session.
 
 Decided with the user:
 - sinter solves this itself; a guardrail alone is not enough.

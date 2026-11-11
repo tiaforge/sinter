@@ -70,6 +70,10 @@ export class TaskRing extends TaskRingComponent {
     page.
   Inside a `data-sn-for` or `data-sn-if`, each instance has its own object, started when its root is
   created and ended when it is removed.
+- **A script that imports a [lazy package](lazy.md#component-scripts)** (`sinter({ lazy: ['chart.js'] })`),
+  directly or through your modules, loads with it when the component first renders: `connected()` runs
+  once both have arrived, with the props of that moment; an instance removed before then never starts.
+  The markup does not wait.
 - **The script writes only state.** It never writes to nodes sinter renders. A ref is for handing an
   element to code that owns it (a canvas, a map container, an editor), not for setting its text.
 

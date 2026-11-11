@@ -16,8 +16,31 @@ Attribute names, function names and diagnostic codes are public API. Before
   its branch, a constant loop as its rows), and the build's bugs show up in tests. `firstPaint` now only runs the early
   script before mounting. Its result has `state(el)` for tests; `update()` throws for a field the build made a
   constant, naming it: write it from a handler on the page.
+- A build fails (`SN325`) when a page imports an app module statically that a module of the same page also loads with
+  `import()`: the split did nothing for that page (Vite only warned). Import it only with `import()` there, or not
+  lazily at all.
 
 ### Added
+
+- Lazy packages ([docs/lazy.md](docs/lazy.md)). `sinter({ lazy: ['openpgp'] })` loads a package on first call instead
+  of with the page: the app's imports of it stay as written and become stubs sharing one `import()`, so the package is
+  a chunk of its own. Every call of its exports must be waited for (`await`, `return`, `.then`, `void`,
+  `Promise.all`); anything else (`new`, `instanceof`, constants, settings, functions passed as values, side-effect
+  imports, re-exports) is `SN324` at its line, in the build, in dev and in `sinter check`, and so is a helpers module
+  that reaches a lazy package.
+  - `data-sn-import="openpgp"` loads it when the element renders (at takeover outside templates, never before);
+    `data-sn-preload="openpgp"` writes modulepreload links for its chunks into the page's head. On any element of a
+    page, layout or component.
+  - A component script that imports a lazy package, directly or through app modules, loads with it when its component
+    first renders: `connected()` runs once both have arrived, with the latest props; an instance removed meanwhile
+    never starts. The build logs each such script with the import chain.
+  - `SN325`: a page's bundle or early file contains a lazy package through another package. Each page's build log line
+    lists what it defers (`; lazy: openpgp 129.7 kB gzip`).
+  - `$error.stale` (`SinterError.stale`): a lazy load whose chunk a deploy removed (the server answers 404, 410, or
+    HTML) is a stale page, "this page is out of date: reload it", also for an `import()` of the app's in an action
+    (Chromium, Firefox); the network stays `status: 0`. sinter does not reload by itself.
+  - Cost: nothing for apps without `lazy`, but the call feature (pages with `data-sn-call` or `<sn-resource call>`)
+    grows by 288 B gzip for the stale check of the app's own `import()`s.
 
 - `render(html, { layouts })` in `@tiaforge-ui/sinter/testing` takes the app's layouts by name, as `components` does, so
   a page that is only a layout's tag can be tested.

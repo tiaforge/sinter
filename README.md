@@ -210,6 +210,10 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 - **Preloading done for you.** Preconnect to API origins, `preload` for requests known at build
   time, low priority for data behind dialogs, fonts bundled at build time.
   [First paint](docs/first-paint.md)
+- **Heavy packages on demand.** `sinter({ lazy: ['openpgp'] })`: your imports stay as they are, the
+  package loads on first call; `data-sn-import` and `data-sn-preload` load it sooner where a page needs
+  it. The build fails when a page would ship it anyway, and a tab left open across a deploy gets
+  `$error.stale` instead of a broken import. [Lazy packages](docs/lazy.md)
 - **Images.** AVIF/WebP/JPEG variants, `srcset` and `sizes` written from your own markup and CSS.
   [Images](docs/images.md)
 - **Fast rendering.** Keyed lists measured level with or ahead of ivi, Solid and Svelte on

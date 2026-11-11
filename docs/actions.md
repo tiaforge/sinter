@@ -282,9 +282,10 @@ its key in state and derive the row with `data-sn-let`.
       data-sn-catch="emit('toast', $error.message)">
 ```
 
-Non-2xx responses give `$error = {status, body, message, detail}`. Network errors have `status: 0`,
+Non-2xx responses give `$error = {status, body, message, detail, stale}`. Network errors have `status: 0`,
 a failed local action `status: null`. `error = $error.detail ?? m.save_failed()` shows the server's
-reason or your own text.
+reason or your own text. `stale` is true when code the action loads lazily is gone from the server (a
+deploy replaced it): only a reload helps ([lazy packages](lazy.md#a-stale-page)).
 
 Resource names in these functions must be string literals, `a ? 'x' : 'y'`, `||` or `??` between
 literals, or a `data-sn-let` name holding one, so the compiler can check every name.

@@ -211,6 +211,13 @@ because it competes with render-blocking files and text in that face waits for i
 The build fails if a page preloads a face none of its stylesheets use. Stylesheets on other
 origins (an icon font's CSS) are left alone.
 
+## Heavy packages
+
+A package only some interactions need (crypto, charts, a PDF renderer) does not have to be on the
+first paint's path: `sinter({ lazy: ['openpgp'] })` loads it on first call. Per page, in the markup,
+`data-sn-import="openpgp"` loads it once the page has taken over, and `data-sn-preload="openpgp"`
+fetches it with the page, for pages whose first content needs it. See [lazy packages](lazy.md).
+
 ## Page chrome outside data templates
 
 Chrome renders before the page script only outside data templates. A `data-sn-if="user"` around
@@ -274,3 +281,4 @@ Blog</title>`.
 - [images.md](images.md): `width`/`height`, `srcset` and placeholder colors, so images do not shift
   the layout.
 - [first-paint-comparison.md](first-paint-comparison.md): measurements.
+- [lazy.md](lazy.md): packages loaded on first call, or when an element renders.
