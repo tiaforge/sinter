@@ -200,14 +200,19 @@ is what makes routing on a server simple:
 - `data-sn-path` patterns are written without the prefix (`/article/:slug`) and match under each
   language (`/de/article/:slug`); `$url` does not include it. sinter-axum's manifest lists the
   languages, and its router mounts each page under every prefix.
-- The root has no language of its own. The build writes a `dist/index.html` that sends the visitor
-  to the base language without JavaScript (`<meta http-equiv="refresh" content="0; url=/en/">`, a link to
-  each language, and the `hreflang` links). A host that redirects on `Accept-Language` takes over
-  before it.
+- No page is written at its own path: the source `about.html` is only `/en/about.html` and
+  `/de/about.html`, and the source `index.html` is `/en/` and `/de/`. An unprefixed URL such as
+  `/about.html` does not exist; a site that had one before redirects it on the host.
+- The one unprefixed file is the root. It has no language of its own: the build writes a
+  `dist/index.html` that sends the visitor to the base language without JavaScript
+  (`<meta http-equiv="refresh" content="0; url=/en/">`, a link to each language, and the `hreflang`
+  links). A host that redirects on `Accept-Language` takes over before it.
+- Paths in sinter's own options are source paths, without the prefix: `sinter({ static: ['about.html'] })`
+  matches `about.html` in every language.
 
-**Links stay in their language.** A link to one of the app's pages is written with the page's path, as
-today (`<a href="/about.html">`), and each language's file links to that language: the German build
-writes `/de/about.html`. So a visitor who is on a German page stays on German pages, with nothing
+**Links stay in their language.** A link to one of the app's pages is written with the page's source
+path, as today (`<a href="/about.html">`), and each language's file links to that language: the
+English build writes `/en/about.html`, the German one `/de/about.html`. So a visitor who is on a German page stays on German pages, with nothing
 stored. The build rewrites:
 
 - every root-relative `href` that matches one of the app's pages (the same match Speculation Rules
@@ -231,14 +236,14 @@ stored. The build rewrites:
   ```html
   <a data-sn-attr="{ href: localeUrl('de'), 'aria-current': $locale === 'de' ? 'true' : null }" hreflang="de">Deutsch</a>
   ```
-- Each head gets `<link rel="alternate" hreflang="…">` for every language and `x-default` for the
-  base, so search engines index and link each language.
+- Each head gets `<link rel="alternate" hreflang="…">` for every language's URL of the page, and
+  `x-default` for the root (`/`), which sends a visitor to a language, so search engines index and
+  link each language.
 - It is a choice for the whole site, and it applies to every page, not only static ones. Without
   `localePrefix` nothing changes: one HTML file per page, the language picked in the browser and
   `$locale = 'de'` switching in place, keeping the page's state. The two models do not mix in one
   site: switching in place on `/de/inbox.html` would show English at a German URL. With it, an app
-  page gets its text in
-  the first frame in every language, with nothing hidden, and needs no picker. Messages over data
+  page gets its text in the first frame in every language, with nothing hidden, and needs no picker. Messages over data
   (`m.inbox_count({ count: inbox.unread })`) still render in the browser, from that language's file,
   which the page module imports directly. `$locale` cannot be assigned (a build error): switching is
   navigation.
@@ -249,15 +254,18 @@ stored. The build rewrites:
 What it does not do:
 
 - **Choose the language on the first visit, or remember it.** Without JavaScript, a visitor who opens
-  `/` gets the base language and a switcher; from then on the links keep them in the language they
-  are in. Nothing is stored: a visitor who comes back to `/` gets the base language again. Visitors from a search engine land on their language's URL
-  through `hreflang`. A host that can redirect on `Accept-Language` can do it there; the guide shows
-  how for common static hosts, without sinter shipping anything.
+  `/` is sent to the base language (`/en/`), with a switcher on every page; from then on the links
+  keep them in the language they are in. Nothing is stored: a visitor who comes back to `/` is sent
+  to the base language again. Visitors from a search engine land on their language's URL through
+  `hreflang`. A host that can redirect on `Accept-Language` can do it at `/`; the guide shows how for
+  common static hosts, without sinter shipping anything.
 - **Translate paths** (`/de/ueber-uns`) or let a language have different markup. Messages only.
 
-The risk to try first: Vite builds the HTML files it is given as inputs, and `de/about.html` is not a
-file. The plugin would add one virtual input per page and language whose content is the source page,
-and compile it with the locale taken from its path; the dev server serves `/de/…` the same way.
+The risk to try first: Vite builds the HTML files it is given as inputs, and neither `en/about.html`
+nor `de/about.html` is a file. The plugin would replace each page's input with one virtual input per
+language whose content is the source page, compile it with the locale taken from its path, and add
+the root `index.html`. The dev server does the same: it serves `/{locale}/…` and the root as the build
+writes them, and an unprefixed page path is not found there either.
 
 ## What changes on a page that ships no JavaScript
 
@@ -319,10 +327,12 @@ These are the behaviours a static page loses.
 - Locale URLs: each page is built once per language with the text, attributes and head in that
   language, `lang`, `hreflang` links and `localeUrl()` written in; links to the app's pages carry the
   page's language (root-relative ones rewritten, bound ones from the runtime, `hreflang` links left);
-  the root `index.html` sends a visitor without JavaScript to the base language; a static page ships no JavaScript in
+  the base language is prefixed too and no page is written at its unprefixed path; the root
+  `index.html` sends a visitor without JavaScript to the base language, and `x-default` points to it;
+  `sinter({ static })` patterns match a page in every language; a static page ships no JavaScript in
   any language; an app page imports only its language's file and has no picker; assigning `$locale`
-  is a build error; `data-sn-path`, Speculation Rules and next-page data carry the prefix. In the dev
-  server, `/de/…` serves the German page.
+  is a build error; `data-sn-path`, Speculation Rules and next-page data carry the prefix. The dev
+  server serves `/en/…`, `/de/…` and the root as the build writes them, and no unprefixed page.
 - Browser (Chromium, Firefox, WebKit): each static fixture renders the same with JavaScript
   disabled (`javaScriptEnabled: false`) as with it.
 - RealWorld: no page should stop shipping JavaScript (they all read data). The page module sizes
@@ -335,7 +345,8 @@ These are the behaviours a static page loses.
 2. Clean up #26's leftovers: no `fns` placeholders, no node for an empty state (step 2).
 3. `module: null` and the plugin changes, including the CSS path (step 2).
 4. The build report line, and `sinter({ static })` / `SN322` (step 3).
-5. A prototype of the virtual per-language inputs in Vite, build and dev, before the rest of step 4.
+5. A prototype of the virtual per-language inputs in Vite (every language prefixed, the root
+   `index.html`), build and dev, before the rest of step 4.
 6. Locale URLs (step 4): fixed-locale compilation, messages in attributes, build-time `date()` and
    `number()`, `localeUrl()`, `hreflang`, link rewriting, the root `index.html`, the prefix in
    everything that knows page paths, sinter-axum's router.
