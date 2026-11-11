@@ -1,8 +1,8 @@
 # Proposal: pages without JavaScript
 
 Status: draft, for discussion. Nothing here is implemented. It builds on
-[#26](https://github.com/tiaforge/sinter/pull/26) (layouts, and constants left out of the page
-module), and every measurement below is from that branch (bff91c5).
+[layouts](../layouts.md) and on constants left out of the page module, both merged in
+[#26](https://github.com/tiaforge/sinter/pull/26). Every measurement below is from `main` at 5e6c1c8.
 
 With layouts, a site can be one layout and plain pages that read no data at all: a marketing site,
 docs, a blog. The compiler writes build-time constants into the HTML, and since #26 the page module
@@ -48,7 +48,7 @@ What every page load repeats is parsing and running it, here to mount an empty I
 
 ## What #26 already does
 
-My first draft of this proposal (against `main`) had five steps. Two of them shipped in #26:
+My first draft of this proposal (against `main` before #26) had five steps. Two of them shipped in #26:
 
 | First draft | In #26 |
 | --- | --- |
@@ -105,8 +105,8 @@ If none hold, `CompileResult.module` is `null`, and:
 
 - `injectScript` adds no `<script type="module">` and no early script.
 - The post plugin adds no shared head script, no modulepreload of the runtime chunk and no hold script.
-- Scripts the layout or the page writes (`<script type="module" src="./main.ts">` in the layouts
-  guide) stay: they are the app's, and Vite bundles them as usual without the runtime.
+- Scripts the layout or the page writes (`<script type="module" src="./main.ts">` in the
+  [layouts guide](../layouts.md)) stay: they are the app's, and Vite bundles them as usual without the runtime.
 - Speculation Rules stay. They are a `<script type="speculationrules">` with JSON in it, not
   JavaScript, and they keep next-page HTML prefetch and prerender in Chromium.
 - The page's CSS still loads. Component styles reach Vite today as an import of the page module.
@@ -157,7 +157,7 @@ These are the behaviours a static page loses. They are the decisions to make bef
 - **The app's config module (`src/sinter.config.ts`) and early module (`src/sinter.early.ts`) do
   not run.** They configure sinter (error handling, request middleware), and sinter does not run
   on the page. An app that needs a script on every page (analytics, say) puts it in the layout, as
-  the layouts guide does with `./main.ts`.
+  the [layouts guide](../layouts.md) does with `./main.ts`.
 - **Next-page data is not prefetched from that page.** Hovering a link from a static page to a page
   with data no longer requests that page's data. Speculation Rules still prefetch the HTML, and
   `speculation: 'prerender'` loads the data too in Chromium. Elsewhere, the data page loads its data
