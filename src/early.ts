@@ -218,9 +218,9 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
       if (l) return l.get();
       // the resources whose data is embedded in the page: read from it (the head is parsed before any binding)
       if (k == '$r' && o.ir.emb) return (emb ??= embedded(o.ir.emb));
-      // bindings over embedded data may read the URL (a page without early requests: read here)
-      if (k == '$url' && o.ir.emb && !req) return (url ??= readUrl(location.href, o.ir.path));
-      // for requests only: no early binding reads the clock or the URL
+      // the URL, as the page module reads it (a page with early requests reads it there, once for both)
+      if (k == '$url' && !req) return (url ??= readUrl(location.href, o.ir.path));
+      // the clock is for requests only: no early binding reads it
       if (req) return req.read(k, o.ir.path);
       throw Error('sinter: not available early');
     },

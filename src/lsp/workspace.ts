@@ -6,7 +6,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import { compile, type Diagnostic, type HelperManifest } from '../compiler/index.js';
 import { project, viteProject, type Project, type ProjectOptions } from '../project.js';
-import { writeComponentTypes } from '../components-build.js';
+import { HEAD_DECL, writeComponentTypes } from '../components-build.js';
 
 const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
 
@@ -38,9 +38,9 @@ export interface WorkspaceHooks {
 }
 
 /** The component a file is (`src/components/<name>.html`), or null. */
-function componentName(root: string, file: string): string | null {
-  const dir = join(root, 'src', 'components') + sep;
-  if (!file.startsWith(dir) || file.slice(dir.length).includes(sep)) return null;
+function componentName(root: string, file: string, dir = 'components'): string | null {
+  const d = join(root, 'src', dir) + sep;
+  if (!file.startsWith(d) || file.slice(d.length).includes(sep)) return null;
   const name = basename(file).replace(/\.html$/, '');
   return /^[a-z][a-z0-9]*(-[a-z0-9]+)+$/.test(name) ? name : null;
 }
@@ -156,7 +156,7 @@ export class Workspace {
   private async htmlChanged(file: string): Promise<void> {
     const state = await this.projectFor(file);
     // a component's contract changed: its script's types follow, without the dev server
-    if (componentName(state.root, file)) {
+    if (componentName(state.root, file) || componentName(state.root, file, 'layouts')) {
       try { writeComponentTypes(state.root, (f) => this.docs.get(resolve(f)) ?? readFileSync(f, 'utf8')); } catch { /* reported by the compiler */ }
     }
     const includers = [...state.includes].filter(([, files]) => files.includes(file)).map(([page]) => page);
@@ -193,10 +193,10 @@ export class Workspace {
         state.types.delete(page);
         continue;
       }
-      // a component no page uses: compiled through a use of its own, which reports what is wrong inside it
-      const component = componentName(state.root, page);
+      // a component or layout no page uses: compiled through a use of its own, which reports what is wrong inside it
+      const component = componentName(state.root, page) ?? componentName(state.root, page, 'layouts');
       if (component) {
-        html = `<${component}></${component}>`;
+        html = HEAD_DECL.test(html) ? `<!doctype html><html><head><${component}></${component}></head><body></body></html>` : `<${component}></${component}>`;
       }
       try {
         const out = compile(html, {

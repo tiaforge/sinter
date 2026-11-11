@@ -83,6 +83,20 @@ The tag's children fill the component's slots at build time. Content with `slot=
 children (fallback content). Content that no slot takes is a build error (`SN314`). Slot content is
 light DOM: global CSS, forms, labels and ARIA references work across the boundary.
 
+A slot takes every child that names it, in the order they are written. A `<slot>` that is itself slot
+content of a component's tag forwards what fills it into that component's slot, with its own
+fallback when it is left empty:
+
+```html
+<!-- src/components/page-section.html -->
+<template data-sn-component="">
+  <section><side-card><slot name="aside" slot="side">Nothing here</slot></side-card><slot></slot></section>
+</template>
+```
+
+The caller's `slot="aside"` content ends up in `side-card`'s `side` slot, in the caller's scope:
+slot content keeps the scope of the markup that wrote it through any number of components.
+
 ## Events
 
 `emit('select', article)` inside the component dispatches a bubbling event from where it runs, up
@@ -258,6 +272,44 @@ editor, `sinter lsp` checks a component through the pages that use it, and goes 
 
 A literal `id` in a component used more than once on a page would be on the page more than once:
 that is a build error. Compute it from a prop (`data-sn-attr="{ id: 'edit-' + item.id }"`).
+
+## Head components
+
+A component for the `<head>` holds head elements, any number of them, with no wrapper:
+
+```html
+<!-- src/components/seo-tags.html -->
+<template data-sn-head="{ title?: string; description?: string }">
+  <title data-sn-text="title ? title + ' · My Blog' : 'My Blog'">My Blog</title>
+  <meta name="description" content="Notes on the web." data-sn-attr="{ content: description ?? 'Notes on the web.' }">
+  <slot name="extra"></slot>
+</template>
+```
+
+```html
+<head>
+  <meta charset="utf-8">
+  <seo-tags data-sn-prop="{ title: post?.title, description: post?.summary }"></seo-tags>
+</head>
+```
+
+- It is declared with `data-sn-head` in place of `data-sn-component`; the two declarations are the
+  file's kind, and a template with both is `SN312`.
+- It holds head elements: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`,
+  `<base>`, `<template data-sn-if>` or `data-sn-for` over head elements, slots and other head
+  components. Anything else is `SN320`. Head elements in a `data-sn-component` are `SN312`, with the
+  hint to declare it with `data-sn-head`.
+- It is used in a head: a page's, a [layout's](layouts.md), or a head slot's content. In a body it is
+  `SN320`, as is a component with one root element in a head.
+- Its tag takes `data-sn-prop` and slot content, nothing else: there is no root for other attributes
+  to land on. It has no script and no scoped `<style>`.
+- Props, slots, constants deciding a `data-sn-if` at build time and `sinter check` work as for every
+  component. `<sn-component use>` chooses only components for the body.
+- In a head, `<title data-sn-text>` binds, and so does the `content` of a `<meta>` with a literal
+  `name`, `property` or `itemprop`. See [what a crawler sees](layouts.md#what-a-crawler-sees).
+
+sinter parses a head so that a component's tag stays where it is written; the browser's parser
+would end the head at it and move it, and everything after it, into the body.
 
 ## From `<sn-include>`
 

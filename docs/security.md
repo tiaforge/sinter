@@ -20,6 +20,7 @@ error or the removed attribute means, and what stays your job.
 | `data-sn-prop` | `innerHTML` and friends | only on custom elements; literal keys, no spread; `innerHTML`, `outerHTML`, `srcdoc` are `SN207` |
 | `data-sn-class` | applying arbitrary existing classes | computed keys allowed (low risk); sets classes only, never other attributes |
 | any binding on `<script>`, `<style>`, `<iframe>`, `<object>`, `<embed>`, `<base>`, `<meta>`, `<link>` or SVG `<animate>`, `<set>`, `<animateMotion>`, `<animateTransform>` | script execution, page takeover | `SN207` |
+| `data-sn-attr="{ content: … }"` on a `<meta>` with a literal `name`, `property` or `itemprop` | none: a description or `og:title` is text to the browser | allowed; any other key, any other attribute, and any binding on a `<meta http-equiv>` (a refresh, a policy) or `<meta charset>` is `SN207` |
 | URL templates of resources, actions and streams | requests to an attacker-chosen origin, leaked headers | see [Requests and origins](#requests-and-origins) |
 | store merges, form serialization, `patch` fields, `$url` | prototype pollution | keys `__proto__`, `constructor` and `prototype` are dropped; objects built from input have a null prototype |
 | `data-sn-persist` | secrets left in localStorage | `SN207` on `type="password"` and on fields with `autocomplete` `cc-*`, `one-time-code`, `current-password` or `new-password` |
