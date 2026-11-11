@@ -395,6 +395,8 @@ class Compiler {
   private readonly earlySites = new Map<string, Site>();
   private readonly stateAt = new Map<number, { site: Site; fields: Map<string, Site> }>();
   readonly origins = new WeakMap<object, Origin>();
+  /** text forwarded into a component's named slot by a slot with `slot="…"` (elements carry the attribute) */
+  private readonly forwarded = new WeakMap<object, string>();
   /** layout files by tag, read once (null: no such layout) */
   private readonly layoutFiles = new Map<string, { file: string; text: string } | null>();
   /** component files by tag, read once (null: no such component, a plain custom element) */
@@ -1359,7 +1361,7 @@ class Compiler {
     const { host, name, chain } = use;
     const groups = new Map<string, P5Node[]>();
     for (const c of [...host.childNodes]) {
-      const slot = isElement(c) ? attr(c, 'slot') : undefined;
+      const slot = isElement(c) ? attr(c, 'slot') : this.forwarded.get(c);
       const k = slot ?? '';
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k)!.push(c);
@@ -1385,8 +1387,20 @@ class Compiler {
       if (nodes === given) {
         const caller = chain.filter((x) => x !== '#').at(-1) ?? '';
         for (const c of nodes) {
-          if (isElement(c)) { c.attrs = c.attrs.filter((a) => a.name !== 'slot'); this.slotEls.push({ el: c, caller, host: name }); }
+          if (isElement(c)) c.attrs = c.attrs.filter((a) => a.name !== 'slot');
+          // content forwarded from further out stays its first caller's: its scope and its styles
+          if (this.slotOf.has(c)) continue;
+          if (isElement(c)) this.slotEls.push({ el: c, caller, host: name });
           this.slotOf.set(c, use);
+        }
+      }
+      // a slot that is itself slot content (`<slot name="seo" slot="extra">` in a component's tag): what fills it goes on into that slot
+      const onward = attr(s, 'slot');
+      const into = s.parentNode && isElement(s.parentNode as P5Node) ? (s.parentNode as P5Element).tagName : '';
+      if (onward !== undefined && this.componentFile(into)) {
+        for (const c of nodes) {
+          if (isElement(c)) setAttr(c, 'slot', onward);
+          else this.forwarded.set(c, onward);
         }
       }
       const parent = s.parentNode!;

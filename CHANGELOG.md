@@ -26,6 +26,10 @@ Attribute names, function names and diagnostic codes are public API. Before
   scripts and stylesheets work on the merged head. The layout's relative URLs are relative to its file. New
   diagnostics `SN318` (an invalid layout), `SN319` (a page that is more than the tag, a layout tag anywhere else) and
   `SN321` (a second `<title>`, `<meta name="description">`, `og:title`… in the head, on every page).
+- Slot forwarding: a `<slot>` that is itself slot content of a component's tag (`<seo-tags><slot name="seo"
+  slot="extra"></slot></seo-tags>`) passes what fills it on into that slot, with its fallback when it is left empty.
+  Slot content keeps its first caller's scope through any number of components (before, content a component passed
+  on into another component's slot took the scope of the component in between).
 - Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
   is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
   costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots
