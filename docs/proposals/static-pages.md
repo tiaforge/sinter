@@ -185,11 +185,14 @@ sinter({ localePrefix: true })
 ```
 
 ```
-dist/en/about.html     <html lang="en">, English in the HTML
-dist/de/about.html     <html lang="de">, German in the HTML
-dist/about.html        a redirect to the visitor's language (below)
-dist/index.html        the same for the root
+dist/en/about/index.html    /en/about/   <html lang="en">, English in the HTML
+dist/de/about/index.html    /de/about/   <html lang="de">, German in the HTML
+dist/about/index.html       /about/      a redirect to the visitor's language (below)
+dist/about.html             /about.html  the same, for links from before (step 6)
+dist/index.html             /            the same for the root
 ```
+
+Each page is a directory's index, as on every build (step 6).
 
 **The languages and the default come from the inlang project, as today.** `localePrefix` adds no
 setting of its own:
@@ -220,24 +223,27 @@ is what makes routing on a server simple:
   they do today (`/docs/article/:slug`), and the language's segment is taken out after it before
   matching (`/docs/de/article/hello` matches). sinter-axum's manifest lists the
   languages, and its router mounts each page under every prefix.
-- No page is written at its own path in a language: the source `about.html` is `/en/about.html` and
-  `/de/about.html`, and the source `index.html` is `/en/` and `/de/`. At the unprefixed path
-  (`/about.html`, and `/` for the root) the build writes a redirect file instead, described under
-  "Remembering the language" below.
+- No page is written at its own path in a language: the source `about.html` is `/en/about/` and
+  `/de/about/`, and the source `index.html` is `/en/` and `/de/`. At the unprefixed path (`/about/`,
+  and `/` for the root) the build writes a redirect file instead, described under "Remembering the
+  language" below.
 - Paths in sinter's own options are source paths, without the prefix: `sinter({ static: ['about.html'] })`
   matches `about.html` in every language.
 
 **Links stay in their language.** A link to one of the app's pages is written with the page's source
-path, as today (`<a href="/about.html">`), and each language's file links to that language: the
-English build writes `/en/about.html`, the German one `/de/about.html`. So a visitor who is on a German
-page stays on German pages, with nothing stored. The build rewrites:
+path (`<a href="/about.html">`) or its URL (`/about/`), and each language's file links to that
+language: the English build writes `/en/about/`, the German one `/de/about/`. So a visitor who is on a
+German page stays on German pages, with nothing stored. The build rewrites:
 
 - every root-relative `href` that matches one of the app's pages (the same match Speculation Rules
   use), in markup and in bindings the build evaluates (constants, `data-sn-attr` over props);
-- relative links need nothing: `about.html` from `/de/index.html` stays under `/de/`;
+- relative links are rebased to the file's place (step 6), which keeps them under the prefix:
+  `about.html` in the source `index.html` is `about/` in `/de/`;
 - `href`s bound at run time on app pages (from data) get the prefix from the runtime, by the same
   match;
 - a link with `hreflang` points to a language on purpose (a language switcher) and is left as it is.
+
+**What else each language's build does:**
 
 - Each file is compiled with the locale fixed. `$locale` is a build-time constant, and every message
   call over constants is written into the HTML in that language, in text and in attributes
@@ -260,7 +266,7 @@ page stays on German pages, with nothing stored. The build rewrites:
 - It is a choice for the whole site, and it applies to every page, not only static ones. Without
   `localePrefix` nothing changes: one HTML file per page, the language picked in the browser and
   `$locale = 'de'` switching in place, keeping the page's state. The two models do not mix in one
-  site: switching in place on `/de/inbox.html` would show English at a German URL. With it, an app
+  site: switching in place on `/de/inbox/` would show English at a German URL. With it, an app
   page gets its text in the first frame in every language, with nothing hidden, and needs no picker. Messages over data
   (`m.inbox_count({ count: inbox.unread })`) still render in the browser, from that language's file,
   which the page module imports directly. `$locale` cannot be assigned (a build error): switching is
@@ -270,11 +276,11 @@ page stays on German pages, with nothing stored. The build rewrites:
 - A missing translation falls back to the base language, as today.
 
 **Remembering the language.** Links keep a visitor in their language while they follow them. An
-unprefixed URL (`/`, `/about.html`: typed, bookmarked, or linked from another site) is where the
+unprefixed URL (`/`, `/about/`: typed, bookmarked, or linked from another site) is where the
 language has to be chosen again, and the redirect file at that path does it:
 
 - **Without JavaScript**, it sends the visitor to the base language: `<meta http-equiv="refresh"
-  content="0; url=/en/about.html">`, a link to each language, `<meta name="robots" content="noindex">`,
+  content="0; url=/en/about/">`, a link to each language, `<meta name="robots" content="noindex">`,
   and the `hreflang` links. This is all a site gets when no page of it ships JavaScript: nothing on
   it can record a choice, and the site stays without a single `.js` file. A host that redirects on
   `Accept-Language` can choose the first visit's language before the file is served.
@@ -283,7 +289,7 @@ language has to be chosen again, and the redirect file at that path does it:
   The redirect files then carry a small inline script that runs before the refresh: the cookie's
   language if it is one of the site's, else the first match in `navigator.languages`, else the base,
   and `location.replace()` to that language's URL of the same path. A visitor who was last on a German
-  page and opens `/about.html` lands on `/de/about.html`.
+  page and opens `/about/` lands on `/de/about/`.
 - A cookie rather than `localStorage`, so that a server can redirect on it too, without serving the
   file: sinter-axum's router redirects unprefixed paths by the cookie, else `Accept-Language`, and a
   static host with cookie conditions in its redirect rules can do the same. The guide shows both.
@@ -291,15 +297,15 @@ language has to be chosen again, and the redirect file at that path does it:
   `<meta>` the build adds its hash, as it does for Speculation Rules; for a CSP sent as a header, the
   build prints the hash.
 - The language recorded is the last one of a page that ran JavaScript. On a site with both kinds of
-  page, a visitor who switched to German on a static page and then opens `/about.html` gets the
+  page, a visitor who switched to German on a static page and then opens `/about/` gets the
   language of the last page that recorded one. The guide says so.
 
 What it does not do:
 
 - **Translate paths** (`/de/ueber-uns`) or let a language have different markup. Messages only.
 
-The risk to try first: Vite builds the HTML files it is given as inputs, and neither `en/about.html`
-nor `de/about.html` is a file. The plugin would replace each page's input with one virtual input per
+The risk to try first: Vite builds the HTML files it is given as inputs, and neither
+`en/about/index.html` nor `de/about/index.html` is a file. The plugin would replace each page's input with one virtual input per
 language whose content is the source page, compile it with the locale taken from its path, and write
 the redirect file at the unprefixed path. The dev server does the same: it serves `/{locale}/…` and
 the redirect files as the build writes them.
@@ -333,20 +339,20 @@ export default { base: '/docs/', plugins: [sinter({ site: 'https://example.com',
 | `$canonical` | the page's canonical URL: `$site`, the locale prefix with `localePrefix`, and the page's path; no query, no hash. If the page writes its own canonical link, that link's URL |
 
 What they hold, with the config above, for the German build of the source page `guide/install.html`,
-opened as `/docs/de/guide/install.html?tab=npm`:
+opened as `/docs/de/guide/install/?tab=npm`:
 
 ```
 $site       https://example.com/docs
-$canonical  https://example.com/docs/de/guide/install.html
+$canonical  https://example.com/docs/de/guide/install/
 $url        { tab: 'npm' }                                   (unchanged: the query, and the path parameters of
                                                              `data-sn-path`, of which this page has none)
 ```
 
-The same page with `<link rel="canonical" href="https://example.com/docs/en/guide/install.html">` written
+The same page with `<link rel="canonical" href="https://example.com/docs/en/guide/install/">` written
 in its head (the German page only translates the English one):
 
 ```
-$canonical  https://example.com/docs/en/guide/install.html
+$canonical  https://example.com/docs/en/guide/install/
 ```
 
 The source `index.html`, German build: `$canonical` is `https://example.com/docs/de/`.
@@ -393,6 +399,53 @@ $url        { ref: 'feed', slug: 'hello' }
 For crawlers that run no JavaScript, the server layer of embedded data (`embed: true`), which knows the
 request's path, writes the canonical link and the bindings over `$canonical` into the HTML. Without
 it, such a page has no canonical link in its HTML; the build report lists such pages once.
+
+### 6. Page URLs: a directory per page
+
+Every build writes a page with a fixed path as a directory's index: the source `about.html` is
+`dist/about/index.html`, and its URL is `/about/` (with `localePrefix`, `dist/en/about/index.html` at
+`/en/about/`). `index.html` stays what it is, already a directory's index. There is one URL form, with no
+option.
+
+Why this form and not `/about.html` or a clean `/about`:
+
+- Serving a directory's `index.html` is what nearly every static server does without configuration:
+  nginx, Apache, GitHub Pages, S3's website hosting, and the hosts that also do clean URLs. A request
+  for `/about` without the slash is redirected to `/about/` by nearly all of them. A clean `/about` needs
+  the host to map paths to files, and where it does not, the canonical URL is a 404. The exception
+  left is a CDN reading a storage bucket without its website mode (CloudFront in front of plain S3),
+  which resolves `index.html` only at the root; the guide says so.
+- `vite dev` and `vite preview` serve the same form: `/about/` from `about.html`, and `/about`
+  redirected to `/about/`, as the hosts do. What is tested is what is deployed.
+
+What the build does with it:
+
+- **`$canonical` ends in a slash**: `https://example.com/about/`.
+- **Links are written as the URL.** A root-relative or relative `href` to one of the app's pages, written
+  as its source path (`/about.html`) or its URL (`/about/`), is written as `/about/`, in markup and in
+  bindings the build evaluates, so an internal link never costs a redirect. With `localePrefix`, with the
+  prefix. Speculation Rules, next-page data and embedded data's page paths use `/about/` too.
+- **Relative URLs are rebased** to the file's new place: in `about/index.html`, `href="contact.html"`
+  would point to `/about/contact.html`, so the build rewrites it, as layouts rebase a layout's URLs to
+  its file. Vite's asset URLs are absolute with the default `base`; with a relative `base` they are
+  computed for the file's new place.
+- **Old URLs keep working**: the build also writes a redirect file at `about.html` (`<meta
+  http-equiv="refresh">` to `/about/`, a canonical link to it, `noindex`), so links to the site from
+  before still arrive. With `localePrefix` it is one more redirect file to the visitor's language.
+- **Some files stay where they are**: hosts look for `404.html` at the root (and some for `200.html`, a
+  single-page fallback), so a page named so is written as it is.
+- **Collisions are a build error**: `docs.html` and `docs/index.html` in the source would be the same
+  URL; the error names both files.
+- **Pages with a pattern** (`/article/:slug`) are one file that a server or host rewrite serves, so where
+  the file is matters only to that rewrite; sinter-axum reads it from the build's manifest. Patterns
+  match with or without a trailing slash, so `/article/hello` and `/article/hello/` are the same page.
+  Their URLs have no slash and fixed pages' URLs do: two shapes, visible but harmless.
+- **`data-sn-path` is only for patterns.** The build knows the URL of every page with a fixed path, so
+  `data-sn-path="/login"` on `login.html` says nothing new. A `data-sn-path` without a `:name` segment is
+  a warning that names the page's URL (`/login/`) and suggests removing it.
+
+This changes the URL of every page of every site (`/about.html` becomes `/about/`), which is breaking
+and goes in the CHANGELOG; the redirect files keep old links working.
 
 ## What changes on a page that ships no JavaScript
 
@@ -472,6 +525,11 @@ These are the behaviours a static page loses.
   `site`, no canonical link is written and reading `$site` or `$canonical` fails with `SN323` at the
   element that reads it; a path in `site` fails the build; on a page matched by `sinter({ static })`,
   `$url` in an `og:url` `<meta>` fails with `SN322` pointing to `$canonical`.
+- Page URLs: `about.html` is written as `about/index.html`, with a redirect file at `about.html`;
+  `index.html`, `404.html` and `200.html` stay; links to pages, written as the source path or the URL,
+  are written as `/about/`; relative URLs are rebased and resolve as before; `docs.html` with
+  `docs/index.html` fails the build; a fixed `data-sn-path` warns; patterns match with and without a
+  trailing slash; `vite dev` and `vite preview` serve `/about/` and redirect `/about`.
 - Browser (Chromium, Firefox, WebKit): each static fixture renders the same with JavaScript
   disabled (`javaScriptEnabled: false`) as with it.
 - RealWorld: no page should stop shipping JavaScript (they all read data). The page module sizes
@@ -492,22 +550,18 @@ These are the behaviours a static page loses.
 7. Canonical URLs (step 5): `site`, `$site`, `$canonical`, `SN323`, the canonical link, absolute
    `hreflang`, `$canonical` in the early script and the embed layer's canonical link for pattern pages,
    in Node and in sinter-axum.
-8. Docs: a guide, `docs/static-pages.md` (what ships no JavaScript and why, the report line, the
+8. Page URLs (step 6): the directory form, link rewriting and rebasing, the redirect files for old
+   URLs, the files that stay, collisions, the `data-sn-path` warning, dev and preview. RealWorld's
+   fixed `data-sn-path`s go.
+9. Docs: a guide, `docs/static-pages.md` (what ships no JavaScript and why, the report line, the
    matcher, next-page data, the config module, multilingual sites and first-visit redirects on common
-   hosts, canonical URLs), linked from `layouts.md` and `first-paint.md`; the config module's rule in
+   hosts, canonical URLs, page URLs and the hosts that serve them), linked from `layouts.md` and `first-paint.md`; the config module's rule in
    `configuration.md`; locale URLs in the messages section; the README line "a small runtime ships
    with each page" becomes "with each page that needs one", and a CHANGELOG entry.
 
 ## Open questions
 
-1. **The URL's form**: `$canonical` ends in the path as the file is named, with `index.html` as its
-   directory (`/en/about.html`, `/en/`). Hosts that serve clean URLs (`/en/about`) need the other form:
-   an option (`sinter({ cleanUrls: true })`), or always clean URLs, since Speculation Rules already
-   match both? The answer also decides whether a page with a fixed path still needs
-   `data-sn-path`: today `login.html` declares `data-sn-path="/login"` because it is served at
-   `/login`. If the build knows the URL form, it derives `/login` from the file name, and
-   `data-sn-path` is only for patterns (`/article/:slug`). `site` itself cannot replace it: it is the
-   origin, and says nothing about paths.
+None at the moment.
 
 ## Future work
 
@@ -538,7 +592,8 @@ Settled in review, in the order they were discussed:
 | Multilingual static sites | In scope: one HTML file per page and language | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | Locale URLs | Every language prefixed, the base too (`/en/…`, `/de/…`): one URL shape for servers; each unprefixed path is a redirect file | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | Staying in a language | Each language's files link to that language's pages, so a visitor stays in the language they are in | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
-| Remembering the language | On a site that ships JavaScript, its pages record their language in a `locale` cookie, and the redirect file at each unprefixed path (`/about.html`, `/`) sends the visitor to it; on a site without any JavaScript, the redirect files go to the base language | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
+| Remembering the language | On a site that ships JavaScript, its pages record their language in a `locale` cookie, and the redirect file at each unprefixed path (`/about/`, `/`) sends the visitor to it; on a site without any JavaScript, the redirect files go to the base language | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | The option's name | `sinter({ localePrefix: true })`: it says what the build does | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | One model or two | Both, chosen per site: the in-browser switch stays the default, `localePrefix` makes the whole site use locale URLs. Revisit once locale URLs have been used | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | A page's URL | `$site` is the site's root URL (the origin from `sinter({ site })` and Vite's `base`); `$canonical` is the page's full URL built on it (locale prefix, path), or the URL of a canonical link the page writes itself. Reading either without `site` is a build error (`SN323`) that says to set it. `$url` stays the query and path parameters, read in the browser | [Canonical URLs](#5-canonical-urls) |
+| The URL form | Every page with a fixed path is a directory's index (`about/index.html` at `/about/`): no host configuration, the same in dev and preview, `$canonical` with a trailing slash; old `.html` URLs get redirect files; `data-sn-path` is only for patterns | [Page URLs](#6-page-urls-a-directory-per-page) |
