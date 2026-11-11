@@ -377,7 +377,7 @@ by the maintainer (kept as built), *open* (to be decided), or *fixed* (built as 
 
 | Topic | The text | Built | Why | Status |
 | --- | --- | --- | --- | --- |
-| Go to definition of a slot | from a `<slot>`'s name to where pages fill it | from a `slot="…"` value to the `<slot>` it names | the direction that answers "what is this slot"; the other one is a search over pages, left for later | open |
+| Go to definition of a slot | from a `<slot>`'s name to where pages fill it | from a `slot="…"` value to the `<slot>` it names | the direction that answers "what is this slot"; the other one is a search over pages, left for later | approved |
 
 ### Proof
 
