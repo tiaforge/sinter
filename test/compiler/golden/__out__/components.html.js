@@ -6,24 +6,24 @@ const ir = {"v":2,"resources":[{"name":"articles","src":["/api/articles"],"key":
 const fns = [
   ($) => ({ narrow: false, sel: null }),
   ($) => ($.$r.articles),
-  ($) => (($.$s0.narrow)),
+  ($) => ($.$s0.narrow),
   ($) => {$.$s0.sel = $.$event.detail
 },
-  ($) => (($.a).title),
-  ($) => {$.$f.emit('select', ($.a).slug)
+  ($) => ($.a.title),
+  ($) => {$.$f.emit('select', $.a.slug)
 },
   ($) => ($.a.createdAt),
   ($) => ($.a$1),
   ($) => ([1, 2]),
-  ($) => (($.a).slug + $.a$1),
-  ($) => (($.$s0.sel) ?? '-'),
+  ($) => ($.a.slug + $.a$1),
+  ($) => ($.$s0.sel ?? '-'),
   ($) => {$.$f.emit('change', 'x')
 },
   ($) => { if ($.$event instanceof CustomEvent) (($) => {$.$s0.sel = $.$event.detail
 })($); },
   (c) => { const n0 = c, n1 = n0?.nextSibling, n2 = n1?.firstChild, n3 = n2?.nextSibling, n4 = n3?.nextSibling, n5 = n4?.nextSibling, n6 = n5?.nextSibling, n7 = n6?.nextSibling, n8 = n7?.firstChild; return [n1?.localName == "article" ? n1 : null, n3?.localName == "h2" ? n3 : null, n5?.localName == "time" ? n5 : null, n8?.localName == "template" ? n8 : null]; },
   (c) => { const n0 = c; return [n0?.localName == "li" ? n0 : null]; },
-  (c, $, w) => { const n0 = c, e0 = n0?.localName == "li" ? n0 : null; const v0 = e0 ? (($.a).slug + $.a$1) : w.U; e0 && w.t(e0, "", v0); return [v0]; },
+  (c, $, w) => { const n0 = c, e0 = n0?.localName == "li" ? n0 : null; const v0 = e0 ? ($.a.slug + $.a$1) : w.U; e0 && w.t(e0, "", v0); return [v0]; },
 ];
 
 await parsed();

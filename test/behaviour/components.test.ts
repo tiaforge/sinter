@@ -183,11 +183,13 @@ describe('data-sn-early="off"', () => {
   });
 });
 
-test('a data-sn-if on a prop the use leaves out is dropped at build time; one the use passes renders', async () => {
+test('a data-sn-if on a constant prop is decided at build time: dropped when the use leaves it out, its content in place when it is true', async () => {
   const BADGE = '<template data-sn-component="{ label?: string }"><span><template data-sn-if="label"><b data-sn-text="label"></b></template>x</span></template>';
   const { root } = await render('<x-badge></x-badge><x-badge data-sn-prop="{ label: \'new\' }"></x-badge>', { components: { 'x-badge': BADGE } });
   const [a, b] = root.querySelectorAll('span');
   expect(a!.querySelector('b')).toBeNull();
-  expect((a!.querySelector('template') as HTMLTemplateElement).content.childNodes).toHaveLength(0);
+  // decided at build time: no template, no binding
+  expect(a!.querySelector('template')).toBeNull();
+  expect(b!.querySelector('template')).toBeNull();
   expect(b!.querySelector('b')!.textContent).toBe('new');
 });

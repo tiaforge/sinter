@@ -223,7 +223,7 @@ describe('<sn-event then>', () => {
       <sn-sync src="/api/events"><sn-event name="n" then="sel = open || id"></sn-event></sn-sync></main>`, {
       file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
     });
-    expect(parts.fns.find((f) => f.includes('$.$p.id'))).toContain('($.$s0.sel) || $.$p.id');
+    expect(parts.fns.find((f) => f.includes('$.$p.id'))).toContain('$.$s0.sel || $.$p.id');
   });
   test('errors: unknown dialogs, element-less store functions, payload writes, a misspelt attribute', () => {
     expect(codes(`<sn-event name="n" then="close('detial')"></sn-event>`)).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page. Did you mean `detail`\?/)]);

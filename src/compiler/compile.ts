@@ -1106,6 +1106,7 @@ class Compiler {
     const { lets, passed } = def
       ? { lets: (use.props ?? []).map((m): LetEntry => ({ name: m.name, code: `$.${def.rt}.${m.name}`, deps: [], usesEl: false, usesIndex: false, resource: null, prop: true, src: [`@def:${name}:${m.name}`] })), passed: new Set(declared) }
       : this.propLets(use, caller);
+    if (!def) this.foldConstants(use, lets);
     const outer = new Set<string>([...(caller.lets ?? []).map((l) => l.name), ...caller.loops.map((l) => l.name), ...caller.states.flatMap((x) => [...x.names])]);
     // no `data-sn-emits`: no events; one the compiler cannot list (an alias): not checked here
     const around = caller.component?.runtime;
@@ -1604,10 +1605,7 @@ class Compiler {
     // templates
     let content: { tid: number; scope: Scope } | null = null;
     if (isTemplate && has('for')) content = this.forTemplate(el, node, scope, get('for')!, get('key'));
-    else if (isTemplate && has('if') && this.neverTrue(el, scope)) {
-      // `data-sn-if` on a prop the use leaves out (`undefined`): the branch never renders, so it is dropped
-      (el as P5Template).content.childNodes = [];
-    } else if (isTemplate && has('if')) {
+    else if (isTemplate && has('if')) {
       const r = this.expr(el, 'data-sn-if', scope, { mode: 'value' });
       const tid = this.newTemplate();
       const b = this.binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
@@ -1750,13 +1748,41 @@ class Compiler {
     node.b.push(this.binding({ k: 'on', n: 'change', f, w: h.writes }));
   }
 
-  /** A component's `data-sn-if` on a prop its use leaves out (no `data-sn-else` after it): always false. */
-  neverTrue(el: P5Element, scope: Scope): boolean {
-    const src = (attr(el, 'data-sn-if') ?? '').trim();
-    const l = scope.component && IDENT.test(src) ? (scope.lets ?? []).findLast((x) => x.name === src) : undefined;
-    if (!l?.prop || l.code !== 'undefined') return false;
-    const next = el.parentNode?.childNodes.slice(el.parentNode.childNodes.indexOf(el as never) + 1).find((c) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== ''));
-    return !(next && isElement(next) && next.tagName === 'template' && attr(next, 'data-sn-else') !== undefined);
+  /**
+   * A use whose prop is a constant (`label: true`, or left out): a `data-sn-if` on that prop in the
+   * component's markup is decided at build time. True: its content takes the template's place; false,
+   * `undefined` and other falsy constants: it is dropped (a `data-sn-else` after it, the other way
+   * round). Slot content and other components' markup are not the component's, and stay.
+   */
+  foldConstants(use: Use, lets: LetEntry[]) {
+    const CONST = /^(true|false|null|undefined|-?\d+(\.\d+)?|'[^'\\]*'|"[^"\\]*")$/;
+    const value = new Map(lets.filter((l) => l.prop && CONST.test(l.code)).map((l) => [l.name, !['false', 'null', 'undefined', '0', "''", '""'].includes(l.code)]));
+    if (!value.size) return;
+    const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
+    const contentOf = (t: P5Element) => (t as P5Template).content.childNodes;
+    const place = (parent: P5Parent, at: number, count: number, nodes: P5Node[]) => {
+      for (const n of nodes) (n as { parentNode: P5Parent }).parentNode = parent;
+      parent.childNodes.splice(at, count, ...(nodes as never[]));
+    };
+    const fold = (parent: P5Parent) => {
+      for (let i = 0; i < parent.childNodes.length; i++) {
+        const c = parent.childNodes[i]!;
+        if (!isElement(c) || this.slotOf.has(c) || (this.useOf.has(c) && c !== use.root) || this.points.has(c)) continue;
+        const cond = c.tagName === 'template' ? attr(c, 'data-sn-if')?.trim() : undefined;
+        if (cond !== undefined && value.has(cond)) {
+          const j = parent.childNodes.findIndex((x, k) => k > i && real(x));
+          const other = j >= 0 && isElement(parent.childNodes[j]!) && (parent.childNodes[j] as P5Element).tagName === 'template' && attr(parent.childNodes[j] as P5Element, 'data-sn-else') !== undefined ? parent.childNodes[j] as P5Element : null;
+          const keep = value.get(cond) ? contentOf(c) : other ? contentOf(other) : [];
+          place(parent, i, (other ? j : i) - i + 1, [...keep]);
+          mergeText(parent);
+          i--;
+          continue;
+        }
+        fold(c);
+        if (c.tagName === 'template') fold((c as P5Template).content);
+      }
+    };
+    fold(use.root);
   }
 
   /**

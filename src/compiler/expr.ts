@@ -459,7 +459,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     switch (res.kind) {
       case 'local': case 'global': case 'helper': return name;
       case 'loop': return `$.${res.entry.rt ?? name}`;
-      case 'let': return `(${res.entry.code})`;
+      // a plain path needs no parentheses: the same expression is then the same function, wherever a prop inlines it
+      case 'let': return /^[\w$]+(\.[\w$]+)*$/.test(res.entry.code) ? res.entry.code : `(${res.entry.code})`;
       case 'state': return `$.$s${sid}.${name}`;
       case 'resource': return `$.$r.${name}`;
       case 'magic': return `$.${name}`;

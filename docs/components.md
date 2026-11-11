@@ -61,6 +61,8 @@ child (grid, flex, `data-layout`), with no wrapper.
 component reads it: nothing is copied, so a change shows at once.
 
 - Props are read-only. A component changes its own `data-sn-state`, or emits an event.
+- A prop the use gives as a constant (`label: true`), or leaves out, decides a `data-sn-if` on it at
+  build time: the branch is in the markup, or not at all, with no binding.
 - A prop the component does not declare, or a required one left out, is a build error (`SN313`).
 - An optional prop that is not passed is `undefined`, or, when the root's `data-sn-state` has a field
   with its name, that field: its default.
