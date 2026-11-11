@@ -216,6 +216,8 @@ export interface RenderOptions {
   files?: Record<string, string>;
   /** the app's components, by name: `{ 'article-preview': '<template data-sn-component="…">…</template>' }` */
   components?: Record<string, string>;
+  /** the app's layouts, by name: `{ 'app-layout': '<!doctype html><html data-sn-layout="{ title: string }">…</html>' }`; the page is the layout's tag */
+  layouts?: Record<string, string>;
   /** the scripts of components, by name: the module (`await import('../src/components/task-ring.ts')`) or the class */
   scripts?: Record<string, unknown>;
   /** localStorage and sessionStorage (default: empty ones); pass the previous page's to test what carries over */
@@ -345,6 +347,7 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
   }
   const files: Record<string, string> = { ...options.files };
   for (const [name, text] of Object.entries(options.components ?? {})) files[`src/components/${name}.html`] = text;
+  for (const [name, text] of Object.entries(options.layouts ?? {})) files[`src/layouts/${name}.html`] = text;
   for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= 'export default class {}';
   const parts = compileParts(html, {
     file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank', componentNames: Object.keys(options.components ?? {}),

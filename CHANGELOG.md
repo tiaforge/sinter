@@ -3,6 +3,14 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Added
+
+- `render(html, { layouts })` in `@tiaforge-ui/sinter/testing` takes the app's layouts by name, as `components` does, so
+  a page that is only a layout's tag can be tested.
+- The starter template's `AGENTS.md` says where the shared markup lives (`src/layouts/app-layout.html`).
+
 ## 0.14.0 (2026-11-11)
 
 ### Upgrading from 0.13

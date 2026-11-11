@@ -5,6 +5,9 @@
 - Styling: temper (`data-variant`, `data-tone`, `data-layout`, … with fixed values; no classes for
   looks, no margins). Read `node_modules/@tiaforge-ui/temper/llms.txt` before editing markup, and
   `llms-full.txt` before building whole pages.
+- Shared page markup (head, header, frame, toasts) is a layout: `src/layouts/app-layout.html`. Each page is only the
+  layout's tag, `<app-layout data-sn-prop="{ title: '…' }">…</app-layout>`, and its children fill the layout's slots
+  (`slot="head"` for head elements). Change the shared parts there, not in each page.
 - Browser APIs (storage, timers, canvas, `fetch`) are not allowed in expressions: put them in a
   component's script (`src/components/<name>.ts` beside `<name>.html`, extending the class imported
   from `./<name>.html`; it writes state, never nodes sinter renders).

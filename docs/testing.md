@@ -55,6 +55,7 @@ A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn
 | `helpers`, `actions` | your helper and action functions; namespaces are objects of functions |
 | `files` | other files the page reads, by path relative to the page |
 | `components` | the app's components by name: `{ 'article-preview': '<template data-sn-component="…">…</template>' }` |
+| `layouts` | the app's layouts by name: `{ 'app-layout': '<!doctype html><html data-sn-layout="{ title: string }">…</html>' }`. A page that is only a layout's tag renders merged with it ([layouts](layouts.md)) |
 | `scripts` | the scripts of components by name: the module (`await import('../src/components/task-ring.ts')`) or the class |
 | `storage`, `session` | `localStorage` and `sessionStorage`. Pass the same `memoryStorage()` to two renders to test what carries over between page loads |
 | `messages` | built-in messages as the files hold them, base language first: `{ en: {...}, de: {...} }` |
