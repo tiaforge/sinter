@@ -20,7 +20,7 @@ prop and a scoped `<style>`. The pages have no state, no resources and no handle
 dist/index.html
 dist/about.html
 dist/assets/app-*.css        120 B    the component's scoped style
-dist/assets/app-*.js       33.7 kB    the runtime (14.1 kB gzip), modulepreloaded by both pages
+dist/assets/app-*.js       33.7 kB    the runtime (14.1 kB gzip), shared: modulepreloaded by both pages
 dist/assets/index-*.js       235 B    the page module: mounts one text binding
 dist/assets/about-*.js       233 B
 ```
@@ -30,8 +30,12 @@ dist/assets/about-*.js       233 B
 await e(), t(document, { ir: { roots: [{ tag: 'h1', b: [{ k: 'text', f: 0 }], id: 0 }], … }, fns: [e => `My site`] });
 ```
 
+Sizes are minified, before compression; over the wire the runtime is 14.1 kB gzip. It is one chunk
+that every page shares, so a visitor downloads it once and later pages take it from the HTTP cache.
+What every page load repeats is parsing and running it.
+
 The HTML already says `<h1 data-sn="0">My site</h1>`. The binding can never change, but the browser
-still downloads, parses and runs 14 kB gzip of runtime to "keep it live".
+still downloads the runtime on the first visit, and parses and runs it on every page, to "keep it live".
 
 A second probe shows the case that is worse than just wasted bytes:
 
