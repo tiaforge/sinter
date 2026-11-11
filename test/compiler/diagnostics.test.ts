@@ -69,6 +69,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN318', '<p data-sn-layout=""></p>', /`data-sn-layout` belongs on the `<html>` of a layout file/],
   ['SN319', '<p>x</p><x-shell></x-shell>', /a page that uses the layout `<x-shell>` is only its tag/],
   ['SN321', '<!doctype html><html><head><title>a</title><title>b</title></head><body></body></html>', /a second `<title>` in the head/],
+  ['SN323', '<p data-sn-text="$site"></p>', /`\$site` is the site's root URL, and the build does not know the site's origin/],
   ['SN320', '<!doctype html><html><head><title>t</title><div></div></head><body></body></html>', /`<div>` cannot be in the `<head>`/],
   ['SN401', '<p data-sn-text="a +"></p>', /Unexpected token/],
   ['SN501', R + '<p data-sn-text="messages.length"></p>', /resource `contacts` is declared but never read/],

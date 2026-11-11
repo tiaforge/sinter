@@ -91,6 +91,17 @@ export interface ComponentScope {
 
 export interface PageInfo {
   resources: Map<string, ResourceInfo>;
+  /**
+   * `$site` and `$canonical` (docs/static-pages.md#canonical-urls), from `sinter({ site })`: `site` the site's
+   * root URL, `canonical` the page's URL (null: a page whose path is a pattern, computed in the browser from
+   * `origin` and its path); absent without `site`
+   */
+  urls?: { site: string; canonical: string | null; origin: string };
+  /**
+   * `localePrefix`: the page is built in one language (docs/static-pages.md#languages): `$locale` is `name`, the
+   * built-in messages (namespace `messages`) are that language's text, and `localeUrl` compiles to `localeUrl`
+   */
+  locale?: { name: string; messages: string | null; localeUrl: string };
   helpers: Set<string>;
   /** action functions and namespaces: only `data-sn-call` and `<sn-resource call>` may name them */
   actions?: Set<string>;
@@ -273,6 +284,7 @@ type Resolved =
   | { kind: 'state'; sid: number }
   | { kind: 'resource' }
   | { kind: 'magic' }
+  | { kind: 'const'; code: string }
   | { kind: 'store' }
   | { kind: 'helper' }
   | { kind: 'ns' }
@@ -365,6 +377,18 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   function resolve(name: string, locals: Locals, offset: number, member?: string): Resolved | null {
     const local = locals.get(name);
     if (local) return { kind: 'local', info: local };
+    if (page.locale && name === '$locale') return { kind: 'const', code: JSON.stringify(page.locale.name) };
+    if (page.locale && name === 'localeUrl') return { kind: 'const', code: page.locale.localeUrl };
+    if (name === '$site' || name === '$canonical') {
+      const u = page.urls;
+      if (!u) {
+        report('SN323', `\`${name}\` is the ${name === '$site' ? 'site\'s root URL' : 'page\'s absolute URL'}, and the build does not know the site's origin: set \`sinter({ site: 'https://…' })\` in vite.config`, offset);
+        return null;
+      }
+      if (name === '$site') return { kind: 'const', code: JSON.stringify(u.site) };
+      // a page whose path is a pattern: the origin and the browser's path, without a trailing slash (the early script renders it)
+      return { kind: 'const', code: u.canonical !== null ? JSON.stringify(u.canonical) : `(${JSON.stringify(u.origin)} + location.pathname.replace(/\\/+$/, ''))` };
+    }
     if (name.startsWith('$')) {
       if (ALL_MAGIC.includes(name)) {
         // outside `catch`, `$error` is the form's: a state field the compiler gives a form that reads it
@@ -464,6 +488,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       case 'state': return `$.$s${sid}.${name}`;
       case 'resource': return `$.$r.${name}`;
       case 'magic': return `$.${name}`;
+      case 'const': return res.code;
       case 'store': return `$.$f.${name}`;
       case 'payload': return `$.$p.${name}`;
       case 'ns': return name;
@@ -716,7 +741,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     if (!page.usedNs.has(ns)) page.usedNs.set(ns, new Set());
     page.usedNs.get(ns)!.add(member);
-    addDep(['$locale']);
+    // a message in a page built in one language is that language's text: no dependency
+    if (!(page.locale && ns === page.locale.messages)) addDep(['$locale']);
     edits.push({ start: m.start, end: m.end, text: `${ns}$${member}` });
   }
 
@@ -733,7 +759,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   }
 
   function writePath(target: Node, locals: Locals, at: number, expr: Node) {
-    if (target.type === 'Identifier' && target.name === '$locale') { writes.add('$locale'); return; }
+    if (target.type === 'Identifier' && target.name === '$locale') {
+      if (page.locale) { report('SN203', `\`$locale\` is this page's language (\`${page.locale.name}\`): with \`localePrefix\` each language is its own page. Link to it: \`<a data-sn-attr="{ href: localeUrl('…') }">\``, target.start); return; }
+      writes.add('$locale');
+      return;
+    }
     if (target.type !== 'Identifier' && target.type !== 'MemberExpression') {
       report('SN203', 'only state variables and their properties can be assigned', at);
       return;
@@ -822,7 +852,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       ident(callee as acorn.Identifier & Node, locals);
       if (res?.kind === 'store') storeCall(callee.name, n, locals);
       else if (res?.kind === 'helper') {
-        if (BUILTIN_HELPERS.includes(callee.name)) addDep(['$locale']);
+        // (a page built in one language: the locale never changes)
+        if (BUILTIN_HELPERS.includes(callee.name)) { if (!page.locale) addDep(['$locale']); }
         else if (mode === 'handler') {
           for (const a of n.arguments) {
             const cp = a.type === 'Identifier' || a.type === 'MemberExpression' ? chainPath(a as Node, locals) : null;

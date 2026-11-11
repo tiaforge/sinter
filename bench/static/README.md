@@ -68,3 +68,33 @@ With page URLs, every page answers at its clean URL with a trailing slash on a s
 about the site, `/about` reaches it through the server's own redirect, and the old `.html` URLs still
 arrive. The pages' own links name the new URLs, so following them costs no redirect.
 
+## Languages in the URL
+
+`locales.mjs` builds `examples/multilingual-site` (`localePrefix`, English and German, three static pages and one
+with data) and checks it on Python's `http.server` and in Chromium:
+
+```sh
+node bench/static/locales.mjs
+```
+
+2026-11-11, the branch of part C:
+
+| request (no JavaScript) | result | `<html lang>` | scripts |
+| --- | --- | --- | ---: |
+| `/` | chooser → `/en/` | en | 0 |
+| `/about/` | chooser → `/en/about/` | en | 0 |
+| `/about` | 301 → `/about/`, chooser → `/en/about/` | en | 0 |
+| `/about.html` | chooser → `/en/about/` | en | 0 |
+| `/de/about/` | 200, "Über uns · Feldnotizen" | de | 0 |
+| `/de/about` | 301 → `/de/about/` | de | 0 |
+| `/de/about.html` | redirect file → `/de/about/` | de | 0 |
+| `/de/status/` | 200 (the page with data) | de | 1 |
+
+- The 20 internal links on the German pages all stay under `/de/` (the switcher's `hreflang` links aside).
+- `/de/about/` has `og:url` and its canonical link at `https://example.com/de/about/`, and `hreflang` for `en`, `de`
+  and `x-default` (`https://example.com/about/`).
+- In Chromium, `/about/` lands on `/de/about/` for a browser in German, `/en/about/` for one in French (no French
+  pages), `/en/about/` for a German browser whose last page with a script was English (cookie `en`), and
+  `/en/about/` with JavaScript off. After `/de/status/` (which sets the cookie), `/` lands on `/de/` for a browser in
+  English.
+

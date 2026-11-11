@@ -99,7 +99,7 @@ export function shadow(o: ShadowOptions): Shadow {
 
   // names a page can see besides its own frames; resources first, as sinter resolves them
   const taken = new Set<string>(unit.resources.map((r) => r.name));
-  for (const n of ['$any', '$item', '$el', '$event', '$result', '$error', '$meta', '$url', '$now', '$locale', ...STORE_FNS]) taken.add(n);
+  for (const n of ['$any', '$item', '$el', '$event', '$result', '$error', '$meta', '$url', '$now', '$locale', '$site', '$canonical', ...STORE_FNS]) taken.add(n);
   const builtin = BUILTIN_HELPERS.filter((h) => !taken.has(h));
   for (const h of builtin) taken.add(h);
   line(`import { ${builtin.join(', ')} } from '${sinter}';`);
@@ -158,6 +158,10 @@ export function shadow(o: ShadowOptions): Shadow {
   line('const $now = $any;');
   line('/** @type {string} */');
   line('let $locale = $any;');
+  line('/** @type {string} */');
+  line('const $site = $any;');
+  line('/** @type {string} */');
+  line('const $canonical = $any;');
   const directions = unit.resources.filter((r) => r.directions).map((r) => JSON.stringify(r.name)).join(' | ') || 'never';
   line(`/** @type {${decl('Store')}<{ ${types.join('; ')} }, ${directions}>} */`);
   line(`const { ${STORE_FNS.filter((f) => !unit.resources.some((r) => r.name === f)).join(', ')} } = $any;`);

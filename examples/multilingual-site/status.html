@@ -1,0 +1,7 @@
+<!-- The one page with data: it ships sinter's runtime, and records the visitor's language in a cookie, which the
+     language choosers at the unprefixed URLs follow. -->
+<site-layout data-sn-prop="{ title: m.status_title(), nav: 'status' }">
+  <sn-resource name="status" src="/api/status.json" type="any"></sn-resource>
+  <h1 data-sn-text="m.status_title()"></h1>
+  <p data-sn-text="status ? status.message : m.status_loading()"></p>
+</site-layout>

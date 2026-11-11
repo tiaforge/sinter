@@ -1,0 +1,5 @@
+body { font: 16px/1.5 system-ui, sans-serif; max-width: 48rem; margin: 0 auto; padding: 0 1rem; }
+.site-header { display: flex; gap: 2rem; align-items: baseline; padding: 1rem 0; border-bottom: 1px solid #ddd; }
+.brand { font-weight: 700; text-decoration: none; color: inherit; }
+.languages { margin-left: auto; display: flex; gap: .5rem; }
+[aria-current] { font-weight: 700; }

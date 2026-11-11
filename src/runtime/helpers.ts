@@ -28,9 +28,15 @@ const toDate = (v: unknown): Date | null => {
 
 type Style = 'full' | 'long' | 'medium' | 'short';
 
+/**
+ * A calendar date (`2026-11-11`): JavaScript reads it as midnight UTC (a date-time without an offset is local),
+ * so it is the same day for every visitor only when it is shown in UTC too
+ */
+export const isCalendarDate = (v: unknown): v is string => typeof v == 'string' && /^\d{4}-\d\d-\d\d$/.test(v);
+
 export function date(v: unknown, style: Style = 'medium'): string {
   const d = toDate(v);
-  return d ? fmt(Intl.DateTimeFormat, 'd', { dateStyle: style }).format(d) : '';
+  return d ? fmt(Intl.DateTimeFormat, 'd', { dateStyle: style, timeZone: isCalendarDate(v) ? 'UTC' : undefined }).format(d) : '';
 }
 
 export function time(v: unknown, style: Style = 'short'): string {

@@ -182,6 +182,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'The page is in `sinter({ static })`, the pages that must ship no JavaScript, but something on it runs in the browser: a binding over state a handler writes, data, `$url`, `$now` or a helper, a handler, an action, a resource or stream, a model, or a component with a script. The error is where that was written, in the page, a component or the layout, once for each.',
     fix: 'Remove what runs in the browser, or make it a constant (a literal, a prop given as one, state nothing writes). If the page is meant to run it, take the page out of `static` in vite.config.',
   },
+  SN323: {
+    example: '`$canonical` is the page\'s absolute URL, and the build does not know the site\'s origin: set `sinter({ site: \'https://…\' })` in vite.config',
+    means: '`$site` (the site\'s root URL) and `$canonical` (the page\'s URL) are absolute: they need the origin the site is served at, which only the configuration knows. Also: a `<link rel="canonical">` the page writes itself must name an absolute URL, since `$canonical` is that URL.',
+    fix: 'Set `sinter({ site: \'https://example.com\' })` in vite.config (an origin, no path: a site under a path sets Vite\'s `base`). For a canonical link of your own, write it absolute, e.g. `$site + \'/en/about/\'` is what the build would write.',
+  },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
     means: 'An attribute value has the wrong form: a JavaScript syntax error (the column points inside the attribute), or a value outside what the attribute accepts, such as `paginate` or `data-sn-concurrency`.',

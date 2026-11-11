@@ -342,6 +342,16 @@ The page is in `sinter({ static })`, the pages that must ship no JavaScript, but
 
 **Fix:** Remove what runs in the browser, or make it a constant (a literal, a prop given as one, state nothing writes). If the page is meant to run it, take the page out of `static` in vite.config.
 
+## SN323 needs-site
+
+Error, for example:
+
+> `$canonical` is the page's absolute URL, and the build does not know the site's origin: set `sinter({ site: 'https://…' })` in vite.config
+
+`$site` (the site's root URL) and `$canonical` (the page's URL) are absolute: they need the origin the site is served at, which only the configuration knows. Also: a `<link rel="canonical">` the page writes itself must name an absolute URL, since `$canonical` is that URL.
+
+**Fix:** Set `sinter({ site: 'https://example.com' })` in vite.config (an origin, no path: a site under a path sets Vite's `base`). For a canonical link of your own, write it absolute, e.g. `$site + '/en/about/'` is what the build would write.
+
 ## SN401 parse-error
 
 Error, for example:

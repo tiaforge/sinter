@@ -7,6 +7,23 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Languages in the URL (docs/static-pages.md#languages): `sinter({ localePrefix: true })` builds each page once per
+  language of the inlang project, under its prefix (`/en/about/`, `/de/about/`), with `<html lang>` and that language's
+  messages and `$locale` written into the HTML, in attributes too, so a page with nothing else to run ships no
+  JavaScript in any language. A page that runs loads no language file or picker: the messages its code needs are
+  compiled into its script, and those the app's modules call are written into the page. `number()`, `bytes()` and
+  `date()` of a calendar date over constants are written at build time. `localeUrl('de')` gives a page's URL in another language; links to the app's pages stay
+  in the page's language; `data-sn-path` is written without the prefix. With `site`, each page gets `hreflang` links and
+  `x-default`. Each unprefixed URL is a language chooser: the base language without JavaScript; on a site that ships
+  JavaScript, the `locale` cookie its pages set, else the browser's languages. `_redirects` has each language's rules
+  and the choosers'; sinter-axum answers an unprefixed URL with a 302 to the visitor's language; `vite dev` serves it
+  all. `baseLocale` must be set and among `locales`. Assigning `$locale` in a page built in one language is `SN203`.
+- Canonical URLs (docs/static-pages.md#canonical-urls): `sinter({ site: 'https://example.com' })`. Every page whose URL
+  is known gets `<link rel="canonical">`, and expressions get `$site` (the origin and Vite's `base`) and `$canonical`
+  (the page's URL), build-time constants on a page with a fixed path (`og:url`, `og:image` in a head component, with no
+  JavaScript). A page's own canonical link must be absolute and becomes `$canonical`. On a page whose path is a
+  pattern, `$canonical` and the page's canonical link are written by the early script from the address, when the
+  page ships JavaScript anyway. Without `site`, `$site` and `$canonical` are the new error `SN323`.
 - Pages without JavaScript (docs/static-pages.md): a page with nothing left to run in the browser gets no script at all,
   no page module, no early script and no runtime, and links its components' and images' stylesheets instead. A site
   built from a layout, components and text ships no `.js` file; on a mixed site only the pages that need the runtime
@@ -147,6 +164,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   of converting it in JavaScript, which filled V8's number-to-string cache (64 KB after creating 1,000 rows).
 - Testing: `render(…, { frames: true })` and `frame()` to test what waits for the next frame (without `frames`, server
   events flush in a microtask as before).
+
+### Fixed
+
+- `date()` of a calendar date (`'2026-11-11'`) showed the day before for visitors west of UTC: it is now formatted in
+  UTC, where it was parsed. A moment (with a time) is still shown in the visitor's time zone.
 
 ## 0.13.1 (2026-11-10)
 

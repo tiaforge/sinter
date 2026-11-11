@@ -1,0 +1,29 @@
+<!-- The document every page shares: title and description from its props, the canonical URL for og:url, a nav
+     and a language switcher. Every value here is a constant in each language's page. -->
+<!doctype html>
+<html lang="en" data-sn-layout="{ title: string; nav: string }">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-sn-text="title + ' · ' + m.site()"></title>
+  <meta property="og:url" data-sn-attr="{ content: $canonical }">
+  <link rel="stylesheet" href="../site.css">
+  <slot name="head"></slot>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/index.html" data-sn-text="m.site()"></a>
+    <nav-list data-sn-prop="{ current: nav, items: [
+      { id: 'home', href: '/index.html', label: m.nav_home() },
+      { id: 'about', href: '/about.html', label: m.nav_about() },
+      { id: 'docs', href: '/docs/getting-started.html', label: m.nav_docs() },
+      { id: 'status', href: '/status.html', label: m.nav_status() },
+    ] }"></nav-list>
+    <nav class="languages">
+      <a hreflang="en" data-sn-attr="{ href: localeUrl('en'), 'aria-current': $locale === 'en' ? 'true' : null }">English</a>
+      <a hreflang="de" data-sn-attr="{ href: localeUrl('de'), 'aria-current': $locale === 'de' ? 'true' : null }">Deutsch</a>
+    </nav>
+  </header>
+  <main><slot></slot></main>
+</body>
+</html>

@@ -22,6 +22,8 @@ import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Pagi
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
+import { bytes, date, isCalendarDate, number } from '../runtime/helpers.js';
+import { config } from '../runtime/config.js';
 
 /** the compiler's IR holds paths as strings (the page module's holds node ids) */
 const strs = (x: PathRef[] | undefined) => (x ?? []) as string[];
@@ -95,6 +97,8 @@ export interface CompileOptions {
    * requested early; not `call`, `each`, or `early="off"` (a request a middleware changes)
    */
   embed?: boolean;
+  /** internal: false when a page whose path is a pattern has nothing else to run, so it gets no canonical link (`compileParts`) */
+  canonicalLink?: false;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
   /** also return where each function in `fns` was written (`CompiledParts.sources`), for the page module's source map */
@@ -105,6 +109,19 @@ export interface CompileOptions {
   layouts?: string;
   /** Vite's `base`, which the pages' URLs start with (default `/`); for SN515 */
   base?: string;
+  /**
+   * `sinter({ site })`: `$site` (the site's root URL), the page's `$canonical` (null for a page whose path
+   * is a pattern: computed in the browser from `origin`), and `link` to write the canonical link into a
+   * page that has none (docs/static-pages.md#canonical-urls)
+   */
+  urls?: { site: string; canonical: string | null; origin: string };
+  /**
+   * `localePrefix`: the page in one language (`name`). `baseMessages` is that language's text; the page's
+   * `data-sn-path` patterns get its prefix after `base`; `localeUrl(l)` is the page's URL in language `l`, from
+   * `urls` (null for a page whose paths all have parameters: from the browser's path); the page module records
+   * the language in the `locale` cookie (docs/static-pages.md#languages)
+   */
+  locale?: { name: string; urls: Record<string, string> | null; base: string };
   /**
    * internal, set by `compileParts` for its second pass: the `data-sn-if` templates (by `file:offset`)
    * whose condition the first pass found constant (state nothing writes), and its value
@@ -410,6 +427,13 @@ function constantProps(src: string | undefined, props: Member[] | null): Map<str
 const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-prop`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
+  const out = compilePasses(html, options);
+  // a page whose path is a pattern gets its canonical link from the early script: only when it runs something anyway
+  if (out.canonicalOnly) return compilePasses(html, { ...options, canonicalLink: false });
+  return out;
+}
+
+function compilePasses(html: string, options: CompileOptions): CompiledParts & { canonicalOnly?: boolean } {
   const first = new Compiler(options);
   const out = first.run(html);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
@@ -424,6 +448,8 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
 class Compiler {
   readonly diagnostics: Diagnostic[] = [];
   readonly files = new Set<string>();
+  /** the canonical link `canonical()` added to a page whose path is a pattern: bound to `$canonical`, not a reason to run */
+  canonicalLink: P5Element | null = null;
   readonly fns: string[] = [];
   readonly fnIndex = new Map<string, number>();
   /** how many times each function's index was handed out: a function no longer used by anything is left out (`dropConstants`) */
@@ -574,9 +600,16 @@ class Compiler {
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
       usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), ids: new Map(),
     };
+    const l = opts.locale;
+    if (l) {
+      const b = l.base.startsWith('/') ? l.base.replace(/\/?$/, '/') : '/';
+      // a page whose paths have parameters: its path in another language is the browser's, with that language's prefix
+      const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])` : `((l) => ${JSON.stringify(b)} + l + location.pathname.slice(${b.length + l.name.length}))`;
+      this.page.locale = { name: l.name, messages: Object.entries(opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages')?.[0] ?? null, localeUrl };
+    }
   }
 
-  run(html: string): CompiledParts {
+  run(html: string): CompiledParts & { canonicalOnly?: boolean } {
     let doc = parseDocument(html);
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
@@ -585,6 +618,9 @@ class Compiler {
     this.head = findHead(doc);
     this.expandComponents(doc, []);
     if (this.opts.decided?.size) this.foldDecided(doc);
+    if (this.opts.urls) this.canonical(doc);
+    // a page in one language says which: `<html lang="de">`
+    if (this.opts.locale) { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); if (h) setAttr(h, 'lang', this.opts.locale.name); }
     if (this.opts.unrolled?.size) this.unrollLoops(doc);
     this.checkHead();
     this.componentIds();
@@ -665,7 +701,7 @@ class Compiler {
     if (/"w":\[[^\]]*"\$url[".]/.test(JSON.stringify(ir))) this.features.add('location');
     return {
       html: parse5.serialize(doc),
-      runtime, ...(isStatic ? { static: true as const } : {}),
+      runtime, ...(isStatic ? { static: true as const } : {}), ...(isStatic && this.canonicalLink ? { canonicalOnly: true } : {}),
       ir, fns: this.fns,
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs'].filter((f) => this.features.has(f))],
@@ -1554,6 +1590,32 @@ class Compiler {
     return true;
   }
 
+  /**
+   * `sinter({ site })`: the page's canonical URL. A `<link rel="canonical">` the page writes (in the head
+   * after its layout and head components) is `$canonical`, and must be absolute (SN323); without one, a page
+   * whose URL is known gets one with `$canonical`, last in its head.
+   */
+  canonical(doc: DefaultTreeAdapterMap['document']) {
+    const u = this.opts.urls!;
+    const head = findHead(doc);
+    const own = head?.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'link' && (attr(n, 'rel') ?? '').toLowerCase().split(/\s+/).includes('canonical'));
+    this.page.urls = { ...u };
+    if (own) {
+      const href = attr(own, 'href') ?? '';
+      if (/^https?:\/\//i.test(href)) this.page.urls.canonical = href;
+      else this.report(own, 'href', 'SN323', `a canonical link is an absolute URL, and \`${href}\` is not: \`$canonical\` is what it names`, 0, `write \`${u.canonical ?? u.site + '/…'}\`, or leave the link out and the build writes it`);
+      return;
+    }
+    if (!head) return;
+    const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+    // a page whose path is a pattern: one file for every URL, so the early script writes it from the address
+    if (u.canonical === null && this.opts.canonicalLink === false) return;
+    const link = parse5.parseFragment(u.canonical === null ? '<link rel="canonical" data-sn-attr="{ href: $canonical }">' : `<link rel="canonical" href="${esc(u.canonical)}">`).childNodes[0] as P5Element;
+    if (u.canonical === null) this.canonicalLink = link;
+    link.parentNode = head;
+    head.childNodes.push(link as never);
+  }
+
   /** A literal `id` in the markup of a component used more than once would be on the page more than once. */
   componentIds() {
     for (const [name, list] of this.uses) {
@@ -1923,6 +1985,10 @@ class Compiler {
       if (bad) this.report(html!, 'data-sn-path', 'SN401', `\`${p}\` is not a path pattern; use literal segments and \`:name\`, e.g. \`/article/:slug\``, value.indexOf(p));
       for (const s of segs) if (s[0] === ':') this.page.pathParams.add(s.slice(1));
     }
+    // a page in one language: its paths under that language's prefix, after the base (`/de/article/:slug`)
+    const lp = this.opts.locale;
+    const lb = lp && lp.base.startsWith('/') ? lp.base.replace(/\/?$/, '/') : '/';
+    const prefixed = lp ? patterns.map((p) => (p.startsWith(lb) ? lb + lp.name + (p.length > lb.length ? '/' + p.slice(lb.length) : '/') : p)) : patterns;
     // only the URL the page has anyway: it is a directory's index without data-sn-path (docs/static-pages.md#page-urls)
     const root = this.opts.root.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/', file = this.opts.file.replace(/\\/g, '/');
     const rel = file.startsWith(root) ? file.slice(root.length) : null;
@@ -1930,7 +1996,7 @@ class Compiler {
     if (rel && /\.html?$/.test(rel) && !/(^|\/)(index|404|200)\.html?$/.test(rel) && patterns.length === 1 && patterns[0] === b + rel.replace(/\.html?$/, '/')) {
       this.report(html!, 'data-sn-path', 'SN515', `\`data-sn-path="${patterns[0]}"\` is the URL this page has anyway, as a directory's index`, 0, 'remove it: `data-sn-path` lists the paths a page answers at besides that, such as `/article/:slug` or `/login`');
     }
-    return patterns;
+    return prefixed;
   }
 
   // ---- main walk
@@ -2035,7 +2101,8 @@ class Compiler {
     // a `<meta name|property|itemprop>`: its `content` binds (a per-page description, `og:title`); nothing else of a meta does
     const meta = el.tagName === 'meta' && sn.length ? this.metaBindable(el, sn) : null;
     if (meta === false) { stripSn(el); return null; }
-    if (sn.length && !meta && UNSAFE_ELEMENTS.has(el.tagName.toLowerCase())) {
+    // the canonical link of a page whose path is a pattern, which the compiler adds (`canonical()`): its `href` is `$canonical`
+    if (sn.length && !meta && el !== this.canonicalLink && UNSAFE_ELEMENTS.has(el.tagName.toLowerCase())) {
       this.report(el, sn[0]!.name, 'SN207', `\`<${el.tagName}>\` cannot carry sinter bindings`, 0);
       stripSn(el);
       return null;
@@ -3516,7 +3583,18 @@ class Compiler {
     const NOT = new Error('not a build-time constant');
     const stub = new Proxy(function () {}, { apply() { throw NOT; }, get() { throw NOT; } });
     const params = new Map<string, unknown>([['$k', $k]]);
-    for (const h of ['Date', 'Intl', 'Math', 'date', 'time', 'datetime', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
+    // (`location`: the browser's, as in a pattern page's `$canonical`; a test environment may have one)
+    for (const h of ['Date', 'Intl', 'Math', 'location', 'date', 'time', 'datetime', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
+    // a page built in one language: what depends only on the language is written as the browser would. A calendar
+    // date (`2026-11-11`) is the same day everywhere; a moment (`…T09:00Z`) is the visitor's time zone's
+    const lang = this.opts.locale?.name;
+    if (lang) {
+      // the browser's own formatters, with the page's language as the locale for the call
+      const inLang = <T>(f: () => T): T => { const was = config.locale; config.locale = { get: () => lang, set: () => {} }; try { return f(); } finally { config.locale = was; } };
+      params.set('number', (v: unknown, o?: Intl.NumberFormatOptions) => inLang(() => number(v, o)));
+      params.set('bytes', (v: unknown) => inLang(() => bytes(v)));
+      params.set('date', (v: unknown, style?: 'full' | 'long' | 'medium' | 'short') => { if (!isCalendarDate(v)) throw NOT; return inLang(() => date(v, style)); });
+    }
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, stub);
     // the base language's text, for a text binding: the binding is marked and stays the browser's
     const base = this.opts.baseMessages;
@@ -3578,7 +3656,7 @@ class Compiler {
         // the same template in two uses (a component's markup on one line): unrolled only when they agree
         const key = this.unrollKey(c.el)!;
         const n = Array.isArray(v) && v.length <= MAX_UNROLL && v.every((x) => plainData(x)) ? v.length : -1;
-        if (n < 0 || usedMessage || this.notUnrolled.has(key) || (this.unrolls.has(key) && this.unrolls.get(key) !== n)) { this.unrolls.delete(key); this.notUnrolled.add(key); continue; }
+        if (n < 0 || (usedMessage && !this.opts.locale) || this.notUnrolled.has(key) || (this.unrolls.has(key) && this.unrolls.get(key) !== n)) { this.unrolls.delete(key); this.notUnrolled.add(key); continue; }
         this.unrolls.set(key, n);
         continue;
       }
@@ -3591,13 +3669,15 @@ class Compiler {
         this.decided.set(key, !!v);
         continue;
       }
-      if (c.tpl && (v === FAIL || usedMessage)) continue;
-      if (usedMessage && c.b.k !== 'text') continue;
+      // in a page built in one language a message is that language's text, a constant like any other
+      const msg = usedMessage && !this.opts.locale;
+      if (c.tpl && (v === FAIL || msg)) continue;
+      if (msg && c.b.k !== 'text') continue;
       const w = v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes);
       if (w === FAIL) continue;
       writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
       if (c.tpl) { this.tplPainted.add(c.b); continue; }
-      if (usedMessage) { setAttr(c.el, 'data-sn-m', ''); continue; }
+      if (msg) { setAttr(c.el, 'data-sn-m', ''); continue; }
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) this.painted.add(c.b);
     }
@@ -4120,6 +4200,7 @@ class Compiler {
    */
   runtimeReasons(): RuntimeReason[] {
     const out: Array<RuntimeReason & { at: number }> = [];
+    const self = this.canonicalLink;
     const at = (el: P5Element, attrName: string | null) => ({ ...this.locOf(el, attrName), at: el.sourceCodeLocation?.startOffset ?? 0 });
     const BY_KIND: Record<string, string> = { text: 'data-sn-text', attr: 'data-sn-attr', class: 'data-sn-class', style: 'data-sn-style', show: 'data-sn-show', model: 'data-sn-model', if: 'data-sn-if', for: 'data-sn-for' };
     const written = (el: P5Element) => Object.keys(el.sourceCodeLocation?.attrs ?? {});
@@ -4133,7 +4214,7 @@ class Compiler {
     for (const n of this.roots) {
       if (!n.b.length && n.state === undefined) continue;
       const el = elOf.get(n);
-      if (!el) continue;
+      if (!el || el === self) continue;
       const b = n.b.find((x) => x.k === 'cmp') ?? n.b[0];
       if (b?.k === 'cmp') { out.push({ what: `the script of \`<${this.useOf.get(el)?.name ?? el.tagName}>\``, ...at(el, null) }); continue; }
       const name = nameOf(el, b);

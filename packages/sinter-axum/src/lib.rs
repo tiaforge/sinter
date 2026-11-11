@@ -255,7 +255,7 @@ impl Embed {
     /// [`Embed::api`] or `Embed::upstream`, an absolute URL its origin allowed). Every problem
     /// is in the error, one line each.
     pub fn build(self) -> Result<EmbedLayer, Error> {
-        let (pages, routes) = manifest::load(&self.dir, self.compiled)?;
+        let (pages, routes, locales) = manifest::load(&self.dir, self.compiled)?;
         let mut problems = Vec::new();
         let names: HashSet<String> =
             pages.iter().flat_map(|p| p.slots.iter().flat_map(|s| [s.resource.clone(), format!("{}:{}", p.file, s.resource)])).collect();
@@ -284,6 +284,7 @@ impl Embed {
         Ok(EmbedLayer(Arc::new(Inner {
             pages,
             routes,
+            locales,
             resolvers: self.resolvers,
             skips: self.skips,
             api: self.api,
@@ -344,6 +345,8 @@ struct Inner {
     pages: Vec<Page>,
     /// the build's `_redirects`, as its manifest has them
     routes: Vec<manifest::Route>,
+    /// `localePrefix`: the site's languages
+    locales: Option<manifest::Locales>,
     resolvers: HashMap<String, Resolver>,
     skips: HashSet<String>,
     api: Option<Api>,
@@ -410,6 +413,24 @@ where
         if read && req.uri().path().strip_prefix('/') == Some(manifest::FILE) {
             return async { Ok(Response::builder().status(StatusCode::NOT_FOUND).body(Body::empty()).unwrap()) }.boxed();
         }
+        // an unprefixed URL of a site with languages: to the visitor's (the `locale` cookie the pages set, else
+        // Accept-Language, else the base), the page's path under its prefix (a fixed rule's target: `/about.html` goes
+        // straight to `/de/about/`; a pattern's, the request's); temporary, as it differs per visitor
+        if let (Some(l), Some(r)) = (self.embed.0.locales.as_ref(), self.embed.route(req.uri().path()).filter(|r| read && r.choose)) {
+            let lang = choose(l, req.headers());
+            let path = if r.from.contains([':', '*']) { req.uri().path() } else { r.to.as_str() };
+            let rest = path.strip_prefix(l.at.as_str()).unwrap_or(path.trim_start_matches('/'));
+            let to = format!("{}{lang}/{rest}{}", l.at, req.uri().query().map(|q| format!("?{q}")).unwrap_or_default());
+            return async move {
+                Ok(Response::builder()
+                    .status(StatusCode::FOUND)
+                    .header(header::LOCATION, to)
+                    .header(header::VARY, "Cookie, Accept-Language")
+                    .body(Body::empty())
+                    .unwrap())
+            }
+            .boxed();
+        }
         // an old file URL: a permanent redirect to the page's URL, with the query
         if let Some(r) = self.embed.route(req.uri().path()).filter(|r| read && r.status != 200) {
             let to = match req.uri().query() {
@@ -465,6 +486,30 @@ enum Fill {
     Browser,
     /// the request failed (502) or ran out of time (504): the page is not sent
     Failed(StatusCode),
+}
+
+/// The visitor's language among the site's: the `locale` cookie the pages record, else the first of
+/// `Accept-Language` the site has (`de-AT` is `de`), else the base.
+fn choose(l: &manifest::Locales, h: &HeaderMap) -> String {
+    let find = |x: &str| {
+        let x = x.trim().to_ascii_lowercase();
+        l.list
+            .iter()
+            .find(|c| c.to_ascii_lowercase() == x)
+            .or_else(|| l.list.iter().find(|c| c.to_ascii_lowercase() == x.split('-').next().unwrap_or("")))
+            .cloned()
+    };
+    let cookie = h
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .find_map(|c| c.trim().strip_prefix("locale=").and_then(find));
+    cookie
+        .or_else(|| {
+            h.get(header::ACCEPT_LANGUAGE)?.to_str().ok()?.split(',').filter_map(|p| find(p.split(';').next().unwrap_or(""))).next()
+        })
+        .unwrap_or_else(|| l.base.clone())
 }
 
 async fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bool) -> Response<Body> {

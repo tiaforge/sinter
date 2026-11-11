@@ -45,6 +45,9 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | `typecheck` | `false` | run `sinter check` at the end of `vite build` and fail the build on type errors. Needs TypeScript |
 | `complexity` | see [below](#what-belongs-in-markup) | limits for the `SN507` warning, and its level |
 | `checkCycles` | `false` | report `then`/`catch` handlers that start each other through `run()` (`SN509`) |
+| `site` | none | the site's origin (`'https://example.com'`, no path): every page whose URL is known gets a canonical link, and expressions get `$site` and `$canonical` ([docs/static-pages.md](static-pages.md#canonical-urls)) |
+| `localePrefix` | `false` | each page once per language of the [messages](#messages), under its prefix (`/de/about/`), its text in the HTML; unprefixed URLs choose a language ([docs/static-pages.md](static-pages.md#languages)) |
+| `redirects` | `true` | write `_redirects` (Netlify, Cloudflare Pages) with the pages' URLs ([docs/static-pages.md](static-pages.md#redirects-and-rewrites)) |
 | `static` | none | pages that must ship no JavaScript, by path from the root (`['about.html', 'docs/**']`), or `true` for all: one that needs the runtime is `SN322` ([docs/static-pages.md](static-pages.md)) |
 
 ### First paint and loading
@@ -212,6 +215,12 @@ Always available, no import. They read the current locale, so a locale switch up
 
 `style` is `'full'`, `'long'`, `'medium'` or `'short'`; `date` and `datetime` default to `'medium'`, `time` to `'short'`. `opts` are `Intl.NumberFormat` options. Missing or invalid values give an empty string, not `Invalid Date`.
 
+A calendar date, a string `YYYY-MM-DD` (`'2026-11-11'`), is the same day for every visitor: `date()` formats it in UTC,
+where it was parsed, so it never shows the day before west of Greenwich. A moment (a timestamp, a `Date`,
+`'2026-11-11T09:00:00Z'`) is shown in the visitor's time zone. In a page built in one language
+([`localePrefix`](static-pages.md#languages)), `number()`, `bytes()` and `date()` of a calendar date over constants
+are written into the HTML at build time; moments, `time()`, `datetime()` and `relative()` are formatted in the browser.
+
 ## State, briefly
 
 `data-sn-state` declares local variables for an element and what is inside it. The value is an object literal, so the compiler knows every name:
@@ -256,6 +265,7 @@ See [docs/recipes/messages.html](recipes/messages.html).
 - Each page gets one small file per language holding only the keys it uses. Before the first paint the page picks the language: the stored choice (`localStorage` key `locale`), else the first match in `navigator.languages` (`de-AT` matches `de`), else the base. The base language's text is in the HTML, so visitors in that language see it in the first frame. For another language those elements stay hidden, keeping their space, until the page has rendered them.
 - `$locale = 'de'` (or `setLocale('de')` from the messages module) stores the choice, loads the page's file for that language once, sets `<html lang>` and re-renders every message and every `date()` and `number()`. `onLocale(fn)` tells app code.
 - With built-in messages sinter is the locale source: do not also call `configure({ locale })`.
+- With `sinter({ localePrefix: true })` the language is in the URL instead (`/de/about/`): each page is built once per language with its text in the HTML, switching is a link (`localeUrl('de')`), and `$locale` cannot be assigned. See [docs/static-pages.md](static-pages.md#languages).
 
 An app without an inlang project pays nothing for this: no picker, no language files.
 

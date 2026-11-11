@@ -220,3 +220,100 @@ redirect files; pages with `data-sn-path` then need the host's own rewrites.
 A link your page builds at run time is not rewritten: write it as the URL
 (`data-sn-attr="{ href: '/task/?id=' + t.id }"`). The build warns when a page's code still names a page
 by its file (`'/task.html?id='`), which works, but through the redirect.
+
+## Canonical URLs
+
+Tell the build the site's origin, and every page gets a canonical link, and expressions get two names:
+
+```js
+// vite.config.js
+export default { base: '/docs/', plugins: [sinter({ site: 'https://example.com' })] };
+```
+
+| Name | What it is | `guide/install.html`, opened as `/docs/guide/install/?tab=npm` |
+| --- | --- | --- |
+| `$site` | the site's root URL: the origin, then Vite's `base`, no trailing slash | `https://example.com/docs` |
+| `$canonical` | the page's URL: `$site` and the page's path, no query | `https://example.com/docs/guide/install/` |
+| `$url` | unchanged: the query and the `data-sn-path` parameters | `{ tab: 'npm' }` |
+
+```html
+<meta property="og:url" data-sn-attr="{ content: $canonical }">
+<meta property="og:image" data-sn-attr="{ content: $site + '/og/install.png' }">
+```
+
+On a page with a fixed path both are constants, written into the HTML at build time, so the page still
+ships no JavaScript. Each such page gets `<link rel="canonical" href="…">` with `$canonical`, last in its
+head. A page that writes its own canonical link keeps it (content that lives at another URL), and
+`$canonical` is then that link's URL; it must be absolute. On a page whose path is a pattern
+(`/article/:slug`), one file answers every URL, so `$canonical` is the origin and the browser's path
+without a trailing slash (each article is its own canonical URL; the query is left out), written by the
+early script in the head before the first paint, and so is the page's canonical link, when the page
+ships JavaScript anyway (a page that reads `$url` does). Search engines that run JavaScript read it; a
+crawler or preview bot that does not sees no canonical link (a URL is then its own) and no `og:url`.
+A server never fills it: sinter's middlewares route and serve files, they do not rewrite pages.
+
+`site` is an origin only: a site served under a path sets Vite's `base`. Without `site`, reading
+`$site` or `$canonical` is [SN323](diagnostics.md#sn323-needs-site), and no canonical link is written.
+
+## Languages
+
+With [messages](configuration.md#messages) in more than one language, `localePrefix` builds each page once
+per language, under that language's prefix, with its text in the HTML:
+
+```js
+// vite.config.js
+sinter({ localePrefix: true, site: 'https://example.com' })
+```
+
+```
+dist/en/about/index.html    /en/about/    <html lang="en">, English in the HTML
+dist/de/about/index.html    /de/about/    <html lang="de">, German in the HTML
+dist/about/index.html       /about/       a language chooser
+dist/index.html             /             a language chooser
+```
+
+The languages come from the inlang project: `locales` are the prefixes, and `baseLocale` (which must be
+set, and among `locales`) is the language a visitor without a choice gets. Every language is prefixed,
+the base too, so a server routes on the first segment alone.
+
+In each language's page:
+
+- **Its text is in the HTML.** `m.title()`, `$locale`, and anything built from them and constants are
+  written at build time, in text and attributes (`<title>`, `<meta content>`, `aria-label`), so a page
+  with nothing else to run ships no JavaScript in any language. A page that runs loads no language file
+  either: a message its code still needs (`m.inbox_count({ count: inbox.unread })`, or `m.loading()` in an
+  expression over data) is compiled into its script as that language's text, and the messages your own
+  modules call (`m.hello()` in a helper) are written into the page, in `<script type="application/json"
+  data-sn-messages>`. `number()`, `bytes()` and `date()` of a calendar date (`'2026-11-11'`) are written at
+  build time too; a moment (`'2026-11-11T09:00:00Z'`) is the visitor's time zone's, formatted in the browser.
+- **Switching language is a link.** `localeUrl('de')` is this page's URL in German:
+
+  ```html
+  <a hreflang="de" data-sn-attr="{ href: localeUrl('de'), 'aria-current': $locale === 'de' ? 'true' : null }">Deutsch</a>
+  ```
+
+  `$locale` cannot be assigned (`SN203`): each language is its own page.
+- **Links stay in the language.** A link to one of your pages (`/about.html`, `/about/`) is written as that
+  page in the same language (`/de/about/`). A link with `hreflang` names a language on purpose and is left
+  as it is.
+- **`data-sn-path` is written without the prefix** (`/article/:slug`) and matches under each language
+  (`/de/article/hello`); `$url` does not include it.
+- **Search engines see every language.** With `site`, each page's head has `<link rel="alternate"
+  hreflang>` for each language's URL and `x-default` for its chooser, and its canonical link is its own
+  language's URL.
+
+At an unprefixed URL (`/about/`, `/article/hello`, typed, bookmarked or linked from elsewhere), the chooser
+sends the visitor to a language. Without JavaScript, or on a site where no page ships any, to the base
+language. On a site where pages ship JavaScript, those pages record their language in a `locale` cookie,
+and the chooser follows it, else the first of the browser's languages the site has (`de-AT` is `de`), else
+the base, keeping the path (`/article/hello` → `/de/article/hello`). The choosers are `noindex`. An
+old file URL (`/about.html`) is a chooser too, so it reaches `/de/about/` in one hop.
+
+The rules for hosts follow the same shape: `_redirects` has each language's rules and the choosers'.
+[sinter-axum](../packages/sinter-axum/README.md) answers an unprefixed URL with a 302 to the visitor's
+language itself (the cookie, else `Accept-Language`). `vite dev` serves the language pages and the
+choosers as the build writes them.
+
+A page your app links to by a URL built at run time is not rewritten into the language: use `localeUrl()`,
+or build it with `$locale` (`'/' + $locale + '/task/?id=' + t.id`).
+

@@ -1,0 +1,15 @@
+{
+  "site": "Feldnotizen",
+  "nav_home": "Start",
+  "nav_about": "Über uns",
+  "nav_docs": "Anleitung",
+  "nav_status": "Status",
+  "home_title": "Notizen aus dem Feld",
+  "home_text": "Eine Seite aus schlichten Seiten, in zwei Sprachen.",
+  "about_title": "Über uns",
+  "about_text": "Feldnotizen schreibt ein kleines Team.",
+  "docs_title": "Erste Schritte",
+  "docs_text": "Beginne mit der neuesten Notiz und lies zurück.",
+  "status_title": "Status",
+  "status_loading": "Wird geprüft…"
+}
