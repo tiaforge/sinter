@@ -152,12 +152,23 @@ after #26's `SN318`–`SN321`): "about.html must ship no JavaScript (`data-sn-st
 
 ## What changes on a page that ships no JavaScript
 
-These are the behaviours a static page loses. They are the decisions to make before implementing.
+These are the behaviours a static page loses.
 
-- **The app's config module (`src/sinter.config.ts`) and early module (`src/sinter.early.ts`) do
-  not run.** They configure sinter (error handling, request middleware), and sinter does not run
-  on the page. An app that needs a script on every page (analytics, say) puts it in the layout, as
-  the [layouts guide](../layouts.md) does with `./main.ts`.
+- **The app's config module (`src/sinter.config.ts`) does not run.** This is a rule, not an open
+  question: everything `configure()` sets only matters while the runtime runs. `request` middleware,
+  `sessionProbe`, `origins` and `retry` apply to requests. `onError` and `fieldErrors` apply to failed
+  loads and actions. `locale`, `transport`, `confirm` and `urlSchemes` apply to `$locale` and the
+  formatters, streams, `data-sn-confirm` and bound `href`/`src`. A page with nothing to run has
+  none of these.
+
+  The one thing that changes is the module's other top-level code. Every page module imports it
+  today, so whatever else it does (an analytics or error-tracking snippet) runs on every page, and
+  would stop running on static pages. The docs say so: the config module configures sinter and runs
+  on the pages that run sinter; code for every page goes in a script the layout includes, as the
+  [layouts guide](../layouts.md) does with `./main.ts`. `configuration.md` gets the same sentence.
+- **The early module (`src/sinter.early.ts`) is already like this.** It runs from the shared head
+  script, which the build adds only to pages with early bindings or languages; a page with nothing
+  early does not run it today.
 - **Next-page data is not prefetched from that page.** Two features prefetch the next page, and only
   one of them is JavaScript:
   - *Speculation Rules* are written at build time (a `<script type="speculationrules">` with JSON, or
@@ -207,7 +218,7 @@ These are the behaviours a static page loses. They are the decisions to make bef
 3. `module: null` and the plugin changes, including the CSS path (step 2).
 4. The build report line, and `data-sn-static` / `SN322` (step 3).
 5. Docs: a "Static pages" section in `layouts.md` (where static sites start) linked from
-   `first-paint.md`, the README line "a small runtime ships with each page" becomes "with each page
+   `first-paint.md`, the config module's rule in `configuration.md`, the README line "a small runtime ships with each page" becomes "with each page
    that needs one", and a CHANGELOG entry.
 
 ## Open questions
@@ -216,14 +227,12 @@ These are the behaviours a static page loses. They are the decisions to make bef
    Safari, on links from a static page to a data page), or ship a small prefetch-only script on static
    pages that link to data pages? Such a script needs the request layer and the app's middleware; its
    size is not measured.
-2. **Config module**: skip it on static pages (proposed), or treat "the app has a config module" as a
-   reason to ship the runtime? Skipping is what makes static pages possible in an app that has one,
-   which is most apps made with the starter template.
-3. **Opt-in vs. automatic**: automatic with an optional `data-sn-static` assertion (proposed), or
+2. **Opt-in vs. automatic**: automatic with an optional `data-sn-static` assertion (proposed), or
    only for pages that ask with `data-sn-static`? Automatic changes the output of existing pages
-   that happen to need nothing, but the only observable difference is the two points above.
-4. **Where the assertion goes**: on the page (or layout tag), on the layout's `<html>` for all its
+   that happen to need nothing. The observable differences are next-page data (question 1) and the
+   config module's other top-level code no longer running on those pages.
+3. **Where the assertion goes**: on the page (or layout tag), on the layout's `<html>` for all its
    pages, or also a `sinter({ static: ['docs/**'] })` option for a whole section?
-5. **i18n**: a static page with messages still needs the picker to switch language in the browser.
+4. **i18n**: a static page with messages still needs the picker to switch language in the browser.
    Building one HTML file per locale would make such sites static too. In scope here, or a separate
    proposal?
