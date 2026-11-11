@@ -11,7 +11,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   language of the inlang project, under its prefix (`/en/about/`, `/de/about/`), with `<html lang>` and that language's
   messages and `$locale` written into the HTML, in attributes too, so a page with nothing else to run ships no
   JavaScript in any language. A page that runs loads no language file or picker: the messages its code needs are
-  compiled into its script, and those the app's modules call are written into the page. `localeUrl('de')` gives a page's URL in another language; links to the app's pages stay
+  compiled into its script, and those the app's modules call are written into the page. `number()`, `bytes()` and
+  `date()` of a calendar date over constants are written at build time. `localeUrl('de')` gives a page's URL in another language; links to the app's pages stay
   in the page's language; `data-sn-path` is written without the prefix. With `site`, each page gets `hreflang` links and
   `x-default`. Each unprefixed URL is a language chooser: the base language without JavaScript; on a site that ships
   JavaScript, the `locale` cookie its pages set, else the browser's languages. `_redirects` has each language's rules
@@ -163,6 +164,11 @@ Attribute names, function names and diagnostic codes are public API. Before
   of converting it in JavaScript, which filled V8's number-to-string cache (64 KB after creating 1,000 rows).
 - Testing: `render(…, { frames: true })` and `frame()` to test what waits for the next frame (without `frames`, server
   events flush in a microtask as before).
+
+### Fixed
+
+- `date()` of a calendar date (`'2026-11-11'`) showed the day before for visitors west of UTC: it is now formatted in
+  UTC, where it was parsed. A moment (with a time) is still shown in the visitor's time zone.
 
 ## 0.13.1 (2026-11-10)
 

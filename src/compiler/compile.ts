@@ -22,6 +22,7 @@ import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Pagi
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
+import { bytesIn, dateIn, isCalendarDate, numberIn } from '../runtime/helpers.js';
 
 /** the compiler's IR holds paths as strings (the page module's holds node ids) */
 const strs = (x: PathRef[] | undefined) => (x ?? []) as string[];
@@ -3583,6 +3584,14 @@ class Compiler {
     const params = new Map<string, unknown>([['$k', $k]]);
     // (`location`: the browser's, as in a pattern page's `$canonical`; a test environment may have one)
     for (const h of ['Date', 'Intl', 'Math', 'location', 'date', 'time', 'datetime', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
+    // a page built in one language: what depends only on the language is written as the browser would. A calendar
+    // date (`2026-11-11`) is the same day everywhere; a moment (`…T09:00Z`) is the visitor's time zone's
+    const lang = this.opts.locale?.name;
+    if (lang) {
+      params.set('number', (v: unknown, o?: Intl.NumberFormatOptions) => numberIn(lang, v, o));
+      params.set('bytes', (v: unknown) => bytesIn(lang, v));
+      params.set('date', (v: unknown, style?: 'full' | 'long' | 'medium' | 'short') => { if (!isCalendarDate(v)) throw NOT; return dateIn(lang, v, style); });
+    }
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, stub);
     // the base language's text, for a text binding: the binding is marked and stays the browser's
     const base = this.opts.baseMessages;

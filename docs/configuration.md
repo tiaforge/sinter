@@ -215,6 +215,12 @@ Always available, no import. They read the current locale, so a locale switch up
 
 `style` is `'full'`, `'long'`, `'medium'` or `'short'`; `date` and `datetime` default to `'medium'`, `time` to `'short'`. `opts` are `Intl.NumberFormat` options. Missing or invalid values give an empty string, not `Invalid Date`.
 
+A calendar date, a string `YYYY-MM-DD` (`'2026-11-11'`), is the same day for every visitor: `date()` formats it in UTC,
+where it was parsed, so it never shows the day before west of Greenwich. A moment (a timestamp, a `Date`,
+`'2026-11-11T09:00:00Z'`) is shown in the visitor's time zone. In a page built in one language
+([`localePrefix`](static-pages.md#languages)), `number()`, `bytes()` and `date()` of a calendar date over constants
+are written into the HTML at build time; moments, `time()`, `datetime()` and `relative()` are formatted in the browser.
+
 ## State, briefly
 
 `data-sn-state` declares local variables for an element and what is inside it. The value is an object literal, so the compiler knows every name:

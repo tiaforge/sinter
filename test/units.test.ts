@@ -47,3 +47,20 @@ test('built-in formatters: one Intl formatter per kind, locale and options, reus
     configure({ locale: null });
   }
 });
+
+test('a calendar date is the same day for every visitor: formatted in UTC, where it was parsed; a moment in the visitor\'s zone', () => {
+  const Real = Intl.DateTimeFormat;
+  const made: string[] = [];
+  Intl.DateTimeFormat = function (this: unknown, l?: string, o?: Intl.DateTimeFormatOptions) { made.push(JSON.stringify(o)); return new Real(l, { ...o, ...(o?.timeZone ? {} : { timeZone: 'America/Los_Angeles' }) }); } as unknown as typeof Intl.DateTimeFormat;
+  // (a locale no other test formats with: formatters are cached)
+  configure({ locale: { get: () => 'en-GB', set: () => {} } });
+  try {
+    // midnight UTC is the evening before in Los Angeles: a calendar date keeps its day
+    expect(date('2026-11-11', 'long')).toBe('11 November 2026');
+    expect(date('2026-11-11T00:00:00Z', 'long')).toBe('10 November 2026');
+    expect(made).toEqual(['{"dateStyle":"long","timeZone":"UTC"}', '{"dateStyle":"long"}']);
+  } finally {
+    Intl.DateTimeFormat = Real;
+    configure({ locale: null });
+  }
+});

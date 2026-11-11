@@ -284,7 +284,8 @@ In each language's page:
   either: a message its code still needs (`m.inbox_count({ count: inbox.unread })`, or `m.loading()` in an
   expression over data) is compiled into its script as that language's text, and the messages your own
   modules call (`m.hello()` in a helper) are written into the page, in `<script type="application/json"
-  data-sn-messages>`.
+  data-sn-messages>`. `number()`, `bytes()` and `date()` of a calendar date (`'2026-11-11'`) are written at
+  build time too; a moment (`'2026-11-11T09:00:00Z'`) is the visitor's time zone's, formatted in the browser.
 - **Switching language is a link.** `localeUrl('de')` is this page's URL in German:
 
   ```html

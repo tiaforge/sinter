@@ -33,6 +33,14 @@ describe('a page in one language', () => {
     expect(out.messages).toEqual(['greeting', 'title']);
   });
 
+  test('number(), bytes() and a calendar date are written at build time; a moment stays the browser\'s', () => {
+    const out = build(page('', '<div data-sn-state="{ n: 1234.5, size: 2048, day: \'2026-11-11\', at: \'2026-11-11T09:00:00Z\' }"><p data-sn-text="number(n)"></p><p data-sn-text="bytes(size)"></p><p data-sn-text="date(day, \'long\')"></p><p data-sn-text="date(at)"></p></div>'));
+    expect(out.diagnostics).toEqual([]);
+    expect(out.html).toContain('<p>1.234,5</p><p>2 kB</p><p>11. November 2026</p><p data-sn=');
+    // only the moment runs (and its state)
+    expect(out.runtime.map((r) => r.what)).toEqual(['`data-sn-state`', '`data-sn-text`']);
+  });
+
   test('localeUrl(): this page in another language', () => {
     const out = build(page('', '<a hreflang="en" data-sn-attr="{ href: localeUrl(\'en\') }">English</a>'));
     expect(out.html).toContain('<a hreflang="en" href="/en/about/">English</a>');

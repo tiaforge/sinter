@@ -852,7 +852,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       ident(callee as acorn.Identifier & Node, locals);
       if (res?.kind === 'store') storeCall(callee.name, n, locals);
       else if (res?.kind === 'helper') {
-        if (BUILTIN_HELPERS.includes(callee.name)) addDep(['$locale']);
+        // (a page built in one language: the locale never changes)
+        if (BUILTIN_HELPERS.includes(callee.name)) { if (!page.locale) addDep(['$locale']); }
         else if (mode === 'handler') {
           for (const a of n.arguments) {
             const cp = a.type === 'Identifier' || a.type === 'MemberExpression' ? chainPath(a as Node, locals) : null;
