@@ -97,6 +97,11 @@ export interface PageInfo {
    * `origin` and its path); absent without `site`
    */
   urls?: { site: string; canonical: string | null; origin: string };
+  /**
+   * `localePrefix`: the page is built in one language (docs/static-pages.md#languages): `$locale` is `name`, the
+   * built-in messages (namespace `messages`) are that language's text, and `localeUrl` compiles to `localeUrl`
+   */
+  locale?: { name: string; messages: string | null; localeUrl: string };
   helpers: Set<string>;
   /** action functions and namespaces: only `data-sn-call` and `<sn-resource call>` may name them */
   actions?: Set<string>;
@@ -372,6 +377,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   function resolve(name: string, locals: Locals, offset: number, member?: string): Resolved | null {
     const local = locals.get(name);
     if (local) return { kind: 'local', info: local };
+    if (page.locale && name === '$locale') return { kind: 'const', code: JSON.stringify(page.locale.name) };
+    if (page.locale && name === 'localeUrl') return { kind: 'const', code: page.locale.localeUrl };
     if (name === '$site' || name === '$canonical') {
       const u = page.urls;
       if (!u) {
@@ -734,7 +741,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     if (!page.usedNs.has(ns)) page.usedNs.set(ns, new Set());
     page.usedNs.get(ns)!.add(member);
-    addDep(['$locale']);
+    // a message in a page built in one language is that language's text: no dependency
+    if (!(page.locale && ns === page.locale.messages)) addDep(['$locale']);
     edits.push({ start: m.start, end: m.end, text: `${ns}$${member}` });
   }
 
@@ -751,7 +759,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   }
 
   function writePath(target: Node, locals: Locals, at: number, expr: Node) {
-    if (target.type === 'Identifier' && target.name === '$locale') { writes.add('$locale'); return; }
+    if (target.type === 'Identifier' && target.name === '$locale') {
+      if (page.locale) { report('SN203', `\`$locale\` is this page's language (\`${page.locale.name}\`): with \`localePrefix\` each language is its own page. Link to it: \`<a data-sn-attr="{ href: localeUrl('…') }">\``, target.start); return; }
+      writes.add('$locale');
+      return;
+    }
     if (target.type !== 'Identifier' && target.type !== 'MemberExpression') {
       report('SN203', 'only state variables and their properties can be assigned', at);
       return;

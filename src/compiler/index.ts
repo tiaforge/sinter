@@ -128,11 +128,11 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   return lines;
 }
 
-export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins'>): string {
+export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale'>): string {
   return pageLines(parts, options).text();
 }
 
-function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins'>): MappedLines {
+function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale'>): MappedLines {
   const lines = new MappedLines();
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
@@ -184,6 +184,8 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   lines.push('];');
   lines.push('');
   // the early file renders part of this page: mount once it has (they meet through a global)
+  // a page in one language records it: a language chooser at an unprefixed URL, or a server, sends the visitor back to it
+  if (options.locale) lines.push(`document.cookie = ${JSON.stringify(`locale=${encodeURIComponent(options.locale.name)}; Path=/; Max-Age=31536000; SameSite=Lax`)};`);
   lines.push(parts.early ? 'await rendered();' : 'await parsed();');
   if (messages) {
     // sinter's messages are the locale source; the dictionary the early step loaded, once it is there

@@ -14,30 +14,94 @@ const OUTSIDE = /^(?:$|#|\?|[a-z][a-z\d+.-]*:|\/\/)/i;
 const split = (u: string) => { const i = u.search(/[?#]/); return i < 0 ? [u, ''] : [u.slice(0, i), u.slice(i)]; };
 
 /**
+ * Rewrites the URLs in a page's HTML: each `href` of a tag through `url(value, link)` (`link`: on an `<a>` or
+ * `<area>`), and with `all`, every other URL too (`src`, `srcset`, `action`, `formaction`, `poster`,
+ * `<object data>`, CSS `url()` in `style` and `<style>`, the language picker's files). A script's text and a
+ * comment are left as they are; so is a link with `hreflang`, which names a language on purpose.
+ */
+function rewriteUrls(html: string, url: (u: string, link: boolean) => string, all: boolean): string {
+  const srcset = (v: string) => v.split(',').map((c) => c.replace(/^(\s*)(\S+)/, (_, ws: string, u: string) => ws + url(u, false))).join(',');
+  const css = (text: string) => (all ? text.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q: string, u: string) => `url(${q}${url(u, false)}${q})`) : text);
+  const decode = (v: string) => v.replace(/&#34;|&quot;/g, '"').replace(/&amp;/g, '&');
+  const encode = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&#34;');
+  const tag = (t: string) => {
+    const name = /^<([a-zA-Z][\w-]*)/.exec(t)?.[1]?.toLowerCase() ?? '';
+    const link = (name === 'a' || name === 'area') && !/\shreflang=/i.test(t);
+    return t.replace(/(\s)(href|src|srcset|poster|action|formaction|data|style|data-sn-i18n)=("([^"]*)"|'([^']*)')/gi, (m, ws: string, attr: string, _q: string, d?: string, sq?: string) => {
+      const v = d ?? sq ?? '', q = d !== undefined ? '"' : "'", a = attr.toLowerCase();
+      let out = v;
+      if (a === 'href') {
+        if ((name === 'a' || name === 'area') && !link) return m;
+        out = url(v, link);
+      } else if (!all) return m;
+      else if (a === 'srcset') out = srcset(v);
+      else if (a === 'style') out = css(v);
+      else if (a === 'data-sn-i18n') {
+        try {
+          const o = JSON.parse(decode(v)) as { files?: Record<string, string> };
+          for (const k of Object.keys(o.files ?? {})) o.files![k] = url(o.files![k]!, false);
+          out = encode(JSON.stringify(o));
+        } catch { return m; }
+      } else if (a === 'data' && name !== 'object') return m;
+      else out = url(v, false);
+      return `${ws}${attr}=${q}${out}${q}`;
+    });
+  };
+  return html.replace(/<!--[\s\S]*?-->|(<script\b[^>]*>)[\s\S]*?<\/script>|(<style\b[^>]*>)([\s\S]*?)<\/style>|<[a-zA-Z][^>]*>/g, (m, script?: string, style?: string, styleText?: string) => {
+    if (m.startsWith('<!--')) return m;
+    if (script !== undefined) return tag(script) + m.slice(script.length);
+    if (style !== undefined) return tag(style) + css(styleText!) + '</style>';
+    return tag(m);
+  });
+}
+
+/** `to` as a URL relative to the folder `dir` (both site paths), keeping a trailing slash */
+const fromDir = (dir: string, to: string) => {
+  const r = posix.relative(dir, to.replace(/\/$/, '') || '/');
+  return to.endsWith('/') ? (r ? r + '/' : './') : r || '.';
+};
+
+/**
+ * The HTML of a page written from the folder `from` (a site path: `/`, `/blog`) into the folder `to`, with
+ * every relative URL rebased so that it points where it did (a page built once per language: `/` → `/de`).
+ */
+export function rebaseHtml(html: string, from: string, to: string): string {
+  if (from === to) return html;
+  return rewriteUrls(html, (u) => {
+    const value = u.trim();
+    if (OUTSIDE.test(value) || value.startsWith('/')) return u;
+    const [path, rest] = split(value);
+    return fromDir(to, posix.join(from, path)) + rest;
+  }, true);
+}
+
+/**
  * The page's HTML with its URLs for its place in the output: links (`<a>`, `<area>`) to the app's pages
  * with a fixed path are written as those pages' URLs, root-relative ones root-relative, relative ones
- * relative; and when the page itself moves into a directory, its other relative URLs (`src`, `srcset`,
- * `href`, `action`, `poster`, CSS `url()`, the language picker's files) are rebased to it.
+ * relative; and when the page itself moves into a directory, its other relative URLs are rebased to it.
+ * With `locales`, a page in a language (`de/about.html`) links to that language's pages: `/about.html` is
+ * `/de/about/`.
  */
-export function relocateHtml(html: string, page: PageEntry, pages: PageEntry[], base: string): string {
+export function relocateHtml(html: string, page: PageEntry, pages: PageEntry[], base: string, locales: string[] = []): string {
   const b = rootOf(base);
   const moved = movesToDirectory(page.rel, base, page.patterns);
   const oldDir = '/' + posix.dirname(page.rel).replace(/^\.$/, '');
   const newDir = moved ? '/' + page.rel.replace(/\.html?$/, '') : oldDir;
+  const lang = locales.includes(page.rel.split('/')[0]!) ? page.rel.split('/')[0]! : null;
   // where each page with a fixed path is, by every path a link may name it with (site paths: from the base)
   const targets = new Map<string, string>();
+  const add = (k: string, site: string) => { if (!targets.has(k)) targets.set(k, site); };
   for (const p of pages) {
     const url = pageUrl(p.rel, base, p.patterns);
     if (url === null) continue;
     const site = '/' + url.slice(b.length), noExt = '/' + p.rel.replace(/\.html?$/, '');
-    for (const k of [site, '/' + p.rel, noExt, noExt + '/']) targets.set(k, site);
-    if (/(^|\/)index\.html?$/.test(p.rel)) targets.set(site.replace(/\/?$/, '/'), site);
+    const keys = [site, '/' + p.rel, noExt, noExt + '/'];
+    if (/(^|\/)index\.html?$/.test(p.rel)) keys.push(site.replace(/\/?$/, '/'));
+    for (const k of keys) add(k, site);
+    // the page's language: its pages also by their paths without the prefix
+    if (lang && p.rel.startsWith(lang + '/')) for (const k of keys) if (k.startsWith(`/${lang}/`) || k === `/${lang}`) add(k.slice(lang.length + 1) || '/', site);
   }
-  const fromDir = (dir: string, to: string) => {
-    const r = posix.relative(dir, to.replace(/\/$/, '') || '/');
-    return to.endsWith('/') ? (r ? r + '/' : './') : r || '.';
-  };
-  const url = (u: string, link: boolean): string => {
+  return rewriteUrls(html, (u, link) => {
     const value = u.trim();
     if (OUTSIDE.test(value)) return u;
     const [path, rest] = split(value);
@@ -51,38 +115,7 @@ export function relocateHtml(html: string, page: PageEntry, pages: PageEntry[], 
     const t = link ? targets.get(site) : undefined;
     if (t) return fromDir(newDir, t) + rest;
     return moved ? fromDir(newDir, site) + rest : u;
-  };
-  const srcset = (v: string) => v.split(',').map((c) => c.replace(/^(\s*)(\S+)/, (_, ws: string, u: string) => ws + url(u, false))).join(',');
-  const css = (text: string) => (moved ? text.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q: string, u: string) => `url(${q}${url(u, false)}${q})`) : text);
-  const decode = (v: string) => v.replace(/&#34;|&quot;/g, '"').replace(/&amp;/g, '&');
-  const encode = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&#34;');
-  const tag = (t: string) => {
-    const name = /^<([a-zA-Z][\w-]*)/.exec(t)?.[1]?.toLowerCase() ?? '';
-    return t.replace(/(\s)(href|src|srcset|poster|action|formaction|data|style|data-sn-i18n)=("([^"]*)"|'([^']*)')/gi, (m, ws: string, attr: string, _q: string, d?: string, s?: string) => {
-      const v = d ?? s ?? '', q = d !== undefined ? '"' : "'", a = attr.toLowerCase();
-      let out = v;
-      if (a === 'href') out = url(v, name === 'a' || name === 'area');
-      else if (a === 'srcset') out = moved ? srcset(v) : v;
-      else if (a === 'style') out = css(v);
-      else if (a === 'data-sn-i18n') {
-        if (!moved) return m;
-        try {
-          const o = JSON.parse(decode(v)) as { files?: Record<string, string> };
-          for (const k of Object.keys(o.files ?? {})) o.files![k] = url(o.files![k]!, false);
-          out = encode(JSON.stringify(o));
-        } catch { return m; }
-      } else if (a === 'data' && name !== 'object') return m;
-      else out = moved ? url(v, false) : v;
-      return `${ws}${attr}=${q}${out}${q}`;
-    });
-  };
-  // the markup's tags; a script's or comment's text is left as it is, a style's `url()`s rebased
-  return html.replace(/<!--[\s\S]*?-->|(<script\b[^>]*>)[\s\S]*?<\/script>|(<style\b[^>]*>)([\s\S]*?)<\/style>|<[a-zA-Z][^>]*>/g, (m, script?: string, style?: string, styleText?: string) => {
-    if (m.startsWith('<!--')) return m;
-    if (script !== undefined) return tag(script) + m.slice(script.length);
-    if (style !== undefined) return tag(style) + css(styleText!) + '</style>';
-    return tag(m);
-  });
+  }, moved);
 }
 
 /**

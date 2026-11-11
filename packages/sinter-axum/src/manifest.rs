@@ -12,6 +12,23 @@ pub(crate) struct Manifest {
     /// the site's URLs, as the build's `_redirects` has them: 301s and rewrites to a page's file
     #[serde(default)]
     pub routes: Vec<Route>,
+    /// `localePrefix`: the site's languages; an unprefixed URL (a `choose` route) is sent to one of them
+    #[serde(default)]
+    pub locales: Option<Locales>,
+}
+
+/// The site's languages, each a prefix of its URLs (`/de/…`), and the one a visitor without a choice gets.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct Locales {
+    pub base: String,
+    pub list: Vec<String>,
+    /// where the site's paths start (Vite's `base`): the language's prefix goes after it
+    #[serde(default = "root")]
+    pub at: String,
+}
+
+fn root() -> String {
+    "/".into()
 }
 
 /// One rule of the site's URLs: `301` from an old file URL to a page's URL; `200` from a path a page
@@ -23,6 +40,9 @@ pub(crate) struct Route {
     pub status: u16,
     #[serde(default)]
     pub file: Option<String>,
+    /// an unprefixed URL: a language chooser on a static host; this layer redirects to a language itself
+    #[serde(default)]
+    pub choose: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,7 +186,10 @@ pub(crate) fn parse(text: &str) -> Result<Manifest, Error> {
 
 /// Reads the manifest of a build; with `compiled`, the one the binary was compiled against (`embed!`),
 /// which the build must still have.
-pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<(Vec<Page>, Vec<Route>), Error> {
+/// A build as the layer uses it: its pages, its routes and its languages.
+pub(crate) type Build = (Vec<Page>, Vec<Route>, Option<Locales>);
+
+pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<Build, Error> {
     let at = dir.join(FILE);
     let text = std::fs::read_to_string(&at).map_err(|e| {
         Error(format!("{}: {e} (built with sinter's Vite plugin, with `embed: true` or a `data-sn-data` placeholder?)", at.display()))
@@ -192,7 +215,7 @@ pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<(Vec<Page>, Vec
                 .map_err(|e| Error(format!("{}: {}", file.display(), e.0)))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok((pages, m.routes))
+    Ok((pages, m.routes, m.locales))
 }
 
 /// Cuts the page at each placeholder, in document order; a placeholder that is missing or already

@@ -420,3 +420,38 @@ async fn writes_the_canonical_link_of_a_page_whose_path_is_a_pattern() {
     let (_, _, html) = text(a, get_("/article/hello/?ref=x")).await;
     assert!(html.contains(r#"<link rel="canonical" href="https://example.com/article/hello">"#), "{html}");
 }
+
+/// A site with languages: an unprefixed URL goes to the visitor's language, by the `locale` cookie the pages
+/// set, else Accept-Language, else the base; temporary (302), as it differs per visitor; after Vite's base.
+#[tokio::test]
+async fn sends_an_unprefixed_url_to_the_visitors_language() {
+    let dir = build(
+        "locales",
+        r#"{ "version": 1, "pages": [],
+      "routes": [
+        { "from": "/docs/about/", "to": "/docs/about/", "status": 200, "file": "about/index.html", "choose": true },
+        { "from": "/docs/article/:slug", "to": "/docs/article", "status": 200, "file": "article.html", "choose": true } ],
+      "locales": { "base": "en", "list": ["en", "de"], "at": "/docs/" } }"#,
+        &[],
+    );
+    let a = app(Embed::from_dir(dir).api(api()).build().unwrap());
+    let go = |cookie: Option<&'static str>, lang: Option<&'static str>, uri: &'static str| {
+        let mut r = Request::get(uri);
+        if let Some(c) = cookie {
+            r = r.header(header::COOKIE, c);
+        }
+        if let Some(l) = lang {
+            r = r.header(header::ACCEPT_LANGUAGE, l);
+        }
+        r.body(Body::empty()).unwrap()
+    };
+    let (s, h, _) = text(a.clone(), go(Some("x=1; locale=de"), Some("en"), "/docs/article/hello?ref=x")).await;
+    assert_eq!(s, StatusCode::FOUND);
+    assert_eq!(h[header::LOCATION], "/docs/de/article/hello?ref=x");
+    let (_, h, _) = text(a.clone(), go(None, Some("fr-FR, de-AT;q=0.8"), "/docs/about/")).await;
+    assert_eq!(h[header::LOCATION], "/docs/de/about/");
+    let (_, h, _) = text(a.clone(), go(None, Some("fr"), "/docs/about/")).await;
+    assert_eq!(h[header::LOCATION], "/docs/en/about/");
+    // a page in a language: not a chooser
+    assert_eq!(text(a, get_("/docs/de/about/")).await.2, "static file");
+}

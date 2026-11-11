@@ -112,6 +112,13 @@ export interface CompileOptions {
    */
   urls?: { site: string; canonical: string | null; origin: string };
   /**
+   * `localePrefix`: the page in one language (`name`). `baseMessages` is that language's text; the page's
+   * `data-sn-path` patterns get its prefix after `base`; `localeUrl(l)` is the page's URL in language `l`, from
+   * `urls` (null for a page whose paths all have parameters: from the browser's path); the page module records
+   * the language in the `locale` cookie (docs/static-pages.md#languages)
+   */
+  locale?: { name: string; urls: Record<string, string> | null; base: string };
+  /**
    * internal, set by `compileParts` for its second pass: the `data-sn-if` templates (by `file:offset`)
    * whose condition the first pass found constant (state nothing writes), and its value
    */
@@ -580,6 +587,13 @@ class Compiler {
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
       usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), ids: new Map(),
     };
+    const l = opts.locale;
+    if (l) {
+      const b = l.base.startsWith('/') ? l.base.replace(/\/?$/, '/') : '/';
+      // a page whose paths have parameters: its path in another language is the browser's, with that language's prefix
+      const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])` : `((l) => ${JSON.stringify(b)} + l + location.pathname.slice(${b.length + l.name.length}))`;
+      this.page.locale = { name: l.name, messages: Object.entries(opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages')?.[0] ?? null, localeUrl };
+    }
   }
 
   run(html: string): CompiledParts {
@@ -592,6 +606,8 @@ class Compiler {
     this.expandComponents(doc, []);
     if (this.opts.decided?.size) this.foldDecided(doc);
     if (this.opts.urls) this.canonical(doc);
+    // a page in one language says which: `<html lang="de">`
+    if (this.opts.locale) { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); if (h) setAttr(h, 'lang', this.opts.locale.name); }
     if (this.opts.unrolled?.size) this.unrollLoops(doc);
     this.checkHead();
     this.componentIds();
@@ -1956,6 +1972,10 @@ class Compiler {
       if (bad) this.report(html!, 'data-sn-path', 'SN401', `\`${p}\` is not a path pattern; use literal segments and \`:name\`, e.g. \`/article/:slug\``, value.indexOf(p));
       for (const s of segs) if (s[0] === ':') this.page.pathParams.add(s.slice(1));
     }
+    // a page in one language: its paths under that language's prefix, after the base (`/de/article/:slug`)
+    const lp = this.opts.locale;
+    const lb = lp && lp.base.startsWith('/') ? lp.base.replace(/\/?$/, '/') : '/';
+    const prefixed = lp ? patterns.map((p) => (p.startsWith(lb) ? lb + lp.name + (p.length > lb.length ? '/' + p.slice(lb.length) : '/') : p)) : patterns;
     // only the URL the page has anyway: it is a directory's index without data-sn-path (docs/static-pages.md#page-urls)
     const root = this.opts.root.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/', file = this.opts.file.replace(/\\/g, '/');
     const rel = file.startsWith(root) ? file.slice(root.length) : null;
@@ -1963,7 +1983,7 @@ class Compiler {
     if (rel && /\.html?$/.test(rel) && !/(^|\/)(index|404|200)\.html?$/.test(rel) && patterns.length === 1 && patterns[0] === b + rel.replace(/\.html?$/, '/')) {
       this.report(html!, 'data-sn-path', 'SN515', `\`data-sn-path="${patterns[0]}"\` is the URL this page has anyway, as a directory's index`, 0, 'remove it: `data-sn-path` lists the paths a page answers at besides that, such as `/article/:slug` or `/login`');
     }
-    return patterns;
+    return prefixed;
   }
 
   // ---- main walk
@@ -3612,7 +3632,7 @@ class Compiler {
         // the same template in two uses (a component's markup on one line): unrolled only when they agree
         const key = this.unrollKey(c.el)!;
         const n = Array.isArray(v) && v.length <= MAX_UNROLL && v.every((x) => plainData(x)) ? v.length : -1;
-        if (n < 0 || usedMessage || this.notUnrolled.has(key) || (this.unrolls.has(key) && this.unrolls.get(key) !== n)) { this.unrolls.delete(key); this.notUnrolled.add(key); continue; }
+        if (n < 0 || (usedMessage && !this.opts.locale) || this.notUnrolled.has(key) || (this.unrolls.has(key) && this.unrolls.get(key) !== n)) { this.unrolls.delete(key); this.notUnrolled.add(key); continue; }
         this.unrolls.set(key, n);
         continue;
       }
@@ -3625,13 +3645,15 @@ class Compiler {
         this.decided.set(key, !!v);
         continue;
       }
-      if (c.tpl && (v === FAIL || usedMessage)) continue;
-      if (usedMessage && c.b.k !== 'text') continue;
+      // in a page built in one language a message is that language's text, a constant like any other
+      const msg = usedMessage && !this.opts.locale;
+      if (c.tpl && (v === FAIL || msg)) continue;
+      if (msg && c.b.k !== 'text') continue;
       const w = v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes);
       if (w === FAIL) continue;
       writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
       if (c.tpl) { this.tplPainted.add(c.b); continue; }
-      if (usedMessage) { setAttr(c.el, 'data-sn-m', ''); continue; }
+      if (msg) { setAttr(c.el, 'data-sn-m', ''); continue; }
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) this.painted.add(c.b);
     }
