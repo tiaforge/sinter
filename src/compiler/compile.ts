@@ -1887,7 +1887,10 @@ class Compiler {
       return null;
     }
 
-    if (sn.length && UNSAFE_ELEMENTS.has(el.tagName.toLowerCase())) {
+    // a `<meta name|property|itemprop>`: its `content` binds (a per-page description, `og:title`); nothing else of a meta does
+    const meta = el.tagName === 'meta' && sn.length ? this.metaBindable(el, sn) : null;
+    if (meta === false) { stripSn(el); return null; }
+    if (sn.length && !meta && UNSAFE_ELEMENTS.has(el.tagName.toLowerCase())) {
       this.report(el, sn[0]!.name, 'SN207', `\`<${el.tagName}>\` cannot carry sinter bindings`, 0);
       stripSn(el);
       return null;
@@ -2564,12 +2567,33 @@ class Compiler {
 
   // ---- bindings
 
+  /**
+   * Whether a `<meta>`'s sinter attributes may stay: only `data-sn-attr`, on a meta with a literal
+   * `name`, `property` or `itemprop` and no `http-equiv` or `charset` (its keys, `content` only, are
+   * checked with the binding). False after reporting why not.
+   */
+  metaBindable(el: P5Element, sn: Array<{ name: string }>): boolean {
+    const other = sn.find((a) => a.name !== 'data-sn-attr');
+    if (other) { this.report(el, other.name, 'SN207', `\`<meta>\` takes only \`data-sn-attr="{ content: … }"\`; \`${other.name}\` cannot be on it`, 0); return false; }
+    const risky = ['http-equiv', 'charset'].find((n) => attr(el, n) !== undefined);
+    if (risky) { this.report(el, 'data-sn-attr', 'SN207', `a \`<meta ${risky}>\` cannot carry bindings: a value from data could redirect the page or change its policy`, 0); return false; }
+    if (!['name', 'property', 'itemprop'].some((n) => attr(el, n) !== undefined)) {
+      this.report(el, 'data-sn-attr', 'SN207', 'a bound `<meta>` names what it is with a literal `name`, `property` or `itemprop`: `<meta name="description" data-sn-attr="{ content: … }">`', 0);
+      return false;
+    }
+    return true;
+  }
+
   attrBinding(el: P5Element, node: NodeDef, scope: Scope) {
     const r = this.expr(el, 'data-sn-attr', scope, { mode: 'value', object: 'literal-keys' });
     if (this.check) this.typeLast({ returns: { kind: 'decl', name: 'Attrs' } });
     if (!r.entries) return;
     for (const e of r.entries) {
       const key = e.key.toLowerCase();
+      if (el.tagName === 'meta' && key !== 'content') {
+        this.report(el, 'data-sn-attr', 'SN207', `a \`<meta>\` binds only \`content\`; \`${e.key}\` stays as written`, e.offset);
+        continue;
+      }
       if (key.startsWith('on')) {
         this.report(el, 'data-sn-attr', 'SN207', `\`${e.key}\` cannot be bound with \`data-sn-attr\`; use \`data-sn-on-${key.slice(2)}\``, e.offset);
         continue;

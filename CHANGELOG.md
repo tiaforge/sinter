@@ -30,6 +30,10 @@ Attribute names, function names and diagnostic codes are public API. Before
   slot="extra"></slot></seo-tags>`) passes what fills it on into that slot, with its fallback when it is left empty.
   Slot content keeps its first caller's scope through any number of components (before, content a component passed
   on into another component's slot took the scope of the component in between).
+- Head bindings: a `<meta>` with a literal `name`, `property` or `itemprop` binds its `content`
+  (`data-sn-attr="{ content: … }"`), for a per-page description or `og:title`; every other binding on a `<meta>`, and
+  any on `http-equiv` or `charset`, stays `SN207`. With `<title data-sn-text>` and `data-sn-if` templates over head
+  elements, what needs no request (constants, helpers, embedded data) renders as the head is parsed.
 - Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
   is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
   costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots

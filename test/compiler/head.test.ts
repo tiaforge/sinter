@@ -52,3 +52,26 @@ describe('the compiled head', () => {
     expect(out.html).toMatch(/<head>.*<link rel="stylesheet" href="\/a.css">.*<\/head>/s);
   });
 });
+
+describe('head bindings', () => {
+  const errs = (head: string) => run(`<!doctype html><html><head>${head}</head><body></body></html>`).diagnostics.filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
+  test('a <meta name|property|itemprop> binds its content', () => {
+    expect(errs('<meta name="description" data-sn-attr="{ content: \'a\' + 1 }">')).toEqual([]);
+    expect(errs('<meta property="og:title" data-sn-attr="{ content: \'a\' + 1 }">')).toEqual([]);
+    expect(errs('<meta itemprop="name" data-sn-attr="{ content: \'a\' + 1 }">')).toEqual([]);
+  });
+  test('nothing else of a meta binds', () => {
+    expect(errs('<meta http-equiv="refresh" data-sn-attr="{ content: \'0;url=/x\' }">')).toEqual([expect.stringMatching(/^SN207 a `<meta http-equiv>` cannot carry bindings/)]);
+    expect(errs('<meta charset="utf-8" data-sn-attr="{ content: \'x\' }">')).toEqual([expect.stringMatching(/^SN207 a `<meta charset>` cannot carry bindings/)]);
+    expect(errs('<meta data-sn-attr="{ content: \'x\' }">')).toEqual([expect.stringMatching(/^SN207 a bound `<meta>` names what it is/)]);
+    expect(errs('<meta name="x" data-sn-attr="{ name: \'y\' }">')).toEqual([expect.stringMatching(/^SN207 a `<meta>` binds only `content`; `name` stays as written/)]);
+    expect(errs('<meta name="x" data-sn-show="true">')).toEqual([expect.stringMatching(/^SN207 `<meta>` takes only `data-sn-attr="\{ content: … \}"`/)]);
+    expect(errs('<link rel="canonical" data-sn-attr="{ href: \'/x\' }">')).toEqual([expect.stringMatching(/^SN207 `<link>` cannot carry sinter bindings/)]);
+  });
+  test('a constant is written into the HTML at build time, for scrapers', () => {
+    const out = compile('<!doctype html><html><head><meta name="description" data-sn-attr="{ content: \'About\' }"><title data-sn-text="\'T\'"></title></head><body></body></html>',
+      { file: '/p/index.html', root: '/p', dev: false, prerender: true, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); } });
+    expect(out.html).toMatch(/<meta name="description" (data-sn="\d+" )?content="About">/);
+    expect(out.html).toMatch(/<title( data-sn="\d+")?>T<\/title>/);
+  });
+});
