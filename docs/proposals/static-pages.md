@@ -1,6 +1,7 @@
 # Proposal: pages without JavaScript
 
-Status: draft, for discussion (see [Open questions](#open-questions) and [Decisions](#decisions)). Nothing here is implemented. It builds on
+Status: ready for implementation, in three pull requests (see [Plan](#plan)); each is followed by a
+review of where it departed from this text. It builds on
 [layouts](../layouts.md) and on constants left out of the page module, both merged in
 [#26](https://github.com/tiaforge/sinter/pull/26). Every measurement below is from `main` at 5e6c1c8.
 
@@ -542,7 +543,12 @@ These are the behaviours a static page loses.
 ## Plan
 
 In this order: locale URLs build on the page URLs (directories, link rewriting, redirect files) and on
-the canonical URLs (absolute `hreflang`), so those come first.
+the canonical URLs (absolute `hreflang`), so those come first. Three pull requests, each followed by a
+review of where it departed from this text:
+
+- **A, pages without JavaScript**: items 1 to 4, and their part of the docs. Nothing breaks.
+- **B, page URLs**: item 5. Breaking (every page's URL changes), so it is released on its own.
+- **C, canonical and locale URLs**: items 6 to 8, starting with the prototype of item 7.
 
 1. Unroll `data-sn-for` over constants (step 1). This also fixes the empty first frame for constant
    lists on app pages, so it is worth doing even without the rest.
