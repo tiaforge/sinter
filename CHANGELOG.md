@@ -5,40 +5,50 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Upgrading from 0.13
+
+- `patch('name', item, …)` → `patch(item, …)`, `remove('name', item)` → `remove(item)` (`SN317` names each one).
+- `<sn-include>` → a component in `src/components/` (`SN316` lists the props it needs).
+- A page without `data-sn-path` moves to its directory's index: `about.html` is served at `/about/`. Links in the
+  markup follow; links built at run time to `about.html` still arrive through a redirect, but write `/about/`.
+- A head with body content, or two `<title>`s, no longer builds (`SN320`, `SN321`).
+- `date()` of a calendar date (`'2026-11-11'`, no time) is formatted in UTC (see Fixed).
+
 ### Added
 
-- Languages in the URL (docs/static-pages.md#languages): `sinter({ localePrefix: true })` builds each page once per
-  language of the inlang project, under its prefix (`/en/about/`, `/de/about/`), with `<html lang>` and that language's
-  messages and `$locale` written into the HTML, in attributes too, so a page with nothing else to run ships no
-  JavaScript in any language. A page that runs loads no language file or picker: the messages its code needs are
-  compiled into its script, and those the app's modules call are written into the page. `number()`, `bytes()` and
-  `date()` of a calendar date over constants are written at build time. `localeUrl('de')` gives a page's URL in another language; links to the app's pages stay
-  in the page's language; `data-sn-path` is written without the prefix. With `site`, each page gets `hreflang` links and
-  `x-default`. Each unprefixed URL is a language chooser: the base language without JavaScript; on a site that ships
-  JavaScript, the `locale` cookie its pages set, else the browser's languages. `_redirects` has each language's rules
-  and the choosers'; sinter-axum answers an unprefixed URL with a 302 to the visitor's language; `vite dev` serves it
-  all. `baseLocale` must be set and among `locales`. Assigning `$locale` in a page built in one language is `SN203`.
-- Canonical URLs (docs/static-pages.md#canonical-urls): `sinter({ site: 'https://example.com' })`. Every page whose URL
-  is known gets `<link rel="canonical">`, and expressions get `$site` (the origin and Vite's `base`) and `$canonical`
-  (the page's URL), build-time constants on a page with a fixed path (`og:url`, `og:image` in a head component, with no
-  JavaScript). A page's own canonical link must be absolute and becomes `$canonical`. On a page whose path is a
-  pattern, `$canonical` and the page's canonical link are written by the early script from the address, when the
-  page ships JavaScript anyway. Without `site`, `$site` and `$canonical` are the new error `SN323`.
-- Pages without JavaScript (docs/static-pages.md): a page with nothing left to run in the browser gets no script at all,
-  no page module, no early script and no runtime, and links its components' and images' stylesheets instead. A site
-  built from a layout, components and text ships no `.js` file; on a mixed site only the pages that need the runtime
-  load it. The build prints one line per page: `no JavaScript`, or the page's and the shared chunks' size (gzip) and the
-  first few things that run, where they were written. `sinter({ static: ['about.html', 'docs/**'] })` (or `true`) lists
-  pages that must stay so: one that needs the runtime is `SN322` at each cause, in the build, `sinter check` and the
-  editor, and a pattern that matches no page fails the build. On such a page the app's global modules (the config
-  module and the early module) do not run, and next-page data is not prefetched (Speculation Rules still are); a script
-  the page or its layout writes ships as written, a plain module script.
-- A `data-sn-for` over a constant list (a literal, a prop given as one, state nothing writes) whose rows read only the
-  item, its index, constants and such state is unrolled at build time: its rows are in the HTML, also with JavaScript
-  off, and the page module carries no template for them. Before, a component's nav or footer list built from a
-  constant prop was empty until the page module ran. Rows with a handler, model, state or nested loop stay templates.
-- A page-level `data-sn-state` none of whose fields are left (nothing writes or reads them) has no node in the page
-  module and no `data-sn` id.
+- Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
+  is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
+  costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots
+  (named, default, fallback content) in the caller's scope, events through `emit()` declared with `data-sn-emits`, and
+  `data-sn-model` for a component with a `value` prop and a `change` event. The tag is replaced by the component's
+  single root, which takes the tag's classes, attributes and handlers. The component's markup sees only its props, its
+  state, resources and helpers. New diagnostics `SN312`–`SN316`; `sinter check` types props and `$event.detail`, and a
+  type written in markup may name the OpenAPI spec's schemas; `render(…, { components })` in the testing module.
+- Components with a script: `src/components/<name>.ts` beside the HTML extends the base class it imports from
+  `./<name>.html` (`@tiaforge-ui/sinter/components`), typed by the generated `src/sinter.components.d.ts` (props, events,
+  `data-sn-ref` refs by tag, state). sinter creates it per instance on its root, in rows and branches too, and runs
+  `connected()`, `propsChanged()` and `disconnected()`; it reads `this.props`, writes `this.state`, uses `this.refs` and
+  `this.emit()`. No custom element, no hydration: the markup is rendered by sinter, in the first frame. The starter
+  template's chart is one. `render(…, { scripts })` in the testing module.
+- A component may use itself (a comment thread, a file tree) when every cycle passes through a `data-sn-for` or
+  `data-sn-if` template: it compiles once to a shared definition in the head, which the runtime and the early script
+  instantiate per item, so a tree renders at any depth, early too. Nested items change along their path: `patch(r, …)`
+  and `remove(r)` for `r in comment.replies` at any depth, and `upsert(c.replies, x)` (the `nested` module), and
+  write-through applies a response to the nested item an action is about, at any depth.
+- `<sn-component use="…">`: a component chosen by data, named by a template string (``use="`${b.type}-block`"``), a map in
+  the markup (`use="{ hero: 'hero-block' }[b.type]"`) or a helper. `sinter check` checks the name against the generated
+  `ComponentName` (a type the data can have and no component has is an error) and each candidate's props with the item
+  narrowed; a value outside the candidates renders the `data-sn-else` template after it, or warns in dev builds.
+- `data-sn-early="off"` on a component's tag leaves that use out of the early script, for uses that may shift the layout
+  when they render later: the head script stays small.
+- Scoped styles: a `<style>` in a component file goes into the page's stylesheet, wrapped in native `@scope` from the
+  component's root to nested components and slot content (marked `data-sn-c` and `data-sn-s` on pages that use one).
+  Each selector gets a copy whose first part may be the root (`.compact p, :where(:scope):is(.compact) p`, the same
+  specificity); `@keyframes` and the other global at-rules stay outside.
+- `sinter check` types custom elements from the app's declarations under `src/` (a module with `declare global` for
+  `HTMLElementTagNameMap` or `SinterElementEvents`): `data-sn-prop` keys and values are checked against the element's
+  properties, `$el` has the element's class, and `$event.detail` has the type `SinterElementEvents` gives the event on
+  that tag (`interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean } }`).
 - Heads keep every element where it is written: sinter parses the content of a page's `<head>` as template content,
   so a component's tag or a `<slot>` there no longer ends the head, and the elements after it stay in it. After
   expansion, a head holds only head elements: anything else is the new `SN320` (before, the browser moved it, and every
@@ -75,6 +85,34 @@ Attribute names, function names and diagnostic codes are public API. Before
   head elements, its body slots on the rest), completes tags after `<` (layouts at the top of an empty page, head
   components in a head, components elsewhere), goes from a `slot="…"` value to its `<slot>` and from a layout's tag to
   its file, shows a tag's props and slots on hover, and checks a layout or head component no page uses on its own.
+- docs/layouts.md; the RealWorld example's seven pages share one layout and a `conduit-seo` head component, with the
+  HTML, head scripts and page modules level (docs/realworld-comparison.md, Layouts).
+- Pages without JavaScript (docs/static-pages.md): a page with nothing left to run in the browser gets no script at all,
+  no page module, no early script and no runtime, and links its components' and images' stylesheets instead. A site
+  built from a layout, components and text ships no `.js` file; on a mixed site only the pages that need the runtime
+  load it. The build prints one line per page: `no JavaScript`, or the page's and the shared chunks' size (gzip) and the
+  first few things that run, where they were written. `sinter({ static: ['about.html', 'docs/**'] })` (or `true`) lists
+  pages that must stay so: one that needs the runtime is `SN322` at each cause, in the build, `sinter check` and the
+  editor, and a pattern that matches no page fails the build. On such a page the app's global modules (the config
+  module and the early module) do not run, and next-page data is not prefetched (Speculation Rules still are); a script
+  the page or its layout writes ships as written, a plain module script.
+- Canonical URLs (docs/static-pages.md#canonical-urls): `sinter({ site: 'https://example.com' })`. Every page whose URL
+  is known gets `<link rel="canonical">`, and expressions get `$site` (the origin and Vite's `base`) and `$canonical`
+  (the page's URL), build-time constants on a page with a fixed path (`og:url`, `og:image` in a head component, with no
+  JavaScript). A page's own canonical link must be absolute and becomes `$canonical`. On a page whose path is a
+  pattern, `$canonical` and the page's canonical link are written by the early script from the address, when the
+  page ships JavaScript anyway. Without `site`, `$site` and `$canonical` are the new error `SN323`.
+- Languages in the URL (docs/static-pages.md#languages): `sinter({ localePrefix: true })` builds each page once per
+  language of the inlang project, under its prefix (`/en/about/`, `/de/about/`), with `<html lang>` and that language's
+  messages and `$locale` written into the HTML, in attributes too, so a page with nothing else to run ships no
+  JavaScript in any language. A page that runs loads no language file or picker: the messages its code needs are
+  compiled into its script, and those the app's modules call are written into the page. `number()`, `bytes()` and
+  `date()` of a calendar date over constants are written at build time. `localeUrl('de')` gives a page's URL in another language; links to the app's pages stay
+  in the page's language; `data-sn-path` is written without the prefix. With `site`, each page gets `hreflang` links and
+  `x-default`. Each unprefixed URL is a language chooser: the base language without JavaScript; on a site that ships
+  JavaScript, the `locale` cookie its pages set, else the browser's languages. `_redirects` has each language's rules
+  and the choosers'; sinter-axum answers an unprefixed URL with a 302 to the visitor's language; `vite dev` serves it
+  all. `baseLocale` must be set and among `locales`. Assigning `$locale` in a page built in one language is `SN203`.
 - A binding written into the HTML at build time that reads nothing that can change (a literal, a component prop given as
   one, a state field nothing on the page writes) is left out of the page module, with its function and, when nothing
   else is bound there, its node and `data-sn` id.
@@ -83,49 +121,22 @@ Attribute names, function names and diagnostic codes are public API. Before
   Inside templates, such a binding is written into the template's markup and left out, and a state field nothing
   writes or reads anymore leaves the state. A `data-sn-if` over state nothing writes is decided at build time: its
   branch, or its `data-sn-else`, is page markup.
+- A `data-sn-for` over a constant list (a literal, a prop given as one, state nothing writes) whose rows read only the
+  item, its index, constants and such state is unrolled at build time: its rows are in the HTML, also with JavaScript
+  off, and the page module carries no template for them. Before, a component's nav or footer list built from a
+  constant prop was empty until the page module ran. Rows with a handler, model, state or nested loop stay templates.
+- A page-level `data-sn-state` none of whose fields are left (nothing writes or reads them) has no node in the page
+  module and no `data-sn` id.
 - The early script renders bindings that read `$url` (its query and `data-sn-path` parameters) on every page, so the
   current nav item or a tab chosen by the URL is right in the first frame; before, only on pages with embedded data.
-- docs/layouts.md; the RealWorld example's seven pages share one layout and a `conduit-seo` head component, with the
-  HTML, head scripts and page modules level (docs/realworld-comparison.md, Layouts).
-- Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
-  is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
-  costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots
-  (named, default, fallback content) in the caller's scope, events through `emit()` declared with `data-sn-emits`, and
-  `data-sn-model` for a component with a `value` prop and a `change` event. The tag is replaced by the component's
-  single root, which takes the tag's classes, attributes and handlers. The component's markup sees only its props, its
-  state, resources and helpers. New diagnostics `SN312`–`SN316`; `sinter check` types props and `$event.detail`, and a
-  type written in markup may name the OpenAPI spec's schemas; `render(…, { components })` in the testing module.
-- Components with a script: `src/components/<name>.ts` beside the HTML extends the base class it imports from
-  `./<name>.html` (`@tiaforge-ui/sinter/components`), typed by the generated `src/sinter.components.d.ts` (props, events,
-  `data-sn-ref` refs by tag, state). sinter creates it per instance on its root, in rows and branches too, and runs
-  `connected()`, `propsChanged()` and `disconnected()`; it reads `this.props`, writes `this.state`, uses `this.refs` and
-  `this.emit()`. No custom element, no hydration: the markup is rendered by sinter, in the first frame. The starter
-  template's chart is one. `render(…, { scripts })` in the testing module.
-- A component may use itself (a comment thread, a file tree) when every cycle passes through a `data-sn-for` or
-  `data-sn-if` template: it compiles once to a shared definition in the head, which the runtime and the early script
-  instantiate per item, so a tree renders at any depth, early too. Nested items change along their path: `patch(r, …)`
-  and `remove(r)` for `r in comment.replies` at any depth, and `upsert(c.replies, x)` (the `nested` module), and
-  write-through applies a response to the nested item an action is about, at any depth.
-- `<sn-component use="…">`: a component chosen by data, named by a template string (``use="`${b.type}-block`"``), a map in
-  the markup (`use="{ hero: 'hero-block' }[b.type]"`) or a helper. `sinter check` checks the name against the generated
-  `ComponentName` (a type the data can have and no component has is an error) and each candidate's props with the item
-  narrowed; a value outside the candidates renders the `data-sn-else` template after it, or warns in dev builds.
-- `data-sn-early="off"` on a component's tag leaves that use out of the early script, for uses that may shift the layout
-  when they render later: the head script stays small.
-- Scoped styles: a `<style>` in a component file goes into the page's stylesheet, wrapped in native `@scope` from the
-  component's root to nested components and slot content (marked `data-sn-c` and `data-sn-s` on pages that use one).
-  Each selector gets a copy whose first part may be the root (`.compact p, :where(:scope):is(.compact) p`, the same
-  specificity); `@keyframes` and the other global at-rules stay outside.
-- `sinter check` types custom elements from the app's declarations under `src/` (a module with `declare global` for
-  `HTMLElementTagNameMap` or `SinterElementEvents`): `data-sn-prop` keys and values are checked against the element's
-  properties, `$el` has the element's class, and `$event.detail` has the type `SinterElementEvents` gives the event on
-  that tag (`interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean } }`).
-
+- RealWorld is built with components: header, footer, article meta, byline, preview, error list and one favorite
+  button for the feed, the profile and the article page.
 - The starter template (`npm create @tiaforge-ui`) shares one layout, `src/layouts/app-layout.html`: the head, the
   header, the frame and the toast region, and the "fail next change" state, which is the layout's now. Each page is
   the layout's tag; the task page's tab title is the task's.
-- RealWorld is built with components: header, footer, article meta, byline, preview, error list and one favorite
-  button for the feed, the profile and the article page.
+- User guides for every part, linked from the README: resources, pagination, sync, actions, components, layouts,
+  static pages, navigation, first paint, configuration, type checking, testing, security and islands, and
+  docs/attributes.md, a reference of every attribute generated from the source.
 
 ### Removed
 
@@ -134,7 +145,6 @@ Attribute names, function names and diagnostic codes are public API. Before
   helper given one resource), an element (`list[0]`, `.find(…)`), a single resource (`remove` makes it `null`), a
   component prop or emitted detail that is one, or state a handler assigned one (`sel = m`, `structuredClone(m)`). Drop
   the first argument; the old forms and an item with no source fail with `SN317`.
-
 - `<sn-include>` (breaking): a partial is a component. The build fails with `SN316`, whose message lists the names the
   partial reads from the page (the props it needs). `SN305` is retired; `SN306` is now a component that uses itself
   with no `data-sn-for` or `data-sn-if` template between. The starter template's header and RealWorld's partials are
@@ -151,8 +161,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   (`/article/:slug`, `/ /tag/:tag`, `/login`), and stays in its file; a pattern also matches with a trailing slash; a
   `data-sn-path` that is only the page's directory URL is the new warning `SN515`. The build writes `_redirects`
   (Netlify, Cloudflare Pages), after the app's `public/_redirects`: a 301 for each old file URL and a rewrite for each
-  declared path; `sinter({ redirects: false })` turns it off. `vite dev`, `vite preview` and sinter-axum (from the
-  manifest's new `routes`) follow the same rules, so RealWorld's hand-written routes are gone. Two pages for one URL
+  declared path; `sinter({ redirects: false })` turns it off. `vite dev` (which now finds every page under the root, with no build input), `vite preview` and sinter-axum (from
+  the manifest's new `routes`) follow the same rules, so RealWorld's hand-written routes are gone. Two pages for one URL
   fail the build; a link built at run time that names a moved page's file is a build warning. The starter template's
   task link is `/task/?id=…`.
 - Changes from server events render once per frame: `<sn-event>` mappings and their `then` still apply when each
@@ -167,6 +177,10 @@ Attribute names, function names and diagnostic codes are public API. Before
   of converting it in JavaScript, which filled V8's number-to-string cache (64 KB after creating 1,000 rows).
 - Testing: `render(…, { frames: true })` and `frame()` to test what waits for the next frame (without `frames`, server
   events flush in a microtask as before).
+- Heads are checked (breaking for a page whose head holds body content or two of one element): body content, or
+  `<sn-resource>`/`<sn-sync>`, in a head is `SN320`, and a second `<title>`, description or `og:title`… is `SN321`
+  (both under Added).
+- sinter-axum is released with sinter, at the same version.
 
 ### Fixed
 
