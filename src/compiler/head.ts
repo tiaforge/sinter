@@ -1,8 +1,8 @@
 // The head of a page or a layout, parsed so that every element stays where it is written
 // (docs/proposals/layouts.md, Parsing the head). The standard parser ends the head at the first
 // element it does not know there (a component's tag, a `<slot>`), and moves it and everything after
-// it into the body. Such a head is parsed again as template content, where any element stays: the
-// output still holds only head elements in the head (SN320 reports the rest, after expansion).
+// it into the body. sinter parses a head's content as template content instead, where any element
+// stays: the output still holds only head elements in the head (SN320 reports the rest, after expansion).
 import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
 
@@ -17,14 +17,13 @@ const OPTS = { sourceCodeLocationInfo: true } as const;
 export const HEAD_ELEMENTS = new Set(['title', 'meta', 'link', 'script', 'style', 'noscript', 'base', 'template', 'sn-resource', 'sn-sync']);
 
 /**
- * Parses a document. A head the standard parser would cut short (an element from between `<head>`
- * and `</head>` ends up outside the head) is parsed again as template content, at the same offsets;
- * any other document is exactly what `parse5.parse` gives.
+ * Parses a document, with the content of a written `<head>…</head>` parsed as template content at
+ * the same offsets. A document without both tags is what `parse5.parse` gives.
  */
 export function parseDocument(html: string): P5Document {
   const doc = parse5.parse(html, OPTS);
   const range = headRange(doc, html);
-  if (!range || !misplaced(doc, range)) return doc;
+  if (!range) return doc;
   const [from, to] = range;
   // the document without the head's content (blanked, so every offset stays), and the content on its own
   const blank = (s: string) => s.replace(/[^\r\n]/g, ' ');
@@ -58,23 +57,6 @@ function headRange(doc: P5Document, html: string): [number, number] | null {
   re.lastIndex = start.endOffset;
   const m = re.exec(html);
   return m ? [start.endOffset, m.index] : null;
-}
-
-/** Whether an element written between `<head>` and `</head>` is outside the head in the parsed document. */
-function misplaced(doc: P5Document, [from, to]: [number, number]): boolean {
-  const head = findHead(doc)!;
-  const walk = (n: P5Parent): boolean => {
-    for (const c of n.childNodes) {
-      if (!('tagName' in c)) continue;
-      const el = c as P5Element;
-      if (el === head) continue;
-      const at = el.sourceCodeLocation?.startOffset;
-      if (at !== undefined && at >= from && at < to) return true;
-      if (walk(el)) return true;
-    }
-    return false;
-  };
-  return walk(doc);
 }
 
 export function findHead(doc: P5Parent): P5Element | null {

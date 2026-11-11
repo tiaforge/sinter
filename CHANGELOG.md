@@ -7,8 +7,9 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
-- Heads keep every element where it is written: a head the HTML parser would end early (at a component's tag, a
-  `<slot>`, an `<sn-resource>`) is parsed as template content, so the elements after it stay in the head. After
+- Heads keep every element where it is written: sinter parses the content of a page's `<head>` as template content,
+  so a component's tag, a `<slot>` or an `<sn-resource>` there no longer ends the head, and the elements after it stay
+  in it. After
   expansion, a head holds only head elements: anything else is the new `SN320` (before, the browser moved it, and every
   head element after it, into the body without a word).
 - Head components: a file in `src/components/` declared with `<template data-sn-head="{ …props }">` holds any number of
