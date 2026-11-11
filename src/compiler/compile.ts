@@ -114,6 +114,11 @@ export interface CompileOptions {
    * unrolled into that many rows, the item and index given to each as constants
    */
   unrolled?: Map<string, number>;
+  /**
+   * the page must ship no JavaScript (`sinter({ static })`): each thing that runs in the browser is
+   * `SN322` where it was written. Needs `prerender`, which leaves out what can never change.
+   */
+  static?: boolean;
   /** every component of the app: the candidates of `<sn-component use>` a helper chooses (default: the components the page names) */
   componentNames?: string[];
   /** the module the page module imports for a component's scoped styles (`CompiledParts.styles`), so the bundler puts them in the page's stylesheet */
@@ -134,7 +139,12 @@ export interface FnSources { fns: Array<FnSource | null>; content: Record<string
 
 export interface CompileResult {
   html: string;
+  /** the page module; with `static`, the HTML does not load it */
   module: string;
+  /** why the page needs the runtime (empty: nothing runs in the browser) */
+  runtime: RuntimeReason[];
+  /** with `prerender`, nothing on the page runs in the browser: the HTML has no script of sinter's, and links the stylesheets the module imports */
+  static?: true;
   /** the scoped styles of the components the page uses (the adapter serves them at `componentCss(name)`) */
   styles: Array<{ name: string; css: string }>;
   /** with `sourcemap`: the page module's source map, from each function back to the markup (null-free; absent when nothing maps) */
@@ -218,8 +228,18 @@ export interface EmbedSlot {
   start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> };
 }
 
+/** Why a page needs the runtime: what runs in the browser, and where it was written. */
+export interface RuntimeReason { what: string; file: string; line: number; col: number }
+
 export interface CompiledParts {
   html: string;
+  /**
+   * why the page needs the runtime, in document order; empty when nothing on it runs in the browser (with
+   * `prerender`: then the page gets no script, and its stylesheets are linked: see `static`)
+   */
+  runtime: RuntimeReason[];
+  /** with `prerender`, nothing on the page runs in the browser: no page module, no early script */
+  static?: true;
   ir: IR;
   fns: string[];
   /** with `sourcemap` */
@@ -393,7 +413,8 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
   if (!options.prerender || options.decided || options.unrolled) return out;
   // loops over constants: unrolled only when the first pass is clean (the second one compiles the rows with their item)
-  const unrolled = first.unrolls.size && !out.diagnostics.some((d) => d.severity === 'error') ? first.unrolls : null;
+  // (SN322 does not count: what the first pass found running may be a loop the second one unrolls)
+  const unrolled = first.unrolls.size && !out.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322') ? first.unrolls : null;
   if (!first.decided.size && !unrolled) return out;
   return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}) }).run(html);
 }
@@ -525,6 +546,8 @@ class Compiler {
   readonly flows: Array<{ el: P5Element; attr: string; shift: number; runs: NonNullable<ExprResult['runs']>; refreshes: NonNullable<ExprResult['refreshes']> }> = [];
   /** first paint: page-level nodes with bindings, and every state scope's fields */
   readonly paints: Array<{ el: P5Element; node: NodeDef }> = [];
+  /** the element that declared each resource and stream, for `runtimeReasons` */
+  private readonly declAt = new WeakMap<object, P5Element>();
   readonly stateInits: Array<{ sid: number; fields: Array<{ key: string; code: string; deps: string[] }>; persist: string | null }> = [];
   /** `<html data-sn-prefetch="off">`: other pages do not prefetch or prerender this one */
   prefetchOff = false;
@@ -598,9 +621,8 @@ class Compiler {
     for (const el of this.remove) detach(el);
     this.markLowPriority();
     if (this.opts.prerender) { this.prerender(); this.dropConstants(); }
-    const early = this.opts.early ? this.earlyParts() : undefined;
+    let early = this.opts.early ? this.earlyParts() : undefined;
     if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
-    this.injectScript(doc, early !== undefined && (early !== null || !!this.opts.early!.module) ? this.opts.early!.src ?? null : null);
     // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
     // toggle and use the generic path walk, which costs no code per template
     const rowTemplates = new Set([...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((n) => n.b.filter((b) => b.k === 'for').map((b) => b.x!)));
@@ -616,6 +638,17 @@ class Compiler {
     }
 
     if (this.opts.prerender) this.fixedDeps();
+    // nothing left to run in the browser: no script at all, the stylesheets the page module imported are linked
+    const runtime = this.runtimeReasons();
+    const isStatic = !!this.opts.prerender && !runtime.length;
+    if (this.opts.static) {
+      const root = this.opts.root.replace(/[\\/]+$/, '') + '/', file = this.opts.file.replace(/\\/g, '/');
+      const page = file.startsWith(root.replace(/\\/g, '/')) ? file.slice(root.length) : basename(file);
+      for (const r of runtime) this.diagnostics.push({ severity: 'error', code: 'SN322', message: `${page} must ship no JavaScript (\`sinter({ static })\`), but ${r.what} runs in the browser`, file: r.file, line: r.line, col: r.col, hint: 'remove it, or take the page out of `static` in vite.config' });
+    }
+    if (isStatic && early !== undefined) early = null;
+    if (isStatic) this.linkStyles(doc, images?.css ? this.opts.images?.stylesheet ?? null : null);
+    else this.injectScript(doc, early !== undefined && (early !== null || !!this.opts.early!.module) ? this.opts.early!.src ?? null : null);
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;
     if (paths.length) ir.path = paths;
@@ -630,6 +663,7 @@ class Compiler {
     if (/"w":\[[^\]]*"\$url[".]/.test(JSON.stringify(ir))) this.features.add('location');
     return {
       html: parse5.serialize(doc),
+      runtime, ...(isStatic ? { static: true as const } : {}),
       ir, fns: this.fns,
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs'].filter((f) => this.features.has(f))],
@@ -3323,6 +3357,7 @@ class Compiler {
       ...(then ? { then: then.f, ...(then.w.length ? { w: then.w } : {}) } : {}),
       ...(sch ? { sch: sch.name } : {}),
     });
+    this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
   /** Matches a resource against the OpenAPI specs; checks `items`, `total` and query parameter names. */
@@ -3370,6 +3405,7 @@ class Compiler {
       if (ev) { this.devAt(ev, [ev.then]); events.push(ev); }
     }
     this.syncs.push({ src, events, ...(ctx.stateIdx >= 0 ? { scope: ctx.stateIdx } : {}) });
+    this.declAt.set(this.syncs[this.syncs.length - 1]!, el);
     this.features.add('sse');
   }
 
@@ -4067,6 +4103,62 @@ class Compiler {
     const read = new Set<string>();
     for (const c of codes) for (const m of c.matchAll(/\$\.\$(?:r|meta)\.([A-Za-z_$][\w$]*)/g)) read.add(m[1]!);
     for (const r of this.resources) if (!read.has(r.name) && r.data == null) r.lo = 1;
+  }
+
+  /**
+   * Why the page needs the runtime, in document order: each element with something bound, a state or a
+   * component script (by its first sinter attribute), each resource and stream. Empty: nothing runs.
+   */
+  runtimeReasons(): RuntimeReason[] {
+    const out: Array<RuntimeReason & { at: number }> = [];
+    const at = (el: P5Element, attrName: string | null) => ({ ...this.locOf(el, attrName), at: el.sourceCodeLocation?.startOffset ?? 0 });
+    const BY_KIND: Record<string, string> = { text: 'data-sn-text', attr: 'data-sn-attr', class: 'data-sn-class', style: 'data-sn-style', show: 'data-sn-show', model: 'data-sn-model', if: 'data-sn-if', for: 'data-sn-for' };
+    const written = (el: P5Element) => Object.keys(el.sourceCodeLocation?.attrs ?? {});
+    const nameOf = (el: P5Element, b: Binding | undefined): string | null => {
+      const names = written(el);
+      const want = b ? (b.k === 'on' && b.n ? `data-sn-on-${b.n}` : b.k === 'attr' && b.n === 'data-sn-vt' ? 'data-sn-transition' : BY_KIND[b.k]) : 'data-sn-state';
+      if (want && names.includes(want)) return want;
+      return names.find((n) => n.startsWith('data-sn-') && !['data-sn-prop', 'data-sn-component', 'data-sn-key', 'data-sn-early'].includes(n)) ?? null;
+    };
+    const elOf = new Map(this.paints.map((x) => [x.node, x.el]));
+    for (const n of this.roots) {
+      if (!n.b.length && n.state === undefined) continue;
+      const el = elOf.get(n);
+      if (!el) continue;
+      const b = n.b.find((x) => x.k === 'cmp') ?? n.b[0];
+      if (b?.k === 'cmp') { out.push({ what: `the script of \`<${this.useOf.get(el)?.name ?? el.tagName}>\``, ...at(el, null) }); continue; }
+      const name = nameOf(el, b);
+      out.push({ what: name ? `\`${name}\`` : `\`<${el.tagName}>\``, ...at(el, name) });
+    }
+    for (const r of this.resources) {
+      const el = this.declAt.get(r);
+      out.push({ what: `resource \`${r.name}\``, ...(el ? at(el, 'name') : { file: this.opts.file, line: 1, col: 1, at: 0 }) });
+    }
+    for (const x of this.syncs) {
+      const el = this.declAt.get(x);
+      out.push({ what: '`<sn-sync>`', ...(el ? at(el, null) : { file: this.opts.file, line: 1, col: 1, at: 0 }) });
+    }
+    const page = (r: RuntimeReason) => (r.file === this.opts.file ? 0 : 1);
+    return out.sort((a, b) => page(a) - page(b) || (a.file === b.file ? a.at - b.at : 0)).map(({ at: _, ...r }) => r);
+  }
+
+  /**
+   * A page with nothing to run: the stylesheets its module would have imported (the components' scoped
+   * styles, the images' rules) are linked in its head instead, for the bundler to build.
+   */
+  linkStyles(doc: DefaultTreeAdapterMap['document'], images: string | null) {
+    const head = findHead(doc);
+    if (!head) return;
+    const hrefs = [
+      ...(images ? [images] : []),
+      ...(this.opts.componentCss ? [...this.uses.keys()].sort().filter((n) => this.componentFiles.get(n)?.css).map((n) => this.opts.componentCss!(n)) : []),
+    ];
+    const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+    for (const href of hrefs) {
+      const link = parse5.parseFragment(`<link rel="stylesheet" href="${esc(href)}">`).childNodes[0] as P5Element;
+      link.parentNode = head;
+      head.childNodes.push(link as never);
+    }
   }
 
   injectScript(doc: DefaultTreeAdapterMap['document'], early: string | null) {

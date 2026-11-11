@@ -1,12 +1,12 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond } from './compile.js';
+import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
 import { compactIR } from '../ir.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
 import { earlyRender } from './early-render.js';
 
 export type { SourceMap };
-export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, FnSource, FnSources, HelperManifest, HelperOrigin, PrefetchParts, EmbedSlot, EmbedCond };
+export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, FnSource, FnSources, HelperManifest, HelperOrigin, PrefetchParts, EmbedSlot, EmbedCond, RuntimeReason };
 export type { Diagnostic } from './diagnostics.js';
 export type { CheckUnit } from './check-unit.js';
 export type { ImageFormat, ImageHost, ImageInfo, ImageKind, ImageResult, ImageVariant } from './images.js';
@@ -31,13 +31,18 @@ export function compile(html: string, options: CompileOptions): CompileResult {
     // components with a script: their modules, which the `cmp` bindings hand to the components feature
     + parts.scripts.map((x) => `import { ${x.export} as ${x.local} } from ${JSON.stringify(x.module)};\n`).join('');
   const page = pageLines(parts, options);
-  const out: CompileResult = { html: parts.html, module: css + page.text(), diagnostics: parts.diagnostics, files: parts.files, styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}) };
+  const out: CompileResult = {
+    html: parts.html, module: css + page.text(), runtime: parts.runtime, ...(parts.static ? { static: true as const } : {}),
+    diagnostics: parts.diagnostics, files: parts.files, styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.prefetchOff ? { prefetchOff: true as const } : {}),
+  };
   if (parts.check) out.check = parts.check;
   const map = options.sourcemap ? page.map(parts.sources, css.split('\n').length - 1) : null;
   if (map) out.map = map;
   if (parts.images) out.images = parts.images;
   if (parts.remoteWidths) out.remoteWidths = parts.remoteWidths;
-  if (parts.early !== undefined) setEarly(out, parts.early, options);
+  // a page with nothing to run gets no early script either, not even for the app's early module
+  if (parts.static && parts.early !== undefined) out.early = null;
+  else if (parts.early !== undefined) setEarly(out, parts.early, options);
   if (parts.unlistedOrigins) out.unlistedOrigins = parts.unlistedOrigins;
   const ns = Object.entries(options.helpers.namespaces).find(([, v]) => v.module === MESSAGES)?.[0];
   if (ns) out.messages = parts.namespaces[ns] ?? [];

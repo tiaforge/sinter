@@ -332,6 +332,16 @@ After a layout, its slots and its head components are merged, the head has two o
 
 **Fix:** Keep one: pass the value to the one that is there (a prop of the layout or head component), or replace a slot's fallback with the page's own element.
 
+## SN322 ships-javascript
+
+Error, for example:
+
+> about.html must ship no JavaScript (`sinter({ static })`), but `data-sn-on-click` runs in the browser
+
+The page is in `sinter({ static })`, the pages that must ship no JavaScript, but something on it runs in the browser: a binding over state a handler writes, data, `$url`, `$now` or a helper, a handler, an action, a resource or stream, a model, or a component with a script. The error is where that was written, in the page, a component or the layout, once for each.
+
+**Fix:** Remove what runs in the browser, or make it a constant (a literal, a prop given as one, state nothing writes). If the page is meant to run it, take the page out of `static` in vite.config.
+
 ## SN401 parse-error
 
 Error, for example:

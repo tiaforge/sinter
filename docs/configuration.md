@@ -45,6 +45,7 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | `typecheck` | `false` | run `sinter check` at the end of `vite build` and fail the build on type errors. Needs TypeScript |
 | `complexity` | see [below](#what-belongs-in-markup) | limits for the `SN507` warning, and its level |
 | `checkCycles` | `false` | report `then`/`catch` handlers that start each other through `run()` (`SN509`) |
+| `static` | none | pages that must ship no JavaScript, by path from the root (`['about.html', 'docs/**']`), or `true` for all: one that needs the runtime is `SN322` ([docs/static-pages.md](static-pages.md)) |
 
 ### First paint and loading
 
@@ -93,7 +94,9 @@ The build fails when a page preloads a face of a family its stylesheets never us
 
 ## The config module
 
-`src/sinter.config.js` is imported before the page mounts. It calls `configure()` once:
+`src/sinter.config.js` is imported before the page mounts. It calls `configure()` once. It runs on the
+pages that run sinter: a page with nothing to run ships no JavaScript, this module included
+([docs/static-pages.md](static-pages.md)), so code meant for every page goes in a script the layout includes.
 
 ```js
 // src/sinter.config.js

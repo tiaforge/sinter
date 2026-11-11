@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { check } from './check/index.js';
 import { compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
-import { project, viteProject, type ProjectOptions } from './project.js';
+import { project, staticPages, viteProject, type ProjectOptions } from './project.js';
 
 const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [page.html …]\n       sinter lsp [--stdio]';
 
@@ -37,9 +37,13 @@ async function main(argv: string[]): Promise<number> {
   const diagnostics: Diagnostic[] = [...p.diagnostics];
   const units: CheckUnit[] = [];
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles || cycles });
+    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles || cycles, ...(p.isStatic(file) ? { static: true, prerender: true } : {}) });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
+  }
+  // a `static` pattern that matches no page (with the pages from the Vite config)
+  if (!pages.length && Array.isArray(options.static)) {
+    for (const m of staticPages(root, options.static).unmatched(files)) diagnostics.push({ severity: 'error', code: 'SN322', message: `sinter({ static }): no page matches \`${m}\``, file: resolve(root, 'vite.config'), line: 1, col: 1 });
   }
   const r = check({ root, units, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes });
   diagnostics.push(...r.diagnostics);

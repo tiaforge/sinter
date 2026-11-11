@@ -4,7 +4,7 @@
 have and get live data, instant updates and a first paint with no flicker. Typos fail the build, not
 the page. Reusable components are plain HTML files that render in the first frame and never hydrate.
 No router or store library to write, and no app JavaScript for typical pages: a small runtime ships with
-each page (currently under 20 KB).
+each page that needs one (currently under 20 KB), and a page with nothing to run [ships none](docs/static-pages.md).
 
 ```html
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
@@ -68,7 +68,7 @@ the pages.
   came from, so a favorite button inside it updates the right list with no store code.
 - **Great ergonomics.** One way to do each thing, all of it visible on the element. 777 lines for
   the RealWorld app, against 2,210 for the official Angular one. LLM-friendly: `llms.txt` ships with the package, and the small, uniform syntax is easy for a model to get right.
-- **Small and safe.** Currently under 20 KB of JavaScript per page. No `eval`, no `unsafe-eval` in your Content
+- **Small and safe.** Currently under 20 KB of JavaScript per page, and none on a page with nothing to run. No `eval`, no `unsafe-eval` in your Content
   Security Policy, and markup injected at runtime stays inert.
 
 ## Browser support

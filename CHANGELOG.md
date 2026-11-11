@@ -7,6 +7,20 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Pages without JavaScript (docs/static-pages.md): a page with nothing left to run in the browser gets no script at all,
+  no page module, no early script and no runtime, and links its components' and images' stylesheets instead. A site
+  built from a layout, components and text ships no `.js` file; on a mixed site only the pages that need the runtime
+  load it. The build prints one line per page: `no JavaScript`, or the page's and the shared chunks' size (gzip) and the
+  first few things that run, where they were written. `sinter({ static: ['about.html', 'docs/**'] })` (or `true`) lists
+  pages that must stay so: one that needs the runtime is `SN322` at each cause, in the build, `sinter check` and the
+  editor, and a pattern that matches no page fails the build. On such a page the config module and the app's early
+  module do not run, and next-page data is not prefetched (Speculation Rules still are).
+- A `data-sn-for` over a constant list (a literal, a prop given as one, state nothing writes) whose rows read only the
+  item, its index, constants and such state is unrolled at build time: its rows are in the HTML, also with JavaScript
+  off, and the page module carries no template for them. Before, a component's nav or footer list built from a
+  constant prop was empty until the page module ran. Rows with a handler, model, state or nested loop stay templates.
+- A page-level `data-sn-state` none of whose fields are left (nothing writes or reads them) has no node in the page
+  module and no `data-sn` id.
 - Heads keep every element where it is written: sinter parses the content of a page's `<head>` as template content,
   so a component's tag or a `<slot>` there no longer ends the head, and the elements after it stay in it. After
   expansion, a head holds only head elements: anything else is the new `SN320` (before, the browser moved it, and every

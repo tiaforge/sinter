@@ -93,7 +93,10 @@ test('early state: fields that need no data, persisted values, and the branch of
 
 test('no early module when nothing runs early and the app has no early module', () => {
   expect(build(page('<sn-resource name="u" src="/api/u?d={date(at)}"></sn-resource><p data-sn-text="u.x"></p>')).early).toBeNull();
-  expect(build(page('<p data-sn-text="here"></p>'), {}, [], { module: '/src/sinter.early.ts' }).early).toBe('import "/src/sinter.early.ts";\nimport { start } from \'@tiaforge-ui/sinter/early\';\n\nstart(null, null);\n');
+  // the app's early module, on a page that has something to run (later, not early)
+  expect(build(page('<sn-resource name="u" src="/api/u?d={date(at)}"></sn-resource><p data-sn-text="u.x"></p>'), {}, [], { module: '/src/sinter.early.ts' }).early).toBe('import "/src/sinter.early.ts";\nimport { start } from \'@tiaforge-ui/sinter/early\';\n\nstart(null, null);\n');
+  // a page with nothing to run ships no JavaScript: not the app's early module either
+  expect(build(page('<p data-sn-text="here"></p>'), {}, [], { module: '/src/sinter.early.ts' }).early).toBeNull();
 });
 
 test('without the options the compiler writes nothing ahead and makes no early module', () => {
