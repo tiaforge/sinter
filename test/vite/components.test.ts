@@ -18,12 +18,14 @@ beforeAll(() => {
   mkdirSync(join(root, 'src/components'), { recursive: true });
   writeFileSync(join(root, 'src/components/x-card.html'), `<template data-sn-component="{ title: string }">
   <section class="card"><h2 data-sn-text="title"></h2><p class="own">own</p><x-inner></x-inner><slot></slot></section>
+  <!-- (a second instance below is a sibling: the first one's \`.card + .card\` must not reach it) -->
 </template>
 <style>
   @keyframes pulse { from { opacity: 0 } to { opacity: 1 } }
   .card { padding: 7px; }
   p { color: rgb(0, 0, 255); }
   .card .mine { font-weight: 900; }
+  .card + .card { outline: 3px solid red; }
 </style>
 `);
   writeFileSync(join(root, 'src/components/x-inner.html'), '<template data-sn-component=""><div class="inner"><p class="nested">nested</p></div></template>\n');
@@ -31,7 +33,7 @@ beforeAll(() => {
 <style>p { text-decoration: underline; }</style>
 `);
   writeFileSync(join(root, 'index.html'), `<!doctype html><html><head><title>c</title></head><body>
-<div data-sn-state="{ t: 'Hello' }"><x-card data-sn-prop="{ title: t }"><p class="page">from the page</p></x-card></div>
+<div data-sn-state="{ t: 'Hello' }"><x-card data-sn-prop="{ title: t }"><p class="page">from the page</p></x-card><x-card class="second" data-sn-prop="{ title: 'two' }"></x-card></div>
 <x-page></x-page>
 </body></html>`);
 });
@@ -45,7 +47,9 @@ test('a build: scoped styles in the page\'s stylesheet, roots and slot content m
   expect(html).toContain(`<link rel="stylesheet" crossorigin href="/assets/${cssFile}">`);
   const css = readFileSync(join(out, 'assets', cssFile), 'utf8');
   expect(css).toMatch(/@keyframes pulse/);
-  expect(css).toContain('@scope (:has(> [data-sn-c="x-card"]), :has(> [data-sn-s="x-card"])) to (:scope > :not([data-sn-c="x-card"], [data-sn-s="x-card"]), :scope > * [data-sn-c], :scope > * [data-sn-s])');
+  expect(css).toContain('@scope ([data-sn-c="x-card"], [data-sn-s="x-card"]) to ([data-sn-c], [data-sn-s])');
+  // a selector's first compound may be the root: a copy with the same specificity
+  expect(css).toMatch(/\.card,\s*:where\(:scope\):is\(\.card\)\s*\{/);
   expect(css).not.toMatch(/@scope[^{]*\{[^}]*@keyframes/);
   expect(html).toContain('<section class="card" data-sn-c="x-card">');
   expect(html).toContain('<div class="inner" data-sn-c="x-inner">');
@@ -67,6 +71,8 @@ test('a build: scoped styles in the page\'s stylesheet, roots and slot content m
     expect((await style('.mine')).deco).toBe('underline');
     expect((await style('.mine')).weight).not.toBe('900');
     expect((await style('x-page .own, main .own')).deco).not.toBe('underline');
+    // instances are isolated: a sibling instance is outside the first one's scope
+    expect(await tab.$eval('.second', (el) => getComputedStyle(el).outlineStyle)).toBe('none');
   } finally {
     await browser.close();
   }

@@ -122,7 +122,10 @@ A `<style>` in the component file is scoped to the component:
   neither the paragraphs of the components it uses nor those the caller passes into its slots.
 - Slot content is styled by the component whose markup it is: the content a component passes into
   another one's slots gets its own styles.
-- Selectors stay as written, with their normal specificity; devtools show them unchanged.
+- Selectors are as written, with their normal specificity. A rule's first part may be the component's
+  root (`.preview`, the `.compact` of `.compact p`): the compiler adds a copy of each selector for that
+  (`.compact p, :where(:scope):is(.compact) p`), which devtools show beside it. `:scope` is the root.
+- Each instance is its own scope: `.card + .card` does not reach the next instance.
 - `@keyframes`, `@font-face`, `@import` and `@property` stay global.
 - To scope, the root carries `data-sn-c="article-preview"` and top-level slot content carries
   `data-sn-s`, on pages with scoped styles (the root's name is there in dev builds too).

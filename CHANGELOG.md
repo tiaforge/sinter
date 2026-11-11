@@ -34,7 +34,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   when they render later: the head script stays small.
 - Scoped styles: a `<style>` in a component file goes into the page's stylesheet, wrapped in native `@scope` from the
   component's root to nested components and slot content (marked `data-sn-c` and `data-sn-s` on pages that use one).
-  Selectors stay as written; `@keyframes` and the other global at-rules stay outside.
+  Each selector gets a copy whose first part may be the root (`.compact p, :where(:scope):is(.compact) p`, the same
+  specificity); `@keyframes` and the other global at-rules stay outside.
 - `sinter check` types custom elements from the app's declarations under `src/` (a module with `declare global` for
   `HTMLElementTagNameMap` or `SinterElementEvents`): `data-sn-prop` keys and values are checked against the element's
   properties, `$el` has the element's class, and `$event.detail` has the type `SinterElementEvents` gives the event on

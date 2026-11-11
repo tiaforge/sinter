@@ -1,8 +1,8 @@
 # Proposal: components
 
 Status: implemented (2026-11-10), steps 1 to 7 of the [Plan](#plan); the guide is
-[components.md](../components.md). Where the implementation departs from this text: scoped styles use
-the root's parent as the `@scope` root (see Defining a component); the comparison docs compare the RealWorld builds before and
+[components.md](../components.md). Where the implementation departs from this text: each scoped selector
+gets a copy that lets its first part be the root (see Defining a component); the comparison docs compare the RealWorld builds before and
 after components on one machine (`realworld-comparison.md`, Components) instead of re-running every
 implementation.
 
@@ -83,10 +83,13 @@ src/components/live-clock.ts            ...plus a script, run per instance by si
 - Together, these two attributes are the component's whole contract. Nothing else declares it: not
   the caller, and not the script (see [One contract](#one-contract)).
 - `<style>` is scoped to the component and goes into the app's CSS files: no inline style, no
-  CSP change. The compiler wraps it in native `@scope`. (Implemented with the root's parent as the
-  scope root, `@scope (:has(> [data-sn-c="article-preview"])) to (:scope > :not([data-sn-c="article-preview"]), :scope > * [data-sn-c])`:
-  selectors in `@scope` match only descendants of the scope root, so `([data-sn-c="article-preview"]) to ([data-sn-c])`
-  would not let `.preview` match the root itself; see spec.md, Components.)
+  CSP change. The compiler wraps it in native `@scope`:
+  `@scope ([data-sn-c="article-preview"]) to ([data-sn-c]) { … }`. (Implemented: in `@scope`, a selector
+  without `:scope` matches only below the scope root, so `.preview` alone would not match the root. The
+  compiler adds a copy of each selector whose first compound may be the root,
+  `.preview, :where(:scope):is(.preview)`, with the same specificity. Making the root's parent the scope
+  root through `:has()` was tried first and dropped: adding and removing list rows took 3.7× as long in
+  Chromium, and sibling instances shared a scope.)
   - The root of each instance carries `data-sn-c` with the component's name, in production too
     (only for components that have styles; others keep it in dev builds only).
   - The `to` boundary stops the styles at nested components, and at slot content, which the

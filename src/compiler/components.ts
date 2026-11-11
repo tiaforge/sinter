@@ -98,30 +98,62 @@ export function callerAttribute(name: string): boolean {
 const GLOBAL_AT = new Set(['import', 'font-face', 'keyframes', '-webkit-keyframes', 'property', 'counter-style', 'font-feature-values', 'font-palette-values', 'page', 'namespace', 'charset']);
 
 /**
- * A component's `<style>`, scoped with native `@scope`: its roots (the component's root, and the
- * slot content it passes into other components) and what is inside them, up to the boundaries (a
- * nested component's root, slot content). Selectors stay as written. At-rules that cannot be scoped (`@keyframes`,
- * `@font-face`, `@import`, …) stay outside.
+ * A component's `<style>`, scoped with native `@scope`: from its roots (the component's root, and the
+ * slot content it passes into other components) to the boundaries (a nested component's root, slot
+ * content). At-rules that cannot be scoped (`@keyframes`, `@font-face`, `@import`, …) stay outside.
+ *
+ * In `@scope`, a selector without `:scope` or `&` matches only below the scope root, so the root
+ * itself (`.preview`, the `.compact` of `.compact p`) would never match. Each such selector gets a
+ * copy whose first compound may be the root, `.compact p, :where(:scope):is(.compact) p`, with the
+ * same specificity (`:where()` adds none). Selectors are otherwise as written.
  */
 export function scopeCss(css: string, name: string): string {
   const { global, scoped } = splitCss(css);
   const sel = JSON.stringify(name);
   const out = [...global];
-  // the scope root is the parent of the component's root (and of the slot content it passes on):
-  // selectors in @scope match the root's descendants only, and a component's own selectors name its
-  // root (`.preview`, `.compact p`). The parent's other children, and nested components and slot
-  // content below the root, are the limits.
-  if (scoped.length) out.push(`@scope (:has(> [data-sn-c=${sel}]), :has(> [data-sn-s=${sel}])) to (:scope > :not([data-sn-c=${sel}], [data-sn-s=${sel}]), :scope > * [data-sn-c], :scope > * [data-sn-s]) {\n${scoped.join('\n')}\n}`);
+  if (scoped.length) out.push(`@scope ([data-sn-c=${sel}], [data-sn-s=${sel}]) to ([data-sn-c], [data-sn-s]) {\n${scoped.join('\n')}\n}`);
   return out.join('\n') + '\n';
 }
 
+/** `.compact p` → `.compact p, :where(:scope):is(.compact) p`: the first compound may also be the scope root. */
+function withRoot(rule: csstree.Rule) {
+  if (rule.prelude.type !== 'SelectorList') return;
+  const extra: csstree.CssNode[] = [];
+  rule.prelude.children.forEach((selector) => {
+    if (selector.type !== 'Selector') return;
+    const text = csstree.generate(selector);
+    if (/:scope\b|&/.test(text)) return;
+    const nodes = selector.children.toArray();
+    const cut = nodes.findIndex((n) => n.type === 'Combinator');
+    const first = cut < 0 ? nodes : nodes.slice(0, cut);
+    // a sibling of the root is outside the scope: nothing to add
+    const comb = cut < 0 ? null : (nodes[cut] as csstree.Combinator).name;
+    if (comb === '+' || comb === '~') return;
+    // a pseudo-element cannot go into `:is()`: it follows it
+    const pe = first.findIndex((n) => n.type === 'PseudoElementSelector');
+    const compound = (pe < 0 ? first : first.slice(0, pe)).map((n) => csstree.generate(n)).join('');
+    if (!compound) return;
+    const tail = [...(pe < 0 ? [] : first.slice(pe)), ...(cut < 0 ? [] : nodes.slice(cut))].map((n) => {
+      const g = csstree.generate(n);
+      return n.type === 'Combinator' ? (g.trim() ? ` ${g.trim()} ` : ' ') : g;
+    }).join('');
+    extra.push(csstree.parse(`:where(:scope):is(${compound})${tail}`, { context: 'selector' }));
+  });
+  for (const x of extra) rule.prelude.children.appendData(x);
+}
+
 function splitCss(css: string): { global: string[]; scoped: string[] } {
-  const ast = csstree.parse(css, { parseValue: false, parseRulePrelude: false, parseAtrulePrelude: false }) as csstree.StyleSheet;
+  const ast = csstree.parse(css, { parseValue: false, parseAtrulePrelude: false }) as csstree.StyleSheet;
   const global: string[] = [], scoped: string[] = [];
   ast.children.forEach((node) => {
-    const text = csstree.generate(node);
-    if (node.type === 'Atrule' && (GLOBAL_AT.has(node.name.toLowerCase()) || (node.name.toLowerCase() === 'layer' && !node.block))) global.push(text);
-    else scoped.push(text);
+    if (node.type === 'Atrule' && (GLOBAL_AT.has(node.name.toLowerCase()) || (node.name.toLowerCase() === 'layer' && !node.block))) { global.push(csstree.generate(node)); return; }
+    // the rules of the scope, inside `@media` and `@supports` too; not rules nested in rules (relative to their parent)
+    const visit = (n: csstree.CssNode) => {
+      if (n.type === 'Rule') return withRoot(n);
+      if (n.type === 'Atrule' && n.block) n.block.children.forEach(visit);
+    };
+    visit(node);
+    scoped.push(csstree.generate(node));
   });
   return { global, scoped };
 }
