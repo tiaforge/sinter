@@ -43,6 +43,17 @@ describe('constant bindings', () => {
     expect(out.module).toContain('($) => ($.$s0.n)');
   });
 
+  test('in a template, a dependency on state nothing writes is left out: the binding renders once per row or branch', () => {
+    const out = build('<div data-sn-state="{ nav: \'home\', open: false }"><button data-sn-on-click="open = !open"></button><template data-sn-if="open"><a data-sn-class="{ active: nav == \'home\' && open }">x</a></template></div>');
+    const ir = JSON.parse(/const ir = (\{.*\});/.exec(out.module)![1]!);
+    const b = ir.templates[0].nodes[0].b[0];
+    // `open` is written, `nav` is not: only `open` is a dependency
+    const deps = JSON.stringify(b.d ?? []);
+    expect(out.module).toContain("$.$s0.nav == 'home'");
+    expect(deps).not.toBe('[]');
+    expect(ir.ps.x['$s0.nav']).toBeUndefined();
+  });
+
   test('a value from state stays bound: a handler can change it', () => {
     const out = build('<div data-sn-state="{ n: 0 }"><p data-sn-text="n"></p><button data-sn-on-click="n++">+</button></div>');
     expect(out.html).toMatch(/<p data-sn="\d+">0<\/p>/);

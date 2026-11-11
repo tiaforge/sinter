@@ -583,6 +583,7 @@ class Compiler {
       if (make) t.make = this.fn(make, at && { ...at, parts });
     }
 
+    if (this.opts.prerender) this.fixedDeps();
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;
     if (paths.length) ir.path = paths;
@@ -3509,6 +3510,22 @@ class Compiler {
     for (const r of this.resources) if (r.scope !== undefined) r.scope = re(r.scope);
     for (const x of this.syncs) if (x.scope !== undefined) x.scope = re(x.scope);
     this.roots.splice(0, this.roots.length, ...kept);
+  }
+
+  /**
+   * A dependency on a state field nothing writes never fires: it is left out of every binding's and
+   * resource's `d`/`deps`, so the runtime subscribes to nothing for it (the page module only: the early
+   * chunk, made before, decides what is known by the full list).
+   */
+  fixedDeps() {
+    const written = this.writtenState();
+    const fixed = (d: PathRef) => {
+      const m = typeof d === 'string' ? /^\$s(\d+)\.([^.]+)/.exec(d) : null;
+      return !!m && m[2] !== '*' && m[2] !== '**' && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`);
+    };
+    const strip = (ds: PathRef[] | undefined) => (ds?.some(fixed) ? ds.filter((d) => !fixed(d)) : ds);
+    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) if (b.d) b.d = strip(b.d)!;
+    for (const r of this.resources) if (r.deps) r.deps = strip(r.deps);
   }
 
   /**

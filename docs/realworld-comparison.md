@@ -260,7 +260,8 @@ before layouts, and scrapers that run no script see the same titles as before. T
 does not change (3,233 B). Leaving out, too, the bindings that read only state nothing writes (the
 pages' `nav`, read by the header's Home link) takes 8 to 16 B more off six of the page modules
 (login 19,886 → 19,871); the header's other links are inside `data-sn-if` templates, which the build
-does not write into the HTML, so their bindings stay.
+does not write into the HTML, so their bindings stay. Their dependency on `nav`, which never fires, is left out: 3 to
+7 B more (login 19,871 → 19,864).
 
 The early script then learned `$url` on every page (before, only on pages with embedded data). On
 `/tag/css`, the home page's `css` tab is in the first frame, active (checked in Chromium with the page

@@ -46,6 +46,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 - A binding written into the HTML at build time that reads nothing that can change (a literal, a component prop given as
   one, a state field nothing on the page writes) is left out of the page module, with its function and, when nothing
   else is bound there, its node and `data-sn` id.
+  A dependency on a state field nothing writes is left out of every binding (in rows and branches too): the runtime
+  subscribes to nothing for it.
 - The early script renders bindings that read `$url` (its query and `data-sn-path` parameters) on every page, so the
   current nav item or a tab chosen by the URL is right in the first frame; before, only on pages with embedded data.
 - docs/layouts.md; the RealWorld example's seven pages share one layout and a `conduit-seo` head component, with the
