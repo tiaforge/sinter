@@ -698,6 +698,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      */
     async generateBundle(_, bundle) {
       const r = resolved!;
+      guardLazy(this);
       // the placeholders a server fills (data-sn-data), next to the pages: what a middleware reads to know each page's requests
       if (embedPages.size) {
         const pages = [...embedPages].sort(([a], [b]) => a.localeCompare(b)).map(([, p]) => ({ file: p.file, paths: p.paths, data: p.data }));
@@ -742,6 +743,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // runtime, the app's early module) and each page's own (the hold script: a morph pending, the first paint waits for
       // the page module, on pages that use data-sn-transition; the page's early bindings and requests)
       const hash = (x: string) => createHash('sha256').update(x).digest('base64url').slice(0, 8);
+      // an early file that bundled a lazy package (the early module, or a helper an early binding calls, reaches it)
+      if (lazyPkgs.length) {
+        const bad = [...earlyFiles].flatMap(([rel, f]) => Object.keys({ ...f.modules, ...sharedHead?.modules }).filter(isLazyModule).map((id) => `SN325 ${rel}: the early script contains ${lazyName(id)}, which \`sinter({ lazy })\` loads lazily: the early module or a helper an early binding calls imports it (${relOf(id.replace(/^\0/, ''))})`));
+        if (bad.length) this.error(`sinter: ${[...new Set(bad)].join('\n')}`);
+      }
       const heads = () => {
         headFiles.clear();
         const common = [languageFiles.size ? I18N_PICKER : '', sharedHead?.code ?? ''].filter(Boolean).join('\n');
@@ -1051,6 +1057,47 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
   };
 
+  /** whether a module id is (in) a lazy package, as Rolldown resolved it */
+  const isLazyModule = (id: string) => lazyPkgs.some((p) => id.includes(`/node_modules/${p}/`));
+  const lazyName = (id: string) => lazyPkgs.find((p) => id.includes(`/node_modules/${p}/`)) ?? id;
+
+  /**
+   * SN325 (builds): a page's static graph (what its bundle loads with it) contains a lazy package after
+   * all, through a package that imports it; or an app module that a module of the page loads with
+   * `import()` is imported statically by the page too, so the split does nothing for it. With the chain.
+   */
+  function guardLazy(ctx: { getModuleIds(): IterableIterator<string>; getModuleInfo(id: string): { importedIds: readonly string[]; dynamicImporters: readonly string[] } | null; error(m: string): never }) {
+    const name = (id: string) => {
+      const x = id.replace(/^\0/, '');
+      return x.startsWith(PREFIX) && x.endsWith('.html.js') ? x.slice(PREFIX.length, -3) : relOf(x);
+    };
+    const pages = [...ctx.getModuleIds()].filter((id) => { const x = id.replace(/^\0/, ''); return x.startsWith(PREFIX) && x.endsWith('.html.js') && !x.startsWith(EARLY); });
+    const errors: string[] = [];
+    for (const page of pages) {
+      const prev = new Map<string, string | null>([[page, null]]), todo = [page];
+      while (todo.length) {
+        const id = todo.shift()!;
+        for (const next of ctx.getModuleInfo(id)?.importedIds ?? []) if (!prev.has(next)) { prev.set(next, id); todo.push(next); }
+      }
+      const chain = (id: string) => { const c: string[] = []; for (let x: string | null = id; x; x = prev.get(x) ?? null) c.unshift(x); return c; };
+      const shown = (ids: string[]) => ids.map((x) => (isLazyModule(x) ? lazyName(x) : name(x))).filter((x, i, a) => a.indexOf(x) === i).join(' → ');
+      const hit = new Set<string>();
+      for (const id of prev.keys()) {
+        if (isLazyModule(id)) {
+          const pkg = lazyName(id);
+          if (hit.has(pkg)) continue;
+          hit.add(pkg);
+          errors.push(`SN325 ${name(page)}: the page bundle contains ${pkg}, which \`sinter({ lazy })\` loads lazily: ${shown(chain(id))}. A package imports it: add that package to \`lazy\` too, or load it with \`import()\``);
+          continue;
+        }
+        if (id.startsWith('\0') || id.includes('/node_modules/')) continue;
+        const by = ctx.getModuleInfo(id)?.dynamicImporters.find((d) => prev.has(d));
+        if (by) errors.push(`SN325 ${name(page)}: ${name(id)} is loaded with \`import()\` by ${name(by)}, and imported statically by the page too (${shown(chain(id))}), so the split does nothing for it. Import it only with \`import()\`, or not lazily at all`);
+      }
+    }
+    if (errors.length) ctx.error(`sinter: ${errors.join('\n')}`);
+  }
+
   /**
    * Builds, `data-sn-preload`: a modulepreload link for each lazy package's chunk and the chunks it
    * imports, at the end of the head (the browser fetches and compiles them; the first call runs them).
@@ -1123,7 +1170,43 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const size = chunk ? `${kb(gzipSync(chunk.code).length)} gzip${shared ? ` + ${kb(shared)} gzip shared` : ''}` : 'runtime';
     const where = (r: RuntimeReason) => `${r.what} (${relative(root, r.file).split(sep).join('/') || r.file}:${r.line})`;
     const list = reasons.slice(0, 3).map(where).join(', ') + (reasons.length > 3 ? `, and ${reasons.length - 3} more` : '');
-    logger?.info(`sinter: ${rel}: JavaScript ${size}: ${list}`);
+    logger?.info(`sinter: ${rel}: JavaScript ${size}: ${list}${lazySizes(rel, chunk, done, bundle)}`);
+  }
+
+  /**
+   * What a page defers (its log line): each lazy package and lazy component script its bundle can load,
+   * with the chunks that load with it and not with the page (gzip)
+   */
+  function lazySizes(rel: string, chunk: { fileName: string; code: string; imports: string[] } | undefined, statics: Set<string>, bundle: Record<string, unknown> | undefined): string {
+    if (!lazyPkgs.length || !chunk || !bundle) return '';
+    type C = { type?: string; code?: string; imports?: string[]; dynamicImports?: string[]; facadeModuleId?: string | null };
+    const own = new Set([chunk.fileName, ...statics]), scripts = new Set((lazyScriptsOf.get(rel) ?? []).map((x) => resolve(root, '.' + x.module)));
+    const out: string[] = [], counted = new Set<string>();
+    // the packages first: a chunk both a package and a script load counts as the package's
+    const found = new Map<string, { label: string; pkg: boolean }>();
+    for (const f of own) {
+      for (const d of (bundle[f] as C | undefined)?.dynamicImports ?? []) {
+        const facade = (bundle[d] as C | undefined)?.facadeModuleId ?? '';
+        if (isLazyModule(facade)) found.set(d, { label: lazyName(facade), pkg: true });
+        else if (scripts.has(facade)) found.set(d, { label: relOf(facade), pkg: false });
+      }
+    }
+    for (const [d, { label }] of [...found].sort((a, b) => Number(b[1].pkg) - Number(a[1].pkg))) {
+      if (out.some((x) => x.startsWith(label + ' '))) continue;
+      let gz = 0;
+      const todo = [d];
+      while (todo.length) {
+        const x = todo.pop()!;
+        if (own.has(x) || counted.has(x)) continue;
+        counted.add(x);
+        const c = bundle[x] as C | undefined;
+        if (c?.type !== 'chunk' || c.code === undefined) continue;
+        gz += gzipSync(c.code).length;
+        todo.push(...(c.imports ?? []));
+      }
+      out.push(`${label} ${(gz / 1000).toFixed(1)} kB gzip`);
+    }
+    return out.length ? `; lazy: ${out.join(', ')}` : '';
   }
 
   /** One line per page: the early file's size (gzip) and its language files'; over the budget a warning naming the largest modules. */

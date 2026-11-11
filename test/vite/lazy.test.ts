@@ -217,3 +217,32 @@ test('SN324 fails the build at the use', async () => {
     rmSync(bad, { recursive: true, force: true });
   }
 }, 60_000);
+
+test('SN325: a package that imports the lazy one, and an app module both imported and loaded with import()', async () => {
+  const bad = mkdtempSync(join(tmpdir(), 'sinter-lazy-325-'));
+  const w = (f: string, t: string) => { mkdirSync(join(bad, f, '..'), { recursive: true }); writeFileSync(join(bad, f), t); };
+  try {
+    w('node_modules/fakepgp/package.json', JSON.stringify({ name: 'fakepgp', type: 'module', main: 'index.js' }));
+    w('node_modules/fakepgp/index.js', 'export async function encrypt(t) { return t; }');
+    w('node_modules/autocrypt/package.json', JSON.stringify({ name: 'autocrypt', type: 'module', main: 'index.js' }));
+    w('node_modules/autocrypt/index.js', "import { encrypt } from 'fakepgp';\nexport const header = (t) => encrypt(t);");
+    w('src/lib/autocrypt.ts', "import { header } from 'autocrypt';\nexport const hdr = (t: string) => header(t);");
+    w('src/lib/big.ts', 'export const big = () => 1;');
+    w('src/sinter.actions.ts', "import { hdr } from './lib/autocrypt.ts';\nimport { big } from './lib/big.ts';\nexport async function go() { await import('./lib/big.ts'); return hdr('x') + big(); }\n");
+    w('index.html', '<!doctype html><html><head><title>x</title></head><body><button data-sn-call="go()">x</button></body></html>');
+    const err = await build({ root: bad, logLevel: 'silent', plugins: [sinter({ lazy: ['fakepgp'] })], resolve: { alias }, build: { outDir: join(bad, 'dist'), emptyOutDir: true } }).then(() => null, (e: Error) => e.message);
+    expect(err).toContain('SN325 index.html: the page bundle contains fakepgp, which `sinter({ lazy })` loads lazily: index.html → src/sinter.actions.ts → src/lib/autocrypt.ts → node_modules/autocrypt/index.js → fakepgp');
+    expect(err).toContain('SN325 index.html: src/lib/big.ts is loaded with `import()` by src/sinter.actions.ts, and imported statically by the page too (index.html → src/sinter.actions.ts → src/lib/big.ts)');
+  } finally {
+    rmSync(bad, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test('the build log: what each page defers, and why a component script is lazy', async () => {
+  const lines: string[] = [];
+  const logger = { info: (m: string) => { lines.push(m); }, warn: (m: string) => { lines.push(m); }, warnOnce: (m: string) => { lines.push(m); }, error: (m: string) => { lines.push(m); }, clearScreen() {}, hasErrorLogged: () => false, hasWarned: false };
+  await build({ root, customLogger: logger, plugins: [sinter({ lazy: ['fakepgp'] })], resolve: { alias }, build: { outDir: join(root, 'dist-log'), emptyOutDir: true, minify: false, rollupOptions: { input: { index: join(root, 'index.html'), comp: join(root, 'comp.html') } } } });
+  expect(lines.find((l) => l.startsWith('sinter: index.html: JavaScript'))).toMatch(/; lazy: fakepgp \d+\.\d kB gzip$/);
+  expect(lines.find((l) => l.startsWith('sinter: comp.html: JavaScript'))).toMatch(/; lazy: fakepgp \d+\.\d kB gzip, src\/components\/x-ring\.ts \d+\.\d kB gzip$/);
+  expect(lines).toContain('sinter: src/components/x-ring.ts loads with fakepgp, when its component first renders: src/components/x-ring.ts → fakepgp');
+}, 60_000);
