@@ -1,6 +1,6 @@
 {
   "name": "@tiaforge-ui/create",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "npm create @tiaforge-ui: a new app with sinter (JSON API bound to HTML) and temper (CSS for semantic HTML).",
   "license": "MIT",
   "author": "Tia Heinrich",
