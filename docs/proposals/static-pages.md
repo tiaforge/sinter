@@ -1,6 +1,6 @@
 # Proposal: pages without JavaScript
 
-Status: draft, for discussion. Nothing here is implemented. It builds on
+Status: draft, every question settled (see [Decisions](#decisions)). Nothing here is implemented. It builds on
 [layouts](../layouts.md) and on constants left out of the page module, both merged in
 [#26](https://github.com/tiaforge/sinter/pull/26). Every measurement below is from `main` at 5e6c1c8.
 
@@ -233,7 +233,11 @@ stored. The build rewrites:
   ```
 - Each head gets `<link rel="alternate" hreflang="…">` for every language and `x-default` for the
   base, so search engines index and link each language.
-- It applies to every page, not only static ones: one model per site. An app page gets its text in
+- It is a choice for the whole site, and it applies to every page, not only static ones. Without
+  `localePrefix` nothing changes: one HTML file per page, the language picked in the browser and
+  `$locale = 'de'` switching in place, keeping the page's state. The two models do not mix in one
+  site: switching in place on `/de/inbox.html` would show English at a German URL. With it, an app
+  page gets its text in
   the first frame in every language, with nothing hidden, and needs no picker. Messages over data
   (`m.inbox_count({ count: inbox.unread })`) still render in the browser, from that language's file,
   which the page module imports directly. `$locale` cannot be assigned (a build error): switching is
@@ -343,11 +347,9 @@ These are the behaviours a static page loses.
 
 ## Open questions
 
-1. **The option's name**: `localePrefix: true` (proposed: it says what the build does, every page
-   under its language's prefix), or a key of the messages option (`messages: { prefix: true }`)?
-2. **Both models, or only locale URLs**: with `localePrefix` on, the in-browser switch is gone for the
-   whole site (proposed). Should the in-browser model stay the default for apps that want switching
-   without a reload, or should locale URLs become the only model?
+None left. Worth watching once it is used: locale URLs may turn out to be the better model for
+apps in general, not only an optimization for static sites. If they do, making them the only model
+is a separate, breaking change.
 
 ## Decisions
 
@@ -362,3 +364,5 @@ Settled in review, in the order they were discussed:
 | Multilingual static sites | In scope: one HTML file per page and language | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | Locale URLs | Every language prefixed, the base too (`/en/…`, `/de/…`): one URL shape for servers; the root sends visitors to the base language | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
 | Staying in a language | Nothing is stored; each language's files link to that language's pages, so a visitor stays in the language they are in | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
+| The option's name | `sinter({ localePrefix: true })`: it says what the build does | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
+| One model or two | Both, chosen per site: the in-browser switch stays the default, `localePrefix` makes the whole site use locale URLs. Revisit once locale URLs have been used | [Multilingual static sites](#4-multilingual-static-sites-one-html-file-per-language) |
