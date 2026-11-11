@@ -65,7 +65,8 @@ describe('injection', () => {
     expect(root.querySelector('#ugc button')!.textContent).toBe('evil');
   });
   test('forged duplicate data-sn ids are not bound', async () => {
-    const { root } = await render(`<p data-sn-text="'bound'">x</p><p data-sn="0">forged</p>`);
+    // (a helper: the build does not write its value into the HTML, so the binding is the page module's, at id 0)
+    const { root } = await render(`<p data-sn-text="same('bound')">x</p><p data-sn="0">forged</p>`, { helpers: { same: (s: string) => s } });
     expect([...root.querySelectorAll('p')].map((p) => p.textContent)).toEqual(['x', 'forged']);
   });
   test('a mismatched tag is not bound', async () => {
@@ -183,7 +184,8 @@ test('the URL check reads the scheme as the URL parser does: no disagreement on 
 test('a relative URL is judged by the document\'s base: under <base href="ftp://…"> it is an ftp: link, refused; in rows too', async () => {
   const page = (base: string) => `<html><head>${base}</head><body data-sn-state="{ to: 'x/y', abs: 'https://ok.example/', rows: ['a'] }">
     <a id="rel" data-sn-attr="{href: to}">r</a><a id="abs" data-sn-attr="{href: abs}">a</a>
-    <ul><template data-sn-for="r in rows"><li><a data-sn-attr="{href: to + r}">row</a></li></template></ul></body></html>`;
+    <ul><template data-sn-for="r in rows"><li><a data-sn-attr="{href: to + r}">row</a></li></template></ul>
+    <button data-sn-on-click="to = ''; abs = ''; rows = []">clear</button></body></html>`;
   const ftp = await render(page('<base href="ftp://files.example/">'));
   expect(ftp.root.querySelector('#rel')!.hasAttribute('href')).toBe(false);
   expect(ftp.root.querySelector('li a')!.hasAttribute('href')).toBe(false);

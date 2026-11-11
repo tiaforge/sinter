@@ -24,7 +24,7 @@ test('delete is optimistic and rolls back on failure', async () => {
 });
 ```
 
-The module imports no test runner. Use Vitest or anything else, on jsdom or happy-dom. Compile errors fail the test with the same messages as the build.
+The module imports no test runner. Use Vitest or anything else, on jsdom or happy-dom. The page is compiled as a build compiles it, build-time constants included ([first paint](first-paint.md)): what nothing on the page writes is in the HTML, a `data-sn-if` it decides is its branch, and a loop over a constant list is its rows. Compile errors fail the test with the same messages as the build.
 
 ## render
 
@@ -34,6 +34,7 @@ The module imports no test runner. Use Vitest or anything else, on jsdom or happ
 | --- | --- |
 | `root` | the document body |
 | `app` | the mounted app |
+| `state(el)` | the nearest `data-sn-state` scope of `el`: `get()` and `update(fn)`, [below](#changing-state) |
 | `flush()` | run the scheduler until no binding is dirty. Deterministic, no timeouts |
 | `settle()` | `flush()` until every request, queue and debounce has finished |
 | `advance(ms)` | move sinter's clock: debounce, backoff, `$now` |
@@ -59,7 +60,7 @@ A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn
 | `scripts` | the scripts of components by name: the module (`await import('../src/components/task-ring.ts')`) or the class |
 | `storage`, `session` | `localStorage` and `sessionStorage`. Pass the same `memoryStorage()` to two renders to test what carries over between page loads |
 | `messages` | built-in messages as the files hold them, base language first: `{ en: {...}, de: {...} }` |
-| `firstPaint` | `true` or `{ early, afterEarly }`, [below](#firstpaint) |
+| `firstPaint` | `true` or `{ early, afterEarly }`: run the early script before mounting, [below](#firstpaint) |
 | `frames` | server-event changes wait for `frame()` instead of flushing in a microtask |
 | `pages` | your other pages by file name, so links to them prefetch their data as in a build |
 | `openapi` | a parsed OpenAPI document, as `sinter({ openapi })` gives the compiler |
@@ -73,6 +74,20 @@ const { root } = await render(page, { requests, helpers });
 ```
 
 Requests from the app's `configure({ request })` still run, before the mock.
+
+### Changing state
+
+Drive the page as a user would where you can: click the button whose handler writes the state. For a change that takes many steps, `state(el).update(fn)` writes the scope around `el` directly and re-renders all of it:
+
+```js
+const { root, state, flush } = await render(`<ul data-sn-state="{ items: [] }">
+  <template data-sn-for="it in items"><li data-sn-text="it.v"></li></template>
+  <button data-sn-on-click="items = []">clear</button></ul>`);
+state(root.querySelector('ul')).update((s) => { s.items.push({ v: 1 }); });
+await flush();
+```
+
+It stands for what the page writes, so it writes only what the page writes too. A field nothing on the page writes (no handler, model, action or component script) is a constant in the build: its first value is in the HTML and no binding follows a change. `update()` throws for one, naming it. A page has no `state()`: in the browser, state changes through handlers and a component script's `this.state`.
 
 ## mockRequests
 

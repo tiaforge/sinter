@@ -51,11 +51,6 @@ export interface Transport {
   close(): void;
 }
 
-export interface StateHandle<T = any> {
-  get(): T;
-  update(fn: (state: T) => void): void;
-}
-
 /** A binding attached to one element in one scope. */
 export interface BoundBinding {
   b: Binding;
@@ -213,7 +208,6 @@ export interface App {
   request(url: string, init?: SendInit): Promise<unknown>;
   optimistic<T>(change: () => void, run: () => Promise<T>): Promise<T>;
   on(event: string, fn: (payload: any) => void): () => void;
-  state<T = any>(el: Element): StateHandle<T>;
   destroy(): void;
 
   url(tpl: UrlTemplate, scope: any): string;
@@ -347,6 +341,15 @@ const ET = EventTarget.prototype;
 const HANDLERS = Symbol('sinter.on'), MODEL = Symbol('sinter.model');
 /** an element's own `data-sn-state`: `[sid, state object]` (for feature modules: a form's `$error`) */
 export const STATE = Symbol('sinter.state');
+
+/** The nearest `data-sn-state` scope of `el`: its state id and object (testing's `state(el)`). */
+export function scopeState(el: Element): [number, any] | null {
+  for (let e: Element | null = el; e; e = e.parentElement) {
+    const s = (e as Tagged)[STATE];
+    if (s) return s;
+  }
+  return null;
+}
 /** HANDLERS: one handler binding, or an array when the element has several */
 export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
 const indexReaders = new WeakMap<TemplateDef, boolean>();
@@ -595,14 +598,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
       listeners.get(event)!.add(fn);
       for (const l of app.onListen) l(event);
       return () => listeners.get(event)!.delete(fn);
-    },
-    state(el) {
-      for (let e: Element | null = el; e; e = e.parentElement) {
-        const s = (e as Tagged)[STATE];
-        // `**`: the island may have changed anything under the state, rows included
-        if (s) return { get: () => s[1], update: (fn) => { fn(s[1]); app.mark('$s' + s[0] + '.**'); } };
-      }
-      throw Error('sinter: no data-sn-state scope');
     },
     destroy() {
       destroyed = true;

@@ -3,7 +3,7 @@
 // happy-dom's DOM is slower than a browser's; the matching cases write one text node.
 //   npm run bench
 import { test } from 'vitest';
-import type { App } from '../../src/runtime/app.js';
+import { scopeState, type App } from '../../src/runtime/app.js';
 import { items, measure, page } from './page.js';
 
 /** `n` root text bindings over `n` state fields. */
@@ -22,12 +22,19 @@ function list(n: number) {
   </body></html>`;
 }
 
+/** writes the state of `el`'s scope and marks all of it, as a component script's write does */
+function write(app: App, el: Element, fn: (s: any) => void) {
+  const [sid, obj] = scopeState(el)!;
+  fn(obj);
+  app.mark(`$s${sid}.**`);
+}
+
 test('flush', () => {
   let app: App, el: Element, v = 0, i = 0;
   measure('flush, one state field of many changes (one text node written)', [100, 500, 2000].map((n) => ({
     name: `${n} root bindings`,
     setup: () => { app = page(bindings(n)); el = document.querySelector('span')!; },
-    run: () => { app.state(el).update((s) => { s.f0 = ++v; }); app.flush(); },
+    run: () => { write(app, el, (s) => { s.f0 = ++v; }); app.flush(); },
   })));
   measure('flush, one server upsert into a sorted list (store + reconcile)', [1000, 5000].map((n) => ({
     name: `${n} rows`,
@@ -38,7 +45,7 @@ test('flush', () => {
   measure('flush, a selection moves to another row (`r.id === sel`)', [1000, 5000].map((n) => ({
     name: `${n} rows`,
     setup: () => { app = page(selection(n)); el = document.querySelector('section')!; i = 0; },
-    run: () => { app.state(el).update((s) => { s.sel = (i++ * 7) % n; }); app.flush(); },
+    run: () => { write(app, el, (s) => { s.sel = (i++ * 7) % n; }); app.flush(); },
   })));
   // links in every row: a URL the compiler proves (`'/item/' + r.id`) is written without the browser's
   // URL check (a `new URL()` per write); one from the data keeps it

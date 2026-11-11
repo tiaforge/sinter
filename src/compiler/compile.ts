@@ -134,6 +134,11 @@ export interface CompileOptions {
    */
   unrolled?: Map<string, number>;
   /**
+   * internal, set by `compileParts` for its second pass: the state fields (`file:offset#field`) the first
+   * pass's decided `data-sn-if`s and unrolled loops read, for `fixedState`
+   */
+  frozen?: Set<string>;
+  /**
    * the page must ship no JavaScript (`sinter({ static })`): each thing that runs in the browser is
    * `SN322` where it was written. Needs `prerender`, which leaves out what can never change.
    */
@@ -261,6 +266,12 @@ export interface CompiledParts {
   static?: true;
   ir: IR;
   fns: string[];
+  /**
+   * with `prerender`: the state fields (`$s<sid>.<field>`) the build used as constants (written into the
+   * HTML, a branch decided, a loop unrolled), their bindings gone: writing one at run time changes nothing
+   * on the page. Testing's `state(el).update()` refuses them.
+   */
+  fixedState?: string[];
   /** with `sourcemap` */
   sources?: FnSources;
   features: string[];
@@ -442,7 +453,7 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   // (SN322 does not count: what the first pass found running may be a loop the second one unrolls)
   const unrolled = first.unrolls.size && !out.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322') ? first.unrolls : null;
   if (!first.decided.size && !unrolled) return out;
-  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}) }).run(html);
+  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), frozen: first.foldedState() }).run(html);
 }
 
 class Compiler {
@@ -478,6 +489,10 @@ class Compiler {
   private readonly undecided = new Set<string>();
   /** `data-sn-for` templates whose list is constant and whose rows need nothing at run time, by `unrollKey`, with the list's length */
   readonly unrolls = new Map<string, number>();
+  /** the state fields (`file:offset#field`) each decided `data-sn-if` and unrolled loop reads, by its key */
+  private readonly foldReads = new Map<string, Set<string>>();
+  /** the state fields (`$s<sid>.<field>`) whose bindings `dropConstants` left out */
+  private readonly frozen = new Set<string>();
   private readonly notUnrolled = new Set<string>();
   /** the second pass: the top-level elements of each unrolled row, with what their item and index are */
   private readonly rowOf = new WeakMap<P5Element, { tpl: P5Element; item: string; index: string | null; list: string; offset: number; k: number }>();
@@ -703,6 +718,7 @@ class Compiler {
       html: parse5.serialize(doc),
       runtime, ...(isStatic ? { static: true as const } : {}), ...(isStatic && this.canonicalLink ? { canonicalOnly: true } : {}),
       ir, fns: this.fns,
+      ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
@@ -3658,6 +3674,7 @@ class Compiler {
         const n = Array.isArray(v) && v.length <= MAX_UNROLL && v.every((x) => plainData(x)) ? v.length : -1;
         if (n < 0 || (usedMessage && !this.opts.locale) || this.notUnrolled.has(key) || (this.unrolls.has(key) && this.unrolls.get(key) !== n)) { this.unrolls.delete(key); this.notUnrolled.add(key); continue; }
         this.unrolls.set(key, n);
+        this.foldReads.set(key, this.stateSites(c.b.d));
         continue;
       }
       if (c.if) {
@@ -3667,6 +3684,7 @@ class Compiler {
         if (this.undecided.has(key)) continue;
         if (this.decided.has(key) && this.decided.get(key) !== !!v) { this.decided.delete(key); this.undecided.add(key); continue; }
         this.decided.set(key, !!v);
+        this.foldReads.set(key, this.stateSites(c.b.d));
         continue;
       }
       // in a page built in one language a message is that language's text, a constant like any other
@@ -3805,7 +3823,7 @@ class Compiler {
     for (const { el, node } of this.paints) {
       const keep = node.b.filter((b) => !drop(b));
       if (keep.length === node.b.length) continue;
-      for (const b of node.b) if (drop(b) && b.f !== undefined) this.fnUses[b.f]!--;
+      for (const b of node.b) if (drop(b)) { if (b.f !== undefined) this.fnUses[b.f]!--; this.freeze(b.d); }
       node.b = keep;
       if (!keep.length && node.state === undefined && node.sid === undefined) {
         gone.add(node);
@@ -3817,7 +3835,7 @@ class Compiler {
       const out = new Set<NodeDef>();
       for (const node of t.nodes) {
         if (!node.b.some((b) => this.tplPainted.has(b))) continue;
-        for (const b of node.b) if (this.tplPainted.has(b) && b.f !== undefined) this.fnUses[b.f]!--;
+        for (const b of node.b) if (this.tplPainted.has(b)) { if (b.f !== undefined) this.fnUses[b.f]!--; this.freeze(b.d); }
         node.b = node.b.filter((b) => !this.tplPainted.has(b));
         if (!node.b.length && node.state === undefined && node.sid === undefined) out.add(node);
       }
@@ -3858,7 +3876,8 @@ class Compiler {
       const m = typeof d === 'string' ? /^\$s(\d+)\.([^.]+)/.exec(d) : null;
       return !!m && m[2] !== '*' && m[2] !== '**' && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`);
     };
-    const strip = (ds: PathRef[] | undefined) => (ds?.some(fixed) ? ds.filter((d) => !fixed(d)) : ds);
+    // (what is left out is frozen: `fixedState`)
+    const strip = (ds: PathRef[] | undefined) => { if (!ds?.some(fixed)) return ds; this.freeze(ds.filter(fixed)); return ds.filter((d) => !fixed(d)); };
     const nodes = [...this.roots, ...this.templates.flatMap((t) => t.nodes)];
     for (const n of nodes) for (const b of n.b) if (b.d) b.d = strip(b.d)!;
     for (const r of this.resources) if (r.deps) r.deps = strip(r.deps);
@@ -3923,6 +3942,45 @@ class Compiler {
    * resources' and events' `then`, component scripts (their `cmp` bindings), and the runtime's own
    * (a form's `$error`, persisted values restored from storage).
    */
+  /** The state fields `deps` reads, by where their `data-sn-state` was written (`file:offset#field`): the same in both passes. */
+  stateSites(deps: PathRef[] | undefined): Set<string> {
+    const out = new Set<string>();
+    for (const d of strs(deps)) {
+      const m = /^\$s(\d+)\.([^.]+)/.exec(d);
+      const at = m && m[2] !== '*' && m[2] !== '**' ? this.stateAt.get(Number(m[1])) : undefined;
+      const key = at && this.siteKey(at.site.el);
+      if (key) out.add(`${key}#${m![2]}`);
+    }
+    return out;
+  }
+
+  /** For the second pass: the state fields the decided `data-sn-if`s and unrolled loops read. */
+  foldedState(): Set<string> {
+    return new Set([...this.decided.keys(), ...this.unrolls.keys()].flatMap((k) => [...this.foldReads.get(k) ?? []]));
+  }
+
+  /** State fields the build used as constants: read by a binding `dropConstants` left out, or left out of a binding's dependencies. */
+  freeze(deps: PathRef[] | undefined) {
+    for (const d of strs(deps)) {
+      const m = /^\$s(\d+)\.([^.]+)/.exec(d);
+      if (m && m[2] !== '*' && m[2] !== '**') this.frozen.add(`$s${m[1]}.${m[2]}`);
+    }
+  }
+
+  /**
+   * `fixedState`: the fields the build used as constants. Those the first pass's folds read are named by where
+   * their state was written (each use of a component agreed on the fold), in this pass's state ids.
+   */
+  fixedState(): string[] {
+    const out = new Set(this.frozen);
+    const sites = this.opts.frozen;
+    if (sites?.size) for (const [sid, at] of this.stateAt) {
+      const key = this.siteKey(at.site.el);
+      if (key) for (const f of at.fields.keys()) if (sites.has(`${key}#${f}`)) out.add(`$s${sid}.${f}`);
+    }
+    return [...out].sort();
+  }
+
   writtenState(): Set<string> {
     const out = new Set<string>();
     const add = (ws: PathRef[] | undefined) => {
@@ -4659,6 +4717,9 @@ function firstPaintValue(el: P5Element, b: Binding, v: unknown, schemes: Set<str
     case 'attr': {
       if (!isPrimitive(v)) return FAIL;
       if (v == null || v === false) return ['attr', null];
+      // a property the attribute does not set: no `indeterminate` attribute, a select's and a textarea's
+      // value is not one either. The binding stays: the runtime sets the property
+      if (b.n === 'indeterminate' || (b.n === 'value' && (el.tagName === 'select' || el.tagName === 'textarea'))) return FAIL;
       const s = v === true ? '' : '' + v;
       return urlAllowed({ localName: el.tagName } as Element, b.n!, s, 'https://sinter.invalid/', schemes) ? ['attr', s] : FAIL;
     }

@@ -22,7 +22,7 @@ const MESSAGES: Record<number, string> = {
   12: 'resource `%`: `items` path `%` is not an array',
   13: 'resource `%`: duplicate key `%`; the last one wins',
   14: 'resource `%`: item is missing key field `%`',
-  15: 'state `%` changed outside sinter: use `update()`',
+  15: 'state `%` changed outside sinter: write it from a handler, or a component script\'s `this.state`',
   16: 'unhandled error%: %',
   17: 'resource `%`: src could not be resolved: %',
   18: 'stream `%` is served over HTTP/1.1, where browsers allow 6 connections per origin: with more than 5 tabs of this app open, pages stop loading. Serve it over HTTP/2 (any TLS reverse proxy such as nginx or Caddy), or use the WebSocket transport',

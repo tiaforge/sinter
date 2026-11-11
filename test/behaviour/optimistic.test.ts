@@ -216,23 +216,38 @@ describe('data-sn-attr sets the live form state', () => {
     expect([box.checked, box.hasAttribute('checked')]).toEqual([false, false]);
   });
 
+  test('a constant the build writes: indeterminate, and a select\'s and a textarea\'s value, are properties without an attribute that sets them', async () => {
+    const { root } = await render(`
+      <div data-sn-state="{ s: 'b', t: 'hi', m: true, c: true }">
+        <select data-sn-attr="{value: s}"><option>a</option><option>b</option></select>
+        <textarea data-sn-attr="{value: t}"></textarea>
+        <input id="box" type="checkbox" data-sn-attr="{indeterminate: m}"><input id="on" type="checkbox" data-sn-attr="{checked: c}">
+      </div>`);
+    const q = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
+    expect([q<HTMLSelectElement>('select').value, q<HTMLTextAreaElement>('textarea').value, q<HTMLInputElement>('#box').indeterminate, q<HTMLInputElement>('#on').checked])
+      .toEqual(['b', 'hi', true, true]);
+    // `checked` is: the build writes it into the HTML
+    expect(q('#on').hasAttribute('checked')).toBe(true);
+  });
+
   test('value, selected and indeterminate follow the binding too; null and false clear them', async () => {
-    const { root, flush, app } = await render(`
+    const { root, flush, state } = await render(`
       <div data-sn-state="{ v: 'a', sel: true, mixed: true }">
         <input id="text" data-sn-attr="{value: v}">
         <select><option>x</option><option id="opt" data-sn-attr="{selected: sel}">y</option></select>
         <input id="box" type="checkbox" data-sn-attr="{indeterminate: mixed}">
+        <button data-sn-on-click="v = 'a'; sel = true; mixed = true">reset</button>
       </div>`);
     const text = root.querySelector<HTMLInputElement>('#text')!, opt = root.querySelector<HTMLOptionElement>('#opt')!;
     const box = root.querySelector<HTMLInputElement>('#box')!;
     expect([text.value, opt.selected, box.indeterminate]).toEqual(['a', true, true]);
-    // the user edits; the next value from the state still lands
+    // the user edits; the next value from the state still lands (the page writes it: the test's writes stand for the page's)
     text.value = 'typed';
     opt.selected = false;
-    app.state(text).update((s) => { s.v = 'b'; s.sel = false; s.mixed = false; });
+    state(text).update((s) => { s.v = 'b'; s.sel = false; s.mixed = false; });
     await flush();
     expect([text.value, opt.selected, box.indeterminate]).toEqual(['b', false, false]);
-    app.state(text).update((s) => { s.v = null; s.sel = true; });
+    state(text).update((s) => { s.v = null; s.sel = true; });
     await flush();
     expect([text.value, text.hasAttribute('value'), opt.selected]).toEqual(['', false, true]);
   });

@@ -22,18 +22,20 @@ test('per instance: connected with refs set, propsChanged once per render, state
     propsChanged() { log.push(`props ${this.props.done}/${this.props.open} ${this.refs.many ? 'many' : '-'}`); }
     disconnected() { log.push(`gone ${this.props.done}`); }
   }
-  const { root, flush, app } = await render(`
+  const { root, flush, state } = await render(`
     <div data-sn-state="{ items: [{ id: 1, done: 1, open: 1 }, { id: 2, done: 5, open: 0 }], picked: '' }">
       <template data-sn-for="t in items" data-sn-key="t.id">
         <task-ring data-sn-prop="{ done: t.done, open: t.open }" data-sn-on-pick="picked = picked + t.id"></task-ring>
       </template>
       <p data-sn-text="picked"></p>
+      <button data-sn-on-click="items = []">clear</button>
     </div>`, { components: { 'task-ring': RING }, scripts: { 'task-ring': { TaskRing } } });
   expect(log).toEqual(['connected 1/1 CANVAS - FIGURE', 'connected 5/0 CANVAS - FIGURE']);
   expect(root.querySelector('figcaption')!.textContent).toBe('1 / 2 (0)');
   log.length = 0;
+  // (the page writes the list, so the build leaves it live: the test's writes stand for the page's)
   // a live prop: one propsChanged for the instance whose props changed, after the render (the ref inside the branch is set)
-  app.state(root.querySelector('div')!).update((s) => { s.items[0].open = 3; s.items[0].done = 2; });
+  state(root.querySelector('div')!).update((s) => { s.items[0].open = 3; s.items[0].done = 2; });
   await flush();
   expect(log).toEqual(['props 2/3 many']);
   // the script writes state; its event reaches the caller's handler
@@ -43,7 +45,7 @@ test('per instance: connected with refs set, propsChanged once per render, state
   expect(root.querySelector('p')!.textContent).toBe('1');
   log.length = 0;
   // its row is removed: disconnected
-  app.state(root.querySelector('div')!).update((s) => { s.items.splice(1, 1); });
+  state(root.querySelector('div')!).update((s) => { s.items.splice(1, 1); });
   await flush();
   expect(log).toEqual(['gone 5']);
 });

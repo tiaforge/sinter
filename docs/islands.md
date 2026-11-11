@@ -208,7 +208,6 @@ app.on('new_email', payload => notify(payload));  // any server event, mapped or
 | `request(url, init)` | `fetch` through the request layer, with the same 401 handling as actions. |
 | `optimistic(change, run)` | Applies `change` as a layer and settles it with the promise from `run`: kept when it resolves, rolled back when it rejects. |
 | `on(event, fn)` | Subscribes to a server event by name (see [sync.md](sync.md)). Returns the unsubscribe function. |
-| `state(el)` | The state handle (`get()` and `update(fn)`) of the nearest `data-sn-state` scope. |
 
 `app.on` receives every event on the stream, including ones no `<sn-event>` maps, and fires after
 all mappings have run.

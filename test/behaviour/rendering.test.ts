@@ -450,36 +450,39 @@ test('<sn-include> is removed: the build error names what the partial reads from
     .rejects.toThrow(/SN316 include-removed: `<sn-include>` is removed: a partial is a component\. Move `\.\/card\.html` to `src\/components\/x-card\.html`.* It reads `c`, `x` from the page: add them to `data-sn-component` and pass them with `data-sn-prop="\{ c: c, x: x \}"`/);
 });
 
-test('islands: props in, events out, state().update()', async () => {
+test('custom elements: props in, events out, a prop follows its state', async () => {
   class XCard extends HTMLElement { data: unknown; }
   if (!customElements.get('x-card')) customElements.define('x-card', XCard);
-  const { root, flush, app } = await render(`
+  const { root, flush, state } = await render(`
     <div data-sn-state="{ item: {n: 1}, got: null }">
       <x-card data-sn-prop="{data: item}" data-sn-on-picked="got = $event.detail"></x-card>
       <p data-sn-text="got"></p><i data-sn-text="item.n"></i>
+      <button data-sn-on-click="item.n = 2">next</button>
     </div>`);
   const card = root.querySelector('x-card') as XCard;
   expect(card.data).toEqual({ n: 1 });
   card.dispatchEvent(new CustomEvent('picked', { detail: 'yes', bubbles: true }));
   await flush();
   expect(root.querySelector('p')!.textContent).toBe('yes');
-  app.state(card).update((s) => { s.item.n = 2; });
+  root.querySelector('button')!.click();
   await flush();
   expect(root.querySelector('i')!.textContent).toBe('2');
+  expect(card.data).toEqual({ n: 2 });
 });
 
-test('islands defined after mount: props reach the class\'s setters, with the latest values', async () => {
+test('custom elements defined after mount: props reach the class\'s setters, with the latest values', async () => {
   // Caley: an island's module loads after sinter has mounted and assigned its props
   const seen: unknown[] = [];
-  const { root, flush, app } = await render(`
+  const { root, flush, state } = await render(`
     <div data-sn-state="{ msg: {id: 1}, n: 0 }">
       <late-reader data-sn-prop="{message: msg, count: n}"></late-reader>
       <template data-sn-for="i in [1, 2]" data-sn-key="i"><late-reader data-sn-prop="{message: {id: i}}"></late-reader></template>
+      <button id="count" data-sn-on-click="n = 2">count</button><button id="next" data-sn-on-click="msg = { id: 3 }">next</button>
     </div>`);
   const [el, row] = [...root.querySelectorAll('late-reader')] as any[];
   expect(el.message).toEqual({ id: 1 });   // a plain property until the class exists
   // a value that changes before the class is defined: the latest one is what the setter gets
-  app.state(el).update((s) => { s.n = 2; });
+  root.querySelector<HTMLElement>('#count')!.click();
   await flush();
   class LateReader extends HTMLElement {
     #m: unknown = null;
@@ -495,7 +498,7 @@ test('islands defined after mount: props reach the class\'s setters, with the la
   expect(row.message).toEqual({ id: 1 });
   expect(seen).toEqual([['message', { id: 1 }], ['message', { id: 1 }], ['message', { id: 2 }]]);
   // later writes go through the setter
-  app.state(el).update((s) => { s.msg = { id: 3 }; });
+  root.querySelector<HTMLElement>('#next')!.click();
   await flush();
   expect(seen.at(-1)).toEqual(['message', { id: 3 }]);
 });
@@ -570,18 +573,23 @@ test('showModal() and close() check the dialog id at build time', async () => {
 });
 
 test('bindings in a closed dialog wait for it to open; bindings outside it do not', async () => {
+  // (the build writes the first value into the HTML, inside the dialog too: what waits is a change)
   const { root, flush } = await render(`
     <div data-sn-state="{ n: 1 }">
       <p data-sn-text="n"></p>
       <dialog><b data-sn-text="n"></b></dialog>
+      <button data-sn-on-click="n++">+</button>
     </div>`);
   const dialog = root.querySelector('dialog')!;
-  expect(root.querySelector('p')!.textContent).toBe('1');
-  expect(root.querySelector('b')!.textContent).toBe('');
+  expect(root.querySelector('b')!.textContent).toBe('1');
+  root.querySelector('button')!.click();
+  await flush();
+  expect(root.querySelector('p')!.textContent).toBe('2');
+  expect(root.querySelector('b')!.textContent).toBe('1');
   dialog.setAttribute('open', '');
   dialog.dispatchEvent(new Event('toggle'));
   await flush();
-  expect(root.querySelector('b')!.textContent).toBe('1');
+  expect(root.querySelector('b')!.textContent).toBe('2');
 });
 
 test('a select in a closed dialog waits for it to open, then picks its value from options rendered there', async () => {
@@ -620,7 +628,7 @@ test('a dialog inside a row template defers the bindings inside it', async () =>
   const { root, flush } = await render(`
     <ul data-sn-state="{ xs: [{ t: 'a' }] }"><template data-sn-for="x in xs">
       <li><i data-sn-text="x.t"></i><dialog><b data-sn-text="x.t"></b></dialog></li>
-    </template></ul>`);
+    </template><button data-sn-on-click="xs = []">clear</button></ul>`);
   expect(root.querySelector('i')!.textContent).toBe('a');
   expect(root.querySelector('b')!.textContent).toBe('');
   const dialog = root.querySelector('dialog')!;
@@ -719,20 +727,21 @@ test('query parameters whose value is null or undefined are left out', async () 
 
 test('an array as a whole query value is a repeated key; empty, it leaves the key out', async () => {
   const requests = mockRequests({ 'GET /api/s': [] });
-  const { root, settle, app } = await render(`
+  const { root, settle } = await render(`
     <div data-sn-state="{ q: 'x y', cals: ['a', 'b&c', null], none: [], one: [1] }">
       <sn-resource name="a" src="/api/s?q={q}&cal={cals}&n={one}#top" key="id"></sn-resource>
       <sn-resource name="b" src="/api/s?cal={none}&q={q}" key="id"></sn-resource>
       <sn-resource name="c" src="/api/s?q={q}&cal={none}" key="id"></sn-resource>
       <sn-resource name="d" src="/api/s?tags=t:{cals}" key="id"></sn-resource>
       <p data-sn-text="a.length + b.length + c.length + d.length"></p>
+      <button data-sn-on-click="cals = ['z']">z</button>
     </div>`, { requests });
   await settle();
   expect(requests.calls.map((c) => c.url).sort()).toEqual([
     '/api/s?q=x%20y', '/api/s?q=x%20y&cal=a&cal=b%26c&n=1', '/api/s?tags=t:a%2Cb%26c%2C',
   ]);
   // a change of the array refetches with the new values
-  app.state(root.querySelector('p')!).update((s) => { s.cals = ['z']; });
+  root.querySelector('button')!.click();
   await settle();
   expect(requests.calls.at(-2)!.url).toBe('/api/s?q=x%20y&cal=z&n=1');
 });
@@ -763,14 +772,15 @@ test('bindings after a component inside a template keep their node paths', async
   expect(root.querySelector('b')!.textContent).toBe('after');
 });
 
-test('an island\'s update() reaches row bindings and nested lists', async () => {
-  const { root, flush, app } = await render(`
+test('testing\'s state(el).update() reaches row bindings and nested lists', async () => {
+  const { root, flush, state } = await render(`
     <div data-sn-state="{ items: [{id: 1, t: 'a'}], rows: [{cols: ['x']}], n: 0 }">
       <template data-sn-for="it in items" data-sn-key="it.id"><li data-sn-text="it.t"></li></template>
       <template data-sn-for="r in rows"><p><template data-sn-for="c in r.cols" data-sn-key="c"><span data-sn-text="c"></span></template></p></template>
       <output data-sn-text="n"></output>
+      <button data-sn-on-click="items = []; rows = []; n = 0">clear</button>
     </div>`);
-  app.state(root.querySelector('div')!).update((s) => { s.items[0].t = 'b'; s.rows[0].cols.push('y'); s.n = 1; });
+  state(root.querySelector('div')!).update((s) => { s.items[0].t = 'b'; s.rows[0].cols.push('y'); s.n = 1; });
   await flush();
   expect(root.querySelector('li')!.textContent).toBe('b');
   expect([...root.querySelectorAll('span')].map((s) => s.textContent)).toEqual(['x', 'y']);

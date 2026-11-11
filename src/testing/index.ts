@@ -9,7 +9,7 @@ import type { CompiledParts, HelperManifest } from '../compiler/compile.js';
 import * as earlyExports from '../early.js';
 import { early as runEarly } from '../early.js';
 import { t as message, use as useMessages } from '../messages.js';
-import { mount, type App, type Feature, type Transport } from '../runtime/app.js';
+import { mount, scopeState, type App, type Feature, type Transport } from '../runtime/app.js';
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
 import { $k } from '../runtime/security.js';
@@ -257,6 +257,12 @@ export interface FirstPaintTestOptions {
 export interface Rendered {
   root: HTMLElement;
   app: App;
+  /**
+   * The nearest `data-sn-state` scope of `el`, to change state the way the page cannot from a test: `update(fn)`
+   * marks the whole scope. A field the build used as a constant (nothing on the page writes it) has no bindings
+   * left, so writing it throws: write it from a handler or a component script, as the page would.
+   */
+  state<T = any>(el: Element): StateHandle<T>;
   /** runs the scheduler until no binding is dirty */
   flush(): Promise<void>;
   /** flushes until every request, queue and debounce has finished */
@@ -273,6 +279,11 @@ export interface Rendered {
   frame(): Promise<void>;
   /** dispatches a window event to sinter; `props` are set on the event (`pageswap`/`pagereveal`: `viewTransition`, `activation`) */
   window(type: 'pagehide' | 'pageshow' | 'popstate' | 'online' | 'beforeunload' | 'pageswap' | 'pagereveal', props?: Record<string, unknown>): Promise<void>;
+}
+
+export interface StateHandle<T = any> {
+  get(): T;
+  update(fn: (state: T) => void): void;
 }
 
 interface Timer { id: number; at: number; fn: () => void; kind: string }
@@ -357,7 +368,8 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
       if (hit === undefined) throw new Error(`no such file: ${p}`);
       return hit;
     },
-    ...(options.firstPaint ? { prerender: true, early: { module: null } } : {}),
+    // compiled as a build does (both passes: build-time constants, decided branches, unrolled loops); `firstPaint` runs the early chunk
+    prerender: true, ...(options.firstPaint ? { early: { module: null } } : {}),
     ...(options.openapi ? { openapi: [{ file: 'openapi.yml', doc: options.openapi }] } : {}),
     ...(options.remoteImages ? { remoteImages: resolveRemote(options.remoteImages) } : {}),
     // static images stay as written in tests (no files to encode); the stylesheets size bound ones
@@ -544,9 +556,38 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     await flush();
   };
 
+  // the fields the build used as constants: a write to one would change nothing on the page
+  const fixed = new Set(parts.fixedState ?? []);
+  const snap = (v: unknown) => { try { return JSON.stringify(v); } catch { return v; } };
+  const state = (el: Element): StateHandle => {
+    const s = scopeState(el);
+    // (a state nothing on the page writes, and nothing reads at run time, is left out of the build)
+    if (!s) throw Error('sinter: no data-sn-state scope: the element has none, or nothing on the page writes or reads it at run time, so the build left it out');
+    const [sid, obj] = s;
+    return {
+      get: () => obj,
+      update: (fn) => {
+        const touched = new Map<string, unknown>();
+        const see = (k: string | symbol) => { if (typeof k === 'string' && !touched.has(k)) touched.set(k, snap(obj[k])); };
+        fn(new Proxy(obj, {
+          get: (t, k) => { see(k); return Reflect.get(t, k); },
+          set: (t, k, v) => { see(k); return Reflect.set(t, k, v); },
+          deleteProperty: (t, k) => { see(k); return Reflect.deleteProperty(t, k); },
+        }));
+        const frozen = [...touched].filter(([k, was]) => fixed.has(`$s${sid}.${k}`) && snap(obj[k]) !== was).map(([k]) => k);
+        if (frozen.length) {
+          throw Error(`sinter: nothing on the page writes ${frozen.map((k) => `\`${k}\``).join(', ')}, so the build made ${frozen.length > 1 ? 'them constants' : 'it a constant'} `
+            + '(the first value is in the HTML, and no binding follows a change): write it from a handler or a component script, as the page would');
+        }
+        // `**`: the test may have changed anything under the state, rows included
+        app.mark('$s' + sid + '.**');
+      },
+    };
+  };
+
   await flush();
   return {
-    root: doc.body, app, flush, settle, advance, navigations,
+    root: doc.body, app, state, flush, settle, advance, navigations,
     url: () => href,
     frame: async () => {
       for (let j = 0; j < 10; j++) await Promise.resolve();

@@ -54,15 +54,15 @@ test('a form with a file input is sent as multipart/form-data', async () => {
 
 test('dev builds warn when state changes outside sinter', async () => {
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  const { root, app, flush } = await render(`<div data-sn-state="{ n: 0 }"><p data-sn-text="n"></p><button data-sn-on-click="n++"></button></div>`);
-  (app.state(root.querySelector('p')!).get() as { n: number }).n = 5;
+  const { root, app, state, flush } = await render(`<div data-sn-state="{ n: 0 }"><p data-sn-text="n"></p><button data-sn-on-click="n++"></button></div>`);
+  (state(root.querySelector('p')!).get() as { n: number }).n = 5;
   root.querySelector('button')!.click();
   await flush();
-  expect(warn.mock.calls.some((c) => String(c[0]).includes('changed outside sinter: use `update()`'))).toBe(false);
-  (app.state(root.querySelector('p')!).get() as { n: number }).n = 9;
+  expect(warn.mock.calls.some((c) => String(c[0]).includes('changed outside sinter: write it from a handler'))).toBe(false);
+  (state(root.querySelector('p')!).get() as { n: number }).n = 9;
   app.mark('$r.none');
   await flush();
-  expect(warn.mock.calls.some((c) => String(c[0]).includes('state `n` changed outside sinter: use `update()`'))).toBe(true);
+  expect(warn.mock.calls.some((c) => String(c[0]).includes('state `n` changed outside sinter: write it from a handler'))).toBe(true);
 });
 
 test('dev builds warn about duplicate keys and missing key fields', async () => {

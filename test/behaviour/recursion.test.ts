@@ -73,13 +73,14 @@ describe('<sn-component use>: a component chosen by data', () => {
   };
   const page = (use: string) => `<div data-sn-state="{ blocks: [{ id: 1, type: 'hero', title: 'Hi', body: '' }, { id: 2, type: 'text', title: '', body: 'Body' }, { id: 3, type: 'image', title: '', body: '' }] }">
     <template data-sn-for="b in blocks" data-sn-key="b.id"><sn-component use="${use}" data-sn-prop="{ block: b }"></sn-component><template data-sn-else><i data-sn-text="'no ' + b.type"></i></template></template>
+    <button data-sn-on-click="blocks = []">clear</button>
   </div>`;
   const shown = (root: HTMLElement) => [...root.querySelectorAll('h1, p, i')].map((e) => `${e.localName}${e.className ? '.' + e.className : ''}:${e.textContent}`);
 
   test('convention, map and helper; a value outside the candidates renders the else template; a change switches', async () => {
     const conv = await render(page('`${b.type}-block`'), { components: BLOCKS });
     expect(shown(conv.root)).toEqual(['h1:Hi', 'p:Body', 'i:no image']);
-    conv.app.state(conv.root.querySelector('div')!).update((s) => { s.blocks[0].type = 'text'; s.blocks[0].body = 'now text'; });
+    conv.state(conv.root.querySelector('div')!).update((s) => { s.blocks[0].type = 'text'; s.blocks[0].body = 'now text'; });
     await conv.flush();
     expect(shown(conv.root)).toEqual(['p:now text', 'p:Body', 'i:no image']);
     const map = await render(page("{ hero: 'hero-block', text: 'rich-text' }[b.type]"), { components: BLOCKS });
@@ -140,11 +141,12 @@ test('<sn-component use>: dev builds warn about a value outside the candidates, 
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {
     const C = { 'hero-block': '<template data-sn-component="{ block: { title: string } }"><h1 data-sn-text="block.title"></h1></template>' };
-    const { root, app, flush } = await render(`<div data-sn-state="{ blocks: [{ id: 1, type: 'hero', title: 'Hi' }, { id: 2, type: 'image', title: '' }, { id: 3, type: 'image', title: '' }] }">
-      <template data-sn-for="b in blocks" data-sn-key="b.id"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }"></sn-component></template></div>`, { components: C });
+    const { root, state, flush } = await render(`<div data-sn-state="{ blocks: [{ id: 1, type: 'hero', title: 'Hi' }, { id: 2, type: 'image', title: '' }, { id: 3, type: 'image', title: '' }] }">
+      <template data-sn-for="b in blocks" data-sn-key="b.id"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }"></sn-component></template>
+      <button data-sn-on-click="blocks = []">clear</button></div>`, { components: C });
     const calls = () => warn.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('<sn-component use>'));
     expect(calls()).toEqual([expect.stringMatching(/^sinter: <sn-component use> at .*page\.html:\d+:\d+ is "image-block", not one of its components \(hero-block\): nothing is rendered/)]);
-    app.state(root.querySelector('div')!).update((s) => { s.blocks.push({ id: 4, type: 'video', title: '' }); });
+    state(root.querySelector('div')!).update((s) => { s.blocks.push({ id: 4, type: 'video', title: '' }); });
     await flush();
     expect(calls()).toHaveLength(2);
     expect(calls()[1]).toContain('"video-block"');

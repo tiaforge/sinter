@@ -16,10 +16,12 @@ test('random list changes: DOM order matches state, surviving rows keep their no
   for (const seed of [1, 2, 3, 4, 5]) {
     const rand = rng(seed);
     const int = (n: number) => Math.floor(rand() * n);
-    const { root, app, flush } = await render(`
-      <ul data-sn-state="{ items: [] }"><template data-sn-for="it in items"><li data-sn-text="it.v"></li></template></ul>`);
+    // (the page writes the list, so the build leaves it live: the test's writes stand for the page's)
+    const { root, state: stateOf, flush } = await render(`
+      <div data-sn-state="{ items: [] }"><button data-sn-on-click="items = []">clear</button>
+        <ul><template data-sn-for="it in items"><li data-sn-text="it.v"></li></template></ul></div>`);
     const ul = root.querySelector('ul')!;
-    const state = app.state(ul);
+    const state = stateOf(ul);
     let next = 0;
     const nodes = new Map<object, Element>();
     for (let step = 0; step < 60; step++) {

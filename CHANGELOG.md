@@ -5,6 +5,18 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Breaking
+
+- The instance has no `state(el)` anymore (`StateHandle` is gone from the exports). It wrote state the compiler could not
+  see, so a field nothing on the page writes had been made a build-time constant and the page did not follow the
+  write. State changes through handlers, models, actions and a component script's `this.state`. The dev warning for
+  state changed outside sinter now says so.
+- `render()` in `@tiaforge-ui/sinter/testing` compiles the page as a build does, build-time constants included (before,
+  only with `firstPaint`): a test sees the built page's DOM (a constant written into the HTML, a decided `data-sn-if` as
+  its branch, a constant loop as its rows), and the build's bugs show up in tests. `firstPaint` now only runs the early
+  script before mounting. Its result has `state(el)` for tests; `update()` throws for a field the build made a
+  constant, naming it: write it from a handler on the page.
+
 ### Added
 
 - `render(html, { layouts })` in `@tiaforge-ui/sinter/testing` takes the app's layouts by name, as `components` does, so
@@ -13,10 +25,13 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- A build-time constant in `data-sn-attr` for `indeterminate`, or for `value` on a `<select>` or `<textarea>`, is no longer
+  written into the HTML as an attribute, which sets nothing there (the checkbox was not indeterminate, the select showed
+  its first option, the textarea was empty). The binding stays and sets the property.
 - Slot content whose `data-sn-if` the build decides (a condition over a constant prop or state nothing writes) or
   whose `data-sn-for` it unrolls stays its writer's: an `emit()` in the branch is checked against the writer's
   `data-sn-emits` (not the slot's component, `SN315`), the rows see the writer's state, and both stay outside the slot
-  component's scoped styles. `render()` shows it with `firstPaint`, which runs the build's second pass.
+  component's scoped styles.
 
 ## 0.14.0 (2026-11-11)
 
