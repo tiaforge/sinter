@@ -55,8 +55,9 @@ My first draft of this proposal (against `main` before #26) had five steps. Two 
 | A binding that reads nothing leaves the IR, with its `data-sn` marker | Done: "a value that can never change is written into the HTML and carries nothing in the page module", at the top level and inside templates |
 | State that nothing writes is a constant | Done, and more: dependencies on such state are left out of every binding, unread fields leave their state, and a `data-sn-if` over it is decided at build time |
 
-That leaves three steps, plus two small leftovers of #26 that matter here because they keep an
-otherwise empty page module non-empty.
+What is left for pages without JavaScript is steps 1 to 3 below, plus two small leftovers of #26
+that keep an otherwise empty page module non-empty. Steps 4 to 6 came out of the review: what static
+sites need besides shipping no JavaScript (languages, canonical URLs, page URLs).
 
 ## Design
 
@@ -260,8 +261,8 @@ German page stays on German pages, with nothing stored. The build rewrites:
   <a data-sn-attr="{ href: localeUrl('de'), 'aria-current': $locale === 'de' ? 'true' : null }" hreflang="de">Deutsch</a>
   ```
 - Each head gets `<link rel="alternate" hreflang="…">` for every language's URL of the page, and
-  `x-default` for the root (`/`), which sends a visitor to a language, so search engines index and
-  link each language. Search engines want these URLs absolute, so they are written from
+  `x-default` for the page's unprefixed URL (`/about/` for `about.html`, `/` for `index.html`), whose
+  redirect file sends a visitor to a language, so search engines index and link each language. Search engines want these URLs absolute, so they are written from
   `sinter({ site })` (step 5); without it the build writes none and says so once.
 - It is a choice for the whole site, and it applies to every page, not only static ones. Without
   `localePrefix` nothing changes: one HTML file per page, the language picked in the browser and
@@ -375,8 +376,8 @@ The source `index.html`, German build: `$canonical` is `https://example.com/docs
 - With `site`, every page with a fixed path gets `<link rel="canonical" href="…">` with `$canonical` in
   its head. A page or layout that writes its own `<link rel="canonical">` keeps it, for a page whose
   content lives at another URL, and `$canonical` is then that link's URL, so the canonical link and
-  `og:url` always agree. A link written by hand must be a literal absolute URL. `SN321` already allows
-  only one. The redirect files of `localePrefix` are not pages and get none. Without `site`, no
+  `og:url` always agree. A link written by hand must be a literal absolute URL; a relative one is a
+  build error (`SN323`, naming `$site + '/…'` as the way to write it). `SN321` already allows only one. The redirect files of `localePrefix` are not pages and get none. Without `site`, no
   canonical link is written, as today.
 - The same root makes `hreflang` and `x-default` absolute (step 4).
 - `$url` stays what it is: the query and the path parameters, known only in the browser, so a page
@@ -387,7 +388,9 @@ The source `index.html`, German build: `$canonical` is `https://example.com/docs
 A page whose path is a pattern (`data-sn-path="/docs/article/:slug"`, with the config's `base`) is one
 HTML file for many URLs, so the build cannot know its path. It is not static anyway: it reads `$url`.
 There `$canonical` is not a constant: the early script computes it from the origin and the browser's
-path (no query), so a layout's `og:url` binding works on both kinds of page. Opened as
+path (no query, and no trailing slash, since patterns match with or without one: `/article/hello/`
+and `/article/hello` have one canonical URL), so a layout's `og:url` binding works on both kinds of
+page. Opened as
 `/docs/de/article/hello?ref=feed`:
 
 ```
@@ -508,7 +511,8 @@ These are the behaviours a static page loses.
   language, `lang`, `hreflang` links and `localeUrl()` written in; links to the app's pages carry the
   page's language (root-relative ones rewritten, bound ones from the runtime, `hreflang` links left);
   the base language is prefixed too; every unprefixed path (the root too) is a redirect file that
-  sends a visitor without JavaScript to the base language, and `x-default` points to the root; on a
+  sends a visitor without JavaScript to the base language, and each page's `x-default` points to its
+  own unprefixed URL; on a
   site with JavaScript, a page sets the `locale` cookie and the redirect file follows it, then
   `navigator.languages`, then the base; on a site without any, the redirect files have no script;
   sinter-axum redirects unprefixed paths by the cookie, then `Accept-Language`;
@@ -537,22 +541,26 @@ These are the behaviours a static page loses.
 
 ## Plan
 
+In this order: locale URLs build on the page URLs (directories, link rewriting, redirect files) and on
+the canonical URLs (absolute `hreflang`), so those come first.
+
 1. Unroll `data-sn-for` over constants (step 1). This also fixes the empty first frame for constant
    lists on app pages, so it is worth doing even without the rest.
 2. Clean up #26's leftovers: no `fns` placeholders, no node for an empty state (step 2).
 3. `module: null` and the plugin changes, including the CSS path (step 2).
 4. The build report line, and `sinter({ static })` / `SN322` (step 3).
-5. A prototype of the virtual per-language inputs in Vite (every language prefixed, a redirect file
-   at each unprefixed path), build and dev, before the rest of step 4.
-6. Locale URLs (step 4): fixed-locale compilation, messages in attributes, build-time `date()` and
-   `number()`, `localeUrl()`, `hreflang`, link rewriting, the redirect files and the `locale` cookie, the
-   prefix in everything that knows page paths, sinter-axum's router and its redirects.
-7. Canonical URLs (step 5): `site`, `$site`, `$canonical`, `SN323`, the canonical link, absolute
-   `hreflang`, `$canonical` in the early script and the embed layer's canonical link for pattern pages,
-   in Node and in sinter-axum.
-8. Page URLs (step 6): the directory form, link rewriting and rebasing, the redirect files for old
+5. Page URLs (step 6): the directory form, link rewriting and rebasing, the redirect files for old
    URLs, the files that stay, collisions, the `data-sn-path` warning, dev and preview. RealWorld's
    fixed `data-sn-path`s go.
+6. Canonical URLs (step 5): `site`, `$site`, `$canonical`, `SN323`, the canonical link,
+   `$canonical` in the early script and the embed layer's canonical link for pattern pages, in Node
+   and in sinter-axum.
+7. A prototype of the virtual per-language inputs in Vite (every language prefixed, a redirect file
+   at each unprefixed path), build and dev, before the rest of step 4.
+8. Locale URLs (step 4): fixed-locale compilation, messages in attributes, build-time `date()` and
+   `number()`, `localeUrl()`, absolute `hreflang`, the prefix in link rewriting, the redirect files and
+   the `locale` cookie, the prefix in everything that knows page paths, sinter-axum's router and its
+   redirects.
 9. Docs: a guide, `docs/static-pages.md` (what ships no JavaScript and why, the report line, the
    matcher, next-page data, the config module, multilingual sites and first-visit redirects on common
    hosts, canonical URLs, page URLs and the hosts that serve them), linked from `layouts.md` and `first-paint.md`; the config module's rule in
