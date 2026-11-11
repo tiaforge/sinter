@@ -1,0 +1,24 @@
+<!-- The document both pages share: the head, the header, the frame around the page's content and the
+     toast region. A page is this tag, with its title as a prop and its content inside.
+     `armed`: whether the next change is set to fail. The header sets it; the next failed action, on
+     any page, resets it (sn-error bubbles to <body>). -->
+<!doctype html>
+<html lang="en" data-sn-layout="{ title?: string }">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title data-sn-text="title ? title + ' · Tasks' : 'Tasks'">Tasks</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body data-sn-state="{ armed: false }" data-sn-on-sn-error="armed = false">
+  <app-header data-sn-prop="{ armed }" data-sn-on-arm="armed = true"></app-header>
+
+  <main data-layout="center" data-gap="lg" data-pad="lg" style="--tm-measure: 48rem">
+    <slot></slot>
+  </main>
+
+  <div data-toasts role="status"></div>
+</body>
+</html>

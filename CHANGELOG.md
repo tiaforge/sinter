@@ -121,6 +121,9 @@ Attribute names, function names and diagnostic codes are public API. Before
   properties, `$el` has the element's class, and `$event.detail` has the type `SinterElementEvents` gives the event on
   that tag (`interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean } }`).
 
+- The starter template (`npm create @tiaforge-ui`) shares one layout, `src/layouts/app-layout.html`: the head, the
+  header, the frame and the toast region, and the "fail next change" state, which is the layout's now. Each page is
+  the layout's tag; the task page's tab title is the task's.
 - RealWorld is built with components: header, footer, article meta, byline, preview, error list and one favorite
   button for the feed, the profile and the article page.
 

@@ -1,18 +1,8 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <title>Tasks</title>
-  <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/src/style.css">
-</head>
-<!-- Page state: the search, the filter (kept across page loads by data-sn-persist), the new task's
-     draft, and whether the next change is set to fail. N opens the new-task dialog. -->
-<body data-sn-state="{ q: '', show: 'all', draft: { title: '' }, armed: false }"
-      data-sn-on-sn-error="armed = false"
-      data-sn-on-keydown-n="showModal('new-task')">
+<!-- The page is the app layout (src/layouts/app-layout.html): its head, header and frame. Page state: the
+     search, the filter (kept across page loads by data-sn-persist) and the new task's draft.
+     N opens the new-task dialog. -->
+<app-layout data-sn-state="{ q: '', show: 'all', draft: { title: '' } }"
+            data-sn-on-keydown-n="showModal('new-task')">
 
   <!-- The data: loaded once, kept sorted, shown at once on the next page load (`cache`), then revalidated. -->
   <sn-resource name="tasks" src="/api/tasks" key="id" order="-createdAt" type="Task[]" cache></sn-resource>
@@ -23,56 +13,52 @@
     <sn-event name="task_removed" resource="tasks" op="remove" type="TaskRemoved"></sn-event>
   </sn-sync>
 
-  <app-header data-sn-prop="{ armed }" data-sn-on-arm="armed = true"></app-header>
+  <div data-layout="row" data-gap="sm">
+    <h1 data-grow>Tasks</h1>
+    <button commandfor="new-task" command="show-modal" data-icon="plus">New task <kbd>N</kbd></button>
+  </div>
 
-  <main data-layout="center" data-gap="lg" data-pad="lg" style="--tm-measure: 48rem">
-    <div data-layout="row" data-gap="sm">
-      <h1 data-grow>Tasks</h1>
-      <button commandfor="new-task" command="show-modal" data-icon="plus">New task <kbd>N</kbd></button>
-    </div>
+  <!-- split: the chart beside the list, above it on a phone -->
+  <div data-layout="split" data-gap="lg" style="--tm-split: 9rem">
+    <!-- A component with a script: the tasks in through props, the filter back out through its event. -->
+    <aside>
+      <task-chart data-sn-prop="{ tasks, show }" data-sn-on-pick="show = $event.detail"></task-chart>
+    </aside>
 
-    <!-- split: the chart beside the list, above it on a phone -->
-    <div data-layout="split" data-gap="lg" style="--tm-split: 9rem">
-      <!-- A component with a script: the tasks in through props, the filter back out through its event. -->
-      <aside>
-        <task-chart data-sn-prop="{ tasks, show }" data-sn-on-pick="show = $event.detail"></task-chart>
-      </aside>
+    <section data-layout="stack" data-gap="md" data-sn-let="{ shown: visible(tasks, q, show) }">
+      <div data-layout="row" data-gap="sm">
+        <input type="search" data-grow placeholder="Search" aria-label="Search tasks" data-sn-model="q">
+        <select aria-label="Show" data-sn-model="show" data-sn-persist="task-filter">
+          <option value="all">All</option>
+          <option value="open">Open</option>
+          <option value="done">Done</option>
+        </select>
+      </div>
 
-      <section data-layout="stack" data-gap="md" data-sn-let="{ shown: visible(tasks, q, show) }">
-        <div data-layout="row" data-gap="sm">
-          <input type="search" data-grow placeholder="Search" aria-label="Search tasks" data-sn-model="q">
-          <select aria-label="Show" data-sn-model="show" data-sn-persist="task-filter">
-            <option value="all">All</option>
-            <option value="open">Open</option>
-            <option value="done">Done</option>
-          </select>
-        </div>
+      <p data-sn-show="$meta.tasks.loading && !tasks.length" aria-busy="true">Loading…</p>
+      <p data-muted data-sn-show="$meta.tasks.loadedAt && !shown.length">No tasks here.</p>
 
-        <p data-sn-show="$meta.tasks.loading && !tasks.length" aria-busy="true">Loading…</p>
-        <p data-muted data-sn-show="$meta.tasks.loadedAt && !shown.length">No tasks here.</p>
-
-        <ul data-list data-sn-show="shown.length">
-          <template data-sn-for="t in shown">
-            <li data-layout="row" data-gap="sm" data-wrap="none">
-              <!-- Optimistic: ticks at once, rolls back if the server refuses. -->
-              <input type="checkbox" aria-label="Done"
-                     data-sn-patch="/api/tasks/{t.id}" data-sn-body="{ done: !t.done }"
-                     data-sn-optimistic="patch(t, { done: !t.done })"
-                     data-sn-attr="{ checked: t.done }">
-              <!-- The title morphs into the heading of the task's page (view transition). -->
-              <div data-grow data-layout="stack" data-gap="none">
-                <a data-truncate data-sn-attr="{ href: '/task/?id=' + t.id }"
-                   data-sn-transition="'task-' + t.id" data-sn-text="t.title"></a>
-                <small data-muted data-sn-text="relative(t.createdAt)"></small>
-              </div>
-              <button data-icon="trash-2" data-variant="ghost" data-size="sm" data-tone="danger" aria-label="Delete task"
-                      data-sn-delete="/api/tasks/{t.id}" data-sn-optimistic="remove(t)"></button>
-            </li>
-          </template>
-        </ul>
-      </section>
-    </div>
-  </main>
+      <ul data-list data-sn-show="shown.length">
+        <template data-sn-for="t in shown">
+          <li data-layout="row" data-gap="sm" data-wrap="none">
+            <!-- Optimistic: ticks at once, rolls back if the server refuses. -->
+            <input type="checkbox" aria-label="Done"
+                   data-sn-patch="/api/tasks/{t.id}" data-sn-body="{ done: !t.done }"
+                   data-sn-optimistic="patch(t, { done: !t.done })"
+                   data-sn-attr="{ checked: t.done }">
+            <!-- The title morphs into the heading of the task's page (view transition). -->
+            <div data-grow data-layout="stack" data-gap="none">
+              <a data-truncate data-sn-attr="{ href: '/task/?id=' + t.id }"
+                 data-sn-transition="'task-' + t.id" data-sn-text="t.title"></a>
+              <small data-muted data-sn-text="relative(t.createdAt)"></small>
+            </div>
+            <button data-icon="trash-2" data-variant="ghost" data-size="sm" data-tone="danger" aria-label="Delete task"
+                    data-sn-delete="/api/tasks/{t.id}" data-sn-optimistic="remove(t)"></button>
+          </li>
+        </template>
+      </ul>
+    </section>
+  </div>
 
   <dialog id="new-task" closedby="any">
     <form data-layout="stack" data-gap="md" data-sn-post="/api/tasks" data-sn-body="draft"
@@ -89,7 +75,4 @@
       </footer>
     </form>
   </dialog>
-
-  <div data-toasts role="status"></div>
-</body>
-</html>
+</app-layout>

@@ -12,7 +12,7 @@ It runs against a demo API inside Vite, so there is nothing else to start. The a
 - server data with live updates across tabs
 - optimistic changes that roll back when the server refuses
 - a dialog without JavaScript
-- an island (a canvas chart)
+- a layout both pages share, and components (one with a script that draws a canvas chart)
 - next-page data and page transitions
 - build-time checks that turn typos into build errors
 

@@ -1,8 +1,9 @@
 # Tasks: sinter + temper
 
 A small task board: [sinter](https://github.com/tiaforge/sinter) binds the JSON API to plain HTML,
-[temper](https://github.com/tiaforge/temper) styles the HTML. There are no components, no router
-and no store, and the only CSS the app writes is for its one custom element.
+[temper](https://github.com/tiaforge/temper) styles the HTML. There is no router, no store and no
+hydration: the pages share a layout and two components, all expanded at build time, and the only CSS
+the app writes is the chart's.
 
 ```sh
 npm install
@@ -45,13 +46,15 @@ type: see sinter's `docs/editors.md`.
 
 | File | What it is |
 | --- | --- |
-| `index.html`, `task.html` | The pages: `data-sn-*` for data, `data-*` from temper for looks. |
+| `index.html`, `task.html` | The pages: `data-sn-*` for data, `data-*` from temper for looks. Each is one `<app-layout>` tag. |
+| `src/layouts/app-layout.html` | The layout: the head, the header and the frame both pages share; the page's content fills its slot. |
 | `src/components/app-header.html` | A component: shared markup, expanded at build time where `<app-header>` is used. |
+| `src/components/task-chart.html` | A component with a script: its markup, props and event. |
 | `src/sinter.types.ts` | The API's types. `type="Task[]"` on a resource checks every expression that reads it. |
 | `src/sinter.helpers.ts` | Functions expressions can call (`visible(…)`). |
 | `src/sinter.config.ts` | Error handling. |
 | `src/components/*.ts` | Scripts of components, for browser work: canvas, editors, storage, timers. |
-| `src/sinter.components.d.ts` | Generated: the types of the components' scripts, from their HTML. |
+| `src/sinter.components.d.ts` | Generated: the types of the components' scripts and the layout's props, from their HTML. |
 | `src/style.css` | temper's modules and the brand color. |
 | `server/api.js` | The demo backend, running inside Vite. |
 
