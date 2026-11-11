@@ -668,3 +668,4 @@ Settled in review, in the order they were discussed:
 | Nested items | `patch` and `remove` along their path; `upsert` takes the list, nested or by name | [Nested items](#nested-items-along-their-path) |
 | Choosing at runtime | `<sn-component use>`; candidates from a type that fits `ComponentName`, props narrowed per candidate | [Choosing a component at runtime](#choosing-a-component-at-runtime) |
 | Rows through a helper | A helper that takes one resource and returns its element type keeps that resource's provenance | [Store functions](#store-functions-resolved-from-the-item) |
+| Leaving the first frame | Added after review: `data-sn-early="off"` on a component's template leaves it out of the early script, for components that accept the layout shifting when they render | [components.md](../components.md) |

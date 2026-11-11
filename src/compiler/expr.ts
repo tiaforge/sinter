@@ -73,6 +73,8 @@ export interface Scope {
 /** What expressions in a component's markup see of the component. */
 export interface ComponentScope {
   name: string;
+  /** `data-sn-early="off"` on it or a component around it: its markup renders when the page module runs, not in the early script */
+  late?: boolean;
   /** the use, for the sources of its events (`@ev:<id>:<event>`) */
   id?: number;
   /** the events `data-sn-emits` declares; null: it declares none; absent: a type the compiler cannot list */

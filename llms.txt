@@ -17,6 +17,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-transition` (value expression (a name)): the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too)
 - `data-sn-prop` (object literal): sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only
 - `data-sn-component` (props type): on the <template> of a component file (src/components/<name>.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }
+- `data-sn-early` (off): on the <template data-sn-component>: the component is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for components that may shift the layout when they render, to keep the early script small
 - `data-sn-ref` (name): in a component's markup: the element its script reads as this.refs.<name>, typed by its tag
 - `data-sn-emits` (events type): on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article }
 - `data-sn-model` (state path): two-way binding for form controls
@@ -83,6 +84,7 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 - A component with a script: `src/components/<name>.ts` beside its HTML, `export class TaskRing extends TaskRingComponent` (imported from `./task-ring.html`, typed by the generated `src/sinter.components.d.ts`). sinter creates it per instance and calls `connected()` (markup rendered, refs set), `propsChanged()` and `disconnected()`; it reads `this.props`, writes `this.state` (renders), uses `this.refs.<name>` (`data-sn-ref` in its markup), `this.root` and `this.emit()`. It writes only state, never nodes sinter renders. Use it for browser work (canvas, libraries, timers) instead of a custom element.
 - A component may use itself (a tree: comments and replies) when the inner use is inside a `data-sn-for` or `data-sn-if` template (else SN306): `<template data-sn-for="r in comment.replies" data-sn-key="r.id"><comment-thread data-sn-prop="{ comment: r }"></comment-thread></template>`. `patch(r, …)` and `remove(r)` change a nested item along its path at any depth; `upsert(comment.replies, x)` adds to a nested list. Nested loops need `data-sn-key`.
 - `<sn-component use="`${b.type}-block`" data-sn-prop="{ block: b }">` picks a component per item: a template string, a map in the markup (`use="{ hero: 'hero-block' }[b.type]"`) or a helper; it must fit `ComponentName` (`b.type + '-block'` is a `string`: write the template string); a `data-sn-else` template after it renders for a value outside the candidates.
+- `data-sn-early="off"` on a component's `<template data-sn-component>` leaves it out of the early script (smaller head script; it renders when the page module runs, so it may shift the layout then).
 - `<sn-include>` is removed (SN316): a partial is a component.
 
 ## What belongs in markup

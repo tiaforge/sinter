@@ -29,6 +29,8 @@ Attribute names, function names and diagnostic codes are public API. Before
   the markup (`use="{ hero: 'hero-block' }[b.type]"`) or a helper. `sinter check` checks the name against the generated
   `ComponentName` (a type the data can have and no component has is an error) and each candidate's props with the item
   narrowed; a value outside the candidates renders the `data-sn-else` template after it.
+- `data-sn-early="off"` on a component's template leaves it out of the early script, for components that may shift
+  the layout when they render later: the head script stays small.
 - Scoped styles: a `<style>` in a component file goes into the page's stylesheet, wrapped in native `@scope` from the
   component's root to nested components and slot content (marked `data-sn-c` and `data-sn-s` on pages that use one).
   Selectors stay as written; `@keyframes` and the other global at-rules stay outside.

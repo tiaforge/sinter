@@ -272,6 +272,8 @@ interface Use {
   emitsText: string | null;
   /** the components it is inside, outer first, `#` for a `data-sn-for` or `data-sn-if` template between */
   chain: string[];
+  /** `data-sn-early="off"` on its template: left out of the early script */
+  late?: boolean;
   /** what the component's markup sees of it */
   scope?: ComponentScope;
   /** the caller's scope at the use: its attributes on the tag and its slot content see it */
@@ -372,6 +374,8 @@ class Compiler {
   private readonly defHosts = new WeakMap<P5Element, { rt: string }>();
   /** the page's `<head>`, where shared definitions go */
   private head: P5Element | null = null;
+  /** nodes of components with `data-sn-early="off"`: the early script leaves their bindings out */
+  private readonly lateNodes = new WeakSet<NodeDef>();
   /** attributes SN507 has measured, so an expression analysed twice is reported once */
   readonly measured = new WeakMap<P5Element, Set<string>>();
   readonly lineStarts = new Map<string, number[]>();
@@ -946,7 +950,8 @@ class Compiler {
       }
     }
     for (const a of template.attrs) {
-      if (a.name !== 'data-sn-component' && a.name !== 'data-sn-emits') this.report(template, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<template data-sn-component>\`; it takes \`data-sn-component\` and \`data-sn-emits\``, 0);
+      if (a.name === 'data-sn-early') { if (a.value.trim() !== 'off') this.report(template, a.name, 'SN401', '`data-sn-early` takes `off`: the component renders when the page module runs, not in the early script', 0); }
+      else if (a.name !== 'data-sn-component' && a.name !== 'data-sn-emits') this.report(template, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<template data-sn-component>\`; it takes \`data-sn-component\`, \`data-sn-emits\` and \`data-sn-early\``, 0);
     }
     const content = (template as P5Template).content.childNodes;
     const text = content.find((c) => c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
@@ -966,7 +971,7 @@ class Compiler {
     const emitsText = attr(template, 'data-sn-emits') ?? null;
     const emits = emitsText === null ? [] : typeMembers(emitsText);
     if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
-    const use: Use = { name, file: def.file, host, root, template, props, propsText, emits, emitsText, chain };
+    const use: Use = { name, file: def.file, host, root, template, props, propsText, emits, emitsText, chain, ...(attr(template, 'data-sn-early')?.trim() === 'off' ? { late: true } : {}) };
 
     // the table rule: a tag the parser moved out of its table
     const next = host.parentNode?.childNodes.slice(host.parentNode.childNodes.indexOf(host as never) + 1).find(isElement);
@@ -1087,7 +1092,7 @@ class Compiler {
       : this.propLets(use, caller);
     const outer = new Set<string>([...(caller.lets ?? []).map((l) => l.name), ...caller.loops.map((l) => l.name), ...caller.states.flatMap((x) => [...x.names])]);
     // no `data-sn-emits`: no events; one the compiler cannot list (an alias): not checked here
-    const cs: ComponentScope = { name, outer, id: this.useIds, ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
+    const cs: ComponentScope = { name, outer, id: this.useIds, ...(use.late || caller.component?.late ? { late: true } : {}), ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
     use.scope = cs;
     this.useById.set(this.useIds++, use);
     if (this.check) {
@@ -1175,6 +1180,7 @@ class Compiler {
     const code = pick ? `($) => ((${pick.ok ? pick.inner : 'undefined'}) === ${JSON.stringify(choice!.name)} ? ${props} : [])` : `($) => ${props}`;
     const deps = [...new Set([...lets.flatMap((l) => l.deps), ...(pick?.deps ?? [])])].sort();
     const node: NodeDef = { tag: 'template', p: ctx.stateIdx, b: [this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-prop', shift: 0 }), d: deps, x: def.tid })] };
+    if (ctx.scope.component?.late || def.use.late) this.lateNodes.add(node);
     // the tag becomes the empty template the definition is cloned into
     const t = host as unknown as P5Template;
     host.tagName = host.nodeName = 'template';
@@ -1422,7 +1428,7 @@ class Compiler {
       this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
     }
 
-    for (const n of ['component', 'emits']) {
+    for (const n of ['component', 'emits', 'early']) {
       if (has(n)) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` belongs on the \`<template>\` of a component file (\`src/components/<name>.html\`)`, 0);
     }
     if (has('path') && el.tagName !== 'html') this.report(el, 'data-sn-path', 'SN102', '`data-sn-path` belongs on `<html>`', 0);
@@ -1459,6 +1465,7 @@ class Compiler {
     }
 
     const node: NodeDef = { tag: el.tagName, p: ctx.stateIdx, b: [] };
+    if (ctx.scope.component?.late) this.lateNodes.add(node);
     const inDialog = ctx.dialog || el.tagName === 'dialog';
     if (inDialog) node.dl = 1;
     const inForm = ctx.form || el.tagName === 'form';
@@ -2906,7 +2913,7 @@ class Compiler {
     const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for'] : [])].includes(b.k) && !b.e && b.f !== undefined && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
-      const bs = defs.map((nd) => (nd.dl ? [] : nd.b.filter(eligible)));
+      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible)));
       const elses = new Set(bs.flatMap((b) => b.filter((x) => x.k === 'if' && x.y !== undefined).map((x) => x.y!)));
       const keep = new Map<number, number>();
       defs.forEach((nd, i) => { if (nd.state !== undefined || bs[i]!.length || elses.has(i)) keep.set(i, keep.size); });

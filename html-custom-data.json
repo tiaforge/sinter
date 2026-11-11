@@ -177,6 +177,10 @@
       "description": "on the <template> of a component file (src/components/<name>.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean } (props type)"
     },
     {
+      "name": "data-sn-early",
+      "description": "on the <template data-sn-component>: the component is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for components that may shift the layout when they render, to keep the early script small (off)"
+    },
+    {
       "name": "data-sn-ref",
       "description": "in a component's markup: the element its script reads as this.refs.<name>, typed by its tag (name)"
     },

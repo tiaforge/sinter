@@ -157,3 +157,27 @@ describe('component diagnostics', () => {
     expect(codes('<table><tbody><template data-sn-for="r in [1]" data-sn-key="r"><x-row></x-row></template></tbody></table>', { 'x-row': '<template data-sn-component=""><tr><td>1</td></tr></template>' })).toEqual([]);
   });
 });
+
+describe('data-sn-early="off"', () => {
+  const CLOCK = (early: string) => `<template data-sn-component="{ time: string }"${early}><time data-sn-text="time"></time></template>`;
+  // a helper: not a build-time constant, so only the early script renders it before the page module
+  const PAGE = `<div data-sn-state="{ now: label() }"><live-clock data-sn-prop="{ time: now }"></live-clock><b data-sn-text="now"></b></div>`;
+  const helpers = { label: () => '--:--' };
+
+  test('the component is left out of the early script and renders when the page module runs', async () => {
+    const early = await firstPaint(PAGE, { helpers, components: { 'live-clock': CLOCK(' data-sn-early="off"') } });
+    expect(early.root.querySelector('time')!.textContent).toBe('');
+    // the page's own binding still renders early
+    expect(early.root.querySelector('b')!.textContent).toBe('--:--');
+    const { root } = await render(PAGE, { helpers, components: { 'live-clock': CLOCK(' data-sn-early="off"') } });
+    expect(root.querySelector('time')!.textContent).toBe('--:--');
+  });
+
+  test('the early module holds less', () => {
+    const early = (c: string) => compile(PAGE, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: '/h.js', names: ['label'], namespaces: {} }, early: { module: null },
+      readFile: (p) => { if (p === '/p/src/components/live-clock.html') return c; throw new Error('missing'); } }).early ?? '';
+    expect(early(CLOCK(' data-sn-early="off"')).length).toBeLessThan(early(CLOCK('')).length);
+    expect(compile(PAGE, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: '/h.js', names: ['label'], namespaces: {} },
+      readFile: () => CLOCK(' data-sn-early="later"') }).diagnostics.map((d) => d.code)).toEqual(['SN401']);
+  });
+});
