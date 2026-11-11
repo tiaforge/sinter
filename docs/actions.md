@@ -10,7 +10,7 @@ answers is applied to your lists, and a failure is undone or shown, without hand
     <span data-sn-text="c.name"></span>
     <button data-sn-delete="/api/contacts/{c.id}"
             data-sn-confirm="'Delete ' + c.name + '?'"
-            data-sn-optimistic="remove('contacts', c)">Delete</button>
+            data-sn-optimistic="remove(c)">Delete</button>
   </li>
 </template>
 ```
@@ -162,7 +162,7 @@ succeeds, and undoes exactly that change if it fails.
 ```html
 <button data-sn-patch="/api/messages/{m.id}"
         data-sn-body="{is_flagged: !m.is_flagged}"
-        data-sn-optimistic="patch('messages', m, {is_flagged: !m.is_flagged})"
+        data-sn-optimistic="patch(m, {is_flagged: !m.is_flagged})"
         data-sn-catch="emit('toast', $error.message)"
         data-sn-attr="{'aria-pressed': m.is_flagged ? 'true' : 'false'}">★</button>
 ```
@@ -203,10 +203,10 @@ not wipe each other out when the first fails.
 
 | Action | Optimistic change |
 | --- | --- |
-| Flag or mark read | `patch('messages', m, {is_flagged: …})` |
-| Delete or move | `remove('messages', m)` |
+| Flag or mark read | `patch(m, {is_flagged: …})` |
+| Delete or move | `remove(m)` |
 | Bulk mark read | one layer, one `patch` per selected message |
-| Toggle visibility | `patch('calendars', cal, {hidden: !cal.hidden})` |
+| Toggle visibility | `patch(cal, {hidden: !cal.hidden})` |
 
 Recipe: [optimistic-toggle](recipes/optimistic-toggle.html).
 
@@ -243,14 +243,38 @@ a failure with `$error`. Both are handlers: state assignments and these built-in
 | --- | --- |
 | `refresh('contacts')`, `refresh('a', 'b')` | refetch the named resources |
 | `upsert('contacts', $result)` | insert or replace an item |
-| `patch('contacts', item, {…})` | change fields of an item |
-| `remove('contacts', item)` | remove an item |
+| `patch(item, {…})` | change fields of an item, in the resource it came from |
+| `remove(item)` | remove an item from the resource it came from (a single resource becomes `null`) |
 | `page('messages', 'next')` | change the page of a paginated resource |
 | `showModal('edit')` | open `<dialog id="edit">`, nothing if it is open |
 | `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
 | `reset()` | reset the nearest form |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element |
 | `run('id')` | start the action of the element with that id ([below](#run-an-action-from-a-handler)) |
+
+### Where `patch` and `remove` act
+
+`patch(item, {…})` and `remove(item)` take no resource name: they change the item in the resource it
+came from, found by its key, so every list and binding that reads that resource shows the change.
+The compiler knows where an item comes from:
+
+- a row: `m in messages`; for `a in (mine ? feed : articles)`, the list the row is shown from;
+- a row of a filtered or sorted list: `m in visible(messages, q)`, `m in messages.filter(…)` (a helper
+  that takes one resource keeps its rows' source; one that takes two is an error);
+- an element of a resource: `contacts[0]`, `messages.find((m) => m.id === openId)`, also through a
+  `data-sn-let` name;
+- a single resource: `patch(article, {…})`;
+- a component's prop that is one of those, and an event detail the component emits from one
+  (`data-sn-on-select="remove($event.detail)"`);
+- state a handler assigned one of those: `sel = m`, or a copy, `draft = structuredClone(c)`.
+
+Anything else (a key literal, `$result`, a server event's payload) is `SN317`, with the right tool in
+its message. The same entity in another resource (the article in `feed` and in `articles`) follows
+from write-through and server events.
+
+State holding a row is a snapshot: sinter keeps resources and `data-sn-let` names current, not values
+in state. `patch(sel, …)` still finds the right item through its key; to show the current row, keep
+its key in state and derive the row with `data-sn-let`.
 
 ```html
 <form data-sn-post="/api/people" data-sn-body="draft"
@@ -324,15 +348,15 @@ for chaining, or for "mark read after the body loads":
 ```html
 <body data-sn-on-keydown-e="run('archive')">
   <span hidden id="mark-read" data-sn-call="mail.markRead(open)"
-        data-sn-optimistic="patch('messages', open, {is_read: true})"></span>
+        data-sn-optimistic="patch(open, {is_read: true})"></span>
   <sn-resource name="body" call="mail.body(open)" when="open"
                then="$result && !open.is_read && run('mark-read')"></sn-resource>
 
   <button id="archive" data-sn-post="/api/archive?id={open.id}" data-sn-attr="{disabled: !open}"
-          data-sn-optimistic="remove('messages', open)">Archive</button>
+          data-sn-optimistic="remove(open)">Archive</button>
 ```
 
-- The target is an element in the page (partials included) that carries `data-sn-get`, `-post`,
+- The target is an element in the page (components included) that carries `data-sn-get`, `-post`,
   `-put`, `-patch`, `-delete` or `data-sn-call`. The id must be a string literal naming exactly one
   such element, outside any `data-sn-for` row, or the build fails (`SN311`). Pass a row through
   state: `open = m; run('mark-read')`.
@@ -447,7 +471,7 @@ Use the native `<dialog>`. A button that only opens it needs no handler: `comman
 
 - `showModal('edit')` and `close('edit')` are for opening or closing from a handler, such as a
   `then` after a request or a custom event. `close()` alone closes the nearest dialog. The id must
-  be a string literal naming a `<dialog id>` on the page or its partials, or the build fails
+  be a string literal naming a `<dialog id>` on the page or in the components it uses, or the build fails
   (`SN309`).
 - Bindings inside a dialog render when it opens. A resource that only dialogs read loads with low
   priority.

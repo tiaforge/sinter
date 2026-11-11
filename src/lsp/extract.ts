@@ -433,6 +433,7 @@ function takenNames(ctx: ExtractContext, modules: Module[]): Set<string> {
       if (f.kind === 'state') for (const n of f.names) taken.add(n);
       else if (f.kind === 'loop') { taken.add(f.item); if (f.index) taken.add(f.index); }
       else if (f.kind === 'let') taken.add(f.name);
+      else if (f.kind === 'props') for (const n of f.names) taken.add(n);
       else taken.add('$error');
     }
   }
@@ -491,6 +492,7 @@ export function plans(ctx: ExtractContext, range: Range, o: { whole?: boolean } 
     if (f.kind === 'state') for (const n of f.names) scopeNames.add(n);
     else if (f.kind === 'loop') { scopeNames.add(f.item); if (f.index) scopeNames.add(f.index); }
     else if (f.kind === 'let') scopeNames.add(f.name);
+    else if (f.kind === 'props') for (const n of f.names) scopeNames.add(n);
     else scopeNames.add('$error');
   }
   const { helpers, actions } = ctx.project;

@@ -20,7 +20,7 @@ const create = (...args: string[]) => execFileSync(process.execPath, [bin, ...ar
 test('copies the template, restores .gitignore and names the package after the directory', () => {
   const out = create('My App');
   const dir = join(tmp, 'My App');
-  expect(readdirSync(dir).sort()).toEqual(['.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'index.html', 'package.json', 'partials', 'server', 'src', 'task.html', 'tsconfig.json', 'vite.config.js']);
+  expect(readdirSync(dir).sort()).toEqual(['.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'index.html', 'package.json', 'server', 'src', 'task.html', 'tsconfig.json', 'vite.config.js']);
   expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).name).toBe('my-app');
   expect(out).toContain('cd "My App"\n  npm install\n  npm run dev');
   expect(() => create('My App')).toThrow();

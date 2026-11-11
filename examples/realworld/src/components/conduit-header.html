@@ -1,0 +1,32 @@
+<!-- Navbar. The page declares the `user` resource; `nav` is the active link, `guest` whether the
+     visitor is signed out (`signedOut()` at first, then whether the server knows the user). -->
+<template data-sn-component="{ nav: string; guest: boolean }">
+  <nav class="navbar navbar-light">
+    <div class="container">
+      <a class="navbar-brand" href="/">conduit</a>
+      <ul class="nav navbar-nav pull-xs-right">
+        <li class="nav-item"><a class="nav-link" href="/" data-sn-class="{active: nav == 'home'}">Home</a></li>
+        <template data-sn-if="user">
+          <li class="nav-item"><a class="nav-link" href="/editor" data-sn-class="{active: nav == 'editor'}"><i class="ion-compose"></i>&nbsp;New Article</a></li>
+          <li class="nav-item"><a class="nav-link" href="/settings" data-sn-class="{active: nav == 'settings'}"><i class="ion-gear-a"></i>&nbsp;Settings</a></li>
+          <li class="nav-item">
+            <a class="nav-link" data-sn-attr="{href: '/profile/' + encodeURIComponent(user.username)}" data-sn-class="{active: nav == 'profile:' + user.username}">
+              <img class="user-pic" alt="" data-sn-attr="{src: avatar(user.image)}"> <span data-sn-text="user.username"></span>
+            </a>
+          </li>
+        </template>
+        <template data-sn-if="!user && $meta.user.error">
+          <li class="nav-item"><span class="nav-link">Connecting…</span></li>
+          <li class="nav-item"><button class="btn btn-sm btn-outline-secondary" type="button" data-sn-on-click="refresh('user')">Retry</button></li>
+        </template>
+        <!-- signed out: known before the first paint when no token is stored (the page's `guest`), so
+             these links and the home banner do not shift the page in later; while a stored token is
+             checked, neither shows -->
+        <template data-sn-if="guest">
+          <li class="nav-item"><a class="nav-link" href="/login" data-sn-class="{active: nav == 'login'}">Sign in</a></li>
+          <li class="nav-item"><a class="nav-link" href="/register" data-sn-class="{active: nav == 'register'}">Sign up</a></li>
+        </template>
+      </ul>
+    </div>
+  </nav>
+</template>

@@ -33,13 +33,16 @@ import select from '../select.js';
 import location from '../location.js';
 import call from '../call.js';
 import debounce from '../debounce.js';
+import components from '../components.js';
+import nested from '../nested.js';
+import defs from '../defs.js';
 import confirm from '../confirm.js';
 import models from '../models.js';
 import sse from '../sse.js';
 import { prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, nested, defs, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, call, debounce, confirm, models, transition };
 
 // ---- requests
 
@@ -209,8 +212,12 @@ export interface RenderOptions {
   helpers?: Record<string, unknown>;
   /** action functions for `data-sn-call` and `<sn-resource call>`, and namespaces as objects of functions */
   actions?: Record<string, unknown>;
-  /** partials for `<sn-include>`, by path relative to the page */
+  /** other files the page reads, by path relative to the page (`src/components/x-y.html`) */
   files?: Record<string, string>;
+  /** the app's components, by name: `{ 'article-preview': '<template data-sn-component="…">…</template>' }` */
+  components?: Record<string, string>;
+  /** the scripts of components, by name: the module (`await import('../src/components/task-ring.ts')`) or the class */
+  scripts?: Record<string, unknown>;
   /** localStorage and sessionStorage (default: empty ones); pass the previous page's to test what carries over */
   storage?: Storage;
   session?: Storage;
@@ -278,11 +285,11 @@ const PAGE = '/test/page.html';
  * constants, written into the document, and its early chunk run over it. Nothing is mounted:
  * bindings that wait for data are as the HTML has them.
  */
-export async function firstPaint(html: string, options: Pick<RenderOptions, 'helpers' | 'files' | 'storage' | 'messages' | 'locale'> & FirstPaintTestOptions = {}): Promise<{ root: HTMLElement; html: string }> {
+export async function firstPaint(html: string, options: Pick<RenderOptions, 'helpers' | 'files' | 'components' | 'storage' | 'messages' | 'locale'> & FirstPaintTestOptions = {}): Promise<{ root: HTMLElement; html: string }> {
   if (current) { current.destroy(); current = null; }
-  const { files } = options;
+  const { files, components } = options;
   const helpers = withMessages(options);
-  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), firstPaint: true });
+  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), firstPaint: true });
   writePage(parts.html, options.messages);
   const env = config.env;
   config.env = { ...env, storage: () => options.storage ?? null };
@@ -336,9 +343,11 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
     if (typeof v === 'function') actionManifest.names.push(k);
     else if (v && typeof v === 'object') actionManifest.namespaces[k] = { module: k, members: Object.keys(v) };
   }
-  const files = options.files ?? {};
+  const files: Record<string, string> = { ...options.files };
+  for (const [name, text] of Object.entries(options.components ?? {})) files[`src/components/${name}.html`] = text;
+  for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= 'export default class {}';
   const parts = compileParts(html, {
-    file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank',
+    file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank', componentNames: Object.keys(options.components ?? {}),
     readFile: (p) => {
       const rel = p.startsWith('/test/') ? p.slice('/test/'.length) : p;
       const hit = files[rel] ?? files[`./${rel}`] ?? files[p];
@@ -391,6 +400,13 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     values.push(b === undefined ? actions[a] : (actions[a] as Record<string, unknown>)[b]);
   }
   if (parts.remote) { names.push('$ri'); values.push(remote(parts.remote)); }
+  for (const x of parts.scripts) {
+    const m = options.scripts?.[x.name];
+    names.push(x.local);
+    // the class: given itself, or the module's export the compiler found (testing's files are empty, so: the module's one class)
+    const mod = m as Record<string, unknown> | undefined;
+    values.push(typeof m === 'function' ? m : mod?.[x.export] ?? mod?.default ?? Object.values(mod ?? {}).find((v) => typeof v === 'function'));
+  }
   // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
   const fns = new Function(...names, `"use strict"; return [\n${parts.fns.join(',\n')}\n];`)(...values);
 

@@ -109,7 +109,9 @@ export interface SyncDef {
 
 export type BindingKind =
   | 'text' | 'attr' | 'class' | 'style' | 'show' | 'model' | 'prop'
-  | 'for' | 'if' | 'else' | 'on';
+  | 'for' | 'if' | 'else' | 'on'
+  /** a component's script on its root: `f` gives `[its module, its props, the class name]` */
+  | 'cmp';
 
 export interface Binding {
   /** dev builds: where each function it uses was written in the markup (`"file:line:col"`, by function index) */
@@ -249,16 +251,24 @@ export interface ActionDef {
 /** What a mutation is about and what its response holds, for the `apply` feature (write-through). */
 export interface ApplyDef {
   /**
-   * provenance: what the URL and body read. `r`: the resource; `v`: the loop variable when it is a
-   * row of that list; `p`: a sub-path inside the item (`['author']`); `s`: the named schema there
+   * provenance: what the URL and body read. `r`: the resource; `v`: the row's name in scope (a loop
+   * variable, or a dotted path), when it is a row of that list; `n`: when the row is nested, the lists
+   * it is found under at any depth (`['replies']`); `p`: a sub-path inside the item (`['author']`);
+   * `s`: the named schema there
    */
-  tg: Array<{ r: string; v?: string; p?: string[]; s?: string }>;
+  tg: Array<{ r: string; v?: string; p?: string[]; s?: string; n?: string[] }>;
   /** response paths holding an object of a named schema (`''`: the response itself; `a`: an array of them) */
   rs?: Array<{ p: string; s: string; a?: 1 }>;
   /** the request body's wrapper property, when the request schema is `{ wrapper: {…} }` */
   rq?: string;
   /** index in `tg` of the entity the request body describes (its fields are fields of that schema) */
   u?: number;
+  /**
+   * targets that are nested items (`n` set), apart from `tg`: the nested module applies them, so the
+   * write-through module of a page without nested lists is unchanged; `nu`: the one the body describes
+   */
+  nt?: Array<{ r: string; v?: string; p?: string[]; s?: string; n?: string[] }>;
+  nu?: number;
   /** the operation matched an OpenAPI spec (rules that need schemas apply) */
   t?: 1;
 }
@@ -334,7 +344,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
       for (const d of e.w ?? []) if (bad(d)) errs.push(`${at}: bad path`);
     });
   });
-  const kinds = new Set(['text', 'attr', 'class', 'style', 'show', 'model', 'prop', 'for', 'if', 'else', 'on']);
+  const kinds = new Set(['text', 'attr', 'class', 'style', 'show', 'model', 'prop', 'for', 'if', 'else', 'on', 'cmp']);
   const nodes = (list: NodeDef[], at: string, inTemplate: boolean) => list.forEach((n, i) => {
     const a = `${at}[${i}]`;
     if (inTemplate ? !Array.isArray(n.path) : !Number.isInteger(n.id)) errs.push(`${a}: needs ${inTemplate ? 'path' : 'id'}`);

@@ -53,7 +53,9 @@ A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn
 | `locale` | the locale for `$locale` and the formatters |
 | `now` | start time of the clock, a number or `Date` |
 | `helpers`, `actions` | your helper and action functions; namespaces are objects of functions |
-| `files` | partials for `<sn-include>`, by path relative to the page |
+| `files` | other files the page reads, by path relative to the page |
+| `components` | the app's components by name: `{ 'article-preview': '<template data-sn-component="…">…</template>' }` |
+| `scripts` | the scripts of components by name: the module (`await import('../src/components/task-ring.ts')`) or the class |
 | `storage`, `session` | `localStorage` and `sessionStorage`. Pass the same `memoryStorage()` to two renders to test what carries over between page loads |
 | `messages` | built-in messages as the files hold them, base language first: `{ en: {...}, de: {...} }` |
 | `firstPaint` | `true` or `{ early, afterEarly }`, [below](#firstpaint) |

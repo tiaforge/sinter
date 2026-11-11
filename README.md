@@ -2,7 +2,9 @@
 
 **HTML pages that behave like an app.** Add attributes to your HTML to bind the JSON API you already
 have and get live data, instant updates and a first paint with no flicker. Typos fail the build, not
-the page. No components, router or store library to write, and no app JavaScript for typical pages: a small runtime ships with each page (currently under 20 KB).
+the page. Reusable components are plain HTML files that render in the first frame and never hydrate.
+No router or store library to write, and no app JavaScript for typical pages: a small runtime ships with
+each page (currently under 20 KB).
 
 ```html
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
@@ -18,7 +20,7 @@ the page. No components, router or store library to write, and no app JavaScript
     <template data-sn-for="c in contacts.filter(c => c.name.includes(q))">
       <li>
         <span data-sn-text="c.name"></span>
-        <button data-sn-delete="/api/contacts/{c.id}" data-sn-optimistic="remove('contacts', c)">Delete</button>
+        <button data-sn-delete="/api/contacts/{c.id}" data-sn-optimistic="remove(c)">Delete</button>
       </li>
     </template>
   </ul>
@@ -44,6 +46,7 @@ the pages.
 | Forms wait for the server before anything happens | Changes show at once and [roll back on failure](docs/actions.md#optimistic-updates). |
 | A typo only shows up when someone clicks it | The build [checks every name and type](docs/diagnostics.md) and fails. |
 | Adding behavior means writing and wiring JavaScript | You write attributes. The compiler and a small runtime do the rest. |
+| Shared markup means copy-paste or server-side includes | [Components](docs/components.md): HTML files with props, slots, events and scoped styles, expanded at build time. |
 
 ## What you get
 
@@ -60,7 +63,10 @@ the pages.
   needs yet, self-hosted fonts, optimized images and Speculation Rules are done by the build. You do
   not configure them. RealWorld scores **94 on mobile and 99 on desktop** in Lighthouse, with the
   least JavaScript of the apps that show articles ([comparison](docs/realworld-comparison.md#lighthouse)).
-- **Great ergonomics.** One way to do each thing, all of it visible on the element. 735 lines for
+- **Components without hydration.** A component is an HTML file, expanded where it is used, so it is in
+  the first frame with its data and costs nothing at runtime. Its props keep track of where their data
+  came from, so a favorite button inside it updates the right list with no store code.
+- **Great ergonomics.** One way to do each thing, all of it visible on the element. 777 lines for
   the RealWorld app, against 2,210 for the official Angular one. LLM-friendly: `llms.txt` ships with the package, and the small, uniform syntax is easy for a model to get right.
 - **Small and safe.** Currently under 20 KB of JavaScript per page. No `eval`, no `unsafe-eval` in your Content
   Security Policy, and markup injected at runtime stays inert.
@@ -97,14 +103,57 @@ contacts.html:11:70 error SN201 unknown-identifier: `qq` is not defined here. Di
 ```
 
 The same pass rejects code that would break at runtime: writing to server data
-(`c.name = 'x'` is `SN205`, use `patch('contacts', c, {...})`) and browser APIs inside expressions
-(`localStorage` is `SN202`, use an island). With a `type` on the resource or your OpenAPI spec,
+(`c.name = 'x'` is `SN205`, use `patch(c, {...})`) and browser APIs inside expressions
+(`localStorage` is `SN202`, use a component's script). With a `type` on the resource or your OpenAPI spec,
 `sinter check` also type-checks fields, request bodies and event payloads, so `article.titel`
 reports `Property 'titel' does not exist on type 'Article'. Did you mean 'title'?`.
 
 htmx, Datastar and Alpine read their attribute strings in the browser. Nothing checks them against
 your data before they ship, so the same typo shows up only when that code runs: as a console error,
 or as an element that stays empty.
+
+## Components
+
+A component is an HTML file in `src/components/`. Its file name is its tag:
+
+```html
+<!-- src/components/contact-card.html -->
+<template data-sn-component="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
+  <article class="card" data-sn-class="{ compact }">
+    <h2 data-sn-text="contact.name"></h2>
+    <slot name="meta"></slot>
+    <button data-sn-on-click="emit('pick', contact)">Open</button>
+    <button data-sn-delete="/api/contacts/{contact.id}" data-sn-optimistic="remove(contact)">Delete</button>
+  </article>
+</template>
+<style>
+  .card { padding: 1rem; }
+  .compact h2 { font-size: 1rem; }
+</style>
+```
+
+```html
+<!-- any page -->
+<template data-sn-for="c in contacts">
+  <contact-card data-sn-prop="{ contact: c }" data-sn-on-pick="open = $event.detail">
+    <small slot="meta" data-sn-text="c.email"></small>
+  </contact-card>
+</template>
+```
+
+- **Expanded at build time.** The component's root replaces its tag, so the component is page markup:
+  it renders in the first frame like the rest of the page, and nothing hydrates it.
+- **A checked contract.** Props, events and slots are declared once, in the file; a wrong prop, event
+  or slot name fails the build, and `sinter check` types every prop and `$event.detail`.
+- **Data that knows where it came from.** `remove(contact)` names no resource: it removes the contact
+  from the list the caller got it from.
+- **Scoped styles** through native `@scope`, in the page's stylesheet: no inline styles, no CSP change.
+- **A script when needed.** `contact-card.ts` beside the file extends a base class typed from the HTML,
+  for a canvas or a library; sinter renders the markup.
+- **Trees and mixed lists.** A component can use itself (comments and their replies, at any depth), and
+  ``<sn-component use="`${b.type}-block`">`` picks one per item.
+
+[Components](docs/components.md), [components with a script](docs/islands.md)
 
 ## Features
 
@@ -175,8 +224,10 @@ or as an element that stays empty.
   [Testing](docs/testing.md)
 - **Translations.** Typed `m.key({ param })` messages with inlang, one small file per page and
   language. [Recipe](docs/recipes/messages.html)
-- **Islands for the rest.** Canvases, editors and charts are plain custom elements that get data
-  in and send events out. [JS API for islands](docs/islands.md)
+- **Components.** HTML files with props, slots, events and scoped styles, expanded at build time and
+  typed. [Components](docs/components.md)
+- **Scripts for the rest.** Canvases, editors and charts are a component's script, or plain custom
+  elements that get data in and send events out. [Components with a script](docs/islands.md)
 - **LLM-ready.** [`llms.txt`](llms.txt) has the whole attribute reference and recipes.
 
 ### Safety
@@ -212,9 +263,9 @@ Measurements and sources: [`docs/realworld-comparison.md`](docs/realworld-compar
 
 ## When not to use sinter
 
-- You want a SPA: client-side routing, transitions, a component system.
+- You want a SPA: client-side routing and a client-side component runtime.
 - The UI is mostly client-side interaction (editors, canvas, drag and drop). sinter leaves that to
-  islands, which are plain custom elements.
+  the scripts of components, which do the browser work around markup sinter renders.
 - You can't have a build step.
 - Your backend renders HTML, not JSON.
 - You need stability guarantees. sinter is at v0.13.
@@ -237,7 +288,10 @@ The broad concepts:
 - **[Bindings](docs/attributes.md#show-data)** (`data-sn-text`, `data-sn-for`, `data-sn-if`, ...) render data. Expressions are checked at build time.
 - **[Actions](docs/actions.md)** (`data-sn-post`, `data-sn-delete`, ...) send changes; [`data-sn-optimistic`](docs/actions.md#optimistic-updates) shows them at once.
 - **[Sync](docs/sync.md)** (`<sn-sync>`) applies server events to resources.
-- **[Islands](docs/islands.md)** are custom elements for what attributes can't do.
+- **[Components](docs/components.md)** are HTML files in `src/components/`, expanded at build time: props,
+  slots, events and scoped styles, in the first frame with no hydration.
+- **[Components with a script](docs/islands.md)** do what attributes can't (a canvas, a library); plain
+  custom elements work too.
 
 Every attribute is in the [reference](docs/attributes.md). Optional files in `src/`:
 

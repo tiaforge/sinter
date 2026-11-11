@@ -5,7 +5,7 @@
 // data as the parser inserts it, before the first paint, with nothing render-blocking.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { posix, relative, resolve, sep } from 'node:path';
+import { dirname, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
@@ -22,6 +22,8 @@ import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, StyleSheet } from './compiler/index.js';
 import { hasCspMeta, pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { faceName, faceOf, fontDownloader, inlineFonts, preloadFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
+import { componentBase } from './components-build.js';
+import { COMPONENT_NAME } from './compiler/components.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -128,6 +130,10 @@ const EARLY_PKG = '@tiaforge-ui/sinter/early';
 const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/early'/.exec(code)?.[1]!.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
+/** a component's scoped styles, imported by the page modules of the pages that use it */
+const COMPONENT_CSS = `${PREFIX}component-css/`;
+/** the base class a component's script imports from its HTML (`import { TaskRingComponent } from './task-ring.html'`) */
+const COMPONENT_BASE = `${PREFIX}component-base/`;
 /** dev: where the image variants are served */
 const IMG = `${PREFIX}img/`;
 const PREFETCH = `${PREFIX}prefetch.js`;
@@ -235,6 +241,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** image variants by file name, and each page's image rules */
   const variants = new Map<string, ImageVariant>();
   const imageCss = new Map<string, string>();
+  const componentCss = new Map<string, string>();
   let resolveId: ((id: string, importer?: string) => Promise<string | undefined>) | null = null;
   let engines: StyleEngine[] | null = null;
   const warned = new Set<string>();
@@ -363,7 +370,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
       file, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
-      check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles,
+      check: !!options.typecheck && !dev, openapi: p.openapi, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles,
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
@@ -371,7 +378,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(options.origins?.length ? { origins: options.origins } : {}),
       ...(firstPaint ? { observe: true } : {}),
       ...(options.embed && !dev ? { embed: true } : {}),
+      componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
     });
+    for (const x of out.styles) {
+      if (componentCss.get(x.name) === x.css) continue;
+      componentCss.set(x.name, x.css);
+      invalidate(`${COMPONENT_CSS}${x.name}.css`);
+    }
     if (out.early) setModule(`${EARLY}${rel}.js`, out.early, out.earlyMap);
     if (!dev && out.embed.length) embedPages.set(rel, { paths: pagePaths(rel, resolved?.base ?? '/', out.path), data: out.embed });
     else embedPages.delete(rel);
@@ -440,7 +453,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           res.end(map ? `${code}\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(map)).toString('base64')}\n` : code);
         }, next);
       });
-      // an HTML, partial or helpers change triggers a full reload in v0.1
+      // an HTML, component or helpers change triggers a full reload in v0.1
       s.watcher.on('change', (file) => {
         // a page's resources may have changed: the next-page module is described again
         if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear(); }
@@ -580,7 +593,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return null;
     },
 
-    resolveId(id) {
+    resolveId(id, importer) {
+      // a component's script imports its generated base from its own HTML file
+      if (importer && id.endsWith('.html') && !importer.endsWith('.html')) {
+        const file = resolve(dirname(importer.replace(/[?#].*$/, '')), id);
+        const name = file.slice(0, -5).split(sep).pop()!;
+        if (dirname(file) === resolve(root, 'src/components') && COMPONENT_NAME.test(name)) return `\0${COMPONENT_BASE}${name}.js`;
+      }
       // a build with source maps: page modules keep a plain id, as Rolldown drops the map of a `\0` module
       if (id.startsWith(PREFIX) && !dev && maps.has(id)) return id;
       if (id.startsWith(PREFIX)) return '\0' + id;
@@ -589,6 +608,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     async load(id) {
       if (id.startsWith(`\0${IMG_CSS}`)) return imageCss.get(id.slice(IMG_CSS.length + 1, -4)) ?? '';
+      if (id.startsWith(`\0${COMPONENT_CSS}`)) return componentCss.get(id.slice(COMPONENT_CSS.length + 1, -4)) ?? '';
+      if (id.startsWith(`\0${COMPONENT_BASE}`)) return componentBase(id.slice(COMPONENT_BASE.length + 1, -3));
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
       if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;
@@ -634,7 +655,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const moduleSrc = `${PREFIX}${rel}.js`;
         // dev: the tag goes in with the page; a build adds it after bundling (see the post plugin)
         const earlySrc = dev ? `${resolved?.base ?? '/'}${EARLY.slice(1)}${rel}.js` : null;
-        const styles = images && /<img\b|<sn-include\b/i.test(html) ? await stylesOf(html, file, project(root, options)) : undefined;
+        const styles = images && /<img\b|<[a-z][a-z0-9]*-/i.test(html) ? await stylesOf(html, file, project(root, options)) : undefined;
         let { out, p } = build(html, file, earlySrc, styles);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
         if (images && out.images?.pending.length) {

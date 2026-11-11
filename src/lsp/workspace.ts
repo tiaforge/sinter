@@ -2,10 +2,11 @@
 // pages and partials, open buffers, and the diagnostics of each file. Independent of
 // LSP itself, so tests drive it directly.
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import { compile, type Diagnostic, type HelperManifest } from '../compiler/index.js';
 import { project, viteProject, type Project, type ProjectOptions } from '../project.js';
+import { writeComponentTypes } from '../components-build.js';
 
 const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
 
@@ -34,6 +35,14 @@ export interface WorkspaceHooks {
   publish(file: string, diagnostics: Diagnostic[]): void;
   /** pages were compiled; their check units are in `state.units` */
   compiled?(state: ProjectState, pages: string[]): void;
+}
+
+/** The component a file is (`src/components/<name>.html`), or null. */
+function componentName(root: string, file: string): string | null {
+  const dir = join(root, 'src', 'components') + sep;
+  if (!file.startsWith(dir) || file.slice(dir.length).includes(sep)) return null;
+  const name = basename(file).replace(/\.html$/, '');
+  return /^[a-z][a-z0-9]*(-[a-z0-9]+)+$/.test(name) ? name : null;
 }
 
 export class Workspace {
@@ -146,6 +155,10 @@ export class Workspace {
 
   private async htmlChanged(file: string): Promise<void> {
     const state = await this.projectFor(file);
+    // a component's contract changed: its script's types follow, without the dev server
+    if (componentName(state.root, file)) {
+      try { writeComponentTypes(state.root, (f) => this.docs.get(resolve(f)) ?? readFileSync(f, 'utf8')); } catch { /* reported by the compiler */ }
+    }
     const includers = [...state.includes].filter(([, files]) => files.includes(file)).map(([page]) => page);
     const pages = new Set(includers);
     if (state.pages.has(file) || !includers.length) {
@@ -180,12 +193,18 @@ export class Workspace {
         state.types.delete(page);
         continue;
       }
+      // a component no page uses: compiled through a use of its own, which reports what is wrong inside it
+      const component = componentName(state.root, page);
+      if (component) {
+        html = `<${component}></${component}>`;
+      }
       try {
         const out = compile(html, {
-          file: page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles,
+          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles,
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));
-        state.diagnostics.set(page, out.diagnostics);
+        // the use is not in any file, nor are the props it leaves out
+        state.diagnostics.set(page, component ? out.diagnostics.filter((d) => resolve(d.file) !== resolve(state.root, `.sinter-use-${component}.html`)) : out.diagnostics);
         if (out.check) state.units.set(page, out.check);
       } catch (e) {
         state.diagnostics.set(page, [{ severity: 'error', code: 'SN401', message: `sinter could not compile this page: ${(e as Error).message}`, file: page, line: 1, col: 1 }]);

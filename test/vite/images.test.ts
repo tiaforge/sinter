@@ -18,7 +18,6 @@ const xThumb = { postcssPlugin: 'x-thumb', Declaration: { 'x-thumb': (d: { prop:
 
 beforeAll(async () => {
   mkdirSync(join(root, 'img'));
-  mkdirSync(join(root, 'partials'));
   // a "photo": a gradient with noise, as a JPEG
   const w = 1000, h = 667, raw = Buffer.alloc(w * h * 3);
   for (let i = 0; i < w * h; i++) {
@@ -40,7 +39,8 @@ beforeAll(async () => {
   writeFileSync(join(root, 'src/thumbs.scss'), "@use 'sizes';\n.thumb { img { @include sizes.square(sizes.$thumb); } }\n.pc img { x-thumb: 72px; aspect-ratio: 1; object-fit: cover; }\n");
   writeFileSync(join(root, 'src/app.css'), "@import './avatar.css' layer(ui);\n.hero img { width: 100% }\n");
   writeFileSync(join(root, 'src/avatar.css'), ':where([data-avatar]) { --_av: calc(var(--avatar-size, 2.5rem)); display: inline-grid; inline-size: var(--_av); block-size: var(--_av); overflow: hidden; }\n:where([data-avatar]) > :where(img) { inline-size: 100%; block-size: 100%; object-fit: cover; }\n');
-  writeFileSync(join(root, 'partials/card.html'), '<img src="../img/photo.jpg" width="120" height="120" style="object-fit: cover" alt="Card">');
+  mkdirSync(join(root, 'src/components'));
+  writeFileSync(join(root, 'src/components/photo-card.html'), '<template data-sn-component=""><img src="../../img/photo.jpg" width="120" height="120" style="object-fit: cover" alt="Card"></template>');
   writeFileSync(join(root, 'index.html'), `<!doctype html><html><head><title>Images</title><script type="module" src="/src/main.js"></script></head><body>
 <span data-avatar><img src="img/photo.jpg" alt="Avatar"></span>
 <div class="hero"><img src="img/photo.jpg" width="300" alt="Fluid by CSS"></div>
@@ -49,7 +49,7 @@ beforeAll(async () => {
 <img src="./img/photo.jpg" alt="Hero">
 <img src="img/logo.png" width="200" alt="Logo">
 <img src="img/ui.png" alt="UI">
-<sn-include src="./partials/card.html"></sn-include>
+<photo-card></photo-card>
 </body></html>`);
 });
 

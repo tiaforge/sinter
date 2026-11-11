@@ -38,9 +38,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Fix the typo, declare the name in `data-sn-state`, or export it from the helpers module. Loop variables are only visible inside their `<template>`.',
   },
   SN202: {
-    example: '`window` is a browser API; expressions may use JavaScript, not the browser. Use an island',
+    example: '`window` is a browser API; expressions may use JavaScript, not the browser. Use a component\'s script',
     means: 'Expressions may use JavaScript built-ins but not browser APIs such as `window`, `document`, `fetch` or timers, so pages stay safe under a strict CSP and testable.',
-    fix: 'Move the browser code into a helper (for a pure function) or an island (a custom element that owns imperative work).',
+    fix: 'Move the browser code into a helper (for a pure function) or a component\'s script (`src/components/<name>.ts`, which owns imperative work).',
   },
   SN203: {
     example: 'value expressions cannot assign; move this to `data-sn-on-*`',
@@ -97,15 +97,10 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'Keyset (cursor) pagination only knows the next and previous page, so `page(\'name\', 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page(\'name\', dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `\'next\'`.',
     fix: 'If the API accepts an offset next to its cursor, add `offset-param="offset"`: the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `paginate="offset"`, or only step with `first`, `prev`, `next` and `last`.',
   },
-  SN305: {
-    example: 'partial `./partials/contact-dialg.html` not found or outside the project root',
-    means: 'The `src` of `<sn-include>` must be a literal path, relative to the including file, that resolves inside the project root.',
-    fix: 'Fix the path. Partials outside the root are refused on purpose.',
-  },
   SN306: {
-    example: '`a.html` → `b.html` → `a.html` includes itself',
-    means: 'Partials include each other in a cycle.',
-    fix: 'Move the shared part into a third partial that neither includes back.',
+    example: '`<comment-card>` → `<reply-list>` → `<comment-card>` uses itself with no `data-sn-for` or `data-sn-if` template between, so it would never end',
+    means: 'A component uses itself, directly or through other components, and nothing in between depends on data: expanding it would never end.',
+    fix: 'Put the inner use in a `<template data-sn-for>` over the children (or a `<template data-sn-if>`), so data ends the recursion.',
   },
   SN307: {
     example: 'OpenAPI spec `api.yml` is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`)',
@@ -131,6 +126,36 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: 'no element `id="mark-raed"` on this page. Did you mean `mark-read`?',
     means: '`run(id)` starts the action of the element with that literal `id`: an element on the page or one of its partials with `data-sn-get`, `-post`, `-put`, `-patch`, `-delete` or `data-sn-call`. Also reported: an id that is not a string literal, an element without an action, an element inside a `data-sn-for` row (every row would have the id), and an id that more than one element has.',
     fix: 'Fix the id, or give the action element an `id`. For a row\'s action, put one action element outside the list and pass the row through state: `open = m; run(\'mark-read\')`.',
+  },
+  SN312: {
+    example: 'a component has one root element; `<article-preview>` has 2 elements at the top of its template',
+    means: 'A file in `src/components/` is not a valid component: it needs one `<template data-sn-component="{ …props }">` (and optionally a `<style>`) with exactly one root element in it, and the root cannot be a `<template>`, a `<slot>` or another component. Also reported: two slots with the same name.',
+    fix: 'Wrap the markup in one element inside `<template data-sn-component>`: the caller\'s classes, attributes and handlers land on it.',
+  },
+  SN313: {
+    example: '`artcle` is not a prop of `<article-preview>`; its props are `article`, `compact`. Did you mean `article`?',
+    means: '`data-sn-prop` on a component passes a name its `data-sn-component` does not declare, or leaves out a prop that is not optional. Also reported: `data-sn-model` on a component without a `value` prop and a `change` event.',
+    fix: 'Fix the name, pass the missing prop, or declare it in the component (`{ article: Article; compact?: boolean }`).',
+  },
+  SN314: {
+    example: '`<article-preview>` has no slot `meta`. Its slots are `footer`.',
+    means: 'Content on a component\'s tag goes into its `<slot>` elements: a `slot="name"` names a `<slot name>`, the rest goes into the default `<slot>`. Content no slot takes would be dropped.',
+    fix: 'Fix the slot name, or add the `<slot>` to the component.',
+  },
+  SN315: {
+    example: '`<task-ring>` does not declare the event `pik`; `data-sn-emits` declares `pick`. Did you mean `pick`?',
+    means: 'A component\'s events are the ones its `data-sn-emits` declares: `emit()` inside it, and `data-sn-on-<event>` on its tag, must name one of them (or, on the tag, a DOM event such as `click`).',
+    fix: 'Fix the name, or declare the event with its detail type: `data-sn-emits="{ pick: \'done\' | \'open\' }"`.',
+  },
+  SN316: {
+    example: '`<sn-include>` is removed: a partial is a component. Move `./partials/contact-dialog.html` to `src/components/contact-dialog.html`, … It reads `draft`, `save` from the page: add them to `data-sn-component` and pass them with `data-sn-prop="{ draft: draft, save: save }"`',
+    means: 'Partials became components. A component sees only its props, so the names a partial read from the page where it was included become props; the message lists them.',
+    fix: 'Move the file to `src/components/<name>.html` (the name needs a `-`), wrap its markup in `<template data-sn-component="{ draft: Contact; … }">` around one root element, and replace the `<sn-include>` by `<name data-sn-prop="{ draft: draft }"></name>`.',
+  },
+  SN317: {
+    example: '`selected` has no source: `patch()` acts on an item where it came from, and nothing says which resource `selected` is an item of',
+    means: '`patch(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `patch(\'name\', item, …)` and `remove(\'name\', item)`, and a row of a helper that takes more than one resource.',
+    fix: 'Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or patch the row with its fields; a server event\'s payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.',
   },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',

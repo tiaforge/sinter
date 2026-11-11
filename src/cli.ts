@@ -37,7 +37,7 @@ async function main(argv: string[]): Promise<number> {
   const diagnostics: Diagnostic[] = [...p.diagnostics];
   const units: CheckUnit[] = [];
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, complexity: p.complexity, checkCycles: p.checkCycles || cycles });
+    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles || cycles });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }

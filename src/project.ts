@@ -7,6 +7,7 @@ import { readHelperManifest, type Diagnostic, type HelperManifest } from './comp
 import type { OpenApiSpec } from './compiler/openapi.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
 import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
+import { componentNames, writeComponentTypes } from './components-build.js';
 
 export interface ProjectOptions {
   /** helpers module, relative to the root (default `src/sinter.helpers.js`, or `.ts`) */
@@ -49,6 +50,8 @@ export interface Project {
   messages: MessagesProject | null;
   /** the generated `src/sinter.messages.d.ts` (written when there are messages), or null */
   messagesTypes: string | null;
+  /** the generated `src/sinter.components.d.ts` (written when a component has a script), or null */
+  componentsTypes: string | null;
   /** absolute path of the types module, or null */
   types: string | null;
   /** reads a file only if it resolves inside the root, symlinks included */
@@ -56,6 +59,8 @@ export interface Project {
   openapi: OpenApiSpec[];
   /** problems loading the specs (SN307) */
   diagnostics: Diagnostic[];
+  /** every component of the app (`src/components/<name>.html`): `ComponentName`, the candidates of `<sn-component use>` */
+  componentNames: string[];
   /** the `complexity` option, checked */
   complexity: ComplexityOptions;
   checkCycles: boolean;
@@ -132,7 +137,8 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   }
   return {
     root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
-    messages, messagesTypes,
+    componentNames: componentNames(root),
+    messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile),
     config: configRel ? url(configRel) : null,
     early: earlyRel ? url(earlyRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,

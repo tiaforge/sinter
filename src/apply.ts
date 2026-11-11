@@ -9,14 +9,15 @@ import type { ApplyDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 
 type Target = ApplyDef['tg'][number];
-const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v == 'object' && !Array.isArray(v);
-const at = (o: any, p: string[]): any => p.reduce((x, k) => (x == null ? x : x[k]), o);
+// (exported for the nested module, which applies write-through to nested items with them)
+export const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v == 'object' && !Array.isArray(v);
+export const at = (o: any, p: string[]): any => p.reduce((x, k) => (x == null ? x : x[k]), o);
 /** `fields` merged into the object at `p` inside `item`, as a patch of the item: `{ author: { ...item.author, ...fields } }`. */
-const nest = (item: any, p: string[], fields: Record<string, any>): Record<string, any> =>
+export const nest = (item: any, p: string[], fields: Record<string, any>): Record<string, any> =>
   p.length ? { [p[0]!]: { ...(isObj(item?.[p[0]!]) ? item[p[0]!] : {}), ...nest(item?.[p[0]!], p.slice(1), fields) } } : fields;
 
 /** The fields of `fields` whose value differs from what `current` holds at `p` (JSON equality); null when none does. */
-function changed(current: unknown, p: string[], fields: Record<string, any>): Record<string, any> | null {
+export function changed(current: unknown, p: string[], fields: Record<string, any>): Record<string, any> | null {
   const cur = at(current, p);
   let out: Record<string, any> | null = null;
   for (const k of Object.keys(fields)) {

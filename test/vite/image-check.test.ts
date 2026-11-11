@@ -8,7 +8,8 @@ import { chromium } from '../browser.js';
 
 const png = async (w: number) => `data:image/png;base64,${(await sharp({ create: { width: w, height: w, channels: 3, background: '#c03' } }).png().toBuffer()).toString('base64')}`;
 
-describe.skipIf(!chromium)('the dev image check', () => {
+// several page loads per test, each waiting for the check: more than vitest's 5 s default when CI runs browsers in parallel
+describe.skipIf(!chromium)('the dev image check', { timeout: 30_000 }, () => {
   let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
   beforeAll(async () => { browser = await chromium!.launch(); }, 30_000);
   afterAll(async () => { await browser?.close(); });

@@ -1,0 +1,98 @@
+// Nested items (docs/components.md): `patch(r, …)` and `remove(r)` for an item of a nested list
+// (`r in comment.replies`, at any depth in a recursive component), and `upsert(c.replies, x)`. The
+// item is found under the resource's rows through those lists, by the resource's key; the objects
+// along its path are replaced, and the row is patched. Loaded only by pages that change nested items.
+import type { App, Feature } from './runtime/app.js';
+import type { Resource } from './runtime/store.js';
+import { at, changed, isObj, nest } from './apply.js';
+
+type Obj = Record<string, any>;
+
+
+const feature: Feature = {
+  name: 'nested',
+  install(app: App) {
+    /**
+     * The change of the row (or single resource) holding `item` under `fields`, at any depth: the row's
+     * fields to patch, or null when it is not there. `same`: by identity only, or also by key.
+     */
+    const change = (r: Resource, fields: string[], op: 'patch' | 'remove', item: unknown, set: Obj | undefined, byId: boolean) => {
+      const k = r.key && item && typeof item == 'object' ? r.keyOf(item as Obj) : null;
+      const same = (x: unknown) => x === item || (!byId && k != null && !!x && typeof x == 'object' && r.keyOf(x as Obj) === k);
+      const under = (x: Obj): Obj | null => {
+        for (const f of fields) {
+          const list = x?.[f];
+          if (!Array.isArray(list)) continue;
+          for (let i = 0; i < list.length; i++) {
+            if (same(list[i])) return { [f]: op == 'remove' ? list.filter((_, j) => j != i) : list.with(i, { ...list[i], ...set }) };
+            const deeper = list[i] && typeof list[i] == 'object' ? under(list[i]) : null;
+            if (deeper) return { [f]: list.with(i, { ...list[i], ...deeper }) };
+          }
+        }
+        return null;
+      };
+      for (const top of r.isCollection ? r.all() : [r.value()]) {
+        const c = top && typeof top == 'object' ? under(top as Obj) : null;
+        if (c) return [top, c] as const;
+      }
+      return null;
+    };
+    const apply = (r: Resource, fields: string[], op: 'patch' | 'remove', item: unknown, set: Obj | undefined, byId: boolean) => {
+      const c = change(r, fields, op, item, set, byId);
+      if (c) r.patch(c[0] as Obj, c[1]);
+      return !!c;
+    };
+    /** `patch(item, …)`/`remove(item)` from these sources: a nested one with the same object first, then a row by key, then a nested one by key */
+    const byItem = (res: (n: string) => Resource, op: 'patch' | 'remove', names: string[], item: unknown, set?: Obj) => {
+      const nested = (byId: boolean) => names.some((n) => { const [r, f] = n.split('>'); return f != null && apply(res(r!), f.split(','), op, item, set, byId); });
+      const row = () => names.some((n) => { const r = !n.includes('>') && res(n); return !!r && (r.isCollection ? item != null && r.has(item as Obj) : true) && (op == 'patch' ? r.patch(item as Obj, set!) : r.remove(item as Obj), true); });
+      nested(true) || row() || nested(false);
+    };
+    // write-through to nested items (`ap.nt`): after the write-through module, the same rules
+    const base = app.ext.apply;
+    if (base) app.ext.apply = (a, s, url, body, result) => {
+      base(a, s, url, body, result);
+      const ap = a.ap!, nt = ap.nt, m = a.method, done: string[] = [];
+      if (!nt) return;
+      const log = (name: string, what: string) => done.push(`${name}: ${what}`);
+      const wt = (t: (typeof nt)[number], fields: unknown) => {
+        const r = app.resource(t.r), item = at(s, t.v!.split('.'));
+        if (!isObj(item)) return;
+        if (fields === null) { if (apply(r, t.n!, 'remove', item, undefined, false)) log(t.r, 'remove nested'); return; }
+        if (!isObj(fields)) return;
+        // (the write-through module's helpers: the same diff and nesting as for rows)
+        // only the fields that differ, at the target's sub-path inside the item
+        const p = t.p ?? [], diff = changed(item, p, fields);
+        if (diff && apply(r, t.n!, 'patch', item, nest(item, p, diff), false)) log(t.r, `patch ${t.n!.join(',')}${p.length ? ' .' + p.join('.') : ''}`);
+      };
+      // 3 update: the body describes the item the URL named
+      if ((m == 'PUT' || m == 'PATCH') && isObj(body)) {
+        const b = ap.rq && isObj(body) ? body[ap.rq] : body;
+        if (ap.nu != null) wt(nt[ap.nu]!, b);
+        else if (!ap.t && isObj(b)) for (const t of nt) { const item = at(s, t.v!.split('.')); if (!t.p && isObj(item) && Object.keys(b).every((k) => k in item)) wt(t, b); }
+      }
+      // 1 confirm: objects of a named schema go to the items of that schema the URL named
+      for (const e of ap.rs ?? []) {
+        const v = at(result, e.p ? e.p.split('.') : []);
+        for (const o of e.a ? (Array.isArray(v) ? v : []) : [v]) if (isObj(o)) for (const t of nt) if (t.s == e.s) wt(t, o);
+      }
+      // 4 delete: the item whose URL this was (its list's URL plus one segment)
+      if (m == 'DELETE') for (const t of nt) {
+        const lu = app.resource(t.r).loader?.url?.(), i = url.lastIndexOf('/');
+        if (!t.p?.length && lu != null && i > 0 && url.slice(0, i) == lu) wt(t, null);
+      }
+      if (done.length) app.warn(21, `${m} ${url}`, done.join(', '));
+    };
+    app.ext.nested = {
+      change: byItem,
+      apply,
+      upsert(res, names, owner, field, item) {
+        const key = res(names[0]!.split('>')[0]!);
+        const l: unknown[] = Array.isArray(owner?.[field]) ? owner[field] : [];
+        const i = key.key && item && typeof item == 'object' ? l.findIndex((x) => x && key.keyOf(x as Obj) === key.keyOf(item as Obj)) : -1;
+        byItem(res, 'patch', names, owner, { [field]: i < 0 ? [...l, item] : l.with(i, item) });
+      },
+    };
+  },
+};
+export default feature;

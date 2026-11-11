@@ -31,6 +31,11 @@ Server cost per request, no API delay, one Node process each (`server-bench.mjs`
 The middleware adds 1-2 ms to serving the file (fetch, fill, gzip). Qwik's home page costs about 8x that,
 so a core serves about 7x fewer pages.
 
+Components do not change this: they are expanded at build time, so their bindings render in the same
+first frame (a component over embedded data renders with the rows, during the parse), and a component
+used inside itself renders a tree at any depth from its shared definition. The RealWorld pages measured
+here were built with partials, before components; the pages' markup did not change.
+
 ## How it works
 
 The middleware fetches the page's API data and writes the JSON into the page's `data-sn-data`

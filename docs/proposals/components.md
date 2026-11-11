@@ -1,7 +1,10 @@
 # Proposal: components
 
-Status: draft. The design questions are settled (see [Decisions](#decisions)); nothing here is
-implemented.
+Status: implemented (2026-11-10), steps 1 to 7 of the [Plan](#plan); the guide is
+[components.md](../components.md). Where the implementation departs from this text: each scoped selector
+gets a copy that lets its first part be the root (see Defining a component); the comparison docs compare the RealWorld builds before and
+after components on one machine (`realworld-comparison.md`, Components) instead of re-running every
+implementation.
 
 This reverses a non-goal (`spec.md`: "Routing, a component system, a virtual DOM, transitions";
 "components remain a non-goal"). Once sinter has components, they will be compared with Svelte, Vue
@@ -81,7 +84,12 @@ src/components/live-clock.ts            ...plus a script, run per instance by si
   the caller, and not the script (see [One contract](#one-contract)).
 - `<style>` is scoped to the component and goes into the app's CSS files: no inline style, no
   CSP change. The compiler wraps it in native `@scope`:
-  `@scope ([data-sn-c="article-preview"]) to ([data-sn-c]) { … }`.
+  `@scope ([data-sn-c="article-preview"]) to ([data-sn-c]) { … }`. (Implemented: in `@scope`, a selector
+  without `:scope` matches only below the scope root, so `.preview` alone would not match the root. The
+  compiler adds a copy of each selector whose first compound may be the root,
+  `.preview, :where(:scope):is(.preview)`, with the same specificity. Making the root's parent the scope
+  root through `:has()` was tried first and dropped: adding and removing 200 list rows took 62 ms
+  against 18 in Chromium, and 1,365 ms against 32 in Firefox, and sibling instances shared a scope.)
   - The root of each instance carries `data-sn-c` with the component's name, in production too
     (only for components that have styles; others keep it in dev builds only).
   - The `to` boundary stops the styles at nested components, and at slot content, which the
@@ -661,3 +669,4 @@ Settled in review, in the order they were discussed:
 | Nested items | `patch` and `remove` along their path; `upsert` takes the list, nested or by name | [Nested items](#nested-items-along-their-path) |
 | Choosing at runtime | `<sn-component use>`; candidates from a type that fits `ComponentName`, props narrowed per candidate | [Choosing a component at runtime](#choosing-a-component-at-runtime) |
 | Rows through a helper | A helper that takes one resource and returns its element type keeps that resource's provenance | [Store functions](#store-functions-resolved-from-the-item) |
+| Leaving the first frame | Added after review: `data-sn-early="off"` on a component's tag leaves that use out of the early script, for uses that accept the layout shifting when they render | [components.md](../components.md) |

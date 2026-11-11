@@ -24,6 +24,8 @@ export interface ShadowOptions {
   actions?: HelperManifest;
   /** absolute paths of the declarations generated per OpenAPI spec, by spec index */
   openapi?: string[];
+  /** the type names of each spec's named schemas, by spec index */
+  schemas?: string[][];
 }
 
 /** A run of shadow lines that came from the HTML. */
@@ -42,6 +44,11 @@ export interface Shadow {
   /** first line of the broken expressions (written last); nothing from there on is reported */
   brokenFrom: number | null;
 }
+
+/** TypeScript's own types a type the app writes may name (not taken as the app's, unknown without a types module) */
+const LIB_TYPES = new Set(['Partial', 'Required', 'Readonly', 'Record', 'Pick', 'Omit', 'Exclude', 'Extract', 'NonNullable', 'ReturnType', 'Parameters',
+  'Awaited', 'InstanceType', 'Array', 'ReadonlyArray', 'Promise', 'Map', 'Set', 'ReadonlyMap', 'ReadonlySet', 'Date', 'String', 'Number', 'Boolean',
+  'Object', 'Function', 'RegExp', 'Error', 'Element', 'HTMLElement', 'Event', 'CustomEvent', 'Uppercase', 'Lowercase', 'Capitalize', 'Uncapitalize', 'CustomEvent', 'File', 'Blob', 'URL']);
 
 export function shadow(o: ShadowOptions): Shadow {
   const { unit } = o;
@@ -72,6 +79,23 @@ export function shadow(o: ShadowOptions): Shadow {
     ...refs.flatMap((t) => (t?.kind === 'openapi' ? [t.spec] : [])),
   ]);
   for (const i of [...specs].sort()) line(`/** @import * as $O${i} from '${spec(o.openapi![i]!).replace(/\.d\.ts$/, '')}' */`);
+  // a type the app writes (props, \`type\`) may name sinter's own types and a spec's schemas, unless the types module has the name
+  const named = new Set(o.types?.names ?? []);
+  const own = ['Err', 'Meta'].filter((n) => !named.has(n));
+  for (const n of own) named.add(n);
+  line(`/** @import { ${own.join(', ')} } from '${sinter}' */`);
+  (o.schemas ?? []).forEach((names, i) => {
+    const own = names.filter((n) => !named.has(n));
+    for (const n of own) named.add(n);
+    if (own.length) line(`/** @import { ${own.join(', ')} } from '${spec(o.openapi![i]!).replace(/\.d\.ts$/, '')}' */`);
+  });
+  // an app with neither a types module nor a spec: the types its components name are unknown, as its resources are
+  if (!o.types && !o.schemas?.some((x) => x.length)) {
+    const texts = [...unit.frames.flatMap((f) => (f.kind === 'props' && f.type.kind === 'ts' ? [f.type.text] : [])),
+      ...unit.exprs.flatMap((e) => [e.returns, e.detail]).flatMap((t) => (t?.kind === 'ts' ? [t.text] : []))];
+    const unknown = new Set(texts.flatMap((t) => t.replace(/'[^']*'|"[^"]*"/g, '').match(/(?<![\w$.])[A-Z][\w$]*/g) ?? []).filter((n) => !named.has(n) && !LIB_TYPES.has(n)));
+    for (const n of unknown) line(`/** @typedef {any} ${n} */`);
+  }
 
   // names a page can see besides its own frames; resources first, as sinter resolves them
   const taken = new Set<string>(unit.resources.map((r) => r.name));
@@ -169,6 +193,9 @@ export function shadow(o: ShadowOptions): Shadow {
         line('let {');
         f.names.forEach((n, k) => { at(f.locs?.[k]); line(`${n},`); });
         line(`} = ${f.init === null ? '$any' : `$e${f.init}()`};`);
+      } else if (f.kind === 'props') {
+        tagged('type', f.type, ' const $props = $any;');
+        line(`const { ${f.names.join(', ')} } = $props;`);
       } else if (f.kind === 'formError') {
         line(`/** @type {${decl('Err')} | null} */ let $error = $any;`);
       } else if (f.kind === 'let') {
@@ -216,14 +243,17 @@ export function shadow(o: ShadowOptions): Shadow {
     if (e.mode === 'value') {
       // action arguments and bodies are taken when the trigger fires
       // run('id') starts the action without an event: unguarded reads are reported
-      if (e.event !== null) line(`/** @type {${decl(e.run ? `RunEvent<${decl(`Ev<${JSON.stringify(e.event)}>`)}>` : `Ev<${JSON.stringify(e.event)}>`)}} */ const $event = $any;`);
+      if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
+      else if (e.event !== null) line(`/** @type {${decl(e.run ? `RunEvent<${decl(`Ev<${JSON.stringify(e.event)}, ${JSON.stringify(e.tag)}>`)}>` : `Ev<${JSON.stringify(e.event)}, ${JSON.stringify(e.tag)}>`)}} */ const $event = $any;`);
+      if (e.guard) line(`if (!(${e.guard})) return $any;`);
       // a value of the wrong type as a whole is reported on `return`
       regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
       line('return (');
       verbatim(e.src, e.loc);
       line(');');
     } else {
-      line(`/** @type {${decl(`Ev<${JSON.stringify(e.event ?? '')}>`)}} */ const $event = $any;`);
+      if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
+      else line(`/** @type {${decl(`Ev<${JSON.stringify(e.event ?? '')}, ${JSON.stringify(e.tag)}>`)}} */ const $event = $any;`);
       if (e.result) {
         if (e.resultType) tagged('type', e.resultType, ' const $result = $any;');
         else line('/** @type {any} */ const $result = $any;');
@@ -281,7 +311,20 @@ export interface CallContext { signal: AbortSignal; request(url: string, init?: 
 export type CallArgs<F> = F extends (...a: infer P) => any ? (P extends [...infer A, infer L] ? ([L] extends [CallContext] ? A : P) : P) : never;
 export type Item<T> = NonNullable<T> extends readonly (infer U)[] ? U : NonNullable<T> extends Iterable<infer U> ? U : any;
 export type El<K extends string> = K extends keyof HTMLElementTagNameMap ? HTMLElementTagNameMap[K] : HTMLElement;
-export type Ev<K extends string> = K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K] : CustomEvent;
+declare global {
+  /**
+   * The events a custom element dispatches, by tag and event name, with their detail types:
+   * \`interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean } }\`. Empty here; the app
+   * declares it (\`declare global\`) in the types module or beside the element's class, and components
+   * declare theirs with data-sn-emits.
+   */
+  interface SinterElementEvents {}
+}
+/** $event of a handler for event K on an element with tag T */
+export type Ev<K extends string, T extends string = string> = K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K]
+  : T extends keyof SinterElementEvents ? (K extends keyof SinterElementEvents[T] ? CustomEvent<SinterElementEvents[T][K]> : CustomEvent) : CustomEvent;
+/** what data-sn-prop accepts on a custom element: its own properties when HTMLElementTagNameMap has it, anything otherwise */
+export type Props<K extends string> = K extends keyof HTMLElementTagNameMap ? { [P in keyof HTMLElementTagNameMap[K]]?: HTMLElementTagNameMap[K][P] } : Record<string, unknown>;
 /**
  * $event where run('id') can start the action: null then. Checking runs without strictNullChecks, where
  * \`E | null\` is just E, so the missing event is \`void\`: \`$event.shiftKey\` is an error, \`$event && $event.shiftKey\` is not.
@@ -294,8 +337,8 @@ export type NoPageNumber = 'a keyset resource takes a direction; add offset-para
 export interface Store<R, D extends string = never> {
   refresh(...names: [keyof R & string, ...(keyof R & string)[]]): void;
   upsert<K extends keyof R & string>(name: K, item: Item<R[K]>): void;
-  patch<K extends keyof R & string>(name: K, item: Partial<Item<R[K]>>, set: Partial<Item<R[K]>>): void;
-  remove<K extends keyof R & string>(name: K, item: Partial<Item<R[K]>>): void;
+  patch<T>(item: T, set: Partial<NonNullable<T>>): void;
+  remove(item: unknown): void;
   page<K extends keyof R & string>(name: K, to: [Extract<K, D>] extends [never] ? Direction | number : Direction | NoPageNumber): void;
   showModal(id: string): void;
   close(id?: string): void;

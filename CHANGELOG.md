@@ -5,6 +5,58 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
+  is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
+  costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots
+  (named, default, fallback content) in the caller's scope, events through `emit()` declared with `data-sn-emits`, and
+  `data-sn-model` for a component with a `value` prop and a `change` event. The tag is replaced by the component's
+  single root, which takes the tag's classes, attributes and handlers. The component's markup sees only its props, its
+  state, resources and helpers. New diagnostics `SN312`–`SN316`; `sinter check` types props and `$event.detail`, and a
+  type written in markup may name the OpenAPI spec's schemas; `render(…, { components })` in the testing module.
+- Components with a script: `src/components/<name>.ts` beside the HTML extends the base class it imports from
+  `./<name>.html` (`@tiaforge-ui/sinter/components`), typed by the generated `src/sinter.components.d.ts` (props, events,
+  `data-sn-ref` refs by tag, state). sinter creates it per instance on its root, in rows and branches too, and runs
+  `connected()`, `propsChanged()` and `disconnected()`; it reads `this.props`, writes `this.state`, uses `this.refs` and
+  `this.emit()`. No custom element, no hydration: the markup is rendered by sinter, in the first frame. The starter
+  template's chart is one. `render(…, { scripts })` in the testing module.
+- A component may use itself (a comment thread, a file tree) when every cycle passes through a `data-sn-for` or
+  `data-sn-if` template: it compiles once to a shared definition in the head, which the runtime and the early script
+  instantiate per item, so a tree renders at any depth, early too. Nested items change along their path: `patch(r, …)`
+  and `remove(r)` for `r in comment.replies` at any depth, and `upsert(c.replies, x)` (the `nested` module), and
+  write-through applies a response to the nested item an action is about, at any depth.
+- `<sn-component use="…">`: a component chosen by data, named by a template string (``use="`${b.type}-block`"``), a map in
+  the markup (`use="{ hero: 'hero-block' }[b.type]"`) or a helper. `sinter check` checks the name against the generated
+  `ComponentName` (a type the data can have and no component has is an error) and each candidate's props with the item
+  narrowed; a value outside the candidates renders the `data-sn-else` template after it, or warns in dev builds.
+- `data-sn-early="off"` on a component's tag leaves that use out of the early script, for uses that may shift the layout
+  when they render later: the head script stays small.
+- Scoped styles: a `<style>` in a component file goes into the page's stylesheet, wrapped in native `@scope` from the
+  component's root to nested components and slot content (marked `data-sn-c` and `data-sn-s` on pages that use one).
+  Each selector gets a copy whose first part may be the root (`.compact p, :where(:scope):is(.compact) p`, the same
+  specificity); `@keyframes` and the other global at-rules stay outside.
+- `sinter check` types custom elements from the app's declarations under `src/` (a module with `declare global` for
+  `HTMLElementTagNameMap` or `SinterElementEvents`): `data-sn-prop` keys and values are checked against the element's
+  properties, `$el` has the element's class, and `$event.detail` has the type `SinterElementEvents` gives the event on
+  that tag (`interface SinterElementEvents { 'mail-reader': { 'reader-flag': boolean } }`).
+
+- RealWorld is built with components: header, footer, article meta, byline, preview, error list and one favorite
+  button for the feed, the profile and the article page.
+
+### Removed
+
+- `patch('name', item, …)` and `remove('name', item)` (breaking): `patch(item, …)` and `remove(item)` act on the item
+  in the resource it came from, found by its key: a loop row (also of a `?:` between lists, of `filter`/`toSorted`, of a
+  helper given one resource), an element (`list[0]`, `.find(…)`), a single resource (`remove` makes it `null`), a
+  component prop or emitted detail that is one, or state a handler assigned one (`sel = m`, `structuredClone(m)`). Drop
+  the first argument; the old forms and an item with no source fail with `SN317`.
+
+- `<sn-include>` (breaking): a partial is a component. The build fails with `SN316`, whose message lists the names the
+  partial reads from the page (the props it needs). `SN305` is retired; `SN306` is now a component that uses itself
+  with no `data-sn-for` or `data-sn-if` template between. The starter template's header and RealWorld's partials are
+  components.
+
 ### Changed
 
 - Changes from server events render once per frame: `<sn-event>` mappings and their `then` still apply when each

@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+<head><title>Components</title></head>
+<body>
+<sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
+<sn-sync src="/api/events"><sn-event name="article_changed" resource="articles" op="refetch"></sn-event></sn-sync>
+<main data-sn-state="{ narrow: false, sel: null }">
+  <template data-sn-for="a in articles">
+    <article-card class="item" data-sn-prop="{ article: a, compact: narrow }" data-sn-on-select="sel = $event.detail">
+      <time slot="meta" data-sn-text="a.createdAt"></time>
+    </article-card>
+  </template>
+  <rating-input data-sn-model="sel"></rating-input>
+</main>
+</body>
+</html>

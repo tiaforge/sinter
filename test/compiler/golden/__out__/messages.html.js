@@ -24,7 +24,7 @@ const fns = [
   ($) => (relative($.m.sent_at, $.$now)),
   ($) => ($.m.is_flagged),
   ($) => ({account_id: $.m.account_id, mailbox: $.m.mailbox, uid: $.m.uid, flags: ['\\Flagged'], set: !$.m.is_flagged}),
-  ($) => {$.$f.patch('messages', $.m, {is_flagged: !$.m.is_flagged})
+  ($) => {$.$f.patch(["messages"], $.m, {is_flagged: !$.m.is_flagged})
 },
   ($) => {$.$f.emit('toast', $.$error.message)
 },

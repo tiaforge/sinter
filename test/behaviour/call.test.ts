@@ -88,7 +88,7 @@ describe('data-sn-call: actions that call a function', () => {
     const { root, flush, settle } = await render(`
       <sn-resource name="items" src="/api/items" key="id"></sn-resource>
       <ul><template data-sn-for="it in items">
-        <li><span data-sn-text="it.n"></span><button data-sn-call="drop(it)" data-sn-optimistic="remove('items', it)" data-sn-then="remove('items', it)"></button></li>
+        <li><span data-sn-text="it.n"></span><button data-sn-call="drop(it)" data-sn-optimistic="remove(it)" data-sn-then="remove(it)"></button></li>
       </template></ul>`, { actions, requests });
     await settle();
     const names = () => [...root.querySelectorAll('span')].map((s) => s.textContent).join(',');

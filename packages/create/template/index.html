@@ -23,7 +23,7 @@
     <sn-event name="task_removed" resource="tasks" op="remove" type="TaskRemoved"></sn-event>
   </sn-sync>
 
-  <sn-include src="./partials/header.html"></sn-include>
+  <app-header data-sn-prop="{ armed }" data-sn-on-arm="armed = true"></app-header>
 
   <main data-layout="center" data-gap="lg" data-pad="lg" style="--tm-measure: 48rem">
     <div data-layout="row" data-gap="sm">
@@ -33,9 +33,9 @@
 
     <!-- split: the chart beside the list, above it on a phone -->
     <div data-layout="split" data-gap="lg" style="--tm-split: 9rem">
-      <!-- The island: data in through properties, the filter back out through its event. -->
+      <!-- A component with a script: the tasks in through props, the filter back out through its event. -->
       <aside>
-        <task-chart data-sn-prop="{ tasks, show }" data-sn-on-chart-select="show = $event.detail"></task-chart>
+        <task-chart data-sn-prop="{ tasks, show }" data-sn-on-pick="show = $event.detail"></task-chart>
       </aside>
 
       <section data-layout="stack" data-gap="md" data-sn-let="{ shown: visible(tasks, q, show) }">
@@ -57,7 +57,7 @@
               <!-- Optimistic: ticks at once, rolls back if the server refuses. -->
               <input type="checkbox" aria-label="Done"
                      data-sn-patch="/api/tasks/{t.id}" data-sn-body="{ done: !t.done }"
-                     data-sn-optimistic="patch('tasks', t, { done: !t.done })"
+                     data-sn-optimistic="patch(t, { done: !t.done })"
                      data-sn-attr="{ checked: t.done }">
               <!-- The title morphs into the heading of the task's page (view transition). -->
               <div data-grow data-layout="stack" data-gap="none">
@@ -66,7 +66,7 @@
                 <small data-muted data-sn-text="relative(t.createdAt)"></small>
               </div>
               <button data-icon="trash-2" data-variant="ghost" data-size="sm" data-tone="danger" aria-label="Delete task"
-                      data-sn-delete="/api/tasks/{t.id}" data-sn-optimistic="remove('tasks', t)"></button>
+                      data-sn-delete="/api/tasks/{t.id}" data-sn-optimistic="remove(t)"></button>
             </li>
           </template>
         </ul>

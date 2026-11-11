@@ -20,7 +20,7 @@ const NOTE = (attrs: string, extra = '') => `
     <sn-resource name="notes" src="/api/notes" key="id"></sn-resource>
     <template data-sn-for="n in notes">
       <button data-sn-put="/api/notes/{n.id}" data-sn-body="{id: n.id, title: 'new'}" ${attrs}
-              data-sn-optimistic="patch('notes', n, {title: 'new'})" data-sn-then="saved = saved + 1">save</button>
+              data-sn-optimistic="patch(n, {title: 'new'})" data-sn-then="saved = saved + 1">save</button>
       <i data-sn-text="n.title"></i>
     </template>
     <b data-sn-text="saved"></b><s data-sn-text="failed"></s>${extra}

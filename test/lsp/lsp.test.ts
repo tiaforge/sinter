@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, test } from 'vitest';
 import { Connection } from '../../src/lsp/rpc.js';
 import { findTsc } from '../../src/check/index.js';
-import { EXTRACT_FIX_CODES, includeAt, rangeOf, startServer, type LspDiagnostic } from '../../src/lsp/server.js';
+import { EXTRACT_FIX_CODES, componentAt, rangeOf, startServer, type LspDiagnostic } from '../../src/lsp/server.js';
 import { typeFromHover } from '../../src/lsp/extract.js';
 import { didYouMeanEdit, suggestionOf } from '../../src/lsp/quickfix.js';
 
@@ -142,23 +142,27 @@ describe('sinter lsp', () => {
     await e.diagnostics('index.html', (d) => d.length === 0);
   });
 
-  test('a partial is checked in the context of the pages that include it', async () => {
-    const page = '<sn-resource name="contacts" src="/api/contacts" key="id"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <sn-include src="./partials/list.html"></sn-include>\n</div>\n';
-    const partial = '<template data-sn-for="c in contacts">\n  <p data-sn-text="c.name + q"></p>\n</template>\n';
-    const root = project({ 'index.html': page, 'partials/list.html': partial });
+  test('a component is checked through the pages that use it, and on its own when none does', async () => {
+    const page = '<sn-resource name="contacts" src="/api/contacts" key="id"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <contact-list data-sn-prop="{ q }"></contact-list>\n</div>\n';
+    const component = '<template data-sn-component="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.name + q"></p>\n</template></ul></template>\n';
+    const root = project({ 'index.html': page, 'src/components/contact-list.html': component, 'src/components/lone-card.html': '<template data-sn-component=""><p data-sn-text="nope"></p></template>\n' });
     const e = await editor(root);
-    e.open('partials/list.html', partial);
-    // `contacts` and `q` come from the page, so the partial has no errors
-    expect((await e.diagnostics('partials/list.html')).filter((x) => x.severity === 1)).toEqual([]);
+    e.open('src/components/contact-list.html', component);
+    // `contacts` is the page's resource and `q` a prop, so the component has no errors
+    expect((await e.diagnostics('src/components/contact-list.html')).filter((x) => x.severity === 1)).toEqual([]);
 
-    e.change('partials/list.html', partial.replace('c.name + q', 'c.name + qq'));
-    const d = await e.diagnostics('partials/list.html', (d) => d.some((x) => x.code.startsWith('SN201')));
+    e.change('src/components/contact-list.html', component.replace('c.name + q', 'c.name + qq'));
+    const d = await e.diagnostics('src/components/contact-list.html', (d) => d.some((x) => x.code.startsWith('SN201')));
     expect(d.find((x) => x.code.startsWith('SN201'))!.range.start).toEqual({ line: 1, character: 28 });
-    // reported once, on the partial, not on the page
+    // reported once, on the component, not on the page
     expect(e.current('index.html').filter((x) => x.severity === 1)).toEqual([]);
 
-    e.change('partials/list.html', partial);
-    await e.diagnostics('partials/list.html', (d) => d.every((x) => x.severity === 2));
+    e.change('src/components/contact-list.html', component);
+    await e.diagnostics('src/components/contact-list.html', (d) => d.every((x) => x.severity === 2));
+
+    e.open('src/components/lone-card.html', '<template data-sn-component=""><p data-sn-text="nope"></p></template>\n');
+    const lone = await e.diagnostics('src/components/lone-card.html', (d) => d.length > 0);
+    expect(lone.map((x) => x.code)).toEqual(['SN201 unknown-identifier']);
   });
 
   test('an HTML file that no page includes is compiled as a page', async () => {
@@ -243,13 +247,13 @@ describe('sinter lsp', () => {
       await e.diagnostics('index.html', (d) => d.length === 0);
     });
 
-    test('a type error in a partial is reported on the partial', async () => {
-      const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<sn-include src="./row.html"></sn-include>\n';
-      const row = '<template data-sn-for="c in contacts">\n  <p data-sn-text="c.tags.lenght"></p>\n</template>\n';
-      const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': page, 'row.html': row });
+    test('a type error in a component is reported on the component', async () => {
+      const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<contact-rows></contact-rows>\n';
+      const row = '<template data-sn-component=""><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.tags.lenght"></p>\n</template></ul></template>\n';
+      const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': page, 'src/components/contact-rows.html': row });
       const e = await editor(root);
-      e.open('row.html', row);
-      const d = await e.diagnostics('row.html', (d) => d.some((x) => x.code.startsWith('SN208')));
+      e.open('src/components/contact-rows.html', row);
+      const d = await e.diagnostics('src/components/contact-rows.html', (d) => d.some((x) => x.code.startsWith('SN208')));
       expect(d.find((x) => x.code.startsWith('SN208'))!.message).toMatch(/Did you mean 'length'\?/);
       expect(e.current('index.html').filter((x) => x.code.startsWith('SN208'))).toEqual([]);
     });
@@ -314,10 +318,11 @@ describe('did-you-mean', () => {
   });
 });
 
-test('includeAt finds the partial under the cursor', () => {
-  const line = '  <sn-include src="./partials/row.html"></sn-include>';
-  expect(includeAt(line, 0, 22)).toBe('./partials/row.html');
-  expect(includeAt(line, 0, 5)).toBeNull();
+test('componentAt finds the tag name under the cursor', () => {
+  const line = '  <article-preview data-sn-prop="{ a }"></article-preview>';
+  expect(componentAt(line, 0, 5)).toBe('article-preview');
+  expect(componentAt(line, 0, 45)).toBe('article-preview');
+  expect(componentAt(line, 0, 25)).toBeNull();
 });
 
 describe('completion, definition, quick fixes', () => {
@@ -395,13 +400,13 @@ components:
     expect(d!.map((x) => [x.uri.split('/').pop(), x.range.start.line, x.range.start.character])).toEqual([['openapi.yml', 18, 8]]);
   });
 
-  test('go to definition on an include opens the partial', async () => {
-    const page = '<sn-include src="./row.html"></sn-include>\n';
-    const root = project({ 'index.html': page, 'row.html': '<p>row</p>\n' });
+  test('go to definition on a component\'s tag opens the component', async () => {
+    const page = '<x-row></x-row>\n';
+    const root = project({ 'index.html': page, 'src/components/x-row.html': '<template data-sn-component=""><p>row</p></template>\n' });
     const e = await editor(root);
     e.open('index.html', page);
-    const d = await e.definition('index.html', 0, 20);
-    expect(d![0]!.uri).toBe(e.uri('row.html'));
+    const d = await e.definition('index.html', 0, 3);
+    expect(d![0]!.uri).toBe(e.uri('src/components/x-row.html'));
   });
 
   test('quick fixes apply the suggestion of compiler and type errors', async () => {
@@ -731,16 +736,16 @@ export function runSend(draft, sig, ctx) {
     expect(inArg.map((a) => a.title)).toEqual(expect.arrayContaining(['Extract to helper `callValue` in src/sinter.helpers.js']));
   });
 
-  test('in a partial, the names come from the page that includes it', async () => {
-    const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <sn-include src="./row.html"></sn-include>\n</div>\n';
-    const row = '<template data-sn-for="c in contacts">\n  <p data-sn-show="c.name.includes(q)"></p>\n</template>\n';
-    const root = project({ 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.ts': '', 'index.html': page, 'row.html': row });
+  test('in a component, the names are its props and the page\'s resources', async () => {
+    const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <contact-rows data-sn-prop="{ q }"></contact-rows>\n</div>\n';
+    const row = '<template data-sn-component="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-show="c.name.includes(q)"></p>\n</template></ul></template>\n';
+    const root = project({ 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.ts': '', 'index.html': page, 'src/components/contact-rows.html': row });
     const e = await editor(root);
-    e.open('row.html', row);
-    await e.diagnostics('row.html');
-    const [a] = extracts(await e.actions('row.html', find(row, 'c.name.includes', { cursor: 0 })));
+    e.open('src/components/contact-rows.html', row);
+    await e.diagnostics('src/components/contact-rows.html');
+    const [a] = extracts(await e.actions('src/components/contact-rows.html', find(row, 'c.name.includes', { cursor: 0 })));
     const files = apply(root, a!.edit);
-    expect(files['row.html']).toContain('data-sn-show="showValue(c, q)"');
+    expect(files['src/components/contact-rows.html']).toContain('data-sn-show="showValue(c, q)"');
     expect(files['src/sinter.helpers.ts']).toContain('export function showValue(c: Contact, q: string) {\n  return c.name.includes(q);\n}');
   });
 

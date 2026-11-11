@@ -20,7 +20,7 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `editor.html` | new / edit article | `/editor`, `/editor/:slug` |
 | `settings.html` | user settings, logout | `/settings` |
 | `login.html`, `register.html` | auth | `/login`, `/register` |
-| `partials/` | header (declares the `user` resource), footer, article meta, preview, errors | |
+| `src/components/` | header, footer, article meta, byline, preview, error list, favorite button (each page declares the `user` resource the header reads); `patch(article, …)` in the favorite button acts on the article where each use got it | |
 | `src/sinter.config.js` | JWT middleware (`localStorage.jwtToken`), current-user error handling | |
 | `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `window.__conduit_debug__` | |
 | `src/markdown.js` | `<conduit-markdown>` (marked + DOMPurify, requested when the module runs; `rendered` once the body is in, and `public/styles.css` keeps what follows it out of the layout until then: no shift), loaded by `article.html` only | |
@@ -37,14 +37,14 @@ login-redirect guards read it).
 
 ## Form errors
 
-No form has a `data-sn-catch`: each includes `partials/form-errors.html`, its `.error-messages` list
+No form has a `data-sn-catch`: each has an `<error-list data-sn-prop="{ error: $error }">`, its `.error-messages` list
 reading `$error` (the form's last failed send) with the `errors()` helper's lines, and
 `fieldErrors: () => null` in `src/sinter.config.js` marks no field, as the reference markup does. The
 pages with a form load the fields module (1.1 KB gzip).
 
 The buttons (favorite, follow, delete) have no catch either: a failed action without one bubbles
 `sn-error`, and one handler on each page's root (home, profile, article) sends a 401 to the login page
-and shows anything else in the page's `.error-messages` list (`partials/errors.html`). Deleting a
+and shows anything else in the page's `.error-messages` list (`<error-list data-sn-prop="{ error }">`). Deleting a
 comment keeps its catch: it fills the comments' own list (`commentError`). The comment form's list
 sits inside its card, so `public/styles.css` pads it like the textarea (the one rule of ours next to
 the theme's comment-form rules).

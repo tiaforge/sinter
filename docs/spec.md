@@ -3,7 +3,7 @@ Source: https://claude.ai/artifact/KUVBabhMHDm52FpMuPFvA9 (snapshot 2026-11-04, 
 
 ## Overview
 sinter binds JSON APIs to plain HTML: it caches server data in keyed resources, keeps them current from server events, renders them through `<template>` bindings, and runs mutations with optimistic updates. It is compile-first: a build step turns annotated HTML into a page module, so the browser runs no parser and no `eval`.
-Package: `@tiaforge-ui/sinter`. Attribute prefix: `data-sn-`. Declaration elements: `<sn-resource>`, `<sn-sync>`, `<sn-event>`, `<sn-include>`.
+Package: `@tiaforge-ui/sinter`. Attribute prefix: `data-sn-`. Declaration elements: `<sn-resource>`, `<sn-sync>`, `<sn-event>`. Components: files in `src/components/`, used by their tag, and `<sn-component use>` (see Components).
 License: MIT. Contributions are accepted under the Developer Certificate of Origin (`Signed-off-by` in each commit); no CLA.
 
 ### Goals
@@ -14,7 +14,7 @@ License: MIT. Contributions are accepted under the Developer Certificate of Orig
 - Optimistic updates that stay correct when requests overlap or SSE events arrive mid-flight.
 
 ### Non-goals
-- Routing, a component system, a virtual DOM, transitions.
+- Routing and a virtual DOM. Components are expanded at build time (see Components), not a runtime component system; transitions are view transitions between pages (`data-sn-transition`).
 - HTML responses or `innerHTML` rendering.
 - A runtime interpreter: HTML that never passes through the compiler cannot use directives.
 - Dialogs and popovers: native `<dialog>`, `popover` and `commandfor` cover them.
@@ -63,14 +63,15 @@ compile(html: string, options: CompileOptions): {
   html: string;            // rewritten page
   module: string;          // generated page module (ESM)
   diagnostics: Diagnostic[];
-  files: string[];         // partials read, for watch mode
+  files: string[];         // component files read, for watch mode
   map?: SourceMap;         // with `sourcemap`: the page module's source map (earlyMap: the early module's)
 }
 
 interface CompileOptions {
   file: string;            // for diagnostics, stable ids and relative includes
   root: string;            // project root; includes may not leave it
-  readFile: (path: string) => string;  // supplied by the adapter, used for <sn-include>
+  readFile: (path: string) => string;  // supplied by the adapter, used for component files
+  components?: string;     // where component files are (default `<root>/src/components`)
   helpers: HelperManifest; // helper functions and namespace members, read from the helpers module by the adapter
   dev: boolean;            // dev runtime + source positions in the IR
   sourcemap?: boolean;     // also return source maps for the page and early modules
@@ -79,7 +80,7 @@ interface CompileOptions {
 Same input and options always give byte-identical output. Ids are assigned in document order.
 
 ### HTML rewrite
-- `<sn-include>` elements are replaced by their partial's content first, before any other step (see Partials).
+- Component tags are replaced by the component's markup first, before any other step (see Components).
 - All `data-sn-*` attributes are removed from the output.
 - An element outside a `<template>` that carries directives gets `data-sn="<n>"`, a short id the runtime looks up once at mount.
 - Inside a `<template>`, bindings are addressed by node path (child indexes from the template root), since template content is inert and only cloned.
@@ -87,13 +88,24 @@ Same input and options always give byte-identical output. Ids are assigned in do
 - Embedded data (`<script type="application/json" data-sn-data="contacts">`) stays in the HTML, since it may be produced at request time.
 - One `<script type="module">` is injected that imports the page module.
 
-### Partials
-`<sn-include src="./partials/contact-dialog.html"></sn-include>` inlines another HTML file at build time. It adds nothing to the runtime.
-- `src` is relative to the including file, must be a literal path, and must resolve inside the project root (`root` in `CompileOptions`); anything else is `SN305`.
-- Partials may include partials; a cycle is error `SN306`, a missing file `SN305`.
-- Scope is lexical: the partial sees the state, loop variables and resources at its insertion point, and is checked per page. Wrapping it in `data-sn-state` passes values in without a component system: `<div data-sn-state="{ c: selected }"><sn-include src="./partials/contact-card.html"></sn-include></div>`.
-- Diagnostics point to the line in the partial, followed by the include chain.
-- Partials are plain HTML with no parameters, props or slots; components remain a non-goal.
+### Components
+A file `src/components/<name>.html` (the name contains a `-`) is the component `<name>`, usable on every page. Every use is expanded at build time, so a component's markup is page markup: it renders in the first frame with everything else, and a component without a script adds nothing to the runtime. The guide is [components.md](components.md).
+- The file holds one `<template data-sn-component="{ …props }">` with exactly one root element, and optionally a `<style>`. `data-sn-emits` on the template declares its events and their detail types. Anything else is `SN312`.
+- Each use is replaced by the root. The tag's `class` is joined with the root's; another plain attribute moves onto it (the same attribute on both is `SN209`); the tag's `data-sn-on-*`, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition` are compiled onto the root in the caller's scope. Other `data-sn-*` attributes on a tag are `SN102`.
+- Props: `data-sn-prop` on the tag. Each prop is the caller's expression, inlined where the component reads it (as a `data-sn-let` name), so it is live and read-only. A key the props type does not declare, or a required prop left out, is `SN313`. A prop not given is `undefined`, unless the root's `data-sn-state` has a field of that name, its default.
+- Scope: the component's markup sees its props, its own state, the page's resources, helpers and magic names; a caller's name is `SN201` with the prop to add. Its loops get their own runtime names, so a prop read in a row never resolves to a row of the component.
+- Slots: the tag's children fill the component's `<slot>` elements at build time: `slot="meta"` the `<slot name="meta">`, the rest the default `<slot>`; a slot left empty keeps its fallback content. Slot content keeps the caller's scope. Content no slot takes is `SN314`.
+- Events: `emit()` in a component must name an event `data-sn-emits` declares (`SN315`), and so must a `data-sn-on-<event>` on the tag that is not a DOM event. `$event.detail` is typed by the declaration.
+- `data-sn-model` on a tag binds the component's `value` prop and writes the detail of its `change` event back (a `CustomEvent` only, not a native `change` bubbling from inside); the component must declare both (`SN313`).
+- Recursion: a component that uses itself (directly or through others) with a `data-sn-for` or `data-sn-if` template between is compiled once as a shared definition: `<template id="sn-def-<name>">` appended to the `<head>`, whose content is the component's markup compiled as a row template whose item (`$p<tid>`) is the props object (the definition's props read `$.$p<tid>.<prop>`). Each inner use becomes an empty `<template data-sn-def="sn-def-<name>">` carrying a `data-sn-for` over `[{ …props }]` with the constant key `() => 0`; the runtime and the early script clone the definition into such a template the first time they instantiate it, so trees render at any depth, early too. The definition's props must be a type literal (`SN312`) and inner uses take no slot content (`SN314`). The item sources of the definition's props are the sources given at every use (`@def:<name>:<prop>`). A component that uses itself with no `data-sn-for` or `data-sn-if` template between is `SN306`.
+- `<sn-component use="…" data-sn-prop="…">`: a component chosen by data (the one new element). Candidates: for a template string with one expression (``use="`${b.type}-block`"``), the app's components with that prefix and suffix (`componentNames` in `CompileOptions`, from `src/components/`, or the components the page already read); for a map in the markup (`use="{ hero: 'hero-block' }[b.type]"`), its values, each of which must be a component (`SN312`); for a call (`use="blockComponent(b)"`), every component. `use` built with `+` is `SN312` (TypeScript types it `string`). Each candidate becomes a point of its shared definition whose `data-sn-for` renders `[props]` when `use` evaluates to the candidate's name, else `[]`; a `data-sn-else` template right after becomes a `data-sn-if` for a value outside the candidates. Without one, dev builds warn (`console.warn`, once per value and place) when `use` names no candidate; production builds carry no code for it. `sinter check`: the template string and the call must fit the union of the app's components (the generated `ComponentName`); for a map, the key must fit its keys; the props are checked per candidate, guarded by `key === '<value>'` for the template string and the map, so TypeScript narrows the item.
+- Nested items: a row of a nested list of an item with a source (`r in comment.replies`) has the source `<resource>><field>` (`comments>replies`; several fields join: `comments>replies,children`), meaning an item found under the resource's rows through those lists at any depth. `patch()` and `remove()` with such a source (the `nested` feature) find the item by identity, else by the resource's key, replace the objects along its path and patch the top-level row (or the single resource). `upsert(c.replies, x)` compiles to `upsert(<c's sources>, c, "replies", x)`: `c` is patched with its list, `x` added (or replacing the item with its key). Write-through follows the same paths: a read of a nested row (or of a prop that is one, `$p3.comment` in a shared definition, its sources resolved after the walk) gives a target `{ r, v, n: [fields] }` (with its schema: the list's item schema under the row's); its response patches the item at its depth (rule 1 and 3), and a DELETE of the list's URL plus one segment removes it (rule 4). Such targets are in `ap.nt` (`nu`: the one the body describes), apart from `tg`, and the `nested` module applies them after the write-through module, so a page without nested lists loads none of it. A tag written directly in a table, which the HTML parser moves out, is `SN102`: write it in the row's template.
+- A literal `id` in the markup of a component used more than once on a page is `SN209`.
+- Styles: the file's `<style>` is scoped and imported by the page module (`componentCss(name)` names the module; the Vite plugin serves it), so the bundler puts it in the page's stylesheet. It is wrapped in `@scope ([data-sn-c="<name>"], [data-sn-s="<name>"]) to ([data-sn-c], [data-sn-s])`: the component's root is the scope root, and nested component roots and slot content are the limits. Slot content passed on by a component is a scope root of its own for that component's styles (`data-sn-s="<name>"`; the page's is `data-sn-s=""`). In `@scope`, a selector without `:scope` or `&` matches only below the scope root, so each such selector of a style rule (also inside `@media` and `@supports`; not rules nested in rules) gets a copy whose first compound may be the root: `.compact p` becomes `.compact p, :where(:scope):is(.compact) p` (a pseudo-element follows the `:is()`, a selector whose first combinator is `+` or `~` gets none), with the same specificity. Each instance is its own scope: a sibling instance is outside it. `@keyframes`, `@font-face`, `@import`, `@property`, `@counter-style`, `@page` and `@layer` statements stay outside. On a page that uses a component with styles, every component root carries `data-sn-c` and top-level slot content elements `data-sn-s`; in dev builds roots always carry `data-sn-c`.
+- Scripts: a component with a script beside its HTML (`<name>.ts`, `.js`, `.mts` or `.mjs`) gets a `cmp` binding on its root, whose function returns `[the class, its props, the root state's field names]` with those fields' paths as the binding's `w`; the page module imports the class the script exports, named after the component in PascalCase (`TaskRing` for `task-ring`), else its default export (neither is `SN312`), and the `components` feature (`@tiaforge-ui/sinter/components`) creates its object once per instance with `props` (live), `state` (one accessor per field of the root's state: an assignment marks that field's path; a root without `data-sn-state` gets `{}`), `refs` and `root`. Each `data-sn-ref` element of the markup gets a `cmp` binding too, returning `[the root's state, the ref's name]`, which gives the element to that instance's `refs` (a ref whose element left the page is removed after the render); and runs `connected()` after the render that created it, `propsChanged()` after a render that changed a prop, and `disconnected()` after the render that removed its root (or on destroy). `import { XComponent } from './x.html'` in the script resolves, through the Vite plugin, to a base class extending `Component`; `src/sinter.components.d.ts` types it from the HTML (props, emits, refs by tag, state from its initial values), written with the project like `src/sinter.messages.d.ts`, and by `sinter lsp` when a component's HTML changes. `data-sn-ref` outside a component's markup, or on its root, is `SN102`.
+- `data-sn-early="off"` on a component's tag (or `<sn-component>`): the early chunk leaves out the bindings of that use's markup and of the components inside it (not of the slot content the tag passes in), so they render when the page module mounts; `prerender` still writes build-time constants into the HTML. Any other value is `SN401`; on a component's template or a plain element it is `SN102`.
+- Diagnostics point to the line in the component, followed by where it is used.
+- `<sn-include>` is removed: it is `SN316`, whose message lists the names the partial reads from the page, the props it needs as a component.
 
 ### Page module
 ```js
@@ -114,7 +126,7 @@ await parsed();   // the page module is `async`; on a page with an early file: `
 mount(document, { ir, fns, features: [sse, optimistic] });
 ```
 
-**Source maps.** With `sourcemap`, `compile` also returns a v3 source map for the page module (`map`) and the early module (`earlyMap`): each function in `fns` maps to where its expression starts in the markup (the attribute's value, `shift` characters in for a part such as a URL template's `{…}`), in the page or the partial it came from, with the files' text in `sourcesContent`. An error thrown in an expression then points at the HTML in the browser's devtools. A function maps as a whole: identifiers are rewritten (`q` becomes `$.$s0.q`), so every column inside it maps to the expression's start. A function shared by several attributes (identical code is one table entry) maps to the first. Functions the compiler writes itself map to the markup they come from: a row template's lookups (`find`, `make`) to its `data-sn-for`, a form's state with `$error` to its `data-sn-state` (or its start tag), the early module's state functions to `data-sn-state`, and the setter of a `data-sn-model` to that attribute; an expression inlined into one (each binding in `make`, a state's fields) maps to its own place. The module text is the same with or without a map. Because a shared function can map to one place only, dev builds also name each use when it throws: the dev IR gives each binding, action, resource and event an `at` (`{ [fn]: "file:line:col" }`, the place of each function it uses, recorded as it is compiled), and the core hands the dev module what threw (the binding, its element and the error; for a handler, the binding it runs for), which reports `binding \`text\` on <p> at page.html:2:20 threw: …` with the error after it. Production builds carry no `at`, and the core's error paths pass objects instead of formatting messages. The Vite plugin asks for maps in `vite dev` and in builds with `build.sourcemap`, and returns them from `load()`; in a build with maps, page modules get a plain id (`/@sinter/<page>.js`, not `\0/@sinter/…`), since Rolldown drops the map of a `\0` module.
+**Source maps.** With `sourcemap`, `compile` also returns a v3 source map for the page module (`map`) and the early module (`earlyMap`): each function in `fns` maps to where its expression starts in the markup (the attribute's value, `shift` characters in for a part such as a URL template's `{…}`), in the page or the component it came from, with the files' text in `sourcesContent`. An error thrown in an expression then points at the HTML in the browser's devtools. A function maps as a whole: identifiers are rewritten (`q` becomes `$.$s0.q`), so every column inside it maps to the expression's start. A function shared by several attributes (identical code is one table entry) maps to the first. Functions the compiler writes itself map to the markup they come from: a row template's lookups (`find`, `make`) to its `data-sn-for`, a form's state with `$error` to its `data-sn-state` (or its start tag), the early module's state functions to `data-sn-state`, and the setter of a `data-sn-model` to that attribute; an expression inlined into one (each binding in `make`, a state's fields) maps to its own place. The module text is the same with or without a map. Because a shared function can map to one place only, dev builds also name each use when it throws: the dev IR gives each binding, action, resource and event an `at` (`{ [fn]: "file:line:col" }`, the place of each function it uses, recorded as it is compiled), and the core hands the dev module what threw (the binding, its element and the error; for a handler, the binding it runs for), which reports `binding \`text\` on <p> at page.html:2:20 threw: …` with the error after it. Production builds carry no `at`, and the core's error paths pass objects instead of formatting messages. The Vite plugin asks for maps in `vite dev` and in builds with `build.sourcemap`, and returns them from `load()`; in a build with maps, page modules get a plain id (`/@sinter/<page>.js`, not `\0/@sinter/…`), since Rolldown drops the map of a `\0` module.
 
 ### Intermediate format (IR v2)
 The IR is the only contract between compiler and runtime. It is plain JSON plus a function table, carries `v: 2`, and the runtime refuses a version it does not know.
@@ -139,7 +151,7 @@ Dependencies are extracted at compile time: every binding lists the state and re
 The compiler decides, for every pair of written path and dependency, what the runtime's string matching decided before (`staticReach`); the runtime keeps only the checks against scope values. A dirty path is a written node plus the values its `{name}` segments took from the writer's scope. Each flush indexes the round's dirty paths by dependency node, so a binding's check is a lookup. `test/paths.test.ts` compares both halves with the former string matching on random paths, scopes and marked rows.
 
 ### Adapters
-- Vite (v0.1): `@tiaforge-ui/sinter/vite` hooks `transformIndexHtml` for every HTML entry and serves the page module as a virtual module. Dev and build use the same path. Partials returned in `files` are watched. Diagnostics go to the terminal and Vite's error overlay. An HTML or partial change triggers a full reload in v0.1.
+- Vite (v0.1): `@tiaforge-ui/sinter/vite` hooks `transformIndexHtml` for every HTML entry and serves the page module as a virtual module. Dev and build use the same path. Component files returned in `files` are watched. Diagnostics go to the terminal and Vite's error overlay. An HTML or component change triggers a full reload in v0.1.
 - Later: esbuild or a CLI wrap the same `compile()`; nothing in the core changes.
 
 ### First paint
@@ -259,7 +271,7 @@ Built-in messages, from an inlang project's message files, so the inlang tooling
 - Markup: `m.key()` and `m.key({ param })`, as a helper namespace that sinter provides: an unknown key is `SN206` with a suggestion, wrong or missing parameters are `SN208` in `sinter check` (types come from the base language's `{param}`s; a parameter is `string | number`). The helpers module must not export a namespace `m` as well.
 - App code: `import { m } from '@tiaforge-ui/sinter/messages'`, typed by the generated `src/sinter.messages.d.ts` (written on every build and `sinter check`; generated, so it can be git-ignored). Only `m.key` is allowed: `m[key]`, `m` passed on or aliased are build errors with the position, because each page's language file holds only the keys it uses. A dynamic choice is a switch or a map of `() => m.key()` functions.
 - A missing translation is the base language's text, reported once per locale at build.
-- Per page and language the build emits `assets/<page>-<locale>-<hash>.js` (and the page gets the picker) when the page calls any key, with only the keys the page calls: its markup (partials included) and every module of its page bundle (static and dynamic imports) and of its early file. The page bundle and the early file hold no message text: `m` reads a dictionary shared through a global (`Symbol.for('sinter.i18n')`), so the bundled-apart early file, the page bundle and the language file see one dictionary, and the page bundle fetches nothing again.
+- Per page and language the build emits `assets/<page>-<locale>-<hash>.js` (and the page gets the picker) when the page calls any key, with only the keys the page calls: its markup (components included) and every module of its page bundle (static and dynamic imports) and of its early file. The page bundle and the early file hold no message text: `m` reads a dictionary shared through a global (`Symbol.for('sinter.i18n')`), so the bundled-apart early file, the page bundle and the language file see one dictionary, and the page bundle fetches nothing again.
 - Picking the language, before the first paint: the start of the shared head script (see First paint), its data in `data-sn-i18n` on its tag, runs while the head is parsed. It takes the stored choice (localStorage `locale`), else the first of `navigator.languages` that matches a locale exactly or by language (`de-AT` → `de`), else the base; sets `<html lang>`; and adds the page's language file as a module script. Nothing waits for it (decided 2026-11-10). The build writes the base language's text into the HTML (a text binding that calls `m`, outside templates; marked `data-sn-m`), so a visitor in the base language has the right text in the first frame. For another language the picker hides the marked elements (a constructed stylesheet, `[data-sn-m]{visibility:hidden}`: their space is kept) until the page module has rendered them (`use(app)` after mount removes it); the early script renders a message whose dictionary arrived during the parse, and skips the others. No visitor sees one language replaced by another. Measured (Chromium, German visitor, 20 loads): cold, the text hidden in the first frame and German shown at about the time the old hold showed it (slow 4G 566 → 578 ms) while the rest of the page painted earlier (576 → 440 ms); warm, German in the first frame on 15–20 of 20.
 - Switching: `$locale = 'de'` (or `setLocale('de')` from the messages module) stores the choice, loads this page's file for that language once, sets `<html lang>` and re-renders what reads `$locale` (every message, `date()`, `number()`), without a reload. `onLocale(fn)` tells app code.
 - Testing: `render(html, { messages: { en: {…}, de: {…} }, locale })` and `firstPaint(html, { messages, storage })`.
@@ -390,7 +402,6 @@ A keyboard handler can name its key in the attribute: `data-sn-on-keydown-<modif
 | `<sn-resource>` | `name`, `src`, `call`, `each`, `key`, `items`, `total`, `order`, `when`, `cache`, `then`, `type`, pagination attributes | see Resources and Pagination |
 | `<sn-sync>` | `src` | one server event stream |
 | `<sn-event>` (child of `<sn-sync>`) | `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type` | maps one server event to a change message, and runs `then` after it |
-| `<sn-include>` | `src` | inlines a partial at build time; see Partials |
 
 Custom elements with a hyphen are valid HTML, so these pass a validator before compilation.
 
@@ -694,8 +705,8 @@ An action is an element with one method attribute; it sends a request when its t
 | --- | --- |
 | `refresh('contacts')`, `refresh('messages', 'unread')` | refetch each named resource (names as in Resource names below; one call, one statement for `SN507`) |
 | `upsert('contacts', $result)` | insert or replace an item |
-| `patch('contacts', item, {…})` | change fields of an item |
-| `remove('contacts', item)` | remove an item |
+| `patch(item, {…})` | change fields of an item, in the resource it came from |
+| `remove(item)` | remove an item from the resource it came from; a single resource becomes `null` |
 | `page('messages', 'next')` | change page: a direction, or a page number where the resource can jump; may be computed (see Pagination) |
 | `showModal('edit')` | open `<dialog id="edit">` as a modal; nothing if it is open |
 | `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
@@ -704,7 +715,7 @@ An action is an element with one method attribute; it sends a request when its t
 | `run('id')` | start the action of the element with that id, as its trigger would (a form: submit it); see Running an action from a handler |
 
 State assignments work too: `data-sn-then="editing = null; close()"`.
-The dialog id of `showModal()` and `close()` is a string literal that must name a `<dialog id>` on the page or its partials (`SN309`), so a typo fails the build. A button that only opens a dialog needs no handler: `commandfor="edit" command="show-modal"` is the platform's. `showModal()` is for opening after a request or call (`data-sn-then`), from a custom event, or after setting state in the same handler. Bindings inside the dialog render when it opens.
+The dialog id of `showModal()` and `close()` is a string literal that must name a `<dialog id>` on the page or the components it uses (`SN309`), so a typo fails the build. A button that only opens a dialog needs no handler: `commandfor="edit" command="show-modal"` is the platform's. `showModal()` is for opening after a request or call (`data-sn-then`), from a custom event, or after setting state in the same handler. Bindings inside the dialog render when it opens.
 
 ### Write-through
 A mutation's 2xx response is applied to the resources it is about, by the `apply` feature module (loaded by pages that have something to apply), after the optimistic layer commits and before `then` runs, so `then` has the last word. Nothing is declared: the compiler knows what the action is about and what the response holds.
@@ -726,7 +737,9 @@ A mutation's 2xx response is applied to the resources it is about, by the `apply
 - RealWorld (2026-11-08): 12 of 19 `then` handlers went, among them every favorite and follow button and the comment form's `upsert`.
 
 ### Resource names
-`refresh()`, `upsert()`, `patch()`, `remove()` and `page()` take the resource name as an expression whose possible values the compiler can list from the source: a string literal; `c ? x : y` where `x` and `y` are such expressions (the test is any value expression); `x || y` and `x ?? y` where both are; parentheses; and a `data-sn-let` name whose value is such an expression (lets are inlined, so the compiler has their expression). "Page the list shown", where the list is one of two resources:
+`patch(item, …)` and `remove(item)` take no resource name (added 2026-11-10; the forms with one are `SN317`). The compiler resolves where the item came from, as write-through resolves what an action is about: a loop row (for `a in (x ? feed : articles)`, either list; through `filter`, `slice`, `toSorted`, `toReversed`, or a helper that takes exactly one resource or list with a source; a helper that takes two is `SN317`), an element of a list (`list[i]`, `.find()`, `.findLast()`, `.at()`), a single resource, a `data-sn-let` name or a component prop that is one of those, a component event's `$event.detail` when the component emits one of those, `structuredClone()` of one, and a state path a handler on the page assigns one of those (`sel = m`; every assignment counts). It passes those resource names to the runtime ahead of the item; the runtime changes the item in the first that holds its key (a single resource is the item itself). An item with none of these sources is `SN317`, naming what to use instead: write-through for `$result`, `<sn-event resource op>` for a payload, the instance API for an island's event. State that holds a row stays a snapshot: sinter does not rewrite values in state; `patch(sel, …)` finds the item by its key.
+
+`refresh()`, `upsert()` and `page()` take the resource name as an expression whose possible values the compiler can list from the source: a string literal; `c ? x : y` where `x` and `y` are such expressions (the test is any value expression); `x || y` and `x ?? y` where both are; parentheses; and a `data-sn-let` name whose value is such an expression (lets are inlined, so the compiler has their expression). "Page the list shown", where the list is one of two resources:
 ```html
 <div data-sn-let="{ shown: searching ? 'results' : 'messages', list: searching ? results : messages }"
      data-sn-on-list-next="page(shown, 'next')"
@@ -831,7 +844,7 @@ configure({
 ```
 ```html
 <form data-sn-put="/api/notes/{note.id}" data-sn-retry="drafts" data-sn-concurrency="latest"
-      data-sn-optimistic="patch('notes', note, {title, body})">
+      data-sn-optimistic="patch(note, {title, body})">
 ```
 
 | Policy field | Default | Meaning |
@@ -867,7 +880,7 @@ Durations are written as in `refresh` and `cache` (`30s`, `5m`, `1h`, `1d`); `re
 ### Local actions (`data-sn-call`)
 Work that is not one request (crypto, MIME, WebAuthn, other browser APIs) runs in app functions that pages call like requests (added 2026-11-05; decided in the local actions proposal).
 ```html
-<button data-sn-call="mail.archive(msg)" data-sn-optimistic="remove('messages', msg)" data-sn-catch="error = $error.message">Archive</button>
+<button data-sn-call="mail.archive(msg)" data-sn-optimistic="remove(msg)" data-sn-catch="error = $error.message">Archive</button>
 <sn-resource name="body" call="pgp.decrypt(open)" when="open" type="Decrypted"></sn-resource>
 ```
 - The actions module is `src/sinter.actions.js` or `.ts` (`sinter({ actions })` overrides it), read like the helpers module: export names, `export * as ns` namespaces, re-exports followed. Its functions may be async and have side effects.
@@ -884,15 +897,15 @@ Work that is not one request (crypto, MIME, WebAuthn, other browser APIs) runs i
 A handler cannot call an action function (`SN203`), because an action's lifecycle belongs to its element: `aria-busy`, concurrency (never aborted), the optimistic layer and its rollback, `then`/`catch` and the unhandled-error path. `run('id')` starts the action of the element with that id instead, and that lifecycle runs unchanged (added 2026-11-08, for Caley's mark-read after load and for keyboard shortcuts without a visible control; there is still no `app.call()`):
 ```html
 <span hidden id="mark-read" data-sn-call="mail.markRead(open)"
-      data-sn-optimistic="patch('messages', open, {is_read: true})"></span>
+      data-sn-optimistic="patch(open, {is_read: true})"></span>
 <sn-resource name="body" call="mail.body(open)" when="open"
              then="$result && !open.is_read && run('mark-read')"></sn-resource>
 
 <body data-sn-on-keydown-e="run('archive')">
   <button id="archive" data-sn-post="/api/archive?id={open.id}" data-sn-attr="{disabled: !open}"
-          data-sn-optimistic="remove('messages', open)">Archive</button>
+          data-sn-optimistic="remove(open)">Archive</button>
 ```
-- **Target.** The element with that `id` in the mount root (partials included). It carries an action: `data-sn-get`, `-post`, `-put`, `-patch`, `-delete` or `data-sn-call`, on any element, forms included. Elements with only `data-sn-on-*` handlers are not targets: their work is state writes the caller can make itself, or a helper both call.
+- **Target.** The element with that `id` in the mount root (components included). It carries an action: `data-sn-get`, `-post`, `-put`, `-patch`, `-delete` or `data-sn-call`, on any element, forms included. Elements with only `data-sn-on-*` handlers are not targets: their work is state writes the caller can make itself, or a helper both call.
 - **Not a form:** `run()` enters where the trigger event would, so everything after the event happens as for a click: `data-sn-debounce`, `data-sn-confirm` (no means nothing happens), the concurrency policy, `data-sn-optimistic`, `aria-busy`, the request or call, `then`/`catch` and the unhandled-error path. No DOM event is dispatched: the target's own `data-sn-on-*` handlers do not run, nothing bubbles, and no default action happens (a link does not navigate, a checkbox does not toggle).
 - **A form** is submitted with `requestSubmit()`, as Enter in a field does: constraint validation runs (an invalid form shows the browser's messages and is not sent), a real `submit` event fires, and sinter handles it as any submit, the form's `data-sn-on-submit` handler included.
 - **Scope.** The target's expressions see the target's own scope (its `data-sn-state`, `data-sn-let` names, `$el` = the target), not the caller's. `run()` takes no arguments: what the action needs is state the caller sets first, `open = m; run('mark-read')`. It starts synchronously at the call, so the URL, body and call arguments see state assigned earlier in the same handler (debounce and an asynchronous `confirm` delay the start, as for a click).
@@ -935,7 +948,7 @@ An action with `data-sn-optimistic` changes the store before the request is sent
 ```html
 <button data-sn-patch="/api/email/message/flags"
         data-sn-body="{account_id: m.account_id, mailbox: m.mailbox, uid: m.uid, flags: ['\\Flagged'], set: !m.is_flagged}"
-        data-sn-optimistic="patch('messages', m, {is_flagged: !m.is_flagged})"
+        data-sn-optimistic="patch(m, {is_flagged: !m.is_flagged})"
         data-sn-catch="emit('toast', $error.message)"
         data-sn-attr="{'aria-pressed': m.is_flagged}">★</button>
 ```
@@ -963,11 +976,11 @@ This is why rollback is "drop the layer", not "restore a snapshot": with two ove
 
 | Action | Optimistic change |
 | --- | --- |
-| Flag or mark read | `patch('messages', m, {is_flagged: …})` |
-| Delete or move mail | `remove('messages', m)` |
+| Flag or mark read | `patch(m, {is_flagged: …})` |
+| Delete or move mail | `remove(m)` |
 | Bulk mark read | one layer with one `patch` per selected message |
-| Delete contact | `remove('contacts', c)` |
-| Toggle calendar visibility | `patch('calendars', cal, {hidden: !cal.hidden})` |
+| Delete contact | `remove(c)` |
+| Toggle calendar visibility | `patch(cal, {hidden: !cal.hidden})` |
 
 
 ## Pagination
@@ -1207,7 +1220,7 @@ Configuration comes only from `configure()` in JavaScript, never from the DOM, s
 - The package has no install scripts.
 - Releases are published only from CI through npm trusted publishing with provenance; maintainer accounts use 2FA and hold no long-lived publish tokens. This is the path that self-replicating npm worms abused through stolen tokens and `postinstall` hooks.
 - The compiler uses a spec-compliant HTML parser (the algorithm browsers use, no regular expressions) and serializes its output from that tree, so the compiler and the browser always agree on which element an attribute belongs to.
-- `<sn-include>` resolves only inside the project root, symlinks included, so a build cannot inline files from outside the project.
+- Component files are read from `src/components/` inside the project root only, symlinks included, so a build cannot inline files from outside the project.
 
 ## JS API for islands
 Islands are custom elements that own imperative work (encryption, rich editors, canvas-like views); they get data through properties and talk back through DOM events, and may use the store directly.
@@ -1216,7 +1229,7 @@ Islands are custom elements that own imperative work (encryption, rich editors, 
 ```html
 <template data-sn-if="selected">
   <mail-reader data-sn-prop="{message: selected, unlocked: vaultUnlocked}"
-                data-sn-on-reader-flag="patch('messages', selected, {is_flagged: $event.detail})"></mail-reader>
+                data-sn-on-reader-flag="patch(selected, {is_flagged: $event.detail})"></mail-reader>
 </template>
 ```
 - `data-sn-prop` assigns JS properties, so islands receive objects, not strings.
@@ -1250,7 +1263,7 @@ app.on('new_email', payload => notify(payload));  // any server event, mapped or
 
 
 ### Rules
-- Islands never write to sinter-managed nodes; sinter never touches an island's children.
+- Components with a script never write to sinter-managed nodes; neither do islands (plain custom elements). Markup written inside a custom element in the page is bound like the rest of the page.
 - Direct store writes from islands go to the base, like server events; unconfirmed changes use `app.optimistic()`. Both follow the base/layer model, so SSE and optimistic updates stay consistent.
 - Multiple instances may exist (one per mount root); there is no global singleton.
 
@@ -1267,10 +1280,10 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 | `SN103 missing-key` | error | a `data-sn-for` over primitive values needs `data-sn-key` |
 | `SN104 unsupported-model` | error | `data-sn-model` does not support `type="file"`; submit the form instead |
 | `SN201 unknown-identifier` | error | `contcts` is not defined here. Did you mean `contacts`? |
-| `SN202 forbidden-global` | error | `window` is a browser API; expressions may use JavaScript, not the browser. Use an island |
+| `SN202 forbidden-global` | error | `window` is a browser API; expressions may use JavaScript, not the browser. Use a component's script |
 | `SN203 side-effect` | error | value expressions cannot assign; move this to `data-sn-on-*` |
 | `SN204 optimistic-scope` | error | `data-sn-optimistic` may only call `patch`, `upsert`, `remove` |
-| `SN205 resource-mutation` | error | `m.is_read = true` mutates a resource. Use `patch('messages', m, {is_read: true})` |
+| `SN205 resource-mutation` | error | `m.is_read = true` mutates a resource. Use `patch(m, {is_read: true})` |
 | `SN206 unknown-namespace-member` | error | `m.inbox_titel` is not exported by namespace `m`. Did you mean `inbox_title`? |
 | `SN207 unsafe-sink` | error | `onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click` |
 | `SN208 type-error` | error | Property 'nmae' does not exist on type 'Contact'. (TS2339) — `sinter check` only |
@@ -1278,11 +1291,15 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 | `SN302 duplicate-resource` | error | resource `contacts` is declared twice |
 | `SN303 unknown-meta-field` | error | `$meta.contacts.loadng` is not a status field. Did you mean `loading`? |
 | `SN304 keyset-jump` | error | keyset pagination cannot jump to a page number. Use `paginate="offset"` |
-| `SN305 include-not-found` | error | partial `./partials/contact-dialg.html` not found or outside the project root |
-| `SN306 include-cycle` | error | `a.html` → `b.html` → `a.html` includes itself |
+| `SN306 component-cycle` | error | `<x-a>` → `<x-b>` → `<x-a>` uses itself with no `data-sn-for` or `data-sn-if` template between |
 | `SN307 openapi-invalid` | error | OpenAPI spec `api.yml` is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`) |
 | `SN308 unknown-schema-field` | error | the response of `GET /articles` has no `articls`. Did you mean `articles`? |
 | `SN311 unknown-run-target` | error | no element `id="mark-raed"` on this page. Did you mean `mark-read`? |
+| `SN312 invalid-component` | error | a component has one root element; `<article-preview>` has 2 elements at the top of its template |
+| `SN313 unknown-prop` | error | `artcle` is not a prop of `<article-preview>`; its props are `article`, `compact` |
+| `SN314 unknown-slot` | error | `<article-preview>` has no slot `meta` |
+| `SN315 unknown-component-event` | error | `<task-ring>` does not declare the event `pik` |
+| `SN316 include-removed` | error | `<sn-include>` is removed: a partial is a component |
 | `SN401 parse-error` | error | JS syntax error, with the column inside the attribute |
 | `SN501 unused-resource` | warning | resource `addressbooks` is declared but never read |
 | `SN502 non-reactive-value` | warning | `Date.now()` in a binding never updates. Use `$now` |
@@ -1333,13 +1350,13 @@ The dev build adds checks that need real data: duplicate keys in a response, an 
 - Every diagnostic links to its section in `docs/diagnostics.md`, which is generated from the compiler's table of codes (example, meaning, fix).
 
 ### Editor integration
-- `sinter lsp` is a language server over stdio. It compiles open buffers on every change and publishes the compiler's diagnostics; a partial is compiled in the context of the pages that include it, and a page's diagnostics in its partials are reported on the partial.
+- `sinter lsp` is a language server over stdio. It compiles open buffers on every change and publishes the compiler's diagnostics; a component is compiled through the pages that use it (one no page uses, through a use of its own), and a page's diagnostics in its components are reported on the component.
 - Pages are the HTML entries of the Vite config, plus any open HTML file no page includes. A change to the Vite config, the helpers or types module, or an OpenAPI spec reloads the project.
 - Diagnostics underline the whole attribute or tag when they are about it (`span` on `Diagnostic`), else the name at their position.
 - Type errors (`SN208`) as you type: with TypeScript 7, `sinter lsp` keeps each page's shadow file open in TypeScript's own language server (`tsc --lsp --stdio`, one per project, shadows under `.sinter/lsp/`) and pulls its errors 300 ms after the last change, mapped to the HTML with TypeScript's range. Before TypeScript 7 (no `--lsp`), it runs the `sinter check` pipeline on save.
 - Hover on a name in an expression shows its TypeScript type (TypeScript 7 only).
 - Completion inside expressions comes from TypeScript, minus the shadow's own names and auto-imports. An expression the compiler rejects (it may not even parse, like `article.`) stays in the check unit marked broken: it is written after all other expressions, completes like any other, and TypeScript's errors in it are dropped, since the compiler has reported it.
-- Go to definition: a resource goes to its `name` attribute, a state field to its key in `data-sn-state`, a loop variable or index to `data-sn-for`, a type generated from OpenAPI to its schema (or property) in the spec file, an `<sn-include>` `src` to the partial; helpers and types-module names go where TypeScript says.
+- Go to definition: a resource goes to its `name` attribute, a state field to its key in `data-sn-state`, a loop variable or index to `data-sn-for`, a type generated from OpenAPI to its schema (or property) in the spec file, a component's tag to its file; helpers and types-module names go where TypeScript says.
 - Quick fix: a diagnostic whose message ends in a suggestion ("Did you mean `count`?", TypeScript's "Did you mean 'title'?") offers to replace the misspelled name with it.
 - Extract to helper (`refactor.extract`; added 2026-11-08): an expression, or the smallest whole expression around a selection in it, moves into a new exported function of the helpers module (created if missing: `.ts` when the types or actions module is TypeScript or there is a `tsconfig.json`), and the attribute calls it. The parameters are its free names that the page resolves (loop variables, state, lets, resources, payload fields, magic names, names of arrow functions around the selection; `$meta.<resource>` as a whole), not helpers, namespaces, store functions or globals; with TypeScript 7 they are typed from TypeScript's view of the page, else `unknown`. The name is unique among everything an expression or the module could mean by it. In a handler only pure parts are extracted: an assignment keeps its target (`q = nextQ(c)`); several assignments get one helper each, or, for properties of one state object none of whose values reads an earlier write, one helper returning an object merged with `Object.assign(obj, …)`, since handlers have neither destructuring nor locals. On `data-sn-call` and `<sn-resource call>`, Extract to action moves the call into a new action that forwards the context. Each extraction is compiled before it is offered and dropped if it adds an error. Handler semantics are unchanged; dependency tracking becomes coarser (whole parameters instead of the paths read). `SN507` (complex expression) offers the same extraction as a quick fix.
 - VS Code: the extension in `editors/vscode` starts the `sinter lsp` of the nearest `node_modules/@tiaforge-ui/sinter` above each HTML file (one server per installation, so nested projects keep their own) and contributes `html-custom-data.json`. Other editors run `npx sinter lsp --stdio`; `docs/editors.md` has the setup.
@@ -1447,7 +1464,7 @@ Endpoints used: `GET /api/contacts` → `{addressbooks, contacts}`, `POST /api/c
         <button data-sn-on-click="draft = structuredClone(c)" commandfor="edit" command="show-modal">Edit</button>
         <button data-sn-delete="/api/contact"
                 data-sn-body="{account_id: c.account_id, uid: c.uid, addressbook_href: c.addressbook_href}"
-                data-sn-optimistic="remove('contacts', c)">Delete</button>
+                data-sn-optimistic="remove(c)">Delete</button>
       </li>
     </template>
   </ul>
@@ -1478,7 +1495,7 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 ### Notes on this example
 - `draft.emails.splice(i, 1)` works as written: path invalidation marks `draft.emails`, and rows keep their nodes because state lists key by object identity.
 - `structuredClone(c)` turns the frozen resource item into editable state.
-- Dialog markup used on several pages goes in a partial: `<sn-include src="./partials/contact-dialog.html"></sn-include>`.
+- Markup used on several pages goes in a component: `src/components/contact-card.html`, used as `<contact-card data-sn-prop="{ contact: c }">`.
 
 ## Open questions
 - State reactivity depth. Decided: compile-time path invalidation, default identity keys, `update()` for islands, dev-mode detector, resources read-only (`SN205`), copies via `structuredClone`. See Expressions and scope.
@@ -1491,7 +1508,7 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 - Testing utilities. Decided: `@tiaforge-ui/sinter/testing` ships in v0.1 as stable API; sinter tests itself through it. See Testing.
 - Path parameters. Decided (2026-11-04): `<html data-sn-path="/article/:slug">` declares the URL shapes a page is served for; the runtime matches `location.pathname` once and exposes `:name` segments read-only in `$url`. No client-side routing: the server still picks the page, links stay full page loads; dev and production rewrites are the deployment's job for now.
 - Optional query parameters. Decided (2026-11-04): a query parameter whose interpolated value is `null`/`undefined` is omitted from the URL, so one resource covers lists whose filters come and go.
-- Templates shared across pages. Decided: static `<sn-include>` resolved at build time, lexical scope, no parameters. See Compiler contract.
+- Templates shared across pages. Decided (2026-11-10): components, expanded at build time, with props, slots and events; `<sn-include>` is removed. See Components and `docs/proposals/components.md`.
 - Handlers at several levels. Decided (2026-11-08): nearest wins unless the element did not handle the event; a plain key handler handles a key only when it prevents it. See Events, Which handlers run.
 - Running an action from a handler. Decided (2026-11-08): `run('id')` starts the action of the element with that literal id (`SN311`), keeping its lifecycle; `$event` is null (forms are submitted), disabled and inert targets do nothing, no return value, no `app.run()` for islands, cycle check `SN509` opt-in. See Running an action from a handler.
 

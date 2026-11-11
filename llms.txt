@@ -15,7 +15,11 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-show` (value expression): toggles the hidden attribute
 - `data-sn-prefetch` (off): on <html>: no other page prefetches this one's data or the page itself (Speculation Rules), and none prerenders it; for pages that do something when they load
 - `data-sn-transition` (value expression (a name)): the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too)
-- `data-sn-prop` (object literal): sets JS properties; custom elements only (one defined later gets them again through its setters)
+- `data-sn-prop` (object literal): sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only
+- `data-sn-component` (props type): on the <template> of a component file (src/components/<name>.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }
+- `data-sn-early` (off): on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for uses that may shift the layout when they render, to keep the early script small
+- `data-sn-ref` (name): in a component's markup: the element its script reads as this.refs.<name>, typed by its tag
+- `data-sn-emits` (events type): on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article }
 - `data-sn-model` (state path): two-way binding for form controls
 - `data-sn-for` (item in list | (item, i) in list): repeats a <template> per item
 - `data-sn-key` (value expression): row identity; defaults to the resource key or object identity
@@ -52,8 +56,8 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 
 - `<sn-resource>` `name`, `src`, `call`, `each`, `key`, `items`, `total`, `order`, `when`, `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `direction-values`, `page-param`, `offset-param`, `start-page`, `type`, `cache`, `refresh`, `then`, `early`: a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates. `refresh="30s"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early="off"`: never preloaded or requested before the page module (for a resource whose request a middleware answers or changes). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches
 - `<sn-sync>` `src`: one server event stream
+- `<sn-component>` `use`, `data-sn-prop`: a component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it
 - `<sn-event>` `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type`: maps one server event to a change message; child of <sn-sync>. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close('detail'); with `then`, `resource` and `op` may be left out
-- `<sn-include>` `src`: inlines a partial at build time
 
 ## Expressions and scope
 
@@ -65,11 +69,23 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 - Server errors on a form: a mutation without `data-sn-catch` on a form, or on a button or control inside one, that fails with a 4xx and a JSON body `{errors: {<name>: message | message[]}}` marks each control with that `name`: `aria-invalid="true"` and the message in the element its `aria-errormessage` names, else in a `<small data-sn-error data-tone="danger">` inserted after it; the first such field gets focus; editing a field clears its error, sending again clears all. Inside the form, `$error` is its last failed send (`{status, body, message, detail}`, or `null`; null again when sent again): show the rest with bindings, e.g. `<template data-sn-if="$error"><p data-sn-text="$error.detail"></p></template>`. Shown (no `sn-error`, no `onError`) when every message marked a field or the form reads `$error`. `data-sn-catch` opts out. Another response format: `configure({ fieldErrors: (error, {url, method}) => ({ name: messages }) })` reading `error.body` (`null`: mark no field; `undefined`: the default reading); codes instead of text: map them to `m.key()` there.
 - `refresh="30s"` on `<sn-resource>` reloads it in the background once its last load is that old, counted from every load (so a resource a stream keeps reloading rarely refreshes): `$meta.loading` stays false, nothing while the tab is hidden or `when` is falsy, failures back off up to 30 s and are reported once. A reload whose response has the `ETag` (else `Last-Modified`) of the data shown, unchanged since, is not stored or re-rendered, `then` still runs (on pages with `refresh` or `<sn-sync>`, which get the versions module); servers send `ETag` with `Cache-Control: no-cache` (and `Access-Control-Expose-Headers: ETag` cross-origin).
 - `data-sn-optimistic` may only call `patch`, `upsert`, `remove`. The change shows at once, stays when the request succeeds (committed under what `then` writes) and is rolled back when it fails.
-- A name resolves innermost first: loop variables, then the nearest `data-sn-state`, then resources, then magic names, helpers and store functions, then JavaScript globals. Browser APIs (`window`, `document`, `fetch`, timers, …) are refused: use an island.
+- A name resolves innermost first: loop variables, then the nearest `data-sn-state`, then resources, then magic names, helpers and store functions, then JavaScript globals. Browser APIs (`window`, `document`, `fetch`, timers, …) are refused: use a component's script.
 - Resources are read-only: copy an item with `structuredClone(c)` to edit it, write with `patch()`.
 - Helpers are plain function calls, never pipes: `date()`, `time()`, `datetime()`, `relative()`, `number()`, `bytes()`. Helper namespaces: `m.inbox_title()`.
 - URL templates: `/api/x?id={c.id}`; interpolations are URL-encoded; the template must start with a literal `/path` or `https://origin`. A whole query value that is `null`/`undefined` or an empty array leaves the parameter out; an array is a repeated key (`?cal={cals}` → `cal=a&cal=b`); an array in the path is refused.
 - Use `$now` instead of `Date.now()` so bindings update.
+
+## Components
+
+- A component is a file `src/components/<name>.html` (the name has a `-`), used as `<name>` on any page. It holds one `<template data-sn-component="{ article: Article; compact?: boolean }">` with exactly one root element, and optionally a `<style>`. `data-sn-emits="{ select: Article }"` on the template declares its events.
+- Every use is expanded at build time: the root element replaces the tag, so the component renders in the first frame like page markup and needs no runtime. The caller's `class` is joined with the root's; other attributes, handlers (`data-sn-on-<event>`), actions, `data-sn-class`, `-attr`, `-style`, `-show` move onto the root in the caller's scope.
+- Props go in with `data-sn-prop="{ article: a, compact: narrow }"`: each is the caller's expression, live and read-only. An optional prop not passed is `undefined`, or the root's `data-sn-state` field of the same name. The component sees only its props, its own state, resources, helpers and magic names; slot content (`<slot>`, `<slot name="meta">` with fallback content, filled by the caller's children and `slot="meta"`) sees the caller's scope.
+- Events come out with `emit('select', article)` (names checked against `data-sn-emits`); the caller handles them with `data-sn-on-select`, `$event.detail` typed. `data-sn-model="draft.stars"` binds a component that declares a `value` prop and a `change` event.
+- A component with a script: `src/components/<name>.ts` beside its HTML, `export class TaskRing extends TaskRingComponent` (imported from `./task-ring.html`, typed by the generated `src/sinter.components.d.ts`). sinter creates it per instance and calls `connected()` (markup rendered, refs set), `propsChanged()` and `disconnected()`; it reads `this.props`, writes `this.state` (renders), uses `this.refs.<name>` (`data-sn-ref` in its markup), `this.root` and `this.emit()`. It writes only state, never nodes sinter renders. Use it for browser work (canvas, libraries, timers) instead of a custom element.
+- A component may use itself (a tree: comments and replies) when the inner use is inside a `data-sn-for` or `data-sn-if` template (else SN306): `<template data-sn-for="r in comment.replies" data-sn-key="r.id"><comment-thread data-sn-prop="{ comment: r }"></comment-thread></template>`. `patch(r, …)` and `remove(r)` change a nested item along its path at any depth; `upsert(comment.replies, x)` adds to a nested list. Nested loops need `data-sn-key`.
+- `<sn-component use="`${b.type}-block`" data-sn-prop="{ block: b }">` picks a component per item: a template string, a map in the markup (`use="{ hero: 'hero-block' }[b.type]"`) or a helper; it must fit `ComponentName` (`b.type + '-block'` is a `string`: write the template string); a `data-sn-else` template after it renders for a value outside the candidates.
+- `data-sn-early="off"` on a component's tag (`<tag-cloud data-sn-early="off">`) leaves that use out of the early script (smaller head script; it renders when the page module runs, so it may shift the layout then).
+- `<sn-include>` is removed (SN316): a partial is a component.
 
 ## What belongs in markup
 
@@ -84,11 +100,11 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 
 ## Store functions
 
-`refresh()`, `upsert()`, `patch()`, `remove()`, `page()`, `showModal()`, `close()`, `reset()`, `emit()`, `run()`: `refresh('name')` (or several: `refresh('a', 'b')`), `upsert('name', item)`, `patch('name', item, {…})`, `remove('name', item)`, `page('name', 'next' | 'prev' | 'first' | 'last' | n)` (a page number needs offset mode or keyset with `offset-param`, else SN304; a computed direction such as `$event.shiftKey ? 'prev' : 'next'` works everywhere, typed by `sinter check`; `prev` does nothing while `hasPrev` is false and `next` while `hasNext` is false, in every mode, so paging needs no `$meta` guard; `first` and `last` always load), `showModal('id')` opens a dialog by its literal id, `close()` the nearest dialog or `close('id')` that one, `reset()` the nearest form, `emit('event', detail)` (a bubbling, cancelable `CustomEvent`), `run('id')` starts the action of the element with that literal id (SN311), as its trigger would but with `$event` null; a form is submitted (`requestSubmit()`, validation runs); a disabled or inert element does nothing; it returns nothing, results go to the element's `then`/`catch`. The resource name may be chosen from literals: `page(searching ? 'results' : 'messages', 'next')`, `||`/`??` between literals, or a `data-sn-let` name whose value is one (`data-sn-let="{ shown: searching ? 'results' : 'messages' }"`, then `page(shown, 'next')`, `$meta[shown].hasNext`); every name it can take is checked like a literal; a state variable or helper result is SN301 (make it a `?:`).
+`refresh()`, `upsert()`, `patch()`, `remove()`, `page()`, `showModal()`, `close()`, `reset()`, `emit()`, `run()`: `refresh('name')` (or several: `refresh('a', 'b')`), `upsert('name', item)`, `patch(item, {…})`, `remove(item)` (no resource name: they act on the item in the resource it came from, found by key: a row of a `data-sn-for` over a resource, also through `filter`/`toSorted` or a helper given one resource; an element (`list[0]`, `.find(…)`); a single resource; a prop or emitted detail that is one; state assigned one, `sel = m` or `structuredClone(m)`; anything else is SN317), `page('name', 'next' | 'prev' | 'first' | 'last' | n)` (a page number needs offset mode or keyset with `offset-param`, else SN304; a computed direction such as `$event.shiftKey ? 'prev' : 'next'` works everywhere, typed by `sinter check`; `prev` does nothing while `hasPrev` is false and `next` while `hasNext` is false, in every mode, so paging needs no `$meta` guard; `first` and `last` always load), `showModal('id')` opens a dialog by its literal id, `close()` the nearest dialog or `close('id')` that one, `reset()` the nearest form, `emit('event', detail)` (a bubbling, cancelable `CustomEvent`), `run('id')` starts the action of the element with that literal id (SN311), as its trigger would but with `$event` null; a form is submitted (`requestSubmit()`, validation runs); a disabled or inert element does nothing; it returns nothing, results go to the element's `then`/`catch`. The resource name may be chosen from literals: `page(searching ? 'results' : 'messages', 'next')`, `||`/`??` between literals, or a `data-sn-let` name whose value is one (`data-sn-let="{ shown: searching ? 'results' : 'messages' }"`, then `page(shown, 'next')`, `$meta[shown].hasNext`); every name it can take is checked like a literal; a state variable or helper result is SN301 (make it a `?:`).
 
 ## Write-through
 
-A mutation's 2xx response is applied to the store by itself, before `then` runs (the `apply` module, loaded when a page has something to apply). With an OpenAPI spec: an object of a named schema in the response (`{article: Article}`) patches the same-key item in every list of that schema and what the URL named (`{article.slug}` names the single `article`; `{article.author.username}` also names `article.author`, a Profile); a POST to exactly a list's current URL inserts the created item (the response's, else body + returned key, else a refetch; a filtered or paginated list is never inserted into); a PUT/PATCH body patches the entity the URL named. Without a spec: a DELETE of a row's URL (the list's URL plus one segment, from `c.id` with `c in comments`) removes the row, and a PUT/PATCH body patches the row when its keys are fields of the row. Patches merge and skip unchanged fields; `then` writes land on top. So `data-sn-then="patch('articles', a, $result.article)"`, `upsert('comments', $result.comment)` and `remove('comments', c)` are not written (SN510 says so); `data-sn-optimistic` is still how a change shows before the answer. `data-sn-apply="off"` turns it off for one element.
+A mutation's 2xx response is applied to the store by itself, before `then` runs (the `apply` module, loaded when a page has something to apply). With an OpenAPI spec: an object of a named schema in the response (`{article: Article}`) patches the same-key item in every list of that schema and what the URL named (`{article.slug}` names the single `article`; `{article.author.username}` also names `article.author`, a Profile); a POST to exactly a list's current URL inserts the created item (the response's, else body + returned key, else a refetch; a filtered or paginated list is never inserted into); a PUT/PATCH body patches the entity the URL named. Without a spec: a DELETE of a row's URL (the list's URL plus one segment, from `c.id` with `c in comments`) removes the row, and a PUT/PATCH body patches the row when its keys are fields of the row. Patches merge and skip unchanged fields; `then` writes land on top. So `data-sn-then="patch(a, $result.article)"`, `upsert('comments', $result.comment)` and `remove(c)` are not written (SN510 says so); `data-sn-optimistic` is still how a change shows before the answer. `data-sn-apply="off"` turns it off for one element.
 
 ## Retries
 
@@ -96,7 +112,7 @@ Nothing is sent again unless a retry policy says so. Policies are named in the c
 
 ## Diagnostics
 
-`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN209 name-conflict`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN305 include-not-found`, `SN306 include-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN311 unknown-run-target`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`, `SN507 complex-expression`, `SN509 run-cycle`, `SN510 redundant-write`, `SN511 image-too-small`, `SN512 image-stretched`, `SN513 bound-local-image`, `SN514 auto-fit-rows`.
+`SN101 unknown-attribute`, `SN102 wrong-element`, `SN103 missing-key`, `SN104 unsupported-model`, `SN201 unknown-identifier`, `SN202 forbidden-global`, `SN203 side-effect`, `SN204 optimistic-scope`, `SN205 resource-mutation`, `SN206 unknown-namespace-member`, `SN207 unsafe-sink`, `SN208 type-error`, `SN209 name-conflict`, `SN301 unknown-resource`, `SN302 duplicate-resource`, `SN303 unknown-meta-field`, `SN304 keyset-jump`, `SN306 component-cycle`, `SN307 openapi-invalid`, `SN308 unknown-schema-field`, `SN309 unknown-dialog`, `SN310 unknown-action`, `SN311 unknown-run-target`, `SN312 invalid-component`, `SN313 unknown-prop`, `SN314 unknown-slot`, `SN315 unknown-component-event`, `SN316 include-removed`, `SN317 no-item-source`, `SN401 parse-error`, `SN501 unused-resource`, `SN502 non-reactive-value`, `SN503 data-bound-id`, `SN504 untyped-resource`, `SN505 unknown-query-param`, `SN506 untyped-event`, `SN507 complex-expression`, `SN509 run-cycle`, `SN510 redundant-write`, `SN511 image-too-small`, `SN512 image-stretched`, `SN513 bound-local-image`, `SN514 auto-fit-rows`.
 
 ## Recipes
 
@@ -323,7 +339,7 @@ test('a removed person closes the dialog that shows them', async () => {
     <span data-sn-text="m.subject"></span>
     <button data-sn-patch="/api/messages/{m.id}"
             data-sn-body="{is_flagged: !m.is_flagged}"
-            data-sn-optimistic="patch('messages', m, {is_flagged: !m.is_flagged})"
+            data-sn-optimistic="patch(m, {is_flagged: !m.is_flagged})"
             data-sn-attr="{'aria-pressed': m.is_flagged ? 'true' : 'false'}">★</button>
   </article>
 </template>
@@ -381,7 +397,7 @@ test('keeps the flag when the server accepts it', async () => {
   <!-- latest: after reconnecting only the newest draft is sent; the form stays editable -->
   <form data-sn-put="/api/notes/7" data-sn-retry="drafts" data-sn-concurrency="latest"
         data-sn-trigger="input" data-sn-debounce="500"
-        data-sn-optimistic="patch('note', note, draft)">
+        data-sn-optimistic="patch(note, draft)">
     <input name="title" data-sn-model="draft.title">
     <textarea name="body" data-sn-model="draft.body"></textarea>
   </form>
@@ -972,11 +988,11 @@ test('click, Ctrl+click and Shift+click select rows', async () => {
 
   <!-- no visible control: the element only carries the action (data-sn-call works the same) -->
   <span hidden id="mark-read" data-sn-patch="/api/messages/{open.id}" data-sn-body="{is_read: true}"
-        data-sn-optimistic="patch('messages', open, {is_read: true})"
+        data-sn-optimistic="patch(open, {is_read: true})"
         data-sn-catch="error = $error.message"></span>
   <!-- the button and E run one action; while it is disabled, E does nothing either -->
   <button id="archive" data-sn-post="/api/messages/{open.id}/archive" data-sn-attr="{disabled: !open}"
-          data-sn-optimistic="remove('messages', open)" data-sn-then="open = null">Archive (E)</button>
+          data-sn-optimistic="remove(open)" data-sn-then="open = null">Archive (E)</button>
   <p role="alert" data-sn-text="error"></p>
 </body>
 </html>
@@ -1193,7 +1209,7 @@ The built page shows its chrome before the page module has run; the page bundle 
 
 ## Images
 
-Write plain `<img src="./photo.jpg" alt="…">` (a local JPEG, PNG, WebP or AVIF, relative to the page or partial): the build makes it a `<picture>` with AVIF (photos) or lossless WebP (PNG graphics), widths for every screen, `width`/`height`, `decoding="async"` and `loading="lazy"` (not on the page's first image), and the image's dominant color as background until it loads. Needs sharp (an optional dependency); `sinter({ images: false })` turns it off. See docs/images.md.
+Write plain `<img src="./photo.jpg" alt="…">` (a local JPEG, PNG, WebP or AVIF, relative to the page or component): the build makes it a `<picture>` with AVIF (photos) or lossless WebP (PNG graphics), widths for every screen, `width`/`height`, `decoding="async"` and `loading="lazy"` (not on the page's first image), and the image's dominant color as background until it loads. Needs sharp (an optional dependency); `sinter({ images: false })` turns it off. See docs/images.md.
 
 - No `width`/`height`, or the source's own: fluid. `sizes` is the image's width at every viewport width, from the CSS: per breakpoint of its width media queries, linear in the viewport, through grids (equal tracks, gaps, `span`, `repeat(auto-fill, minmax(…, 1fr))`), flex rows (equal `flex: 1` columns, wrapped items with a basis), max-width containers, margins and padding. When the CSS cannot be followed (`em`, `vh`, unequal tracks, `:hover`), the narrowest container with a fixed or absolute max width bounds it; write `sizes` yourself only then.
 - `width`/`height` smaller than the source: a box of that size in CSS px, with 1x/2x(/3x) files of exactly that width. A source with too few pixels for 2x is SN511.
@@ -1217,7 +1233,7 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 
 ## Editors
 
-`npx sinter lsp --stdio` is a language server for the project's HTML files: sinter's diagnostics as you type (partials checked through the pages that include them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix; "Extract to helper" moves an expression into a typed function of the helpers module. VS Code: the extension in `editors/vscode`. Setup for Neovim, Helix and Emacs: `docs/editors.md`. Every diagnostic links to its explanation in `docs/diagnostics.md`.
+`npx sinter lsp --stdio` is a language server for the project's HTML files: sinter's diagnostics as you type (components checked through the pages that use them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix; "Extract to helper" moves an expression into a typed function of the helpers module. VS Code: the extension in `editors/vscode`. Setup for Neovim, Helix and Emacs: `docs/editors.md`. Every diagnostic links to its explanation in `docs/diagnostics.md`.
 
 ## Testing
 

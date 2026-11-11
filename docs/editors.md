@@ -6,7 +6,7 @@ always matches the compiler the build uses.
 
 | Feature | Needs |
 | --- | --- |
-| sinter's diagnostics as you type, in pages and partials | any TypeScript, or none |
+| sinter's diagnostics as you type, in pages and components | any TypeScript, or none |
 | Type errors (`SN208`) as you type, hover types, completion in expressions, go to definition | TypeScript 7 in the project |
 | Type errors on save | TypeScript 5 or 6 |
 | Did-you-mean quick fix | any |

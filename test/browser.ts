@@ -13,3 +13,20 @@ function load(): BrowserType | null {
 }
 
 export const chromium = load();
+
+/**
+ * Every engine installed for Playwright, for the tests that should hold in each: Chromium, Firefox and
+ * WebKit. Locally the ones installed (`npx playwright install firefox webkit`; `SINTER_FIREFOX` /
+ * `SINTER_WEBKIT`: an executable elsewhere); in CI all three, or the run fails.
+ */
+export async function engines(): Promise<Array<{ name: string; type: BrowserType; executablePath?: string }>> {
+  const { firefox, webkit } = await import('playwright');
+  const out: Array<{ name: string; type: BrowserType; executablePath?: string }> = chromium ? [{ name: 'chromium', type: chromium }] : [];
+  for (const [name, type, env] of [['firefox', firefox, process.env.SINTER_FIREFOX], ['webkit', webkit, process.env.SINTER_WEBKIT]] as const) {
+    let path = env;
+    if (!path) { try { path = type.executablePath(); } catch { path = undefined; } }
+    if (path && existsSync(path)) out.push({ name, type, ...(env ? { executablePath: env } : {}) });
+    else if (process.env.CI) throw new Error(`${name} for Playwright is missing: run \`npx playwright install --with-deps ${name}\``);
+  }
+  return out;
+}

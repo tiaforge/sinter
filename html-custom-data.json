@@ -86,6 +86,18 @@
       ]
     },
     {
+      "name": "sn-component",
+      "description": "a component chosen by data at runtime; `use` names it: ``use=\"`${b.type}-block`\"`` (convention), `use=\"{ hero: 'hero-block' }[b.type]\"` (map) or `use=\"blockComponent(b)\"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it",
+      "attributes": [
+        {
+          "name": "use"
+        },
+        {
+          "name": "data-sn-prop"
+        }
+      ]
+    },
+    {
       "name": "sn-event",
       "description": "maps one server event to a change message; child of <sn-sync>. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close('detail'); with `then`, `resource` and `op` may be left out",
       "attributes": [
@@ -115,15 +127,6 @@
         },
         {
           "name": "type"
-        }
-      ]
-    },
-    {
-      "name": "sn-include",
-      "description": "inlines a partial at build time",
-      "attributes": [
-        {
-          "name": "src"
         }
       ]
     }
@@ -167,7 +170,23 @@
     },
     {
       "name": "data-sn-prop",
-      "description": "sets JS properties; custom elements only (one defined later gets them again through its setters) (object literal)"
+      "description": "sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only (object literal)"
+    },
+    {
+      "name": "data-sn-component",
+      "description": "on the <template> of a component file (src/components/<name>.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean } (props type)"
+    },
+    {
+      "name": "data-sn-early",
+      "description": "on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for uses that may shift the layout when they render, to keep the early script small (off)"
+    },
+    {
+      "name": "data-sn-ref",
+      "description": "in a component's markup: the element its script reads as this.refs.<name>, typed by its tag (name)"
+    },
+    {
+      "name": "data-sn-emits",
+      "description": "on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article } (events type)"
     },
     {
       "name": "data-sn-model",

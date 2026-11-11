@@ -202,7 +202,7 @@ test('early rows whose nested if/else and lists rendered early are adopted with 
   const page = `<!doctype html><html><head><script type="application/json" data-sn-data="cs">${data}</script></head>
 <body>
   <sn-resource name="cs" src="/api/cs" key="id"></sn-resource>
-  <button id="drop" data-sn-on-click="remove('cs', cs[0])"></button>
+  <button id="drop" data-sn-on-click="remove(cs[0])"></button>
   <ul><template data-sn-for="c in cs" data-sn-key="c.id"><template data-sn-if="c.photo"><b class="top">photo</b></template><li>
     <span class="av"><template data-sn-if="c.photo"><img alt=""></template><template data-sn-else><i data-sn-text="c.n[0]"></i></template></span>
     <template data-sn-for="t in c.tags" data-sn-key="t"><em data-sn-text="t"></em></template>

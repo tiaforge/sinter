@@ -7,14 +7,17 @@ mobile score is within a few points of the best.
 
 | implementation | source lines | JS, home + article (gz KB) | Lighthouse mobile perf |
 | --- | ---: | ---: | ---: |
-| **sinter** | **735** | **35.7** | 94 |
+| **sinter** | **777** | **35.7** | 94 |
 | SvelteKit | 1153 | - | 95 |
 | Solid | 1281 | - | 97 (empty feed) |
 | Vue 3 | 1848 | 63.7 | 85 |
 | React + Redux | 2087 | - | - |
 | Angular | 2210 | 123.0 | 77 |
 
-A dash means the number could not be measured (see the notes under each table below). Scripts:
+A dash means the number could not be measured (see the notes under each table below). sinter's source
+lines are for its version with components (2026-11-10); its download size and Lighthouse score in
+these tables are from before components; [Components](#components) compares the two builds on one
+machine. Scripts:
 [`bench/realworld/loc.mjs`](../bench/realworld/loc.mjs) (source lines),
 [`bench/realworld/weight.mjs`](../bench/realworld/weight.mjs) (what the browser downloads),
 [`bench/realworld/lighthouse.mjs`](../bench/realworld/lighthouse.mjs) (Lighthouse).
@@ -32,11 +35,14 @@ A dash means the number could not be measured (see the notes under each table be
 
 Non-blank lines of app source; tests, mocks, type declarations, generated code (Vue 3's 790-line
 generated API client) and the shared theme CSS excluded. sinter's count includes its 43-line Vite
-config (page entries and path rewrites).
+config (page entries and path rewrites), and leaves out its generated `src/sinter.components.d.ts`.
+Before components, with partials, the same script counts 765 lines (html 593, js 172): the components'
+`<template data-sn-component>` wrappers and their props cost more lines than the favorite button they
+deduplicate saves.
 
 | implementation | files | lines | by type |
 | --- | ---: | ---: | --- |
-| **sinter** | 18 | **735** | html 588, js 147 |
+| **sinter** | 20 | **777** | html 605, js 172 |
 | SvelteKit | 41 | 1153 | svelte 816, js 312, html 25 |
 | Solid | 27 | 1281 | js 1248, html 33 |
 | Vue 3 | 41 | 1848 | vue 1344, ts 488, html 16 |
@@ -160,24 +166,50 @@ Angular: a 73-line component (`favorite-button.component.ts`: template, auth che
 submit state, output event) plus `favorite`/`unfavorite` in `articles.service.ts` and the parent's
 handling of the toggle event. Not optimistic.
 
-sinter (per state of the button; optimistic, rolled back on failure, signed-out users sent to login):
+sinter: one component, `examples/realworld/src/components/favorite-button.html` (19 lines, both states),
+used on the feed, the profile and the article page. It is optimistic and rolled back on failure;
+signed-out users are sent to login by the page's `sn-error` handler. The state that favors:
 
 ```html
-<button class="btn btn-outline-primary btn-sm pull-xs-right"
-        data-sn-post="https://api.realworld.show/api/articles/{a.slug}/favorite"
-        data-sn-optimistic="patch('articles', a, {favorited: true, favoritesCount: a.favoritesCount + 1})"
-        data-sn-then="patch('articles', a, $result.article)"
-        data-sn-catch="$error.status == 401 ? emit('navigate', '/login') : error = $error">
-  <i class="ion-heart"></i> <span data-sn-text="a.favoritesCount"></span>
-</button>
+<button class="btn btn-sm btn-outline-primary" data-sn-post="https://api.realworld.show/api/articles/{article.slug}/favorite"
+        data-sn-optimistic="patch(article, { favorited: true, favoritesCount: article.favoritesCount + 1 })">
 ```
 
-## Limits
+`patch(article, …)` names no resource. At each use it changes the article where it came from (a row of
+`articles` or `feed` on the home page, a row of the profile's list, the single `article` on the article
+page), and write-through applies the response. There is no store code: no `patch('articles', …)` and
+`patch('feed', …)` side by side as before.
 
-- Line counts measure volume, not difficulty; sinter's HTML lines carry the logic the others write in
-  components and services.
-- The implementations differ in scope: SvelteKit renders on the server (its line count includes server
-  routes); Angular includes typed models and route guards.
-- Download sizes of the others come from live demos, not same-commit local builds: building them runs
-  their dependencies' install and build code, which the measuring environment blocks by default.
-- Lighthouse numbers depend on each demo's host and on what the demo serves that day.
+## Components
+
+The app has seven components: the header, footer, article meta, byline, preview, error list and the
+favorite button. They are expanded at build time, so every page still renders in the first frame with
+its data (the head script renders their bindings like the rest of the page: no hydration). Measured on 2026-11-11 on one machine, `main` (partials) against the build with components, both served
+by `bench/realworld/serve.mjs` against the live API:
+
+| build | JS, home (gz KB) | JS, home + article (gz KB) | Lighthouse mobile perf (range of 3) | FCP | LCP | desktop perf |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| main | 26.2 | 50.3 | 98 (98-98) | 1.73 s | 2.14 s | 98 |
+| components | 26.4 | 50.5 | 98 (98-99) | 1.54 s | 2.29 s | 98 |
+
+Components cost 0.2 KB of JS (gz) on these pages (download sizes measured again after the size work
+below; Lighthouse on the build before it, 0.1 KB larger), and the scores do not move. Mobile FCP is 0.19 s
+earlier and LCP 0.15 s later; with three runs each, neither is read as a change here. (Both builds load
+more JS than the 13.8 KB in the tables above, which were measured on an earlier version of the app.) 
+
+Where the bytes go, per file, gzip, `main` against components (after moving nested items and shared
+definitions out of the core into modules only the pages that use them load):
+
+| file | change | what it is |
+| --- | ---: | --- |
+| core (`npm run size`) | +93 B (13,925 → 14,018) | `patch()`/`remove()` finding the item in the resource it came from 54, `upsert` into a nested list 9, the script hook 12, the shared-definition hook 10, cycle guards 6 |
+| write-through module | 0 (1,055) | nested targets are in a list of their own, which the `nested` module applies (only pages with nested lists load it) |
+| shared chunk of the app (core, config, write-through) | +100 B | the core |
+| page modules | -24 to +2 B | the same functions as `main`: a prop that is a plain path is inlined without parentheses (so one expression is one function, wherever a prop inlines it), and a `data-sn-if` on a constant prop is decided at build time; left are the source names in `patch()` calls (`["article"]`) |
+| head scripts | 0 | |
+| other modules | 0 to +5 B | no source change: `npm run size` leaves their runtime imports external, so their output holds the checkout's absolute path, one character longer here than in the `main` checkout measured |
+| new modules | `components` 674 B, `nested` 1,234 B (with the write-through helpers it shares: with the write-through module, 94 B less than two copies), `defs` 175 B | only on pages with a component script, nested changes, shared definitions |
+| HTML | −125 to −236 B | a component file's comments stay in the file |
+
+`data-sn-early="off"` on the home page's header and error list (a test, not in the app) takes its
+head script from 837 to 717 B (gzip); the page module and the shared head script do not change.

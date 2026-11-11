@@ -3,9 +3,12 @@ import { compile, compileParts, CODES, type ComplexityOptions } from '../../src/
 import { complexityOf } from '../../src/project.js';
 
 const files: Record<string, string> = {
-  '/p/partials/a.html': '<sn-include src="./b.html"></sn-include>',
-  '/p/partials/b.html': '<sn-include src="./a.html"></sn-include>',
-  '/p/partials/bad.html': '<p>\n  <b data-sn-txt="x"></b></p>',
+  '/p/src/components/x-a.html': '<template data-sn-component=""><div><x-b></x-b></div></template>',
+  '/p/src/components/x-b.html': '<template data-sn-component=""><div><x-a></x-a></div></template>',
+  '/p/src/components/x-bad.html': '<template data-sn-component=""><p>\n  <b data-sn-txt="x"></b></p></template>',
+  '/p/src/components/x-card.html': '<template data-sn-component="{ title: string }" data-sn-emits="{ pick: number }"><div><slot name="foot"></slot></div></template>',
+  '/p/partials/old.html': '<p></p>',
+  '/p/src/components/x-two.html': '<template data-sn-component=""><p></p><p></p></template>',
 };
 
 const SPEC = { file: '/p/openapi.json', doc: {
@@ -42,7 +45,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN202', '<p data-sn-text="window.x"></p>', /`window` is a browser API/],
   ['SN203', '<div data-sn-state="{a: 1}"><p data-sn-text="a = 2"></p></div>', /value expressions cannot assign; move this to `data-sn-on-\*`/],
   ['SN204', '<div data-sn-state="{a: 1}"><button data-sn-post="/x" data-sn-optimistic="a = 2"></button></div>', /may only call `patch`, `upsert`, `remove`/],
-  ['SN205', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="m.is_read = true"></button></template>`, /`m.is_read` mutates a resource. Use `patch\('messages'/],
+  ['SN205', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="m.is_read = true"></button></template>`, /`m.is_read` mutates a resource. Use `patch\(m, \{…\}\)`/],
   ['SN206', '<p data-sn-text="m.inbox_titel()"></p>', /`m.inbox_titel` is not exported by namespace `m`. Did you mean `inbox_title`\?/],
   ['SN207', '<a data-sn-attr="{onclick: 1}"></a>', /`onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click`/],
   ['SN209', '<div data-sn-state="{ s: 1 }" data-sn-let="{ s: 2 }"><p data-sn-text="s"></p></div>', /`s` is already defined here; use another name/],
@@ -51,12 +54,17 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN302', `${R}${use}<sn-resource name="contacts" src="/x" key="id"></sn-resource>`, /resource `contacts` is declared twice/],
   ['SN303', `${R}${use}<p data-sn-text="$meta.contacts.loadng"></p>`, /`\$meta.contacts.loadng` is not a status field. Did you mean `loading`\?/],
   ['SN304', `${R}${use}<button data-sn-on-click="page('messages', 7)"></button>`, /keyset pagination cannot jump to a page number/],
-  ['SN305', '<sn-include src="./partials/contact-dialg.html"></sn-include>', /partial `\.\/partials\/contact-dialg.html` not found or outside the project root/],
   ['SN308', '<sn-resource name="c" src="/api/c" items="contcts"></sn-resource><p data-sn-text="c"></p>', /the response of `GET \/api\/c` has no `contcts`. Did you mean `contacts`\?/, { openapi: true }],
-  ['SN306', '<sn-include src="./partials/a.html"></sn-include>', /a.html → b.html → a.html includes itself/],
+  ['SN306', '<x-a></x-a>', /`<x-a>` → `<x-b>` → `<x-a>` uses itself with no `data-sn-for` or `data-sn-if` template between/],
   ['SN309', '<dialog id="compose"></dialog><button data-sn-on-click="showModal(\'compse\')"></button>', /no `<dialog id="compse">` on this page. Did you mean `compose`\?/],
   ['SN310', '<button data-sn-call="archive(1)"></button>', /`archive` is not exported by the actions module/],
   ['SN311', `<span id="mark-read" data-sn-post="/x"></span><button data-sn-on-click="run('mark-raed')"></button>`, /no element `id="mark-raed"` on this page. Did you mean `mark-read`\?/],
+  ['SN312', '<x-two></x-two>', /a component has one root element/],
+  ['SN313', '<x-card data-sn-prop="{ titel: 1 }"></x-card>', /`titel` is not a prop of `<x-card>`/],
+  ['SN314', '<x-card data-sn-prop="{ title: \'a\' }"><b slot="fot"></b></x-card>', /`<x-card>` has no slot `fot`/],
+  ['SN315', '<x-card data-sn-prop="{ title: \'a\' }" data-sn-on-pik="1"></x-card>', /`<x-card>` does not emit `pik`/],
+  ['SN316', '<sn-include src="./partials/old.html"></sn-include>', /`<sn-include>` is removed: a partial is a component/],
+  ['SN317', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="remove('messages', m)"></button></template>`, /`remove\(\)` takes the item, not a resource name/],
   ['SN401', '<p data-sn-text="a +"></p>', /Unexpected token/],
   ['SN501', R + '<p data-sn-text="messages.length"></p>', /resource `contacts` is declared but never read/],
   ['SN502', '<p data-sn-text="Date.now()"></p>', /`Date.now\(\)` in a binding never updates. Use `\$now`/],
@@ -67,8 +75,8 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/, { checkCycles: true }],
   ['SN513', '<div data-sn-state="{ dark: false }"><img alt="" data-sn-attr="{src: dark ? \'./logo-dark.png\' : \'./logo.png\'}"></div>', /`src` is bound to local images \(`\.\/logo-dark\.png`, `\.\/logo\.png`\), which are not optimized/],
   ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
-  ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="patch('c', x, $result.contact)"></button></template>`,
-    /`patch\('c', …, \$result\.contact\)` is what write-through does: the response of `POST \/api\/c\/\{id\}\/star` is `Contact`, which `c` holds; remove this write, or add `data-sn-apply="off"` to keep it/, { openapi: true }],
+  ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="patch(x, $result.contact)"></button></template>`,
+    /`patch\(x, \$result\.contact\)` is what write-through does: the response of `POST \/api\/c\/\{id\}\/star` is `Contact`, which `c` holds; remove this write, or add `data-sn-apply="off"` to keep it/, { openapi: true }],
 ];
 
 /** Codes that do not come from compile(): `sinter check` runs TypeScript (SN208), loading a spec fails (SN307). Fixtures in test/check. */
@@ -132,7 +140,7 @@ describe('resource names from a closed set of literals', () => {
   test('?:, ||, ?? and lets: every name is checked like a literal, and counts as used', () => {
     expect(msgs(`<div data-sn-let="{ shown: s ? 'results' : 'messages', list: s ? results : messages }"><p data-sn-text="list.length"></p>
       <button data-sn-on-click="page(shown, 'next'); refresh(shown, s ? 'jumps' : 'feed'); upsert(shown, $event.detail)"></button>
-      <button data-sn-on-click="remove((s ? 'other' : 'messages') || 'other', 1); patch((s ? 'messages' : 'jumps') ?? 'feed', 1, {})"></button></div>`)).toEqual([]);
+      <button data-sn-on-click="upsert((s ? 'other' : 'messages') || 'other', 1); upsert((s ? 'messages' : 'jumps') ?? 'feed', 1)"></button></div>`)).toEqual([]);
     expect(on(`page(s ? 'reslts' : 'messages', 'next')`)).toEqual(expect.arrayContaining(['SN301 resource `reslts` is not declared on this page. Did you mean `results`?']));
     // a let's names: an unknown one is reported where the let is read
     expect(on(`refresh(shown)`, `{ shown: s ? 'mesages' : 'results' }`).filter((m) => m.startsWith('SN301'))).toEqual(['SN301 resource `mesages` is not declared on this page. Did you mean `messages`?']);
@@ -144,8 +152,8 @@ describe('resource names from a closed set of literals', () => {
     expect(on(`page(tab, 'next')`)).toEqual([`SN301 ${FORMS('page')}`]);
     expect(on(`refresh(s && 'messages')`)).toEqual([`SN301 ${FORMS('refresh')}`]);
     expect(on(`upsert($event.detail, 1)`)).toEqual([`SN301 ${FORMS('upsert')}`]);
-    expect(on(`patch(s ? tab : 'messages', 1, {})`)).toEqual([`SN301 ${FORMS('patch')}`]);
-    expect(on(`remove(String('messages'), 1)`)).toEqual([`SN301 ${FORMS('remove')}`]);
+    expect(on(`upsert(s ? tab : 'messages', 1)`)).toEqual([`SN301 ${FORMS('upsert')}`]);
+    expect(on(`upsert(String('messages'), 1)`)).toEqual([`SN301 ${FORMS('upsert')}`]);
   });
 
   test('page(): SN303 and SN304 for each name it can take', () => {
@@ -215,7 +223,7 @@ describe('<sn-event then>', () => {
       <sn-sync src="/api/events"><sn-event name="n" then="sel = open || id"></sn-event></sn-sync></main>`, {
       file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
     });
-    expect(parts.fns.find((f) => f.includes('$.$p.id'))).toContain('($.$s0.sel) || $.$p.id');
+    expect(parts.fns.find((f) => f.includes('$.$p.id'))).toContain('$.$s0.sel || $.$p.id');
   });
   test('errors: unknown dialogs, element-less store functions, payload writes, a misspelt attribute', () => {
     expect(codes(`<sn-event name="n" then="close('detial')"></sn-event>`)).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page. Did you mean `detail`\?/)]);
@@ -281,9 +289,9 @@ describe('positions', () => {
     const d = diags('<div>\n  <p data-sn-text="1 + contcts"></p>\n</div>')[0]!;
     expect([d.line, d.col]).toEqual([2, 24]);
   });
-  test('point into the partial, followed by the include chain', () => {
-    const d = diags('<div>\n<sn-include src="./partials/bad.html"></sn-include></div>')[0]!;
-    expect(d.file).toBe('/p/partials/bad.html');
+  test('point into the component, followed by where it is used', () => {
+    const d = diags('<div>\n<x-bad></x-bad></div>')[0]!;
+    expect(d.file).toBe('/p/src/components/x-bad.html');
     expect(d.line).toBe(2);
     expect(d.message).toContain('included from page.html:2');
   });

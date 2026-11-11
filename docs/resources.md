@@ -75,8 +75,8 @@ with these store functions, usable in any handler:
 | --- | --- |
 | `refresh('a', 'b')` | Reload the named resources. |
 | `upsert('name', item)` | Insert or replace by key. |
-| `patch('name', item, {…})` | Merge fields into an item. |
-| `remove('name', item)` | Remove an item. |
+| `patch(item, {…})` | Merge fields into an item. |
+| `remove(item)` | Remove an item. |
 
 A successful mutation's response is already applied to the right resources, so these are mostly
 for local edits; see [actions](actions.md).

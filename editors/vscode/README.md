@@ -3,7 +3,7 @@
 Editor support for [sinter](https://github.com/tiaforge/sinter) pages, from the project's own
 `sinter lsp`:
 
-- sinter's diagnostics as you type, in pages and in partials, each linked to its explanation
+- sinter's diagnostics as you type, in pages and in components, each linked to its explanation
 - type errors as you type, hover types, completion inside `data-sn-*` expressions and go to
   definition (TypeScript 7 in the project; with older TypeScript, type errors on save)
 - a quick fix for every "Did you mean …?"
