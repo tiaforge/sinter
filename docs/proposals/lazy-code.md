@@ -1,6 +1,6 @@
 # Proposal: lazy code
 
-Status: proposal (2026-11-11), in review by the Caley session. Nothing is implemented.
+Status: proposal (2026-11-11), reviewed by the Caley session. Nothing is implemented.
 
 Decided with the user:
 - sinter solves this itself; a guardrail alone is not enough.
@@ -87,11 +87,17 @@ export async function encryptTo(keys: PrivateKey[], text: string) {
   `.then`. Any other call is `SN324`. Without the rule, a forgotten `await` would leave a Promise where
   TypeScript sees a string. With it, sync and async exports are both allowed (`const html = await
   marked.parse(md)`), the check is syntactic (the plugin, `sinter check` and the LSP run the same
-  one), and nothing reads the package's types.
+  one), and nothing reads the package's types. Each call is checked on its own: in `await
+  openpgp.verify({ message: await openpgp.createMessage(…), signature: await openpgp.readSignature(…) })`
+  (Caley's `keyring.ts`) all three are awaited.
+- **Types are no edge.** `import type`, `export type { … } from`, and imports used only as types are
+  erased: the transform leaves them, and neither the helper check nor the component rule nor `SN325`
+  follows them (Caley's `sinter.types.ts` re-exports types from `lib/pgp/*`).
 - **What the calls return is real.** `const key = await openpgp.readKey(…)` is the package's own
   object, so its methods (`key.getFingerprint()`) are ordinary sync calls.
 - **Not in helpers.** Helpers run synchronously while a binding renders, so they cannot wait for a
-  download: a helper module that imports a lazy package is `SN324` at the import. Compute the value in
+  download: a helper module that reaches a lazy package, directly or through app modules, is `SN324`,
+  with the import chain. Compute the value in
   an action or a `<sn-resource call>`, or do not make the package lazy: when the first content needs it,
   loading it with the page was faster (RealWorld above).
 - **Blocking work still blocks.** Lazy loading moves the download, not the CPU time a call takes once
@@ -121,7 +127,7 @@ page, its layout or a component, so a page that does not write its head can stil
 | When | Markup | What the build or runtime does |
 | --- | --- | --- |
 | on first call (default) | nothing | the first stub called loads the package |
-| when an element is rendered | `data-sn-import="openpgp"` | the runtime loads and runs the package when it renders the element: at takeover for an element outside templates; when its `data-sn-if` branch or row is first rendered otherwise |
+| when an element is rendered | `data-sn-import="openpgp"` | the page module loads and runs the package when the element is rendered: at takeover for an element outside templates; when its `data-sn-if` branch or row is first rendered otherwise. Never earlier than takeover: an element the early script or prerendering wrote counts at takeover, so the load does not compete with the page's own files |
 | with the page | `data-sn-preload="openpgp"` | the build adds `<link rel="modulepreload">` to the page's head, for the package's chunk and each chunk it imports (in dev, the package's pre-bundled module). The browser fetches and compiles it in parallel with the page bundle; it runs at the first call, or where a `data-sn-import` says |
 
 The two attributes are the two steps of loading a module: `preload` fetches it early, `import` runs it.
@@ -225,7 +231,9 @@ Rolldown's module graph):
   not move module into another chunk"). For pages, sinter makes it an error.
 
 The per-page log line gains each page's lazy chunks and their gzip sizes, so the cost a page defers
-shows next to what it ships.
+shows next to what it ships. The build log also names each lazy component script with the import
+chain that made it lazy, so a later innocent import (a shared module starting to import one that
+imports openpgp) does not delay a component's `connected()` unnoticed.
 
 ### 5. Deploy skew: detected, reported as an action error
 
@@ -242,7 +250,10 @@ into an error the page can show:
    - A network error means the network: `status: 0`, as for any request.
    - A 200 with JavaScript means the module itself threw: `status: null` with the thrown error.
 3. The action fails with `$error.stale = true` and the message "this page is out of date: reload it".
-   The markup shows it with the action's `catch`, or the unhandled-error path shows it.
+   The markup shows it with the action's `catch`, or the unhandled-error path shows it: the flag is on
+   the error in `sn-error`'s `detail` too, so a page can show one banner for every stale load.
+   `message` is English, as for sinter's other errors; an app in several languages shows its own text
+   from the flag (`$error.stale ? m.page_outdated() : …`).
 
 sinter never reloads by itself: the page may hold a draft. A failed load is not cached, so the next
 call tries again. Every navigation in a sinter app loads a page, so skew only affects a tab that stayed
@@ -279,4 +290,13 @@ open across a deploy.
 5. The stale probe and `$error.stale`, for stubs, lazy component scripts and `vite:preloadError`.
 6. Docs (a guide page; first-paint.md on the three timings; islands.md; diagnostics), the changelog.
    Move Caley to `lazy: ['openpgp']` with `data-sn-import` on `<mail-reader>` (in the Caley session),
-   and measure the mail pages with and without `data-sn-preload`.
+   only once step 5 is in: deleting `lazyModule` removes Caley's own text for a failed openpgp load.
+   Measure the mail pages with and without `data-sn-preload` (Caley expects it to be slower on slow
+   links).
+
+Reviewed by the Caley session (2026-11-11) against its code: no blockers. Its points are in the text
+above: nested awaited calls, types as no edge, the transitive helper check, the log of lazy component
+scripts, no load before takeover, the flag in `sn-error`, and migrating Caley with step 5. Expected
+for Caley: about 8–9 kB gzip of its own pgp code moves into the mail and settings bundles, openpgp
+(129.7 kB) leaves them, and the settings `vault` resource may render without openpgp, since only calls
+that reach it load it.
