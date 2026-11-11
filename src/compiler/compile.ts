@@ -3471,12 +3471,19 @@ class Compiler {
   }
 
   /**
-   * A binding `prerender()` wrote into the HTML that reads nothing (no state, data, URL or language)
-   * can never change: the page module leaves it out, with its function when nothing else uses it,
-   * and its node when nothing else is bound there (`data-sn` too). The roots after it are renumbered.
+   * A binding `prerender()` wrote into the HTML that reads nothing (no data, URL or language) but
+   * state nothing writes can never change: the page module leaves it out, with its function when
+   * nothing else uses it, and its node when nothing else is bound there (`data-sn` too). The roots
+   * after it are renumbered.
    */
   dropConstants() {
-    const drop = (b: Binding) => this.painted.has(b) && !strs(b.d).length && !b.w?.length && b.k !== 'model';
+    const written = this.writtenState();
+    // a state field no write reaches keeps its first value, which the HTML has
+    const fixed = (d: string) => {
+      const m = /^\$s(\d+)\.([^.]+)/.exec(d);
+      return !!m && m[2] !== '*' && m[2] !== '**' && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`);
+    };
+    const drop = (b: Binding) => this.painted.has(b) && !b.w?.length && b.k !== 'model' && strs(b.d).every(fixed);
     const gone = new Set<NodeDef>();
     for (const { el, node } of this.paints) {
       const keep = node.b.filter((b) => !drop(b));
@@ -3502,6 +3509,33 @@ class Compiler {
     for (const r of this.resources) if (r.scope !== undefined) r.scope = re(r.scope);
     for (const x of this.syncs) if (x.scope !== undefined) x.scope = re(x.scope);
     this.roots.splice(0, this.roots.length, ...kept);
+  }
+
+  /**
+   * Every state field something can write, as `$s<sid>.<field>`, or `$s<sid>` for a write that may
+   * reach any of its fields (a computed key, `**`): handlers, models, actions' `then`/`catch`,
+   * resources' and events' `then`, component scripts (their `cmp` bindings), and the runtime's own
+   * (a form's `$error`, persisted values restored from storage).
+   */
+  writtenState(): Set<string> {
+    const out = new Set<string>();
+    const add = (ws: PathRef[] | undefined) => {
+      for (const w of strs(ws)) {
+        const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(w);
+        if (!m) continue;
+        out.add(m[2] === undefined || m[2] === '*' || m[2] === '**' ? `$s${m[1]}` : `$s${m[1]}.${m[2]}`);
+      }
+    };
+    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) add(b.w);
+    for (const a of this.actions) add(a.w);
+    for (const r of this.resources) add(r.w);
+    for (const x of this.syncs) for (const e of x.events) add(e.w);
+    for (const st of this.stateInits) {
+      if (st.persist) out.add(`$s${st.sid}`);
+      if (st.fields.some((f) => f.key === '$error')) out.add(`$s${st.sid}.$error`);
+    }
+    for (const p of this.persisted) add([p]);
+    return out;
   }
 
   /**

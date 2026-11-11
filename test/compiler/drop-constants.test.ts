@@ -19,6 +19,30 @@ describe('constant bindings', () => {
     expect(out.module).toContain('"roots":[]');
   });
 
+  test('state nothing writes is as constant as a literal; state a handler, a model, a resource\'s then or the runtime writes stays bound', () => {
+    const fixed = build('<div data-sn-state="{ nav: \'home\', open: false }"><a data-sn-class="{ active: nav == \'home\' }">Home</a><i data-sn-show="open"></i></div>');
+    expect(fixed.html).toContain('<a class="active">Home</a>');
+    expect(fixed.module).not.toContain("== 'home'");
+    const kept = (body: string) => build(body).module;
+    expect(kept('<div data-sn-state="{ nav: \'a\' }"><b data-sn-text="nav"></b><button data-sn-on-click="nav = \'b\'"></button></div>')).toContain('($) => ($.$s0.nav)');
+    expect(kept('<div data-sn-state="{ q: \'a\' }"><b data-sn-text="q"></b><input data-sn-model="q"></div>')).toContain('($) => ($.$s0.q)');
+    expect(kept('<div data-sn-state="{ g: true }"><sn-resource name="u" src="/api/u" then="g = !$result"></sn-resource><b data-sn-text="g"></b><i data-sn-text="u"></i></div>')).toContain('($) => ($.$s0.g)');
+    expect(kept('<div data-sn-state="{ o: { a: 1 } }"><b data-sn-text="o.a"></b><button data-sn-on-click="o[\'a\'] = 2"></button></div>')).toContain('($) => ($.$s0.o.a)');
+    expect(kept('<form data-sn-state="{ s: 1 }" data-sn-post="/x"><b data-sn-text="$error ? \'e\' : \'\'"></b></form>')).toContain('$error');
+  });
+
+  test('a component\'s script writes its root\'s state: what reads it stays bound', () => {
+    const files: Record<string, string> = {
+      '/p/src/components/x-clock.html': '<template data-sn-component=""><div data-sn-state="{ n: 0 }"><b data-sn-text="n"></b></div></template>',
+      '/p/src/components/x-clock.ts': 'export class XClock {}',
+    };
+    const out = compile('<!doctype html><html><head></head><body><x-clock></x-clock></body></html>', {
+      file: '/p/index.html', root: '/p', dev: false, prerender: true,
+      helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error('missing'); },
+    });
+    expect(out.module).toContain('($) => ($.$s0.n)');
+  });
+
   test('a value from state stays bound: a handler can change it', () => {
     const out = build('<div data-sn-state="{ n: 0 }"><p data-sn-text="n"></p><button data-sn-on-click="n++">+</button></div>');
     expect(out.html).toMatch(/<p data-sn="\d+">0<\/p>/);

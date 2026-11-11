@@ -34,9 +34,10 @@ constants. Fields count one by one: in `{ here: '/mail/', at: $now }`, `here` is
 Helpers, `$locale` and persisted values are not constants (the early script handles those). A
 refused URL or style is left out.
 
-A binding that reads nothing at all, such as a component's prop given as a literal
-(`<seo-tags data-sn-prop="{ title: 'About' }">`), can never change: it is only in the HTML, and the
-page script carries nothing for it. One that reads state stays bound, since a handler can change it.
+A binding that reads nothing that can change, such as a component's prop given as a literal
+(`<seo-tags data-sn-prop="{ title: 'About' }">`) or a state field that nothing on the page writes
+(`nav: 'home'` read by a nav link's class), is only in the HTML: the page script carries nothing for
+it. One that reads state a handler, a model, a `then` or a component's script writes stays bound.
 
 ## The early script
 

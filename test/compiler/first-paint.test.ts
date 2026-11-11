@@ -30,10 +30,11 @@ test('build-time constants: literal state fields and constants, not helpers, res
     <p data-sn-text="Math.random()">f</p>
     <template data-sn-if="here"><b data-sn-text="here"></b></template>`), { m: ['mail'] });
   expect(body).toContain('<a href="/a/" data-sn="1" aria-current="page"><span data-sn="2"></span></a>');
-  expect(body).toContain('<a href="/b/" data-sn="3">B</a>');
+  // `here` is never written: what reads only it is in the HTML, and not bound
+  expect(body).toContain('<a href="/b/">B</a>');
   expect(body).toContain('<p data-sn="4">…</p>');
   expect(body).toContain('<p data-sn="5">…</p>');
-  expect(body).toContain('<p data-sn="6" hidden="" class="on" style="--w: 2px">x</p>');
+  expect(body).toContain('<p hidden="" class="on" style="--w: 2px">x</p>');
   expect(body).toContain('<input type="checkbox" data-sn="7" checked="">');
   expect(body).toContain('<a data-sn="8" title="ok">c</a>');
   expect(body).toContain('<p data-sn="9">f</p>');
