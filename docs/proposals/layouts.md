@@ -44,12 +44,10 @@ merged document exactly as it does on a hand-written one.
 ```html
 <!-- src/components/seo-tags.html: a head component -->
 <template data-sn-component="{ title?: string; description?: string }">
-  <template>
-    <title data-sn-text="title ? title + ' — Conduit' : 'Conduit'">Conduit</title>
-    <meta name="description" data-sn-attr="{ content: description ?? 'A place to share your knowledge.' }">
-    <meta property="og:title" data-sn-attr="{ content: title ?? 'Conduit' }">
-    <slot name="extra"></slot>
-  </template>
+  <title data-sn-text="title ? title + ' — Conduit' : 'Conduit'">Conduit</title>
+  <meta name="description" data-sn-attr="{ content: description ?? 'A place to share your knowledge.' }">
+  <meta property="og:title" data-sn-attr="{ content: title ?? 'Conduit' }">
+  <slot name="extra"></slot>
 </template>
 ```
 
@@ -177,24 +175,25 @@ head too.
 
 ### Head components
 
-A head component is a component whose root is a plain `<template>`: its children are the
-component's elements, inlined at the use, and they may be several.
+A head component is a component whose top-level elements are all head content. It may have several,
+and they are inlined at the use, with no wrapper:
 
 ```html
 <template data-sn-component="{ title: string }">
-  <template>
-    <title data-sn-text="title"></title>
-    <meta property="og:title" data-sn-attr="{ content: title }">
-  </template>
+  <title data-sn-text="title"></title>
+  <meta property="og:title" data-sn-attr="{ content: title }">
 </template>
 ```
 
-- No extra attribute marks it: the plain inner `<template>` is the mark. Today a `<template>` root is
-  an error (`SN312`); a `<template>` root *with* a sinter attribute (`data-sn-if`, `data-sn-for`)
-  stays one.
-- Its children are head content only: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`,
-  `<noscript>`, `<base>`, `<template>` (for a `data-sn-if` or `data-sn-for` over head elements), other
-  head components and `<slot>`s. Anything else is `SN320`.
+- Nothing marks it: the compiler tells the two kinds apart by the top-level elements. All head content
+  makes a head component (one element or several); exactly one other element makes a body component,
+  as today.
+- Head content is `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>`, other
+  head components, `<slot>`s, and `<template data-sn-if>` / `<template data-sn-for>` over head content.
+  A `<style>` *inside* the component's `<template>` is a head element; the scoped `<style>` stays the
+  one beside the `<template>` in the file.
+- The errors stay specific: two body elements at the top level are `SN312` as today ("wrap them in one
+  element"); head and body elements mixed at the top level are `SN320`, naming the first of each.
 - It is used in a head, a layout's or a page's, and in a head slot's content. Used in a body, it is
   `SN320` with the fix (a body component needs one root element).
 - Its tag takes `data-sn-prop` and slot content, nothing else: there is no root for other attributes
@@ -270,10 +269,10 @@ The goal: writing a page against a layout is guided, with no need to open the la
 | --- | --- | --- |
 | `SN318` | `invalid-layout` | a file in `src/layouts/` that is not a whole document with `data-sn-layout` on `<html>`; two slots with one name; a default slot in the head; a name shared with a component; a layout with a script |
 | `SN319` | `layout-use` | a page with a layout tag and other content outside it; a layout tag below the top level, inside a component or a layout, or named by `<sn-component use>` |
-| `SN320` | `head-content` | a body element in a head or a head slot; a head element in a body slot; a head component used in a body; a head component with a non-head element or a `<style>` |
+| `SN320` | `head-content` | a body element in a head or a head slot; a head element in a body slot; a head component used in a body; head and body elements mixed at a component's top level; a head component with a scoped `<style>` |
 | `SN321` | `duplicate-head` | two `<title>`s, or two `<meta>`s with one `name` or `property`, in the merged head |
 | `SN207` | `unsafe-sink` | changed: `content` on a `<meta name|property|itemprop>` is allowed |
-| `SN312`, `SN313`, `SN314` | | as for components: a plain `<template>` root is now a head component |
+| `SN312`, `SN313`, `SN314` | | as for components: several top-level elements are allowed when all are head content |
 
 ## What others do
 
@@ -299,7 +298,7 @@ the merged page.
 1. **Head parsing.** Parse head contents as template content, for pages and layouts, with source
    positions; `SN320` for what would not stay in a head. Plain pages build byte for byte as before
    (the golden tests).
-2. **Head components.** A plain `<template>` root; head-only content; uses in heads.
+2. **Head components.** Several top-level elements when all are head content; the kind decided by the top-level elements; uses in heads.
 3. **Layouts and the merge.** `src/layouts/`, `data-sn-layout`, the page form (`SN319`), attributes and
    state onto `<html>`, slots in head and body with fallbacks, relative URL rewriting, the merge as the
    first transform in the Vite plugin, dev reloads, `SN318`, `SN321`.
@@ -332,7 +331,7 @@ Settled with the maintainer on 2026-11-11, before this text:
 | Question | Decision |
 | --- | --- |
 | How a page uses a layout | The page is only the layout's tag; its children fill the slots, and its attributes go onto `<html>`. (Rejected: pages stay full documents with `<html data-sn-layout>`.) |
-| Components in the head | Head components with one wrapper root, a plain `<template>`, with no extra annotation; sinter parses heads so custom tags stay. (Rejected: several roots with no wrapper; a `data-sn-head` marker; no components in heads.) |
+| Components in the head | Head components with several top-level elements, no wrapper and no marker: a component whose top-level elements are all head content is one. sinter parses heads so custom tags stay. (Rejected, 2026-11-11 after a first draft: a plain `<template>` as one wrapper root, which nested two templates; a `data-sn-head` marker; no components in heads.) |
 | Head bindings | `<title>` text and `<meta name|property> content` bind at run time; constants are in the HTML; `http-equiv`, `charset`, `<link>`, `<base>` stay unbindable. (Rejected: build time only; title only.) |
 | Passing values to the head | Both: typed props for values, slots for markup, and slots forwarded from a layout into its components; the LSP completes slot names. (Rejected: slots only.) |
 
