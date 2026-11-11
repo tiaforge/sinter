@@ -34,21 +34,17 @@ const apply: Feature = {
       const res = (n: string) => app.resource(n);
       const unwrap = (b: unknown) => (ap.rq && isObj(b) ? b[ap.rq] : b);
       const log = (name: string, what: string) => done.push(`${name}: ${what}`);
-      /** the item a target names: the row (a name or path in scope), or the single object */
-      const itemOf = (t: Target) => (t.v ? t.v.split('.').reduce((x: any, k) => x?.[k], s) : res(t.r).value());
+      /** the item a target names: the row, or the single object */
+      const itemOf = (t: Target) => (t.v ? s[t.v] : res(t.r).value());
       /**
        * Merges `fields` into what a target names (at its sub-path), if the store still has it. Fields that
        * already hold the value are left out: a base write to an item drops a waiting layer's changes to it,
        * so a confirmation that changes nothing must write nothing.
        */
       const patchAt = (t: Target, fields: unknown) => {
+        // a nested item: the nested module, loaded by the pages that have one
+        if (t.n) return app.ext.nested!.wt(t, s, fields, log);
         const r = res(t.r), item = itemOf(t);
-        // a nested item: found under the resource's rows at any depth (nested.ts), compared with itself
-        if (t.n) {
-          const diff = isObj(item) && isObj(fields) ? changed(item, t.p ?? [], fields) : null;
-          if (diff && app.ext.nested!.apply(r, t.n, 'patch', item, nest(item, t.p ?? [], diff), false)) log(t.r, `patch ${t.n.join(',')}${t.p?.length ? ' .' + t.p.join('.') : ''}`);
-          return;
-        }
         if (!isObj(item) || !isObj(fields) || (r.isCollection && !r.has(item))) return;
         const diff = changed(r.isCollection ? r.get(item) : r.value(), t.p ?? [], fields);
         if (!diff) return;
@@ -92,9 +88,8 @@ const apply: Feature = {
       // 4 delete: the row whose URL this was
       if (m == 'DELETE') for (const t of ap.tg) {
         if (!t.v || t.p?.length) continue;
-        const r = res(t.r), lu = r.loader?.url?.(), i = url.lastIndexOf('/'), row = itemOf(t);
-        // a nested row: under the row it is in, at any depth
-        if (t.n) { if (isObj(row) && lu != null && i > 0 && url.slice(0, i) == lu && app.ext.nested!.apply(r, t.n, 'remove', row, null, false)) log(t.r, 'remove nested'); continue; }
+        const r = res(t.r), lu = r.loader?.url?.(), i = url.lastIndexOf('/'), row = s[t.v];
+        if (t.n) { if (lu != null && i > 0 && url.slice(0, i) == lu) app.ext.nested!.wt(t, s, null, log); continue; }
         if (r.isCollection && lu != null && i > 0 && url.slice(0, i) == lu && isObj(row) && r.has(row)) { r.remove(row); log(t.r, 'remove'); }
       }
       if (done.length) app.warn(21, `${m} ${url}`, done.join(', '));

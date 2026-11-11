@@ -190,9 +190,10 @@ by `bench/realworld/serve.mjs` against the live API:
 | build | JS, home (gz KB) | JS, home + article (gz KB) | Lighthouse mobile perf (range of 3) | FCP | LCP | desktop perf |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | main | 26.2 | 50.3 | 98 (98-98) | 1.73 s | 2.14 s | 98 |
-| components | 26.5 | 50.6 | 98 (98-99) | 1.54 s | 2.29 s | 98 |
+| components | 26.4 | 50.5 | 98 (98-99) | 1.54 s | 2.29 s | 98 |
 
-Components cost 0.3 KB of JS (gz) on these pages, and the scores do not move. Mobile FCP is 0.19 s
+Components cost 0.2 KB of JS (gz) on these pages (download sizes measured again after the size work
+below; Lighthouse on the build before it, 0.1 KB larger), and the scores do not move. Mobile FCP is 0.19 s
 earlier and LCP 0.15 s later; with three runs each, neither is read as a change here. (Both builds load
 more JS than the 13.8 KB in the tables above, which were measured on an earlier version of the app.) 
 
@@ -202,9 +203,11 @@ definitions out of the core into modules only the pages that use them load):
 | file | change | what it is |
 | --- | ---: | --- |
 | core (`npm run size`) | +93 B (13,925 → 14,018) | `patch()`/`remove()` finding the item in the resource it came from 54, `upsert` into a nested list 9, the script hook 12, the shared-definition hook 10, cycle guards 6 |
-| write-through module | +95 B | nested targets: the response applied to an item at any depth |
-| shared chunk of the app (core, config, write-through) | +182 B | the two rows above |
-| page modules | +1 to +40 B | the source names in `patch()` calls, the components' wrapper elements |
+| write-through module | +40 B (1,055 → 1,095) | two hooks: a nested target goes to the `nested` module, which only pages with nested lists load |
+| shared chunk of the app (core, config, write-through) | +133 B | the two rows above |
+| page modules | +4 to +39 B | the source names in `patch()` calls, the components' wrapper elements |
+| other modules | 0 to +5 B | no source change: `npm run size` leaves their runtime imports external, so their output holds the checkout's absolute path, one character longer here than in the `main` checkout measured |
+| new modules | `components` 719 B, `nested` 881 B, `defs` 175 B | only on pages with a component script, nested changes, shared definitions |
 | HTML | −125 to −236 B | a component file's comments stay in the file |
 
 `data-sn-early="off"` on the home page's header and error list (a test, not in the app) takes its

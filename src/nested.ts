@@ -51,9 +51,24 @@ const feature: Feature = {
       }
       nested(false);
     };
+    const isObj = (v: unknown): v is Obj => !!v && typeof v == 'object' && !Array.isArray(v);
     app.ext.nested = {
       change: byItem,
       apply,
+      // write-through (apply.ts): the item the target names (a row, or a shared definition's prop: a path in scope)
+      wt(t, s, fields, log) {
+        const r = app.resource(t.r), item = t.v!.split('.').reduce((x: any, k) => x?.[k], s);
+        if (!isObj(item)) return;
+        if (fields === null) { if (apply(r, t.n!, 'remove', item, undefined, false)) log(t.r, 'remove nested'); return; }
+        if (!isObj(fields)) return;
+        // only the fields that differ, at the target's sub-path inside the item
+        const p = t.p ?? [], cur = p.reduce((x: any, k) => x?.[k], item);
+        let diff: Obj | null = null;
+        for (const k of Object.keys(fields)) if (!isObj(cur) || !(k in cur) || JSON.stringify(cur[k]) !== JSON.stringify(fields[k])) (diff ??= {})[k] = fields[k];
+        if (!diff) return;
+        const at = (x: any, q: string[]): Obj => (q.length ? { [q[0]!]: { ...(isObj(x?.[q[0]!]) ? x[q[0]!] : {}), ...at(x?.[q[0]!], q.slice(1)) } } : diff!);
+        if (apply(r, t.n!, 'patch', item, at(item, p), false)) log(t.r, `patch ${t.n!.join(',')}${p.length ? ' .' + p.join('.') : ''}`);
+      },
       upsert(res, names, owner, field, item) {
         const key = res(names[0]!.split('>')[0]!);
         const l: unknown[] = Array.isArray(owner?.[field]) ? owner[field] : [];
