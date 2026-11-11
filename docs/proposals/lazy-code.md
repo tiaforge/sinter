@@ -1,6 +1,6 @@
 # Proposal: lazy code
 
-Status: proposal (2026-11-11), for review. Nothing is implemented.
+Status: proposal (2026-11-11), in review by the Caley session. Nothing is implemented.
 
 Decided with the user:
 - sinter solves this itself; a guardrail alone is not enough.
@@ -10,6 +10,10 @@ Decided with the user:
   module.
 - Every timing is an attribute in the markup, so a page that does not write its head can ask for any
   of them; component scripts are covered.
+- Attribute names: `data-sn-import` (run when rendered) and `data-sn-preload` (fetch with the page).
+- A use of a lazy package other than an awaited call is an error outside component scripts.
+- Every component script that imports a lazy package becomes lazy (one rule, nothing for the type
+  checker to explain).
 
 ## The case
 
@@ -197,7 +201,7 @@ export class TaskRing extends TaskRingComponent {
 - A script that only calls the package's functions (Caley's components that call openpgp) is
   loaded the same way, since the rule is about imports. Should that be a problem (a script that has
   other work to do at once), the script can move the openpgp calls into a module of their own that it
-  awaits; see decision 3.
+  awaits; decided: such a script becomes lazy too.
 - Islands (custom elements the app defines) are imported by the app, not by sinter, so they keep the
   stubs and `SN324`; the message suggests `await import()` in the element, or a component with a script.
 
@@ -259,19 +263,10 @@ open across a deploy.
   and heavy code arrives as a few whole packages, which a list describes better.
 - **`import defer`** (standards track) delays running a module, not downloading it.
 
-## Decisions for review
+## Open decision
 
-1. **Attribute names:** `data-sn-import` (run when rendered) and `data-sn-preload` (fetch with the
-   page), recommended: they name the two steps of loading a module. Alternatives: `data-sn-load` for
-   the first; one attribute with a timing value (`data-sn-import="openpgp: page"`).
-2. **Uses other than awaited calls:** an error outside component scripts (recommended). The alternative is to
-   let a constant through (`openpgp.enums`) by loading the package with the page wherever one is read.
-   It is never needed in Caley, and it would quietly undo the split.
-3. **Which component scripts load with the package:**
-   - (a) every script that imports it (recommended: one rule, no surprises in the type checker);
-   - (b) only scripts that use it other than by calls, the others keeping the stubs and running at once.
-4. **The stale error:** `$error.stale` (recommended: it adds one field), or a general `$error.kind`
-   (`'http' | 'network' | 'action' | 'stale'`), which would touch every error path.
+**The stale error:** `$error.stale` (recommended: it adds one field), or a general `$error.kind`
+(`'http' | 'network' | 'action' | 'stale'`), which would touch every error path.
 
 ## Plan
 
