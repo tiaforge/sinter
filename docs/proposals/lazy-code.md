@@ -8,6 +8,8 @@ Decided with the user:
 - Deploy skew is detected, not prevented by keeping old assets on the server.
 - Heavy code is declared by naming the package in the config (`sinter({ lazy })`), not in the actions
   module.
+- Every timing is an attribute in the markup, so a page that does not write its head can ask for any
+  of them; component scripts are covered.
 
 ## The case
 
@@ -70,7 +72,8 @@ export async function encryptTo(keys: PrivateKey[], text: string) {
   imports (`import { encrypt }`) both work, since the generated module has the same names.
 - **Allowed uses.** A value imported from a lazy package may only be called: `openpgp.encrypt(…)`,
   `encrypt(…)`. Type-only uses are erased and allowed (`import type`, a type annotation). Anything else
-  is `SN324` at its line, since it needs the package loaded at once:
+  is `SN324` at its line, since it needs the package loaded at once (except in a component script,
+  which loads with the package: section 3):
   - `instanceof`, `new`, reading a constant or setting (`openpgp.enums`, `openpgp.config.x = …`);
   - passing the namespace or a function as a value (`keys.map(openpgp.readKey)`);
   - `import 'openpgp'` for its side effects, `export … from 'openpgp'`.
@@ -86,7 +89,7 @@ export async function encryptTo(keys: PrivateKey[], text: string) {
 - **Tests.** With the plugin (vitest with the Vite config), tests get the stubs; without it, the real
   package. Both behave the same, since everything called is async.
 - **The app's own heavy modules.** These are not covered, and a plain `import()` stays the way to split
-  them. The guardrail and the stale check (sections 3 and 4) apply to those `import()`s too.
+  them. The guardrail and the stale check (sections 4 and 5) apply to those `import()`s too.
 
 For Caley: `sinter({ lazy: ['openpgp'] })`, then delete `loadPgp`, `lazyModule`, `modules.ts`, the 13
 awaits and the CLAUDE.md rule. Its runtime uses of openpgp are all calls of async functions
@@ -97,32 +100,79 @@ awaits and the CLAUDE.md rule. Its runtime uses of openpgp are all calls of asyn
 
 ### 2. When it loads: in the markup, per page
 
-There are three timings. The default needs nothing; the two others are written where the need is.
+There are three timings. The default needs nothing; the two others are attributes on an element, in a
+page, its layout or a component, so a page that does not write its head can still ask for either.
 
 | When | Markup | What the build or runtime does |
 | --- | --- | --- |
 | on first call (default) | nothing | the first stub called loads the package |
-| when an element is rendered | `data-sn-import="openpgp"` on that element | the runtime starts the load when it renders the element: at takeover for an element outside templates; when its `data-sn-if` branch or row is first rendered otherwise |
-| with the page | `<link rel="modulepreload" data-sn-import="openpgp">` in the head | the build fills `href` with the package's chunk, plus one link for each chunk it imports; in dev, the package's pre-bundled module |
+| when an element is rendered | `data-sn-import="openpgp"` | the runtime loads and runs the package when it renders the element: at takeover for an element outside templates; when its `data-sn-if` branch or row is first rendered otherwise |
+| with the page | `data-sn-preload="openpgp"` | the build adds `<link rel="modulepreload">` to the page's head, for the package's chunk and each chunk it imports (in dev, the package's pre-bundled module). The browser fetches and compiles it in parallel with the page bundle; it runs at the first call, or where a `data-sn-import` says |
+
+The two attributes are the two steps of loading a module: `preload` fetches it early, `import` runs it.
+An element may have both.
 
 For Caley: settings and calendar write nothing. `<mail-reader>`'s markup gets
 `data-sn-import="openpgp"` on its root, which replaces `<pgp-preload>`, and every page using the
-component inherits it. Whether the mail pages would be faster with the head link (fetched in parallel
-with the page bundle instead of after takeover) is worth measuring then; switching is one line.
+component inherits it. Whether the mail pages would be faster with `data-sn-preload` as well (fetched in
+parallel with the page bundle instead of after takeover) is worth measuring then; it is one attribute
+more. On a slow network a 132 kB preload competes with the page bundle, which is why the two are
+separate.
 
 - The value is a list of packages from `sinter({ lazy })`: `data-sn-import="openpgp, marked"`. Any
   other name is an error with a suggestion (`sinter check` and the LSP read the list from the Vite
   config).
-- The attribute takes no expression. A condition is expressed by where the element is, inside a
+- The attributes take no expression. A condition is expressed by where the element is, inside a
   `data-sn-if`.
-- A load the attribute starts that fails is silent. The call that needs the package reports it
-  (section 4).
-- The head link is only fetched and compiled. It runs when the first call imports the package.
+- `data-sn-preload` counts wherever it is in the page's markup after components and the layout are
+  expanded, inside a `data-sn-if` or `data-sn-for` template too: it says the page may need the package,
+  and the build writes the link once per page. Written in a component, it applies to every page that
+  uses the component; in a layout, to every page of the layout.
+- A load an attribute starts that fails is silent. The call that needs the package reports it
+  (section 5).
 
-These follow Astro's island directives (`client:idle`, `client:visible`), which say on the element
+These follow Astro's island directives (`client:load`, `client:visible`), which say on the element
 when its code loads. Here they are about a package, not a component.
 
-### 3. The guardrail
+### 3. Components
+
+A component script is app code, so the transform applies to it: a script that calls openpgp in
+`connected()` or in an event handler gets the stubs, and the attributes above work in component markup.
+
+That is not enough for a component built around a library's classes, the usual heavy component:
+`new Chart(…)` in [islands.md](../islands.md)'s `task-ring` is a use other than a call (`SN324`). So:
+
+**A component script that imports a lazy package, directly or through app modules, is loaded with the
+package.** The page module does not import it; the runtime does, when an instance is first rendered.
+Inside such a script any use of the package is allowed, since the package is loaded before the script
+runs.
+
+```ts
+// src/components/task-ring.ts: unchanged; `lazy: ['chart.js']` in the config
+import Chart from 'chart.js/auto';
+export class TaskRing extends TaskRingComponent {
+  connected() { this.#chart = new Chart(this.refs.canvas, { … }); }
+  …
+}
+```
+
+- The component's markup does not wait: it is expanded at build time and rendered (early, prerendered
+  or by the page module) as before. Only the script waits.
+- The lifecycle stays whole. `connected()` runs once the script has loaded, with the current props.
+  Props that changed during the load are in `this.props` then, so the first `propsChanged()` comes
+  after `connected()`. An instance removed before the load ends never runs.
+- Until then the script's own effects are missing: its `this.state` writes, its events, what it draws.
+  Write the markup so that it reads well without them, as it should for a browser without JavaScript.
+- Timings: by default, when the first instance is rendered. `data-sn-preload="chart.js"` in the
+  component's or the page's markup preloads the package and the script.
+- A script that only calls async functions of the package (Caley's components that call openpgp) is
+  loaded the same way, since the rule is about imports. Should that be a problem (a script that has
+  other work to do at once), the script can move the openpgp calls into a module of their own that it
+  awaits; see decision 3.
+- Islands (custom elements the app defines) are imported by the app, not by sinter, so they keep the
+  stubs and `SN324`; the message suggests `await import()` in the element, or a component with a script.
+
+### 4. The guardrail
 
 The transform makes every import of the package from app code lazy, so app code cannot undo the split.
 Two ways remain, and the build fails on both with the import chain (`SN325`, at `generateBundle`, from
@@ -144,7 +194,7 @@ Rolldown's module graph):
 The per-page log line gains each page's lazy chunks and their gzip sizes, so the cost a page defers
 shows next to what it ships.
 
-### 4. Deploy skew: detected, reported as an action error
+### 5. Deploy skew: detected, reported as an action error
 
 An open tab whose deploy has been replaced asks for a chunk that no longer exists. sinter turns that
 into an error the page can show:
@@ -173,8 +223,6 @@ open across a deploy.
 
 - **The app's own heavy modules.** These stay a plain `import()`, with the guardrail and the stale
   check. A `.lazy.ts` file convention, with the same stubs, could be added if a case comes up.
-- **Lazy component scripts:** an island's module loaded when the element first renders. The islands
-  runtime already handles an element defined late. Caley has no heavy component yet.
 - **Running a package in a worker** (calls through `postMessage`). This would also take decryption off
   the main thread, but arguments must be cloneable. Keep it for when decryption time, not download
   time, is the problem.
@@ -184,23 +232,27 @@ open across a deploy.
 
 ## Decisions for review
 
-1. **Attribute name:** `data-sn-import` (recommended). Alternatives: `data-sn-preload`, `data-sn-load`.
-2. **Uses other than calls:** an error (recommended). The alternative is to let a constant through
-   (`openpgp.enums`) by loading the package with the page wherever one is read. It is never needed in
-   Caley, and it would quietly undo the split.
-3. **The stale error:** `$error.stale` (recommended: it adds one field), or a general `$error.kind`
+1. **Attribute names:** `data-sn-import` (run when rendered) and `data-sn-preload` (fetch with the
+   page), recommended: they name the two steps of loading a module. Alternatives: `data-sn-load` for
+   the first; one attribute with a timing value (`data-sn-import="openpgp: page"`).
+2. **Uses other than calls:** an error outside component scripts (recommended). The alternative is to
+   let a constant through (`openpgp.enums`) by loading the package with the page wherever one is read.
+   It is never needed in Caley, and it would quietly undo the split.
+3. **Which component scripts load with the package:**
+   - (a) every script that imports it (recommended: one rule, no surprises in the type checker);
+   - (b) only scripts that use it other than by calls, the others keeping the stubs and running at once.
+4. **The stale error:** `$error.stale` (recommended: it adds one field), or a general `$error.kind`
    (`'http' | 'network' | 'action' | 'stale'`), which would touch every error path.
-4. **Scope:** lazy packages, the `import()` guardrail and the stale check (recommended); or lazy
-   component scripts in the same step.
 
 ## Plan
 
 1. `sinter({ lazy })`, the generated module and the transform; `SN324` for uses other than calls in
    the plugin, and for sync exports in `sinter check`, with the dev check at first call.
-2. `data-sn-import` on elements, then the head link (build and dev); `sinter check` and the LSP read
-   the list.
-3. The guardrail (`SN325`) and the log line.
-4. The stale probe and `$error.stale`, for stubs and for `vite:preloadError`.
-5. Docs (a guide page; first-paint.md on the three timings; diagnostics), the changelog. Move Caley to
-   `lazy: ['openpgp']` with `data-sn-import` on `<mail-reader>` (in the Caley session), and measure the
-   mail pages with the after-takeover and the with-the-page timings.
+2. `data-sn-import` and `data-sn-preload` (build and dev); `sinter check` and the LSP read the list.
+3. Component scripts that load with the package: the compiler's script imports, the runtime's
+   lifecycle while loading, testing's `render()` (which awaits the scripts before it returns).
+4. The guardrail (`SN325`) and the log line.
+5. The stale probe and `$error.stale`, for stubs, lazy component scripts and `vite:preloadError`.
+6. Docs (a guide page; first-paint.md on the three timings; islands.md; diagnostics), the changelog.
+   Move Caley to `lazy: ['openpgp']` with `data-sn-import` on `<mail-reader>` (in the Caley session),
+   and measure the mail pages with and without `data-sn-preload`.
