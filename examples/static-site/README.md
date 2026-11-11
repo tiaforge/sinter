@@ -14,4 +14,9 @@ npm run preview        # http://localhost:4174
 `vite.config.js` lists the static pages in `sinter({ static })`, so a handler added to the shared
 header or footer fails the build instead of putting JavaScript back on every page.
 
-`bench/static/measure.mjs` builds this site and measures it in Chromium.
+Each page is written as a directory's index (`about.html` as `about/index.html`, at `/about/`), so the
+built site works on any static server; the nav's links, written as `/about.html`, name `/about/` in the
+build. See [page URLs](../../docs/static-pages.md#page-urls).
+
+`bench/static/measure.mjs` builds this site and measures it in Chromium; `bench/static/urls.mjs` checks its
+URLs on a static server with no configuration.

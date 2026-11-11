@@ -111,3 +111,39 @@ and Vite bundles only module scripts; so pre-paint code is inline (or a classic 
 
 The dev server serves the same pages as the build: no page module on a static page, its components'
 styles as a stylesheet.
+
+## Page URLs
+
+Every page with a fixed path is written as a directory's index: `about.html` is `about/index.html` in
+the build, and its URL is `/about/`. `docs/getting-started.html` is `docs/getting-started/index.html`
+at `/docs/getting-started/`. This is the one URL form there is, on every page, static or not.
+
+It works on any static server without configuration: serving a directory's `index.html` is what nginx,
+Apache, GitHub Pages, S3's website hosting and the hosts that do clean URLs all do, and they redirect
+`/about` to `/about/`. (One exception: a CDN that reads a storage bucket without its website mode,
+such as CloudFront in front of plain S3, finds `index.html` only at the root; turn on the bucket's
+website hosting, or add a function that appends `index.html`.) `vite dev` and `vite preview` serve the
+same URLs.
+
+What the build does with it:
+
+- **Links name the URL.** A link to one of your pages, written with its file (`<a href="/about.html">`,
+  `<a href="../about.html">`) or its URL (`/about/`), is written as `/about/`, root-relative or
+  relative as you wrote it, so following it costs no redirect. This holds for links in the markup and
+  in bindings the build writes into the HTML (a nav from a constant prop).
+- **Relative URLs keep pointing where they did.** In `about/index.html`, `<img src="img/logo.svg">`
+  would look in `/about/img/`; the build rewrites it to `../img/logo.svg`.
+- **The old URL keeps working.** `about.html` is still in the build, as a redirect to `/about/` (a
+  refresh with a canonical link and `noindex`), so links to your site from before still arrive. With
+  scripts on it keeps the query and fragment: `/task.html?id=3` arrives at `/task/?id=3`.
+- **`index.html`, `404.html` and `200.html` stay as they are**: hosts look for them by name.
+- **Two files for one URL fail the build**: `docs.html` and `docs/index.html` would both be `/docs/`.
+- **A page with `data-sn-path` stays where it is**: a server or host rewrite serves it, at exactly its
+  paths. Use it for patterns (`/article/:slug`), and for a page whose URL must have no trailing slash
+  (`data-sn-path="/login"`, when a spec or existing links say `/login`). Patterns match with or without
+  a trailing slash.
+
+A link your page builds at run time is not rewritten: write it as the URL
+(`data-sn-attr="{ href: '/task/?id=' + t.id }"`). The build warns when a page's code still names a page
+by its file (`'/task.html?id='`), which works, but through the redirect.
+

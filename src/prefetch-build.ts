@@ -3,13 +3,43 @@
 import type { HelperManifest, PrefetchParts } from './compiler/compile.js';
 import { PACKAGE } from './compiler/index.js';
 
+/** pages hosts look for by name: written as they are, never as a directory */
+const KEEP = /(^|\/)(index|404|200)\.html?$/;
+const rootOf = (base: string) => (base.startsWith('/') ? base.replace(/\/?$/, '/') : '/');
+
 /**
- * The paths a page answers at: its `data-sn-path` patterns, else where its file is served
- * (`/login.html` and `/login`; `/docs/` and `/docs/index.html` for `docs/index.html`), under `base`.
+ * Whether a page is written as a directory's index (`about.html` as `about/index.html`, served at
+ * `/about/`): every page with a fixed path, that is no `data-sn-path`. Not `index.html`, `404.html` or
+ * `200.html`, and not a page with `data-sn-path`: a server's rewrite serves it at exactly those paths
+ * (`/article/:slug`, or `/login` for an app whose URLs have no trailing slash).
+ */
+export function movesToDirectory(rel: string, _base: string, patterns: string[]): boolean {
+  return !patterns.length && !KEEP.test(rel) && /\.html?$/.test(rel);
+}
+
+/** Where a page's HTML is written in the output, relative to it: `about/index.html` for a page that moves. */
+export function pageFile(rel: string, base: string, patterns: string[]): string {
+  return movesToDirectory(rel, base, patterns) ? rel.replace(/\.html?$/, '/index.html') : rel;
+}
+
+/** The URL of a page with a fixed path, under `base`: `/about/`, `/docs/`, `/404.html`; null for one served by its patterns. */
+export function pageUrl(rel: string, base: string, patterns: string[]): string | null {
+  const b = rootOf(base);
+  if (movesToDirectory(rel, base, patterns)) return b + rel.replace(/\.html?$/, '/');
+  if (patterns.length) return null;
+  const index = /(^|\/)index\.html?$/.exec(rel);
+  return index ? b + rel.slice(0, index.index + index[1]!.length) : b + rel;
+}
+
+/**
+ * The paths a page answers at: its `data-sn-path` patterns, else where its file is served, under `base`:
+ * `/about/` and `/about` for a page written as a directory (redirected to `/about/`), `/docs/` and
+ * `/docs/index.html` for `docs/index.html`.
  */
 export function pagePaths(rel: string, base: string, patterns: string[]): string[] {
+  const b = rootOf(base);
+  if (movesToDirectory(rel, base, patterns)) { const dir = b + rel.replace(/\.html?$/, ''); return [dir + '/', dir]; }
   if (patterns.length) return patterns;
-  const b = base.startsWith('/') ? base.replace(/\/?$/, '/') : '/';
   const index = /(^|\/)index\.html?$/.exec(rel);
   if (index) { const dir = b + rel.slice(0, index.index + index[1]!.length); return [dir, dir + 'index.html']; }
   return [b + rel, b + rel.replace(/\.html?$/, '')];
@@ -22,7 +52,9 @@ export function pagePaths(rel: string, base: string, patterns: string[]): string
  * rests on the link (200 ms) or a press starts. Null when the app has no paths.
  */
 export function speculationRules(mode: 'prefetch' | 'prerender', paths: string[]): string | null {
-  const patterns = [...new Set(paths)].map((p) => p.split('/').map((s) => (s[0] === ':' && /^:\w+$/.test(s) ? s : s.replace(/[*?+(){}:\\]/g, '\\$&'))).join('/') + '\\?*#*');
+  // a pattern matches with or without a trailing slash, as the runtime and the server match it
+  const both = paths.flatMap((p) => (p.includes(':') ? [p.replace(/\/+$/, ''), p.replace(/\/*$/, '/')] : [p]));
+  const patterns = [...new Set(both)].map((p) => p.split('/').map((s) => (s[0] === ':' && /^:\w+$/.test(s) ? s : s.replace(/[*?+(){}:\\]/g, '\\$&'))).join('/') + '\\?*#*');
   if (!patterns.length) return null;
   return JSON.stringify({
     [mode]: [{

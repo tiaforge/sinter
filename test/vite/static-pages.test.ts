@@ -70,7 +70,8 @@ async function serve(dir: string) {
 
 test('a site with nothing to run: no script, no .js file, the scoped styles linked; the HTML is complete', async () => {
   const { read, assets, logs } = await site(STATIC);
-  for (const page of ['index.html', 'about.html']) {
+  // about.html is a directory's index (about/index.html at /about/)
+  for (const page of ['index.html', 'about/index.html']) {
     const html = read(page);
     expect(html, page).not.toMatch(/<script(?! type="speculationrules")/);
     expect(html, page).not.toContain('modulepreload');
@@ -78,8 +79,8 @@ test('a site with nothing to run: no script, no .js file, the scoped styles link
     expect(html, page).not.toContain('data-sn=');
     expect(html, page).not.toContain('<template');
   }
-  expect(read('about.html')).toContain('<ul data-sn-c="nav-list"><li><a href="/">Home</a></li><li><a href="/about.html" class="active">About</a></li></ul>');
-  expect(read('about.html')).toContain('<main><p>About us.</p><footer>© 2026</footer></main>');
+  expect(read('about/index.html')).toContain('<ul data-sn-c="nav-list"><li><a href="/">Home</a></li><li><a href="/about/" class="active">About</a></li></ul>');
+  expect(read('about/index.html')).toContain('<main><p>About us.</p><footer>© 2026</footer></main>');
   expect(assets.filter((f) => f.endsWith('.js'))).toEqual([]);
   expect(logs.join('\n')).toContain('sinter: index.html: no JavaScript');
 });
@@ -92,7 +93,7 @@ test('a mixed site: the page with data keeps its scripts, the static page has no
 <div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++">+</button><b data-sn-text="n"></b></div>
 </body></html>`,
   });
-  expect(read('app.html')).toMatch(/<script type="module" crossorigin src="\/assets\/app-[^"]+\.js" async><\/script>/);
+  expect(read('app/index.html')).toMatch(/<script type="module" crossorigin src="\/assets\/app-[^"]+\.js" async><\/script>/);
   expect(read('index.html')).not.toMatch(/<script(?! type="speculationrules")/);
 });
 
@@ -115,7 +116,7 @@ test('in the browser, a static page is the same with JavaScript off as with it o
         const seen: string[] = [];
         for (const javaScriptEnabled of [false, true]) {
           const tab = await (await browser.newContext({ javaScriptEnabled })).newPage();
-          await tab.goto(`${host.url}/about.html`);
+          await tab.goto(`${host.url}/about/`);
           expect(await tab.$eval('.h', (el) => getComputedStyle(el).padding), engine.name).toBe('7px');
           seen.push(await tab.$eval('body', (el) => el.innerHTML));
         }

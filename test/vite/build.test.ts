@@ -315,7 +315,8 @@ test('first paint: an early binding that checks a URL: the check is in the share
   try {
     await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false, rollupOptions: { input: file } }, plugins: [sinter()] });
   } finally { rmSync(file, { force: true }); }
-  const h = heads(readFileSync(join(dir, 'shared.html'), 'utf8'), dir, 'shared');
+  // a page with a fixed path is a directory's index (shared.html at /shared/)
+  const h = heads(readFileSync(join(dir, 'shared/index.html'), 'utf8'), dir, 'shared');
   expect(h.sharedCode).toContain('function urlAllowed');
   expect(h.ownCode).not.toContain('function urlAllowed');
 });
@@ -423,7 +424,7 @@ test('messages: one file per page and language with only the keys it calls (mark
 test('messages: a page whose markup has no `m` but whose modules call it gets the picker, its language file, and waits for it', async () => {
   const dir = join(out, 'i18n-other');
   await build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: dir, emptyOutDir: true, minify: false, rollupOptions: { input: join(i18nRoot, 'other.html') } }, plugins: [sinter({ typecheck: true })] });
-  const html = readFileSync(join(dir, 'other.html'), 'utf8');
+  const html = readFileSync(join(dir, 'other/index.html'), 'utf8');
   const data = heads(html, dir, 'other').i18n;
   expect(data).not.toBeNull();
   const lang = (l: string) => readFileSync(join(dir, data.files[l].slice(1)), 'utf8');

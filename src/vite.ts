@@ -5,7 +5,7 @@
 // data as the parser inserts it, before the first paint, with nothing render-blocking.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, posix, relative, resolve, sep } from 'node:path';
+import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
@@ -20,7 +20,8 @@ import { rewriteCssImages, type CssImageHost } from './css-images.js';
 import { resolveRemote, type RemoteImages } from './remote.js';
 import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, RuntimeReason, StyleSheet } from './compiler/index.js';
-import { hasCspMeta, pagePaths, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
+import { hasCspMeta, movesToDirectory, pageFile, pagePaths, pageUrl, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
+import { relocateHtml, redirectHtml, type PageEntry } from './page-urls.js';
 import { faceName, faceOf, fontDownloader, inlineFonts, preloadFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
 import { COMPONENT_NAME } from './compiler/components.js';
@@ -108,7 +109,7 @@ export interface SinterOptions extends ProjectOptions {
   fonts?: { inline?: boolean; preload?: FontPreload[] };
 }
 
-type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin, Plugin, Plugin];
+type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin, Plugin, Plugin, Plugin];
 
 /** a base Vite resolves per file (`./`, ''): its URLs are relative to the page or stylesheet */
 const relativeBase = (base: string) => base === '' || base.startsWith('.');
@@ -221,7 +222,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** build: the pages with an early module, and each one's bundled early script */
   const earlyPages = new Map<string, string>();
   /** build: each page's embedded-data placeholders and the paths it answers at, by file */
-  const embedPages = new Map<string, { paths: string[]; data: EmbedSlot[] }>();
+  const embedPages = new Map<string, { file: string; paths: string[]; data: EmbedSlot[] }>();
   /** origins of resources that could have been requested early, not listed in `origins` (reported once per build) */
   const unlisted = new Set<string>();
   const earlyFiles = new Map<string, { code: string; modules: Record<string, { renderedLength: number }> }>();
@@ -314,17 +315,24 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return [...new Set([...files, ...seen])].sort();
   };
   /** every page with the paths it answers at, and what another page can request ahead for it */
+  /** a page's description (its patterns, what can be requested ahead), compiled once */
+  const describe = (file: string) => {
+    if (!described.has(file)) {
+      const p = project(root, options);
+      try {
+        const r = compile(readFileSync(file, 'utf8'), { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile });
+        described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
+      } catch { described.set(file, { parts: null, path: [], off: false }); }
+    }
+    return described.get(file)!;
+  };
+  /** every page, with its `data-sn-path` patterns: where it is written and what its links name (page-urls.ts) */
+  const pageEntries = (): PageEntry[] => entries().map((file) => ({ rel: relOf(file), patterns: describe(file).path }));
   const appPages = () => {
     if (pagesCache) return pagesCache;
-    const p = project(root, options), out: Array<{ paths: string[]; parts: PrefetchParts | null }> = [];
+    const out: Array<{ paths: string[]; parts: PrefetchParts | null }> = [];
     for (const file of entries()) {
-      if (!described.has(file)) {
-        try {
-          const r = compile(readFileSync(file, 'utf8'), { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile });
-          described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
-        } catch { described.set(file, { parts: null, path: [], off: false }); }
-      }
-      const d = described.get(file)!;
+      const d = describe(file);
       // `<html data-sn-prefetch="off">`: neither described nor in the rules
       if (d.off) continue;
       out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', d.path), parts: d.parts });
@@ -390,7 +398,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       invalidate(`${COMPONENT_CSS}${x.name}.css`);
     }
     if (out.early) setModule(`${EARLY}${rel}.js`, out.early, out.earlyMap);
-    if (!dev && out.embed.length) embedPages.set(rel, { paths: pagePaths(rel, resolved?.base ?? '/', out.path), data: out.embed });
+    if (!dev && out.embed.length) embedPages.set(rel, { file: pageFile(rel, resolved?.base ?? '/', out.path), paths: pagePaths(rel, resolved?.base ?? '/', out.path), data: out.embed });
     else embedPages.delete(rel);
     if (out.module.includes(`/transition';`)) holdPages.add(rel); else holdPages.delete(rel);
     messages = p.messages;
@@ -511,7 +519,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const r = resolved!;
       // the placeholders a server fills (data-sn-data), next to the pages: what a middleware reads to know each page's requests
       if (embedPages.size) {
-        const pages = [...embedPages].sort(([a], [b]) => a.localeCompare(b)).map(([file, p]) => ({ file, paths: p.paths, data: p.data }));
+        const pages = [...embedPages].sort(([a], [b]) => a.localeCompare(b)).map(([, p]) => ({ file: p.file, paths: p.paths, data: p.data }));
         this.emitFile({ type: 'asset', fileName: EMBED_FILE, source: JSON.stringify({ version: 1, pages }, null, 2) + '\n' });
       }
       if (remoteConfig?.url.startsWith('/_vercel/image') && remoteWidths.size) {
@@ -933,5 +941,83 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (none.length) this.error(`sinter({ fonts: { preload } }): no page's Google Fonts stylesheets have ${none.map(faceName).join(', ')}: nothing to preload. Check the family, weight and style against the stylesheet's link`);
     },
   };
-  return [main, post, cssImages, fonts, fontCheck];
+  // Page URLs: every page with a fixed path is a directory's index (`about.html` at `/about/`); see page-urls.ts
+  const base = () => resolved?.base ?? '/';
+  /** a page's source file for a site path (`/about/`, `/about`, `/about.html`) when that page moves into a directory */
+  const movedPage = (path: string): string | null => {
+    const b = base().startsWith('/') ? base().replace(/\/?$/, '/') : '/';
+    if (!path.startsWith(b)) return null;
+    const name = path.slice(b.length).replace(/\/$/, '').replace(/\.html?$/, '');
+    if (!name) return null;
+    const file = resolve(root, `${name}.html`);
+    if (!file.startsWith(root + sep) || !existsSync(file)) return null;
+    return movesToDirectory(relOf(file), base(), describe(file).path) ? file : null;
+  };
+  /** dev: `/about/` is `about.html`; `/about` and `/about.html` redirect to `/about/`, as a host does with the built site */
+  const devPages = (req: { url?: string }, res: { statusCode: number; setHeader(k: string, v: string): void; end(): void }, next: () => void) => {
+    const [path, query = ''] = (req.url ?? '/').split(/\?(.*)/s, 2) as [string, string?];
+    const q = query ? `?${query}` : '';
+    const file = movedPage(path);
+    if (!file) return next();
+    if (path.endsWith('/')) { req.url = `${path.replace(/\/$/, '')}.html${q}`; return next(); }
+    res.statusCode = 301;
+    res.setHeader('Location', `${path.replace(/\.html?$/, '')}/${q}`);
+    res.end();
+  };
+  const pages: Plugin = {
+    name: 'sinter:pages',
+    enforce: 'post',
+    configureServer(s) { s.middlewares.use(devPages); },
+    configurePreviewServer(s) {
+      // the built site: `/about` redirects to `/about/` (served from about/index.html), as a host does
+      s.middlewares.use((req, res, next) => {
+        const [path, query] = (req.url ?? '/').split(/\?(.*)/s, 2) as [string, string?];
+        const out = resolve(root, resolved!.build.outDir);
+        if (/\.[a-z\d]+$/i.test(path) || path.endsWith('/') || !existsSync(join(out, path, 'index.html'))) return next();
+        res.statusCode = 301;
+        res.setHeader('Location', `${path}/${query ? `?${query}` : ''}`);
+        res.end();
+      });
+    },
+    // dev: the page as served at its URL (the build does this in generateBundle, once Vite has written every URL)
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        if (!dev) return html;
+        const rel = relOf(ctx.filename), all = pageEntries();
+        const page = all.find((x) => x.rel === rel) ?? { rel, patterns: describe(ctx.filename).path };
+        return relocateHtml(html, page, all.some((x) => x.rel === rel) ? all : [...all, page], base());
+      },
+    },
+    /**
+     * builds: each page's finished HTML gets its links and, for a page with a fixed path, its relative URLs
+     * for its new place; it moves into its directory, and a redirect file takes its old place
+     */
+    generateBundle(_, bundle) {
+      if (dev) return;
+      const all = pageEntries(), by = new Map<string, string>();
+      for (const page of all) {
+        const to = pageFile(page.rel, base(), page.patterns), a = bundle[page.rel];
+        if (a?.type !== 'asset') continue;
+        const source = relocateHtml(typeof a.source === 'string' ? a.source : Buffer.from(a.source).toString('utf8'), page, all, base());
+        if (to === page.rel) { a.source = source; continue; }
+        if (bundle[to]) this.error(`sinter: ${page.rel} is written as ${to}, its URL ${pageUrl(page.rel, base(), page.patterns)}, and ${by.get(to) ?? to} is there too: rename one of them`);
+        by.set(to, page.rel);
+        delete bundle[page.rel];
+        this.emitFile({ type: 'asset', fileName: to, source });
+        // a link the page module builds at run time still names the old file: it arrives through the redirect
+        for (const other of all) {
+          const code = modules.get(`${PREFIX}${other.rel}.js`) ?? '';
+          const old = `/${page.rel}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          if (new RegExp(`['"\`]${(base().startsWith('/') ? base().replace(/\/$/, '') : '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}${old}(?![\\w/-])`).test(code)) {
+            resolved?.logger.warn(`sinter: ${other.rel} builds a link to ${page.rel} at run time, which is served at ${pageUrl(page.rel, base(), page.patterns)} now: it arrives through a redirect. Write the URL in the expression (\`'${pageUrl(page.rel, base(), page.patterns)}?…'\`)`);
+          }
+        }
+        // the old URL still arrives: a redirect to the page's URL (relative under a relative base)
+        const url = relativeBase(base()) ? `./${posix.basename(to, '/index.html')}/` : pageUrl(page.rel, base(), page.patterns)!;
+        this.emitFile({ type: 'asset', fileName: page.rel, source: redirectHtml(url) });
+      }
+    },
+  };
+  return [main, post, cssImages, fonts, fontCheck, pages];
 }

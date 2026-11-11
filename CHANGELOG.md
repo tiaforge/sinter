@@ -122,6 +122,16 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- Page URLs (breaking; docs/static-pages.md#page-urls): every page without `data-sn-path` is written as a directory's
+  index, `about.html` as `about/index.html`, served at `/about/` on any static server without configuration (it
+  redirects `/about` there). `about.html` remains as a redirect to `/about/` (a refresh with a canonical link and
+  `noindex`, and a script that keeps the query and fragment), so old links arrive. Links in the markup to a page, by
+  its file or its URL, are written as its URL; a moved page's relative URLs are rebased. `index.html`, `404.html` and
+  `200.html` stay; a page with `data-sn-path` stays (a server rewrite serves it). Two pages for one URL fail the build;
+  a link built at run time that names a moved page's file is a build warning. Patterns match with or without a
+  trailing slash, also in Speculation Rules. `vite dev` and `vite preview` serve the same URLs. The starter template's
+  task link is `/task/?id=…`.
+
 - Changes from server events render once per frame: `<sn-event>` mappings and their `then` still apply when each
   event arrives, but the render waits for the next frame (`requestAnimationFrame`), so a burst renders once. Other
   changes still render in a microtask, taking waiting server changes with them; a hidden page renders server events
