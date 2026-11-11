@@ -3,6 +3,7 @@
 import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
 import { Layout } from './layout.js';
+import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
@@ -456,11 +457,12 @@ class Compiler {
   }
 
   run(html: string): CompiledParts {
-    const doc = parse5.parse(html, { sourceCodeLocationInfo: true });
+    const doc = parseDocument(html);
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     this.expandIncludes(doc, [this.opts.file]);
     this.head = findHead(doc);
     this.expandComponents(doc, []);
+    this.checkHead();
     this.componentIds();
     const layout = this.layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
     const images = this.opts.images ? rewriteImages(doc, {
@@ -1063,6 +1065,33 @@ class Compiler {
     if (!this.uses.has(name)) this.uses.set(name, []);
     this.uses.get(name)!.push(use);
     return root;
+  }
+
+  /**
+   * SN320: after expansion, the head holds head elements only (and sinter's own, which the build
+   * removes). The browser would move anything else, and what follows it, into the body.
+   */
+  checkHead() {
+    const head = this.head;
+    if (!head) return;
+    const walk = (n: P5Parent, owner: P5Element) => {
+      for (const c of [...n.childNodes]) {
+        if (c.nodeName === '#text') {
+          const t = (c as DefaultTreeAdapterMap['textNode']).value.trim();
+          if (t) this.report(owner, null, 'SN320', `text cannot be in the \`<head>\`: \`${t.slice(0, 40)}\``, 0, 'move it into the body');
+          continue;
+        }
+        if (!isElement(c)) continue;
+        if (!HEAD_ELEMENTS.has(c.tagName)) {
+          this.report(c, null, 'SN320', `\`<${c.tagName}>\` cannot be in the \`<head>\`: the browser would move it, and everything after it, into the body`, 0,
+            'only head elements go in the head: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>`, `<template>` and head components');
+          detach(c);
+          continue;
+        }
+        if (c.tagName === 'template') walk((c as P5Template).content, c);
+      }
+    };
+    walk(head, head);
   }
 
   /** `data-sn-early="off"` on a component's tag: this use renders when the page module runs, not in the early script */

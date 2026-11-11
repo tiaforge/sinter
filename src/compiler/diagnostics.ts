@@ -42,6 +42,7 @@ export const CODES = {
   SN315: 'unknown-component-event',
   SN316: 'include-removed',
   SN317: 'no-item-source',
+  SN320: 'head-content',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',

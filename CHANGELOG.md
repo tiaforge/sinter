@@ -7,6 +7,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Heads keep every element where it is written: a head the HTML parser would end early (at a component's tag, a
+  `<slot>`, an `<sn-resource>`) is parsed as template content, so the elements after it stay in the head. After
+  expansion, a head holds only head elements: anything else is the new `SN320` (before, the browser moved it, and every
+  head element after it, into the body without a word).
 - Components (docs/components.md): a file `src/components/<name>.html` with one `<template data-sn-component="{ …props }">`
   is the tag `<name>` on every page. Each use is expanded at build time, so a component renders in the first frame and
   costs nothing at runtime: props through `data-sn-prop` (live, read-only, checked against the declaration), slots

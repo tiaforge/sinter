@@ -65,6 +65,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN315', '<x-card data-sn-prop="{ title: \'a\' }" data-sn-on-pik="1"></x-card>', /`<x-card>` does not emit `pik`/],
   ['SN316', '<sn-include src="./partials/old.html"></sn-include>', /`<sn-include>` is removed: a partial is a component/],
   ['SN317', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="remove('messages', m)"></button></template>`, /`remove\(\)` takes the item, not a resource name/],
+  ['SN320', '<!doctype html><html><head><title>t</title><div></div></head><body></body></html>', /`<div>` cannot be in the `<head>`/],
   ['SN401', '<p data-sn-text="a +"></p>', /Unexpected token/],
   ['SN501', R + '<p data-sn-text="messages.length"></p>', /resource `contacts` is declared but never read/],
   ['SN502', '<p data-sn-text="Date.now()"></p>', /`Date.now\(\)` in a binding never updates. Use `\$now`/],

@@ -292,6 +292,16 @@ Error, for example:
 
 **Fix:** Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or patch the row with its fields; a server event's payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.
 
+## SN320 head-content
+
+Error, for example:
+
+> `<div>` cannot be in the `<head>`: the browser would move it, and everything after it, into the body
+
+After components are expanded, a head holds only head elements: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>` and `<template>` (sinter's `<sn-resource>` and `<sn-sync>` too, which the build removes). The browser ends the head at anything else and moves it, with every element after it, into the body. sinter parses heads so that a component's tag stays where it is written: the element it expands to must be head content.
+
+**Fix:** Move the element into the body. In a head, use head components (`<template data-sn-head>`).
+
 ## SN401 parse-error
 
 Error, for example:

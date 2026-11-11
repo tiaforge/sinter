@@ -157,6 +157,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: '`patch(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `patch(\'name\', item, …)` and `remove(\'name\', item)`, and a row of a helper that takes more than one resource.',
     fix: 'Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or patch the row with its fields; a server event\'s payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.',
   },
+  SN320: {
+    example: '`<div>` cannot be in the `<head>`: the browser would move it, and everything after it, into the body',
+    means: 'After components are expanded, a head holds only head elements: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>` and `<template>` (sinter\'s `<sn-resource>` and `<sn-sync>` too, which the build removes). The browser ends the head at anything else and moves it, with every element after it, into the body. sinter parses heads so that a component\'s tag stays where it is written: the element it expands to must be head content.',
+    fix: 'Move the element into the body. In a head, use head components (`<template data-sn-head>`).',
+  },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
     means: 'An attribute value has the wrong form: a JavaScript syntax error (the column points inside the attribute), or a value outside what the attribute accepts, such as `paginate` or `data-sn-concurrency`.',
