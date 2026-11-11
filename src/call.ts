@@ -3,6 +3,7 @@
 // throws into an `$error`. Loaded only by pages with such an action or resource.
 import type { App, CallContext, Feature } from './runtime/app.js';
 import { SinterError } from './runtime/config.js';
+import { loadError } from './lazy.js';
 
 const feature: Feature = {
   name: 'call',
@@ -14,7 +15,13 @@ const feature: Feature = {
       async run(f, args, el, signal) {
         app.busy++;
         const ctx: CallContext = { signal: signal ?? hide.signal, request: (u, i) => app.req.send(u, i), el };
-        try { return await app.fns[f]!(args, ctx); } finally { app.busy--; }
+        try { return await app.fns[f]!(args, ctx); }
+        catch (e) {
+          // an `import()` of the app's that failed: the browser names the module (Chromium, Firefox), which is
+          // asked for again, to tell a page a deploy left behind (`stale`) from the network (lazy.ts)
+          const url = e instanceof TypeError ? /dynamically imported module: (\S+)/.exec(e.message)?.[1] : null;
+          throw url ? await loadError(e, url) : e;
+        } finally { app.busy--; }
       },
       // SinterErrors as they are, anything else with status null
       error(e) {

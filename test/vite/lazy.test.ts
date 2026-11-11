@@ -49,7 +49,15 @@ export class XRing extends XRingComponent {
   put('src/actions/pgp.ts', `import * as fake from 'fakepgp';
 import type { enums } from 'fakepgp';
 export async function seal(t: string) { return (await fake.encrypt(t)) + ':' + (await fake.parse(t)); }
+export async function heavy() { const m = await import('../lib/heavy.ts'); return m.h(); }
 `);
+  put('src/lib/heavy.ts', `export const h = () => 'heavy ' + ['HEAVY_BODY'].join('').length;\n`);
+  put('heavy.html', `<!doctype html><html><head><title>heavy</title></head><body>
+<div data-sn-state="{ out: '', err: '' }">
+  <button id="go" data-sn-call="pgp.heavy()" data-sn-then="out = $result" data-sn-catch="err = ($error.stale ? 'stale: ' : 'other: ') + $error.message">go</button>
+  <output id="out" data-sn-text="out"></output><output id="err" data-sn-text="err"></output>
+</div>
+</body></html>`);
   put('index.html', `<!doctype html><html><head><title>lazy</title></head><body>
 <div data-sn-state="{ out: '', err: '' }">
   <button id="go" data-sn-call="pgp.seal('hi')" data-sn-then="out = $result" data-sn-catch="err = $error.stale ? 'stale: ' + $error.message : 'other: ' + $error.message">go</button>
@@ -64,7 +72,7 @@ export async function seal(t: string) { return (await fake.encrypt(t)) + ':' + (
   put('preload.html', `<!doctype html><html><head><title>preload</title></head><body>
 <div data-sn-state="{ out: '' }"><button id="go" data-sn-call="pgp.seal('hi')" data-sn-then="out = $result" data-sn-preload="fakepgp">go</button><output id="out" data-sn-text="out"></output></div>
 </body></html>`);
-  const input = { index: join(root, 'index.html'), import: join(root, 'import.html'), preload: join(root, 'preload.html'), comp: join(root, 'comp.html') };
+  const input = { index: join(root, 'index.html'), import: join(root, 'import.html'), preload: join(root, 'preload.html'), comp: join(root, 'comp.html'), heavy: join(root, 'heavy.html') };
   await build({ root, logLevel: 'silent', plugins: [sinter({ lazy: ['fakepgp'] })], resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input } } });
 }, 60_000);
 
@@ -196,6 +204,33 @@ test.skipIf(!chromium)('a lazy component script: the instance starts once it and
     await tab.click('#inc');
     await tab.waitForFunction(() => document.querySelector('#b span')?.textContent === 'thing 3');
   } finally {
+    await browser.close();
+    await new Promise((r) => server.httpServer.close(r));
+  }
+}, 60_000);
+
+test.skipIf(!chromium)('the app\'s own import() in an action: a removed chunk is a stale page too', async () => {
+  const server = await preview({ root, logLevel: 'silent', preview: { port: 0 }, build: { outDir: out } });
+  const browser = await chromium!.launch();
+  const chunk = assets().find((f) => read(f).includes('HEAVY_BODY'))!;
+  const kept = read(chunk);
+  try {
+    const url = server.resolvedUrls!.local[0]! + 'heavy/';
+    const tab = await browser.newPage();
+    await tab.goto(url);
+    await tab.waitForTimeout(200);
+    await tab.click('#go');
+    await tab.waitForFunction(() => document.querySelector('#out')?.textContent !== '');
+    expect(await tab.textContent('#out')).toBe('heavy 10');
+    unlinkSync(join(out, 'assets', chunk));
+    const tab2 = await browser.newPage();
+    await tab2.goto(url);
+    await tab2.waitForTimeout(200);
+    await tab2.click('#go');
+    await tab2.waitForFunction(() => document.querySelector('#err')?.textContent !== '');
+    expect(await tab2.textContent('#err')).toBe('stale: this page is out of date: reload it');
+  } finally {
+    writeFileSync(join(out, 'assets', chunk), kept);
     await browser.close();
     await new Promise((r) => server.httpServer.close(r));
   }
