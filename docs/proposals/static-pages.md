@@ -227,12 +227,17 @@ These are the behaviours a static page loses.
    Safari, on links from a static page to a data page), or ship a small prefetch-only script on static
    pages that link to data pages? Such a script needs the request layer and the app's middleware; its
    size is not measured.
-2. **Opt-in vs. automatic**: automatic with an optional `data-sn-static` assertion (proposed), or
-   only for pages that ask with `data-sn-static`? Automatic changes the output of existing pages
-   that happen to need nothing. The observable differences are next-page data (question 1) and the
-   config module's other top-level code no longer running on those pages.
-3. **Where the assertion goes**: on the page (or layout tag), on the layout's `<html>` for all its
+2. **Where the assertion goes**: on the page (or layout tag), on the layout's `<html>` for all its
    pages, or also a `sinter({ static: ['docs/**'] })` option for a whole section?
-4. **i18n**: a static page with messages still needs the picker to switch language in the browser.
+3. **i18n**: a static page with messages still needs the picker to switch language in the browser.
    Building one HTML file per locale would make such sites static too. In scope here, or a separate
    proposal?
+
+## Decisions
+
+Settled in review, in the order they were discussed:
+
+| Question | Decision | Section |
+| --- | --- | --- |
+| The config module on static pages | It does not run: everything `configure()` sets applies only while the runtime runs. The docs say code for every page goes in a script the layout includes | [What changes](#what-changes-on-a-page-that-ships-no-javascript) |
+| Automatic or opt-in | Automatic: every page with nothing to run ships no JavaScript, with no option to ask for it. `data-sn-static` is an optional assertion that fails the build (`SN322`) when a page would need the runtime | [Seeing why a page ships JavaScript](#3-seeing-why-a-page-ships-javascript) |
