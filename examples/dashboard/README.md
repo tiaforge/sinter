@@ -8,23 +8,25 @@ Four services with made-up metrics, live. One HTML page, no framework, no store:
   serves it at `/api/openapi.yml` and implements it. The frontend reads the same file at build
   time (`sinter({ openapi })`), so `<sn-resource src="/api/services">` needs no `type`: it is
   `listServices`.
-- **The numbers are pushed, and only the numbers.** `server/api.js` makes them up (a random step per
-  service, now and then a slow, failing spell). Four times a second it sends one small `metric` event per
-  service (`/api/events`: the rate, latency, error rate and when they were measured, about 200 bytes);
-  `<sn-sync>` in `index.html` patches them into the service by `id`. The history is sent once, with the
-  first `GET /api/services`. `service_updated` (a whole service) is only for a pause or resume.
-- **The graphs keep their own window.** `<spark-line>` is given the history once (`seed`) and then only
-  the newest number: each time `at` changes, its script (`src/components/spark-line.ts`) appends it to
-  the samples in the component's state, and sinter redraws the SVG `points` from them (the helpers
-  `line()` and `area()` in `src/sinter.helpers.ts`). The script also slides the line one step left per
-  sample, so it moves instead of jumping. No chart library.
+- **Samples are a resource, and each event is one new sample.** `samples` (`GET /api/samples`) is the last
+  30 seconds, loaded once. Four times a second `server/api.js` makes up the next sample of each running
+  service (a random step, now and then a slow, failing spell) and sends it as a `sample` event (about 150
+  bytes); `<sn-sync>` in `index.html` upserts it into `samples`. `slot` is the resource's key
+  (`gateway:17`): a new sample takes the slot of the oldest, so the resource stays the same size however
+  long the page is open, with nothing to delete. `services` only holds `{ id, name, paused }`; a
+  `service_updated` event is for a pause or resume.
+- **The graphs are drawn from the store.** The helpers in `src/sinter.helpers.ts` turn the samples into
+  what the page shows: `of()` picks a service's, `rates()` and `combined()` give the series, `totals()` the
+  newest numbers, and `line()` and `area()` the SVG `points` of `<spark-line>`. The component's script
+  (`src/components/spark-line.ts`) only slides the line one step left per sample, so it moves instead of
+  jumping. No chart library.
 - **Layout and components.** `index.html` is one `<app-layout>` tag (`src/layouts/app-layout.html`:
   the head and the header). `<stat-tile>`, `<spark-line>` and `<service-card>` are plain HTML files in
   `src/components/`, expanded at build time, so they are in the first frame and never hydrate (only
   `<spark-line>` has a script, for the sliding). The Pause
   button is slot content: the page's own markup, in the page's scope, since a component cannot change
   its props.
-- **The badge tells the truth.** `$meta.services.live` is the state of the stream that feeds the
+- **The badge tells the truth.** `$meta.samples.live` is the state of the stream that feeds the
   resource: `connecting`, `open` or `retrying`. Stop the server and the badge says "Reconnecting…"; start
   it again and it is "Live". The layout's `status` slot holds the badge.
 - **Pause** is an optimistic `PATCH`: the card dims at once, and is restored if the server fails.

@@ -4,6 +4,8 @@ info:
   description: >
     The dashboard's backend. The frontend reads this file at build time: `sinter({ openapi })` types
     every resource from it and checks the pages against it. The server also serves it at /api/openapi.yml.
+    The numbers are samples. GET /samples is the last 30 seconds; after that, each new sample arrives as a
+    `sample` event (GET /events) and takes the slot of the oldest one.
   version: 1.0.0
 servers:
   - url: /api
@@ -11,7 +13,7 @@ paths:
   /services:
     get:
       operationId: listServices
-      summary: Every service with its latest numbers and its last 30 samples
+      summary: The services
       responses:
         '200':
           description: The services
@@ -46,42 +48,62 @@ paths:
                 $ref: '#/components/schemas/Service'
         '404':
           description: No such service
+  /samples:
+    get:
+      operationId: listSamples
+      summary: The last 30 seconds of samples, 121 per service
+      responses:
+        '200':
+          description: The samples
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Sample'
 components:
   schemas:
     Service:
       type: object
-      required: [id, name, status, paused, rps, latencyMs, errorRate, at, history]
+      required: [id, name, paused]
       properties:
         id:
           type: string
         name:
           type: string
-        status:
-          type: string
-          enum: [ok, degraded, down]
         paused:
           type: boolean
-        rps:
-          type: number
-          description: Requests per second now
-        latencyMs:
-          type: number
-          description: Median latency now
-        errorRate:
-          type: number
-          description: Share of failed requests, 0 to 1
-        at:
-          type: integer
-          description: When these numbers were measured, in ms since the epoch
-        history:
-          type: array
-          description: >
-            Requests per second, oldest first, a sample every 250 ms (the last 30 seconds): the graph's first
-            frame. Later samples are not sent again here; they arrive as `metric` events (GET /events).
-          items:
-            type: number
     ServicePatch:
       type: object
       properties:
         paused:
           type: boolean
+    Sample:
+      type: object
+      description: >
+        One measurement of a service. `slot` is its key: a service has 121 slots and a new sample takes the
+        slot of the oldest, so the samples stay the same number however long the page is open.
+      required: [slot, service, tick, at, status, rps, latencyMs, errorRate]
+      properties:
+        slot:
+          type: string
+        service:
+          type: string
+        tick:
+          type: integer
+          description: The number of the measurement, the same for every service in one round
+        at:
+          type: integer
+          description: When it was measured, in ms since the epoch
+        status:
+          type: string
+          enum: [ok, degraded, down]
+        rps:
+          type: number
+          description: Requests per second
+        latencyMs:
+          type: number
+          description: Median latency
+        errorRate:
+          type: number
+          description: Share of failed requests, 0 to 1

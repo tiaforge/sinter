@@ -1,19 +1,32 @@
 // Functions the page's expressions call. Pure: the same arguments, the same result.
 
-interface Running { paused: boolean; at: number; rps: number; latencyMs: number; errorRate: number; history: readonly number[] }
+interface Sample { service: string; tick: number; status: 'ok' | 'degraded' | 'down'; rps: number; latencyMs: number; errorRate: number }
 
-/** The running services' numbers added up (latency and error rate weighted by traffic). */
-export function totals(services: readonly Running[]) {
-  const live = services.filter((s) => !s.paused);
-  const rps = live.reduce((n, s) => n + s.rps, 0);
-  const weighted = (f: (s: Running) => number) => (rps ? live.reduce((n, s) => n + f(s) * s.rps, 0) / rps : 0);
-  return { rps, at: Math.max(0, ...live.map((s) => s.at)), latencyMs: Math.round(weighted((s) => s.latencyMs)), errorRate: weighted((s) => s.errorRate) };
+/** One service's samples, oldest first (the resource is ordered by `at`). */
+export function of<T extends { service: string }>(samples: readonly T[], id: string): T[] {
+  return samples.filter((s) => s.service === id);
 }
 
-/** All services together, for the big chart's first frame: the samples added up position by position. */
-export function combined(services: readonly Running[]): number[] {
-  const length = Math.max(0, ...services.map((s) => s.history.length));
-  return Array.from({ length }, (_, i) => services.reduce((n, s) => n + (s.history[i - length + s.history.length] ?? 0), 0));
+/** The running services' newest numbers added up (latency and error rate weighted by traffic). */
+export function totals(services: readonly { id: string; paused: boolean }[], samples: readonly Sample[]) {
+  const newest = new Map<string, Sample>();
+  for (const s of samples) newest.set(s.service, s);
+  const live = services.filter((s) => !s.paused && newest.has(s.id)).map((s) => newest.get(s.id)!);
+  const rps = live.reduce((n, s) => n + s.rps, 0);
+  const weighted = (f: (s: Sample) => number) => (rps ? live.reduce((n, s) => n + f(s) * s.rps, 0) / rps : 0);
+  return { rps, tick: Math.max(0, ...live.map((s) => s.tick)), latencyMs: Math.round(weighted((s) => s.latencyMs)), errorRate: weighted((s) => s.errorRate) };
+}
+
+/** Requests per second of all services together, round by round, for the big chart. */
+export function combined(samples: readonly Sample[], rounds = 121): number[] {
+  const byTick = new Map<number, number>();
+  for (const s of samples) byTick.set(s.tick, (byTick.get(s.tick) ?? 0) + s.rps);
+  return [...byTick].sort((a, b) => a[0] - b[0]).slice(-rounds).map(([, rps]) => rps);
+}
+
+/** A service's requests per second, round by round. */
+export function rates(samples: readonly Sample[]): number[] {
+  return samples.map((s) => s.rps);
 }
 
 /** The points of an SVG polyline drawing `values` in a `w` × `h` box, from 0 up to `max` (the highest value by default). */
@@ -32,11 +45,11 @@ export function percent(share: number): string {
 }
 
 /** temper's tone for a service's badge. */
-export function tone(s: { paused: boolean; status: 'ok' | 'degraded' | 'down' }): 'neutral' | 'success' | 'warning' | 'danger' {
-  return s.paused ? 'neutral' : ({ ok: 'success', degraded: 'warning', down: 'danger' } as const)[s.status];
+export function tone(paused: boolean, status: 'ok' | 'degraded' | 'down'): 'neutral' | 'success' | 'warning' | 'danger' {
+  return paused ? 'neutral' : ({ ok: 'success', degraded: 'warning', down: 'danger' } as const)[status];
 }
 
 /** The graph's color for a service that is slow or failing; none (the accent) when it is fine. */
-export function graphTone(s: { paused: boolean; status: 'ok' | 'degraded' | 'down' }): 'warning' | 'danger' | undefined {
-  return s.paused || s.status === 'ok' ? undefined : s.status === 'degraded' ? 'warning' : 'danger';
+export function graphTone(paused: boolean, status: 'ok' | 'degraded' | 'down'): 'warning' | 'danger' | undefined {
+  return paused || status === 'ok' ? undefined : status === 'degraded' ? 'warning' : 'danger';
 }

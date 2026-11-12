@@ -1,40 +1,27 @@
-// The script of <spark-line>: it keeps the graph's window of samples. The page gives it the history once
-// (`seed`); after that only the newest number arrives, and each new `at` appends it. The points are drawn by
-// sinter from `samples` (the component's state); the script also slides the line one step left, so it
-// moves instead of jumping.
+// The script of <spark-line>: the browser work markup cannot do. sinter draws the points; each time a new
+// sample arrives (`at` changes) every point is one step too far left, so this slides the line back from
+// where it was, and it moves instead of jumping. It writes no node sinter renders: only an animation on
+// the group (its ref, declared in the HTML).
 import { SparkLineComponent } from './spark-line.html';
 
-/** 30 seconds at the server's four samples a second, plus one just past the left edge (see the markup) */
-const SAMPLES = 120;
-
 export class SparkLine extends SparkLineComponent {
-  #seeded = false;
-  #at = 0;
+  #at: number | null = null;
   #stamp = 0;
   #slide: Animation | null = null;
 
   propsChanged() {
-    const { value, at, seed, width } = this.props;
-    if (!this.#seeded) {
-      if (!seed.length) return; // the history has not loaded yet
-      this.#seeded = true;
-      this.#at = at;
-      this.state.samples = [...seed];
-      return;
-    }
-    if (at === this.#at) return; // something else changed (a label, a tone), not the number
+    const { at, width, values } = this.props;
+    if (at === this.#at) return; // something else changed (a label, a tone), not the samples
+    const first = this.#at === null;
     this.#at = at;
-    const samples = [...this.state.samples.slice(-SAMPLES), value];
-    this.state.samples = samples;
-
     // glide for as long as the samples arrive apart, so the motion neither stops nor waits
     const now = performance.now();
     const duration = Math.min(Math.max(now - this.#stamp, 50), 1000);
     this.#stamp = now;
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (first || values.length < 3 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     this.#slide?.cancel();
     this.#slide = this.refs.plot.animate(
-      [{ transform: `translateX(${width / Math.max(samples.length - 2, 1)}px)` }, { transform: 'translateX(0)' }],
+      [{ transform: `translateX(${width / (values.length - 2)}px)` }, { transform: 'translateX(0)' }],
       { duration, easing: 'linear' },
     );
   }

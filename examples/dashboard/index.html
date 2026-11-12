@@ -1,26 +1,27 @@
 <!-- The page is the layout's tag with its content inside; the layout is src/layouts/app-layout.html. -->
 <app-layout data-sn-prop="{ title: 'Overview' }">
 
-  <!-- The data. Without `type`, the resource is typed from server/openapi.yml: GET /api/services is listServices. -->
+  <!-- The data. Without `type`, a resource is typed from server/openapi.yml: GET /api/services is listServices. -->
   <sn-resource name="services" src="/api/services" key="id"></sn-resource>
+  <!-- The last 30 seconds of samples, once. `slot` is the key: a new sample takes the slot of the oldest, so this
+       stays the same size however long the page is open. Ordered by time, so a service's samples are in order. -->
+  <sn-resource name="samples" src="/api/samples" key="slot" order="at"></sn-resource>
 
-  <!-- Live updates, pushed by the server. -->
+  <!-- Live updates, pushed by the server: one new sample at a time, and a service when it is paused. -->
   <sn-sync src="/api/events">
-    <!-- A whole service, when it is paused or resumed... -->
+    <sn-event name="sample" resource="samples" op="upsert"></sn-event>
     <sn-event name="service_updated" resource="services" op="upsert" item="service" type="ServiceEvent"></sn-event>
-    <!-- ...and four times a second only the numbers. The graphs add each one to the history they were given. -->
-    <sn-event name="metric" resource="services" op="patch" set="{ status, rps, latencyMs, errorRate, at }" type="MetricEvent"></sn-event>
   </sn-sync>
 
-  <!-- The layout's `status` slot, in the header. `live` is the state of the stream that feeds `services`:
+  <!-- The layout's `status` slot, in the header. `live` is the state of the stream that feeds `samples`:
        connecting, open or retrying. -->
-  <span slot="status" data-badge data-sn-text="{ connecting: 'Connecting…', open: 'Live', retrying: 'Reconnecting…' }[$meta.services.live]"
-        data-sn-attr="{ 'data-tone': $meta.services.live === 'open' ? 'success' : 'warning' }"></span>
+  <span slot="status" data-badge data-sn-text="{ connecting: 'Connecting…', open: 'Live', retrying: 'Reconnecting…' }[$meta.samples.live]"
+        data-sn-attr="{ 'data-tone': $meta.samples.live === 'open' ? 'success' : 'warning' }"></span>
 
-  <p data-sn-show="$meta.services.loading && !services.length" aria-busy="true">Loading…</p>
+  <p data-sn-show="($meta.services.loading || $meta.samples.loading) && !samples.length" aria-busy="true">Loading…</p>
 
-  <!-- The totals and the big chart are computed from the services by helpers (src/sinter.helpers.ts). -->
-  <section data-sn-show="services.length" data-layout="stack" data-gap="lg" data-sn-let="{ all: totals(services) }">
+  <!-- The totals and the big chart are computed from the samples by helpers (src/sinter.helpers.ts). -->
+  <section data-sn-show="services.length && samples.length" data-layout="stack" data-gap="lg" data-sn-let="{ all: totals(services, samples) }">
     <div data-layout="grid" data-gap="md" style="--tm-min: 10rem">
       <stat-tile data-sn-prop="{ label: 'Requests / s', value: all.rps }"></stat-tile>
       <stat-tile data-sn-prop="{ label: 'Median latency', value: all.latencyMs + ' ms' }"></stat-tile>
@@ -29,12 +30,12 @@
 
     <article data-layout="stack" data-gap="sm">
       <small data-muted>Requests per second, all services, the last 30 seconds</small>
-      <spark-line data-sn-prop="{ value: all.rps, at: all.at, seed: combined(services), width: 600, height: 120, label: 'Requests per second over the last 30 seconds' }"></spark-line>
+      <spark-line data-sn-prop="{ values: combined(samples), at: all.tick, width: 600, height: 120, label: 'Requests per second over the last 30 seconds' }"></spark-line>
     </article>
 
     <div data-layout="grid" data-gap="md" style="--tm-min: 16rem">
       <template data-sn-for="s in services">
-        <service-card data-sn-prop="{ service: s }">
+        <service-card data-sn-prop="{ service: s, samples: of(samples, s.id) }">
           <!-- Optimistic: shows paused at once, and is taken back if the PATCH fails. The 200 response replaces the service. -->
           <button slot="actions" data-variant="ghost" data-size="sm"
                   data-sn-patch="/api/services/{s.id}" data-sn-body="{ paused: !s.paused }"

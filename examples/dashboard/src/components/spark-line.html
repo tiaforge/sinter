@@ -1,15 +1,14 @@
-<!-- A line graph, drawn as SVG by the helpers line() and area(). It is given the history once (`seed`, from
-     the first load) and then only the newest number and when it was measured: each time `at` changes, its
-     script (spark-line.ts) appends `value` to the samples in its own state and slides the line a step left.
-     The samples run one past the left edge (`wide`: the line's width, and the viewBox starts where the
-     visible part does), so the sliding line never shows a gap there. -->
-<template data-sn-component="{ value: number; at: number; seed: number[]; width: number; height: number; label: string; tone?: 'warning' | 'danger' }">
-  <svg class="graph" role="img" data-sn-state="{ samples: [] }"
-       data-sn-let="{ wide: width * (samples.length - 1) / Math.max(samples.length - 2, 1) }"
+<!-- A line graph of `values`, drawn as SVG by the helpers line() and area(). `at` is the number of the newest
+     sample: when it changes, the script (spark-line.ts) slides the line a step left. The samples run one past
+     the left edge (`wide`: the line's width, and the viewBox starts where the visible part does), so the
+     sliding line never shows a gap there. -->
+<template data-sn-component="{ values: number[]; at: number; width: number; height: number; label: string; tone?: 'warning' | 'danger' }">
+  <svg class="graph" role="img"
+       data-sn-let="{ wide: width * (values.length - 1) / Math.max(values.length - 2, 1) }"
        data-sn-attr="{ viewBox: (wide - width) + ' 0 ' + width + ' ' + height, 'aria-label': label, 'data-tone': tone }">
     <g data-sn-ref="plot">
-      <polygon class="fill" data-sn-attr="{ points: area(samples, wide, height) }"></polygon>
-      <polyline class="line" data-sn-attr="{ points: line(samples, wide, height) }"></polyline>
+      <polygon class="fill" data-sn-attr="{ points: area(values, wide, height) }"></polygon>
+      <polyline class="line" data-sn-attr="{ points: line(values, wide, height) }"></polyline>
     </g>
   </svg>
 </template>
