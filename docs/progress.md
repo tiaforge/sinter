@@ -312,8 +312,9 @@ built, what deviates, and what is left.
   `onError`) instead of being encoded as `%2E`/`%2E%2E`: WHATWG URL parsing,
   and so `fetch`, turns `%2E%2E` back into a `..` segment. Query values are
   still encoded as specified.
-- `SN503` fires for any non-literal `id`/`name` value (row-local reads have no
-  dependency paths, so "bound from data" means "not a literal").
+- `SN503` fires for any `id`/`name` value that is not a literal and does not start with a
+  non-empty literal string (`'contact-' + c.id`, `` `contact-${c.id}` ``): row-local reads have
+  no dependency paths, so "bound from data" means "not a literal".
 - Type checking turns off `strictNullChecks` and `noImplicitAny`: bindings that read `null` render
   nothing at runtime, one attribute cannot narrow another (`data-sn-if="x"` around `x.y`), and
   `{ error: null }` state stays unchecked unless it has a JSDoc cast. With them on, the untyped

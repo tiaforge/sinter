@@ -410,7 +410,7 @@ Warning, for example:
 
 An `id` or `name` set from server data can create a global that overrides one another script relies on.
 
-**Fix:** Prefix the value (`'contact-' + c.id`) or use a `data-*` attribute instead.
+**Fix:** Start the value with a literal string (`'contact-' + c.id` or `` `contact-${c.id}` ``) or use a `data-*` attribute instead.
 
 ## SN504 untyped-resource
 

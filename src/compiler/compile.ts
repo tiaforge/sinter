@@ -2905,7 +2905,7 @@ class Compiler {
         this.report(el, 'data-sn-attr', 'SN102', `\`${key}\` is the control state \`data-sn-model\` writes; set it through the model's state, not \`data-sn-attr\``, e.offset);
         continue;
       }
-      if ((key === 'id' || key === 'name') && !e.literal) {
+      if ((key === 'id' || key === 'name') && !e.literal && !literalPrefix(entryValue(r, e))) {
         this.report(el, 'data-sn-attr', 'SN503', `\`${key}\` bound from data can shadow globals other scripts read (DOM clobbering)`, e.offset);
       }
       if (!r.ok) continue;
@@ -4434,6 +4434,16 @@ const entryValue = (r: ExprResult, e: { offset: number }): Node | undefined => {
   const props = (r.ast as import('acorn').ObjectExpression | null)?.properties;
   const p = props?.find((x) => x.start === e.offset);
   return p && p.type === 'Property' ? (p.value as Node) : undefined;
+};
+/**
+ * Whether a value starts with a literal, non-empty string (`'contact-' + c.id`, `` `contact-${c.id}` ``):
+ * data then cannot name a global another script reads, so `id`/`name` from it is not reported.
+ */
+const literalPrefix = (n: Node | undefined): boolean => {
+  while (n?.type === 'BinaryExpression' && (n as import('acorn').BinaryExpression).operator === '+') n = (n as import('acorn').BinaryExpression).left as Node;
+  if (n?.type === 'Literal') { const v = (n as import('acorn').Literal).value; return typeof v === 'string' && v !== ''; }
+  if (n?.type === 'TemplateLiteral') return ((n as import('acorn').TemplateLiteral).quasis[0].value.cooked ?? '') !== '';
+  return false;
 };
 /**
  * The local image files an expression can only evaluate to (a literal path, or a choice between

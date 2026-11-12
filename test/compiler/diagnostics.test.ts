@@ -110,6 +110,16 @@ describe('every diagnostic code has a failing fixture', () => {
   }
 });
 
+test('SN503 passes a value with a literal prefix', () => {
+  const sn503 = (v: string) => diags(`${R}${use}<template data-sn-for="c in contacts"><a data-sn-attr="{${v}}"></a></template>`).filter((d) => d.code === 'SN503').length;
+  expect(sn503("id: 'contact-' + c.id")).toBe(0);
+  expect(sn503("name: 'c-' + c.id + '-x'")).toBe(0);
+  expect(sn503('id: `contact-${c.id}`')).toBe(0);
+  expect(sn503("id: c.id + '-x'")).toBe(1);
+  expect(sn503("id: '' + c.id")).toBe(1);
+  expect(sn503('id: `${c.id}-x`')).toBe(1);
+});
+
 describe('sandbox gaps closed', () => {
   const codes = (html: string) => diags(html).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
   test('a literal origin followed by a value needs its `/`', () => {

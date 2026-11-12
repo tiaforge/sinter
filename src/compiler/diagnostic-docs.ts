@@ -215,7 +215,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   SN503: {
     example: '`id` bound from data can shadow globals other scripts read (DOM clobbering)',
     means: 'An `id` or `name` set from server data can create a global that overrides one another script relies on.',
-    fix: 'Prefix the value (`\'contact-\' + c.id`) or use a `data-*` attribute instead.',
+    fix: 'Start the value with a literal string (`\'contact-\' + c.id` or `` `contact-${c.id}` ``) or use a `data-*` attribute instead.',
   },
   SN504: {
     example: 'resource `contacts` has no type: expressions using it are not checked',

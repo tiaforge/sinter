@@ -3,6 +3,12 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Fixed
+
+- `SN503` no longer warns when an `id` or `name` value starts with a literal string (`'contact-' + c.id`, `` `contact-${c.id}` ``), as its docs' fix says.
+
 ## 0.16.0 (2026-11-12)
 
 ### Added
