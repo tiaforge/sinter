@@ -63,7 +63,7 @@ export default function api() {
   };
 
   let timer;
-  const tick_ = () => {
+  const step = () => {
     tick++;
     for (const s of services.values()) {
       if (s.paused) continue;
@@ -114,7 +114,7 @@ export default function api() {
 
   const start = (server) => {
     server.middlewares.use(handle);
-    timer ??= setInterval(tick_, TICK_MS);
+    timer ??= setInterval(step, TICK_MS);
     server.httpServer?.on('close', () => clearInterval(timer));
   };
   return { name: 'dashboard-api', configureServer: start, configurePreviewServer: start };

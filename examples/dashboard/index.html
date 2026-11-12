@@ -18,6 +18,7 @@
   <span slot="status" data-badge data-sn-text="{ connecting: 'Connecting…', open: 'Live', retrying: 'Reconnecting…' }[$meta.samples.live]"
         data-sn-attr="{ 'data-tone': $meta.samples.live === 'open' ? 'success' : 'warning' }"></span>
 
+  <!-- A busy line: temper gives it a spinner and shows it only after --tm-busy-delay (200ms), so a fast load shows nothing. -->
   <p data-sn-show="($meta.services.loading || $meta.samples.loading) && !samples.length" aria-busy="true">Loading…</p>
 
   <!-- The totals and the big chart are computed from the samples by helpers (src/sinter.helpers.ts). -->

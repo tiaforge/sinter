@@ -12,5 +12,5 @@ svg.graph[data-tone='danger'] .line { stroke: var(--tm-danger); }
 svg.graph[data-tone='warning'] .fill { fill: var(--tm-warning); }
 svg.graph[data-tone='danger'] .fill { fill: var(--tm-danger); }
 article[data-paused] { opacity: 0.55; }
-.big { white-space: nowrap; font-size: 2rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.big { white-space: nowrap; font-size: var(--tm-text-xl); font-weight: 600; font-variant-numeric: tabular-nums; }
 .num { font-variant-numeric: tabular-nums; }

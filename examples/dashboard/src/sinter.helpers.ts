@@ -1,9 +1,11 @@
 // Functions the page's expressions call. Pure: the same arguments, the same result.
 
-interface Sample { service: string; tick: number; status: 'ok' | 'degraded' | 'down'; rps: number; latencyMs: number; errorRate: number }
+type Status = 'ok' | 'degraded' | 'down';
+/** The fields of a sample (server/openapi.yml) that the helpers read. */
+interface Sample { service: string; tick: number; status: Status; rps: number; latencyMs: number; errorRate: number }
 
 /** One service's samples, oldest first (the resource is ordered by `at`). */
-export function of<T extends { service: string }>(samples: readonly T[], id: string): T[] {
+export function of<T extends Sample>(samples: readonly T[], id: string): T[] {
   return samples.filter((s) => s.service === id);
 }
 
@@ -11,10 +13,15 @@ export function of<T extends { service: string }>(samples: readonly T[], id: str
 export function totals(services: readonly { id: string; paused: boolean }[], samples: readonly Sample[]) {
   const newest = new Map<string, Sample>();
   for (const s of samples) newest.set(s.service, s);
-  const live = services.filter((s) => !s.paused && newest.has(s.id)).map((s) => newest.get(s.id)!);
+  const live = services.flatMap((s) => (s.paused ? [] : (newest.get(s.id) ?? [])));
   const rps = live.reduce((n, s) => n + s.rps, 0);
   const weighted = (f: (s: Sample) => number) => (rps ? live.reduce((n, s) => n + f(s) * s.rps, 0) / rps : 0);
-  return { rps, tick: Math.max(0, ...live.map((s) => s.tick)), latencyMs: Math.round(weighted((s) => s.latencyMs)), errorRate: weighted((s) => s.errorRate) };
+  return {
+    rps,
+    tick: Math.max(0, ...live.map((s) => s.tick)),
+    latencyMs: Math.round(weighted((s) => s.latencyMs)),
+    errorRate: weighted((s) => s.errorRate),
+  };
 }
 
 /** Requests per second of all services together, round by round, for the big chart. */
@@ -45,11 +52,11 @@ export function percent(share: number): string {
 }
 
 /** temper's tone for a service's badge. */
-export function tone(paused: boolean, status: 'ok' | 'degraded' | 'down'): 'neutral' | 'success' | 'warning' | 'danger' {
+export function tone(paused: boolean, status: Status): 'neutral' | 'success' | 'warning' | 'danger' {
   return paused ? 'neutral' : ({ ok: 'success', degraded: 'warning', down: 'danger' } as const)[status];
 }
 
 /** The graph's color for a service that is slow or failing; none (the accent) when it is fine. */
-export function graphTone(paused: boolean, status: 'ok' | 'degraded' | 'down'): 'warning' | 'danger' | undefined {
+export function graphTone(paused: boolean, status: Status): 'warning' | 'danger' | undefined {
   return paused || status === 'ok' ? undefined : status === 'degraded' ? 'warning' : 'danger';
 }

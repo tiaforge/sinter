@@ -30,6 +30,9 @@ Four services with made-up metrics, live. One HTML page, no framework, no store:
   resource: `connecting`, `open` or `retrying`. Stop the server and the badge says "Reconnecting…"; start
   it again and it is "Live". The layout's `status` slot holds the badge.
 - **Pause** is an optimistic `PATCH`: the card dims at once, and is restored if the server fails.
+- **Busy states wait.** While the `PATCH` is out, sinter marks the button `aria-busy`, and while the page
+  loads it shows a `Loading…` line marked the same. temper shows the spinner only after
+  `--tm-busy-delay` (200ms), so a fast answer shows none. The demo server takes 400ms on purpose.
 
 ```sh
 npm install
