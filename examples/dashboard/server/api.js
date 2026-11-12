@@ -1,15 +1,18 @@
 // The demo backend, running inside Vite (`npm run dev` and `npm run preview`). It makes up its
-// numbers: every second each running service takes a random step and the new state is pushed to
-// every open page as a server-sent event. Replace it with your own API.
+// numbers: four times a second each running service takes a random step, and only the new numbers
+// (not the history, which the page already has) are pushed to every open page as a server-sent event. Replace it with your own API.
 //
 //   GET    /api/openapi.yml    the API's description (server/openapi.yml), which the frontend is checked against
 //   GET    /api/services       all services
 //   PATCH  /api/services/:id   { paused } → the service
-//   GET    /api/events         service_updated { service }, once a second per running service
+//   GET    /api/events         metric { id, status, rps, latencyMs, errorRate, at }, 4 times a second per running service;
+//                              service_updated { service }, when a service is paused or resumed
 
 import { readFileSync } from 'node:fs';
 
-const SAMPLES = 30;
+/** a sample every 250 ms; the history is the last 30 seconds */
+const TICK_MS = 250;
+const SAMPLES = 120;
 
 /** @returns {import('vite').Plugin} */
 export default function api() {
@@ -18,18 +21,23 @@ export default function api() {
   const streams = new Set();
 
   const make = (id, name, base) => {
-    const service = { id, name, status: 'ok', paused: false, rps: base, latencyMs: 40, errorRate: 0.002, history: [] };
+    const service = { id, name, status: 'ok', paused: false, rps: base, latencyMs: 40, errorRate: 0.002, at: Date.now(), history: [] };
     for (let i = 0; i < SAMPLES; i++) step(service, base);
     return service;
   };
+  /** the ticks a slow, failing spell has left, per service */
+  const spells = new Map();
   /** A random walk around `base`, with now and then a slow, failing spell. */
   const step = (s, base) => {
-    const rps = Math.max(1, s.rps + (base - s.rps) * 0.1 + (Math.random() - 0.5) * base * 0.2);
-    const trouble = Math.random() < 0.04 ? 1 : 0;
+    const rps = Math.max(1, s.rps + (base - s.rps) * 0.05 + (Math.random() - 0.5) * base * 0.08);
+    if (!spells.get(s.id) && Math.random() < 0.004) spells.set(s.id, 16);
+    const trouble = spells.get(s.id) ? 1 : 0;
+    if (trouble) spells.set(s.id, spells.get(s.id) - 1);
     s.rps = Math.round(rps);
-    s.latencyMs = Math.round(Math.max(10, s.latencyMs * 0.7 + (30 + Math.random() * 30 + trouble * 400) * 0.3));
-    s.errorRate = Math.round(Math.max(0, s.errorRate * 0.6 + (0.002 + trouble * 0.08) * 0.4) * 1000) / 1000;
+    s.latencyMs = Math.round(Math.max(10, s.latencyMs * 0.85 + (30 + Math.random() * 30 + trouble * 400) * 0.15));
+    s.errorRate = Math.round(Math.max(0, s.errorRate * 0.8 + (0.002 + trouble * 0.08) * 0.2) * 1000) / 1000;
     s.status = s.errorRate > 0.05 ? 'down' : s.latencyMs > 150 ? 'degraded' : 'ok';
+    s.at = Date.now();
     s.history = [...s.history.slice(-(SAMPLES - 1)), s.rps];
   };
 
@@ -45,7 +53,10 @@ export default function api() {
     for (const s of services.values()) {
       if (s.paused) continue;
       step(s, bases.get(s.id));
-      for (const res of streams) res.write(`event: service_updated\ndata: ${JSON.stringify({ service: s })}\n\n`);
+      // only the numbers: the page appends the rate to the history it already has
+      const { id, status, rps, latencyMs, errorRate, at } = s;
+      const event = `event: metric\ndata: ${JSON.stringify({ id, status, rps, latencyMs, errorRate, at })}\n\n`;
+      for (const res of streams) res.write(event);
     }
   };
 
@@ -90,7 +101,7 @@ export default function api() {
 
   return {
     name: 'dashboard-api',
-    configureServer(server) { server.middlewares.use(handle); timer ??= setInterval(tick, 1000); server.httpServer?.on('close', () => clearInterval(timer)); },
-    configurePreviewServer(server) { server.middlewares.use(handle); timer ??= setInterval(tick, 1000); server.httpServer?.on('close', () => clearInterval(timer)); },
+    configureServer(server) { server.middlewares.use(handle); timer ??= setInterval(tick, TICK_MS); server.httpServer?.on('close', () => clearInterval(timer)); },
+    configurePreviewServer(server) { server.middlewares.use(handle); timer ??= setInterval(tick, TICK_MS); server.httpServer?.on('close', () => clearInterval(timer)); },
   };
 }

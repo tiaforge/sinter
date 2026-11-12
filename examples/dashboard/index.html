@@ -4,9 +4,12 @@
   <!-- The data. Without `type`, the resource is typed from server/openapi.yml: GET /api/services is listServices. -->
   <sn-resource name="services" src="/api/services" key="id"></sn-resource>
 
-  <!-- Live updates: the server pushes a service's new numbers once a second; sinter replaces it by id. -->
+  <!-- Live updates, pushed by the server. -->
   <sn-sync src="/api/events">
+    <!-- A whole service, when it is paused or resumed... -->
     <sn-event name="service_updated" resource="services" op="upsert" item="service" type="ServiceEvent"></sn-event>
+    <!-- ...and four times a second only the numbers. The graphs add each one to the history they were given. -->
+    <sn-event name="metric" resource="services" op="patch" set="{ status, rps, latencyMs, errorRate, at }" type="MetricEvent"></sn-event>
   </sn-sync>
 
   <!-- The layout's `status` slot, in the header. `live` is the state of the stream that feeds `services`:
@@ -26,7 +29,7 @@
 
     <article data-layout="stack" data-gap="sm">
       <small data-muted>Requests per second, all services, the last 30 seconds</small>
-      <spark-line data-sn-prop="{ values: combined(services), width: 600, height: 120, label: 'Requests per second over the last 30 seconds' }"></spark-line>
+      <spark-line data-sn-prop="{ value: all.rps, at: all.at, seed: combined(services), width: 600, height: 120, label: 'Requests per second over the last 30 seconds' }"></spark-line>
     </article>
 
     <div data-layout="grid" data-gap="md" style="--tm-min: 16rem">

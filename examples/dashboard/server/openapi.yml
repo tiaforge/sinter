@@ -50,7 +50,7 @@ components:
   schemas:
     Service:
       type: object
-      required: [id, name, status, paused, rps, latencyMs, errorRate, history]
+      required: [id, name, status, paused, rps, latencyMs, errorRate, at, history]
       properties:
         id:
           type: string
@@ -70,9 +70,14 @@ components:
         errorRate:
           type: number
           description: Share of failed requests, 0 to 1
+        at:
+          type: integer
+          description: When these numbers were measured, in ms since the epoch
         history:
           type: array
-          description: Requests per second, oldest first, one sample a second
+          description: >
+            Requests per second, oldest first, a sample every 250 ms (the last 30 seconds): the graph's first
+            frame. Later samples are not sent again here; they arrive as `metric` events (GET /events).
           items:
             type: number
     ServicePatch:

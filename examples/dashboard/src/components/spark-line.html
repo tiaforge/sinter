@@ -1,9 +1,12 @@
-<!-- A line graph of `values`, drawn as SVG by the helpers line() and area(): the samples in, the
-     points out. Used at two sizes: the big chart and the cards' sparklines. -->
-<template data-sn-component="{ values: number[]; width: number; height: number; label: string; tone?: 'warning' | 'danger' }">
-  <svg class="graph" role="img"
+<!-- A line graph, drawn as SVG by the helpers line() and area(). It is given the history once (`seed`, from
+     the first load) and then only the newest number and when it was measured: each time `at` changes, its
+     script (spark-line.ts) appends `value` to the samples in its own state and slides the line a step left. -->
+<template data-sn-component="{ value: number; at: number; seed: number[]; width: number; height: number; label: string; tone?: 'warning' | 'danger' }">
+  <svg class="graph" role="img" data-sn-state="{ samples: [] }"
        data-sn-attr="{ viewBox: '0 0 ' + width + ' ' + height, 'aria-label': label, 'data-tone': tone }">
-    <polygon class="fill" data-sn-attr="{ points: area(values, width, height) }"></polygon>
-    <polyline class="line" data-sn-attr="{ points: line(values, width, height) }"></polyline>
+    <g data-sn-ref="plot">
+      <polygon class="fill" data-sn-attr="{ points: area(samples, width, height) }"></polygon>
+      <polyline class="line" data-sn-attr="{ points: line(samples, width, height) }"></polyline>
+    </g>
   </svg>
 </template>

@@ -1,16 +1,16 @@
 // Functions the page's expressions call. Pure: the same arguments, the same result.
 
-interface Running { paused: boolean; rps: number; latencyMs: number; errorRate: number; history: readonly number[] }
+interface Running { paused: boolean; at: number; rps: number; latencyMs: number; errorRate: number; history: readonly number[] }
 
 /** The running services' numbers added up (latency and error rate weighted by traffic). */
 export function totals(services: readonly Running[]) {
   const live = services.filter((s) => !s.paused);
   const rps = live.reduce((n, s) => n + s.rps, 0);
   const weighted = (f: (s: Running) => number) => (rps ? live.reduce((n, s) => n + f(s) * s.rps, 0) / rps : 0);
-  return { rps, latencyMs: Math.round(weighted((s) => s.latencyMs)), errorRate: weighted((s) => s.errorRate) };
+  return { rps, at: Math.max(0, ...live.map((s) => s.at)), latencyMs: Math.round(weighted((s) => s.latencyMs)), errorRate: weighted((s) => s.errorRate) };
 }
 
-/** Per second, all services together, for the big chart: the samples added up position by position. */
+/** All services together, for the big chart's first frame: the samples added up position by position. */
 export function combined(services: readonly Running[]): number[] {
   const length = Math.max(0, ...services.map((s) => s.history.length));
   return Array.from({ length }, (_, i) => services.reduce((n, s) => n + (s.history[i - length + s.history.length] ?? 0), 0));

@@ -8,15 +8,20 @@ Four services with made-up metrics, live. One HTML page, no framework, no store:
   serves it at `/api/openapi.yml` and implements it. The frontend reads the same file at build
   time (`sinter({ openapi })`), so `<sn-resource src="/api/services">` needs no `type`: it is
   `listServices`.
-- **The numbers are pushed.** `server/api.js` makes them up (a random step per service, now and then a
-  slow, failing spell). Every second the server sends a `service_updated` event per running
-  service (`/api/events`); `<sn-sync>` in `index.html` upserts it by `id`.
-- **The graphs are bindings.** The big chart and each sparkline are one component, `<spark-line>`:
-  SVG whose `points` a helper (`line()`, `area()` in `src/sinter.helpers.ts`) computes from the
-  samples. No chart library, no component script.
+- **The numbers are pushed, and only the numbers.** `server/api.js` makes them up (a random step per
+  service, now and then a slow, failing spell). Four times a second it sends one small `metric` event per
+  service (`/api/events`: the rate, latency, error rate and when they were measured, about 200 bytes);
+  `<sn-sync>` in `index.html` patches them into the service by `id`. The history is sent once, with the
+  first `GET /api/services`. `service_updated` (a whole service) is only for a pause or resume.
+- **The graphs keep their own window.** `<spark-line>` is given the history once (`seed`) and then only
+  the newest number: each time `at` changes, its script (`src/components/spark-line.ts`) appends it to
+  the samples in the component's state, and sinter redraws the SVG `points` from them (the helpers
+  `line()` and `area()` in `src/sinter.helpers.ts`). The script also slides the line one step left per
+  sample, so it moves instead of jumping. No chart library.
 - **Layout and components.** `index.html` is one `<app-layout>` tag (`src/layouts/app-layout.html`:
   the head and the header). `<stat-tile>`, `<spark-line>` and `<service-card>` are plain HTML files in
-  `src/components/`, expanded at build time, so they are in the first frame and never hydrate. The Pause
+  `src/components/`, expanded at build time, so they are in the first frame and never hydrate (only
+  `<spark-line>` has a script, for the sliding). The Pause
   button is slot content: the page's own markup, in the page's scope, since a component cannot change
   its props.
 - **The badge tells the truth.** `$meta.services.live` is the state of the stream that feeds the

@@ -7,3 +7,8 @@ type LayoutName = "app-layout";
 interface LayoutProps {
   "app-layout": { title?: string };
 }
+declare module '*/spark-line.html' {
+  const Base: typeof import('@tiaforge-ui/sinter/components').Component;
+  /** the base of `src/components/spark-line.ts`: props, events, refs and state as `spark-line.html` declares them */
+  export class SparkLineComponent extends Base<{ value: number; at: number; seed: number[]; width: number; height: number; label: string; tone?: 'warning' | 'danger' }, {}, { plot: HTMLElementTagNameMap["g"] }, { samples: any[] }> {}
+}

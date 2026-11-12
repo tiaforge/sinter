@@ -4,7 +4,7 @@
 :root { --tm-hue: 200; --tm-chroma: 0.14; }
 
 /* the graphs: temper's color tokens, so they follow the hue and dark mode */
-svg.graph { display: block; inline-size: 100%; block-size: auto; overflow: visible; }
+svg.graph { display: block; inline-size: 100%; block-size: auto; overflow: hidden; }
 svg.graph .line { fill: none; stroke: var(--tm-accent); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 svg.graph .fill { fill: var(--tm-accent); opacity: 0.15; }
 svg.graph[data-tone='warning'] .line { stroke: var(--tm-warning); }
