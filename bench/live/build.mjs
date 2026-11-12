@@ -49,11 +49,11 @@ for (const [v, html] of Object.entries(pages).filter(([v]) => want(v))) {
   writeFileSync(`dist/${v}/index.html`, html);
 }
 
-// Avenx builds with its own CLI (apps/avenx, its own node_modules: npm install there first) into one
-// classic script; the page around it is written here, like the hypermedia pages
-if (want('avenx')) {
-  execFileSync('npx', ['avenx', 'build'], { cwd: 'apps/avenx', stdio: ['ignore', 'ignore', 'inherit'] });
-  mkdirSync('dist/avenx', { recursive: true });
-  copyFileSync('apps/avenx/dist/bundle.js', 'dist/avenx/bundle.js');
-  writeFileSync('dist/avenx/index.html', page('Avenx', '', '<main id="app"></main>\n<script src="/avenx/bundle.js"></script>'));
+// Avenx builds with its own CLI (apps/avenx, apps/grid-avenx, each with its own node_modules: npm
+// install there first) into one classic script; the page around it is written here
+for (const [v, title] of [['avenx', 'Avenx'], ['grid-avenx', 'Avenx grid']].filter(([v]) => want(v))) {
+  execFileSync('npx', ['avenx', 'build'], { cwd: `apps/${v}`, stdio: ['ignore', 'ignore', 'inherit'] });
+  mkdirSync(`dist/${v}`, { recursive: true });
+  copyFileSync(`apps/${v}/dist/bundle.js`, `dist/${v}/bundle.js`);
+  writeFileSync(`dist/${v}/index.html`, page(title, '', `<main id="app"></main>\n<script src="/${v}/bundle.js"></script>`));
 }

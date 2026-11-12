@@ -61,7 +61,7 @@ npm run build                              # in the repo root (sinter's dist/)
 cd bench/live && npm install
 mkdir -p vendor && curl -sfLo vendor/datastar-1.0.4.js https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.4/bundles/datastar.js
 #   sha256 727844adfc825ee651fb93c544a2a739986f9a21820a94524b35f0cac470cf91 (also on raw.githubusercontent.com/starfederation/datastar/v1.0.4/bundles/datastar.js)
-(cd apps/avenx && npm install)             # Avenx builds with its own CLI
+for a in avenx grid-avenx; do (cd apps/$a && npm install); done   # Avenx builds with its own CLI
 node build.mjs                             # dist/<variant>/
 CHROME=/path/to/chrome node run.mjs        # tables on stdout, raw numbers in results/
 # CPU=4 (throttling) RATES=25,50,100 STEP=3000 WARM=1000 ONLY=sinter,datastar CHROME_ARGS=--no-sandbox
@@ -223,7 +223,8 @@ changes K rows ([`shared/grid.js`](shared/grid.js); stream `fmt=grid`). Two mode
 tick). Variants: `grid-sinter` (one state value, `merge()` per tick, sorted in the `data-sn-for`
 expression), `grid-solid` (store + `batch`, sorted `createMemo`), `grid-svelte` (deep `$state`,
 `$derived`), `grid-vue` (Vue 3.6.0-rc.14 Vapor mode, `reactive` + `computed`), `grid-ivi` (ivi 5.1,
-immutable rows, keyed `List` of `strictEq` row components), `grid-vanilla` (the floor: changes
+immutable rows, keyed `List` of `strictEq` row components), `grid-avenx` (Avenx 1.0.0-rc.1, a deep Proxy array changed in place, sorted in the `<@for>`
+expression through an action), `grid-vanilla` (the floor: changes
 applied once per frame, only changed cells written, sorted moves by longest increasing subsequence).
 Before measuring, each variant's rows (order, text, classes) were compared with the model after
 ~100 ticks, in both modes: all equal.
