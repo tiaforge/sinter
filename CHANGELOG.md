@@ -5,6 +5,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- `examples/dashboard`: a live service dashboard (OpenAPI-typed resource, server-sent updates, SVG graphs from bindings) that opens on StackBlitz.
+
 ### Breaking
 
 - The starter is `create-sinter`: `npm create sinter my-app` (was `@tiaforge-ui/create`, `npm create @tiaforge-ui`).

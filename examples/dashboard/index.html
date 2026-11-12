@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Service dashboard</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body data-sn-state="{ sel: '' }">
+  <!-- The data. Without `type`, the resource is typed from server/openapi.yml: GET /api/services is listServices. -->
+  <sn-resource name="services" src="/api/services" key="id"></sn-resource>
+
+  <!-- Live updates: the server pushes a service's new numbers once a second; sinter replaces it by id. -->
+  <sn-sync src="/api/events">
+    <sn-event name="service_updated" resource="services" op="upsert" item="service" type="ServiceEvent"></sn-event>
+  </sn-sync>
+
+  <main data-layout="center" data-gap="lg" data-pad="lg" style="--tm-measure: 60rem">
+    <header data-layout="row" data-gap="sm">
+      <h1 data-grow>Services</h1>
+      <span data-badge data-tone="success">Live</span>
+    </header>
+
+    <p data-sn-show="$meta.services.loading && !services.length" aria-busy="true">Loading…</p>
+
+    <!-- The totals and the big chart are computed from the services by helpers (src/sinter.helpers.ts). -->
+    <section data-sn-show="services.length" data-layout="stack" data-gap="lg" data-sn-let="{ all: totals(services) }">
+      <div data-layout="grid" data-gap="md" style="--tm-min: 10rem">
+        <article><small data-muted>Requests / s</small><div class="big" data-sn-text="all.rps"></div></article>
+        <article><small data-muted>Median latency</small><div class="big" data-sn-text="all.latencyMs + ' ms'"></div></article>
+        <article><small data-muted>Error rate</small><div class="big" data-sn-text="percent(all.errorRate)"></div></article>
+      </div>
+
+      <article data-layout="stack" data-gap="sm" data-sn-let="{ series: combined(services) }">
+        <small data-muted>Requests per second, all services, the last 30 seconds</small>
+        <svg class="graph" viewBox="0 0 600 120" role="img" aria-label="Requests per second over the last 30 seconds">
+          <polygon class="fill" data-sn-attr="{ points: area(series, 600, 120) }"></polygon>
+          <polyline class="line" data-sn-attr="{ points: line(series, 600, 120) }"></polyline>
+        </svg>
+      </article>
+
+      <div data-layout="grid" data-gap="md" style="--tm-min: 16rem">
+        <template data-sn-for="s in services">
+          <article data-layout="stack" data-gap="sm"
+                   data-sn-attr="{ 'data-status': s.status, 'data-paused': s.paused }">
+            <header data-layout="row" data-gap="sm">
+              <h2 data-grow data-sn-text="s.name"></h2>
+              <span data-badge data-sn-text="s.paused ? 'paused' : s.status"
+                    data-sn-attr="{ 'data-tone': tone(s) }"></span>
+            </header>
+            <svg class="graph" viewBox="0 0 120 36" role="img" data-sn-attr="{ 'aria-label': s.name + ' requests per second' }">
+              <polygon class="fill" data-sn-attr="{ points: area(s.history, 120, 36) }"></polygon>
+              <polyline class="line" data-sn-attr="{ points: line(s.history, 120, 36) }"></polyline>
+            </svg>
+            <dl data-layout="row" data-gap="md" class="num">
+              <div><dt data-muted>req/s</dt><dd data-sn-text="s.rps"></dd></div>
+              <div><dt data-muted>latency</dt><dd data-sn-text="s.latencyMs + ' ms'"></dd></div>
+              <div><dt data-muted>errors</dt><dd data-sn-text="percent(s.errorRate)"></dd></div>
+            </dl>
+            <!-- Optimistic: shows paused at once, and is taken back if the PATCH fails. The 200 response replaces the service. -->
+            <button data-variant="ghost" data-size="sm"
+                    data-sn-patch="/api/services/{s.id}" data-sn-body="{ paused: !s.paused }"
+                    data-sn-optimistic="patch(s, { paused: !s.paused })"
+                    data-sn-text="s.paused ? 'Resume' : 'Pause'"></button>
+          </article>
+        </template>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

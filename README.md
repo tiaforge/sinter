@@ -93,6 +93,11 @@ You get a small task board with live updates across tabs, optimistic changes tha
 dialog without JavaScript, page transitions and the build-time checks, with a demo API inside
 Vite ([`packages/create`](packages/create)).
 
+Or open a live dashboard in the browser, nothing to install:
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/tiaforge/sinter/tree/main/examples/dashboard)
+Four services with made-up metrics: the backend serves an OpenAPI file the pages are checked against,
+and pushes new numbers every second, which redraw the graphs ([`examples/dashboard`](examples/dashboard)).
+
 ## Mistakes fail the build
 
 The compiler knows every name an expression can use: the state around it, loop variables,

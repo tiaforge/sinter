@@ -1,0 +1,82 @@
+openapi: 3.1.0
+info:
+  title: Service metrics API
+  description: >
+    The dashboard's backend. The frontend reads this file at build time: `sinter({ openapi })` types
+    every resource from it and checks the pages against it. The server also serves it at /api/openapi.yml.
+  version: 1.0.0
+servers:
+  - url: /api
+paths:
+  /services:
+    get:
+      operationId: listServices
+      summary: Every service with its latest numbers and its last 30 samples
+      responses:
+        '200':
+          description: The services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Service'
+  /services/{id}:
+    patch:
+      operationId: updateService
+      summary: Pause or resume a service's metrics
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServicePatch'
+      responses:
+        '200':
+          description: The service
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '404':
+          description: No such service
+components:
+  schemas:
+    Service:
+      type: object
+      required: [id, name, status, paused, rps, latencyMs, errorRate, history]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [ok, degraded, down]
+        paused:
+          type: boolean
+        rps:
+          type: number
+          description: Requests per second now
+        latencyMs:
+          type: number
+          description: Median latency now
+        errorRate:
+          type: number
+          description: Share of failed requests, 0 to 1
+        history:
+          type: array
+          description: Requests per second, oldest first, one sample a second
+          items:
+            type: number
+    ServicePatch:
+      type: object
+      properties:
+        paused:
+          type: boolean

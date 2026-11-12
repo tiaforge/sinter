@@ -1,0 +1,20 @@
+{
+  "name": "sinter-dashboard",
+  "private": true,
+  "type": "module",
+  "description": "A live service dashboard: an OpenAPI-typed JSON API and a server-sent event stream, bound to plain HTML with sinter",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "sinter check"
+  },
+  "dependencies": {
+    "@tiaforge-ui/sinter": "^0.15.0",
+    "@tiaforge-ui/temper": "^0.1.9"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}

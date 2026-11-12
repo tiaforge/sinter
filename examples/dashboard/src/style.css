@@ -1,0 +1,14 @@
+@import '@tiaforge-ui/temper/core.css';
+@import '@tiaforge-ui/temper/icons.css';
+
+:root { --tm-hue: 200; --tm-chroma: 0.14; }
+
+/* the graphs: temper's color tokens, so they follow the hue and dark mode */
+svg.graph { display: block; inline-size: 100%; block-size: auto; overflow: visible; }
+svg.graph .line { fill: none; stroke: var(--tm-accent); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+svg.graph .fill { fill: var(--tm-accent); opacity: 0.15; }
+article[data-status='degraded'] svg.graph .line { stroke: var(--tm-warning); }
+article[data-status='down'] svg.graph .line { stroke: var(--tm-danger); }
+article[data-paused] { opacity: 0.55; }
+.big { font-size: 2rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.num { font-variant-numeric: tabular-nums; }
