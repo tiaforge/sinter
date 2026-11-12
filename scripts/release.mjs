@@ -9,9 +9,10 @@
 //   sinter about to be published, so publish sinter first, and on the latest @tiaforge-ui/temper
 //   and @tiaforge-ui/temper-inspect on npm (looked up with `npm view`).
 // - sinter-axum and sinter-axum-macros (packages/sinter-axum, the middleware crates).
+// - Sinter.AspNetCore (packages/sinter-aspnetcore, the ASP.NET Core middleware, on NuGet).
 //
 // `--dry-run` prints the edits without writing; `--no-check` skips the typecheck and the tests
-// (npm and cargo) that run before the commit.
+// (npm, cargo and dotnet) that run before the commit.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -31,6 +32,8 @@ function fail(message) {
 const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' }).trim();
 const axumDir = resolve(root, 'packages/sinter-axum');
 const cargo = (a, stdio = 'inherit') => execFileSync('cargo', a, { cwd: axumDir, stdio });
+const netDir = resolve(root, 'packages/sinter-aspnetcore');
+const dotnet = (a) => execFileSync('dotnet', a, { cwd: netDir, stdio: 'inherit' });
 
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/;
 if (!version || !SEMVER.test(version) || unknown.length) fail('usage: npm run release -- <x.y.z> [--dry-run] [--no-check]');
@@ -89,6 +92,9 @@ const edits = [
     .replace(/(\nname = "sinter-axum-macros"\nversion = )"[^"]*"/, `$1"${version}"`)],
   // `sinter-axum = "0.1"` and `sinter-axum = { version = "0.1", ... }` in its README
   ['packages/sinter-axum/README.md', (s) => s.replace(/(sinter-axum = (?:\{ version = )?)"[^"]*"/g, `$1"${major}.${minor}"`)],
+  // The ASP.NET Core middleware: its version for every project, and the PackageReference in its README.
+  ['packages/sinter-aspnetcore/Directory.Build.props', (s) => s.replace(/<Version>[^<]*<\/Version>/, `<Version>${version}</Version>`)],
+  ['packages/sinter-aspnetcore/README.md', (s) => s.replace(/(Include="Sinter\.AspNetCore" Version=)"[^"]*"/g, `$1"${version}"`)],
   ['CHANGELOG.md', (s) => s.replace(/^## Unreleased$/m, `## ${version} (${date})`)],
 ];
 
@@ -121,6 +127,7 @@ if (check) {
   npm('typecheck');
   npm('test');
   cargo(['test', '--workspace']);
+  dotnet(['test', '-c', 'Release']);
 }
 
 for (const [, path, after] of changed) writeFileSync(path, after);
@@ -142,6 +149,7 @@ const dryRuns = [
   }],
   ['create-sinter', () => execFileSync('npm', ['publish', '--dry-run'], { cwd: resolve(root, 'packages/create'), stdio: 'inherit' })],
   ['sinter-axum and sinter-axum-macros', () => cargo(['publish', '--workspace', '--dry-run'])],
+  ['Sinter.AspNetCore', () => dotnet(['pack', 'src/Sinter.AspNetCore', '-c', 'Release', '-o', 'artifacts'])],
 ];
 for (const [name, run] of dryRuns) {
   console.log(`\nrelease: publish dry run of ${name}`);
@@ -157,7 +165,7 @@ for (const [name, run] of dryRuns) {
 console.log(`
 Released: commit "Release ${version}", tag ${tag}. The publish dry runs passed.
 All at ${version}: @tiaforge-ui/sinter, create-sinter (new apps get @tiaforge-ui/sinter ^${version}
-and @tiaforge-ui/temper ^${temper}), sinter-axum and sinter-axum-macros.
+and @tiaforge-ui/temper ^${temper}), sinter-axum and sinter-axum-macros, Sinter.AspNetCore.
 
 Push:
   git push origin HEAD ${tag}
@@ -165,4 +173,5 @@ Push:
 Publish, in this order (the starter needs sinter ${version} on npm, sinter-axum needs its macros on crates.io):
   npm publish
   (cd packages/create && npm publish)
-  (cd packages/sinter-axum && cargo publish --workspace)`);
+  (cd packages/sinter-axum && cargo publish --workspace)
+  dotnet nuget push packages/sinter-aspnetcore/artifacts/Sinter.AspNetCore.${version}.nupkg --source https://api.nuget.org/v3/index.json --api-key <key>`);

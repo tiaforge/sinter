@@ -206,8 +206,9 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   parsed, and, optionally, data embedded by a server layer. [First paint](docs/first-paint.md),
   [benchmark against a server-rendering framework](docs/first-paint-comparison.md)
 - **An optional server layer that does not render.** [`sinter-axum`](packages/sinter-axum) (Rust, a `tower`
-  layer) streams the head first, then writes each API response into its slot. The build checks
-  at compile time that every slot can be filled. Other languages are easy to add: the
+  layer) and [`Sinter.AspNetCore`](packages/sinter-aspnetcore) (.NET, middleware for minimal APIs
+  and MVC, NativeAOT-compatible) stream the head first, then write each API response into its slot. Both
+  check at compile time that every slot can be filled. Other languages are easy to add: the
   server only writes JSON into the `<script type="application/json" data-sn-data>` slots in the
   head, listed in the build's `sinter-embed.json` ([contract](docs/first-paint.md)).
 - **Instant navigation.** Next-page data (sinter, all browsers). Generated Speculation Rules and

@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/examples/">
+    <Project Path="examples/RealWorld/RealWorld.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Sinter.AspNetCore.Generator/Sinter.AspNetCore.Generator.csproj" />
+    <Project Path="src/Sinter.AspNetCore/Sinter.AspNetCore.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/AotSmoke/AotSmoke.csproj" />
+    <Project Path="test/Sinter.AspNetCore.Tests/Sinter.AspNetCore.Tests.csproj" />
+  </Folder>
+</Solution>
