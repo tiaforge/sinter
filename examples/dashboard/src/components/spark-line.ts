@@ -4,7 +4,7 @@
 // moves instead of jumping.
 import { SparkLineComponent } from './spark-line.html';
 
-/** 30 seconds at the server's four samples a second */
+/** 30 seconds at the server's four samples a second, plus one just past the left edge (see the markup) */
 const SAMPLES = 120;
 
 export class SparkLine extends SparkLineComponent {
@@ -24,7 +24,7 @@ export class SparkLine extends SparkLineComponent {
     }
     if (at === this.#at) return; // something else changed (a label, a tone), not the number
     this.#at = at;
-    const samples = [...this.state.samples.slice(1 - SAMPLES), value];
+    const samples = [...this.state.samples.slice(-SAMPLES), value];
     this.state.samples = samples;
 
     // glide for as long as the samples arrive apart, so the motion neither stops nor waits
@@ -34,7 +34,7 @@ export class SparkLine extends SparkLineComponent {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     this.#slide?.cancel();
     this.#slide = this.refs.plot.animate(
-      [{ transform: `translateX(${width / (samples.length - 1)}px)` }, { transform: 'translateX(0)' }],
+      [{ transform: `translateX(${width / Math.max(samples.length - 2, 1)}px)` }, { transform: 'translateX(0)' }],
       { duration, easing: 'linear' },
     );
   }
