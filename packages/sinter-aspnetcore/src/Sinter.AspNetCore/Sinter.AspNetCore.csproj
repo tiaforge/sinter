@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <RootNamespace>Sinter.AspNetCore</RootNamespace>
+    <PackageId>Tiaforge.Sinter.AspNetCore</PackageId>
+    <Description>Fills a sinter build's embedded-data placeholders per request: the page's API data in the first frame, without server rendering. ASP.NET Core middleware for minimal APIs and MVC, NativeAOT-compatible, with a source generator that checks the build at compile time.</Description>
+    <PackageTags>sinter;aspnetcore;middleware;html;nativeaot</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IsAotCompatible>true</IsAotCompatible>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sinter.AspNetCore.Generator/Sinter.AspNetCore.Generator.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <None Include="../Sinter.AspNetCore.Generator/bin/$(Configuration)/netstandard2.0/Sinter.AspNetCore.Generator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="build/Tiaforge.Sinter.AspNetCore.targets" Pack="true" PackagePath="build/;buildTransitive/" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sinter.AspNetCore.Tests" />
+  </ItemGroup>
+</Project>
