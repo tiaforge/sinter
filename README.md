@@ -1,6 +1,6 @@
 # sinter
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/tiaforge/sinter/tree/main/examples/dashboard) a live dashboard, nothing to install
+<a href="https://stackblitz.com/github/tiaforge/sinter/tree/main/examples/dashboard"><img src="https://developer.stackblitz.com/img/open_in_stackblitz.svg" alt="Open in StackBlitz" align="absmiddle"></a>&nbsp; a live dashboard, nothing to install
 
 **HTML pages that behave like an app.** Add attributes to your HTML to bind the JSON API you already
 have and get live data, instant updates and a first paint with no flicker. Typos fail the build, not
