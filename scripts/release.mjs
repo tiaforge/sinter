@@ -7,7 +7,7 @@
 // - @tiaforge-ui/sinter (the repository root).
 // - create-sinter (packages/create, the starter): its template depends on ^0.3.0, the
 //   sinter about to be published, so publish sinter first, and on the latest @tiaforge-ui/temper
-//   on npm (looked up with `npm view`).
+//   and @tiaforge-ui/temper-inspect on npm (looked up with `npm view`).
 // - sinter-axum and sinter-axum-macros (packages/sinter-axum, the middleware crates).
 //
 // `--dry-run` prints the edits without writing; `--no-check` skips the typecheck and the tests
@@ -49,14 +49,19 @@ if (cmp(version, axumCurrent) <= 0) fail(`${version} is not newer than sinter-ax
 const tag = `v${version}`;
 if (git('tag', '--list', tag)) fail(`tag ${tag} already exists`);
 
-// The starter's temper: the latest on npm.
-let temper;
-try {
-  temper = execFileSync('npm', ['view', '@tiaforge-ui/temper', 'version'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-} catch (e) {
-  fail(`could not look up the latest @tiaforge-ui/temper on npm: ${String(e.stderr || e.message).trim()}`);
-}
-if (!SEMVER.test(temper)) fail(`npm gave "${temper}" as the latest @tiaforge-ui/temper`);
+// The starter's temper and its inspector: the latest on npm.
+const latest = (name) => {
+  let v;
+  try {
+    v = execFileSync('npm', ['view', name, 'version'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch (e) {
+    fail(`could not look up the latest ${name} on npm: ${String(e.stderr || e.message).trim()}`);
+  }
+  if (!SEMVER.test(v)) fail(`npm gave "${v}" as the latest ${name}`);
+  return v;
+};
+const temper = latest('@tiaforge-ui/temper');
+const inspect = latest('@tiaforge-ui/temper-inspect');
 if (!dryRun && git('status', '--porcelain')) fail('the working tree is not clean; commit or stash first');
 
 const now = new Date();
@@ -72,7 +77,8 @@ const edits = [
   // npm create sinter: released with sinter, and new apps get this version
   ['packages/create/package.json', (s) => s.replace(/("version": )"[^"]*"/, `$1"${version}"`)],
   ['packages/create/template/package.json', (s) => s.replace(/("@tiaforge-ui\/sinter": )"[^"]*"/, `$1"^${version}"`)
-    .replace(/("@tiaforge-ui\/temper": )"[^"]*"/, `$1"^${temper}"`)],
+    .replace(/("@tiaforge-ui\/temper": )"[^"]*"/, `$1"^${temper}"`)
+    .replace(/("@tiaforge-ui\/temper-inspect": )"[^"]*"/, `$1"^${inspect}"`)],
   ['bench/js-framework-benchmark/package.json', (s) => s.replace(/("frameworkVersion": )"[^"]*"/, `$1"${version}"`)],
   ['README.md', (s) => s.replace(/sinter is at v\d+\.\d+/, `sinter is at v${major}.${minor}`)],
   // The middleware crates: both packages, the dependency between them, and the lockfile.
@@ -103,7 +109,7 @@ for (const [file, edit] of edits) {
 
 if (dryRun) {
   const from = axumCurrent === current ? current : `${current} (sinter-axum ${axumCurrent})`;
-  console.log(`release ${from} → ${version} (dry run); the starter gets @tiaforge-ui/temper ^${temper}`);
+  console.log(`release ${from} → ${version} (dry run); the starter gets @tiaforge-ui/temper ^${temper} and temper-inspect ^${inspect}`);
   console.log('would change:');
   for (const [file] of changed) console.log(`  ${file}`);
   console.log(`then commit "Release ${version}" and tag ${tag}`);

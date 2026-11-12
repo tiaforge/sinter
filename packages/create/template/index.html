@@ -35,6 +35,7 @@
         </select>
       </div>
 
+      <!-- A busy line: temper gives it a spinner and shows it only after --tm-busy-delay (200ms). -->
       <p data-sn-show="$meta.tasks.loading && !tasks.length" aria-busy="true">Loading…</p>
       <p data-muted data-sn-show="$meta.tasks.loadedAt && !shown.length">No tasks here.</p>
 

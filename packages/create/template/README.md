@@ -17,6 +17,9 @@ npm run dev
 - **Press "Fail next change", then tick a task.** The tick shows at once (`data-sn-optimistic`),
   the server refuses it, and the tick is taken back. The toast comes from `onError` in
   `src/sinter.config.ts`.
+- **Add a task.** The demo server takes 300ms to answer. While it does, sinter marks the form
+  `aria-busy`, and temper dims it only after `--tm-busy-delay` (200ms), so a fast server shows
+  no busy state at all.
 - **Press N.** A key filter on `<body>` opens the dialog. The dialog itself needs no JavaScript:
   `command="show-modal"` is the browser's.
 - **Click the ring.** It is a component with a script (`src/components/task-chart.html` and

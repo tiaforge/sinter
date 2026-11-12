@@ -8,8 +8,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 ### Added
 
 - `$meta.<resource>.live`: the state of the server-event stream feeding a resource, `'connecting'`, `'open'` or `'retrying'` (`null` when no `<sn-event>` feeds it), the worst of them when several do. A live indicator is one binding. Reading it on a resource no stream feeds is the new warning `SN516`.
-- The starter uses temper 0.2.0 and its inspector (`temper({ inspect: true })`, `@tiaforge-ui/temper-inspect`).
-- `examples/dashboard`: a live service dashboard (OpenAPI-typed resource, server-sent updates, SVG graphs from bindings) that opens on StackBlitz.
+- The starter uses temper 0.3.0 (busy states show after 200ms) and its inspector (`temper({ inspect: true })`, `@tiaforge-ui/temper-inspect`). `npm run release` bumps the inspector with temper.
+- `examples/dashboard`: a live service dashboard (OpenAPI-typed resource, server-sent updates, SVG graphs from bindings, temper 0.3.0) that opens on StackBlitz.
 
 ### Breaking
 
