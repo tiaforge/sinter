@@ -1,7 +1,7 @@
 {
-  "name": "@tiaforge-ui/create",
+  "name": "create-sinter",
   "version": "0.15.0",
-  "description": "npm create @tiaforge-ui: a new app with sinter (JSON API bound to HTML) and temper (CSS for semantic HTML).",
+  "description": "npm create sinter: a new app with sinter (JSON API bound to HTML) and temper (CSS for semantic HTML).",
   "license": "MIT",
   "author": "Tia Heinrich",
   "homepage": "https://github.com/tiaforge/sinter/tree/main/packages/create#readme",
@@ -23,7 +23,7 @@
   ],
   "type": "module",
   "bin": {
-    "create": "index.js"
+    "create-sinter": "index.js"
   },
   "files": [
     "index.js",

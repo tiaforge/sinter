@@ -1,10 +1,10 @@
-# @tiaforge-ui/create
+# create-sinter
 
 Scaffolds a small task board built with [sinter](https://github.com/tiaforge/sinter) (your JSON API
 bound to plain HTML) and [temper](https://github.com/tiaforge/temper) (CSS for semantic HTML).
 
 ```sh
-npm create @tiaforge-ui my-app
+npm create sinter my-app
 ```
 
 It runs against a demo API inside Vite, so there is nothing else to start. The app shows:

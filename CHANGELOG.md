@@ -3,6 +3,12 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Breaking
+
+- The starter is `create-sinter`: `npm create sinter my-app` (was `@tiaforge-ui/create`, `npm create @tiaforge-ui`).
+
 ## 0.15.0 (2026-11-11)
 
 ### Breaking

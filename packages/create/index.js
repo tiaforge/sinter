@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `npm create @tiaforge-ui [directory]`: copies the template (a sinter + temper app with a demo
+// `npm create sinter [directory]`: copies the template (a sinter + temper app with a demo
 // API) into a new directory. No dependencies; Node 20 or later.
 import { cpSync, existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
@@ -9,7 +9,7 @@ const DEFAULT_DIR = 'tiaforge-app';
 const args = process.argv.slice(2);
 
 if (args.includes('-h') || args.includes('--help')) {
-  console.log(`Usage: npm create @tiaforge-ui [directory]
+  console.log(`Usage: npm create sinter [directory]
 
 Creates a task board built with sinter (data) and temper (styles), with a demo API inside Vite.`);
   process.exit(0);

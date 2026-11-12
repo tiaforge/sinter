@@ -86,7 +86,7 @@ Two navigation extras depend on the browser and degrade to a normal page load:
 ## Try it
 
 ```sh
-npm create @tiaforge-ui my-app
+npm create sinter my-app
 ```
 
 You get a small task board with live updates across tabs, optimistic changes that roll back, a

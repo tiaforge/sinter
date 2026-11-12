@@ -1,5 +1,5 @@
 // @vitest-environment node
-// packages/create: `npm create @tiaforge-ui` copies the template; its demo API answers as the
+// packages/create: `npm create sinter` copies the template; its demo API answers as the
 // pages expect; the template builds with both checkers on and fails on the typos its README names.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';

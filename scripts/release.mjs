@@ -5,7 +5,7 @@
 // or published. If a dry run fails, the commit and the tag are taken back.
 //
 // - @tiaforge-ui/sinter (the repository root).
-// - @tiaforge-ui/create (packages/create, the starter): its template depends on ^0.3.0, the
+// - create-sinter (packages/create, the starter): its template depends on ^0.3.0, the
 //   sinter about to be published, so publish sinter first, and on the latest @tiaforge-ui/temper
 //   on npm (looked up with `npm view`).
 // - sinter-axum and sinter-axum-macros (packages/sinter-axum, the middleware crates).
@@ -69,7 +69,7 @@ const edits = [
   // The root package's version, at the top and under packages[""].
   ['package-lock.json', (s) => s.replace(/^(  "version": )"[^"]*"/m, `$1"${version}"`)
     .replace(/(\n    "": \{\n      "name": "[^"]*",\n      "version": )"[^"]*"/, `$1"${version}"`)],
-  // npm create @tiaforge-ui: released with sinter, and new apps get this version
+  // npm create sinter: released with sinter, and new apps get this version
   ['packages/create/package.json', (s) => s.replace(/("version": )"[^"]*"/, `$1"${version}"`)],
   ['packages/create/template/package.json', (s) => s.replace(/("@tiaforge-ui\/sinter": )"[^"]*"/, `$1"^${version}"`)
     .replace(/("@tiaforge-ui\/temper": )"[^"]*"/, `$1"^${temper}"`)],
@@ -134,7 +134,7 @@ const dryRuns = [
     execFileSync('npm', ['run', 'build'], { cwd: root, stdio: 'inherit' });
     execFileSync('npm', ['publish', '--dry-run', '--ignore-scripts'], { cwd: root, stdio: 'inherit' });
   }],
-  ['@tiaforge-ui/create', () => execFileSync('npm', ['publish', '--dry-run'], { cwd: resolve(root, 'packages/create'), stdio: 'inherit' })],
+  ['create-sinter', () => execFileSync('npm', ['publish', '--dry-run'], { cwd: resolve(root, 'packages/create'), stdio: 'inherit' })],
   ['sinter-axum and sinter-axum-macros', () => cargo(['publish', '--workspace', '--dry-run'])],
 ];
 for (const [name, run] of dryRuns) {
@@ -150,7 +150,7 @@ for (const [name, run] of dryRuns) {
 
 console.log(`
 Released: commit "Release ${version}", tag ${tag}. The publish dry runs passed.
-All at ${version}: @tiaforge-ui/sinter, @tiaforge-ui/create (new apps get @tiaforge-ui/sinter ^${version}
+All at ${version}: @tiaforge-ui/sinter, create-sinter (new apps get @tiaforge-ui/sinter ^${version}
 and @tiaforge-ui/temper ^${temper}), sinter-axum and sinter-axum-macros.
 
 Push:
