@@ -158,7 +158,7 @@ Error, for example:
 
 > `$meta.contacts.loadng` is not a status field. Did you mean `loading`?
 
-`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `pending`, `total`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` with `paginate="offset"`, or keyset with `offset-param`.
+`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `pending`, `total`, `live`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` with `paginate="offset"`, or keyset with `offset-param`.
 
 **Fix:** Use the suggested field. A pagination field needs `paginate` on the resource.
 

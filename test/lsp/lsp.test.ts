@@ -347,6 +347,17 @@ describe('completion, definition, quick fixes', () => {
     expect(resolved.detail).toContain('string');
   });
 
+  test('completes the status fields of $meta.<resource>, `live` among them, with its meaning on hover', async () => {
+    const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
+    const e = await editor(root);
+    e.open('index.html', PAGE('$meta.contacts.'));
+    await e.diagnostics('index.html', (d) => d.length > 0);
+    const r = await e.completion('index.html', 3, 37);
+    expect(r!.items.map((i) => i.label)).toEqual(expect.arrayContaining(['loading', 'error', 'loadedAt', 'pending', 'total', 'live']));
+    const resolved = await e.resolve(r!.items.find((i) => i.label === 'live'));
+    expect(JSON.stringify(resolved)).toContain('retrying');
+  });
+
   test('completes names in scope, without the shadow\'s own', async () => {
     const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
     const e = await editor(root);

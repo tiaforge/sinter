@@ -20,6 +20,8 @@ export interface Meta {
   loadedAt: number | null;
   pending: number;
   total: number | null;
+  /** the server-event stream(s) feeding this resource: null when none does, else the worst state among them */
+  live: 'connecting' | 'open' | 'retrying' | null;
   page?: number | null;
   pages?: number | null;
   from?: number | null;
@@ -91,7 +93,7 @@ const collators = new Map<string, Intl.Collator>();
 const collator = (l = '') => collators.get(l) ?? (collators.set(l, new Intl.Collator(l || undefined, { numeric: true })), collators.get(l)!);
 
 export function createResource<T extends object = any>(name: string, o: ResourceOptions): Resource<T> {
-  const meta: Meta = { loading: false, error: null, loadedAt: null, pending: 0, total: null };
+  const meta: Meta = { loading: false, error: null, loadedAt: null, pending: 0, total: null, live: null };
   const coll = !!o.key, field = o.order?.replace(/^-/, ''), dir = o.order?.[0] == '-' ? -1 : 1;
   const subs = new Set<(c: Change<T>) => void>();
   const prep = (x: any) => (o.prep ? o.prep(x) : x);

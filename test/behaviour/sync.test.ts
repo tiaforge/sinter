@@ -426,3 +426,66 @@ test('a hidden page renders server events in a microtask (no frames come)', asyn
   for (let j = 0; j < 10; j++) await Promise.resolve();
   expect(names(root)).toEqual(['Zed']);
 });
+
+// ---- $meta.<resource>.live
+
+const LIVE = `
+  <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
+  <sn-resource name="plain" src="/api/plain"></sn-resource>
+  <sn-sync src="/api/events/stream">
+    <sn-event name="contact_updated" resource="contacts" op="upsert" item="contact"></sn-event>
+  </sn-sync>
+  <b data-sn-text="[$meta.contacts.live, $meta.plain.live].join()"></b>`;
+
+test('$meta.<resource>.live: connecting, open, retrying while the probe waits, open again; null for a resource no stream feeds', async () => {
+  configure({ sessionProbe: '/api/user' });
+  let up = true;
+  const requests = mockRequests({
+    'GET /api/contacts': { contacts: [] }, 'GET /api/plain': {},
+    'GET /api/user': () => { if (!up) throw new TypeError('offline'); return { id: 'me' }; },
+  });
+  const stream = mockStream();
+  const { root, settle, advance, flush } = await render(LIVE, { requests, streams: { '/api/events/stream': stream } });
+  const live = () => root.querySelector('b')!.textContent;
+  await settle();
+  expect(live()).toBe('open,');
+  up = false;
+  stream.drop();
+  await settle();
+  expect(live()).toBe('retrying,');
+  up = true;
+  await advance(2000);
+  await settle();
+  await flush();
+  expect(live()).toBe('open,');
+});
+
+test('$meta.<resource>.live is the worst state of the streams feeding the resource', async () => {
+  configure({ sessionProbe: '/api/user' });
+  let up = true;
+  const requests = mockRequests({
+    'GET /api/contacts': { contacts: [] },
+    'GET /api/user': () => { if (!up) throw new TypeError('offline'); return { id: 'me' }; },
+  });
+  const a = mockStream(), b = mockStream();
+  const { root, settle } = await render(`
+    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
+    <sn-sync src="/api/a"><sn-event name="x" resource="contacts" op="refetch"></sn-event></sn-sync>
+    <sn-sync src="/api/b"><sn-event name="y" resource="contacts" op="refetch"></sn-event></sn-sync>
+    <b data-sn-text="$meta.contacts.live"></b>`, { requests, streams: { '/api/a': a, '/api/b': b } });
+  await settle();
+  const live = () => root.querySelector('b')!.textContent;
+  expect(live()).toBe('open');
+  up = false;
+  b.drop();
+  await settle();
+  expect(live()).toBe('retrying');
+});
+
+test('$meta.<resource>.live is connecting while the stream has not opened', async () => {
+  const requests = mockRequests({ 'GET /api/contacts': { contacts: [] }, 'GET /api/plain': {} });
+  const never = { connected: false, emit() {}, drop() {}, transport: () => ({ connect() {}, close() {} }) };
+  const { root, settle } = await render(LIVE, { requests, streams: { '/api/events/stream': never as any } });
+  await settle();
+  expect(root.querySelector('b')!.textContent).toBe('connecting,');
+});

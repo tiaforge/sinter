@@ -223,7 +223,7 @@ const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
 export const STORE_FNS = ['refresh', 'upsert', 'patch', 'remove', 'page', 'showModal', 'close', 'reset', 'emit', 'run'];
 export const BUILTIN_HELPERS = ['date', 'time', 'datetime', 'relative', 'number', 'bytes'];
-export const META_FIELDS = ['loading', 'error', 'loadedAt', 'pending', 'total', 'page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
+export const META_FIELDS = ['loading', 'error', 'loadedAt', 'pending', 'total', 'live', 'page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
 const PAGE_FIELDS = ['page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
 
 export const GLOBALS = new Set([

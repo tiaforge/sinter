@@ -10,6 +10,10 @@ import { doubled, jittered } from './backoff.js';
 
 const MIN_BACKOFF = 1000;
 
+/** A stream's state, as `$meta.<resource>.live` shows it; a resource fed by several streams shows the worst. */
+type Live = 'connecting' | 'open' | 'retrying';
+const WORSE: Record<Live, number> = { open: 0, connecting: 1, retrying: 2 };
+
 /** JSON payloads are parsed; anything else is delivered as the raw string. */
 export const parsePayload = (data: string): unknown => { try { return JSON.parse(data); } catch { return data; } };
 
@@ -45,10 +49,18 @@ class Connection {
   private closed = false;
   private hidden = false;
   private everOpen = false;
+  /** `connecting` until the first open, `retrying` from a failure until it is open again */
+  state: Live = 'connecting';
   /** each mapped event with the scope its expressions are evaluated in: its `<sn-sync>`'s state, or the page */
   readonly subs: Array<[EventDef, any]> = [];
 
-  constructor(private readonly app: App, private readonly url: string) {}
+  constructor(private readonly app: App, private readonly url: string, private readonly changed: () => void) {}
+
+  private set(state: Live): void {
+    if (this.state === state) return;
+    this.state = state;
+    this.changed();
+  }
 
   start(): void {
     const env = this.app.env;
@@ -57,6 +69,7 @@ class Connection {
       if (!this.hidden) return;
       this.hidden = false;
       this.closed = false;
+      this.set('connecting');
       void this.probe();
     }));
     this.app.onListen.push((name) => this.t?.listen?.(name));
@@ -77,12 +90,14 @@ class Connection {
       if (state === 'open') {
         this.backoff = MIN_BACKOFF;
         this.everOpen = true;
+        this.set('open');
         if (!custom) this.app.streamOpened?.(this.url);
         // events sent while disconnected are lost: refetch everything this stream feeds
         if (reconnect) for (const name of new Set(subs.map((e) => e.resource))) if (name) void this.app.resource(name).refetch();
       } else {
         t.close();
         this.t = null;
+        this.set('retrying');
         void this.probe();
       }
     }, [...new Set(subs.map((e) => e.name))]);
@@ -186,12 +201,24 @@ const sse: Feature = {
       if (!alive) return;
       // one connection per resolved stream URL, however many <sn-sync> elements use it
       const conns = new Map<string, Connection>();
+      /** the connections feeding each resource: its `$meta.live` is the worst of their states */
+      const feeders = new Map<string, Set<Connection>>();
+      const publish = () => {
+        for (const [name, cs] of feeders) {
+          const r = app.resource(name);
+          const live = [...cs].reduce<Live>((w, c) => (WORSE[c.state] > WORSE[w] ? c.state : w), 'open');
+          if (r.meta.live !== live) { r.meta.live = live; r.onDirty?.('meta'); }
+        }
+      };
       for (const def of app.ir.syncs ?? []) {
         const base = app.scopeOf(def.scope ?? -1);
         const url = app.url(def.src, base);
         let c = conns.get(url);
-        if (!c) conns.set(url, c = new Connection(app, url));
-        for (const e of def.events) c.subs.push([e, base]);
+        if (!c) conns.set(url, c = new Connection(app, url, publish));
+        for (const e of def.events) {
+          c.subs.push([e, base]);
+          if (e.resource) (feeders.get(e.resource) ?? feeders.set(e.resource, new Set()).get(e.resource)!).add(c);
+        }
       }
       // a prerendered page connects once it is shown: no stream for a page nobody may ever see
       app.shown(() => { if (alive) for (const c of conns.values()) c.start(); });

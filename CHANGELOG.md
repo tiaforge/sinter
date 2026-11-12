@@ -7,6 +7,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- `$meta.<resource>.live`: the state of the server-event stream feeding a resource, `'connecting'`, `'open'` or `'retrying'` (`null` when no `<sn-event>` feeds it), the worst of them when several do. A live indicator is one binding.
 - The starter uses temper 0.2.0 and its inspector (`temper({ inspect: true })`, `@tiaforge-ui/temper-inspect`).
 - `examples/dashboard`: a live service dashboard (OpenAPI-typed resource, server-sent updates, SVG graphs from bindings) that opens on StackBlitz.
 

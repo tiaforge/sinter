@@ -160,6 +160,30 @@ Actions always go over HTTP, so `then`/`catch`, optimistic updates and 401 handl
 on every transport. Auth on a WebSocket or hub belongs to the transport: browsers send cookies, but
 request middleware does not apply.
 
+## Connection status
+
+`$meta.<resource>.live` is the state of the stream that feeds a resource (a resource is fed by a stream
+when one of its `<sn-event>` elements names it in `resource`):
+
+| `live` | Meaning |
+| --- | --- |
+| `'connecting'` | Until the stream first opens, and while a page restored from the back/forward cache reconnects. |
+| `'open'` | The stream is connected. |
+| `'retrying'` | The stream failed; sinter is probing the session and backing off. It is `'open'` again after a reconnect, and the resource is refetched once. |
+| `null` | No `<sn-event>` feeds this resource. |
+
+When several streams feed a resource, `live` is the worst of their states, so an indicator never says
+"open" while one of them is down.
+
+```html
+<span data-badge data-sn-text="$meta.services.live === 'open' ? 'Live' : 'Reconnecting…'"
+      data-sn-attr="{ 'data-tone': $meta.services.live === 'open' ? 'success' : 'warning' }"></span>
+```
+
+The state is not an error: events sent while the stream was down are caught up by the refetch, and
+the data stays on screen. A page that never reads `live` pays nothing for it. A prerendered page
+reads `'connecting'` until it is shown. A custom transport sets it through `onState('open' | 'error')`.
+
 ## Connection rules
 
 - **One connection per URL.** `<sn-sync>` elements whose `src` resolves to the same URL share one

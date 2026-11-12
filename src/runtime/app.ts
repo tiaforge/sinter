@@ -1371,6 +1371,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     resources.set(def.name, r);
     Object.defineProperty(app.page.$r, def.name, { get: r.value, enumerable: true });
     app.page.$meta[def.name] = r.meta;
+    // fed by a server-event stream: connecting until its first open (src/sse.ts keeps it current)
+    if (app.ir.syncs?.some((s) => s.events.some((e) => e.resource == def.name))) r.meta.live = 'connecting';
     let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, typing: unknown = null, loud = false;
 
     const scope = () => app.scopeOf(def.scope ?? -1);

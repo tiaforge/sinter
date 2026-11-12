@@ -63,6 +63,7 @@ build error, and so is a pagination field on a resource that is not paginated
 | `loadedAt` | Time (ms) of the last successful load, `null` before the server has answered on this page. |
 | `pending` | Number of optimistic changes whose request has not settled. |
 | `total` | From the `total` path, adjusted by optimistic removes. `null` if unknown. |
+| `live` | The server-event stream feeding the resource ([sync](sync.md#connection-status)): `'connecting'` until it first opens, `'open'`, `'retrying'` after a failure; `null` when no `<sn-event>` feeds the resource. |
 
 Pagination adds `page`, `pages`, `from`, `to`, `hasPrev` and `hasNext`.
 

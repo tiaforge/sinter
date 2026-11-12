@@ -30,8 +30,8 @@ describe('findServer', () => {
   test('no sinter, no server', () => {
     expect(findServer(join(mkdtempSync(join(tmpdir(), 'plain-')), 'a.html'))).toBeNull();
   });
-  // needs `npm run build` (dist/cli.js) and the example's install
-  test.skipIf(!existsSync(resolve(__dirname, '../../dist/cli.js')) || !existsSync(resolve(__dirname, '../../examples/realworld/node_modules')))('the sinter repository serves itself; its examples their own install', () => {
+  // needs `npm run build` (dist/cli.js) and the example's install (`npm ci --prefix examples/realworld` links this repository as its sinter)
+  test.skipIf(!existsSync(resolve(__dirname, '../../dist/cli.js')) || !existsSync(resolve(__dirname, '../../examples/realworld/node_modules/@tiaforge-ui/sinter')))('the sinter repository serves itself; its examples their own install', () => {
     const repo = resolve(__dirname, '../..');
     expect(findServer(join(repo, 'docs/recipes/list-filter.html'))).toEqual({ cli: join(repo, 'dist/cli.js'), root: repo });
     const rw = join(repo, 'examples/realworld');

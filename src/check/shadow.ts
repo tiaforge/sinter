@@ -291,6 +291,8 @@ export interface Meta {
   loadedAt: number | null;
   pending: number;
   total: number | null;
+  /** The server-event stream(s) feeding this resource: 'connecting' until the first open, 'open', 'retrying' after a failure (the worst of them when several feed it); null when no <sn-event> feeds it. */
+  live: 'connecting' | 'open' | 'retrying' | null;
   page?: number | null;
   pages?: number | null;
   from?: number | null;
