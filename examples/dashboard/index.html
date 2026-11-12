@@ -2,12 +2,18 @@
 <app-layout data-sn-prop="{ title: 'Overview' }">
 
   <!-- The data. Without `type`, the resource is typed from server/openapi.yml: GET /api/services is listServices. -->
-  <sn-resource name="services" src="/api/services" key="id"></sn-resource>
+  <!-- `refresh`: reloaded when the last load is 5 s old. The stream keeps the data fresh, so this is only
+       the check that the server still answers: when it does not, `$meta.services.error` is set. -->
+  <sn-resource name="services" src="/api/services" key="id" refresh="5s"></sn-resource>
 
   <!-- Live updates: the server pushes a service's new numbers once a second; sinter replaces it by id. -->
   <sn-sync src="/api/events">
     <sn-event name="service_updated" resource="services" op="upsert" item="service" type="ServiceEvent"></sn-event>
   </sn-sync>
+
+  <!-- The layout's `status` slot, in the header -->
+  <span slot="status" data-badge data-sn-text="$meta.services.error ? 'Offline' : 'Live'"
+        data-sn-attr="{ 'data-tone': $meta.services.error ? 'danger' : 'success' }"></span>
 
   <p data-sn-show="$meta.services.loading && !services.length" aria-busy="true">Loading…</p>
 

@@ -19,6 +19,9 @@ Four services with made-up metrics, live. One HTML page, no framework, no store:
   `src/components/`, expanded at build time, so they are in the first frame and never hydrate. The Pause
   button is slot content: the page's own markup, in the page's scope, since a component cannot change
   its props.
+- **The badge tells the truth.** The stream keeps the data fresh, so `refresh="5s"` on the resource is only
+  the check that the server still answers: when it does not, `$meta.services.error` turns the badge to
+  "Offline", and back to "Live" when the server returns. The layout's `status` slot holds the badge.
 - **Pause** is an optimistic `PATCH`: the card dims at once, and is restored if the server fails.
 
 ```sh
