@@ -8,11 +8,17 @@ Four services with made-up metrics, live. One HTML page, no framework, no store:
   serves it at `/api/openapi.yml` and implements it. The frontend reads the same file at build
   time (`sinter({ openapi })`), so `<sn-resource src="/api/services">` needs no `type`: it is
   `listServices`.
-- **The numbers are pushed.** Every second the server sends a `service_updated` event per running
+- **The numbers are pushed.** `server/api.js` makes them up (a random step per service, now and then a
+  slow, failing spell). Every second the server sends a `service_updated` event per running
   service (`/api/events`); `<sn-sync>` in `index.html` upserts it by `id`.
-- **The graphs are bindings.** The big chart and each sparkline are SVG: a helper
-  (`line()`, `area()` in `src/sinter.helpers.ts`) turns the samples into `points`. No chart
-  library, no component script.
+- **The graphs are bindings.** The big chart and each sparkline are one component, `<spark-line>`:
+  SVG whose `points` a helper (`line()`, `area()` in `src/sinter.helpers.ts`) computes from the
+  samples. No chart library, no component script.
+- **Layout and components.** `index.html` is one `<app-layout>` tag (`src/layouts/app-layout.html`:
+  the head and the header). `<stat-tile>`, `<spark-line>` and `<service-card>` are plain HTML files in
+  `src/components/`, expanded at build time, so they are in the first frame and never hydrate. The Pause
+  button is slot content: the page's own markup, in the page's scope, since a component cannot change
+  its props.
 - **Pause** is an optimistic `PATCH`: the card dims at once, and is restored if the server fails.
 
 ```sh

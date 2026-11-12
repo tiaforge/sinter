@@ -35,3 +35,8 @@ export function percent(share: number): string {
 export function tone(s: { paused: boolean; status: 'ok' | 'degraded' | 'down' }): 'neutral' | 'success' | 'warning' | 'danger' {
   return s.paused ? 'neutral' : ({ ok: 'success', degraded: 'warning', down: 'danger' } as const)[s.status];
 }
+
+/** The graph's color for a service that is slow or failing; none (the accent) when it is fine. */
+export function graphTone(s: { paused: boolean; status: 'ok' | 'degraded' | 'down' }): 'warning' | 'danger' | undefined {
+  return s.paused || s.status === 'ok' ? undefined : s.status === 'degraded' ? 'warning' : 'danger';
+}

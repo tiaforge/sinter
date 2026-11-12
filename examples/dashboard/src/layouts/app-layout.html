@@ -1,0 +1,26 @@
+<!-- The document every page shares: the head, the header and the frame around the page's content. A
+     page is this tag with its content inside; the title is a prop. -->
+<!doctype html>
+<html lang="en" data-sn-layout="{ title?: string }">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title data-sn-text="title ? title + ' · Services' : 'Services'">Services</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <header data-theme="dark" data-pad="sm">
+    <div data-layout="center" style="--tm-measure: 60rem">
+      <div data-layout="row" data-gap="sm">
+        <strong data-grow>Services</strong>
+        <span data-badge data-tone="success">Live</span>
+      </div>
+    </div>
+  </header>
+  <main data-layout="center" data-gap="lg" data-pad="lg" style="--tm-measure: 60rem">
+    <slot></slot>
+  </main>
+</body>
+</html>

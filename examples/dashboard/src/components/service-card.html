@@ -1,0 +1,18 @@
+<!-- One service: its sparkline and numbers. The `actions` slot is filled by the page, in the page's scope,
+     so the Pause button is the page's: components do not change their props. -->
+<template data-sn-component="{ service: Service }">
+  <article data-layout="stack" data-gap="sm" data-sn-attr="{ 'data-paused': service.paused }">
+    <header data-layout="row" data-gap="sm">
+      <h2 data-grow data-sn-text="service.name"></h2>
+      <span data-badge data-sn-text="service.paused ? 'paused' : service.status"
+            data-sn-attr="{ 'data-tone': tone(service) }"></span>
+    </header>
+    <spark-line data-sn-prop="{ values: service.history, width: 120, height: 36, label: service.name + ' requests per second', tone: graphTone(service) }"></spark-line>
+    <dl data-layout="row" data-gap="md" class="num">
+      <div><dt data-muted>req/s</dt><dd data-sn-text="service.rps"></dd></div>
+      <div><dt data-muted>latency</dt><dd data-sn-text="service.latencyMs + ' ms'"></dd></div>
+      <div><dt data-muted>errors</dt><dd data-sn-text="percent(service.errorRate)"></dd></div>
+    </dl>
+    <slot name="actions"></slot>
+  </article>
+</template>

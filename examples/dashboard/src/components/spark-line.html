@@ -1,0 +1,9 @@
+<!-- A line graph of `values`, drawn as SVG by the helpers line() and area(): the samples in, the
+     points out. Used at two sizes: the big chart and the cards' sparklines. -->
+<template data-sn-component="{ values: number[]; width: number; height: number; label: string; tone?: 'warning' | 'danger' }">
+  <svg class="graph" role="img"
+       data-sn-attr="{ viewBox: '0 0 ' + width + ' ' + height, 'aria-label': label, 'data-tone': tone }">
+    <polygon class="fill" data-sn-attr="{ points: area(values, width, height) }"></polygon>
+    <polyline class="line" data-sn-attr="{ points: line(values, width, height) }"></polyline>
+  </svg>
+</template>
