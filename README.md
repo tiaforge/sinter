@@ -283,7 +283,7 @@ Measurements and sources: [`docs/realworld-comparison.md`](docs/realworld-compar
   the scripts of components, which do the browser work around markup sinter renders.
 - You can't have a build step.
 - Your backend renders HTML, not JSON.
-- You need stability guarantees. sinter is at v0.16.
+- You need stability guarantees. sinter is at v0.17.
 
 ## Setup
 

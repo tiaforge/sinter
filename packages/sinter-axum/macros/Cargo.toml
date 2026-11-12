@@ -1,6 +1,6 @@
 [package]
 name = "sinter-axum-macros"
-version = "0.16.0"
+version = "0.17.0"
 edition = "2024"
 rust-version = "1.85"
 description = "embed!: checks a sinter build's data placeholders against a sinter-axum configuration at compile time."
