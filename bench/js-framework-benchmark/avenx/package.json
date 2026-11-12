@@ -1,0 +1,7 @@
+{
+  "name": "js-framework-benchmark-avenx",
+  "private": true,
+  "description": "Avenx reference page for ../self.mjs",
+  "scripts": { "build": "avenx build" },
+  "dependencies": { "avenx-core": "1.0.0-rc.1" }
+}
