@@ -28,11 +28,14 @@ Add `--chromeBinary <path>` if Chrome is not on the default path.
 `self.mjs` times this page's operations in headless Chrome without a js-framework-benchmark checkout:
 two or more builds, page loads alternating, script time (click until the render's microtasks are
 done) and total (also laid out), and the JS heap after GC (ready, 1,000 rows, five create-and-clear
-cycles). `ivi/` is the same page in ivi 5.1, as a reference.
+cycles). `ivi/` is the same page in ivi 5.1, as a reference; `avenx/` is the same page as one
+[Avenx](https://github.com/Avenx-JS/avenx-js) 1.0.0-rc.1 component (a keyed `<@for>` over Proxy state,
+rows changed in place).
 
 ```sh
 npm run build                                   # in the repo root, for each sinter variant
 npx vite build --outDir dist-a                  # one build per variant
 npx vite build -c vite.ivi.config.js            # dist-ivi
-CHROME=/path/to/chrome node self.mjs dist-a dist-b dist-ivi [--loads 6] [--reps 10]
+(cd avenx && npm install && npm run build)      # avenx/dist; pass the folder `avenx` itself
+CHROME=/path/to/chrome node self.mjs dist-a dist-b dist-ivi avenx [--loads 6] [--reps 10]
 ```
