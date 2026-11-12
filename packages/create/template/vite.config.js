@@ -9,8 +9,9 @@ export default defineConfig({
   plugins: [
     // Compiles the data-sn-* pages; typecheck: every expression is checked against src/sinter.types.ts in `vite build`.
     sinter({ typecheck: true }),
-    // temper check on the markup: a wrong data-* value fails the build, the dev server warns.
-    temper(),
+    // temper check on the markup: a wrong data-* value fails the build, the dev server warns. `inspect` also audits
+    // the rendered page in dev (overflow, contrast, clipped text) and prints findings in the terminal.
+    temper({ inspect: true }),
     // The demo backend (server/api.js). Replace it with your API, e.g. server: { proxy: { '/api': 'http://localhost:3000' } }.
     api(),
   ],
