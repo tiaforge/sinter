@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Fetch-and-swap benchmark: sinter, htmx, Datastar, Alpine, petite-vue and plain JS",
+  "description": "Fetch-and-swap benchmark: sinter, htmx, Datastar, Alpine, petite-vue, Avenx and plain JS",
   "scripts": {
     "build": "vite build --logLevel warn",
     "bench": "node run.mjs"

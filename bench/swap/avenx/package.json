@@ -1,0 +1,7 @@
+{
+  "name": "swap-avenx",
+  "private": true,
+  "description": "The Avenx variant of the swap benchmark; run.mjs builds it into ../vendor/avenx-1.0.0-rc.1-app.js",
+  "scripts": { "build": "avenx build" },
+  "dependencies": { "avenx-core": "1.0.0-rc.1" }
+}

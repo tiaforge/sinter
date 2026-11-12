@@ -1,4 +1,4 @@
-# Swap benchmark: sinter, htmx, Datastar, Alpine, petite-vue, plain JS
+# Swap benchmark: sinter, htmx, Datastar, Alpine, petite-vue, Avenx, plain JS
 
 How long it takes from a click to new server data showing on the page, for a list of 100, 1,000
 and 5,000 table rows. The hypermedia libraries fetch an HTML fragment; sinter and `vanilla-json`
@@ -17,6 +17,7 @@ sinter (client-side templates over JSON, no build step).
 | `datastar-1.0.4-replace` | HTML | `datastar-mode: replace` (no morphing) | – (same as datastar-1.0.4) |
 | `alpine-3.17.5` | JSON | keyed `x-for` over state assigned from `fetch` | `rows.push(...)` |
 | `petite-vue-0.4.1` | JSON | keyed `v-for` over state assigned from `fetch` (last release 2022) | `rows.push(...)` |
+| `avenx-1.0.0-rc.1` | JSON | one compiled component ([`avenx/`](avenx)): keyed `<@for>` over Proxy state assigned from `fetch`; the only variant with a build step besides sinter | `rows.push(...)` |
 
 Three scenarios:
 
@@ -52,6 +53,7 @@ left is each library's client-side work (request, parse, DOM update).
 ```sh
 npm run build                          # in the repo root (sinter's dist/)
 cd bench/swap && npm install && ./fetch-libs.sh
+(cd avenx && npm install)               # Avenx: run.mjs builds it with its own CLI into vendor/
 CHROME=/path/to/chrome node run.mjs    # rebuilds the sinter page, prints tables, raw samples → results/
 # N=100,1000,5000 S=replace,update,append ROUNDS=3 ITER=50 WARMUP=10 CPU=4 (throttling) ONLY=sinter,htmx
 CHROME=/path/to/chrome node profile.mjs sinter 5000 replace   # self time per function, one variant
