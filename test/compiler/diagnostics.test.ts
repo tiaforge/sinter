@@ -80,6 +80,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN507', '<div data-sn-state="{ a: 0 }"><button data-sn-on-click="a = 1; a = 2; a = 3; a = 4; a = 5" data-sn-text="a"></button></div>', /`data-sn-on-click` is too complex for markup: 5 statements in one handler \(limit `statements`: 4\)\. Move the logic into a helper/],
   ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/, { checkCycles: true }],
   ['SN513', '<div data-sn-state="{ dark: false }"><img alt="" data-sn-attr="{src: dark ? \'./logo-dark.png\' : \'./logo.png\'}"></div>', /`src` is bound to local images \(`\.\/logo-dark\.png`, `\.\/logo\.png`\), which are not optimized/],
+  ['SN516', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
   ['SN515', '<!doctype html><html data-sn-path="/page/"><head></head><body></body></html>', /`data-sn-path="\/page\/"` is the URL this page has anyway/],
   ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
   ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="patch(x, $result.contact)"></button></template>`,
@@ -496,5 +497,20 @@ describe('SN507 complex expressions', () => {
     expect(() => complexityOf({ statments: 2 } as ComplexityOptions)).toThrow(/`statments` is not a limit; the limits are `statements`/);
     expect(() => complexityOf({ level: 'loud' } as unknown as ComplexityOptions)).toThrow(/`level` is `warn`, `error` or `off`/);
     expect(() => complexityOf({ arrow: -1 })).toThrow(/`arrow` takes a number of 0 or more/);
+  });
+});
+
+describe('SN516: $meta.<resource>.live of a resource no stream feeds', () => {
+  const R = '<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource>';
+  const badge = '<p data-sn-text="$meta.c.live"></p>';
+  const sync = '<sn-sync src="/api/events"><sn-event name="x" resource="c" op="refetch"></sn-event></sn-sync>';
+  const codes = (html: string) => diags(html).map((d) => d.code);
+  test('no warning when an <sn-event> names the resource, wherever the sync is on the page', () => {
+    expect(codes(R + sync + badge)).not.toContain('SN516');
+    expect(codes(badge + R + sync)).not.toContain('SN516');
+  });
+  test('a sync whose events name another resource, or only run `then`, does not feed it', () => {
+    expect(codes(R + '<sn-sync src="/api/events"><sn-event name="x" resource="d" op="refetch"></sn-event></sn-sync>' + badge)).toContain('SN516');
+    expect(codes(R + '<sn-sync src="/api/events"><sn-event name="x" then="1"></sn-event></sn-sync>' + badge)).toContain('SN516');
   });
 });

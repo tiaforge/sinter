@@ -632,7 +632,7 @@ class Compiler {
     this.page = {
       resources: new Map(), helpers: new Set(opts.helpers.names), namespaces: ns,
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
-      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), ids: new Map(),
+      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), fed: new Set(), ids: new Map(),
     };
     const l = opts.locale;
     if (l) {
@@ -1908,6 +1908,7 @@ class Compiler {
         this.resourceEls.set(name, child);
         continue;
       }
+      if (child.tagName === 'sn-event') { const fed = attr(child, 'resource'); if (fed) this.page.fed.add(fed); }
       const id = attr(child, 'id');
       if (id && child.tagName === 'dialog') this.page.dialogs.add(id);
       if (id) {

@@ -180,6 +180,8 @@ When several streams feed a resource, `live` is the worst of their states, so an
       data-sn-attr="{ 'data-tone': $meta.services.live === 'open' ? 'success' : 'warning' }"></span>
 ```
 
+Reading `live` of a resource that no `<sn-event>` feeds is the warning [SN516](diagnostics.md#sn516-unfed-live): it is always `null`.
+
 The state is not an error: events sent while the stream was down are caught up by the refetch, and
 the data stays on screen. A page that never reads `live` pays nothing for it. A prerendered page
 reads `'connecting'` until it is shown. A custom transport sets it through `onState('open' | 'error')`.

@@ -114,6 +114,8 @@ export interface PageInfo {
   pathParams: Set<string>;
   /** literal `id`s of the page's `<dialog>` elements, for `showModal()` and `close()` */
   dialogs: Set<string>;
+  /** the resources an `<sn-event resource>` on the page names: the ones a stream feeds (`$meta.<name>.live`, SN516) */
+  fed: Set<string>;
   /** literal `id`s of the page's elements, for `run()`: whether one carries an action, sits in a `data-sn-for` row, how many share it */
   ids?: Map<string, { action: boolean; row: boolean; n: number }>;
 }
@@ -596,6 +598,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           report('SN303', `\`$meta.${rname}.${field}\` is not a status field.${didYouMean(field, META_FIELDS)}`, n.start);
         } else if (PAGE_FIELDS.includes(field) && !r.paginate) {
           report('SN303', `\`$meta.${rname}.${field}\` is a pagination field, but \`${rname}\` has no \`paginate\``, n.start);
+        } else if (field === 'live' && !page.fed.has(rname)) {
+          report('SN516', `\`$meta.${rname}.live\` is always \`null\`: no \`<sn-event resource="${rname}">\` on this page feeds \`${rname}\``, n.start, `add an \`<sn-event>\` for \`${rname}\` to the \`<sn-sync>\`, or remove this`);
         } else if (field === 'page' && r.paginate !== 'offset' && !r.jumps) {
           report('SN303', `\`$meta.${rname}.page\` exists only with \`paginate="offset"\`, or \`paginate="keyset"\` with \`offset-param\``, n.start);
         }

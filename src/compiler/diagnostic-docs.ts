@@ -272,4 +272,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'A page without `data-sn-path` is written as a directory\'s index (`contact.html` as `contact/index.html`, served at `/contact/`), so a `data-sn-path` that names only that URL says nothing. The page is built as if it had none.',
     fix: 'Remove `data-sn-path`. It lists the paths a page answers at instead: patterns such as `/article/:slug`, or a fixed path such as `/login`, each served by a rewrite to the page\'s file.',
   },
+  SN516: {
+    example: '`$meta.contacts.live` is always `null`: no `<sn-event resource="contacts">` on this page feeds `contacts`',
+    means: '`$meta.<resource>.live` is the state of the server-event stream that feeds the resource. A resource is fed when an `<sn-event>` in a `<sn-sync>` names it in `resource`; without one, `live` is `null` and a badge built on it never shows a state.',
+    fix: 'Add an `<sn-event resource="…">` for the resource to the `<sn-sync>`, or read `live` of a resource that a stream feeds.',
+  },
 };

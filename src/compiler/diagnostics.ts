@@ -65,6 +65,7 @@ export const CODES = {
   SN513: 'bound-local-image',
   SN514: 'auto-fit-rows',
   SN515: 'redundant-path',
+  SN516: 'unfed-live',
 } as const;
 
 export type Code = keyof typeof CODES;
