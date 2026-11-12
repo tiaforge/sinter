@@ -1,4 +1,4 @@
-// Builds every variant into dist/<variant>/: the four JSON clients with Vite, the two hypermedia pages
+// Builds every variant into dist/<variant>/: the JSON clients with Vite (Avenx with its own CLI), the two hypermedia pages
 // from the shared model (their initial HTML is what the server's view state starts from).
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -47,4 +47,13 @@ const pages = {
 for (const [v, html] of Object.entries(pages).filter(([v]) => want(v))) {
   mkdirSync(`dist/${v}`, { recursive: true });
   writeFileSync(`dist/${v}/index.html`, html);
+}
+
+// Avenx builds with its own CLI (apps/avenx, its own node_modules: npm install there first) into one
+// classic script; the page around it is written here, like the hypermedia pages
+if (want('avenx')) {
+  execFileSync('npx', ['avenx', 'build'], { cwd: 'apps/avenx', stdio: ['ignore', 'ignore', 'inherit'] });
+  mkdirSync('dist/avenx', { recursive: true });
+  copyFileSync('apps/avenx/dist/bundle.js', 'dist/avenx/bundle.js');
+  writeFileSync('dist/avenx/index.html', page('Avenx', '', '<main id="app"></main>\n<script src="/avenx/bundle.js"></script>'));
 }

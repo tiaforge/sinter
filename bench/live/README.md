@@ -10,6 +10,7 @@ window each), 16 bars and a 50-row table. Every tick moves the three charts and 
 | `solid` | JSON | signals per window and the bars, a store for the hosts, each tick in `batch()` (Solid 1.9.18) |
 | `svelte` | JSON | `$state.raw` windows and bars, deep `$state` hosts changed in place (Svelte 5.57.3) |
 | `vue` | JSON | `shallowRef` windows and bars, `reactive` hosts changed in place (Vue 3.5.45) |
+| `avenx` | JSON | one component: windows and bars replaced, Proxy hosts changed in place, formatters reached through actions (templates cannot read globals) (Avenx 1.0.0-rc.1, [`apps/avenx`](apps/avenx)) |
 | `datastar` | `datastar-patch-signals` | the server sends the changed values, formatted; `data-text`, `data-attr:d`, `data-style:height` show them (Datastar 1.0.4) |
 | `datastar-elements` | `datastar-patch-elements` | the server renders the changed elements, morphed by id |
 | `htmx` | HTML `tick` event | `sse-swap` on `#seq`, everything else `hx-swap-oob` (htmx 2.0.11, htmx-ext-sse 2.2.4) |
@@ -60,6 +61,7 @@ npm run build                              # in the repo root (sinter's dist/)
 cd bench/live && npm install
 mkdir -p vendor && curl -sfLo vendor/datastar-1.0.4.js https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.4/bundles/datastar.js
 #   sha256 727844adfc825ee651fb93c544a2a739986f9a21820a94524b35f0cac470cf91 (also on raw.githubusercontent.com/starfederation/datastar/v1.0.4/bundles/datastar.js)
+(cd apps/avenx && npm install)             # Avenx builds with its own CLI
 node build.mjs                             # dist/<variant>/
 CHROME=/path/to/chrome node run.mjs        # tables on stdout, raw numbers in results/
 # CPU=4 (throttling) RATES=25,50,100 STEP=3000 WARM=1000 ONLY=sinter,datastar CHROME_ARGS=--no-sandbox
