@@ -78,13 +78,15 @@ Google Fonts stylesheets are downloaded at build time and bundled as one of your
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `fonts.inline` | `true` | `false` keeps the `<link>` to Google Fonts |
-| `fonts.preload` | none | faces to preload: a family name (its 400 normal face) or `{ family, weight, style }` |
+| `fonts.preload` | none | faces to preload: a family name (its 400 normal face) or `{ family, weight, style }`, from a Google Fonts stylesheet or the app's own `@font-face` (builds) |
 
 ```js
 sinter({ fonts: { preload: ['Inter', { family: 'Inter', weight: 700 }] } })
 ```
 
 The build fails when a page preloads a face of a family its stylesheets never use, or when no page has the face at all. In dev, sinter warns when a page did not render with the face in its first frames: a preload competes with what the first paint needs.
+
+To self-host fonts (no requests to Google, `font-src 'self'`), use a local package such as Fontsource instead of the Google Fonts link; `preload` finds its faces in the bundled CSS. See [first paint](first-paint.md#self-hosted-fonts).
 
 ### Images
 

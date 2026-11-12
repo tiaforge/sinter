@@ -2,7 +2,7 @@
 // Font preloads (fonts-build.ts, `sinter({ fonts: { preload } })`): which file a face preloads, and
 // whether a stylesheet uses a family (the build fails for a preloaded family no stylesheet uses).
 import { expect, test } from 'vitest';
-import { faceName, faceOf, fontFaceUrl, fontPreloadTag, usesFamily } from '../../src/fonts-build.js';
+import { faceName, faceOf, fontFaceUrl, fontPreloadTag, preloadLocalFonts, usesFamily } from '../../src/fonts-build.js';
 
 const face = (subset: string, family: string, weight: number, style: string, file: string, range = 'U+0000-00FF') =>
   `/* ${subset} */\n@font-face {\n  font-family: '${family}';\n  font-style: ${style};\n  font-weight: ${weight};\n  src: url(https://fonts.gstatic.com/s/${file}.woff2) format('woff2');\n  unicode-range: ${range};\n}\n`;
@@ -32,8 +32,26 @@ test('the Latin file of the face, by family (any case), weight and style', () =>
   expect(fontFaceUrl(GOOGLE.replace(/\/\* [\w-]+ \*\/\n/g, ''), faceOf('Source Sans Pro'))).toBe('https://fonts.gstatic.com/s/ssp-400.woff2');
 });
 
-test('the preload tag is a CORS font preload', () => {
+test('the preload tag is a CORS font preload, typed by the file', () => {
   expect(fontPreloadTag('https://f/a.woff2')).toBe('<link rel="preload" as="font" type="font/woff2" href="https://f/a.woff2" crossorigin>');
+  expect(fontPreloadTag('/a.woff?v=2')).toBe('<link rel="preload" as="font" type="font/woff" href="/a.woff?v=2" crossorigin>');
+  expect(fontPreloadTag('/a')).toBe('<link rel="preload" as="font" href="/a" crossorigin>');
+});
+
+test('a variable face spans its weights; minified unicode-range; the woff2 source of several', () => {
+  const css = "@font-face{font-family:Figtree Variable;font-weight:300 900;src:url(/a/ext.woff2)format('woff2');unicode-range:U+0100-02BA}"
+    + "@font-face{font-family:Figtree Variable;font-style:normal;font-weight:300 900;src:url(/a/lat.woff) format('woff'),url(/a/lat.woff2) format('woff2-variations');unicode-range:U+00??,U+0131}";
+  expect(fontFaceUrl(css, faceOf('Figtree Variable'))).toBe('/a/lat.woff2');
+  expect(fontFaceUrl(css, faceOf({ family: 'Figtree Variable', weight: 900 }))).toBe('/a/lat.woff2');
+  expect(fontFaceUrl(css, faceOf({ family: 'Figtree Variable', weight: 200 }))).toBeNull();
+  expect(fontFaceUrl("@font-face{font-family:X;font-weight:bold;src:url(data:font/woff2;base64,AA)format('woff2'),url(/x.woff2)}", faceOf({ family: 'X', weight: 700 }))).toBe('/x.woff2');
+});
+
+test('local preloads: relative URLs resolve against the stylesheet, one tag per file', () => {
+  const sheets = [{ href: 'assets/app.css', css: "@font-face{font-family:A;font-weight:100 900;src:url(./a.woff2)}" }];
+  const out = preloadLocalFonts('<head><meta charset="utf-8"><title>t</title></head>', sheets, [faceOf('A'), faceOf({ family: 'A', weight: 700 }), faceOf('B')]);
+  expect(out.html).toBe('<head><meta charset="utf-8"><link rel="preload" as="font" type="font/woff2" href="assets/a.woff2" crossorigin><title>t</title></head>');
+  expect(out.preloaded.map(faceName)).toEqual(['A 400', 'A 700']);
 });
 
 test('a stylesheet uses a family when a font-family or font declaration outside @font-face names it', () => {

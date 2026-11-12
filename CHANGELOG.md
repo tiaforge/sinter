@@ -5,8 +5,13 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- `sinter({ fonts: { preload } })` works for self-hosted fonts: in builds, a face no Google Fonts stylesheet has is preloaded from the page's own bundled `@font-face` (Fontsource, or your own woff2 files). The docs show how to self-host instead of loading the files from Google.
+
 ### Fixed
 
+- A variable face (`font-weight: 400 700`, as `wght@400..700` gives) can be preloaded: a weight within its range matches it.
 - `SN503` no longer warns when an `id` or `name` value starts with a literal string (`'contact-' + c.id`, `` `contact-${c.id}` ``), as its docs' fix says.
 
 ## 0.16.0 (2026-11-12)

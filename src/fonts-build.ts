@@ -6,7 +6,7 @@
 // A file, not an inline <style>: no `style-src` change for a Content Security Policy.
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 
 /** Where a rewritten link points: a module id the plugin resolves to the downloaded stylesheet. */
 export const FONTS_PREFIX = '/__sinter-fonts/';
@@ -96,26 +96,72 @@ export const faceName = (f: FontFaceRef) => `${f.family} ${f.weight}${f.style ==
 const unquote = (s: string) => s.trim().replace(/^(['"])(.*)\1$/, '$2').trim();
 const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
 
+/** Whether a `unicode-range` covers Latin letters (`U+0000-00FF`, minified `U+00??`, `U+41-5A`). */
+const coversLatin = (range: string) => range.split(',').some((r) => {
+  const m = /^\s*U\+([0-9a-f?]+)(?:-([0-9a-f]+))?\s*$/i.exec(r);
+  if (!m) return false;
+  const lo = parseInt(m[1]!.replace(/\?/g, '0'), 16), hi = parseInt(m[2] ?? m[1]!.replace(/\?/g, 'f'), 16);
+  return lo <= 0x41 && hi >= 0x5a;
+});
+
+/** Whether a `font-weight` (`400`, a variable font's `100 900`, `bold`) has the weight. */
+const hasWeight = (prop: string, weight: number) => {
+  const [lo, hi = lo] = (prop || '400').split(/\s+/).map((w) => (w == 'bold' ? 700 : w == 'normal' ? 400 : Number(w)));
+  return lo! <= weight && weight <= hi!;
+};
+
 /**
- * The URL of a face's Latin file in a Google Fonts stylesheet: the `@font-face` with that family,
- * weight and style that the stylesheet marks `/* latin *\/` (Google's subsets), else the one whose
- * `unicode-range` covers U+0000-00FF, else the only one. Null when the stylesheet has none.
+ * The URL of a face's Latin file in a stylesheet (Google Fonts' or the app's own, e.g. Fontsource):
+ * the `@font-face` with that family, a weight that is or spans the face's, and its style, that the
+ * stylesheet marks `/* latin *\/` (Google's subsets), else the one whose `unicode-range` covers the
+ * Latin letters, else the only one. Its woff2 source when it has several. Null when the stylesheet has none.
  */
 export function fontFaceUrl(css: string, face: FontFaceRef): string | null {
   const blocks = [...css.matchAll(/(?:\/\*\s*([\w-]+)\s*\*\/\s*)?@font-face\s*\{([^}]*)\}/g)].map((m) => ({ subset: m[1] ?? '', body: m[2]! }));
   const prop = (body: string, name: string) => new RegExp(`(?:^|[;{\\s])${name}\\s*:\\s*([^;]+)`, 'i').exec(body)?.[1]?.trim() ?? '';
   const matching = blocks.filter((b) => unquote(prop(b.body, 'font-family')).toLowerCase() == face.family.toLowerCase()
-    && Number(prop(b.body, 'font-weight') || 400) == face.weight && (prop(b.body, 'font-style') || 'normal') == face.style);
-  const pick = matching.find((b) => b.subset == 'latin') ?? matching.find((b) => /U\+0000-00FF/i.test(prop(b.body, 'unicode-range'))) ?? (matching.length == 1 ? matching[0] : undefined);
-  return pick ? /url\(\s*['"]?([^'")\s]+)/.exec(pick.body)?.[1] ?? null : null;
+    && hasWeight(prop(b.body, 'font-weight'), face.weight) && (prop(b.body, 'font-style') || 'normal') == face.style);
+  const pick = matching.find((b) => b.subset == 'latin') ?? matching.find((b) => coversLatin(prop(b.body, 'unicode-range'))) ?? (matching.length == 1 ? matching[0] : undefined);
+  if (!pick) return null;
+  const urls = [...pick.body.matchAll(/url\(\s*['"]?([^'")\s]+)['"]?\s*\)\s*(?:format\(\s*['"]?([\w-]+))?/g)].map((m) => ({ url: m[1]!, format: m[2] ?? '' }))
+    .filter((u) => !u.url.startsWith('data:'));
+  return (urls.find((u) => u.format == 'woff2' || /\.woff2(?:[?#]|$)/i.test(u.url)) ?? urls[0])?.url ?? null;
 }
+
+const FONT_TYPES: Record<string, string> = { woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf' };
 
 /**
  * The tag that preloads a font file (fonts load in CORS mode: `crossorigin`, or the preload goes
  * unused). `face`: dev only, the face it is for, which the dev check reads (`data-sn-font`).
  */
-export const fontPreloadTag = (url: string, face?: FontFaceRef) =>
-  `<link rel="preload" as="font" type="font/woff2" href="${url}" crossorigin${face ? ` data-sn-font="${`${face.family};${face.weight};${face.style}`.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`)}"` : ''}>`;
+export const fontPreloadTag = (url: string, face?: FontFaceRef) => {
+  const type = FONT_TYPES[/\.(\w+)(?:[?#]|$)/.exec(url)?.[1]?.toLowerCase() ?? ''];
+  return `<link rel="preload" as="font"${type ? ` type="${type}"` : ''} href="${url}" crossorigin${face ? ` data-sn-font="${`${face.family};${face.weight};${face.style}`.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`)}"` : ''}>`;
+};
+
+const afterCharset = (html: string, tags: string) =>
+  !tags ? html : /<meta\s+charset[^>]*>/i.test(html) ? html.replace(/<meta\s+charset[^>]*>/i, (m) => m + tags) : html.replace(/<head[^>]*>/i, (m) => m + tags);
+
+/**
+ * Builds: adds a preload, after `<meta charset>`, for each face the page's own bundled stylesheets
+ * have (`sheets`: each as the page links it, `href` relative to the page or absolute, and its CSS; a
+ * page's inline `<style>` with `href` ''). A relative font URL is resolved against its stylesheet's
+ * `href`. Returns the page and the faces it preloads.
+ */
+export function preloadLocalFonts(html: string, sheets: Array<{ href: string; css: string }>, faces: FontFaceRef[]): { html: string; preloaded: FontFaceRef[] } {
+  const preloaded: FontFaceRef[] = [], tags: string[] = [];
+  for (const f of faces) {
+    for (const s of sheets) {
+      const url = fontFaceUrl(s.css, f);
+      if (!url) continue;
+      const href = /^([a-z][\w+.-]*:|\/)/i.test(url) || !s.href ? url : posix.join(posix.dirname(s.href.split(/[?#]/)[0]!), url);
+      if (!html.includes(`href="${href}"`) && !tags.some((t) => t.includes(`href="${href}"`))) tags.push(fontPreloadTag(href));
+      preloaded.push(f);
+      break;
+    }
+  }
+  return { html: afterCharset(html, tags.join('')), preloaded };
+}
 
 /**
  * Adds a preload, after `<meta charset>`, for each face whose Latin file one of the page's Google
@@ -131,9 +177,7 @@ export async function preloadFonts(html: string, sheet: (url: string) => Promise
     const url = sheets.map((c) => fontFaceUrl(c, f)).find(Boolean);
     if (url && !html.includes(`href="${url}"`)) { preloaded.push(f); tags.push(fontPreloadTag(url, dev ? f : undefined)); }
   }
-  const pre = tags.join('');
-  if (pre) html = /<meta\s+charset[^>]*>/i.test(html) ? html.replace(/<meta\s+charset[^>]*>/i, (m) => m + pre) : html.replace(/<head[^>]*>/i, (m) => m + pre);
-  return { html, preloaded };
+  return { html: afterCharset(html, tags.join('')), preloaded };
 }
 
 /**

@@ -211,6 +211,21 @@ because it competes with render-blocking files and text in that face waits for i
 The build fails if a page preloads a face none of its stylesheets use. Stylesheets on other
 origins (an icon font's CSS) are left alone.
 
+### Self-hosted fonts
+
+The bundled Google Fonts CSS still loads the font files from `fonts.gstatic.com`: each visitor's
+browser contacts Google, and a CSP needs `font-src https://fonts.gstatic.com`. To serve the files
+yourself, use a local font package instead of the link, for example
+[Fontsource](https://fontsource.org): `npm install @fontsource-variable/figtree`, then
+`import '@fontsource-variable/figtree';` in your page module (or `@import` it in your stylesheet).
+Vite bundles the font files as hashed assets, so `font-src 'self'` is enough.
+
+`preload` works for these too: a face no Google Fonts stylesheet has is looked up in the
+`@font-face` rules of the page's own bundled CSS, and the page preloads its Latin file (the one
+whose `unicode-range` covers Latin letters). Use the family name the package declares:
+`sinter({ fonts: { preload: ['Figtree Variable'] } })`. A variable face covers every weight in
+its range with one file, so one preload covers them all. In dev, local faces are not preloaded.
+
 ## Heavy packages
 
 A package only some interactions need (crypto, charts, a PDF renderer) does not have to be on the
