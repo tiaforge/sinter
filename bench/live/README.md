@@ -215,6 +215,40 @@ the next rAF): sinter kept up to 2,000/s at 1x and 200/s at 4x, level with Solid
 | htmx | 100 | 105 | 5 | 37.4 / 60.2 | 135.8 / 281.7 | 100 | 89 | 5 | 16 (2958) | 7.2 | 80 |
 | htmx | 200 | 179 | 1 | 1260.0 / 1863.0 | 1949.3 / 2776.2 | 100 | 96 | 1 | 4 (5389) | 19.2 | no |
 
+### Avenx (separate run)
+
+2026-11-12, `CPU=1,4 ONLY=sinter,avenx node run.mjs`, Chrome for Testing 153 headless, 3 s steps
+after 1 s warm-up, one run per cell. Raw numbers:
+[`results/2026-11-12T18-13-28-035Z-cpu1-4.json`](results/2026-11-12T18-13-28-035Z-cpu1-4.json).
+
+> **Not comparable with the tables above.** This is a separate run of only these variants, on a
+> different machine (another 4-core cloud VM, two days later). Until the full suite is re-run with Avenx included on one machine,
+> compare Avenx only with the sinter rows in this section, not with the other libraries' numbers above.
+
+| CPU | sinter keeps up to (ticks/s) | Avenx keeps up to (ticks/s) | heap after GC, start → end (MB): sinter / Avenx |
+| --- | ---: | ---: | --- |
+| 1x | 5000 | 500 | 0.8 → 1.2 / 1.3 → 3.0 |
+| 4x throttled | 5000 | 100 | 0.9 → 1.2 / 1.3 → 2.5 |
+
+| variant | rate/s | shown/s | fps | dom p50 / p95 | frame p50 / p95 | busy % | script % |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| sinter @1x | 500 | 60 | 60 | 2.2 / 3.3 | 4.1 / 5.3 | 18 | 4 |
+| sinter @1x | 5000 | 60 | 60 | 1.6 / 2.4 | 4.1 / 5.9 | 28 | 7 |
+| avenx @1x | 100 | 100 | 60 | 1.7 / 2.5 | 29.3 / 49.7 | 21 | 2 |
+| avenx @1x | 500 | 500 | 60 | 1.7 / 4.0 | 26.6 / 62.2 | 62 | 8 |
+| avenx @1x | 1000 | 1237 | 1 | 89.6 / 182.4 | 118.4 / 159.4 | 100 | 12 |
+| sinter @4x | 5000 | 59 | 59 | 3.3 / 5.9 | 14.7 / 22.4 | 89 | 24 |
+| avenx @4x | 100 | 100 | 56 | 6.5 / 15.3 | 40.2 / 87.4 | 84 | 9 |
+| avenx @4x | 200 | 203 | 22 | 11.1 / 26.0 | 90.4 / 250.2 | 100 | 13 |
+
+- Avenx renders every event: each tick reaches the DOM within about 2 ms at 1x, but the frame that
+  paints it comes late (p95 35–62 ms from 100 ticks/s up), and at 1,000/s the page paints about one
+  frame a second.
+- There, its script is about 12 % of a 100 % busy main thread and the heap grows to about 40 MB in
+  the run: likely garbage collection from per-event allocations (not profiled).
+- Before measuring, the Avenx page's DOM (paths, captions, bars, every row and its class) was
+  compared with the model after 200 ticks: equal.
+
 ## The live grid
 
 A large table under a stream of row updates: N rows (symbol, price, change %, volume), each tick
@@ -264,3 +298,29 @@ container detached while writing 901 / 935 (it then dirties all 6,000 objects, a
   ticks/s (the floor itself moved 44 → 27 fps between two runs at 35/s); sorted, Solid, Svelte and
   Vue stop at 20 ticks/s (93–97 % script), sinter, ivi and plain JS degrade together.
 - At 4x every variant is at the browser's limit from 50 ticks/s; one 1 s step per cell is noise there.
+
+### Avenx grid (separate run)
+
+2026-11-12, `QUICK=1 CPU=1 RATES=50,200,500,1000 QUERY='n=1000&k=100&sort=0|1'
+ONLY=grid-vanilla,grid-sinter,grid-avenx node run.mjs`, Chrome for Testing 153 headless, one run
+per cell (quick runs keep no results file). Frames per second; – = no longer fed (fell behind).
+
+> **Not comparable with the tables above.** This is a separate run of only these variants, on a
+> different machine (another 4-core cloud VM). Until the full suite is re-run with Avenx included on one machine,
+> compare Avenx only with the sinter and plain-JS rows in this section, not with the other libraries' numbers above.
+
+| ticks/s | vanilla | sinter | Avenx |
+| --- | ---: | ---: | ---: |
+| in place, 50 | 60 | 60 | 59 |
+| in place, 200 | 55 | 47 | 3 |
+| in place, 500 | 34 | 25 | 1 |
+| in place, 1000 | 23 | 25 | – |
+| sorted, 50 | 58 | 56 | 1 |
+| sorted, 200 | 30 | 24 | 1 |
+| sorted, 1000 | 17 | 16 | – |
+
+- Highest rate kept up with: plain JS and sinter 1,000 ticks/s in both modes; Avenx 50 in place,
+  under 50 sorted.
+- Sorted, one Avenx tick costs about 50 ms on its own (long tasks of 51 and 55 ms at 5 ticks/s): it
+  sorts 1,000 Proxy rows and reconciles per event, which caps it near 20 ticks/s.
+- Before measuring, both modes were compared with `expectedRows()` after ~100 ticks: equal.

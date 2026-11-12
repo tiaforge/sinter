@@ -205,6 +205,49 @@ What these say:
   `'unsafe-eval'` under CSP (Alpine has a separate CSP build with a restricted expression syntax,
   not measured here), and server-rendered user content containing their directives runs as code.
 
+### Avenx (separate run)
+
+2026-11-12, `ONLY=vanilla-json,sinter,avenx node run.mjs`: 3 rounds × 50 swaps after 10 warm-up,
+Chrome for Testing 153 headless, 4-core cloud VM, no CPU throttling. Median ms, dom / layout as above.
+
+> **Not comparable with the tables above.** This is a separate run of only these variants, on a
+> different machine (a 4-core cloud VM, not the Steam Deck above; also a different Chrome). Until the full suite is re-run with Avenx included on one machine,
+> compare Avenx only with the sinter and vanilla-json rows in this section, not with the other libraries' numbers above.
+
+#### replace
+
+| variant | 100 rows | 1000 rows | 5000 rows |
+| --- | ---: | ---: | ---: |
+| vanilla-json | 2.50 / 3.50 | 5.10 / 14.0 | 19.0 / 71.8 |
+| sinter | 2.80 / 3.90 | 6.40 / 15.8 | 24.0 / 70.5 |
+| avenx-1.0.0-rc.1 | 4.40 / 5.60 | 15.5 / 24.3 | 82.1 / 131 |
+
+#### update
+
+| variant | 100 rows | 1000 rows | 5000 rows |
+| --- | ---: | ---: | ---: |
+| vanilla-json | 2.60 / 3.70 | 5.70 / 14.1 | 17.1 / 66.6 |
+| sinter | 2.70 / 3.40 | 3.20 / 7.60 | 6.70 / 35.3 |
+| avenx-1.0.0-rc.1 | 3.20 / 4.00 | 10.4 / 15.4 | 44.8 / 71.5 |
+
+#### append
+
+| variant | 100 rows | 1000 rows | 5000 rows |
+| --- | ---: | ---: | ---: |
+| vanilla-json | 2.20 / 3.20 | 2.70 / 10.2 | 3.30 / 14.4 |
+| sinter | 2.50 / 3.40 | 3.10 / 11.7 | 4.80 / 15.6 |
+| avenx-1.0.0-rc.1 | 2.70 / 3.70 | 5.50 / 12.6 | 22.7 / 34.9 |
+
+Library JS (gz): sinter 14.5 KB, Avenx 78.5 KB (its runtime and the page's compiled component, one
+script).
+
+- At 100 rows the three are within about 2 ms. At 5,000 rows Avenx takes about 3.4× sinter's time to
+  replace (82 vs 24 ms), 6.7× to update every 10th row (45 vs 6.7 ms) and 4.7× to append (23 vs
+  4.8 ms).
+- Avenx keeps the rows on update (its laid-out time at 5,000 rows is about plain JS's rebuild),
+  but reaching that state costs more than the rebuild.
+- How it ranks against htmx, Datastar, Alpine and petite-vue needs all variants in one run.
+
 ## Caveats
 
 - One machine, one browser. Loopback hides the payload difference (HTML fragment vs JSON, see
