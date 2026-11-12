@@ -25,7 +25,7 @@
   <PropertyGroup>
     <SinterBuild>fixtures/web</SinterBuild>
   </PropertyGroup>
-  <Import Project="../../src/Sinter.AspNetCore/build/Tiaforge.Sinter.AspNetCore.targets" />
+  <Import Project="../../src/Sinter.AspNetCore/build/Sinter.AspNetCore.targets" />
   <ItemGroup>
     <Content Include="fixtures/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

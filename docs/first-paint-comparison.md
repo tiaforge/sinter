@@ -201,7 +201,7 @@ About 35x Qwik's home pages and 3.5x the Node middleware's per core; on the arti
 A second run of 10 s gave 67, 595 and 1,884 home pages per second. Each page here is two API requests,
 which the API answered in about 1 ms: a slower API changes the latency, not the CPU per page.
 
-## Tiaforge.Sinter.AspNetCore
+## Sinter.AspNetCore
 
 [`packages/sinter-aspnetcore`](../packages/sinter-aspnetcore) is the same layer for ASP.NET Core. Its
 `examples/RealWorld` is a port of sinter-axum's example server (the same resolver, gzip, cache headers),
@@ -214,7 +214,7 @@ decompressed pages were byte for byte the same, and gzip at the default level of
 | Pages per second, one core | Home, gzip | Article, gzip | Home | Article |
 | --- | --- | --- | --- | --- |
 | sinter-axum | 2,830 (p50 10.8 ms) | 3,652 (p50 8.4 ms) | 2,910 | 3,823 |
-| Tiaforge.Sinter.AspNetCore, NativeAOT | 2,808 (p50 10.9 ms) | 3,748 (p50 8.3 ms) | 2,857 | 3,532 |
+| Sinter.AspNetCore, NativeAOT | 2,808 (p50 10.9 ms) | 3,748 (p50 8.3 ms) | 2,857 | 3,532 |
 
 The two are within a few percent of each other.
 

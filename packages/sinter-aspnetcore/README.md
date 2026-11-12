@@ -1,4 +1,4 @@
-# Tiaforge.Sinter.AspNetCore
+# Sinter.AspNetCore
 
 Serve a [sinter](https://github.com/tiaforge/sinter#readme) app from ASP.NET Core with its API data already in the page. The first frame shows the data, the browser makes no API request on load, and nothing is rendered on the server.
 
@@ -14,7 +14,7 @@ The server layer is optional: without it, sinter pages fetch their data in the b
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Tiaforge.Sinter.AspNetCore" Version="0.17.0" />
+  <PackageReference Include="Sinter.AspNetCore" Version="0.17.0" />
 </ItemGroup>
 <PropertyGroup>
   <!-- the frontend's build output, relative to this project -->
@@ -210,7 +210,7 @@ The body goes in exactly as the API returned it (`items="articles"` picks the li
 
 ## Performance
 
-Per core, it serves as many pages as sinter-axum: about 2,800 RealWorld home pages per second with gzip, published with NativeAOT, against 2,830 for the Rust layer on the same machine (method and numbers in [docs/first-paint-comparison.md](https://github.com/tiaforge/sinter/blob/main/docs/first-paint-comparison.md#tiaforgesinteraspnetcore)). At startup, a build compiled in by `[SinterEmbed]` parses no JSON: the pages are read and cut at their slots, and that's all.
+Per core, it serves as many pages as sinter-axum: about 2,800 RealWorld home pages per second with gzip, published with NativeAOT, against 2,830 for the Rust layer on the same machine (method and numbers in [docs/first-paint-comparison.md](https://github.com/tiaforge/sinter/blob/main/docs/first-paint-comparison.md#sinteraspnetcore)). At startup, a build compiled in by `[SinterEmbed]` parses no JSON: the pages are read and cut at their slots, and that's all.
 
 ## Development
 

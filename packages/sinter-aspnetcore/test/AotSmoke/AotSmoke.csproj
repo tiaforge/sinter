@@ -11,5 +11,5 @@
     <ProjectReference Include="../../src/Sinter.AspNetCore/Sinter.AspNetCore.csproj" />
     <ProjectReference Include="../../src/Sinter.AspNetCore.Generator/Sinter.AspNetCore.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
-  <Import Project="../../src/Sinter.AspNetCore/build/Tiaforge.Sinter.AspNetCore.targets" />
+  <Import Project="../../src/Sinter.AspNetCore/build/Sinter.AspNetCore.targets" />
 </Project>

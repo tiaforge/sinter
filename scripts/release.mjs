@@ -9,7 +9,7 @@
 //   sinter about to be published, so publish sinter first, and on the latest @tiaforge-ui/temper
 //   and @tiaforge-ui/temper-inspect on npm (looked up with `npm view`).
 // - sinter-axum and sinter-axum-macros (packages/sinter-axum, the middleware crates).
-// - Tiaforge.Sinter.AspNetCore (packages/sinter-aspnetcore, the ASP.NET Core middleware, on NuGet).
+// - Sinter.AspNetCore (packages/sinter-aspnetcore, the ASP.NET Core middleware, on NuGet).
 //
 // `--dry-run` prints the edits without writing; `--no-check` skips the typecheck and the tests
 // (npm, cargo and dotnet) that run before the commit.
@@ -94,7 +94,7 @@ const edits = [
   ['packages/sinter-axum/README.md', (s) => s.replace(/(sinter-axum = (?:\{ version = )?)"[^"]*"/g, `$1"${major}.${minor}"`)],
   // The ASP.NET Core middleware: its version for every project, and the PackageReference in its README.
   ['packages/sinter-aspnetcore/Directory.Build.props', (s) => s.replace(/<Version>[^<]*<\/Version>/, `<Version>${version}</Version>`)],
-  ['packages/sinter-aspnetcore/README.md', (s) => s.replace(/(Include="Tiaforge\.Sinter\.AspNetCore" Version=)"[^"]*"/g, `$1"${version}"`)],
+  ['packages/sinter-aspnetcore/README.md', (s) => s.replace(/(Include="Sinter\.AspNetCore" Version=)"[^"]*"/g, `$1"${version}"`)],
   ['CHANGELOG.md', (s) => s.replace(/^## Unreleased$/m, `## ${version} (${date})`)],
 ];
 
@@ -149,7 +149,7 @@ const dryRuns = [
   }],
   ['create-sinter', () => execFileSync('npm', ['publish', '--dry-run'], { cwd: resolve(root, 'packages/create'), stdio: 'inherit' })],
   ['sinter-axum and sinter-axum-macros', () => cargo(['publish', '--workspace', '--dry-run'])],
-  ['Tiaforge.Sinter.AspNetCore', () => dotnet(['pack', 'src/Sinter.AspNetCore', '-c', 'Release', '-o', 'artifacts'])],
+  ['Sinter.AspNetCore', () => dotnet(['pack', 'src/Sinter.AspNetCore', '-c', 'Release', '-o', 'artifacts'])],
 ];
 for (const [name, run] of dryRuns) {
   console.log(`\nrelease: publish dry run of ${name}`);
@@ -165,7 +165,7 @@ for (const [name, run] of dryRuns) {
 console.log(`
 Released: commit "Release ${version}", tag ${tag}. The publish dry runs passed.
 All at ${version}: @tiaforge-ui/sinter, create-sinter (new apps get @tiaforge-ui/sinter ^${version}
-and @tiaforge-ui/temper ^${temper}), sinter-axum and sinter-axum-macros, Tiaforge.Sinter.AspNetCore.
+and @tiaforge-ui/temper ^${temper}), sinter-axum and sinter-axum-macros, Sinter.AspNetCore.
 
 Push:
   git push origin HEAD ${tag}
@@ -174,4 +174,4 @@ Publish, in this order (the starter needs sinter ${version} on npm, sinter-axum 
   npm publish
   (cd packages/create && npm publish)
   (cd packages/sinter-axum && cargo publish --workspace)
-  dotnet nuget push packages/sinter-aspnetcore/artifacts/Tiaforge.Sinter.AspNetCore.${version}.nupkg --source https://api.nuget.org/v3/index.json --api-key <key>`);
+  dotnet nuget push packages/sinter-aspnetcore/artifacts/Sinter.AspNetCore.${version}.nupkg --source https://api.nuget.org/v3/index.json --api-key <key>`);

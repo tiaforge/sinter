@@ -7,7 +7,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
-- `packages/sinter-aspnetcore`: `Tiaforge.Sinter.AspNetCore`, sinter-axum for ASP.NET Core, at feature parity: `app.UseSinter()` fills a build's placeholders per request, streaming the head first, from the app's own minimal APIs and MVC controllers called in-process (through routing, authentication and authorization, the page's cookies forwarded), an upstream server, an allowed origin or a resolver; it follows the build's redirects, rewrites and language choice. `[SinterEmbed]`, a source generator, compiles the build's manifest in and refuses, at compile time, a placeholder without a source or a name no placeholder has; resolvers are static methods whose services and arguments are bound in generated code. NativeAOT-compatible. Released with sinter, at the same version.
+- `packages/sinter-aspnetcore`: `Sinter.AspNetCore`, sinter-axum for ASP.NET Core, at feature parity: `app.UseSinter()` fills a build's placeholders per request, streaming the head first, from the app's own minimal APIs and MVC controllers called in-process (through routing, authentication and authorization, the page's cookies forwarded), an upstream server, an allowed origin or a resolver; it follows the build's redirects, rewrites and language choice. `[SinterEmbed]`, a source generator, compiles the build's manifest in and refuses, at compile time, a placeholder without a source or a name no placeholder has; resolvers are static methods whose services and arguments are bound in generated code. NativeAOT-compatible. Released with sinter, at the same version.
 
 ### Fixed
 

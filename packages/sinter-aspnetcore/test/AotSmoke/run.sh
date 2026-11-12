@@ -29,7 +29,7 @@ cat > "$work/app/AotSmoke.csproj" <<XML
     <SinterBuild>$here/../Sinter.AspNetCore.Tests/fixtures/web</SinterBuild>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Tiaforge.Sinter.AspNetCore" Version="$version" />
+    <PackageReference Include="Sinter.AspNetCore" Version="$version" />
   </ItemGroup>
 </Project>
 XML
