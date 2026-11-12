@@ -7,13 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "sinter check"
+    "check": "sinter check && temper check ."
   },
   "dependencies": {
     "@tiaforge-ui/sinter": "^0.15.0",
-    "@tiaforge-ui/temper": "^0.1.9"
+    "@tiaforge-ui/temper": "^0.2.0"
   },
   "devDependencies": {
+    "@tiaforge-ui/temper-inspect": "^0.2.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.5"
   }

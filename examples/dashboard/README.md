@@ -25,6 +25,9 @@ npm run dev
 - Open the page in two tabs and press **Pause** in one: the other follows (the server broadcasts it).
 - Break it on purpose: change `s.latencyMs` to `s.latencyMss` in `index.html` and run
   `npm run build`: the build fails with the type error from the OpenAPI schema.
+- Change `data-variant="ghost"` on the Pause button to `"danger"`: temper's check fails the build
+  (and warns in dev). In dev, temper's inspector also audits the rendered page (overflow, contrast,
+  clipped text) and prints findings in the terminal.
 - Change `--tm-hue` in `src/style.css`: the graphs follow, in light and dark mode.
 
 ## Your own API
