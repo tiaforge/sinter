@@ -208,7 +208,8 @@ the link and warns. `sinter({ fonts: { inline: false } })` turns this off.
 To preload a face, opt in: `sinter({ fonts: { preload: ['Inter', { family: 'Inter', weight: 700 }] } })`
 (a bare family means its regular face, 400 normal). A preload can make the first paint later,
 because it competes with render-blocking files and text in that face waits for it, so measure.
-The build fails if a page preloads a face none of its stylesheets use. Stylesheets on other
+The build fails if a page preloads a face none of its stylesheets use (in a `font-family` or
+`font` declaration, directly or through a custom property: `font-family: var(--font-sans)`). Stylesheets on other
 origins (an icon font's CSS) are left alone.
 
 ### Self-hosted fonts

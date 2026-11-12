@@ -135,3 +135,9 @@ test('a local face the page does not use, or that has no such weight, fails the 
   await expect(runMin(local('body { font-family: serif; }'), ['Figtree Variable'])).rejects.toThrow(/preloads Figtree Variable 400, but no stylesheet of the page uses/);
   await expect(runMin(local("body { font-family: 'Figtree Variable'; }"), [{ family: 'Figtree Variable', weight: 200 }])).rejects.toThrow(/have Figtree Variable 200: nothing to preload/);
 });
+
+test('a family set through a custom property (token-based CSS) counts as used', async () => {
+  const root = local(":root { --tm-font-sans: 'Figtree Variable', system-ui, sans-serif; }\nbody { font-family: var(--tm-font-sans); }");
+  await runMin(root, ['Figtree Variable']);
+  expect(readFileSync(join(root, 'dist/index.html'), 'utf8')).toMatch(/<link rel="preload" as="font"[^>]*figtree-latin-wght-normal-/);
+});

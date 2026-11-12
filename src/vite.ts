@@ -127,7 +127,7 @@ export interface SinterOptions extends ProjectOptions {
    * in builds, a face they do not have is looked up in the `@font-face` rules of the page's own
    * bundled CSS (a self-hosted font, e.g. Fontsource: use the family it declares).
    * The build fails when a page preloads a face of a family none of its stylesheets uses (a
-   * `font-family` or `font` declaration, outside `@font-face`), or when no page has the face at all;
+   * `font-family` or `font` declaration, outside `@font-face`, directly or through a custom property), or when no page has the face at all;
    * in dev, sinter warns when the page did not render with the face in its first frames (a preload
    * competes with what the first paint needs, and when the font is slow it can hold the first paint).
    */

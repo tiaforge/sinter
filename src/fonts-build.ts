@@ -182,16 +182,29 @@ export async function preloadFonts(html: string, sheet: (url: string) => Promise
 
 /**
  * Whether a stylesheet uses a family: a `font-family` or `font` declaration outside `@font-face`
- * lists it (quoted or not, any case).
+ * lists it (quoted or not, any case), directly or through a custom property it reads with `var()`
+ * whose value lists it (`--font-sans: Inter, sans-serif` … `font-family: var(--font-sans)`, also
+ * through other custom properties), as token-based CSS sets fonts.
  */
 export function usesFamily(css: string, family: string): boolean {
   const rules = stripComments(css).replace(/@font-face\s*\{[^}]*\}/gi, '');
   const want = family.toLowerCase();
-  for (const m of rules.matchAll(/(?:^|[;{\s])font(-family)?\s*:\s*([^;}]+)/gi)) {
-    const parts = m[2]!.replace(/!important/i, '').split(',').map((p) => p.trim());
+  const lists = (value: string, shorthand = false) => {
+    const parts = value.replace(/!important/i, '').split(',').map((p) => p.trim());
     // `font: italic 700 1rem/1.5 "A B", serif`: the first part ends with a family after the size
-    if (!m[1]) parts[0] = parts[0]!.replace(/^.*\d[\w%.]*(?:\/[\w%.]+)?\s+/, '');
-    if (parts.some((p) => unquote(p).toLowerCase() == want)) return true;
+    if (shorthand) parts[0] = parts[0]!.replace(/^.*\d[\w%.]*(?:\/[\w%.]+)?\s+/, '');
+    return parts.some((p) => unquote(p).toLowerCase() == want);
+  };
+  const reads = (value: string) => [...value.matchAll(/var\(\s*(--[\w-]+)/g)].map((m) => m[1]!);
+  // the custom properties whose value lists the family, then those that read one of them, until none is added
+  const props = [...rules.matchAll(/(?:^|[;{\s])(--[\w-]+)\s*:\s*([^;}]+)/g)].map((m) => ({ name: m[1]!, value: m[2]! }));
+  const naming = new Set(props.filter((p) => lists(p.value)).map((p) => p.name));
+  for (let added = true; added;) {
+    added = false;
+    for (const p of props) if (!naming.has(p.name) && reads(p.value).some((n) => naming.has(n))) { naming.add(p.name); added = true; }
+  }
+  for (const m of rules.matchAll(/(?:^|[;{\s])font(-family)?\s*:\s*([^;}]+)/gi)) {
+    if (lists(m[2]!, !m[1]) || reads(m[2]!).some((n) => naming.has(n))) return true;
   }
   return false;
 }

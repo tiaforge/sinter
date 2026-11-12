@@ -67,6 +67,15 @@ test('a stylesheet uses a family when a font-family or font declaration outside 
     // only declared, or only in a comment
     ["@font-face{font-family:'Lora';src:url(x)} p{color:red}", 'Lora', false],
     ['/* font-family: Lora */ p{color:red}', 'Lora', false],
+    // through custom properties (token-based CSS), also through another one, and in the shorthand
+    [":root{--tm-font-sans:'Figtree Variable',system-ui}body{font-family:var(--tm-font-sans)}", 'Figtree Variable', true],
+    [':root{--brand:Lora;--body:var(--brand),serif}p{font-family:var(--body,serif)}', 'Lora', true],
+    [':root{--f:Lora}p{font:1rem/1.5 var(--f)}', 'Lora', true],
+    // a custom property that lists the family but no font declaration reads it
+    [':root{--f:Lora}p{font-family:serif;color:var(--f)}', 'Lora', false],
+    [':root{--f:Lora}p{font-family:var(--g)}', 'Lora', false],
+    // a custom property whose name ends in `font` is not a font declaration
+    [':root{--my-font:Lora}', 'Lora', false],
   ];
   for (const [css, family, want] of cases) expect([css, usesFamily(css, family)]).toEqual([css, want]);
 });

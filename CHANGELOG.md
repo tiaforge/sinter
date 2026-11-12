@@ -3,6 +3,12 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Fixed
+
+- `fonts.preload`: a family set through a custom property (`--font-sans: Inter, sans-serif` … `font-family: var(--font-sans)`, as token-based CSS like temper does) counts as used; the build no longer fails for it.
+
 ## 0.17.0 (2026-11-12)
 
 ### Added
