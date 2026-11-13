@@ -189,7 +189,7 @@ const sinter = await embed<Build>({
 });
 ```
 
-On RealWorld's pages it served 66-72% more pages per second uncompressed, 27-37% more with gzip
+On RealWorld's pages it served 69-85% more pages per second uncompressed, 26-29% more with gzip
 ([measurements](first-paint-comparison.md#tiaforge-uisinterserver)). Calls to the app you wrap are
 in-process and use neither. Bun's and Deno's `fetch` are native and need nothing of the kind.
 
@@ -221,8 +221,9 @@ in-process and use neither. Bun's and Deno's `fetch` are native and need nothing
 
 ## Performance
 
-See [first-paint-comparison.md](first-paint-comparison.md#tiaforge-uisinterserver) for pages per second against
-sinter-axum on the same machine. To run the RealWorld server used there (frontend built with
+See [first-paint-comparison.md](first-paint-comparison.md#with-the-api-in-the-same-app) for pages per second
+against sinter-axum and Sinter.AspNetCore on the same machine, with the API in the same app
+(`bench/in-process`), and [with an API over HTTP](first-paint-comparison.md#tiaforge-uisinterserver). To run the RealWorld server used there (frontend built with
 `SINTER_EMBED=1`):
 
 ```sh

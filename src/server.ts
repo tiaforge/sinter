@@ -239,6 +239,12 @@ function errorTail(text: string, redirect?: string) {
   return `${go}</head><body data-sn-failed><p>${html(text)}</p></body></html>`;
 }
 
+/** The origin of an absolute URL, as text (a same-origin path goes after it; the Request parses the whole once). */
+const originOf = (url: string) => {
+  const i = url.indexOf('/', url.indexOf('//') + 2);
+  return i < 0 ? url : url.slice(0, i);
+};
+
 const isJson = (type: string | null) => {
   const t = (type ?? '').split(';')[0]!.trim().toLowerCase();
   return t == 'application/json' || t.endsWith('+json');
@@ -376,7 +382,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
       else if (req.url == null) return null; // no request at this URL (its `when` does not hold)
       else if (sameOrigin(req.url)) {
         const init = { headers: forwarded(req.request.headers), signal: req.signal };
-        got = await body(upstream != null ? await fetchFn(upstream + req.url, init) : await api(new Request(new URL(req.url, req.request.url), init), ...rest));
+        got = await body(upstream != null ? await fetchFn(upstream + req.url, init) : await api(new Request(originOf(req.request.url) + req.url, init), ...rest));
       } else if (allowed(req.url)) got = await body(await fetchFn(req.url, { headers: { accept: 'application/json' }, signal: req.signal }));
       else return null;
     } catch (e) {

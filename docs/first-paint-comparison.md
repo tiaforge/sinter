@@ -231,8 +231,8 @@ returned the same pages, byte for byte.
 | --- | --- | --- | --- | --- |
 | sinter-axum | 2,721 | 3,599 | 9,406 | 10,100 |
 | sinter/server on Bun 1.4 (`Bun.serve`) | — | — | 5,814 | 7,710 |
-| sinter/server on Node 22, API through `undici.request()` | 1,362 | 1,614 | 3,181 | 3,162 |
-| sinter/server on Node 22, API through `fetch` | 1,069 | 1,178 | 1,846 | 1,902 |
+| sinter/server on Node 22, API through `undici.request()` | 1,369 | 1,658 | 3,347 | 3,524 |
+| sinter/server on Node 22, API through `fetch` | 1,085 | 1,281 | 1,978 | 1,907 |
 
 - **The layer itself costs about 50 µs of CPU a page on Node, 30-45 µs on Bun**, measured in-process with
   the API answered from memory (half what it was before two changes: the scan for `<` in the API's JSON
@@ -242,10 +242,36 @@ returned the same pages, byte for byte.
 - **On Node, most of a page's cost is Node's own `fetch`**: a CPU profile under load puts the layer at
   about 3% of the time and Node's `fetch` (undici behind the WHATWG `Request` and `Response`) at the
   largest share. Giving the layer undici's `request()` instead (`fetch` option, [server.md](server.md#on-node))
-  serves 66-72% more pages uncompressed and 27-37% more with gzip. The rest is Node's HTTP server, gzip
+  serves 69-85% more pages uncompressed and 26-29% more with gzip. The rest is Node's HTTP server, gzip
   and garbage collection; several processes use several cores.
 - These pages fetch their data from an API server over HTTP. With the API in the same app (the in-process
-  call `wrap(app.fetch)` makes), a page's requests use no HTTP client at all.
+  call `wrap(app.fetch)` makes), a page's requests use no HTTP client at all: below.
+
+## With the API in the same app
+
+The case the layers are built for: the API is routes of the same app, which the layer calls in-process
+(sinter-axum's `.api(router)`, Sinter.AspNetCore's endpoints, `wrap(app.fetch)` over a Hono app). The
+servers are in `bench/in-process` (`run.sh` runs them all): each API route answers with the same recorded
+JSON, so the API does the same, trivial work in every language, and what is measured is the layer and
+its server. Same pages and method as above (one core for the server, two for `oha`, 32 connections,
+15 s), measured 2026-11-13 on the same machine; every server returned the same pages, byte for byte.
+
+| Pages per second, one core | Home, gzip | Article, gzip | Home | Article |
+| --- | --- | --- | --- | --- |
+| sinter-axum | 3,092 | 3,942 | 28,679 | 31,306 |
+| Sinter.AspNetCore, NativeAOT | 4,216 | 5,739 | 20,844 | 27,278 |
+| sinter/server on Bun 1.4, Hono | — | — | 13,727 | 19,825 |
+| sinter/server on Node 22, Hono | 1,499 | 1,776 | 6,467 | 7,035 |
+
+- **Without compression, the layers serve 6,500-31,000 pages per second per core**, about three times
+  as many as with an API over HTTP: the two API requests of a page were most of its cost.
+- **With gzip, the compressor is most of the work.** Sinter.AspNetCore leads there because .NET's
+  `Optimal` level compresses a little less (3,109 bytes for home, against 2,972 for tower-http's
+  default), which costs less CPU.
+- **Bun runs the JavaScript layer at about half the Rust layer's rate** (48-63%), Node at about a
+  quarter (23%). On Node, a CPU profile under load puts the layer itself at about 3%: the rest is the
+  `Request` and `Response` objects of a fetch handler (for the page and for each in-process call),
+  socket writes and garbage collection.
 
 ## Limits
 

@@ -1,0 +1,9 @@
+{
+  "name": "sinter-bench-in-process",
+  "private": true,
+  "type": "module",
+  "description": "The server layers with the API in the same app: sinter-axum, Sinter.AspNetCore and @tiaforge-ui/sinter/server (Node, Bun); run.sh",
+  "dependencies": {
+    "hono": "4.13.18"
+  }
+}

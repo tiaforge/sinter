@@ -63,7 +63,8 @@ if (globalThis.Bun) {
   const compress = /^(text\/|application\/(json|javascript)|image\/svg)/;
   createServer(async (req, res) => {
     const ac = new AbortController();
-    res.on('close', () => ac.abort());
+    // the visitor went away before the response was out (`close` comes after a finished response too)
+    res.on('close', () => { if (!res.writableFinished) ac.abort(); });
     const out = await handler(new Request(`http://${req.headers.host}${req.url}`, { method: req.method, headers: req.headers, signal: ac.signal }));
     const headers = Object.fromEntries(out.headers);
     const gzip = out.body && /\bgzip\b/.test(req.headers['accept-encoding'] ?? '') && compress.test(headers['content-type'] ?? '');
