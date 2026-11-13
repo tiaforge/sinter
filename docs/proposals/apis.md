@@ -19,6 +19,11 @@ Decided with the user:
   objects into collections, and every rule to tell them apart (`_id` backends, `each`, APIs without a
   spec) was an exception. Instead, a list of objects without `key` is warning `SN517`.
 - Actions and streams move to operations in the same change.
+- `base` is read at build time; one build serves one set of API URLs. A base chosen at runtime (one
+  build promoted through environments) is not in scope, so the early script and the server layers
+  keep using literal URLs and need no API config.
+- A `POST` resource cannot have `cache`: a cached search or report would outlive the request that
+  asked for it.
 
 ## The case
 
@@ -182,8 +187,8 @@ The RealWorld `user` resource, written today on seven pages:
 | `body` | new: for a `POST` operation that loads data (search, reports, GraphQL); a value expression sent as JSON, reloaded when it changes |
 | `items`, `total`, `key`, `order`, `type` | only for endpoints with no configured value ([§3](#3-what-an-endpoint-returns-said-once)) |
 
-Requests are shared by URL today. A `POST` resource is shared by URL and body. Open question: a `POST`
-resource with `cache` (see [Open questions](#open-questions)).
+Requests are shared by URL today. A `POST` resource is shared by URL and body, and `cache` on it is an
+error.
 
 ### 5. Actions
 
@@ -348,17 +353,7 @@ step 6.
 
 ## Open questions
 
-1. **Build once, deploy many.** `base` is read when the app builds, so staging and production need
-   separate builds. Teams that promote one build through environments need the base at runtime: a
-   compiled template that refers to the API by name, with `configure({ apis: { main: { base } } })`
-   filling it in. That costs a lookup per request and complicates the early script and the server
-   layer, which use the literal URL. Is that in scope?
-2. **Server layer.** sinter-axum, Sinter.AspNetCore and `@tiaforge-ui/sinter/server` call the API
-   in-process or upstream by URL. With a runtime base (question 1), they need the APIs too. The
-   manifest could carry them by name.
-3. **`POST` resources and `cache`.** The cache is keyed by URL. Keying by URL and body is easy, but a
-   cached search result may be a privacy surprise. Allow it, or refuse `cache` on `POST`?
-4. **Attribute name.** `data-sn-operation` is long on buttons. `data-sn-op` is shorter, but `op` already
+1. **Attribute name.** `data-sn-operation` is long on buttons. `data-sn-op` is shorter, but `op` already
    means something else on `<sn-event>` (`upsert`, `remove`). Keep the long name?
-5. **The `default` API's name.** With one API it is the default whatever its name. With several, is a
+2. **The `default` API's name.** With one API it is the default whatever its name. With several, is a
    key literally named `default` the right way to pick one, or should there be `default: 'main'`?
