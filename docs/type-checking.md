@@ -120,23 +120,6 @@ SN505 unknown-query-param: `GET /articles` declares no query parameter `tagg`. D
 
 `SN308` means `items` or `total` is not in the schema. `SN505` is a warning for a literal query parameter the operation does not declare.
 
-### Operations instead of URLs
-
-With a spec, a resource can name its operation instead of writing its URL:
-
-```html
-<!-- instead of src="https://api.realworld.show/api/profiles/{$url.username}" -->
-<sn-resource name="profile" operation="GetProfileByUsername" params="{ username: $url.username }" items="profile"></sn-resource>
-<sn-resource name="articles" operation="GetArticles" params="{ tag: $url.tag, limit: 10 }" items="articles"></sn-resource>
-```
-
-- `operation` is an `operationId`, or the method and path as the spec writes them (`GET /profiles/{username}`) for a spec without ids.
-- The URL is the first `servers` entry followed by the path. `params` fills the path parameters and adds the query parameters it gives, in the spec's order; a `null` query value leaves the parameter out, as in `src`.
-- The build compiles this to the same URL template as the `src` it stands for, so loading, request sharing, prefetching and the server layer work the same.
-- An unknown operation is `SN326`, with a "did you mean". A parameter the operation does not declare, and a path parameter or required query parameter left out, are `SN327`. Both are errors, unlike `SN505` on a `src`.
-
-In the editor, `operation="…"` completes the spec's GET operations, and a hover on it shows the absolute URL, as the spec has it and with the `params` expressions filled in.
-
 ## Examples of errors
 
 | You wrote | Report |
@@ -144,7 +127,6 @@ In the editor, `operation="…"` completes the spec's GET operations, and a hove
 | `c.emial` on a `Contact` | `SN208` Property 'emial' does not exist on type 'Contact'. Did you mean 'email'? |
 | `data-sn-body="{ name: 5 }"` against a string field | `SN208` Type 'number' is not assignable to type 'string' |
 | a `src` that matches no operation | `SN504` resource `contacts` has no type, naming the closest path |
-| `operation="GetArticels"` | `SN326` the OpenAPI spec has no operation `GetArticels`. Did you mean `GetArticles`? |
 | `m.inbox_count({ cnt: 1 })` | `SN208` wrong or missing message parameter |
 | `$meta.contacts.loadng` | `SN303` unknown status field, did you mean `loading` |
 

@@ -11,7 +11,6 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { HEAD_DECL } from '../components-build.js';
 import { offsetOf, slotCompletions, slotDefinition, tagCompletions, tagHover, type TagFile } from './markup.js';
 import { didYouMeanEdit } from './quickfix.js';
-import { operationCompletions, operationHover } from './operations.js';
 import { editFor, fixPlans, plans, type ExtractContext, type Plan } from './extract.js';
 import { TypeScriptBridge, typescriptMajor, type Target } from './typescript.js';
 import { Workspace, type ProjectState } from './workspace.js';
@@ -240,10 +239,6 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
       if (t) return { contents: { kind: 'markdown', value: tagHover(tag, t, relative(root, t.file).split('\\').join('/')) } };
     }
     const state = await workspace.projectFor(file);
-    // `operation="…"`: the URL the OpenAPI operation is called at
-    const text = workspace.read(file);
-    const op = operationHover(text, offsetOf(text, p.position.line, p.position.character), state.project.openapi, (f) => relative(state.root, f).split('\\').join('/'));
-    if (op) return { contents: { kind: 'markdown', value: op } };
     const mode = modeOf(state.root);
     if (!(mode instanceof TypeScriptBridge)) return null;
     // the shadows must reflect the latest edit
@@ -266,9 +261,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     // `slot="…"` and tags: sinter's own, from the components' and layouts' files
     const text = workspace.read(file);
     const offset = offsetOf(text, p.position.line, p.position.character);
-    const { root, project: proj } = await workspace.projectFor(file);
-    const ops = operationCompletions(text, offset, proj.openapi);
-    if (ops) return { isIncomplete: false, items: ops.map((o) => ({ label: o.label, kind: 2, detail: o.detail, ...(o.documentation ? { documentation: { kind: 'markdown', value: o.documentation } } : {}), textEdit: { range: rangeAt(text, o.from, o.to), newText: o.label } })) };
+    const root = (await workspace.projectFor(file)).root;
     const slots = slotCompletions(text, offset, (t) => tagFile(root, t));
     if (slots) return { isIncomplete: false, items: slots.map((s) => ({ label: s.label, kind: 12, detail: s.detail, ...(s.documentation ? { documentation: { kind: 'markdown', value: s.documentation } } : {}), textEdit: { range: rangeAt(text, s.from, s.to), newText: s.label } })) };
     const tags = tagCompletions(text, offset, tagFiles(root));

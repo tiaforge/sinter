@@ -197,16 +197,6 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'A page\'s bundle (its own chunk and the chunks it imports, or its early file) contains a lazy package after all, so the page downloads it with itself: another package imports it (the app\'s imports of it are stubs, a package\'s are not), or the early module reaches it. Also: an app module that some module of the page loads with `import()` is imported statically by the page too, so the split does nothing for that page.',
     fix: 'Add the other package to `lazy` as well, or load it with `import()`. For the app\'s own split, import the module only with `import()` where the page reaches it, or not lazily at all.',
   },
-  SN326: {
-    example: 'the OpenAPI spec has no operation `GetProfileByUsernme`. Did you mean `GetProfileByUsername`?',
-    means: '`operation` on a resource names an operation of the OpenAPI spec (`sinter({ openapi })`): its `operationId`, or its method and path as the spec writes them (`GET /profiles/{username}`). Also reported: `operation` with no spec configured, an operation that is not a GET, and an operation whose first server URL is neither a same-origin path nor an `https://` origin.',
-    fix: 'Use the suggested name (the editor completes the operations), add `servers` to the spec, or call a non-GET operation from an action.',
-  },
-  SN327: {
-    example: '`GetArticles` has no parameter `tagg`. Did you mean `tag`?',
-    means: '`params` gives the values of the operation\'s path and query parameters. A name the operation does not declare, a name given twice, and a path parameter (or a required query parameter) left out are reported.',
-    fix: 'Use the parameter names of the spec, and give every path parameter: `params="{ slug: $url.slug }"`.',
-  },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
     means: 'An attribute value has the wrong form: a JavaScript syntax error (the column points inside the attribute), or a value outside what the attribute accepts, such as `paginate` or `data-sn-concurrency`.',

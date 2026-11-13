@@ -515,10 +515,8 @@ export type Also = '*/';`)).toEqual(['Also', 'H', 'Kept', 'Real']);
 
   test('the RealWorld example: untyped and typed from its OpenAPI spec, no false positives', () => {
     const root = join(import.meta.dirname, '../../examples/realworld');
-    const all = readdirSync(root).filter((f) => f.endsWith('.html'));
+    const pages = readdirSync(root).filter((f) => f.endsWith('.html'));
     for (const openapi of [undefined, 'openapi.yml']) {
-      // a page that names operations (`operation="…"`) needs the spec
-      const pages = openapi ? all : all.filter((f) => !readFileSync(join(root, f), 'utf8').includes(' operation="'));
       const p = projectOf(root, { openapi });
       expect(p.diagnostics).toEqual([]);
       const out = pages.map((f) => compile(p.readFile(join(root, f)), {
@@ -529,7 +527,7 @@ export type Also = '*/';`)).toEqual(['Also', 'H', 'Kept', 'Real']);
       const r = check({ root, units, helpers: p.helpers, types: null, tsc, outDir: mkdtempSync(join(tmpdir(), 'sinter-check-rw-')), openapi: p.openapi });
       expect(r.diagnostics).toEqual([]);
       expect(units.reduce((n, u) => n + u.exprs.length, 0)).toBeGreaterThan(300);
-      expect([r.typed, r.openapi, r.resources]).toEqual(openapi ? [15, 15, 15] : [0, 0, 12]);
+      expect([r.typed, r.openapi, r.resources]).toEqual(openapi ? [15, 15, 15] : [0, 0, 15]);
     }
   });
 });

@@ -83,8 +83,6 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN517', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
   ['SN516', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
   ['SN515', '<!doctype html><html data-sn-path="/page/"><head></head><body></body></html>', /`data-sn-path="\/page\/"` is the URL this page has anyway/],
-  ['SN326', '<sn-resource name="c" operation="GET /api/cc" items="contacts"></sn-resource><p data-sn-text="c"></p>', /the OpenAPI spec has no operation `GET \/api\/cc`. Did you mean `GET \/api\/c`\?/, { openapi: true }],
-  ['SN327', '<sn-resource name="c" operation="GET /api/c" params="{ qq: 1 }" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` has no parameter `qq`. Did you mean `q`\?/, { openapi: true }],
   ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
   ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="patch(x, $result.contact)"></button></template>`,
     /`patch\(x, \$result\.contact\)` is what write-through does: the response of `POST \/api\/c\/\{id\}\/star` is `Contact`, which `c` holds; remove this write, or add `data-sn-apply="off"` to keep it/, { openapi: true }],

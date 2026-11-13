@@ -11,7 +11,6 @@ always matches the compiler the build uses.
 | Type errors on save | TypeScript 5 or 6 |
 | Did-you-mean quick fix | any |
 | `slot="…"` completion (the slots of the tag the element is in; a layout's head slots on head elements), tag completion after `<`, go from a `slot` value to its `<slot>` and from a tag to its component or layout, hover with a tag's props and slots | any TypeScript, or none |
-| `operation="…"` completion (the OpenAPI spec's GET operations), hover with the operation's absolute URL | an `openapi` spec, any TypeScript or none |
 | Extract to helper / action (refactoring, and the quick fix for `SN507`) | any; parameter types need TypeScript 7 |
 
 The server finds pages and plugin options (`openapi`, `types`, …) in the Vite config, like
