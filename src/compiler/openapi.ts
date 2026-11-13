@@ -9,6 +9,8 @@ export interface OpenApiSpec {
   file: string;
   /** the parsed document (OpenAPI 3.0 or 3.1) */
   doc: unknown;
+  /** a document generated from `sinter({ apis })`: the API whose `operations` it holds (`file` is the Vite config) */
+  config?: string;
 }
 
 export interface OpenApiMatch {

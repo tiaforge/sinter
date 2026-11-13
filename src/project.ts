@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
+import { operationsDoc, parseOperationKey, SITE, specBase, validBase, type ApiDef, type ApiOptions, type ApisDef, type OperationShape } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
 import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
 import { componentNames, writeComponentTypes } from './components-build.js';
@@ -25,8 +26,16 @@ export interface ProjectOptions {
   messages?: string | false;
   /** module whose exported types `type="…"` on `<sn-resource>` may name (default `src/sinter.types.ts`, `.d.ts` or `.js`) */
   types?: string;
-  /** OpenAPI specs (JSON or YAML, inside the root) that resources without `type` are matched against */
+  /** OpenAPI specs (JSON or YAML, inside the root) that resources without `type` are matched against; deprecated: give each API its spec in `apis` */
   openapi?: string | string[];
+  /**
+   * The APIs the app calls (docs/apis.md): base URL, OpenAPI spec, request settings, and what each
+   * endpoint returns. A path on a page (`src="/contacts"`, `data-sn-delete="billing:/invoices/{i.id}"`)
+   * is relative to one of them, and must be an operation it declares.
+   */
+  apis?: Record<string, ApiOptions>;
+  /** the API a path without `api:` goes to; with one API configured it is that one */
+  defaultApi?: string;
   /** SN507: limits for expressions too complex for markup (`statements`, `sequences`, `guarded`, `ternaries`, `arrow`, `operations`) and `level`: `warn` (default), `error` or `off` */
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()`, in the build, `sinter check` and `sinter lsp` (default off; `sinter check --check-cycles` for one run) */
@@ -92,7 +101,9 @@ export interface Project {
   /** reads a file only if it resolves inside the root, symlinks included */
   readFile: (path: string) => string;
   openapi: OpenApiSpec[];
-  /** problems loading the specs (SN307) */
+  /** `apis`, resolved (their specs are in `openapi`), or null without `apis` */
+  apis: ApisDef | null;
+  /** problems loading the specs (SN307) and the APIs (SN329) */
   diagnostics: Diagnostic[];
   /** every component of the app (`src/components/<name>.html`): `ComponentName`, the candidates of `<sn-component use>` */
   componentNames: string[];
@@ -142,22 +153,28 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   const typesRel = find(options.types, 'src/sinter.types', ['.ts', '.d.ts', '.js']);
   const openapi: OpenApiSpec[] = [];
   const diagnostics: Diagnostic[] = [];
-  for (const rel of options.openapi == null ? [] : Array.isArray(options.openapi) ? options.openapi : [options.openapi]) {
+  const loadSpec = (rel: string): number | null => {
     const file = resolve(root, rel);
-    const fail = (why: string) => diagnostics.push({ severity: 'error', code: 'SN307', message: `OpenAPI spec \`${rel}\` ${why}`, file, line: 1, col: 1 });
+    const fail = (why: string) => { diagnostics.push({ severity: 'error', code: 'SN307', message: `OpenAPI spec \`${rel}\` ${why}`, file, line: 1, col: 1 }); return null; };
     let text: string;
-    try { text = readFile(file); } catch (e) { fail(`cannot be read: ${(e as Error).message}`); continue; }
+    try { text = readFile(file); } catch (e) { return fail(`cannot be read: ${(e as Error).message}`); }
     let doc: unknown;
     try { doc = /\.json$/i.test(file) ? JSON.parse(text) : (createRequire(import.meta.url)('yaml') as typeof import('yaml')).parse(text); } catch (e) {
-      fail(`is not valid ${/\.json$/i.test(file) ? 'JSON' : 'YAML'}: ${(e as Error).message.split('\n')[0]}`);
-      continue;
+      return fail(`is not valid ${/\.json$/i.test(file) ? 'JSON' : 'YAML'}: ${(e as Error).message.split('\n')[0]}`);
     }
     const d = doc as { openapi?: unknown; paths?: unknown } | null;
-    if (!d || typeof d.openapi !== 'string' || !/^3\./.test(d.openapi) || typeof d.paths !== 'object') {
-      fail('is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`)');
-      continue;
-    }
+    if (!d || typeof d.openapi !== 'string' || !/^3\./.test(d.openapi) || typeof d.paths !== 'object') return fail('is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`)');
     openapi.push({ file, doc });
+    return openapi.length - 1;
+  };
+  const listOf = (v: string | string[] | undefined) => (v == null ? [] : Array.isArray(v) ? v : [v]);
+  let apis: ApisDef | null = null;
+  if (options.apis != null) {
+    const r = resolveApis(root, options, loadSpec, openapi);
+    diagnostics.push(...r.diagnostics);
+    apis = r.apis;
+  } else {
+    for (const rel of listOf(options.openapi)) loadSpec(rel);
   }
   // built-in messages: `m` is theirs, typed by a generated declaration file
   const messages = options.messages === false ? null : readMessages(root, options.messages ?? 'project.inlang');
@@ -175,7 +192,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     if (current !== text) { mkdirSync(dirname(messagesTypes), { recursive: true }); writeFileSync(messagesTypes, text); }
   }
   return {
-    root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
+    root, helpers, helpersFile, actions, actionsFile, readFile, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
     isStatic: staticPages(root, options.static).has,
     lazy: lazyOf(options.lazy),
     componentNames: componentNames(root),
@@ -229,4 +246,84 @@ export function lazyOf(list: unknown): string[] {
     if (typeof x !== 'string' || !/^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i.test(x)) throw new Error(`sinter({ lazy }): \`${String(x)}\` is not a package name; list packages from node_modules, e.g. \`'openpgp'\` (a subpath such as \`openpgp/lightweight\` is covered by its package)`);
   }
   return [...new Set(list as string[])];
+}
+
+const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
+
+/** `sinter({ apis, defaultApi })`, checked (SN329) and resolved; each API's specs are loaded into `openapi`. */
+function resolveApis(root: string, options: ProjectOptions, loadSpec: (rel: string) => number | null, openapi: OpenApiSpec[]): { apis: ApisDef | null; diagnostics: Diagnostic[] } {
+  const configFile = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
+  const diagnostics: Diagnostic[] = [];
+  const fail = (message: string) => diagnostics.push({ severity: 'error', code: 'SN329', message: `sinter({ apis }): ${message}`, file: configFile, line: 1, col: 1 });
+  const given = options.apis;
+  if (typeof given !== 'object' || given === null || Array.isArray(given)) {
+    fail('takes an object of APIs by name, e.g. `apis: { main: { base: \'/api\', openapi: \'openapi.yml\' } }`');
+    return { apis: null, diagnostics };
+  }
+  if (options.openapi != null) fail('`openapi` moves into an API: `apis: { main: { openapi: … } }`; remove the top-level `openapi`');
+  const entries = Object.entries(given);
+  if (!entries.some(([n]) => n === SITE)) entries.push([SITE, {}]);
+  const list: ApiDef[] = [];
+  for (const [name, raw] of entries) {
+    if (!/^[A-Za-z_][\w-]*$/.test(name)) { fail(`\`${name}\` is not an API name: a letter or \`_\`, then letters, digits, \`_\` and \`-\``); continue; }
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { fail(`\`${name}\` takes an object (\`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\`)`); continue; }
+    const a = raw as ApiOptions & Record<string, unknown>;
+    for (const k of Object.keys(a)) if (!['base', 'openapi', 'credentials', 'headers', 'defaults', 'operations'].includes(k)) fail(`\`${name}.${k}\` is not an API setting; the settings are \`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\` and \`operations\``);
+    const specs: number[] = [];
+    for (const rel of (a.openapi == null ? [] : Array.isArray(a.openapi) ? a.openapi : [a.openapi])) {
+      const i = loadSpec(rel);
+      if (i != null) specs.push(i);
+    }
+    let base = specs.length ? specBase(openapi[specs[0]!]!.doc) : '';
+    if ('base' in a) {
+      if (a.base === undefined) fail(`\`${name}.base\` is \`undefined\` (an environment variable that is not set?); it does not fall back to the spec's server`);
+      else if (typeof a.base !== 'string' || !validBase(a.base)) fail(`\`${name}.base\` must be \`''\`, a same-origin path (\`/api\`) or an \`https://\` URL, with no trailing \`/\`, not \`${String(a.base)}\``);
+      else base = a.base;
+    }
+    if (name === SITE && base !== '') { fail('`site` is the page\'s own origin: its `base` cannot be changed'); base = ''; }
+    if (a.credentials != null && !['omit', 'same-origin', 'include'].includes(a.credentials)) fail(`\`${name}.credentials\` is \`'omit'\`, \`'same-origin'\` or \`'include'\``);
+    if (a.headers != null && (typeof a.headers !== 'object' || Object.values(a.headers).some((v) => typeof v !== 'string'))) fail(`\`${name}.headers\` is an object of header names and string values`);
+    const shapes: Record<string, OperationShape> = {};
+    const has = (method: string, path: string) => specs.some((i) => {
+      const paths = (openapi[i]!.doc as { paths?: Record<string, Record<string, unknown>> }).paths;
+      return !!paths && typeof paths[path] === 'object' && paths[path] !== null && method in paths[path]!;
+    });
+    const shapeOk = (where: string, key: string, shape: unknown): shape is OperationShape => {
+      if (typeof shape !== 'object' || shape === null || Array.isArray(shape)) { fail(`\`${where}['${key}']\` takes an object (\`items\`, \`total\`, \`key\`, \`type\`, \`query\`)`); return false; }
+      for (const [k, v] of Object.entries(shape)) {
+        if (k === 'query') { if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) fail(`\`${where}['${key}'].query\` is a list of parameter names`); }
+        else if (!['items', 'total', 'key', 'type'].includes(k)) fail(`\`${where}['${key}'].${k}\` is not a shape setting; the settings are \`items\`, \`total\`, \`key\`, \`type\` and \`query\``);
+        else if (typeof v !== 'string' || !v.trim()) fail(`\`${where}['${key}'].${k}\` is a non-empty string`);
+      }
+      return true;
+    };
+    const keyOk = (where: string, key: string) => {
+      const op = parseOperationKey(key);
+      if (!op) fail(`\`${where}\` names operations as \`METHOD /path\` (\`GET /contacts/{id}\`), not \`${key}\``);
+      return op;
+    };
+    for (const [key, shape] of Object.entries(a.defaults ?? {})) {
+      const op = keyOk(`${name}.defaults`, key);
+      if (!op || !shapeOk(`${name}.defaults`, key, shape)) continue;
+      if (!has(op.method, op.path)) { fail(`\`${name}.defaults\` names \`${key}\`, which ${specs.length ? 'its spec does not have' : 'has no spec'}: an endpoint the spec does not have goes in \`${name}.operations\``); continue; }
+      shapes[key] = shape;
+    }
+    const ops: Record<string, OperationShape> = {};
+    for (const [key, shape] of Object.entries(a.operations ?? {})) {
+      const op = keyOk(`${name}.operations`, key);
+      if (!op || !shapeOk(`${name}.operations`, key, shape)) continue;
+      if (has(op.method, op.path)) { fail(`\`${name}.operations\` names \`${key}\`, which the spec has: its shape goes in \`${name}.defaults\``); continue; }
+      ops[key] = shape;
+      shapes[key] = shape;
+    }
+    if (Object.keys(ops).length) {
+      openapi.push({ file: configFile, doc: operationsDoc(ops), config: name });
+      specs.push(openapi.length - 1);
+    }
+    list.push({ name, base, specs, shapes, ...(a.credentials ? { credentials: a.credentials } : {}), ...(a.headers && Object.keys(a.headers).length ? { headers: { ...a.headers } } : {}) });
+  }
+  const own = list.filter((x) => x.name !== SITE);
+  let defaultApi: string | null = options.defaultApi ?? (own.length === 1 ? own[0]!.name : null);
+  if (options.defaultApi != null && !list.some((x) => x.name === options.defaultApi)) { fail(`\`defaultApi\` names \`${options.defaultApi}\`, which is no API`); defaultApi = null; }
+  return { apis: { list, defaultApi }, diagnostics };
 }

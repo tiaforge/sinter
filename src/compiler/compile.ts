@@ -17,6 +17,7 @@ import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
+import { apiOf, apiOrigins, SITE, type ApiDef, type ApisDef } from './apis.js';
 import { deref, matchOperation, matchResource, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
@@ -58,6 +59,8 @@ export interface CompileOptions {
   check?: boolean;
   /** parsed OpenAPI specs: resources without `type` are matched against them */
   openapi?: OpenApiSpec[];
+  /** `sinter({ apis })`, resolved: paths are relative to them and must be operations they declare (their specs are in `openapi`) */
+  apis?: ApisDef | null;
   /** the actions module (`data-sn-call`, `<sn-resource call>`), same shape as helpers */
   actions?: HelperManifest;
   /** `sinter({ lazy })`: the packages `data-sn-import` and `data-sn-preload` may name (`true`: any, for testing) */
