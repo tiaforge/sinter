@@ -171,3 +171,16 @@ test('lists bound to the same parameter page together, and reset together', asyn
   expect(p.url()).toBe('http://localhost/?tag=js');
   expect(p.root.querySelector('b')!.textContent).toBe('1,2');
 });
+
+test('typing a filter on page 3: the reset to page 1 folds into the typing commit, one entry', async () => {
+  const html = LIST().replace('src="/api/a?tag={$url.tag}"', 'src="/api/a?tag={$url.q}"') + '<input id="q" type="search" data-sn-model="$url.q">';
+  const p = await setup('http://localhost/?page=3', {}, html);
+  const f = p.root.querySelector<HTMLInputElement>('#q')!;
+  for (const v of ['j', 'js']) { f.value = v; f.dispatchEvent(new Event('input', { bubbles: true })); await p.flush(); await p.advance(100); }
+  await p.settle();
+  expect(p.history()).toEqual(['http://localhost/?page=3', 'http://localhost/?q=js']);
+  expect(p.shown()).toBe('1 - 2,4');
+  await p.back();
+  await p.settle();
+  expect(p.shown()).toBe('3 3 5,6');
+});
