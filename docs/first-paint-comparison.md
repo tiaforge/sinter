@@ -223,16 +223,22 @@ The case the layers are built for: the API is routes of the same app, which the 
 (sinter-axum's `.api(router)`, Sinter.AspNetCore's endpoints, `wrap(app.fetch)` over a Hono app). The
 servers are in `bench/in-process` (`run.sh` runs them all): each API route answers with the same recorded
 JSON, so the API does the same, trivial work in every language, and what is measured is the layer and its
-server.
+server (5 s runs).
 
 | Pages per second, one core | Home, gzip | Article, gzip | Home | Article |
 | --- | --- | --- | --- | --- |
-| sinter-axum | 6,661 | 7,675 | 28,621 | 30,554 |
-| Sinter.AspNetCore, NativeAOT | 4,619 | 7,039 | 22,562 | 27,607 |
-| sinter/server on Bun 1.4, Hono | 3,765 | 4,410 | 14,156 | 20,810 |
-| sinter/server on Node 22, Hono | 1,893 | 2,268 | 7,493 | 7,859 |
+| sinter-axum | 6,014 | 8,461 | 27,826 | 29,638 |
+| Sinter.AspNetCore, NativeAOT | 4,340 | 7,091 | 22,012 | 27,313 |
+| sinter/server on Bun 1.4, Hono | 3,899 | 4,631 | 16,601 | 20,319 |
+| sinter/server on Node 22, Hono | 1,716 | 2,219 | 6,977 | 7,263 |
 
-- **Uncompressed, Sinter.AspNetCore serves 79-90% of the Rust layer's pages, Bun 49-68%, Node 26%.**
+- **Uncompressed, Sinter.AspNetCore serves 79-92% of the Rust layer's pages, Bun 60-69%, Node 25%.**
+- **What the layer adds to a page**, against the same server answering the API's 17.7 KB JSON route
+  directly (no layer; one core, uncompressed): sinter-axum 14-15 µs a page, Sinter.AspNetCore 10-21 µs,
+  Bun about 35 µs, Node 65-75 µs. Bun's server is as fast as axum's (19.4 µs for the API route, axum 20.1);
+  the difference is a page's two in-process calls, each a `Request`, a Hono dispatch and a `Response`
+  (about 7 µs each on Bun), where sinter-axum calls its router with a zero-copy body. Node's server
+  itself takes 3.5 times axum's time for the API route.
 - **With gzip, the compressor is most of the work** on every server: the same zlib in sinter-axum and
   Sinter.AspNetCore, Node's and Bun's own in JavaScript.
 - **On Node and Bun, the layer itself is a small part of a page:** about 50 µs of CPU on Node, 30-45 µs on

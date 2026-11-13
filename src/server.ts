@@ -264,6 +264,8 @@ function choose(l: { base: string; list: string[] }, h: Headers) {
   return l.base;
 }
 
+const BUN = typeof (globalThis as { Bun?: unknown }).Bun != 'undefined';
+
 // a placeholder's fill: its JSON, null (the browser requests it) or the failure's status
 type Fill = Uint8Array | null | number;
 
@@ -334,12 +336,20 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
   const routeOf = (path: string) => { const k = routeAt(path); return k == Infinity ? undefined : routes[k]; };
 
   /** a response's body, if it is a 2xx JSON one within maxBytes; else why not */
-  async function body(res: Response): Promise<Uint8Array | string> {
+  async function body(res: Response, own = false): Promise<Uint8Array | string> {
     if (!res.ok) { await res.body?.cancel(); return `status ${res.status}`; }
     if (!isJson(res.headers.get('content-type'))) { await res.body?.cancel(); return 'not JSON'; }
     const length = res.headers.get('content-length');
     if (Number(length ?? 0) > maxBytes) { await res.body?.cancel(); return `over ${maxBytes} bytes`; }
     if (!res.body) return new Uint8Array();
+    // on Bun, in one piece when the size is known to fit, or the response is the app's own (in-process),
+    // checked once it is in: its bytes() is native, where reading the stream gives a 17 KB body in two
+    // chunks to join in JavaScript (twice the time). Node's bytes() is undici's stream reading in
+    // JavaScript, slower than the loop below
+    if (BUN && (own || length != null)) {
+      const all = await res.bytes();
+      return all.length > maxBytes ? `over ${maxBytes} bytes` : all;
+    }
     const chunks: Uint8Array[] = [];
     let n = 0;
     for (const reader = res.body.getReader(); ;) {
@@ -382,7 +392,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
       else if (req.url == null) return null; // no request at this URL (its `when` does not hold)
       else if (sameOrigin(req.url)) {
         const init = { headers: forwarded(req.request.headers), signal: req.signal };
-        got = await body(upstream != null ? await fetchFn(upstream + req.url, init) : await api(new Request(originOf(req.request.url) + req.url, init), ...rest));
+        got = upstream != null ? await body(await fetchFn(upstream + req.url, init)) : await body(await api(new Request(originOf(req.request.url) + req.url, init), ...rest), true);
       } else if (allowed(req.url)) got = await body(await fetchFn(req.url, { headers: { accept: 'application/json' }, signal: req.signal }));
       else return null;
     } catch (e) {
