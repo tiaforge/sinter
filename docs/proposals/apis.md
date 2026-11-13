@@ -23,7 +23,10 @@ Decided with the user:
   spec) was an exception. Instead, a list of objects without `key` is warning `SN517` (implemented on
   this branch).
 - The server layers (sinter-axum, Sinter.AspNetCore, `@tiaforge-ui/sinter/server`) need no API config:
-  they keep using the literal URLs the build writes.
+  they keep using the literal URLs the build writes, and send the static headers the manifest lists
+  ([§6](#6-request-settings)).
+- The early script is extended to send requests with their API's settings, so per-API credentials and
+  headers do not cost early loading.
 
 Reviewed on 2026-11-13. The review led to keeping `src` and the action attributes instead of renaming
 them, and to several corrections below (`order` stays on the element, an unset `base` is an error,
@@ -228,10 +231,21 @@ config.
 - **Static settings:** `credentials` and `headers` from an API's entry apply to every request the page
   module makes to it: resources, actions, streams (where the transport allows headers) and the
   prefetcher. They are compiled into the page's bundle, so `headers` must not hold secrets.
-- **The early script** starts only plain `GET` requests (same-origin credentials, the default
-  `Accept`), as today for a request a middleware changes (`src/early.ts`). A resource of an API with
-  other `credentials` or `headers` is not started early. That is a cost of per-API settings, and
-  extending the early script is separate work.
+- **The early script** sends each resource's request with its API's `credentials` and `headers`. Today
+  it sends every request with the default `Accept` and same-origin credentials, and the page module
+  takes the response only when its request still looks exactly like that (`src/early.ts`, `take`).
+  With per-API settings:
+  - the early file gets a table of the settings of the APIs that have any; a page whose APIs use the
+    defaults carries none;
+  - `take` compares the page module's request with what the early script sent (method, URL,
+    credentials, headers), not with fixed defaults. A middleware that adds a header (a token) still
+    makes the request different, so it still gets a request of its own, as today.
+- **Preload links** (`<link rel="preload" as="fetch">`) cannot carry headers. For an API with
+  `credentials: 'include'` the build writes `crossorigin="use-credentials"`; for an API with `headers`
+  it writes no preload link, and the early script's request is the first.
+- **The server layers** fetch the data they write into the page themselves. The manifest lists each
+  request's static headers, and sinter-axum, Sinter.AspNetCore and `@tiaforge-ui/sinter/server` send
+  them, so an API that needs one (a version header) answers them as it answers the browser.
 - **Dynamic settings** (a token) stay in the request layer. To tell APIs apart without comparing URLs,
   a middleware calls `apiOf(request.url)`, which looks the URL up in a table of the page's API bases.
   The table is written once per page, so request definitions carry no extra strings.
@@ -339,7 +353,6 @@ The `operation` + `params` commit on this branch is reverted:
   can come later, once `defaults` shows which guesses would be right.
 - **A default `key`** (see the decisions above).
 - **Fetching a spec from a URL.** Builds stay deterministic, so specs are local files.
-- **The early script with per-API credentials and headers.**
 - **Generating TypeScript clients** from the specs.
 
 ## Plan
@@ -349,7 +362,8 @@ The `operation` + `params` commit on this branch is reverted:
 2. Paths relative to an API in `src`, actions and `<sn-sync>`; the checks of a configured API
    (`SN326`, `SN327`, `SN328`); shapes from the config (§3, `SN330`). `SN328` is a warning in this
    step.
-3. `method` and `body` on resources; static request settings per API; `apiOf`.
+3. `method` and `body` on resources; static request settings per API, in the page module, the early
+   script (`take` compares with what was sent), preload links and the server layers' manifest; `apiOf`.
 4. Editor: completion (ranking, server-side filtering, snippets), hover, definition, quick fixes.
 5. `sinter migrate`; the examples migrated; docs and `llms.txt`.
 6. `SN328` becomes an error. Changelog entries.
