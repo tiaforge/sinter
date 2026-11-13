@@ -15,6 +15,9 @@ Decided with the user:
 - What an endpoint returns (`items`, `key`, `type`) is said once, in the spec or the config, from the
   start. The page says only how it uses the data.
 - With one API configured, it is the default.
+- `key` has no default. Without `key` a resource is one object, so a default `id` would turn single
+  objects into collections, and every rule to tell them apart (`_id` backends, `each`, APIs without a
+  spec) was an exception. Instead, a list of objects without `key` is warning `SN517`.
 - Actions and streams move to operations in the same change.
 
 ## The case
@@ -53,7 +56,11 @@ sinter({
         'GET /v0/stats/{range}': { items: 'stats', key: 'day', type: 'Stat[]' },
       },
     },
-    billing: { base: process.env.BILLING_URL, openapi: 'specs/billing.yml' },
+    billing: {
+      base: process.env.BILLING_URL,
+      openapi: 'specs/billing.yml',
+      defaults: { 'GET /invoices': { items: 'invoices', key: 'id' } },
+    },
   },
 });
 ```
@@ -146,6 +153,13 @@ The page writes them only for an endpoint that configures none, which is every e
 implicit API. When the config has a value, the element may not write it. The same value is a warning
 (redundant), and a different one is an error: two pages must not read different shapes from one
 endpoint.
+
+`key` is never inferred: an endpoint that returns a list of objects names it in `defaults`,
+`operations` or on the element. When the response at `items` is a list of objects and no `key` is
+given, sinter warns (`SN517`): the resource is one object holding the list, which is fine for a list
+that is only read, but an `upsert`, `patch` or `remove` would act on the whole list. The build
+reports it from the spec. For an `operations` entry, whose `type` is a TypeScript type, `sinter check`
+and the editor report it.
 
 `each`, `paginate` and its options, `when`, `then`, `cache`, `refresh` and `early` stay on the
 element. They say how this page uses the data, not what the endpoint returns.
@@ -309,8 +323,9 @@ The `operation` + `params` commit on this branch:
 
 ## Not in this proposal
 
-- **Deriving `items` and `key` from the schema** (an object with one array property, an `id` field)
-  without `defaults`. That can come later, once `defaults` shows which guesses would be right.
+- **Deriving `items` from the schema** (an object with one array property) without `defaults`. That
+  can come later, once `defaults` shows which guesses would be right.
+- **A default `key`.** Considered and dropped ([Decided with the user](#proposal-apis-in-the-config-operations-on-the-page)).
 - **Fetching a spec from a URL.** Builds stay deterministic, so specs remain local files.
 - **GraphQL** beyond a `POST` resource with a body.
 - **Generating TypeScript clients** from the specs.

@@ -68,6 +68,7 @@ export const CODES = {
   SN514: 'auto-fit-rows',
   SN515: 'redundant-path',
   SN516: 'unfed-live',
+  SN517: 'unkeyed-list',
 } as const;
 
 export type Code = keyof typeof CODES;

@@ -3578,7 +3578,7 @@ class Compiler {
     const openapi = type || hasCall ? null : this.openapi(el, src, attr(el, 'items') ?? null, attr(el, 'total') ?? null);
     const sch = openapi && 'schema' in openapi ? namedSchema(this.opts.openapi![openapi.spec]!.doc, openapi.schema) : null;
     if (openapi && 'schema' in openapi) this.itemSchema.set(name, { spec: openapi.spec, schema: sch?.array ? (openapi.schema as { items: unknown }).items : openapi.schema });
-    // a list of objects without `key` would be one object holding the array: the spec shows it is a collection
+    // a list of objects without `key` is one object holding the array: nothing can change one of its items
     if (openapi && 'schema' in openapi && !info.key && !each) {
       const doc = this.opts.openapi![openapi.spec]!.doc;
       const list = deref(doc, openapi.schema);
@@ -3586,8 +3586,8 @@ class Compiler {
       const fields = item ? propertyNames(doc, item) : [];
       if (item && (item.type === 'object' || fields.length)) {
         const at = attr(el, 'items') ?? null;
-        this.report(el, at != null ? 'items' : 'name', 'SN103', `\`${openapi.label}\` returns a list${at ? ` at \`${at}\`` : ''}: resource \`${name}\` needs \`key\`, the field that identifies an item`, 0,
-          fields.length ? `its items have ${fields.map((f) => `\`${f}\``).join(', ')}` : undefined);
+        this.report(el, at != null ? 'items' : 'name', 'SN517', `\`${openapi.label}\` returns a list${at ? ` at \`${at}\`` : ''}: resource \`${name}\` has no \`key\`, so it is one object holding the list`, 0,
+          `add \`key\` with the field that identifies an item${fields.length ? ` (its items have ${fields.map((f) => `\`${f}\``).join(', ')})` : ''}; a list that is only read can stay as it is`);
       }
     }
     if (this.check) {

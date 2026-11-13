@@ -28,9 +28,9 @@ Error, for example:
 
 > a `data-sn-for` over primitive values needs `data-sn-key`
 
-sinter keys list rows by the resource key or by object identity. Strings and numbers have neither, so rows could not be matched on update. Also reported for a resource without `key` whose OpenAPI response is a list of objects at `items`: without `key` a resource is one object, and the list would be that object instead of a collection.
+sinter keys list rows by the resource key or by object identity. Strings and numbers have neither, so rows could not be matched on update.
 
-**Fix:** Add `data-sn-key` with an expression that is unique per row, such as the value itself: `data-sn-key="tag"`. On a resource, add `key` with the field that identifies an item: `key="id"`.
+**Fix:** Add `data-sn-key` with an expression that is unique per row, such as the value itself: `data-sn-key="tag"`.
 
 ## SN104 unsupported-model
 
@@ -551,3 +551,13 @@ Warning, for example:
 `$meta.<resource>.live` is the state of the server-event stream that feeds the resource. A resource is fed when an `<sn-event>` in a `<sn-sync>` names it in `resource`; without one, `live` is `null` and a badge built on it never shows a state.
 
 **Fix:** Add an `<sn-event resource="…">` for the resource to the `<sn-sync>`, or read `live` of a resource that a stream feeds.
+
+## SN517 unkeyed-list
+
+Warning, for example:
+
+> `GET /api/contacts` returns a list at `contacts`: resource `contacts` has no `key`, so it is one object holding the list
+
+Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `patch` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.
+
+**Fix:** Add `key` with the field that identifies an item, such as `key="id"`. A list that is only read can stay as it is.
