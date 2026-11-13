@@ -242,7 +242,7 @@ const ATTRIBUTE_GROUPS: Array<[string, string, string[]]> = [
   ['Lazy packages', 'When a package of `sinter({ lazy })` loads, on any element of a page, a layout or a component. Without either, on first call. Details: [lazy packages](lazy.md).', ['import', 'preload']],
 ];
 const RESOURCE_GROUPS: Array<[string, string[]]> = [
-  ['Where the data comes from', ['name', 'src', 'call', 'each', 'when', 'early']],
+  ['Where the data comes from', ['name', 'src', 'operation', 'params', 'call', 'each', 'when', 'early']],
   ['What it looks like', ['key', 'items', 'total', 'order', 'type']],
   ['How fresh it is', ['cache', 'refresh', 'then']],
   ['Pagination', ['paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'start-page']],

@@ -27,7 +27,9 @@ reload. See `docs/recipes/list-filter.html`.
 | Attribute | Meaning |
 | --- | --- |
 | `name` | Identifier used in expressions. Required, must be a valid JavaScript identifier. |
-| `src` | URL template, refetched when its interpolated values change. Required unless `call` is set. |
+| `src` | URL template, refetched when its interpolated values change. Required unless `operation` or `call` is set. |
+| `operation` | Instead of `src`, with an [OpenAPI spec](type-checking.md#operations-instead-of-urls): the GET operation to call, by `operationId` or as `GET /path`. The URL comes from the spec. |
+| `params` | With `operation`: the values of its path and query parameters, `{ slug: $url.slug, limit: 20 }`. Reloads when they change; `null` leaves a query parameter out. |
 | `call` | Instead of `src`: one call of a [local action](actions.md), `ns.fn(args)`. Reloads when the arguments' inputs change. |
 | `key` | Comma-separated item fields that form the identity. Required for collections; without it the resource is a single object. |
 | `items` | Path to the array in the response. Default: the response itself. |

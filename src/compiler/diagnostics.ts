@@ -50,6 +50,8 @@ export const CODES = {
   SN323: 'needs-site',
   SN324: 'lazy-package-use',
   SN325: 'lazy-package-bundled',
+  SN326: 'unknown-operation',
+  SN327: 'operation-params',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',

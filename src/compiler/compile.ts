@@ -17,7 +17,7 @@ import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
-import { deref, matchOperation, matchResource, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
+import { deref, findOperation, matchOperation, operationRef, operationUrl, matchResource, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { withParams } from '../runtime/url.js';
@@ -427,6 +427,14 @@ const SINTER_EVENTS = ['sn-error', 'dismiss'];
 /** a prop's value that is a build-time constant, and those of them that are falsy */
 const CONST_PROP = /^(true|false|null|undefined|-?\d+(\.\d+)?|'[^'\\]*'|"[^"\\]*")$/;
 const FALSY_PROP = ['false', 'null', 'undefined', '0', "''", '""'];
+
+/** A URL template that starts with a literal same-origin path or a literal `https://` origin: no value can choose the host. */
+function safeUrlStart(parts: UrlTemplate): boolean {
+  const first = parts[0];
+  // a literal origin followed by a value needs its `/`: `https://api.example.com{x}` lets `x` extend the host
+  const origin = parts.length > 1 ? /^https?:\/\/[^/{}]+\//i : /^https?:\/\/[^/{}]+(\/|$)/i;
+  return typeof first === 'string' && (/^\/[^/\\]/.test(first) || first === '/' || origin.test(first));
+}
 
 /** The props a use gives as constants (`{ label: true }`), and the optional ones it leaves out (undefined), each as truthy or not. */
 function constantProps(src: string | undefined, props: Member[] | null): Map<string, boolean> {
@@ -3327,12 +3335,95 @@ class Compiler {
       i = j + 1;
     }
     if (lit) parts.push(lit);
-    const first = parts[0];
-    // a literal origin followed by a value needs its `/`: `https://api.example.com{x}` lets `x` extend the host
-    const origin = parts.length > 1 ? /^https?:\/\/[^/{}]+\//i : /^https?:\/\/[^/{}]+(\/|$)/i;
-    if (typeof first !== 'string' || !(/^\/[^/\\]/.test(first) || first === '/' || origin.test(first))) {
+    if (!safeUrlStart(parts)) {
       this.report(el, attrName, 'SN207', 'a URL template must start with a literal same-origin path (`/api/…`) or a literal `https://` origin (with a `/` after the host when a value follows)', 0,
         'a leading interpolation or `//` lets a value choose the host');
+    }
+    return parts;
+  }
+
+  /**
+   * `operation="GetProfile" params="{ username: $url.username }"`: the URL template of an OpenAPI GET
+   * operation, the first server's URL before its path, path parameters filled from `params` and the
+   * query parameters `params` gives after it (null leaves one out, as in `src`).
+   */
+  operationTemplate(el: P5Element, scope: Scope, deps: Set<string>): UrlTemplate {
+    const ref = attr(el, 'operation')!;
+    const specs = this.opts.openapi ?? [];
+    if (!specs.length) {
+      this.report(el, 'operation', 'SN326', '`operation` names an operation of the OpenAPI spec, and there is none: set `sinter({ openapi: \'openapi.yml\' })`', 0);
+      return [];
+    }
+    const op = findOperation(specs, ref);
+    if ('closest' in op) {
+      const lead = ref.length - ref.trimStart().length;
+      this.report(el, 'operation', 'SN326', `the OpenAPI spec has no operation \`${ref.trim()}\`.${op.closest ? ` Did you mean \`${op.closest}\`?` : ''}`, lead,
+        'name an `operationId`, or the method and path as the spec writes it: `GET /articles/{slug}`');
+      return [];
+    }
+    if (op.method !== 'get') {
+      this.report(el, 'operation', 'SN326', `\`${operationRef(op)}\` is a ${op.method.toUpperCase()} operation: a resource loads with GET`, 0, 'call it from an action instead');
+      return [];
+    }
+    // the values `params` gives, compiled in the resource's scope
+    const values = new Map<string, number>();
+    const text = attr(el, 'params');
+    if (text != null && text.trim()) {
+      let ast: acorn.Expression | null = null;
+      try { ast = parseExpressionAt(text, 0, { ecmaVersion: 'latest' }) as acorn.Expression; } catch (e) {
+        this.report(el, 'params', 'SN401', `\`params\`: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, (e as { pos?: number }).pos ?? 0);
+        return [];
+      }
+      if (ast.type !== 'ObjectExpression' || ast.end !== text.trimEnd().length) {
+        this.report(el, 'params', 'SN401', '`params` is an object literal of parameter values, e.g. `{ slug: $url.slug, limit: 20 }`', 0);
+        return [];
+      }
+      const names = op.params.map((p) => p.name);
+      for (const p of ast.properties) {
+        const key = p.type === 'Property' && !p.computed && p.kind === 'init' && !p.method
+          ? p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : null : null;
+        if (key === null || p.type !== 'Property') { this.report(el, 'params', 'SN401', '`params` takes `name: value` pairs', p.start); continue; }
+        const param = op.params.find((x) => x.name === key);
+        if (!param) {
+          this.report(el, 'params', 'SN327', `\`${operationRef(op)}\` has no parameter \`${key}\`.${didYouMean(key, names)}`, p.key.start,
+            names.length ? `its parameters are ${names.map((n) => `\`${n}\``).join(', ')}` : 'it takes no parameters');
+          continue;
+        }
+        if (values.has(key)) { this.report(el, 'params', 'SN327', `\`${key}\` is given twice`, p.key.start); continue; }
+        const r = this.expr(el, 'params', scope, { mode: 'value' }, text.slice(p.value.start, p.value.end), p.value.start);
+        // an array is a repeated key as a whole query value, and refused in the path
+        if (param.in === 'path') this.typeLast({ returns: { kind: 'decl', name: 'PathValue' } });
+        for (const d of r.deps) deps.add(d);
+        values.set(key, this.fn(r.code));
+      }
+    }
+    const missing = op.params.filter((p) => p.required && !values.has(p.name)).map((p) => p.name);
+    if (missing.length) {
+      this.report(el, text == null ? 'operation' : 'params', 'SN327', `\`${operationRef(op)}\` needs ${missing.map((n) => `\`${n}\``).join(', ')} in \`params\``, 0,
+        `\`params="{ ${missing.map((n) => `${n}: …`).join(', ')} }"\``);
+      return [];
+    }
+    const parts: UrlTemplate = [];
+    const lit = (s: string) => { if (typeof parts[parts.length - 1] === 'string') parts[parts.length - 1] += s; else if (s) parts.push(s); };
+    const url = operationUrl(op);
+    let i = 0;
+    for (const m of url.matchAll(/\{([^}]+)\}/g)) {
+      lit(url.slice(i, m.index));
+      parts.push(values.get(m[1]!)!);
+      i = m.index! + m[0].length;
+    }
+    lit(url.slice(i));
+    let sep = url.includes('?') ? '&' : '?';
+    for (const p of op.params) {
+      if (p.in !== 'query' || !values.has(p.name)) continue;
+      lit(`${sep}${encodeURIComponent(p.name)}=`);
+      parts.push(values.get(p.name)!);
+      sep = '&';
+    }
+    if (!safeUrlStart(parts)) {
+      this.report(el, 'operation', 'SN207', `\`${operationRef(op)}\` is at \`${url}\`: a resource's URL must be a same-origin path (\`/api/…\`) or an \`https://\` origin`, 0,
+        'the URL comes from the first entry of the spec\'s `servers`');
+      return [];
     }
     return parts;
   }
@@ -3352,8 +3443,11 @@ class Compiler {
     if (earlyAttr === 'off') this.noEarly.add(name);
     const info = this.page.resources.get(name)!;
     const hasCall = attr(el, 'call') != null;
-    if (hasCall && attr(el, 'src') != null) this.report(el, 'call', 'SN102', 'a resource loads from `src` or from `call`, not both', 0);
-    else if (!hasCall && attr(el, 'src') == null) this.report(el, null, 'SN401', `resource \`${name}\` needs a \`src\` (or a \`call\`)`, 0);
+    const hasOp = attr(el, 'operation') != null;
+    const sources = ['src', 'operation', 'call'].filter((a) => attr(el, a) != null);
+    if (sources.length > 1) this.report(el, sources[1]!, 'SN102', sources.length === 2 ? `a resource loads from \`${sources[0]}\` or from \`${sources[1]}\`, not both` : 'a resource loads from one of `src`, `operation` or `call`', 0);
+    else if (!sources.length) this.report(el, null, 'SN401', `resource \`${name}\` needs a \`src\`${this.opts.openapi?.length ? ', an `operation`' : ''} (or a \`call\`)`, 0);
+    if (attr(el, 'params') != null && !hasOp) this.report(el, 'params', 'SN102', '`params` needs `operation`: with `src`, the values are written in the URL template', 0);
     if (hasCall) {
       for (const a of ['paginate', 'each', 'cache']) {
         if (attr(el, a) != null) this.report(el, a, 'SN401', `\`${a}\` does not combine with \`call\` in v0.2`, 0);
@@ -3385,7 +3479,7 @@ class Compiler {
         }
       }
     }
-    const src = hasCall ? [] : this.urlTemplate(el, 'src', srcScope, {}, deps);
+    const src = hasCall ? [] : hasOp && attr(el, 'src') == null ? this.operationTemplate(el, srcScope, deps) : this.urlTemplate(el, 'src', srcScope, {}, deps);
     const call = hasCall ? this.callExpr(el, 'call', ctx.scope, deps) : null;
     let when: number | null = null;
     if (attr(el, 'when') != null) {
@@ -3533,7 +3627,8 @@ class Compiler {
       } else if (field === 'items') schema = w.schema;
     }
     const raw = attr(el, 'src') ?? '';
-    for (const q of queryNames(src)) {
+    // with `operation`, `params` names are checked against the operation as they are compiled
+    if (attr(el, 'src') != null) for (const q of queryNames(src)) {
       if (m.query.includes(q)) continue;
       const at = raw.indexOf(q + '=', raw.indexOf('?'));
       this.report(el, 'src', 'SN505', `\`${label}\` declares no query parameter \`${q}\`.${didYouMean(q, m.query)}`, Math.max(at, 0));

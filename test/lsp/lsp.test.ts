@@ -411,6 +411,42 @@ components:
     expect(d!.map((x) => [x.uri.split('/').pop(), x.range.start.line, x.range.start.character])).toEqual([['openapi.yml', 18, 8]]);
   });
 
+  test('completes `operation` with the spec\'s GET operations and hovers the URL it calls', async () => {
+    const spec = `openapi: 3.0.0
+info: { title: t, version: '1' }
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /profiles/{username}:
+    get:
+      operationId: GetProfile
+      summary: A profile
+      parameters: [{ name: username, in: path, required: true }]
+      responses: { '200': { description: ok } }
+    post:
+      operationId: FollowProfile
+      responses: { '200': { description: ok } }
+  /tags:
+    get:
+      responses: { '200': { description: ok } }
+`;
+    const page = '<sn-resource name="p" operation="GetProfile" params="{ username: $url.username }"></sn-resource>\n';
+    const root = project({ 'openapi.yml': spec, 'index.html': page, 'vite.config.js': `import sinter from ${JSON.stringify(join(process.cwd(), 'src/vite.ts'))};\nexport default { plugins: [sinter({ openapi: 'openapi.yml' })] };\n` });
+    const e = await editor(root);
+    e.open('index.html', page);
+    const items = (await e.completion('index.html', 0, 35))!.items;
+    expect(items.map((i) => [i.label, (i as { detail?: string }).detail])).toEqual([
+      ['GetProfile', 'GET https://api.example.com/v1/profiles/{username}'],
+      ['GET /tags', 'GET https://api.example.com/v1/tags'],
+    ]);
+    expect(items[0]!.textEdit!.newText).toBe('GetProfile');
+    const h = (await e.hover('index.html', 0, 35))!.contents.value;
+    expect(h).toContain('**GET** `https://api.example.com/v1/profiles/{username}`');
+    expect(h).toContain('Requested as `https://api.example.com/v1/profiles/{$url.username}`');
+    expect(h).toContain('A profile');
+    expect(h).toContain('From `openapi.yml`');
+  });
+
   test('go to definition on a component\'s tag opens the component', async () => {
     const page = '<x-row></x-row>\n';
     const root = project({ 'index.html': page, 'src/components/x-row.html': '<template data-sn-component=""><p>row</p></template>\n' });

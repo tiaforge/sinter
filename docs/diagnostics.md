@@ -372,6 +372,26 @@ A page's bundle (its own chunk and the chunks it imports, or its early file) con
 
 **Fix:** Add the other package to `lazy` as well, or load it with `import()`. For the app's own split, import the module only with `import()` where the page reaches it, or not lazily at all.
 
+## SN326 unknown-operation
+
+Error, for example:
+
+> the OpenAPI spec has no operation `GetProfileByUsernme`. Did you mean `GetProfileByUsername`?
+
+`operation` on a resource names an operation of the OpenAPI spec (`sinter({ openapi })`): its `operationId`, or its method and path as the spec writes them (`GET /profiles/{username}`). Also reported: `operation` with no spec configured, an operation that is not a GET, and an operation whose first server URL is neither a same-origin path nor an `https://` origin.
+
+**Fix:** Use the suggested name (the editor completes the operations), add `servers` to the spec, or call a non-GET operation from an action.
+
+## SN327 operation-params
+
+Error, for example:
+
+> `GetArticles` has no parameter `tagg`. Did you mean `tag`?
+
+`params` gives the values of the operation's path and query parameters. A name the operation does not declare, a name given twice, and a path parameter (or a required query parameter) left out are reported.
+
+**Fix:** Use the parameter names of the spec, and give every path parameter: `params="{ slug: $url.slug }"`.
+
 ## SN401 parse-error
 
 Error, for example:
