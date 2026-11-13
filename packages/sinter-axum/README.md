@@ -41,6 +41,8 @@ axum::serve(listener, app).await?;
 
 For each page request, the layer calls your router in-process, passing on the request's cookies. Other requests pass through untouched.
 
+`CompressionLayer` compresses with `flate2`, whose default backend is miniz_oxide. With zlib-ng (`flate2 = { version = "1", features = ["zlib-ng"] }` in your dependencies, which needs CMake to build), the same gzip took half the CPU per page in the [measurements](https://github.com/tiaforge/sinter/blob/main/docs/first-paint-comparison.md#with-the-api-in-the-same-app).
+
 The page is sent head first, before the data is in, so its status is `200` from the start. If the data then can't be fetched, the rest of the page isn't sent: the response ends with an error text, or a redirect to your error page (see [What the layer does](#what-the-layer-does)).
 
 ## The compile-time check

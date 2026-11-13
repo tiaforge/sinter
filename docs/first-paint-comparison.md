@@ -201,22 +201,69 @@ About 35x Qwik's home pages and 3.5x the Node middleware's per core; on the arti
 A second run of 10 s gave 67, 595 and 1,884 home pages per second. Each page here is two API requests,
 which the API answered in about 1 ms: a slower API changes the latency, not the CPU per page.
 
-## Sinter.AspNetCore
+## Sinter.AspNetCore and @tiaforge-ui/sinter/server
 
-[`packages/sinter-aspnetcore`](../packages/sinter-aspnetcore) is the same layer for ASP.NET Core. Its
-`examples/RealWorld` is a port of sinter-axum's example server (the same resolver, gzip, cache headers),
-published with NativeAOT. Measured 2026-11-12 against sinter-axum's example on another machine than the
-table above (a 4-core container), with the same method: `oha`, 15 s, 32 connections, the RealWorld build
-with `SINTER_EMBED=1` and the mock API; each server pinned to one core, the API to a second, the load
-generator to the other two. Both servers ran at 99% of their core, the API at 34-38% of its own. The
-decompressed pages were byte for byte the same, and gzip at the default level of each gave sizes within 4%.
+The same layer for ASP.NET Core ([`packages/sinter-aspnetcore`](../packages/sinter-aspnetcore), published
+with NativeAOT) and for JavaScript ([server.md](server.md), on Node and Bun), measured against sinter-axum on
+another machine than the tables above (a 4-core container), 2026-11-13. Each server is pinned to one core
+and the load generator (`oha`, 32 connections, 15 s) to two others; the pages are RealWorld's, built with
+`SINTER_EMBED=1`, and every server returned them byte for byte the same (24,840 bytes for home,
+uncompressed).
+
+Compression is the same work everywhere: gzip at zlib level 6 (sinter-axum's examples on zlib-ng, the
+library .NET ships, not flate2's default miniz_oxide, which took twice the CPU; .NET's `Optimal` is a
+lower level, so its examples ask for 6), flushed only before the layer waits for data. In JavaScript,
+`bench/gzip.mjs` deflates each chunk the layer sends with node:zlib's native, synchronous deflate (a stream
+of node:zlib would cost twice that, and `CompressionStream` holds the output to the end). The compressed
+sizes are within 5% of each other.
+
+### With the API in the same app
+
+The case the layers are built for: the API is routes of the same app, which the layer calls in-process
+(sinter-axum's `.api(router)`, Sinter.AspNetCore's endpoints, `wrap(app.fetch)` over a Hono app). The
+servers are in `bench/in-process` (`run.sh` runs them all): each API route answers with the same recorded
+JSON, so the API does the same, trivial work in every language, and what is measured is the layer and its
+server (5 s runs).
 
 | Pages per second, one core | Home, gzip | Article, gzip | Home | Article |
 | --- | --- | --- | --- | --- |
-| sinter-axum | 2,830 (p50 10.8 ms) | 3,652 (p50 8.4 ms) | 2,910 | 3,823 |
-| Sinter.AspNetCore, NativeAOT | 2,808 (p50 10.9 ms) | 3,748 (p50 8.3 ms) | 2,857 | 3,532 |
+| sinter-axum | 6,579 | 8,031 | 29,434 | 31,644 |
+| Sinter.AspNetCore, NativeAOT | 5,093 | 7,373 | 21,985 | 28,128 |
+| sinter/server on Bun 1.4, Hono | 3,892 | 4,712 | 18,061 | 23,451 |
+| sinter/server on Node 22, Hono on `@hono/node-server` | 1,703 | 2,252 | 6,955 | 6,738 |
 
-The two are within a few percent of each other.
+- **Uncompressed, Sinter.AspNetCore serves 75-89% of the Rust layer's pages, Bun 61-74%, Node 21-24%.**
+  A single run varies by about 10% on this machine; the differences between layers are larger than that.
+- **What the layer adds to a page**, against the same server answering the API's 17.7 KB JSON route
+  directly (no layer, uncompressed): sinter-axum 14-15 µs, Sinter.AspNetCore 10-21 µs, Bun 30-41 µs. Bun's
+  server is as fast as axum's (19.4 µs for that route, axum 20.1); the difference is a page's two in-process
+  calls, each a `Request`, a Hono dispatch and a `Response` (about 7 µs each on Bun), where sinter-axum calls
+  its router with a zero-copy body.
+- **On Node**, the server itself is as fast (`node:http` answers the route in 24 µs, `@hono/node-server`
+  in 28 µs), but a fetch handler's objects are not: a page's 144 µs are about 44 µs for the server with a
+  streamed body, 8 µs for the request's headers (forwarded to the API), 28 µs for each of the two in-process
+  calls, and about 26 µs for the layer itself. Node implements `Request` and `Response` in JavaScript
+  (undici), Bun natively: the same code runs 2.6-3.5 times as fast on Bun.
+
+### With the API on another server
+
+The pages' data from the mock API over HTTP, as sinter-axum's RealWorld example fetches it: its port to
+each layer (`examples/RealWorld`, `bench/realworld/sinter-server.mjs`), the same resolver and cache headers;
+the API on a third core.
+
+| Pages per second, one core | Home, gzip | Article, gzip | Home | Article |
+| --- | --- | --- | --- | --- |
+| sinter-axum | 2,966 | 3,541 | 8,475 | 9,740 |
+| Sinter.AspNetCore, NativeAOT | 2,487 | 3,406 | 7,891 | 9,548 |
+| sinter/server on Bun 1.4 | 2,356 | 2,790 | 5,709 | 8,102 |
+| sinter/server on Node 22, API through `undici.request()` | 1,281 | 1,558 | 2,971 | 3,505 |
+| sinter/server on Node 22, API through `fetch` | 960 | 1,072 | 1,917 | 2,055 |
+
+- **The two API requests of a page are most of its cost here:** a third to a quarter of the pages with
+  the API in the same app.
+- **On Node, the largest share is Node's own `fetch`** (undici behind the WHATWG `Request` and `Response`):
+  giving the layer undici's `request()` instead (`fetch` option, [server.md](server.md#on-node)) serves
+  55-71% more pages uncompressed and 33-45% more with gzip.
 
 ## Limits
 

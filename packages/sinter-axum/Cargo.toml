@@ -40,6 +40,9 @@ sinter-axum-macros = { version = "0.17.0", path = "macros", optional = true }
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.7", features = ["fs", "compression-gzip"] }
+# the examples' gzip on zlib-ng, the library .NET ships (and Node and Bun a zlib of their own), not flate2's
+# default miniz_oxide: bench/in-process compares the layers, not their compressors
+flate2 = { version = "1.1", features = ["zlib-ng"] }
 trybuild = "1"
 
 [[example]]

@@ -196,6 +196,22 @@ const PREFETCH = `${PREFIX}prefetch.js`;
 const RULES_FILE = 'speculation-rules.json';
 /** build: the pages' embedded-data placeholders, for a server that fills them per request (sinter-axum) */
 const EMBED_FILE = 'sinter-embed.json';
+/** build: the placeholders as TypeScript types, next to the manifest, for the server layer (`@tiaforge-ui/sinter/server`) */
+const EMBED_TYPES = 'sinter-embed.d.ts';
+
+/** `sinter-embed.d.ts`: per page, each placeholder's resource and whether the build describes its request (`true`) */
+function embedTypes(pages: Array<{ file: string; data: EmbedSlot[] }>): string {
+  const page = (p: { file: string; data: EmbedSlot[] }) =>
+    `    ${JSON.stringify(p.file)}: {${p.data.map((d) => ` ${JSON.stringify(d.resource)}: ${d.src != null && d.when !== true};`).join('')} };`;
+  return `// The build's data placeholders, written by sinter's Vite plugin with sinter-embed.json: for embed<Build>() from
+// '@tiaforge-ui/sinter/server' (true: the build describes the request; false: it needs an entry in \`data\`).
+export interface Build {
+  pages: {
+${pages.map(page).join('\n')}
+  };
+}
+`;
+}
 
 export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let root = process.cwd();
@@ -721,6 +737,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // a server picks the language at a fixed unprefixed URL too (`/about/`, `/`), where a host serves the chooser file
         if (locales && b.startsWith('/')) for (const s of sourceEntries()) { const u = pageUrl(relOf(s), b, describeSource(s).path); if (u) routes.push({ from: u, to: u, status: 200, file: chooserFile(relOf(s)), choose: true }); }
         this.emitFile({ type: 'asset', fileName: EMBED_FILE, source: JSON.stringify({ version: 1, pages, ...(routes.length ? { routes } : {}), ...(locales ? { locales: { ...locales, at: b.replace(/\/?$/, '/') } } : {}) }, null, 2) + '\n' });
+        // the same placeholders as types, for `embed<Build>()` from `@tiaforge-ui/sinter/server`: a name no placeholder has, or a
+        // placeholder whose request the build cannot describe left without an entry, is a type error in the server's code
+        this.emitFile({ type: 'asset', fileName: EMBED_TYPES, source: embedTypes(pages) });
       }
       if (remoteConfig?.url.startsWith('/_vercel/image') && remoteWidths.size) {
         r.logger.info(`sinter: images from the API use these widths; Vercel resizes only the ones in vercel.json: "images": { "sizes": [${[...remoteWidths].sort((a, b) => a - b).join(', ')}], "remotePatterns": [...] }`);

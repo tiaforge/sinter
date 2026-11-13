@@ -10,6 +10,7 @@ export default defineConfig({
       { find: '@tiaforge-ui/sinter/check', replacement: `${src}/check/index.ts` },
       { find: '@tiaforge-ui/sinter/messages', replacement: `${src}/messages.ts` },
       { find: '@tiaforge-ui/sinter/retry', replacement: `${src}/retry.ts` },
+      { find: '@tiaforge-ui/sinter/server', replacement: `${src}/server.ts` },
       { find: '@tiaforge-ui/sinter/early', replacement: `${src}/early.ts` },
       { find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` },
     ],
