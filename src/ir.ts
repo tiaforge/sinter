@@ -42,7 +42,9 @@ export interface Paginate {
   pageParam: string;
   /** the number of items to skip, (n - 1) * size: offset mode sends it instead of `pageParam`; keyset, to let `page(name, n)` jump */
   offsetParam?: string;
-  /** `start-page`: the page the first load asks for (offset, keyset with `offsetParam`), e.g. `$url.page` */
+  /** `page-model="$url.page"`: the query parameter that holds the page (offset mode) */
+  model?: string;
+  /** with `model`: the function that reads it (`$.$url.page`), where the early file and embedded data read the start page */
   start?: number;
 }
 
@@ -186,7 +188,7 @@ export interface EarlyIR {
   /** resources the early file requests: URL template and `when` (function indexes into the early table), scope by index into `roots`, -1 for the page; `q`: a paginated resource's first-page query parameters */
   res?: Array<{
     name: string; src: UrlTemplate; when: number | null; scope: number; q?: Record<string, string>;
-    /** `start-page`: from page 2 on, `qn` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`) */
+    /** `page-model`: from page 2 on, `qn` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`) */
     sp?: { f: number; k: string; s: number; o?: 1; qn: Record<string, string> };
     lo?: 1; xo?: 1;
   }>;

@@ -256,7 +256,7 @@ test('startup refuses placeholders without a source and names that are not place
   await expect(embed({ dir: appBuild(), data: { 'article.html:feed': 'skip' } })).rejects.toThrow();
 });
 
-test('`when` and `start-page` are evaluated from the URL', async () => {
+test('`when` and `page-model` are evaluated from the URL', async () => {
   const dir = build(`{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
     { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }], "when": { "url": "feed", "ne": "following" },
       "query": [["offset", "0"], ["limit", "10"]],

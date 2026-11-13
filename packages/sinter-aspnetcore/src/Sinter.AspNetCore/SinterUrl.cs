@@ -191,7 +191,7 @@ public static class SinterUrl
     }
 
     /// <summary>
-    /// What <c>start-page</c> gives as a page, as the runtime's <c>toPage</c>: the whole number <c>parseInt</c>
+    /// A <c>page-model</c> parameter as a page, as the runtime's <c>toPage</c>: the whole number <c>parseInt</c>
     /// reads at the start of the value (<c>"3"</c>, <c>" 3x"</c>), else, or below 1, page 1.
     /// </summary>
     public static ulong ToPage(string? v)

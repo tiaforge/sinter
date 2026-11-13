@@ -51,8 +51,8 @@ The page is sent head first, before the data is in, so its status is `200` from 
 `[SinterEmbed]` reads the build's `sinter-embed.json` when your project compiles (the `<SinterBuild>` directory). It's a compile error when the build has a slot your configuration can't fill, and the error names the page, the resource and the fix:
 
 ```text
-error SINTER003: index.html: `articles`: the build could not describe its request (its `src` or
-`start-page` calls a helper, or reads something other than `$url`). Add [SinterResolve("articles")] to a
+error SINTER003: index.html: `articles`: the build could not describe its request (its `src`
+calls a helper, or reads something other than `$url`). Add [SinterResolve("articles")] to a
 method that gives its data, or [SinterSkip("articles")] to leave it to the browser.
 ```
 

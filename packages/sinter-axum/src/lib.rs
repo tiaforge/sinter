@@ -89,7 +89,7 @@ pub struct SlotRequest {
     /// the resource's name (`data-sn-data="articles"`)
     pub resource: String,
     /// the request the build describes, filled from `$url`: the resource's `src`, a paginated
-    /// one at its first page (or the page `start-page` names); None when the build could not
+    /// one at its first page (or the page its `page-model` parameter names); None when the build could not
     /// describe it, or its `when` does not hold for this URL
     pub url: Option<String>,
     /// the page URL's parameters: the query (an array parameter as a list), then the path's `:name` segments
@@ -308,8 +308,7 @@ impl Embed {
     fn source(&self, s: &SlotDesc) -> Result<(), String> {
         if !s.described() {
             return Err(if s.src.is_none() {
-                "the build could not describe its request (its `src` or `start-page` calls a helper, or reads something other than `$url`)"
-                    .into()
+                "the build could not describe its request (its `src` calls a helper, or reads something other than `$url`)".into()
             } else {
                 "its `when` is a condition only the browser can evaluate".into()
             });

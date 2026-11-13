@@ -135,7 +135,7 @@ public sealed class GeneratorTests
         var d = Assert.Single(gen);
         Assert.Equal("SINTER003", d.Id);
         Assert.Equal(
-            "index.html: `articles`: the build could not describe its request (its `src` or `start-page` calls a helper, or reads something other than `$url`). Add [SinterResolve(\"articles\")] to a method that gives its data, or [SinterSkip(\"articles\")] to leave it to the browser.",
+            "index.html: `articles`: the build could not describe its request (its `src` calls a helper, or reads something other than `$url`). Add [SinterResolve(\"articles\")] to a method that gives its data, or [SinterSkip(\"articles\")] to leave it to the browser.",
             d.GetMessage());
         Assert.Equal("Web", SourceAt(d, code));
     }

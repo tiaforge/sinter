@@ -61,7 +61,14 @@ export interface BoundBinding {
 
 /** Pagination state of one resource; a "move" is one page request, repeated exactly by refetch. */
 export interface Pager {
-  reset(): void;
+  /**
+   * the resource's URL changed: back to the first page. With `page-model`, `why` says what changed it:
+   * 0 its first URL after mount (the URL's page, restored), 1 Back or Forward (the URL's page), 2 anything
+   * else (page 1, and the parameter deleted)
+   */
+  reset(why?: number): void;
+  /** `page-model`: the parameter may have changed (the URL did not): loads the page it names */
+  follow?(): void;
   current(): unknown;
   params(move: unknown): Record<string, string> | null;
   appends(move: unknown): boolean;
@@ -167,7 +174,12 @@ export interface App {
      * for (1 replace, 2 typing, 3 push; the strongest of a flush pass wins); `end` ends a typing run
      * (`change` on a text field bound to the URL), committing what waits
      */
-    location?: { write(name: string, kind: number): void; end(): void };
+    location?: {
+      write(name: string, kind: number): void;
+      end(): void;
+      /** `page-model` (paginate.ts): sets a parameter (null deletes it) and writes it with `kind` */
+      set(name: string, value: string | null, kind: number): void;
+    };
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
     form?: (el: Element, a: ActionDef, body: unknown) => unknown;
     /**
@@ -198,6 +210,8 @@ export interface App {
   readonly states: Array<[number, any]>;
   /** pending debounce timers and waiting actions, for the testing module */
   busy: number;
+  /** the flush running follows Back or Forward (`popstate`): nothing it causes writes the URL */
+  readonly back: boolean;
   /**
    * whether a `$url` write here adds a history entry: in the handlers of a user's event and what they
    * cause (an action's `then`/`catch`, `emit`), except a keystroke's (`input` in a text field)
@@ -407,7 +421,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** dirty paths of this round that keystrokes in text fields produced */
   const typed = new Set<Dirty>();
   /** `app.push`; `synth`: a submit `run()` causes is not the user's, though the browser trusts it */
-  let push = false, synth = false;
+  let push = false, synth = false, back = false;
   /** runs `fn` with `push` as `u`: the context of the event that caused it */
   const as = (u: boolean, fn: () => void) => { const was = push; push = u; try { fn(); } finally { push = was; } };
 
@@ -588,6 +602,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     beforeFlush: [], afterFlush: [], onListen: [], states: [], busy: 0,
     get isDirty() { return dirty.length > 0 || scheduled; },
     get push() { return push; },
+    get back() { return back; },
     dev: false,
     warn() {},
     unhandled,
@@ -660,7 +675,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         cur = dirty = [];
         typed.clear();
         marked.clear();
-        flushing = false;
+        flushing = back = false;
       }
     },
     record(change) {
@@ -762,6 +777,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const u = app.page.$url;
     for (const k in u) delete u[k];
     Object.assign(u, readUrl());
+    back = true;
     app.mark('$url');
   }));
   if (ir.now) {
@@ -1401,7 +1417,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     app.page.$meta[def.name] = r.meta;
     // fed by a server-event stream: connecting until its first open (src/sse.ts keeps it current)
     if (app.ir.syncs?.some((s) => s.events.some((e) => e.resource == def.name))) r.meta.live = 'connecting';
-    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, loud = false;
+    /** `had`: the resource has had a URL (its first one after mount restores a `page-model` page) */
+    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, loud = false, had = false;
     const typing = wait(app);
 
     const scope = () => app.scopeOf(def.scope ?? -1);
@@ -1472,7 +1489,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           const ahead = app.ext.prefetch && !def.call && !def.each && !def.paginate;
           const u = ahead || (def.cache != null && app.ext.cache) ? resolve() : null;
           if (u != null) {
-            l.pager?.reset();
+            l.pager?.reset(0);
             const q = request(u), hit = (ahead && app.ext.prefetch!.take(def, q)) || (def.cache != null && app.ext.cache?.read(def, q));
             // loadedAt stays null: it means the server answered during this page load, and
             // guards such as `$meta.user.loadedAt && !user` must not act on another page's data
@@ -1480,7 +1497,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
           }
           return l.changed();
         }
-        l.pager?.reset();
+        had = true;
+        l.pager?.reset(0);
         const v = store(data!.v, request(url));
         r.meta.loadedAt = env.now();
         l.done(v);
@@ -1491,10 +1509,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
         typing.stop();
         if (soft) return typing.start(() => l.changed(), TYPING);
         const u = resolve();
-        if (u === url) return;
+        if (u === url) return l.pager?.follow?.();
         url = u;
-        l.pager?.reset();
-        if (u != null) return void l.load();
+        if (u != null) {
+          l.pager?.reset(had ? (back ? 1 : 2) : 0);
+          had = true;
+          return void l.load();
+        }
         c?.abort();
         r.replace(r.isCollection ? [] : null);
         if (def.cache != null) app.ext.cache?.cleared(def);

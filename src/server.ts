@@ -19,7 +19,7 @@ export interface SlotRequest {
   resource: string;
   /**
    * the request the build describes, filled from `$url`: the resource's `src`, a paginated one at its first
-   * page (or the page `start-page` names); null when the build could not describe it, or its `when` does
+   * page (or the page its `page-model` parameter names); null when the build could not describe it, or its `when` does
    * not hold for this URL
    */
   url: string | null;
@@ -143,7 +143,7 @@ const holds = (c: Cond, p: Params): boolean =>
     : c.ne != null ? p[c.url] !== c.ne
     : !!p[c.url];
 
-/** `start-page` as the runtime's `toPage`: the whole number `parseInt` reads, else (or below 1) page 1. */
+/** A `page-model` parameter as the runtime's `toPage`: the whole number `parseInt` reads, else (or below 1) page 1. */
 const toPage = (v: string | undefined) => {
   const n = parseInt(v ?? '', 10);
   return Number.isFinite(n) && n >= 1 ? n : 1;
@@ -309,7 +309,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
   for (const p of m.pages) for (const s of p.data) {
     if (data[`${p.file}:${s.resource}`] ?? data[s.resource]) continue;
     const first = typeof s.src?.[0] == 'string' ? s.src[0] : '';
-    const why = s.src == null ? 'the build could not describe its request (its `src` or `start-page` calls a helper, or reads something other than `$url`)'
+    const why = s.src == null ? 'the build could not describe its request (its `src` calls a helper, or reads something other than `$url`)'
       : s.when === true ? 'its `when` is a condition only the browser can evaluate'
       : sameOrigin(first) || allowed(first) ? null
       : `\`${first}…\` is on an origin not allowed with \`origins\``;

@@ -47,7 +47,7 @@ public sealed class ManifestSlot(int id, string resource, UrlPart[]? src, bool w
     public Cond? When { get; } = when;
     /// <summary>Paginated: the first page's query parameters, set on the template's URL.</summary>
     public KeyValuePair<string, string>[] Query { get; } = query;
-    /// <summary>Paginated, starting at a page from <c>$url</c> (<c>start-page</c>).</summary>
+    /// <summary>Paginated, starting at a page from <c>$url</c> (<c>page-model</c>).</summary>
     public ManifestStart? Start { get; } = start;
 
     /// <summary>Whether the build describes the request completely: its URL, and its <c>when</c> if it has one.</summary>
@@ -106,7 +106,7 @@ public abstract class Cond
     }
 }
 
-/// <summary><c>start-page</c> from <c>$url</c>: from page 2 on, <c>query</c> with <c>key</c> set to the page (with <c>skip</c>, to the items to skip, <c>(page - 1) * size</c>).</summary>
+/// <summary><c>page-model</c>: the page from its <c>$url</c> parameter; from page 2 on, <c>query</c> with <c>key</c> set to the page (with <c>skip</c>, to the items to skip, <c>(page - 1) * size</c>).</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
 public sealed class ManifestStart(string url, string key, ulong size, bool skip, KeyValuePair<string, string>[] query)
 {

@@ -271,7 +271,7 @@ public sealed class SinterGenerator : IIncrementalGenerator
             {
                 string? why = null;
                 if (!s.TryGetValue("src", out var src) || src is null)
-                    why = "the build could not describe its request (its `src` or `start-page` calls a helper, or reads something other than `$url`)";
+                    why = "the build could not describe its request (its `src` calls a helper, or reads something other than `$url`)";
                 else if (s.TryGetValue("when", out var w) && w is true)
                     why = "its `when` is a condition only the browser can evaluate";
                 o.Add(new Slot(page, (string)s["resource"]!, why));

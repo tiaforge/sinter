@@ -198,7 +198,7 @@ pub fn with_params(url: &str, params: &[(String, String)]) -> String {
     out
 }
 
-/// What `start-page` gives as a page, as the runtime's `toPage`: the whole number `parseInt` reads at
+/// A `page-model` parameter as a page, as the runtime's `toPage`: the whole number `parseInt` reads at
 /// the start of the value (`"3"`, `" 3x"`), else, or below 1, page 1.
 pub fn to_page(v: Option<&str>) -> u64 {
     let s = v.unwrap_or("").trim_start();

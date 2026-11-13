@@ -245,7 +245,7 @@ const RESOURCE_GROUPS: Array<[string, string[]]> = [
   ['Where the data comes from', ['name', 'src', 'call', 'each', 'when', 'early']],
   ['What it looks like', ['key', 'items', 'total', 'order', 'type']],
   ['How fresh it is', ['cache', 'refresh', 'then']],
-  ['Pagination', ['paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'start-page']],
+  ['Pagination', ['paginate', 'page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'page-model']],
 ];
 
 // Markdown-safe text for a table cell or sentence: `|` would split the row, and a bare <tag> outside code is

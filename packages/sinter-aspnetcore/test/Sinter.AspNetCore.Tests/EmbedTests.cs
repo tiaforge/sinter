@@ -275,7 +275,7 @@ public sealed class EmbedTests
     }
 
     [Fact]
-    public async Task When_and_start_page_are_evaluated_from_the_url()
+    public async Task When_and_page_model_are_evaluated_from_the_url()
     {
         var dir = Build("when", """
             { "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [

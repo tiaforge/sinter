@@ -259,7 +259,7 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
           const s = r.scope < 0 ? base : scopes[r.scope];
           if (r.when != null && !fns[r.when]!(s)) continue;
           let q = r.q;
-          // `start-page`: page n's parameters (the pager's pageParams)
+          // `page-model`: page n's parameters (the pager's pageParams)
           if (r.sp) { const n = toPage(fns[r.sp.f]!(s)); if (n > 1) q = { ...r.sp.qn, [r.sp.k]: String(r.sp.o ? (n - 1) * r.sp.s : n) }; }
           const t = expand(r.src, s, fns), u = new URL(q ? params!(t, q) : t, here);
           // another origin only when the build found it in `sinter({ origins })` (`xo`)

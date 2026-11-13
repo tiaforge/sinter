@@ -58,6 +58,12 @@ const feature: Feature = {
         changed.add(name);
         if (k > kind) kind = k;
       },
+      set(name, value, k) {
+        const $url = app.page.$url;
+        value == null ? delete $url[name] : ($url[name] = value);
+        this.write(name, k);
+        app.mark('$url');
+      },
       end() {
         if (kind == TYPED) return void (fin = true);
         if (pause.on()) { pause.stop(); commit(); }

@@ -50,8 +50,8 @@ The page is sent head first, before the data is in, so its status is `200` from 
 `embed!` reads the build's `sinter-embed.json` when your crate compiles; the path is relative to your `Cargo.toml`. It's a compile error when the build has a slot your configuration can't fill, and the error names the page, the resource and the fix:
 
 ```text
-error: index.html: `articles`: the build could not describe its request (its `src` or `start-page`
-       calls a helper, or reads something other than `$url`). Add `"articles" => |req| async move { … }`
+error: index.html: `articles`: the build could not describe its request (its `src` calls a
+       helper, or reads something other than `$url`). Add `"articles" => |req| async move { … }`
        to give its data, or `"articles" => skip` to leave it to the browser
 ```
 

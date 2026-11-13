@@ -246,10 +246,9 @@ export interface PrefetchParts {
  * name }`), else null and the server must produce the data itself (`call`, `each` too). `when`:
  * the resource has a condition the server cannot evaluate. `query`: a paginated resource's first
  * page, the parameters the pager sends for it (`firstParams`), set on the template's URL as the
- * runtime sets them (`withParams`), in this order. `start`: its `start-page` is a `$url` value; from
- * page 2 on, the parameters are `query` of `start` with `key` set to the page (with `skip`, to
- * `(page - 1) * size`), as the pager's `pageParams` writes them. A `start-page` that reads anything
- * else makes `src` null.
+ * runtime sets them (`withParams`), in this order. `start`: its `page-model` parameter; from page 2
+ * on, the parameters are `query` of `start` with `key` set to the page (with `skip`, to
+ * `(page - 1) * size`), as the pager's `pageParams` writes them.
  */
 /**
  * A `when` a server can evaluate: a `$url` value is present and not empty (`{ url }`), equal or not
@@ -623,11 +622,14 @@ class Compiler {
   readonly persisted = new Set<string>();
   /** models on `$url` parameters: whether each binds a list (`<select multiple>`, a checkbox with a `value`) */
   readonly urlBinds: Array<{ name: string; array: boolean; report: (msg: string) => void }> = [];
+  /** `page-model` parameters: one is never a list */
+  readonly pageModels: Array<{ name: string; report: (msg: string) => void }> = [];
   /**
    * The checks that need every array parameter: one bound as a list and as one value (SN210), a list
    * written to a parameter that is not one (SN210), a list tested as a condition (SN211).
    */
   checkUrlArrays(arrays: Set<string>) {
+    for (const p of this.pageModels) if (arrays.has(p.name)) p.report(`\`page-model\` takes a URL parameter that is one value; \`$url.${p.name}\` is a list (a \`<select multiple>\` or a checkbox with a \`value\` binds it)`);
     for (const b of this.urlBinds) if (!b.array && arrays.has(b.name)) b.report(`\`$url.${b.name}\` is a list elsewhere on the page (a \`<select multiple>\` or a checkbox with a \`value\`), and one value here; bind it as a list everywhere`);
     for (const w of this.page.urlWrites ?? []) {
       if (w.list && !arrays.has(w.name)) w.report('SN210', `\`$url.${w.name}\` is one value (no \`<select multiple>\` or checkbox with a \`value\` binds it), and a list is written to it; write one value`);
@@ -3383,7 +3385,8 @@ class Compiler {
     if (!name || !this.page.resources.has(name) || this.resourceEls.get(name) !== el) return;
     if (ctx.tid >= 0) return;
     for (const a of el.attrs) {
-      if (!RESOURCE_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
+      if (a.name === 'start-page') this.report(el, a.name, 'SN401', '`start-page` is renamed to `page-model` (offset lists, a query parameter), which also writes the page back', 0);
+      else if (!RESOURCE_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const earlyAttr = attr(el, 'early');
     if (earlyAttr != null && earlyAttr !== 'off') this.report(el, 'early', 'SN401', '`early` takes only `off`', 0);
@@ -3460,16 +3463,23 @@ class Compiler {
           else if (!/^[\w.\-\[\]]+$/.test(offsetParam)) this.report(el, 'offset-param', 'SN401', '`offset-param` is a query parameter name', 0);
           else paginate.offsetParam = offsetParam;
         }
-        // `start-page`: the page the first load asks for, e.g. the page number in the page's URL
-        if (attr(el, 'start-page') != null) {
-          if (mode === 'append' || (mode === 'keyset' && !paginate.offsetParam)) {
-            this.report(el, 'start-page', 'SN401', `\`start-page\` needs a resource that can ask for a page by number: \`paginate="offset"\`, or \`paginate="keyset"\` with \`offset-param\``, 0);
+        // `page-model="$url.page"`: the list's page lives in the URL, read at load and written back on every move
+        const pm = attr(el, 'page-model');
+        if (pm != null) {
+          const name = /^\s*\$url\.([A-Za-z_$][\w$]*)\s*$/.exec(pm)?.[1];
+          if (mode !== 'offset') {
+            this.report(el, 'page-model', 'SN401', `\`page-model\` applies to \`paginate="offset"\`, where every move has a page number when it is made; ${mode === 'append' ? 'append lists load more by cursor' : 'keyset lists move by cursor, and their page number is often unknown'}`, 0);
+          } else if (!name || this.page.pathParams.has(name)) {
+            this.report(el, 'page-model', 'SN203', name ? `\`page-model\` takes a URL query parameter such as \`$url.page\`; \`$url.${name}\` is a path parameter (\`data-sn-path\`)` : '`page-model` takes a URL parameter such as `$url.page`', 0);
+          } else if ([...deps].some((d) => d === '$url' || d === `$url.${name}` || d.startsWith(`$url.${name}.`))) {
+            this.report(el, 'page-model', 'SN401', `\`$url.${name}\` is this resource's page (\`page-model\`), and its \`src\` or \`when\` reads it too: each page would reset the list; read another parameter there`, 0);
           } else {
-            const r = this.expr(el, 'start-page', ctx.scope, { mode: 'value' });
-            if (r.ok) {
-              paginate.start = this.fn(r.code);
-              for (const d of r.deps) deps.add(d);
-            }
+            // the read is the compiled `$url.<name>`, where the early file, preloads and embedded data read the start page
+            paginate.start = this.fn(`($) => ($.$url.${name})`);
+            paginate.model = name;
+            deps.add(`$url.${name}`);
+            this.pageModels.push({ name, report: (m) => this.report(el, 'page-model', 'SN203', m, 0) });
+            this.page.writesUrl = true;
           }
         }
         if (attr(el, 'direction-values') != null) {
@@ -3482,7 +3492,7 @@ class Compiler {
         this.features.add('paginate');
       }
     }
-    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'start-page']) {
+    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'page-model']) {
       if (attr(el, a) != null && !paginate && mode == null) this.report(el, a, 'SN102', `\`${a}\` needs \`paginate\``, 0);
     }
     let cache: number | undefined;
@@ -4308,7 +4318,7 @@ class Compiler {
 
   /**
    * `embed`: a placeholder at the end of the head for each resource without one whose `src`,
-   * `when` and `start-page` read only `$url`, constants and helpers (what a server knows at the
+   * `when` and `page-model` read only `$url`, constants and helpers (what a server knows at the
    * page request; helpers make it a request only a resolver can make)
    */
   addPlaceholders(doc: DefaultTreeAdapterMap['document']) {
@@ -4771,7 +4781,7 @@ const readsParam = (code: string, name: string) => new RegExp(`\\$\\.\\$url\\.${
 /** a compiled function that is one `$url` read: `($) => ($.$url.page)` */
 const URL_READ = /^\(\$\) => \(\$\.\$url\.([A-Za-z_$][\w$]*)\)$/;
 
-/** the early file's `start-page`: page n's parameters are `qn` with `k` set (the page, or with `offset-param` the items to skip) */
+/** the early file's `page-model` start: page n's parameters are `qn` with `k` set (the page, or with `offset-param` the items to skip) */
 function startOf(cfg: Paginate, f: number): NonNullable<NonNullable<EarlyIR['res']>[number]['sp']> {
   const k = cfg.offsetParam ?? cfg.pageParam;
   return { f, k, s: cfg.size, ...(cfg.offsetParam ? { o: 1 as const } : {}), qn: pageParams(cfg, 2) };

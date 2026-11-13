@@ -67,7 +67,7 @@ every problem in one error:
 
 ```text
 sinter: 1 placeholder(s) have no source:
-  profile.html: `articles`: the build could not describe its request (its `src` or `start-page` calls a
+  profile.html: `articles`: the build could not describe its request (its `src` calls a
   helper, or reads something other than `$url`); add `articles: (req) => …` or `articles: 'skip'` to `data`
 ```
 

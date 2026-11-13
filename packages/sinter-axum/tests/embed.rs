@@ -384,7 +384,7 @@ fn build_refuses_placeholders_without_a_source_and_names_that_are_not_placeholde
 }
 
 #[tokio::test]
-async fn when_and_start_page_are_evaluated_from_the_url() {
+async fn when_and_page_model_are_evaluated_from_the_url() {
     let dir = build(
         "when",
         r#"{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [

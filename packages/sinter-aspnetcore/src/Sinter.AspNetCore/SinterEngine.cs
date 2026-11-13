@@ -142,7 +142,7 @@ internal sealed partial class SinterEngine
     {
         if (!s.Described)
             return s.Src is null
-                ? "the build could not describe its request (its `src` or `start-page` calls a helper, or reads something other than `$url`)"
+                ? "the build could not describe its request (its `src` calls a helper, or reads something other than `$url`)"
                 : "its `when` is a condition only the browser can evaluate";
         var first = s.Src is [{ IsUrl: false } f, ..] ? f.Value : "";
         if (first.StartsWith('/') && !first.StartsWith("//"))

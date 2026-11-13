@@ -7,7 +7,7 @@
 <sn-resource cache name="user" src="https://api.realworld.show/api/user" items="user" then="guest = !$result" early="off"></sn-resource>
 <sn-resource cache name="profile" src="https://api.realworld.show/api/profiles/{$url.username}" items="profile"></sn-resource>
 <sn-resource cache name="articles" key="slug" items="articles" total="articlesCount"
-  src="https://api.realworld.show/api/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}" paginate="offset" page-size="10" size-param="limit" offset-param="offset" start-page="$url.page"></sn-resource>
+  src="https://api.realworld.show/api/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}" paginate="offset" page-size="10" size-param="limit" offset-param="offset" page-model="$url.page"></sn-resource>
 
 <main class="profile-page">
   <template data-sn-if="$meta.profile.error">

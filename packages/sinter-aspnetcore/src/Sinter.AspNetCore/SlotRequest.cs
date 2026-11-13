@@ -35,7 +35,7 @@ public sealed class SlotRequest : IAsyncDisposable
     public string Resource { get; }
     /// <summary>
     /// The request the build describes, filled from <c>$url</c>: the resource's <c>src</c>, a paginated one
-    /// at its first page (or the page <c>start-page</c> names); null when the build could not describe it,
+    /// at its first page (or the page its <c>page-model</c> parameter names); null when the build could not describe it,
     /// or its <c>when</c> does not hold for this URL.
     /// </summary>
     public string? Url { get; }

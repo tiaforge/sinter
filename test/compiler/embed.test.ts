@@ -40,22 +40,30 @@ test('each placeholder: its id, and the URL template where only the URL decides 
   for (const d of out.embed) expect(out.html).toContain(`<script type="application/json" data-sn="${d.id}"></script>`);
 });
 
-test('start-page: a `$url` value is described (the page parameter, from page 2 on); anything else is not; it needs a mode that asks for a page by number', () => {
+test('page-model: the parameter is described (the page, from page 2 on); it takes a query parameter, on an offset list; start-page is renamed', () => {
   const page = (attrs: string, extra = '') => compileParts(`<!doctype html><html><head><script type="application/json" data-sn-data="m"></script></head><body data-sn-state="{ n: 2 }">
     <sn-resource name="m" key="id" src="/api/m" items="items" total="total" ${attrs}></sn-resource>${extra}
     <p data-sn-text="m.length"></p></body></html>`, opts);
-  const off = page('paginate="offset" page-size="10" size-param="limit" offset-param="offset" start-page="$url.page"');
+  const off = page('paginate="offset" page-size="10" size-param="limit" offset-param="offset" page-model="$url.page"');
   expect(off.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
   expect(off.embed[0]).toMatchObject({ src: ['/api/m'], query: [['offset', '0'], ['limit', '10']], start: { url: 'page', key: 'offset', size: 10, skip: true, query: [['offset', '10'], ['limit', '10']] } });
-  const num = page('paginate="offset" page-size="10" start-page="$url.p"');
+  const num = page('paginate="offset" page-size="10" page-model="$url.p"');
   expect(num.embed[0]).toMatchObject({ query: [['page', '1'], ['limit', '10']], start: { url: 'p', key: 'page', size: 10, query: [['page', '2'], ['limit', '10']] } });
   expect(num.embed[0]!.start).not.toHaveProperty('skip');
-  // a state value: not known to a server
-  expect(page('paginate="offset" page-size="10" start-page="n"').embed[0]!.src).toBeNull();
   const codes = (attrs: string) => page(attrs).diagnostics.map((d) => `${d.code} ${d.message}`);
-  expect(codes('key="id" paginate="append" page-size="5" cursor="{after: id}" start-page="$url.page"')).toContainEqual(expect.stringMatching(/^SN401 `start-page` needs a resource that can ask for a page by number/));
-  expect(codes('paginate="keyset" page-size="5" cursor="{after: id}" start-page="$url.page"')).toContainEqual(expect.stringMatching(/^SN401 `start-page` needs/));
-  expect(codes('start-page="$url.page"')).toContainEqual('SN102 `start-page` needs `paginate`');
+  // a state value, an expression, a path parameter
+  expect(codes('paginate="offset" page-size="10" page-model="n"')).toEqual(['SN203 `page-model` takes a URL parameter such as `$url.page`']);
+  expect(codes('paginate="offset" page-size="10" page-model="+$url.page"')).toEqual(['SN203 `page-model` takes a URL parameter such as `$url.page`']);
+  expect(compileParts('<html data-sn-path="/p/:n"><body><sn-resource name="m" key="id" src="/api/m" paginate="offset" page-size="10" page-model="$url.n"></sn-resource><p data-sn-text="m.length"></p></body></html>', opts).diagnostics.map((d) => d.message))
+    .toEqual(['`page-model` takes a URL query parameter such as `$url.page`; `$url.n` is a path parameter (`data-sn-path`)']);
+  // the resource's own src or when reading it
+  expect(codes('when="$url.page" paginate="offset" page-size="10" page-model="$url.page"')).toContainEqual(expect.stringMatching(/^SN401 `\$url.page` is this resource's page \(`page-model`\), and its `src` or `when` reads it too/));
+  expect(codes('key="id" paginate="append" page-size="5" cursor="{after: id}" page-model="$url.page"')).toContainEqual('SN401 `page-model` applies to `paginate="offset"`, where every move has a page number when it is made; append lists load more by cursor');
+  expect(codes('paginate="keyset" page-size="5" offset-param="o" cursor="{after: id}" page-model="$url.page"')).toContainEqual('SN401 `page-model` applies to `paginate="offset"`, where every move has a page number when it is made; keyset lists move by cursor, and their page number is often unknown');
+  expect(codes('page-model="$url.page"')).toContainEqual('SN102 `page-model` needs `paginate`');
+  expect(codes('paginate="offset" page-size="10" start-page="$url.page"')).toEqual(['SN401 `start-page` is renamed to `page-model` (offset lists, a query parameter), which also writes the page back']);
+  // a list parameter is no page
+  expect(page('paginate="offset" page-size="10" page-model="$url.tag"', '<select multiple data-sn-model="$url.tag"></select>').diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual(['SN203 `page-model` takes a URL parameter that is one value; `$url.tag` is a list (a `<select multiple>` or a checkbox with a `value` binds it)']);
   // offset-param in offset mode is accepted; in append mode it is not
   expect(codes('paginate="offset" page-size="5" offset-param="skip"').filter((c) => c.startsWith('SN4'))).toEqual([]);
   expect(codes('paginate="append" page-size="5" cursor="{after: id}" offset-param="skip"')).toContainEqual(expect.stringMatching(/^SN401 `offset-param` applies to `paginate="offset"`/));

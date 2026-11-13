@@ -72,7 +72,7 @@ pub(crate) struct SlotDesc {
     /// paginated: the first page's query parameters, set on the template's URL
     #[serde(default)]
     pub query: Vec<(String, String)>,
-    /// paginated, starting at a page from `$url` (`start-page`)
+    /// paginated, starting at the page a `$url` parameter names (`page-model`)
     #[serde(default)]
     pub start: Option<Start>,
 }
@@ -122,7 +122,7 @@ impl Cond {
     }
 }
 
-/// `start-page` from `$url`: from page 2 on, `query` with `key` set to the page (with `skip`, to
+/// `page-model`: the page from its `$url` parameter; from page 2 on, `query` with `key` set to the page (with `skip`, to
 /// the items to skip, `(page - 1) * size`).
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct Start {
