@@ -107,7 +107,8 @@ const sinter = await embed<Build>({
 It receives a `SlotRequest`:
 
 - `params`: the page URL's parameters: query parameters and named path segments (`/article/:slug`
-  gives `slug`);
+  gives `slug`); an array parameter (one a `<select multiple>` or checkboxes with a `value` bind,
+  `?tag=a&tag=b`) is a list of strings, `[]` when absent;
 - `request`: the page request (its headers, cookies included);
 - `url`: the URL the layer would request, if the build describes one;
 - `page`, `resource`: which slot it is;

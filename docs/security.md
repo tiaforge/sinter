@@ -81,7 +81,10 @@ The runtime reads only the `data-sn` ids the build assigned, and checks them at 
 
 `data-sn-state`, `$url` and persisted values can be changed by the visitor in the browser, and
 `$url` by anyone who sends them a link. Validate every request on the server as if the page did not
-exist.
+exist. URL values also reach models (a field bound to `$url.q` shows what the link says) and
+`page-model` (`?page=99999` asks the API for that page): the text is set as a value, never as markup,
+and the page number is parsed as a whole number, but the server decides what a request may ask for.
+Names that could reach prototypes (`__proto__`, `constructor`, `prototype`) are dropped from `$url`.
 
 Persisted keys are namespaced `sn:`. They are cleared by `loginRedirect`; call `clearPersisted()`
 on logout. The page-load cache and next-page data entries (in `sessionStorage`) are cleared on any

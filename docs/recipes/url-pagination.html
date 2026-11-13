@@ -1,0 +1,16 @@
+<!-- The page lives in the URL: ?page=3 is read at load and written back on every move. -->
+<sn-resource name="articles" src="/api/articles" items="articles" total="count" key="slug"
+  paginate="offset" page-size="2" offset-param="offset" page-model="$url.page"></sn-resource>
+
+<ul>
+  <template data-sn-for="a in articles"><li data-sn-text="a.title"></li></template>
+</ul>
+<nav>
+  <button data-sn-on-click="page('articles', 'prev')" data-sn-attr="{disabled: !$meta.articles.hasPrev}">‹</button>
+  <template data-sn-for="n in Array.from({ length: $meta.articles.pages ?? 0 }, (_, i) => i + 1)" data-sn-key="n">
+    <!-- the active link reads the page asked for ($url.page); the range below, the page shown ($meta) -->
+    <button data-sn-on-click="page('articles', n)" data-sn-class="{active: n == (+$url.page || 1)}" data-sn-text="n"></button>
+  </template>
+  <button data-sn-on-click="page('articles', 'next')" data-sn-attr="{disabled: !$meta.articles.hasNext}">›</button>
+  <span data-sn-text="`${$meta.articles.from}–${$meta.articles.to} of ${$meta.articles.total}`"></span>
+</nav>

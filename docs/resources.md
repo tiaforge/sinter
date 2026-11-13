@@ -166,7 +166,8 @@ the results into one collection:
   discarded.
 - **Typing.** When `src` or `when` changes only because of keystrokes in a text field with
   `data-sn-model`, the request waits until typing pauses for 250 ms. The shown data stays and
-  `loading` is not set. A select, checkbox or handler triggers the request at once.
+  `loading` is not set. A select, checkbox or handler triggers the request at once. A text field
+  bound to the URL (`data-sn-model="$url.q"`) waits the same, and writes the URL at that pause too.
 - **Priority.** A resource read only inside `<dialog>` elements is requested with low priority.
 - **Coming back.** Restoring a page from the back/forward cache, or going back online, refetches
   every resource. Resources a stream feeds are left to the stream's reconnect.

@@ -27,7 +27,7 @@ Local state next to the markup that uses it.
 | --- | --- | --- |
 | `data-sn-state` | object literal | declares local reactive state for the element and its subtree |
 | `data-sn-let` | object literal {name: expression} | derived names for the element and its subtree, computed where they are read; later names may use earlier ones |
-| `data-sn-model` | state path | two-way binding for form controls |
+| `data-sn-model` | state path \| $url.&lt;param&gt; | two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a &lt;select multiple&gt; or a checkbox with a value makes the parameter a list |
 | `data-sn-persist` | storage key | persists the model or state in localStorage under sn: |
 
 ## Send changes

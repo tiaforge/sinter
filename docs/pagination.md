@@ -43,7 +43,7 @@ See `docs/recipes/pagination.html`.
 | `direction-values` | Keyset and append: rename directions the server names differently, such as `{first: 'forward', prev: 'backward', next: 'forward'}`. Unlisted directions are sent by name. `first` and `next` may share a value, since `first` sends no cursor. |
 | `page-param` | Offset mode: name of the page parameter. Default `page`. |
 | `offset-param` | Send items to skip instead of a page number. In offset mode, page n sends `(n - 1) × page-size`. In keyset mode, it also enables page numbers. |
-| `start-page` | Offset mode, or keyset with `offset-param`: expression for the page the first load asks for, such as `$url.page`. |
+| `page-model` | Offset mode: the URL parameter that holds the page, `$url.page`. See [Page in the URL](#page-in-the-url). |
 
 `total`, `items` and `key` work as on any [resource](resources.md).
 
@@ -62,10 +62,45 @@ cursor; `prev` and `next` then continue by cursor from there. Without `offset-pa
 number on a keyset resource is build error `SN304`. sinter never simulates a jump by stepping through
 pages. A jump past the end is clamped to `$meta.<name>.pages` when the total is known.
 
-`start-page="$url.page"` makes the page number in the URL the list's page, for pagers whose links
-navigate (`?page=3`). The early request, preload and embedded data all ask for that page. It applies
-at each first load, including after a `src` change; changing the value later does not move the list,
-`page()` does.
+## Page in the URL
+
+`page-model="$url.page"` keeps an offset list's page in the URL: `?page=3` is read at load and
+written back on every move, so reload, Back and Forward and a shared link show the same page.
+
+```html
+<sn-resource name="articles" src="/api/articles?tag={$url.tag}" items="articles" total="count"
+  paginate="offset" page-size="10" offset-param="offset" page-model="$url.page"></sn-resource>
+
+<button data-sn-on-click="page('articles', 'next')" data-sn-attr="{disabled: !$meta.articles.hasNext}">›</button>
+<span data-sn-text="`${$meta.articles.from}–${$meta.articles.to} of ${$meta.articles.total}`"></span>
+```
+
+- The URL is the single source. `page()` loads nothing itself: it writes the page it moves to
+  (a new history entry; page 1 deletes the parameter), and the list follows the parameter. A handler
+  or a field that writes `$url.page` moves the list the same way, a typed one after the typing pause.
+- `$url.page` is the page asked for: it changes at once. `$meta.<name>.page` is the page shown: it
+  changes when the response arrives, and stays after a failure. Highlight the active page link with
+  `$url.page`; show the range from `$meta`.
+- `next` and `prev` count from the page last requested (after a failed load, from the page shown),
+  so two quick clicks move two pages. A target past the last page is clamped when the total is
+  known; without a total, `next` waits while a page loads. Asking again for a page that failed loads
+  it again. With `when` false, `page()` does nothing.
+- The first URL the list gets restores the URL's page, at load or when a late `when` turns true
+  (RealWorld's feed waits for the user). Nothing is corrected: `?page=abc` is page 1, and `?page=99`
+  shows an empty page.
+- Changing a filter (any other change of the resource's URL) starts at page 1 and deletes the
+  parameter, replacing the history entry: Back returns to page 3 with the old filter. Back and
+  Forward load the URL's page and never reset it.
+- Lists bound to the same parameter page together and reset together.
+- The early request, preload and embedded data ask for the URL's page.
+- Only on `paginate="offset"`, where every move has a page number when it is made (SN401 elsewhere:
+  keyset and append lists move by cursor). The value is a query parameter, `$url.<name>` (SN203
+  for anything else); the resource's own `src` or `when` cannot read it (SN401), since each page
+  would reset the list.
+
+`start-page` is renamed to `page-model` (SN401). A start page from a path segment (`/blog/page/3`),
+from another expression, or for keyset lists with `offset-param` is gone: those lists start at page 1.
+See `docs/recipes/url-pagination.html`.
 
 ## `$meta` fields
 

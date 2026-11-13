@@ -24,7 +24,7 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 - `data-sn-layout` (props type): on the <html> of a layout file (src/layouts/<name>.html): the props it takes; a page that is only the layout's tag fills its slots, in the head and the body
 - `data-sn-head` (props type): on the <template> of a head component (src/components/<name>.html): its props, as data-sn-component; it holds any number of head elements (<title>, <meta>, <link>, …), inlined at its use in a head
 - `data-sn-emits` (events type): on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article }
-- `data-sn-model` (state path): two-way binding for form controls
+- `data-sn-model` (state path | $url.<param>): two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list
 - `data-sn-for` (item in list | (item, i) in list): repeats a <template> per item
 - `data-sn-key` (value expression): row identity; defaults to the resource key or object identity
 - `data-sn-if` (value expression): renders a <template> while truthy
@@ -58,7 +58,7 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 
 ## Elements
 
-- `<sn-resource>` `name`, `src`, `call`, `each`, `key`, `items`, `total`, `order`, `when`, `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `direction-values`, `page-param`, `offset-param`, `page-model`, `type`, `cache`, `refresh`, `then`, `early`: a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates. `refresh="30s"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early="off"`: never preloaded or requested before the page module (for a resource whose request a middleware answers or changes). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches
+- `<sn-resource>` `name`, `src`, `call`, `each`, `key`, `items`, `total`, `order`, `when`, `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `direction-values`, `page-param`, `offset-param`, `page-model`, `type`, `cache`, `refresh`, `then`, `early`: a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates. `refresh="30s"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early="off"`: never preloaded or requested before the page module (for a resource whose request a middleware answers or changes). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches. `page-model="$url.page"` (offset lists) keeps the page in the URL: read at load, written back by page() (a history entry), followed when the URL changes
 - `<sn-sync>` `src`: one server event stream
 - `<sn-component>` `use`, `data-sn-prop`: a component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it
 - `<sn-event>` `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type`: maps one server event to a change message; child of <sn-sync>. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close('detail'); with `then`, `resource` and `op` may be left out
@@ -67,6 +67,7 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 
 - Attribute values are JavaScript expressions, checked at build time. Value expressions (text, attr, class, show, for, if, key, body, state, URL interpolations) cannot assign, use `++`, `delete`, `await` or `import()`.
 - Handlers (`data-sn-on-*`, `then`, `catch`) are statements separated by `;`: assignments to state, `$url.<param>` and `$locale`, and calls. No declarations or loops.
+- `$url` is bindable: `data-sn-model="$url.q"` (a query parameter; path parameters are read-only), `page-model="$url.page"` on an offset list. History works as in a single-page app: a write a user's event caused (a click, a select, a checkbox, `page()`, an action's `then` it started) adds an entry; typing in a field bound to the URL commits at each 250 ms pause (the first commit of a run adds an entry, later ones replace it; Enter or leaving the field ends the run); other writes (a resource's `then`, a list's reset to page 1 after a filter change) replace; Back and Forward write nothing. Values are written as a reload reads them: numbers as strings, `true` as `'1'`, `false`/`null`/`''`/`[]` delete the parameter; use `+$url.page` for arithmetic. A parameter bound to a `<select multiple>` or checkboxes with a `value` is a list (repeated keys, `[]` when absent; test `$url.tag.length`, SN211). `page-model` makes the URL the list's single source: `page()` writes the page and the list follows; `$url.page` is the page asked for, `$meta.<name>.page` the page shown; a filter change starts at page 1. Guide: docs/navigation.md#the-url-and-the-history.
 - A handler cannot call an action function (SN203). To start an action from a handler (a key filter, `data-sn-then`, `<sn-resource then>`), give the action element an `id` and call `run('id')`; the element's busy state, concurrency, optimistic layer and `then`/`catch` apply. A hidden carrier works: `<span hidden id="mark-read" data-sn-call="mail.markRead(open)"></span>`. See the recipe "Run an action from a handler".
 - `then` on `<sn-event>` is a handler run after the event's change is applied: payload fields are bare names, the state around the `<sn-sync>` is in scope and assignable, and so are its `data-sn-let` names (read-only; state and lets win over payload fields of the same name), store functions work (`close('id')` names its dialog: there is no element). With `then`, `resource` and `op` may be left out.
 - `then` on `<sn-resource>` is a handler run after each successful load (first load, `refresh()`, refetch events, `src` changes, every `page()`; per source for `each`), not for cached data shown at once, failed loads or optimistic/event changes. `$result` is what the load stored (what `items` selects; the page just loaded). The state around the resource is in scope and assignable; `close('id')` names its dialog. It runs on every refetch, so a once-only handler guards itself, one step per guard: `then="draft = $result ?? draft; $result && showModal('compose')"`.
@@ -505,6 +506,154 @@ test('moves to the next page with a cursor', async () => {
   expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['m3', 'm2']);
   expect(root.querySelector('span')!.textContent).toBe('3–4 of 5');
   expect(requests.calls.at(-1)!.url).toBe('/api/messages?before=4&limit=2&direction=next');
+});
+```
+
+### Pagination in the URL: page-model, shared links and Back
+
+```html
+<!-- The page lives in the URL: ?page=3 is read at load and written back on every move. -->
+<sn-resource name="articles" src="/api/articles" items="articles" total="count" key="slug"
+  paginate="offset" page-size="2" offset-param="offset" page-model="$url.page"></sn-resource>
+
+<ul>
+  <template data-sn-for="a in articles"><li data-sn-text="a.title"></li></template>
+</ul>
+<nav>
+  <button data-sn-on-click="page('articles', 'prev')" data-sn-attr="{disabled: !$meta.articles.hasPrev}">‹</button>
+  <template data-sn-for="n in Array.from({ length: $meta.articles.pages ?? 0 }, (_, i) => i + 1)" data-sn-key="n">
+    <!-- the active link reads the page asked for ($url.page); the range below, the page shown ($meta) -->
+    <button data-sn-on-click="page('articles', n)" data-sn-class="{active: n == (+$url.page || 1)}" data-sn-text="n"></button>
+  </template>
+  <button data-sn-on-click="page('articles', 'next')" data-sn-attr="{disabled: !$meta.articles.hasNext}">›</button>
+  <span data-sn-text="`${$meta.articles.from}–${$meta.articles.to} of ${$meta.articles.total}`"></span>
+</nav>
+```
+
+```ts
+import { expect, test } from 'vitest';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
+import page from './url-pagination.html?raw';
+
+const all = [1, 2, 3, 4, 5].map((n) => ({ slug: `a${n}`, title: `A${n}` }));
+const api = () => mockRequests({
+  'GET /api/articles': (call) => {
+    const q = new URL(call.url, 'http://x').searchParams, o = Number(q.get('offset')), n = Number(q.get('limit'));
+    return { articles: all.slice(o, o + n), count: all.length };
+  },
+});
+const titles = (root: HTMLElement) => [...root.querySelectorAll('li')].map((li) => li.textContent);
+
+test('a shared link opens its page; moving writes the URL; Back goes to the page before', async () => {
+  const { root, settle, url, back } = await render(page, { requests: api(), url: 'http://localhost/?page=2' });
+  await settle();
+  expect(titles(root)).toEqual(['A3', 'A4']);
+  root.querySelector<HTMLButtonElement>('nav > button:last-of-type')!.click();
+  await settle();
+  expect(url()).toBe('http://localhost/?page=3');
+  expect(titles(root)).toEqual(['A5']);
+  expect(root.querySelector('.active')!.textContent).toBe('3');
+  await back();
+  await settle();
+  expect(titles(root)).toEqual(['A3', 'A4']);
+});
+```
+
+### Search in the URL: a model on $url, one history entry per search
+
+```html
+<!-- A search field bound to the URL: one history entry per search, the request and the URL wait
+     for the typing pause; a reload or a shared link shows the same results. -->
+<sn-resource name="hits" src="/api/search?q={$url.q}&sort={$url.sort}" items="hits" key="id"
+  when="$url.q"></sn-resource>
+
+<input type="search" placeholder="Search" data-sn-model="$url.q">
+<select data-sn-model="$url.sort">
+  <option value="">Best match</option>
+  <option value="new">Newest</option>
+</select>
+<ul>
+  <template data-sn-for="h in hits"><li data-sn-text="h.title"></li></template>
+</ul>
+```
+
+```ts
+import { expect, test } from 'vitest';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
+import page from './url-search.html?raw';
+
+const api = () => mockRequests({
+  'GET /api/search': (call) => {
+    const q = new URL(call.url, 'http://x').searchParams;
+    return { hits: [{ id: 1, title: `${q.get('q')} (${q.get('sort') || 'best'})` }] };
+  },
+});
+const type = (el: HTMLInputElement, v: string) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+
+test('typing writes the URL once per pause; a select is an entry of its own; a shared link restores both', async () => {
+  const requests = api();
+  const { root, settle, flush, history } = await render(page, { requests });
+  const field = root.querySelector('input')!;
+  for (const v of ['s', 'si', 'sinter']) { type(field, v); await flush(); }
+  await settle();
+  expect(history()).toEqual(['http://localhost/', 'http://localhost/?q=sinter']);
+  expect(requests.calls.map((c) => c.url)).toEqual(['/api/search?q=sinter']);
+  const sort = root.querySelector('select')!;
+  sort.value = 'new'; sort.dispatchEvent(new Event('change', { bubbles: true }));
+  await settle();
+  expect(history()).toEqual(['http://localhost/', 'http://localhost/?q=sinter', 'http://localhost/?q=sinter&sort=new']);
+
+  const shared = await render(page, { requests: api(), url: 'http://localhost/?q=sinter&sort=new' });
+  await shared.settle();
+  expect(shared.root.querySelector('input')!.value).toBe('sinter');
+  expect(shared.root.querySelector('li')!.textContent).toBe('sinter (new)');
+});
+```
+
+### A multi-select filter in the URL: an array parameter
+
+```html
+<!-- A multi-select filter in the URL: checkboxes with a `value` make `$url.tag` a list, written as
+     repeated keys (?tag=go&tag=rust) and sent the same way. -->
+<sn-resource name="posts" src="/api/posts?tag={$url.tag}" items="posts" key="id"></sn-resource>
+
+<fieldset>
+  <label><input type="checkbox" value="go" data-sn-model="$url.tag"> Go</label>
+  <label><input type="checkbox" value="rust" data-sn-model="$url.tag"> Rust</label>
+  <label><input type="checkbox" value="ts" data-sn-model="$url.tag"> TypeScript</label>
+  <!-- a list is always truthy: test its length -->
+  <button data-sn-on-click="$url.tag = []" data-sn-show="$url.tag.length">Clear</button>
+</fieldset>
+<ul>
+  <template data-sn-for="p in posts"><li data-sn-text="p.title"></li></template>
+</ul>
+```
+
+```ts
+import { expect, test } from 'vitest';
+import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
+import page from './url-filter.html?raw';
+
+const api = () => mockRequests({
+  'GET /api/posts': (call) => ({ posts: new URL(call.url, 'http://x').searchParams.getAll('tag').map((t, i) => ({ id: i, title: t })) }),
+});
+
+test('each box is an entry; the tags go to the URL and the request as repeated keys; Clear removes them', async () => {
+  const requests = api();
+  const { root, settle, url, history } = await render(page, { requests, url: 'http://localhost/?tag=go' });
+  await settle();
+  const boxes = root.querySelectorAll<HTMLInputElement>('input');
+  expect([...boxes].map((b) => b.checked)).toEqual([true, false, false]);
+  boxes[1]!.click();
+  await settle();
+  expect(url()).toBe('http://localhost/?tag=go&tag=rust');
+  expect(requests.calls.at(-1)!.url).toBe('/api/posts?tag=go&tag=rust');
+  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['go', 'rust']);
+  root.querySelector('button')!.click();
+  await settle();
+  expect(url()).toBe('http://localhost/');
+  expect(root.querySelector('button')!.hidden).toBe(true);
+  expect(history()).toHaveLength(3);
 });
 ```
 
