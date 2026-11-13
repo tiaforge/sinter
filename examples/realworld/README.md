@@ -31,6 +31,10 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 Everything the pages' expressions cannot do (storage, navigation, HTML rendering) lives in the
 config module and the islands (`src/markdown.js` too); the pages are declarative.
 
+The article lists keep their page in the URL with `page-model="$url.page"`: `?page=3` (or a reload,
+or Back) loads the third page, in the early request and the embedded data too. The pager's links
+navigate, as the reference app's do; the active page is `$meta.<name>.page`, the page shown.
+
 Every resource has `cache`: a page shows what the previous page loaded at once and revalidates.
 Signing in or out calls `clearPersisted()`, since the cached data belongs to the previous identity.
 Cached data does not set `$meta.<name>.loadedAt`, which stays null until the server answers (the

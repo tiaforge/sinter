@@ -6,7 +6,7 @@
      a request sent before the page module would go unused -->
 <sn-resource cache name="user" src="https://api.realworld.show/api/user" items="user" then="guest = !$result" early="off"></sn-resource>
 
-<!-- the page from the URL (?page=3): the first load asks for it, as an offset of 10 per page -->
+<!-- the page lives in the URL (page-model): ?page=3 loads the third page (offset 20); the pager's links navigate -->
 <sn-resource cache name="articles" key="slug" items="articles" total="articlesCount" when="$url.feed != 'following'"
   src="https://api.realworld.show/api/articles?tag={$url.tag}" paginate="offset" page-size="10" size-param="limit" offset-param="offset" page-model="$url.page"></sn-resource>
 <sn-resource cache name="feed" key="slug" items="articles" total="articlesCount" when="$url.feed == 'following' && user"
@@ -20,7 +20,7 @@
   </template>
   <div class="container page">
     <div class="row">
-      <div class="col-md-9">
+      <div class="col-md-9" data-sn-let="{ list: $url.feed == 'following' ? feed : articles, meta: $url.feed == 'following' ? $meta.feed : $meta.articles }">
         <div class="feed-toggle">
           <ul class="nav nav-pills outline-active">
             <template data-sn-if="user">
@@ -33,29 +33,29 @@
           </ul>
         </div>
         <error-list data-sn-prop="{ error }"></error-list>
-        <template data-sn-if="($url.feed == 'following' ? $meta.feed : $meta.articles).error">
+        <template data-sn-if="meta.error">
           <div class="article-preview error-messages">Could not load articles.</div>
         </template>
-        <template data-sn-if="($url.feed == 'following' ? $meta.feed : $meta.articles).loading">
+        <template data-sn-if="meta.loading">
           <div class="article-preview">Loading articles...</div>
         </template>
-        <template data-sn-for="a in ($url.feed == 'following' ? feed : articles)" data-sn-key="a.slug">
+        <template data-sn-for="a in list" data-sn-key="a.slug">
           <div class="article-preview">
             <article-byline data-sn-prop="{ article: a }"><favorite-button class="pull-xs-right" data-sn-prop="{ article: a }"></favorite-button></article-byline>
             <article-preview data-sn-prop="{ article: a }"></article-preview>
           </div>
         </template>
-        <template data-sn-if="!($url.feed == 'following' ? $meta.feed : $meta.articles).loading && ($url.feed == 'following' ? $meta.feed : $meta.articles).loadedAt && !($url.feed == 'following' ? feed : articles).length">
+        <template data-sn-if="!meta.loading && meta.loadedAt && !list.length">
           <template data-sn-if="$url.feed == 'following'">
             <div class="article-preview empty-feed-message">Your feed is empty. Follow some authors or check the <a href="/">Global Feed</a>.</div>
           </template>
           <template data-sn-else><div class="article-preview empty-feed-message">No articles are here... yet.</div></template>
         </template>
-        <template data-sn-if="pages(($url.feed == 'following' ? $meta.feed : $meta.articles).total, 10).length > 1">
+        <template data-sn-if="pages(meta.total, 10).length > 1">
           <nav>
             <ul class="pagination">
-              <template data-sn-for="n in pages(($url.feed == 'following' ? $meta.feed : $meta.articles).total, 10)" data-sn-key="n">
-                <li class="page-item" data-sn-class="{active: n == (Number.parseInt($url.page, 10) || 1)}">
+              <template data-sn-for="n in pages(meta.total, 10)" data-sn-key="n">
+                <li class="page-item" data-sn-class="{active: n == meta.page}">
                   <a class="page-link" data-sn-text="n"
                      data-sn-attr="{href: ($url.tag ? '/tag/' + encodeURIComponent($url.tag) : '/') + '?' + ($url.feed ? 'feed=' + encodeURIComponent($url.feed) + '&' : '') + 'page=' + n}"></a>
                 </li>

@@ -68,7 +68,7 @@
             <nav>
               <ul class="pagination">
                 <template data-sn-for="n in pages($meta.articles.total, 10)" data-sn-key="n">
-                  <li class="page-item" data-sn-class="{active: n == (Number.parseInt($url.page, 10) || 1)}">
+                  <li class="page-item" data-sn-class="{active: n == $meta.articles.page}">
                     <a class="page-link" data-sn-text="n"
                        data-sn-attr="{href: '/profile/' + encodeURIComponent(profile.username) + ($url.tab == 'favorites' ? '/favorites' : '') + '?page=' + n}"></a>
                   </li>
