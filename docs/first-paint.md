@@ -121,7 +121,8 @@ a server that fails or times out leaves a working page. Invalid JSON is a dev wa
 
 [`sinter-axum`](../packages/sinter-axum#readme) is a ready-made layer for Rust (axum), and
 [`Sinter.AspNetCore`](../packages/sinter-aspnetcore#readme) the same for ASP.NET Core (minimal
-APIs and MVC, NativeAOT-compatible). Build with:
+APIs and MVC, NativeAOT-compatible), and [`@tiaforge-ui/sinter/server`](server.md) for JavaScript, on
+web-standard `Request` and `Response` (Node, Bun, Deno, Workers, Hono and other fetch handlers). Build with:
 
 ```js
 // vite.config.js
@@ -147,7 +148,7 @@ Two things to know:
   `localStorage`, the server cannot see it and writes the anonymous view; embedded data is not
   reloaded. Give such resources a resolver that returns nothing, so the browser requests them.
 - A server that cannot fetch a page's data may end the page with `<body data-sn-failed>` (what
-  `sinter-axum` and `Sinter.AspNetCore` do). The page script then does not mount. Pages never write that attribute
+  `sinter-axum`, `Sinter.AspNetCore` and `@tiaforge-ui/sinter/server` do). The page script then does not mount. Pages never write that attribute
   themselves.
 
 For the browser-side cache that works without a server, see `cache` on a resource in

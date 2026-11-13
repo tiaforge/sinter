@@ -66,7 +66,8 @@
     "./vite": "./dist/vite.js",
     "./check": "./dist/check/index.js",
     "./testing": "./dist/testing/index.js",
-    "./dev": "./dist/dev.js"
+    "./dev": "./dist/dev.js",
+    "./server": "./dist/server.js"
   },
   "bin": {
     "sinter": "dist/cli.js"
