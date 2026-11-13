@@ -134,6 +134,8 @@ export interface ExprOptions {
   noElement?: string;
   /** parse as `{...}` object literal; returns its entries */
   object?: 'literal-keys' | 'any-keys' | 'state';
+  /** a model's setter: the history entry its `$url` write asks for (2 typing, 3 push; location.ts) */
+  urlKind?: number;
   /** where `$event.detail` comes from (a component's event: `@ev:<use>:<event>`) */
   detailSource?: string;
   report: (code: Code, message: string, offset: number, hint?: string) => void;
@@ -771,7 +773,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
    */
   function urlWrite(name: string, expr: Node) {
     page.writesUrl = true;
-    edits.push({ start: expr.start, end: expr.start, text: `$.$u(${JSON.stringify(name)}, ` }, { start: expr.end, end: expr.end, text: ')' });
+    edits.push({ start: expr.start, end: expr.start, text: `$.$u(${JSON.stringify(name)}, ` }, { start: expr.end, end: expr.end, text: opts.urlKind ? `, ${opts.urlKind})` : ')' });
   }
 
   function writePath(target: Node, locals: Locals, at: number, expr: Node) {

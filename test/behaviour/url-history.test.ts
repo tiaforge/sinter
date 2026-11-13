@@ -1,6 +1,6 @@
 // `$url` writes and the browser history: a user's event pushes an entry, anything else replaces;
 // one write per flush pass, the strongest kind winning; values as a reload reads them.
-import { expect, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { render, mockRequests } from '../../src/testing/index.js';
 
 const click = (root: HTMLElement, sel: string) => root.querySelector<HTMLElement>(sel)!.click();
@@ -98,4 +98,92 @@ test('a history call the browser refuses: a warning, $url keeps the value', asyn
   expect(warned).toEqual([26]);
   expect(url()).toBe('http://localhost/');
   expect(root.querySelector('p')!.textContent).toBe('a');
+});
+
+describe('models on $url', () => {
+  const page = `
+    <sn-resource name="r" src="/api/s?q={$url.q}&sort={$url.sort}" items="items" key="id"></sn-resource>
+    <input type="search" data-sn-model="$url.q">
+    <select data-sn-model="$url.sort"><option value="">-</option><option value="new">new</option></select>
+    <button data-sn-on-click="$url.tag = 'go'">tag</button>`;
+  const setup = async (url = 'http://localhost/') => {
+    const requests = mockRequests({ 'GET /api/s': { items: [] } });
+    const r = await render(page, { requests, url });
+    await r.settle();
+    return { ...r, requests, field: r.root.querySelector('input')! };
+  };
+
+  test('the field is filled from the URL; typing writes once per pause: the first commit pushes, later ones replace', async () => {
+    const { field, flush, advance, url, history, requests } = await setup('http://localhost/?q=a');
+    expect(field.value).toBe('a');
+    for (const v of ['as', 'asi', 'asin']) { input(field, v); await flush(); await advance(100); }
+    expect(url()).toBe('http://localhost/?q=a');
+    await advance(150);
+    expect(history()).toEqual(['http://localhost/?q=a', 'http://localhost/?q=asin']);
+    input(field, 'asin ter'); await flush();
+    await advance(250);
+    expect(history()).toEqual(['http://localhost/?q=a', 'http://localhost/?q=asin+ter']);
+    // the request waited for the same pauses
+    expect(requests.calls.map((c) => new URL(c.url, 'http://x').searchParams.get('q'))).toEqual(['a', 'asin', 'asin ter']);
+  });
+
+  test('`change` (Enter, leaving the field) commits at once and ends the run', async () => {
+    const { field, flush, advance, history } = await setup();
+    input(field, 'foo'); await flush();
+    field.dispatchEvent(new Event('change', { bubbles: true })); await flush();
+    expect(history()).toEqual(['http://localhost/', 'http://localhost/?q=foo']);
+    input(field, 'foobar'); await flush();
+    await advance(250);
+    expect(history()).toEqual(['http://localhost/', 'http://localhost/?q=foo', 'http://localhost/?q=foobar']);
+    // a change with nothing pending only ends the run
+    field.dispatchEvent(new Event('change', { bubbles: true })); await flush();
+    expect(history()).toHaveLength(3);
+  });
+
+  test('a select pushes at once; a push takes what typing waits to commit with it', async () => {
+    const { root, field, flush, advance, history } = await setup();
+    const sel = root.querySelector('select')!;
+    sel.value = 'new'; sel.dispatchEvent(new Event('change', { bubbles: true })); await flush();
+    expect(history()).toEqual(['http://localhost/', 'http://localhost/?sort=new']);
+    input(field, 'x'); await flush();
+    click(root, 'button'); await flush();
+    expect(history()).toEqual(['http://localhost/', 'http://localhost/?sort=new', 'http://localhost/?sort=new&q=x&tag=go']);
+    await advance(300);
+    expect(history()).toHaveLength(3);
+  });
+
+  test('Back while a commit waits: the commit is dropped, the field shows the URL', async () => {
+    const { root, field, flush, advance, history, back, url } = await setup();
+    click(root, 'button'); await flush();
+    input(field, 'x'); await flush();
+    await back();
+    await advance(300);
+    expect(url()).toBe('http://localhost/');
+    expect(history()).toEqual(['http://localhost/', 'http://localhost/?tag=go']);
+    expect(field.value).toBe('');
+  });
+
+  test('a number model on $url (written on `change`, a push) keeps `1.0` as typed', async () => {
+    const { root, flush, history } = await render('<input type="number" data-sn-model="$url.n">', { url: 'http://localhost/?n=2' });
+    const f = root.querySelector('input')!;
+    expect(f.value).toBe('2');
+    f.value = '1.0'; f.dispatchEvent(new Event('change', { bubbles: true })); await flush();
+    expect(history()).toEqual(['http://localhost/?n=2', 'http://localhost/?n=1']);
+    expect(f.value).toBe('1.0');
+  });
+});
+
+test('a component model on $url pushes, even when its change is not from a user event', async () => {
+  const PICK = `<template data-sn-component="{ value: string }" data-sn-emits="{ change: string }"><b data-sn-text="value"></b></template>`;
+  const { root, flush, history } = await render('<x-pick data-sn-model="$url.p"></x-pick>', { components: { 'x-pick': PICK } });
+  root.querySelector('b')!.dispatchEvent(new CustomEvent('change', { detail: 'a' }));
+  await flush();
+  expect(history()).toEqual(['http://localhost/', 'http://localhost/?p=a']);
+  expect(root.querySelector('b')!.textContent).toBe('a');
+});
+
+test('first paint: a model on $url is filled before the page module', async () => {
+  let early = '';
+  await render('<input type="search" data-sn-model="$url.q">', { url: 'http://localhost/?q=hi', firstPaint: { afterEarly: () => { early = document.querySelector('input')!.value; } } });
+  expect(early).toBe('hi');
 });

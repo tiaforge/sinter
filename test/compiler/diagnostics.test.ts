@@ -356,6 +356,27 @@ describe('data-sn-path', () => {
   });
 });
 
+describe('$url models', () => {
+  const parts = (html: string) => compileParts(html, { file: '/p/page.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); } });
+  test('a model takes a URL parameter; the setter writes through $u with the kind of its control', () => {
+    const p = parts('<input type="search" data-sn-model="$url.q"><select data-sn-model="$url.sort"><option>a</option></select>');
+    expect(p.diagnostics).toEqual([]);
+    expect(p.features).toContain('location');
+    expect(p.fns.filter((f) => f.includes('$u('))).toEqual([
+      '($, v) => (($) => {$.$u("q", $.$url.q = $.$event, 2)\n})(Object.assign(Object.create($), { $event: v }))',
+      '($, v) => (($) => {$.$u("sort", $.$url.sort = $.$event, 3)\n})(Object.assign(Object.create($), { $event: v }))',
+    ]);
+  });
+  test('a path parameter, a nested path or persist is refused', () => {
+    const d = diags('<html data-sn-path="/a/:slug"><body><input data-sn-model="$url.slug"><input data-sn-model="$url.a.b"></body></html>');
+    expect(d.map((x) => x.code)).toEqual(['SN203', 'SN203']);
+    expect(d[0]!.message).toMatch(/`\$url.slug` is a path parameter/);
+    const p = diags('<input data-sn-model="$url.q" data-sn-persist="q">');
+    expect(p.map((x) => [x.code, x.message])).toEqual([['SN102', '`data-sn-persist` on a `$url` model: the URL already keeps this value']]);
+    expect(diags('<input data-sn-model="$now">')[0]!.message).toBe('`data-sn-model` takes a state path or a URL parameter such as `q` or `$url.q`');
+  });
+});
+
 describe('expressions', () => {
   test('parenthesized expressions parse to their closing parenthesis', () => {
     expect(diags('<div data-sn-state="{xs: [], b: 1}"><template data-sn-for="a in (b ? xs : [])" data-sn-key="a"><i data-sn-text="(a)"></i></template></div>')).toEqual([]);

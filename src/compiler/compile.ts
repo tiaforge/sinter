@@ -2388,11 +2388,14 @@ class Compiler {
     const r = analyze(src, scope, this.page, { mode: 'value', report: this.reporter(host, 'data-sn-model') });
     if (!r.ok) return;
     if (r.resource) { this.report(host, 'data-sn-model', 'SN205', `\`data-sn-model\` cannot write to resource \`${r.resource}\`; copy the item into state with structuredClone()`, 0); return; }
-    if (!r.path || !(r.path[0]!.startsWith('$s') && r.path.length >= 2)) { this.report(host, 'data-sn-model', 'SN203', '`data-sn-model` takes a state path such as `q` or `draft.stars`', 0); return; }
-    if (attr(host, 'data-sn-persist') !== undefined) {
+    const url = r.path?.[0] === '$url';
+    if (!r.path || !((r.path[0]!.startsWith('$s') || url) && r.path.length >= 2)) { this.report(host, 'data-sn-model', 'SN203', '`data-sn-model` takes a state path or a URL parameter such as `q` or `$url.q`', 0); return; }
+    if (url && attr(host, 'data-sn-persist') !== undefined) this.report(host, 'data-sn-persist', 'SN102', '`data-sn-persist` on a `$url` model: the URL already keeps this value', 0);
+    else if (attr(host, 'data-sn-persist') !== undefined) {
       this.report(host, 'data-sn-persist', 'SN102', '`data-sn-persist` on a component: persist the state the model writes instead (`data-sn-persist` on its `data-sn-state`)', 0);
     }
-    const h = this.expr(host, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'] }, `${src} = $event.detail`);
+    // a component's change pushes a history entry, as a select's does
+    const h = this.expr(host, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: 3 }, `${src} = $event.detail`);
     if (!h.ok) return;
     const f = this.fn(`($) => { if ($.$event instanceof CustomEvent) (${h.code})($); }`, { el: host, attr: 'data-sn-model', shift: 0 });
     node.b.push(this.binding({ k: 'on', n: 'change', f, w: h.writes }));
@@ -3023,6 +3026,11 @@ class Compiler {
     else { this.report(el, 'data-sn-model', 'SN102', '`data-sn-model` must be on `<input>`, `<select>` or `<textarea>`', 0); return; }
     // controls other than text fields: the models module
     if (kind != 'text') this.features.add('models');
+    const url = attr(el, 'data-sn-model')!.trim().startsWith('$url');
+    if (persist !== undefined && url) {
+      this.report(el, 'data-sn-persist', 'SN102', '`data-sn-persist` on a `$url` model: the URL already keeps this value', 0);
+      persist = undefined;
+    }
     if (persist !== undefined) {
       const ac = (attr(el, 'autocomplete') ?? '').toLowerCase().trim();
       if (type === 'password' || SECRET_AUTOCOMPLETE.test(ac)) {
@@ -3036,12 +3044,18 @@ class Compiler {
       this.report(el, 'data-sn-model', 'SN205', `\`data-sn-model\` cannot write to resource \`${r.resource}\`; copy the item into state with structuredClone()`, 0);
       return;
     }
-    if (!r.path || !(r.path[0]!.startsWith('$s') && r.path.length >= 2)) {
-      this.report(el, 'data-sn-model', 'SN203', '`data-sn-model` takes a state path such as `q` or `draft.fn_name`', 0);
+    if (!r.path || !((r.path[0]!.startsWith('$s') || r.path[0] === '$url') && r.path.length >= 2)) {
+      this.report(el, 'data-sn-model', 'SN203', '`data-sn-model` takes a state path or a URL parameter such as `q` or `$url.q`', 0);
       return;
     }
-    const inner = r.code.slice('($) => ('.length, -1);
-    const setter = this.fn(`($, v) => { ${inner} = v; }`);
+    let setter: number;
+    if (r.path[0] === '$url') {
+      // through the handler analysis: a path parameter or `$url.a.b` is refused as in a handler; typing
+      // in a text field commits at each pause, any other control pushes a history entry
+      const h = this.expr(el, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: kind == 'text' ? 2 : 3 }, `${attr(el, 'data-sn-model')!} = $event`);
+      if (!h.ok) return;
+      setter = this.fn(`($, v) => (${h.code})(Object.assign(Object.create($), { $event: v }))`);
+    } else setter = this.fn(`($, v) => { ${r.code.slice('($) => ('.length, -1)} = v; }`);
     const b = this.binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')], ...usesEl(r) });
     if (persist !== undefined) {
       b.p = persist;
