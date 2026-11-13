@@ -6,7 +6,7 @@
 // them carry none of it: array parameters read as lists, and what a flush that follows Back or
 // Forward must not write. Loaded only by pages that write `$url`.
 import type { App, Feature } from './runtime/app.js';
-import { lists } from './runtime/url.js';
+import { lists } from './runtime/lists.js';
 
 /** history entries, weakest first: replace, typing (a text field), a burst (a number field's steps), push */
 const REPLACE = 1, TYPED = 2, PUSH = 4;

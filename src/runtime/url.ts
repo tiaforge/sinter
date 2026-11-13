@@ -61,13 +61,3 @@ export function readUrl(href: string, patterns: string[] = []): Record<string, s
   }
   return out;
 }
-
-/**
- * The page's array parameters (`IR.urlArrays`) as lists: every value of a repeated name, `[]` when
- * absent. Apart from `readUrl`, so a page without them carries none of it.
- */
-export function lists(href: string, names: string[], out: Record<string, unknown>): Record<string, unknown> {
-  const q = new URL(href).searchParams;
-  for (const n of names) if (!BAD_KEY.test(n)) out[n] = q.getAll(n);
-  return out;
-}

@@ -10,9 +10,10 @@ import { config } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
-import { expand, readUrl, type lists, type withParams } from './runtime/url.js';
+import { expand, readUrl, type withParams } from './runtime/url.js';
+import type { lists } from './runtime/lists.js';
 
-export { lists } from './runtime/url.js';
+export { lists } from './runtime/lists.js';
 import { toPage } from './runtime/pages.js';
 import type { EarlyIR } from './ir.js';
 

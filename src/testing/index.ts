@@ -40,7 +40,7 @@ import defs from '../defs.js';
 import confirm from '../confirm.js';
 import models from '../models.js';
 import sse from '../sse.js';
-import { prefetch, type PrefetchPage } from '../prefetch.js';
+import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
 const FEATURES: Record<string, Feature> = { components, nested, defs, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, typing, call, debounce, confirm, models, transition };
@@ -506,7 +506,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     // the IR as the page module carries it
     ir: compactIR(parts.ir), fns, env,
     // as in a build, where every page has the app's prefetch feature
-    features: [...parts.features.map((f) => FEATURES[f]!), prefetch(ahead)],
+    features: [...parts.features.map((f) => FEATURES[f]!), prefetch(ahead, ahead.some((p) => p.a) ? lists : undefined)],
     request: [...config.request, ...(requests ? [requests] : [])],
     transport: (url) => {
       const path = new URL(url, href).pathname;

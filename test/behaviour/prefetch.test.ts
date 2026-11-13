@@ -213,6 +213,11 @@ test('the compiler describes only resources whose request the URL decides; helpe
   const mod = prefetchModule([{ paths: parts.prefetch!.path, parts: parts.prefetch! }], { module: '/src/h.js', names: ['offset'], namespaces: {} });
   expect(mod).toContain('import { offset } from "/src/h.js";');
   expect(mod).toContain('export default prefetch([');
+  // array parameters: only an app with a page that has them passes `lists` (and carries it)
+  expect(mod).not.toMatch(/\blists\b/);
+  const withLists = prefetchModule([{ paths: ['/s'], parts: { ...parts.prefetch!, a: ['tag'] } }], { module: null, names: [], namespaces: {} });
+  expect(withLists).toContain("import { prefetch, lists } from '@tiaforge-ui/sinter/prefetch';");
+  expect(withLists).toMatch(/\], lists\);\n$/);
 });
 
 test('a page without data-sn-path answers at its file\'s paths', () => {

@@ -12,7 +12,6 @@ import { expand, readUrl as readFrom, withParams } from './url.js';
 
 export { withParams };
 import { clean, createResource, type Resource } from './store.js';
-import { TYPING } from './wait.js';
 
 /** A shared GET's response, and its body, parsed on first read (a non-2xx status rejects there). */
 export interface Got { res: Response; body(): Promise<unknown> }
@@ -353,6 +352,8 @@ const instances = new WeakMap<object, App>();
 export interface Dirty { w: number; v: string[] }
 /** node lists in the IR (numbered by the compiler) */
 const ids = (x: PathRef[] | undefined) => (x ?? []) as number[];
+/** How long a change from typing waits for the next keystroke (a resource's request; the URL's commit, typing.ts). */
+export const TYPING = 250;
 /** Sentinel for "not written yet". */
 const UNSET = {};
 const range = (a: Node | null, stop: Node | null) => {

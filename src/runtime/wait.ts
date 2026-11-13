@@ -1,10 +1,8 @@
 // A timer counted as busy while it waits, so the testing module's settle waits for it: the URL's
-// typing commit (location.ts). The resource loader keeps its own inline (cheaper in the core), with
-// the same pause.
-import type { App } from './app.js';
-
-/** How long a change from typing waits for the next keystroke (a resource's request, the URL's commit). */
-export const TYPING = 250;
+// typing commit (typing.ts). The resource loader keeps its own inline, with the same pause. The core
+// imports nothing from here: a module the core imports goes whole into an app's shared chunk, so
+// every page would carry this.
+import { TYPING, type App } from './app.js';
 
 export interface Wait {
   /** (re)starts the timer: `fn` runs once, `ms` after the last start */

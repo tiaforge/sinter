@@ -8,7 +8,10 @@ import type { ResourceDef, UrlTemplate } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { PREFETCH_MARK, PREFETCH_PREFIX } from './runtime/config.js';
 import { clean } from './runtime/store.js';
-import { expand, lists, readUrl } from './runtime/url.js';
+import { expand, readUrl } from './runtime/url.js';
+import type { lists } from './runtime/lists.js';
+
+export { lists } from './runtime/lists.js';
 
 /** One page of the app, as the build describes it. */
 export interface PrefetchPage {
@@ -37,7 +40,8 @@ const matches = (pattern: string, segs: string[]) => {
   return want.length == segs.length && want.every((w, i) => w[0] == ':' || w == segs[i]);
 };
 
-export function prefetch(pages: PrefetchPage[]): Feature {
+/** `l`: `lists`, passed by an app with a page that has array parameters (others carry none of it) */
+export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
   return {
     name: 'prefetch',
     install(app: App) {
@@ -85,7 +89,7 @@ export function prefetch(pages: PrefetchPage[]): Feature {
         if (net?.saveData || /2g/.test(net?.effectiveType ?? '')) return;
         const segs = segments(u.pathname), page = pages.find((p) => p.m.some((m) => matches(m, segs)));
         if (!page) return;
-        const scope = { $url: lists(u.href, page.a ?? [], readUrl(u.href, page.m)) };
+        const scope = { $url: l && page.a ? l(u.href, page.a, readUrl(u.href, page.m)) : readUrl(u.href, page.m) };
         // resources that read different parts of one response (`items`) share its request, as on the page
         const sent = new Map<string, Promise<unknown>>();
         for (const r of page.r) {

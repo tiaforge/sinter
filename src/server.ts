@@ -6,7 +6,8 @@
 // The same layer as packages/sinter-axum and packages/sinter-aspnetcore, option for option; the URLs come
 // from the browser runtime's own code (runtime/url.ts), so the request the server makes for a placeholder
 // is the one the page would have made.
-import { expand, lists, readUrl, withParams } from './runtime/url.js';
+import { lists } from './runtime/lists.js';
+import { expand, readUrl, withParams } from './runtime/url.js';
 
 /** A fetch handler: an app (Hono's `app.fetch`, a framework's handler) or the next one in a chain. Extra arguments (a Worker's `env` and `ctx`) are passed on. */
 export type Handler = (request: Request, ...rest: any[]) => Response | Promise<Response>;
