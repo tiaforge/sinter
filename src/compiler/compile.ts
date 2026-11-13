@@ -629,6 +629,12 @@ class Compiler {
    * written to a parameter that is not one (SN210), a list tested as a condition (SN211).
    */
   checkUrlArrays(arrays: Set<string>) {
+    // a write to an array parameter goes through `$l` (location.ts), decided here: the runtime keeps no
+    // list of them for writes. Same length as `$u`, so source maps still line up.
+    if (arrays.size) this.fns.forEach((f, i) => {
+      if (f.includes('$.$u(')) for (const n of arrays) f = f.split(`$.$u(${JSON.stringify(n)}, `).join(`$.$l(${JSON.stringify(n)}, `);
+      this.fns[i] = f;
+    });
     for (const p of this.pageModels) if (arrays.has(p.name)) p.report(`\`page-model\` takes a URL parameter that is one value; \`$url.${p.name}\` is a list (a \`<select multiple>\` or a checkbox with a \`value\` binds it)`);
     for (const b of this.urlBinds) if (!b.array && arrays.has(b.name)) b.report(`\`$url.${b.name}\` is a list elsewhere on the page (a \`<select multiple>\` or a checkbox with a \`value\`), and one value here; bind it as a list everywhere`);
     for (const w of this.page.urlWrites ?? []) {
@@ -763,7 +769,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -2388,7 +2394,10 @@ class Compiler {
         const names = use.emits.map((m) => m.name);
         this.report(el, a.name, 'SN315', `\`<${use.name}>\` does not emit \`${event}\`; ${names.length ? `it declares ${names.map((x) => `\`${x}\``).join(', ')}` : 'it declares no events'}.${didYouMean(event, names)}`, 0);
       }
-      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'] });
+      // `$url` writes on `input`: a keystroke replaces (location.ts), but on a checkbox, radio or select it is a
+      // choice, a new history entry (4), decided here. A handler higher up hears both: there `input` replaces.
+      const choice = event === 'input' && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
+      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}) });
       const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
       if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
@@ -3080,6 +3089,8 @@ class Compiler {
       // in a text field commits at each pause, a number field's burst of steps pushes once at its pause,
       // any other control pushes a history entry (location.ts: 2 typing, 3 burst, 4 push)
       const h = this.expr(el, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: kind == 'text' ? 2 : kind == 'number' ? 3 : 4 }, `${attr(el, 'data-sn-model')!} = $event`);
+      // typing and a number field's steps wait for a pause: the typing module, only on pages with such a model
+      if (kind == 'text' || kind == 'number') this.features.add('typing');
       if (!h.ok) return;
       setter = this.fn(`($, v) => (${h.code})(Object.assign(Object.create($), { $event: v }))`);
     } else setter = this.fn(`($, v) => { ${r.code.slice('($) => ('.length, -1)} = v; }`);

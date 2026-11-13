@@ -89,6 +89,13 @@ test('`emit` from a click pushes; `run()` from a resource `then`, and the `sn-er
   expect(url()).toBe('http://localhost/?ran=1&err=g&p=b');
 });
 
+test('a checkbox handler on `input` pushes (a choice); a list written to one value keeps its last item', async () => {
+  const { root, flush, history } = await render(`<input type="checkbox" data-sn-on-input="$url.on = $el.checked"><button data-sn-on-click="$url.q = 'a b'.split(' ')">q</button>`);
+  root.querySelector('input')!.click(); await flush();
+  click(root, 'button'); await flush();
+  expect(history()).toEqual(['http://localhost/', 'http://localhost/?on=1', 'http://localhost/?on=1&q=b']);
+});
+
 test('an object written to $url removes the parameter, with a dev warning', async () => {
   const { root, flush, url } = await render(`<button data-sn-on-click="$url.o = $el.dataset">o</button>`, { url: 'http://localhost/?o=1' });
   click(root, 'button'); await flush();

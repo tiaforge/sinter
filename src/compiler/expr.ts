@@ -141,7 +141,7 @@ export interface ExprOptions {
   object?: 'literal-keys' | 'any-keys' | 'state';
   /** the whole expression is a condition (`data-sn-if`, `data-sn-show`, `when`) */
   cond?: boolean;
-  /** a model's setter: the history entry its `$url` write asks for (2 typing, 3 a number field's burst, 4 push; location.ts) */
+  /** the history entry a `$url` write asks for, fixed at build time: a model's setter (2 typing, 3 a number field's burst, 4 push), a choice's `input` handler (4); location.ts */
   urlKind?: number;
   /** where `$event.detail` comes from (a component's event: `@ev:<use>:<event>`) */
   detailSource?: string;

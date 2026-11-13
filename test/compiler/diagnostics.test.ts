@@ -379,6 +379,25 @@ describe('$url models', () => {
     expect(p.map((x) => [x.code, x.message])).toEqual([['SN102', '`data-sn-persist` on a `$url` model: the URL already keeps this value']]);
     expect(diags('<input data-sn-model="$now">')[0]!.message).toBe('`data-sn-model` takes a state path or a URL parameter such as `q` or `$url.q`');
   });
+  test('the typing module only for a text or number model on $url; handlers and choices need location alone', () => {
+    expect(parts('<input data-sn-model="$url.q">').features).toEqual(expect.arrayContaining(['location', 'typing']));
+    expect(parts('<input type="range" data-sn-model="$url.v">').features).toContain('typing');
+    const none = parts('<select data-sn-model="$url.s"><option>a</option></select><button data-sn-on-click="$url.t = 1">t</button><input data-sn-model="q">');
+    expect(none.features).toContain('location');
+    expect(none.features).not.toContain('typing');
+  });
+  test('a handler on `input` of a checkbox, radio or select is a choice (4); on a text field or higher up, the event decides', () => {
+    const p = parts('<input type="checkbox" data-sn-on-input="$url.a = $el.checked"><select data-sn-on-input="$url.b = $el.value"></select><input data-sn-on-input="$url.c = $el.value"><div data-sn-on-input="$url.d = 1"></div>');
+    expect(p.fns.filter((f) => f.includes('$u(')).map((f) => /\$u\("(\w)".*?(, \d)?\)\n/s.exec(f)!.slice(1).join(''))).toEqual(['a, 4', 'b, 4', 'c', 'd']);
+  });
+  test('a write to an array parameter goes through $l, decided at build time', () => {
+    const p = parts('<select multiple data-sn-model="$url.tag"></select><button data-sn-on-click="$url.tag = []; $url.q = 1">x</button>');
+    const code = p.fns.filter((f) => /\$[ul]\(/.test(f)).join('\n');
+    expect(code).toContain('$.$l("tag", $.$url.tag = $.$event, 4)');
+    expect(code).toContain('$.$l("tag", $.$url.tag = [])');
+    expect(code).toContain('$.$u("q", $.$url.q = 1)');
+    expect(code).not.toContain('$.$u("tag"');
+  });
 });
 
 describe('$url array parameters', () => {

@@ -171,17 +171,23 @@ export interface App {
     models?: (inner: ModelInner) => Models;
     /**
      * `$url` written (location.ts): `write` records a changed parameter and the history entry it asks
-     * for (1 replace, 2 typing, 3 a number field's burst, 4 push; the strongest of a flush pass wins); `end` ends a typing run
-     * (`change` on a text field bound to the URL), committing what waits;
+     * for (1 replace, 2 typing, 3 a number field's burst, 4 push; the strongest of a flush pass wins),
+     * `kind` the strongest so far, `commit` writes the history now (false: the query did not change);
      * `back`: the flush running follows Back or Forward (`popstate`), so nothing it causes writes the URL
      */
     location?: {
       write(name: string, kind: number): void;
-      end(): void;
+      commit(kind: number): boolean;
+      readonly kind: number;
       readonly back: boolean;
       /** `page-model` (paginate.ts): sets a parameter (null deletes it) and writes it with `kind` */
       set(name: string, value: string | null, kind: number): void;
     };
+    /**
+     * typing and a number field's steps on `$url` (typing.ts): `flush` takes a pass's typing or burst,
+     * `waits` whether a commit waits for its pause, `stop` drops it and ends the run
+     */
+    typing?: { flush(kind: number): void; waits(): boolean; stop(): void };
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
     form?: (el: Element, a: ActionDef, body: unknown) => unknown;
     /**

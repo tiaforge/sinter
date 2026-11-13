@@ -129,7 +129,7 @@ decided where the write happens:
 | a number or range model | at its pause (250 ms): a burst of steps (spinner clicks, arrow keys) is one new entry, a later change another |
 | `page()` | new entry |
 | a text-field model: typing | at each pause (250 ms); the first commit of a typing run adds an entry, later ones replace it |
-| a handler on `input` in a text field | replaces, at once |
+| a handler on `input` (a keystroke) | replaces, at once; on a checkbox, radio or select itself it is a choice: a new entry |
 | a resource's or stream's `then`, `sn-error` handlers, anything no user event caused | replaces |
 | a list's reset to page 1 after its URL changed | replaces (with a typing commit waiting, it goes into that one) |
 | Back, Forward | writes nothing |
