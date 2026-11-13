@@ -100,6 +100,10 @@ test('embedded data: `sinter-embed.json` lists each placeholder with its `data-s
     expect(person).toMatchObject({ src: ['/api/people/', { url: 'id' }, '?full=1'], when: { url: 'id' } });
     // the ids are the ones in the built HTML
     for (const d of p.data) expect(html).toContain(`<script type="application/json" data-sn="${d.id}"></script>`);
+    // and as types, for embed<Build>() (@tiaforge-ui/sinter/server): both requests are described
+    const types = readFileSync(join(dir, 'sinter-embed.d.ts'), 'utf8');
+    expect(types).toContain('export interface Build {');
+    expect(types).toMatch(/"index\.html": \{ ("people": true; "person": true;|"person": true; "people": true;) \};/);
   } finally {
     writeFileSync(page, original);
   }

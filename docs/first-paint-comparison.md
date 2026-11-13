@@ -201,6 +201,31 @@ About 35x Qwik's home pages and 3.5x the Node middleware's per core; on the arti
 A second run of 10 s gave 67, 595 and 1,884 home pages per second. Each page here is two API requests,
 which the API answered in about 1 ms: a slower API changes the latency, not the CPU per page.
 
+## @tiaforge-ui/sinter/server
+
+The same layer for JavaScript, on web-standard `Request` and `Response` ([server.md](server.md)), serving
+the same pages: `bench/realworld/sinter-server.mjs`, a port of sinter-axum's example server (the same
+resolver, cache headers; gzip on Node, flushed per chunk so the head still goes out first). Measured
+2026-11-13 on another machine than the tables above (a 4-core container), against sinter-axum's example
+there: `oha`, 15 s, 32 connections, the RealWorld build with `SINTER_EMBED=1` and the mock API; each server
+pinned to one core, the API to a second, the load generator to the other two. Every server returned the
+same pages, byte for byte (24,840 bytes for home, uncompressed).
+
+| Pages per second, one core | Home, gzip | Article, gzip | Home | Article |
+| --- | --- | --- | --- | --- |
+| sinter-axum | 2,763 | 3,526 | 9,697 | 9,919 |
+| sinter/server on Bun 1.4 (`Bun.serve`) | — | — | 5,940 | 9,015 |
+| sinter/server on Node 22 (`node:http`) | 1,077 | 1,380 | 1,980 | 2,092 |
+
+- **Bun runs the layer at about 60-90% of the Rust layer's rate**, with the same code that runs on Node.
+  (Bun's server does not compress, so it has no gzip numbers.)
+- **On Node the layer is a small part of the cost.** A CPU profile under load puts the layer's own code at
+  about 8%; most of the time goes to `fetch` (undici) for the page's two API requests, garbage collection,
+  and turning web streams into `node:http` writes. Node serves about 2,000 pages per second per core
+  (several processes use several cores), against 583 for the earlier buffered Node middleware above.
+- These pages fetch their data from an API server over HTTP. With the API in the same app (the in-process
+  call `wrap(app.fetch)` makes), a page's requests skip `fetch` and the network altogether.
+
 ## Limits
 
 - Islands that render from data (the Markdown body) are not rendered early: they wait for the page module.

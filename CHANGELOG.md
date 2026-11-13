@@ -5,6 +5,11 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- `@tiaforge-ui/sinter/server`: the server layer for JavaScript, on web-standard `Request` and `Response`, at feature parity with sinter-axum. `await embed({ dir: 'dist' })` and `sinter.wrap(app.fetch)` serve a build's pages with their API data written in, the head streamed first, from the wrapped app called in-process (the page's cookies forwarded), an upstream server, an allowed origin or a resolver; it follows the build's redirects, rewrites and language choice. It runs on Node, Bun, Deno, Cloudflare Workers and inside Hono or any fetch handler ([docs/server.md](docs/server.md)).
+- With `embed: true`, the build also writes `sinter-embed.d.ts`: with `embed<Build>()`, a placeholder left without an entry, or a name no placeholder has, is a type error in the server's code.
+
 ### Fixed
 
 - `fonts.preload`: a family set through a custom property (`--font-sans: Inter, sans-serif` … `font-family: var(--font-sans)`, as token-based CSS like temper does) counts as used; the build no longer fails for it.
