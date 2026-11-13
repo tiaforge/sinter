@@ -25,7 +25,7 @@ function build(manifest: string, pages: Record<string, string> = {}) {
 }
 
 /** RealWorld's shape: a list and its tags on `/`, an article and its comments. */
-const appBuild = () => build(`{ "version": 1, "pages": [
+const appBuild = () => build(`{ "version": 2, "pages": [
   { "file": "index.html", "paths": ["/", "/index.html"], "data": [
     { "id": 3, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }, "&limit=10"] },
     { "id": 4, "resource": "tags", "src": ["/api/tags"] },
@@ -137,11 +137,25 @@ test('the head is sent before the data, and slow data ends the page at the time 
 });
 
 test('a paginated resource is requested at its first page', async () => {
-  const dir = build(`{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/tag/:tag"], "data": [
+  const dir = build(`{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/tag/:tag"], "data": [
     { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }], "query": [["page", "1"], ["limit", "10"]] } ] } ] }`,
   { 'index.html': '<head><script type="application/json" data-sn="0"></script></head>' });
   // the page's `$url` in the template, then the pager's first-page parameters, as the runtime writes them
   expect(await text((await app({ dir }))('/tag/a%20b'))).toContain('"q":"tag=a+b&page=1&limit=10"');
+});
+
+test('an array parameter is a list: repeated keys in the request, a list in the resolver\'s params', async () => {
+  const dir = build(`{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "arrays": ["tag"], "data": [
+    { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }, "&limit=10"] },
+    { "id": 1, "resource": "seen", "src": ["/api/seen"] } ] } ] }`,
+  { 'index.html': '<head><script type="application/json" data-sn="0"></script><script type="application/json" data-sn="1"></script></head>' });
+  let params: unknown;
+  const get = await app({ dir, data: { seen: (r) => { params = r.params; return {}; } } });
+  expect(await text(get('/?tag=a&tag=b%20c&x=1&x=2'))).toContain('"q":"tag=a&tag=b%20c&limit=10"');
+  expect(params).toEqual({ tag: ['a', 'b c'], x: '2' });
+  // none: the parameter is left out, and the list is empty
+  expect(await text(get('/'))).toContain('"q":"limit=10"');
+  expect(params).toEqual({ tag: [] });
 });
 
 test('unstreamed, the page is one piece and a failure is its status', async () => {
@@ -173,7 +187,7 @@ test('data left to the browser is no failure', async () => {
 });
 
 test('what a resolver returns: a value, a JSON text, bytes, a Response; a throw, a non-JSON or a too large response fails', async () => {
-  const dir = build(`{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "a", "src": null } ] } ] }`,
+  const dir = build(`{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "a", "src": null } ] } ] }`,
     { 'index.html': '<head><script type="application/json" data-sn="0"></script></head>' });
   const one = async (a: (r: unknown) => unknown, more: Partial<EmbedOptions> = {}) => text((await app({ dir, data: { a }, ...more }))('/'));
   expect(await one(() => ({ x: '</' }))).toContain(E('data-sn="0">{"x":"‹/"}</script>'));
@@ -197,7 +211,7 @@ describe('upstream and allowed origins', () => {
     });
     await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
     const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-    const dir = build(`{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+    const dir = build(`{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
       { "id": 0, "resource": "a", "src": ["/api/articles?tag=", { "url": "tag" }] },
       { "id": 1, "resource": "b", "src": ["${base}/api/tags"] },
       { "id": 2, "resource": "c", "src": ["${base}/api/articles"] },
@@ -220,14 +234,14 @@ describe('upstream and allowed origins', () => {
 });
 
 test('a page from another build is refused', async () => {
-  const stale = build(`{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 9, "resource": "a", "src": null } ] } ] }`,
+  const stale = build(`{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 9, "resource": "a", "src": null } ] } ] }`,
     { 'index.html': '<head><script type="application/json" data-sn="1"></script></head>' });
   await expect(embed({ dir: stale, data: { a: 'skip' } })).rejects.toThrow('no placeholder for `a`');
-  const filled = build(`{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 1, "resource": "a", "src": null } ] } ] }`,
+  const filled = build(`{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 1, "resource": "a", "src": null } ] } ] }`,
     { 'index.html': '<head><script type="application/json" data-sn="1">{}</script></head>' });
   await expect(embed({ dir: filled, data: { a: 'skip' } })).rejects.toThrow('not empty');
   await expect(embed({ dir: join(root, 'none') })).rejects.toThrow('sinter-embed.json');
-  await expect(embed({ dir: build('{ "version": 2, "pages": [] }') })).rejects.toThrow('version 2 (this layer reads version 1)');
+  await expect(embed({ dir: build('{ "version": 1, "pages": [] }') })).rejects.toThrow('version 1 (this layer reads version 2');
 });
 
 test('startup refuses placeholders without a source and names that are not placeholders', async () => {
@@ -243,7 +257,7 @@ test('startup refuses placeholders without a source and names that are not place
 });
 
 test('`when` and `start-page` are evaluated from the URL', async () => {
-  const dir = build(`{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+  const dir = build(`{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
     { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }], "when": { "url": "feed", "ne": "following" },
       "query": [["offset", "0"], ["limit", "10"]],
       "start": { "url": "page", "key": "offset", "size": 10, "skip": true, "query": [["offset", "10"], ["limit", "10"]] } } ] } ] }`,
@@ -258,7 +272,7 @@ test('`when` and `start-page` are evaluated from the URL', async () => {
 });
 
 test("follows the site's rules: 301s and rewrites", async () => {
-  const dir = build(`{ "version": 1, "pages": [
+  const dir = build(`{ "version": 2, "pages": [
     { "file": "article.html", "paths": ["/article/:slug"], "data": [ { "id": 0, "resource": "article", "src": ["/api/articles/", { "url": "slug" }] } ] } ],
     "routes": [
       { "from": "/about.html", "to": "/about/", "status": 301 },
@@ -277,7 +291,7 @@ test("follows the site's rules: 301s and rewrites", async () => {
 });
 
 test("sends an unprefixed URL to the visitor's language", async () => {
-  const dir = build(`{ "version": 1, "pages": [],
+  const dir = build(`{ "version": 2, "pages": [],
     "routes": [
       { "from": "/docs/about.html", "to": "/docs/about/", "status": 200, "file": "about.html", "choose": true },
       { "from": "/docs/about/", "to": "/docs/about/", "status": 200, "file": "about/index.html", "choose": true },
@@ -295,7 +309,7 @@ test("sends an unprefixed URL to the visitor's language", async () => {
 });
 
 test('a Worker: the manifest and pages without a file system, `env` passed on to the app', async () => {
-  const manifest = { version: 1, pages: [{ file: 'index.html', paths: ['/'], data: [{ id: 0, resource: 'tags', src: ['/api/tags'] }] }] };
+  const manifest = { version: 2, pages: [{ file: 'index.html', paths: ['/'], data: [{ id: 0, resource: 'tags', src: ['/api/tags'] }] }] };
   const e = await embed({ manifest, read: (f) => ({ 'index.html': '<head><script type="application/json" data-sn="0"></script></head>' })[f]! });
   const worker = { fetch: e.wrap((req: Request, env: { tags: string }) => json(`{"tags":["${env.tags}"]}`)) };
   expect(await text(worker.fetch(new Request('http://w.test/'), { tags: 'from env' }))).toContain('data-sn="0">{"tags":["from env"]}</script>');
@@ -316,7 +330,7 @@ test('escape: every `<`, at the start, the end and in a row, and nothing copied 
 });
 
 test('pages and rules match in the manifest\'s order, with or without a trailing slash', async () => {
-  const dir = build(`{ "version": 1, "pages": [
+  const dir = build(`{ "version": 2, "pages": [
     { "file": "a.html", "paths": ["/article/:slug"], "data": [ { "id": 0, "resource": "a", "src": null } ] },
     { "file": "b.html", "paths": ["/article/new", "/about/"], "data": [ { "id": 0, "resource": "b", "src": null } ] } ],
     "routes": [ { "from": "/x.html", "to": "/x/", "status": 301 }, { "from": "/x.html", "to": "/y/", "status": 301 } ] }`,
@@ -331,7 +345,7 @@ test('pages and rules match in the manifest\'s order, with or without a trailing
 });
 
 test("a visitor who goes away aborts the page's requests (the body's cancel)", async () => {
-  const dir = build(`{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "a", "src": null } ] } ] }`,
+  const dir = build(`{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "a", "src": null } ] } ] }`,
     { 'index.html': '<head><script type="application/json" data-sn="0"></script></head>' });
   let aborted!: (reason: unknown) => void;
   const seen = new Promise((ok) => (aborted = ok));

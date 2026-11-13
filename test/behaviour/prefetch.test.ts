@@ -233,3 +233,16 @@ test('`<html data-sn-prefetch="off">`: the page is never described; anywhere els
   expect(compileParts('<a href="/x" data-sn-prefetch="off">x</a>', opts).diagnostics.map((d) => d.code)).toContain('SN102');
   expect(compileParts('<html data-sn-prefetch="no"><body></body></html>', opts).diagnostics.map((d) => d.code)).toContain('SN401');
 });
+
+test("the target page's array parameters are read as lists", async () => {
+  const SEARCH = `<html data-sn-path="/search"><head></head><body>
+    <select multiple data-sn-model="$url.tag"><option>go</option></select>
+    <sn-resource name="hits" src="/api/hits?tag={$url.tag}" items="hits" key="id"></sn-resource>
+    <ul><template data-sn-for="h in hits"><li data-sn-text="h.id"></li></template></ul></body></html>`;
+  const requests = mockRequests({ 'GET /api/hits': { hits: [] } });
+  const r = await render('<a href="/search?tag=go&tag=rs">s</a>', { session: memoryStorage(), requests, pages: { 'search.html': SEARCH } });
+  fire(r.root.querySelector('a')!, 'pointerover');
+  await r.advance(HOVER);
+  await r.settle();
+  expect(paths(requests)).toEqual(['GET /api/hits?tag=go&tag=rs']);
+});

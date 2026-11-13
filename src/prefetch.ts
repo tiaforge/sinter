@@ -18,6 +18,8 @@ export interface PrefetchPage {
   r: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1 }>;
   /** the functions the templates index */
   f: Array<(s: any) => any>;
+  /** the page's array parameters (`IR.urlArrays`), read as lists */
+  a?: string[];
 }
 
 /** prefetched data older than this is not shown */
@@ -83,7 +85,7 @@ export function prefetch(pages: PrefetchPage[]): Feature {
         if (net?.saveData || /2g/.test(net?.effectiveType ?? '')) return;
         const segs = segments(u.pathname), page = pages.find((p) => p.m.some((m) => matches(m, segs)));
         if (!page) return;
-        const scope = { $url: readUrl(u.href, page.m) };
+        const scope = { $url: readUrl(u.href, page.m, page.a) };
         // resources that read different parts of one response (`items`) share its request, as on the page
         const sent = new Map<string, Promise<unknown>>();
         for (const r of page.r) {

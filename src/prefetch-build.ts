@@ -130,7 +130,7 @@ export function prefetchModule(pages: Array<{ paths: string[]; parts: PrefetchPa
   for (const [n, members] of ns) lines.push(`import { ${[...members].sort().map((m) => `${m} as ${n}$${m}`).join(', ')} } from ${JSON.stringify(helpers.namespaces[n]!.module)};`);
   lines.push('', 'void $k;', 'export default prefetch([');
   for (const { paths, parts } of pages) {
-    lines.push(`  { m: ${JSON.stringify(paths)}, r: ${JSON.stringify(parts.res)}, f: [`);
+    lines.push(`  { m: ${JSON.stringify(paths)}, r: ${JSON.stringify(parts.res)}, ${parts.a ? `a: ${JSON.stringify(parts.a)}, ` : ''}f: [`);
     for (const f of parts.fns) lines.push(`    ${f},`);
     lines.push('  ] },');
   }

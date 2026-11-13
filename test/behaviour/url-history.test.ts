@@ -187,3 +187,46 @@ test('first paint: a model on $url is filled before the page module', async () =
   await render('<input type="search" data-sn-model="$url.q">', { url: 'http://localhost/?q=hi', firstPaint: { afterEarly: () => { early = document.querySelector('input')!.value; } } });
   expect(early).toBe('hi');
 });
+
+describe('array parameters', () => {
+  test('a <select multiple> or a checkbox group: a list, written as repeated keys, absent as []', async () => {
+    const requests = mockRequests({ 'GET /api/a': { items: [] } });
+    const { root, flush, settle, url, history } = await render(`
+      <sn-resource name="r" src="/api/a?tag={$url.tag}" items="items" key="id"></sn-resource>
+      <select multiple data-sn-model="$url.tag"><option>go</option><option>js</option><option>rs</option></select>
+      <input type="checkbox" value="go" data-sn-model="$url.tag"><input type="checkbox" value="rs" data-sn-model="$url.tag">
+      <p data-sn-text="JSON.stringify($url.tag) + $url.tag.length"></p>
+      <button id="one" data-sn-on-click="$url.tag = 'js'">one</button>
+      <button id="none" data-sn-on-click="$url.tag = null">none</button>`, { requests, url: 'http://localhost/?x=1' });
+    await settle();
+    const p = () => root.querySelector('p')!.textContent;
+    expect(p()).toBe('[]0');
+    const boxes = root.querySelectorAll<HTMLInputElement>('input');
+    boxes[1]!.checked = true; boxes[1]!.dispatchEvent(new Event('change', { bubbles: true })); await flush();
+    boxes[0]!.checked = true; boxes[0]!.dispatchEvent(new Event('change', { bubbles: true })); await settle();
+    expect(url()).toBe('http://localhost/?x=1&tag=rs&tag=go');
+    expect(p()).toBe('["rs","go"]2');
+    expect([...root.querySelector('select')!.selectedOptions].map((o) => o.value)).toEqual(['go', 'rs']);
+    expect(history()).toHaveLength(3);
+    expect(requests.calls.map((c) => c.url)).toEqual(['/api/a', '/api/a?tag=rs', '/api/a?tag=rs&tag=go']);
+    // one value written to an array parameter is wrapped; none is an empty list
+    click(root, '#one'); await flush();
+    expect(p()).toBe('["js"]1');
+    expect(url()).toBe('http://localhost/?x=1&tag=js');
+    click(root, '#none'); await flush();
+    expect(p()).toBe('[]0');
+    expect(url()).toBe('http://localhost/?x=1');
+  });
+
+  test('read from the URL at mount and on Back', async () => {
+    const { root, flush, back } = await render(`
+      <select multiple data-sn-model="$url.tag"><option>go</option><option>js</option></select>
+      <p data-sn-text="$url.tag.join()"></p><button data-sn-on-click="$url.tag = ['js']">js</button>`, { url: 'http://localhost/?tag=go&tag=js' });
+    expect(root.querySelector('p')!.textContent).toBe('go,js');
+    click(root, 'button'); await flush();
+    expect(root.querySelector('p')!.textContent).toBe('js');
+    await back();
+    expect(root.querySelector('p')!.textContent).toBe('go,js');
+    expect([...root.querySelector('select')!.selectedOptions].map((o) => o.value)).toEqual(['go', 'js']);
+  });
+});

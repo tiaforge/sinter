@@ -11,7 +11,7 @@ use axum::{
     middleware::{self, Next},
     response::Response,
 };
-use sinter_axum::{Embed, to_page};
+use sinter_axum::{Embed, Param, to_page};
 use std::time::Duration;
 use tower_http::{compression::CompressionLayer, services::ServeDir};
 
@@ -29,9 +29,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .resolve("profile.html:articles", move |r| {
             let (http, base) = (http.clone(), base.clone());
             async move {
-                let user = r.params.get("username")?;
-                let by = if r.params.get("tab").is_some_and(|t| t == "favorites") { "favorited" } else { "author" };
-                let offset = (to_page(r.params.get("page").map(String::as_str)) - 1) * 10;
+                let user = r.params.get("username")?.as_str()?;
+                let by = if r.params.get("tab").and_then(Param::as_str) == Some("favorites") { "favorited" } else { "author" };
+                let offset = (to_page(r.params.get("page").and_then(Param::as_str)) - 1) * 10;
                 let mut url = reqwest::Url::parse(&format!("{base}/api/articles")).ok()?;
                 url.query_pairs_mut().append_pair(by, user).append_pair("offset", &offset.to_string()).append_pair("limit", "10");
                 let res = http.get(url).send().await.ok()?;

@@ -192,6 +192,8 @@ export interface EarlyIR {
   }>;
   /** `data-sn-path` patterns, when a request reads `$url` */
   path?: string[];
+  /** the page's array parameters (`IR.urlArrays`), when something early reads `$url` */
+  urlArrays?: string[];
 }
 
 export interface TemplateDef {
@@ -287,6 +289,8 @@ export interface IR {
   now?: boolean;
   /** `data-sn-path` patterns; `:name` segments of the first match join `$url` */
   path?: string[];
+  /** `$url` parameters bound to a `<select multiple>` or a checkbox with a `value`: lists (repeated keys) */
+  urlArrays?: string[];
   /** the path table (page module only); without it, paths are strings */
   ps?: PathTable;
 }

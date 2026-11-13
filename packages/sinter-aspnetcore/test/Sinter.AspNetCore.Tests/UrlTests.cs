@@ -8,7 +8,7 @@ public sealed class UrlTests
 {
     private static UrlPart L(string s) => UrlPart.Lit(s);
     private static UrlPart V(string s) => UrlPart.Url(s);
-    private static Dictionary<string, string> P(params (string, string)[] kv) => kv.ToDictionary(x => x.Item1, x => x.Item2);
+    private static Dictionary<string, UrlParam> P(params (string, string)[] kv) => kv.ToDictionary(x => x.Item1, x => UrlParam.One(x.Item2));
     private static KeyValuePair<string, string>[] Q(params (string, string)[] kv) => kv.Select(x => new KeyValuePair<string, string>(x.Item1, x.Item2)).ToArray();
 
     [Fact]
@@ -16,14 +16,30 @@ public sealed class UrlTests
     {
         string[] pats = ["/", "/article/:slug"];
         // ASP.NET Core gives the path decoded (an encoded `/` stays %2F)
-        var u = SinterUrl.UrlParams("/article/a b", "?x=1&x=2&q=a+b", pats);
-        Assert.Equal("a b", u["slug"]);
-        Assert.Equal("2", u["x"]);
-        Assert.Equal("a b", u["q"]);
-        Assert.Equal("a/b", SinterUrl.UrlParams("/article/a%2Fb", null, pats)["slug"]);
+        var u = SinterUrl.UrlParams("/article/a b", "?x=1&x=2&q=a+b&constructor=1", pats);
+        Assert.Equal("a b", u["slug"].Value);
+        Assert.Equal("2", u["x"].Value);
+        Assert.Equal("a b", u["q"].Value);
+        Assert.False(u.ContainsKey("constructor"));
+        Assert.Equal("a/b", SinterUrl.UrlParams("/article/a%2Fb", null, pats)["slug"].Value);
         // a path segment wins over a query parameter of the same name
-        Assert.Equal("s", SinterUrl.UrlParams("/article/s", "slug=q", pats)["slug"]);
+        Assert.Equal("s", SinterUrl.UrlParams("/article/s", "slug=q", pats)["slug"].Value);
         Assert.Empty(SinterUrl.UrlParams("/other/s", null, pats));
+    }
+
+    [Fact]
+    public void Array_parameters_are_lists()
+    {
+        var u = SinterUrl.UrlParams("/", "?tag=a&q=1&tag=b+c", [], ["tag", "f"]);
+        Assert.True(u["tag"].IsList);
+        Assert.Equal(new[] { "a", "b c" }, u["tag"].Values);
+        Assert.Null(u["tag"].Value);
+        Assert.Empty(u["f"].Values);
+        Assert.Equal(new[] { "1" }, u["q"].Values);
+        // a whole query value: a repeated key; an empty list leaves it out; elsewhere joined with `,`; refused in a path
+        Assert.Equal("/api/a?tag=a&tag=b%20c&n=1", SinterUrl.Expand([L("/api/a?tag="), V("tag"), L("&f="), V("f"), L("&n=1")], u));
+        Assert.Equal("/api/a?x=t-a%2Cb%20c", SinterUrl.Expand([L("/api/a?x=t-"), V("tag")], u));
+        Assert.Null(SinterUrl.Expand([L("/api/"), V("tag")], u));
     }
 
     [Fact]

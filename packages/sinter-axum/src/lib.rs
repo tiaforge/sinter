@@ -42,7 +42,7 @@ mod manifest;
 mod url;
 
 pub use manifest::{Error, Part};
-pub use url::{expand, to_page, url_params, with_params};
+pub use url::{Param, expand, to_page, url_params, with_params};
 
 /// Checks a build's placeholders against your resolvers when your crate compiles.
 ///
@@ -92,8 +92,8 @@ pub struct SlotRequest {
     /// one at its first page (or the page `start-page` names); None when the build could not
     /// describe it, or its `when` does not hold for this URL
     pub url: Option<String>,
-    /// the page URL's parameters: the query, then the path's `:name` segments
-    pub params: Arc<HashMap<String, String>>,
+    /// the page URL's parameters: the query (an array parameter as a list), then the path's `:name` segments
+    pub params: Arc<HashMap<String, Param>>,
     /// the page request's headers (cookies included: the data can be the user's)
     pub headers: Arc<HeaderMap>,
 }
@@ -465,7 +465,7 @@ where
 }
 
 /// The request the build describes for a placeholder at this URL, if any and if its `when` holds.
-fn described_url(s: &SlotDesc, params: &HashMap<String, String>) -> Option<String> {
+fn described_url(s: &SlotDesc, params: &HashMap<String, Param>) -> Option<String> {
     if let Some(When::Cond(c)) = &s.when {
         if !c.holds(params) {
             return None;
@@ -520,7 +520,7 @@ async fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bo
         return res.body(Body::empty()).unwrap();
     }
     let page = &embed.0.pages[i];
-    let params = Arc::new(url_params(req.uri.path(), req.uri.query(), &page.paths));
+    let params = Arc::new(url_params(req.uri.path(), req.uri.query(), &page.paths, &page.arrays));
     let headers = Arc::new(req.headers);
     let deadline = Instant::now() + embed.0.timeout;
     let fills: Vec<_> = page

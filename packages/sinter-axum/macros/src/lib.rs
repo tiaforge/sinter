@@ -54,8 +54,8 @@ struct Slot {
 }
 
 fn slots(manifest: &serde_json::Value) -> Result<Vec<Slot>, String> {
-    if manifest.get("version").and_then(|v| v.as_u64()) != Some(1) {
-        return Err("not a sinter-embed.json of version 1".into());
+    if manifest.get("version").and_then(|v| v.as_u64()) != Some(2) {
+        return Err("not a sinter-embed.json of version 2".into());
     }
     let mut out = Vec::new();
     for p in manifest.get("pages").and_then(|v| v.as_array()).ok_or("no `pages`")? {

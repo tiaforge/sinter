@@ -26,6 +26,8 @@ export const CODES = {
   SN207: 'unsafe-sink',
   SN208: 'type-error',
   SN209: 'name-conflict',
+  SN210: 'url-list-mismatch',
+  SN211: 'url-list-condition',
   SN301: 'unknown-resource',
   SN302: 'duplicate-resource',
   SN303: 'unknown-meta-field',

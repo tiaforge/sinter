@@ -132,6 +132,26 @@ A `data-sn-let` name is inlined wherever it is read, so it cannot share a name w
 
 **Fix:** Rename the let, the state or loop variable, or the resource.
 
+## SN210 url-list-mismatch
+
+Error, for example:
+
+> `$url.tag` is a list elsewhere on the page (a `<select multiple>` or a checkbox with a `value`), and one value here; bind it as a list everywhere
+
+A `$url` parameter is a list (an array parameter, written as repeated keys: `?tag=a&tag=b`) when a `<select multiple>` or a checkbox with a `value` attribute binds it; the build decides this, so every place must agree. A parameter no such control binds is one value, and a list written to it would be lost on reload.
+
+**Fix:** Bind the parameter the same way everywhere (two parameters if you need both), or write one value to it; a single value written to an array parameter is wrapped in a list for you.
+
+## SN211 url-list-condition
+
+Error, for example:
+
+> `$url.tag` is a list and always truthy; use `$url.tag.length`
+
+An array parameter always reads as a list, `[]` when the URL has none, and an empty list is truthy in JavaScript: a condition on the bare parameter always holds.
+
+**Fix:** Test its length: `data-sn-if="$url.tag.length"`, or `$url.tag.includes('go')` for one value.
+
 ## SN301 unknown-resource
 
 Error, for example:

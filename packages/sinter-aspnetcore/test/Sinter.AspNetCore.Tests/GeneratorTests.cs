@@ -63,7 +63,7 @@ public sealed class GeneratorTests
     [Fact]
     public async Task A_build_directory_from_another_build_is_refused()
     {
-        var other = Harness.Build("other", """{ "version": 1, "pages": [] }""");
+        var other = Harness.Build("other", """{ "version": 2, "pages": [] }""");
         var b = WebApplication.CreateSlimBuilder();
         b.WebHost.UseTestServer();
         b.Services.AddSinter(FixtureWeb.Build, o => o.Dir = other);
@@ -82,7 +82,7 @@ public sealed class GeneratorTests
     // compile errors: the generator run on a small compilation
 
     private const string Fixture = """
-        { "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+        { "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
           { "id": 0, "resource": "tags", "src": ["/api/tags"] },
           { "id": 1, "resource": "articles", "src": null, "when": true },
           { "id": 2, "resource": "user", "src": ["/api/user"] },
@@ -158,7 +158,7 @@ public sealed class GeneratorTests
         Assert.Contains("sinter-embed.json: not found. Build the frontend first, with `sinter({ embed: true })`", Assert.Single(gen).GetMessage());
         (gen, _, _) = Run("""[SinterEmbed] partial class Web { }""", manifest: null, build: null);
         Assert.Contains("add <SinterBuild>../web/dist</SinterBuild>", Assert.Single(gen).GetMessage());
-        (gen, _, _) = Run("""[SinterEmbed] partial class Web { }""", manifest: """{ "version": 2 }""");
+        (gen, _, _) = Run("""[SinterEmbed] partial class Web { }""", manifest: """{ "version": 3 }""");
         Assert.Equal("SINTER002", Assert.Single(gen).Id);
     }
 

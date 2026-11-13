@@ -18,13 +18,56 @@ pub(crate) fn matches(pattern: &str, path: &str) -> bool {
     want.len() == segs.len() && want.iter().zip(&segs).all(|(w, s)| w.starts_with(':') || w == s)
 }
 
-/// `$url`: the query parameters (the last of a repeated name), then the `:name` segments of the
-/// first pattern that matches the path, decoded.
-pub fn url_params(path: &str, query: Option<&str>, patterns: &[String]) -> HashMap<String, String> {
+/// A `$url` parameter: one value, or a list for an array parameter (bound to a `<select multiple>`
+/// or a checkbox with a `value`, written as repeated keys: `?tag=a&tag=b`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Param {
+    One(String),
+    List(Vec<String>),
+}
+
+impl Param {
+    /// the value of a parameter that is one; None for a list
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Param::One(v) => Some(v),
+            Param::List(_) => None,
+        }
+    }
+
+    /// the values: a list's, or the one
+    pub fn values(&self) -> &[String] {
+        match self {
+            Param::One(v) => std::slice::from_ref(v),
+            Param::List(v) => v,
+        }
+    }
+}
+
+/// The names `$url` never takes (they could reach prototypes in the browser): dropped on read.
+fn bad_key(k: &str) -> bool {
+    matches!(k, "constructor" | "__proto__" | "prototype")
+}
+
+/// `$url`: the query parameters (the last of a repeated name; an array parameter, every one, an
+/// empty list when absent), then the `:name` segments of the first pattern that matches the path,
+/// decoded.
+pub fn url_params(path: &str, query: Option<&str>, patterns: &[String], arrays: &[String]) -> HashMap<String, Param> {
     let mut out = HashMap::new();
+    for k in arrays.iter().filter(|k| !bad_key(k)) {
+        out.insert(k.clone(), Param::List(Vec::new()));
+    }
     if let Some(q) = query {
         for (k, v) in form_urlencoded::parse(q.as_bytes()) {
-            out.insert(k.into_owned(), v.into_owned());
+            if bad_key(&k) {
+                continue;
+            }
+            match out.get_mut(k.as_ref()) {
+                Some(Param::List(l)) => l.push(v.into_owned()),
+                _ => {
+                    out.insert(k.into_owned(), Param::One(v.into_owned()));
+                }
+            }
         }
     }
     let segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
@@ -32,7 +75,7 @@ pub fn url_params(path: &str, query: Option<&str>, patterns: &[String]) -> HashM
         for (w, s) in p.split('/').filter(|s| !s.is_empty()).zip(&segs) {
             if let Some(name) = w.strip_prefix(':') {
                 let v = percent_decode_str(s).decode_utf8().map(|c| c.into_owned()).unwrap_or_else(|_| s.to_string());
-                out.insert(name.to_string(), v);
+                out.insert(name.to_string(), Param::One(v));
             }
         }
     }
@@ -57,9 +100,11 @@ fn trailing_key(out: &str) -> Option<usize> {
     Some(start + 1)
 }
 
-/// Fills a URL template from `$url`. An absent value leaves its query parameter out (with its `&`),
-/// or is empty elsewhere; a path value of `.` or `..` is refused (None), as in the browser.
-pub fn expand(parts: &[Part], params: &HashMap<String, String>) -> Option<String> {
+/// Fills a URL template from `$url`. An absent value (or an empty list) leaves its query parameter
+/// out (with its `&`), or is empty elsewhere; a list that is a whole query value is a repeated key,
+/// elsewhere in the query its values joined with `,` (as JavaScript writes an array); a path value
+/// of `.` or `..`, or a list, is refused (None), as in the browser.
+pub fn expand(parts: &[Part], params: &HashMap<String, Param>) -> Option<String> {
     let (mut out, mut query, mut dropped) = (String::new(), false, false);
     for (i, p) in parts.iter().enumerate() {
         match p {
@@ -82,11 +127,25 @@ pub fn expand(parts: &[Part], params: &HashMap<String, String>) -> Option<String
                         Some(_) => false,
                     };
                 let key = if whole { trailing_key(&out) } else { None };
+                let v = match v {
+                    Some(Param::List(_)) if !query => return None,
+                    Some(Param::List(l)) if l.is_empty() && key.is_some() => None,
+                    Some(Param::List(l)) => match key {
+                        Some(at) => {
+                            let name = out[at..out.len() - 1].to_string();
+                            out.push_str(&l.iter().map(|x| encode_segment(x)).collect::<Vec<_>>().join(&format!("&{name}=")));
+                            continue;
+                        }
+                        None => Some(l.join(",")),
+                    },
+                    Some(Param::One(v)) => Some(v.clone()),
+                    None => None,
+                };
                 if let Some(v) = v {
                     if !query && (v == "." || v == "..") {
                         return None;
                     }
-                    out.push_str(&encode_segment(v));
+                    out.push_str(&encode_segment(&v));
                 } else if let Some(at) = key {
                     out.truncate(at);
                     dropped = true;
@@ -166,20 +225,41 @@ mod tests {
     fn var(s: &str) -> Part {
         Part::Url { url: s.into() }
     }
-    fn p(kv: &[(&str, &str)]) -> HashMap<String, String> {
-        kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    fn p(kv: &[(&str, &str)]) -> HashMap<String, Param> {
+        kv.iter().map(|(k, v)| (k.to_string(), Param::One(v.to_string()))).collect()
+    }
+    fn one(s: &str) -> Param {
+        Param::One(s.into())
     }
 
     #[test]
     fn params_from_query_and_path() {
         let pats = vec!["/".to_string(), "/article/:slug".to_string()];
-        let u = url_params("/article/a%20b", Some("x=1&x=2&q=a+b"), &pats);
-        assert_eq!(u["slug"], "a b");
-        assert_eq!(u["x"], "2");
-        assert_eq!(u["q"], "a b");
+        let u = url_params("/article/a%20b", Some("x=1&x=2&q=a+b&constructor=1"), &pats, &[]);
+        assert_eq!(u["slug"], one("a b"));
+        assert_eq!(u["x"], one("2"));
+        assert_eq!(u["q"], one("a b"));
+        assert!(!u.contains_key("constructor"));
         // a path segment wins over a query parameter of the same name
-        assert_eq!(url_params("/article/s", Some("slug=q"), &pats)["slug"], "s");
-        assert!(url_params("/other/s", None, &pats).is_empty());
+        assert_eq!(url_params("/article/s", Some("slug=q"), &pats, &[])["slug"], one("s"));
+        assert!(url_params("/other/s", None, &pats, &[]).is_empty());
+    }
+
+    #[test]
+    fn array_parameters_are_lists() {
+        let arrays = vec!["tag".to_string(), "f".to_string()];
+        let u = url_params("/", Some("tag=a&q=1&tag=b+c"), &[], &arrays);
+        assert_eq!(u["tag"], Param::List(vec!["a".into(), "b c".into()]));
+        assert_eq!(u["f"], Param::List(vec![]));
+        assert_eq!(u["q"].as_str(), Some("1"));
+        assert_eq!(u["tag"].as_str(), None);
+        assert_eq!(u["q"].values(), ["1".to_string()]);
+        // a whole query value: a repeated key; an empty list leaves it out; elsewhere joined with `,`; refused in a path
+        let t = [lit("/api/a?tag="), var("tag"), lit("&f="), var("f"), lit("&n=1")];
+        assert_eq!(expand(&t, &u).unwrap(), "/api/a?tag=a&tag=b%20c&n=1");
+        let t = [lit("/api/a?x=t-"), var("tag")];
+        assert_eq!(expand(&t, &u).unwrap(), "/api/a?x=t-a%2Cb%20c");
+        assert_eq!(expand(&[lit("/api/"), var("tag")], &u), None);
     }
 
     #[test]

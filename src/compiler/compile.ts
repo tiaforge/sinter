@@ -204,6 +204,8 @@ export interface CompileResult {
   embed: EmbedSlot[];
   /** the page's `data-sn-path` patterns */
   path: string[];
+  /** the page's array parameters (`IR.urlArrays`): the server reads them as lists */
+  urlArrays?: string[];
   /** `<html data-sn-prefetch="off">`: no other page prefetches or prerenders this one */
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
@@ -233,6 +235,8 @@ export interface PrefetchParts {
   /** helper names and namespace members the functions call */
   helpers: string[];
   namespaces: Record<string, string[]>;
+  /** the page's array parameters (`IR.urlArrays`) */
+  a?: string[];
 }
 
 /**
@@ -617,6 +621,21 @@ class Compiler {
   pathList: string[] = [];
   /** `$s<sid>.<name>` paths a persisted model writes at mount */
   readonly persisted = new Set<string>();
+  /** models on `$url` parameters: whether each binds a list (`<select multiple>`, a checkbox with a `value`) */
+  readonly urlBinds: Array<{ name: string; array: boolean; report: (msg: string) => void }> = [];
+  /**
+   * The checks that need every array parameter: one bound as a list and as one value (SN210), a list
+   * written to a parameter that is not one (SN210), a list tested as a condition (SN211).
+   */
+  checkUrlArrays(arrays: Set<string>) {
+    for (const b of this.urlBinds) if (!b.array && arrays.has(b.name)) b.report(`\`$url.${b.name}\` is a list elsewhere on the page (a \`<select multiple>\` or a checkbox with a \`value\`), and one value here; bind it as a list everywhere`);
+    for (const w of this.page.urlWrites ?? []) {
+      if (w.list && !arrays.has(w.name)) w.report('SN210', `\`$url.${w.name}\` is one value (no \`<select multiple>\` or checkbox with a \`value\` binds it), and a list is written to it; write one value`);
+      if (w.test && arrays.has(w.name)) w.report('SN211', `\`$url.${w.name}\` is a list and always truthy; use \`$url.${w.name}.length\``);
+    }
+  }
+  /** the page's array parameters (`IR.urlArrays`), sorted */
+  urlArrays(): string[] { return [...new Set(this.urlBinds.filter((b) => b.array).map((b) => b.name))].sort(); }
   /** bindings `prerender()` wrote into the HTML as constants: the early chunk leaves them out */
   readonly painted = new Set<Binding>();
   /** the page's stylesheets as a cascade (images: boxes of static and bound images) */
@@ -724,6 +743,9 @@ class Compiler {
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;
     if (paths.length) ir.path = paths;
+    const arrays = this.urlArrays();
+    if (arrays.length) ir.urlArrays = arrays;
+    this.checkUrlArrays(new Set(arrays));
     const builtin: string[] = [];
     const user: string[] = [];
     for (const h of [...this.page.usedHelpers].sort()) (this.page.helpers.has(h) ? user : builtin).push(h);
@@ -2249,7 +2271,7 @@ class Compiler {
     let content: { tid: number; scope: Scope } | null = null;
     if (isTemplate && has('for')) content = this.forTemplate(el, node, scope, get('for')!, get('key'));
     else if (isTemplate && has('if')) {
-      const r = this.expr(el, 'data-sn-if', scope, { mode: 'value' });
+      const r = this.expr(el, 'data-sn-if', scope, { mode: 'value', cond: true });
       const tid = this.newTemplate();
       const b = this.binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
       node.b.push(b);
@@ -2307,7 +2329,7 @@ class Compiler {
     const get = (n: string) => sn.find((a) => a.name === `data-sn-${n}`)?.value;
     const has = (n: string) => sn.some((a) => a.name === `data-sn-${n}`);
     const valueB = (k: 'text' | 'show', name: string) => {
-      const r = this.expr(el, name, scope, { mode: 'value' });
+      const r = this.expr(el, name, scope, { mode: 'value', ...(k == 'show' ? { cond: true } : {}) });
       if (r.ok) node.b.push(this.binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
     };
     if (has('text')) valueB('text', 'data-sn-text');
@@ -3050,6 +3072,8 @@ class Compiler {
     }
     let setter: number;
     if (r.path[0] === '$url') {
+      // a `<select multiple>` or a checkbox with a `value` binds a list: decided here, at build time
+      this.urlBinds.push({ name: r.path[1]!, array: kind == 'multi' || (kind == 'checkbox' && attr(el, 'value') != null), report: (m) => this.report(el, 'data-sn-model', 'SN210', m, 0) });
       // through the handler analysis: a path parameter or `$url.a.b` is refused as in a handler; typing
       // in a text field commits at each pause, any other control pushes a history entry
       const h = this.expr(el, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: kind == 'text' ? 2 : 3 }, `${attr(el, 'data-sn-model')!} = $event`);
@@ -3403,7 +3427,7 @@ class Compiler {
     const call = hasCall ? this.callExpr(el, 'call', ctx.scope, deps) : null;
     let when: number | null = null;
     if (attr(el, 'when') != null) {
-      const r = this.expr(el, 'when', ctx.scope, { mode: 'value' });
+      const r = this.expr(el, 'when', ctx.scope, { mode: 'value', cond: true });
       when = this.fn(r.code);
       for (const d of r.deps) deps.add(d);
     }
@@ -4241,6 +4265,8 @@ class Compiler {
     if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, items: embedded.get(n)!.items ?? null }]));
     if (res.length) ir.res = res;
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
+    const arrays = this.urlArrays();
+    if ((url || readsUrl) && arrays.length) ir.urlArrays = arrays;
     return { ir, fns, helpers, namespaces };
   }
 
@@ -4276,7 +4302,8 @@ class Compiler {
       const used = members.filter((m) => calls(`${ns}$${m}`));
       if (used.length) namespaces[ns] = used;
     }
-    return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces };
+    const arrays = this.urlArrays();
+    return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces, ...(arrays.length ? { a: arrays } : {}) };
   }
 
   /**
@@ -4304,7 +4331,7 @@ class Compiler {
 
   /** The embedded-data placeholders a server can fill, with each resource's request where the URL alone decides it. */
   embedSlots(): EmbedSlot[] {
-    const out: EmbedSlot[] = [];
+    const out: EmbedSlot[] = [], arrays = this.urlArrays();
     for (const def of this.resources) {
       if (def.data == null) continue;
       const parts = def.call || def.each ? null : def.src.map((x) => {
@@ -4317,7 +4344,8 @@ class Compiler {
       const described = parts && parts.length && parts.every((x) => x != null) && startUrl !== null;
       out.push({
         id: def.data, resource: def.name, src: described ? parts as EmbedSlot['src'] : null,
-        ...(def.when != null ? { when: condOf(this.fns[def.when]!) ?? true as const } : {}), ...(pg ? { query: Object.entries(firstParams(pg)) } : {}),
+        // a `when` that reads an array parameter is the browser's to evaluate
+        ...(def.when != null ? { when: (!arrays.some((n) => readsParam(this.fns[def.when!]!, n)) && condOf(this.fns[def.when]!)) || true as const } : {}), ...(pg ? { query: Object.entries(firstParams(pg)) } : {}),
         ...(pg && startUrl ? { start: { url: startUrl, key: pg.offsetParam ?? pg.pageParam, size: pg.size, ...(pg.offsetParam ? { skip: true as const } : {}), query: Object.entries(pageParams(pg, 2)) } } : {}),
       });
     }
@@ -4736,6 +4764,9 @@ function condOf(code: string): EmbedCond | null {
   };
   return walk(fn.body);
 }
+
+/** whether compiled code reads `$url.<name>` */
+const readsParam = (code: string, name: string) => new RegExp(`\\$\\.\\$url\\.${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(code);
 
 /** a compiled function that is one `$url` read: `($) => ($.$url.page)` */
 const URL_READ = /^\(\$\) => \(\$\.\$url\.([A-Za-z_$][\w$]*)\)$/;

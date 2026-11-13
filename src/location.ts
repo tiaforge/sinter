@@ -42,11 +42,13 @@ const feature: Feature = {
     };
     const commit = () => { if (write(run ? REPLACE : PUSH)) run = true; };
 
+    const arrays = new Set(app.ir.urlArrays);
     app.page.$u = (name: string, v: unknown, k = 0) => {
       const $url = app.page.$url, x = $url[name];
-      const val = Array.isArray(x) ? x.map(one).filter((y) => y != null) : one(x);
+      // an array parameter is always a list (one value written to it is wrapped)
+      const val = Array.isArray(x) || arrays.has(name) ? [x].flat().map(one).filter((y) => y != null) : one(x);
       // `$url` in memory is what a reload reads: strings, none for an empty value
-      if (val == null || (Array.isArray(val) && !val.length)) delete $url[name];
+      if (val == null || (Array.isArray(val) && !val.length && !arrays.has(name))) delete $url[name];
       else $url[name] = val;
       app.ext.location!.write(name, Math.max(k, app.push ? PUSH : REPLACE));
       return v;

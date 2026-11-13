@@ -497,7 +497,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     const ns = Object.entries(other.namespaces).flatMap(([n, ms]) => ms.map((m) => [`${n}$${m}`, (helpers[n] as Record<string, unknown>)[m]] as const));
     // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
     const f = new Function('$k', ...other.helpers, ...ns.map(([k]) => k), `"use strict"; return [\n${other.fns.join(',\n')}\n];`)($k, ...other.helpers.map((h) => helpers[h]), ...ns.map(([, v]) => v));
-    ahead.push({ m: pagePaths(rel, '/', other.path), r: other.res, f });
+    ahead.push({ m: pagePaths(rel, '/', other.path), r: other.res, f, ...(other.a ? { a: other.a } : {}) });
   }
 
   const requests = options.requests;

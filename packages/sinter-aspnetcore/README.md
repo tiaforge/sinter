@@ -61,7 +61,7 @@ A name that no slot has (a typo) is an error too, at the name. A name applies to
 | Code | When |
 | --- | --- |
 | `SINTER001` | no `<SinterBuild>`, or no `sinter-embed.json` there (build the frontend first) |
-| `SINTER002` | the manifest can't be read (not version 1) |
+| `SINTER002` | the manifest can't be read (not version 2) |
 | `SINTER003` | a slot without a source |
 | `SINTER004` | a name no slot has |
 | `SINTER005`, `SINTER006` | a resolver that isn't static, or doesn't return data |
@@ -112,7 +112,7 @@ A value is serialized as minimal APIs serialize it, with the app's `JsonOptions`
 
 A `SlotRequest` has:
 
-- `Params` (and `Param(name)`): the page URL's parameters: query parameters and named path segments (`/article/:slug` gives `slug`);
+- `Params` (and `Param(name)`, `ParamValues(name)`): the page URL's parameters, each a `UrlParam`: query parameters and named path segments (`/article/:slug` gives `slug`); an array parameter (one a `<select multiple>` or a checkbox with a `value` binds: `?tag=a&tag=b`) is a list, `Values` (`Param(name)` is null for it);
 - `HttpContext`, `Headers`, `User`: the page request;
 - `Url`: the URL the middleware would request, if the build describes one;
 - `Page`, `Resource`: which slot it is;

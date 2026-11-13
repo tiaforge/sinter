@@ -70,3 +70,17 @@ test('when: `$url` values against strings, `!`, `&&`, `||` are a condition a ser
   // a number (loose equality with a string), a state value, a helper, `??`: the browser's
   for (const w of ['$url.page == 1', 'q', '$url.tab == q', 'offset($url.page, 10)', "$url.a ?? 'b'"]) expect(when(w)).toBe(true);
 });
+
+test('array parameters: the page lists them for the server and the early file; a `when` reading one is the browser\'s', () => {
+  const out = compileParts(`<!doctype html><html><head>
+    <script type="application/json" data-sn-data="a"></script><script type="application/json" data-sn-data="b"></script>
+  </head><body>
+    <select multiple data-sn-model="$url.tag"><option>go</option></select>
+    <sn-resource name="a" key="id" src="/api/a?tag={$url.tag}" when="$url.tag.length"></sn-resource>
+    <sn-resource name="b" key="id" src="/api/b?q={$url.q}" when="$url.q"></sn-resource>
+    <p data-sn-text="a.length + b.length"></p></body></html>`, { ...opts, early: { module: null } });
+  expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+  expect(out.ir.urlArrays).toEqual(['tag']);
+  expect(out.embed.map((s) => [s.resource, s.when])).toEqual([['a', true], ['b', { url: 'q' }]]);
+  expect(out.early?.ir.urlArrays).toEqual(['tag']);
+});

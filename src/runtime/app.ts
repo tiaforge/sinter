@@ -783,7 +783,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Query parameters, then the `:name` segments of the first `data-sn-path` pattern that matches. */
   function readUrl() {
-    return readFrom(env.href(), ir.path);
+    return readFrom(env.href(), ir.path, ir.urlArrays);
   }
 
 

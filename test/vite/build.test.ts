@@ -89,7 +89,7 @@ test('embedded data: `sinter-embed.json` lists each placeholder with its `data-s
     await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter()] });
     const html = readFileSync(join(dir, 'index.html'), 'utf8');
     const manifest = JSON.parse(readFileSync(join(dir, 'sinter-embed.json'), 'utf8'));
-    expect(manifest.version).toBe(1);
+    expect(manifest.version).toBe(2);
     expect(manifest.pages).toHaveLength(1);
     const p = manifest.pages[0];
     expect(p.file).toBe('index.html');
