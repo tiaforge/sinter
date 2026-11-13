@@ -15,8 +15,8 @@ var (articles, tags, article, comments, profile) = (Read("articles"), Read("tags
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Logging.ClearProviders();
 builder.WebHost.ConfigureKestrel(k => k.AddServerHeader = false);
-builder.Services.AddResponseCompression(o => o.Providers.Add<GzipCompressionProvider>());
-builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Optimal);
+// gzip at zlib level 6, as tower-http's default (CompressionLevel.Optimal is a lower level on .NET's zlib-ng)
+builder.Services.AddResponseCompression(o => o.Providers.Add(new Gzip6()));
 builder.Services.AddSinter(o =>
 {
     o.Dir = dist;
@@ -34,3 +34,11 @@ app.MapGet("/api/profiles/{username}", (string username) => Results.Bytes(profil
 Console.WriteLine($"http://127.0.0.1:{port}");
 app.Run($"http://127.0.0.1:{port}");
 return 0;
+
+/// <summary>gzip at zlib level 6, flushing when the response flushes (the head of a page goes out first).</summary>
+sealed class Gzip6 : ICompressionProvider
+{
+    public string EncodingName => "gzip";
+    public bool SupportsFlush => true;
+    public Stream CreateStream(Stream outputStream) => new GZipStream(outputStream, new ZLibCompressionOptions { CompressionLevel = 6 }, leaveOpen: true);
+}

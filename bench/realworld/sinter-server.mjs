@@ -4,12 +4,14 @@
 // comes from a resolver. Signed-out view: it is for measuring.
 //
 //   npm run build                                          (the package's dist/, at the repository root)
-//   node sinter-server.mjs <dist> [port] [api origin]      node:http, gzip flushed per chunk (the head goes out first)
-//   bun sinter-server.mjs <dist> [port] [api origin]       Bun.serve, the same handler, no compression
+//   node sinter-server.mjs <dist> [port] [api origin]      node:http
+//   bun sinter-server.mjs <dist> [port] [api origin]       Bun.serve, the same handler
+// both with gzip flushed per chunk (bench/gzip.mjs: the head goes out first)
 //   FETCH=undici node sinter-server.mjs …                    the API through undici.request() instead of fetch (docs/server.md#on-node)
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { embed } from '../../dist/server.js';
+import { gzip } from '../gzip.mjs';
 
 const [dir, port = '4370', api = 'http://localhost:4400'] = process.argv.slice(2);
 if (!dir) { console.error('usage: sinter-server.mjs <dist> [port] [api origin]'); process.exit(1); }
@@ -55,27 +57,21 @@ async function files(req) {
 
 const handler = sinter.wrap(files);
 
+// gzip as every layer here does: zlib level 6, flushed after each chunk the layer sends (bench/gzip.mjs)
+const serve = async (req) => gzip(req, await handler(req));
 if (globalThis.Bun) {
-  Bun.serve({ port: +port, hostname: '127.0.0.1', fetch: handler });
+  Bun.serve({ port: +port, hostname: '127.0.0.1', fetch: serve });
+  console.log(`http://127.0.0.1:${port}`);
 } else {
   const { createServer } = await import('node:http');
-  const zlib = await import('node:zlib');
-  const compress = /^(text\/|application\/(json|javascript)|image\/svg)/;
   createServer(async (req, res) => {
     const ac = new AbortController();
     // the visitor went away before the response was out (`close` comes after a finished response too)
     res.on('close', () => { if (!res.writableFinished) ac.abort(); });
-    const out = await handler(new Request(`http://${req.headers.host}${req.url}`, { method: req.method, headers: req.headers, signal: ac.signal }));
-    const headers = Object.fromEntries(out.headers);
-    const gzip = out.body && /\bgzip\b/.test(req.headers['accept-encoding'] ?? '') && compress.test(headers['content-type'] ?? '');
-    if (gzip) { headers['content-encoding'] = 'gzip'; delete headers['content-length']; headers.vary = 'Accept-Encoding'; }
-    res.writeHead(out.status, headers);
+    const out = await serve(new Request(`http://${req.headers.host}${req.url}`, { method: req.method, headers: req.headers, signal: ac.signal }));
+    res.writeHead(out.status, Object.fromEntries(out.headers));
     if (!out.body) return res.end();
-    // each chunk flushed, so the head reaches the browser before the data is in
-    const sink = gzip ? zlib.createGzip({ flush: zlib.constants.Z_SYNC_FLUSH }) : res;
-    if (gzip) sink.pipe(res);
-    for await (const chunk of out.body) sink.write(chunk);
-    sink.end();
+    for await (const chunk of out.body) res.write(chunk);
+    res.end();
   }).listen(+port, '127.0.0.1', () => console.log(`http://127.0.0.1:${port}`));
 }
-if (globalThis.Bun) console.log(`http://127.0.0.1:${port}`);

@@ -143,7 +143,9 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
         ctx.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
         var w = ctx.Response.BodyWriter;
         w.Write(page.Parts[0]);
-        await w.FlushAsync(ctx.RequestAborted).ConfigureAwait(false);
+        // what is written goes out when the next placeholder's data is not in yet: what is ready is sent
+        // together (one write, and with compression one flush), and nothing waits behind data still to come
+        if (fills.Length > 0 && !fills[0].IsCompleted) await w.FlushAsync(ctx.RequestAborted).ConfigureAwait(false);
         for (var i = 0; i < fills.Length; i++)
         {
             var fill = await Wait(fills[i], started).ConfigureAwait(false);
@@ -155,7 +157,7 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
             }
             if (fill.What == Fill.Kind.Data) SinterUrl.WriteEscaped(w, fill.Data.Span);
             w.Write(page.Parts[i + 1]);
-            await w.FlushAsync(ctx.RequestAborted).ConfigureAwait(false);
+            if (i + 1 == fills.Length || !fills[i + 1].IsCompleted) await w.FlushAsync(ctx.RequestAborted).ConfigureAwait(false);
         }
     }
 

@@ -18,8 +18,8 @@ var api = args.Length > 2 ? args[2] : "http://localhost:4400";
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Logging.ClearProviders();
 builder.WebHost.ConfigureKestrel(k => k.AddServerHeader = false);
-builder.Services.AddResponseCompression(o => { o.Providers.Add<GzipCompressionProvider>(); o.MimeTypes = [.. ResponseCompressionDefaults.MimeTypes, "image/svg+xml"]; });
-builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Optimal);
+// gzip at zlib level 6, as tower-http's default (CompressionLevel.Optimal is a lower level on .NET's zlib-ng)
+builder.Services.AddResponseCompression(o => { o.Providers.Add(new Gzip6()); o.MimeTypes = [.. ResponseCompressionDefaults.MimeTypes, "image/svg+xml"]; });
 var http = new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(2) });
 builder.Services.AddSinter(o =>
 {
@@ -58,3 +58,11 @@ app.UseStaticFiles(new StaticFileOptions { FileProvider = files });
 Console.WriteLine($"http://127.0.0.1:{port}");
 app.Run($"http://127.0.0.1:{port}");
 return 0;
+
+/// <summary>gzip at zlib level 6, flushing when the response flushes (the head of a page goes out first).</summary>
+sealed class Gzip6 : ICompressionProvider
+{
+    public string EncodingName => "gzip";
+    public bool SupportsFlush => true;
+    public Stream CreateStream(Stream outputStream) => new GZipStream(outputStream, new ZLibCompressionOptions { CompressionLevel = 6 }, leaveOpen: true);
+}

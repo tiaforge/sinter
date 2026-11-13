@@ -411,8 +411,10 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
     // the time limit, for every placeholder together: a resolver that ignores its signal does not hold the page
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<Fill>((ok) => { timer = setTimeout(() => { stop.abort(LATE); ok(504); }, timeout); });
-    const fills = page.slots.map((s) =>
-      Promise.race([fill({ page: page.file, resource: s.resource, url: describedUrl(s, params), params, request, signal }, api, rest).then((f) => (pending--, f)), late]));
+    // each placeholder's fill, and whether it is in yet (a promise cannot be asked)
+    const got: Fill[] = new Array(page.slots.length), has: boolean[] = new Array(page.slots.length).fill(false);
+    const fills = page.slots.map((s, k) =>
+      Promise.race([fill({ page: page.file, resource: s.resource, url: describedUrl(s, params), params, request, signal }, api, rest).then((f) => { pending--; got[k] = f; has[k] = true; return f; }), late]));
     // the page is out (or ended early): stop whatever is still fetching
     const done = () => {
       clearTimeout(timer);
@@ -420,17 +422,27 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
       if (pending > 0) stop.abort(ENDED);
     };
     if (!stream) return whole(page, fills, done);
-    // the head up to the first placeholder at once; the rest as the data comes in, in order. A failed
-    // placeholder ends the page there: still in the head, inside that placeholder's `<script>`
+    // the head up to the first placeholder at once; the rest as the data comes in, in order. A pull enqueues
+    // all that is ready, then the stream waits: what is ready is sent together (as sinter-axum's body is,
+    // and a compressor reading the stream can flush once), not copied into one chunk. A failed placeholder
+    // ends the page there: still in the head, inside that placeholder's `<script>`
     let i = -1;
+    /** the fill of placeholder `i`, then the page up to the next; false when the page ends here */
+    const take = (f: Fill, out: Uint8Array[]) => {
+      if (typeof f == 'number') { out.push(streamTail); return false; }
+      if (f) out.push(f);
+      out.push(page.parts[++i]!);
+      return true;
+    };
     const body = new ReadableStream<Uint8Array>({
       async pull(c) {
-        if (i < 0) { i = 0; c.enqueue(page.parts[0]!); return; }
-        if (i >= fills.length) { done(); c.close(); return; }
-        const f = await fills[i]!;
-        if (typeof f == 'number') { done(); c.enqueue(streamTail); c.close(); return; }
-        if (f) c.enqueue(f);
-        c.enqueue(page.parts[++i]!);
+        const out: Uint8Array[] = [];
+        let open = true;
+        if (i < 0) { i = 0; out.push(page.parts[0]!); }
+        else open = take(await fills[i]!, out);
+        while (open && i < fills.length && has[i]) open = take(got[i]!, out);
+        for (const b of out) c.enqueue(b);
+        if (!open || i >= fills.length) { done(); c.close(); }
       },
       cancel: done,
     });

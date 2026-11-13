@@ -210,7 +210,7 @@ The body goes in exactly as the API returned it (`items="articles"` picks the li
 
 ## Performance
 
-Per core, it serves about as many pages as sinter-axum: 2,689 RealWorld home pages per second with gzip (8,656 uncompressed), published with NativeAOT, against 2,763 (9,697) for the Rust layer on the same machine (method and numbers in [docs/first-paint-comparison.md](https://github.com/tiaforge/sinter/blob/main/docs/first-paint-comparison.md#sinteraspnetcore)). At startup, a build compiled in by `[SinterEmbed]` parses no JSON: the pages are read and cut at their slots, and that's all.
+With the API in the same app, one core serves 22,562 RealWorld home pages per second uncompressed (4,619 with gzip), published with NativeAOT: 79% of sinter-axum's 28,621 on the same machine (method and numbers in [docs/first-paint-comparison.md](https://github.com/tiaforge/sinter/blob/main/docs/first-paint-comparison.md#with-the-api-in-the-same-app)). At startup, a build compiled in by `[SinterEmbed]` parses no JSON: the pages are read and cut at their slots, and that's all.
 
 ## Development
 
