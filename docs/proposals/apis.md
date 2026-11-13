@@ -17,7 +17,12 @@ Decided with the user:
   summaries are search terms for completion.
 - What an endpoint returns (`items`, `total`, `key`, `type`) is said once, in the spec or the config,
   from the start. The page says how it uses the data.
-- With one API configured, it is the default.
+- With one API configured, it is the default; with several, `defaultApi` names it.
+- An operation without a type (an `operations` entry without `type`, a spec operation without a JSON
+  response) is warning `SN504`, as an untyped resource is today, so configuring `apis` never breaks a
+  build.
+- Endpoints outside every base (`/logout`, `/config.json` next to `base: '/api'`) go to a built-in API
+  `site:`, base `''` (same origin), declared like any other: `src="site:/config.json"`.
 - `key` has no default. Without `key` a resource is one object, so a default `id` would turn single
   objects into collections, and every rule to tell them apart (`_id` backends, `each`, APIs without a
   spec) was an exception. Instead, a list of objects without `key` is warning `SN517` (implemented on
@@ -88,6 +93,10 @@ sinter({
 | `operations` | Endpoints the spec does not have: the same keys. An operation the spec already has is an error (it belongs in `defaults`), so a typo cannot create an endpoint without anyone noticing. |
 
 `defaultApi` names the API a path without `api:` goes to. With one API it can be left out.
+
+`site` is built in: base `''`, the page's own origin. It has no spec unless given one
+(`apis: { site: { openapi: 'specs/site.yml' } }`), and its endpoints are declared in `operations` like
+any API's, so `src="site:/config.json"` is checked too. Its `base` cannot be changed.
 
 `sinter({ openapi })` and `sinter({ origins })` are replaced:
 
@@ -264,7 +273,7 @@ The prototype's codes are not released, so they are reused with their new meanin
 | `SN517` | `unkeyed-list` | warning | a list of objects without `key` (implemented) |
 
 `SN505` is retired (now `SN327`). `SN504` remains for the implicit API, and for a configured operation
-that has no type ([Open questions](#open-questions)).
+that has no type.
 
 `SN207` is unchanged: a value can never choose the host. A path starts with a literal `/`, and the base
 is a literal from the config.
@@ -369,15 +378,3 @@ The `operation` + `params` commit on this branch is reverted:
 6. `SN328` becomes an error. Changelog entries.
 
 Apps without `apis` are unaffected at every step.
-
-## Open questions
-
-1. **An operation without a type.** An `operations` entry, or a spec operation without a JSON
-   response, has no type. Recommended: warning `SN504`, as for an untyped resource today. An error
-   would make configuring `apis` a cliff: an app with a partial spec could not adopt a base URL without
-   typing every endpoint first, and a migrated app would not build.
-2. **Endpoints outside every base**, such as `/logout` or `/config.json` next to `base: '/api'`.
-   Recommended: a built-in API `site:` with base `''` (same origin), declared like any other API with
-   `operations` and optionally a spec, so `src="site:/config.json"` is checked too.
-3. **`defaultApi`.** Recommended as written above (`defaultApi: 'main'`), rather than a key literally
-   named `default`, so every API keeps a name that says what it is.
