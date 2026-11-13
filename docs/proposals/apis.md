@@ -1,49 +1,50 @@
-# Proposal: APIs in the config, operations on the page
+# Proposal: APIs in the config
 
 Status: proposal, nothing implemented. It replaces the `operation` + `params` prototype on this branch
 ([What happens to the prototype](#what-happens-to-the-prototype)).
 
 Decided with the user:
 - The APIs an app calls are configured in JavaScript, in `sinter({ apis })`: base URL, OpenAPI spec,
-  request settings.
-- One syntax: every request on a page is an **operation**, `METHOD /path` with `{expr}` values written
-  in place. `src` is removed, also when nothing is configured.
-- Operations are referenced by method and path, not by `operationId` (generated ids are unstable). Ids
-  and summaries remain search terms for completion.
-- Endpoints the spec does not have are declared in the config, not in an HTML file (`<sn-resource>`
-  elements in a file read as resources that load).
-- What an endpoint returns (`items`, `key`, `type`) is said once, in the spec or the config, from the
-  start. The page says only how it uses the data.
+  request settings. The base is read at build time; one build serves one set of API URLs.
+- `src` stays, and so do the action method attributes (`data-sn-get` … `-delete`). Their value becomes
+  a path relative to an API, `[api:]/path?query`, with `{expr}` values written in place as today.
+  Without `apis`, a path is a same-origin path, exactly as today.
+- A configured API is strict: every request a page makes to it must be an operation its spec or its
+  config declares.
+- Resources load with `GET` and do not write it. A resource that loads with `POST` says so with
+  `method="POST"`; it cannot have `cache`.
+- Operations are found by method and path, not by `operationId` (generated ids are unstable). Ids and
+  summaries are search terms for completion.
+- What an endpoint returns (`items`, `total`, `key`, `type`) is said once, in the spec or the config,
+  from the start. The page says how it uses the data.
 - With one API configured, it is the default.
 - `key` has no default. Without `key` a resource is one object, so a default `id` would turn single
   objects into collections, and every rule to tell them apart (`_id` backends, `each`, APIs without a
-  spec) was an exception. Instead, a list of objects without `key` is warning `SN517`.
-- Streams move to operations in the same change. Actions keep their method attributes
-  (`data-sn-delete`, …); only their URL changes, to a path relative to the API that must be declared,
-  as a resource's. The method is the word that matters on a button and stays easy to see and grep;
-  renaming every action would be churn for a benefit the API config already gives (reviewed
-  2026-11-13).
-- `base` is read at build time; one build serves one set of API URLs. A base chosen at runtime (one
-  build promoted through environments) is not in scope, so the early script and the server layers
-  keep using literal URLs and need no API config.
-- A `POST` resource cannot have `cache`: a cached search or report would outlive the request that
-  asked for it.
+  spec) was an exception. Instead, a list of objects without `key` is warning `SN517` (implemented on
+  this branch).
+- The server layers (sinter-axum, Sinter.AspNetCore, `@tiaforge-ui/sinter/server`) need no API config:
+  they keep using the literal URLs the build writes.
+
+Reviewed on 2026-11-13. The review led to keeping `src` and the action attributes instead of renaming
+them, and to several corrections below (`order` stays on the element, an unset `base` is an error,
+the early script's limits, streams without `type`).
 
 ## The case
 
 In a real app, a page's requests repeat things that belong to the API, not to the page:
 
-- **The base URL**, on every resource and action, the same for every environment the build serves.
-  The RealWorld example writes `https://api.realworld.show/api` 26 times.
+- **The base URL**, on every resource and action. The RealWorld example writes
+  `https://api.realworld.show/api` 26 times. Pointing a build at another environment means changing
+  every page.
 - **The shape of a response.** `items="user"`, `key="id"` and the type are properties of the endpoint
   and are repeated on every page that loads it.
-- **Request settings** (credentials, headers) differ per API. Today they are set per page module, or
-  in a middleware that compares URLs.
+- **Request settings** (credentials, headers) differ per API. Today they are set in a middleware that
+  compares URLs.
 
 The spec is consulted only after the fact: sinter matches a `src` to an operation to find its type.
 A `src` that matches nothing is a warning (`SN504`), and an unknown query parameter is a warning
 (`SN505`). Nothing makes a page use the spec, so the easy path for a person or an agent is to write
-URLs and skip the checks.
+any URL and skip the checks.
 
 ## Design
 
@@ -54,7 +55,7 @@ URLs and skip the checks.
 sinter({
   apis: {
     main: {
-      base: process.env.API_URL,            // default: the spec's first `servers` URL
+      base: process.env.API_URL,
       openapi: 'specs/main.yml',
       credentials: 'include',
       defaults: {                           // for operations in the spec
@@ -71,107 +72,119 @@ sinter({
       defaults: { 'GET /invoices': { items: 'invoices', key: 'id' } },
     },
   },
+  defaultApi: 'main',
 });
 ```
 
 | Key | Meaning |
 | --- | --- |
-| `base` | The URL every path of this API is relative to: a same-origin path (`/api`) or an `https://` origin with an optional path. No trailing `/`. Default: the spec's first `servers` URL with its variables' defaults, else `''`. |
+| `base` | The URL every path of this API is relative to: a same-origin path (`/api`) or an `https://` origin with an optional path, no trailing `/`. Left out, it is the spec's first `servers` URL with its variables' defaults. Written but `undefined` (an unset environment variable) is an error, not a fallback to the spec's server, which is often production. |
 | `openapi` | A local JSON or YAML file (or a list), as `sinter({ openapi })` today. Optional. |
-| `credentials`, `headers` | Static request settings for every request to this API. Dynamic ones (a token) stay in the request layer, which now gets the API's name (see [Request settings](#7-request-settings)). |
-| `defaults` | Per operation of the spec: `items`, `total`, `key`, `order`, `type`. An operation the spec does not have is an error. |
-| `operations` | Endpoints the spec does not have: the same keys, and `type` is required. An operation the spec already has is an error (it belongs in `defaults`), so a typo cannot create an endpoint without anyone noticing. |
-| `stream` | On an entry of `operations`: `'sse'` or `'ws'`, an endpoint for `<sn-sync>`. |
+| `credentials`, `headers` | Static request settings for every request to this API ([§6](#6-request-settings)). |
+| `defaults` | Per operation of the spec: `items`, `total`, `key`, `type`, and `query` (extra query parameter names the spec leaves out). An operation the spec does not have is an error. |
+| `operations` | Endpoints the spec does not have: the same keys. An operation the spec already has is an error (it belongs in `defaults`), so a typo cannot create an endpoint without anyone noticing. |
+
+`defaultApi` names the API a path without `api:` goes to. With one API it can be left out.
 
 `sinter({ openapi })` and `sinter({ origins })` are replaced:
 
-- **`openapi`** moves into an API's entry. The old key stays one release as `apis: { default: { openapi } }`, with a deprecation warning.
-- **`origins`** is computed from the APIs' bases. An extra origin that is no API (an image host) is still allowed with `origins`.
+- **`openapi`** moves into an API's entry. The old key stays one release, read as one API with base
+  `''`, with a deprecation warning.
+- **`origins`** is computed from the APIs' bases. An origin that is no API (an image host) is still
+  listed in `origins`.
 
 The config is typed (`SinterOptions['apis']`), so the editor completes the keys in `vite.config.ts`.
 
 #### No config: the implicit API
 
-Without `apis`, a page has one implicit API: same origin, base `''`, no spec. It accepts any operation
-and checks none, as `src` does today. The quick start stays one element:
+Without `apis`, every path goes to one implicit API: same origin, base `''`, no spec. It accepts any
+path and checks only what it checks today. Nothing changes for an app that does not configure `apis`:
+`src="/api/contacts"` means what it means now.
 
-```html
-<sn-resource name="contacts" operation="GET /api/contacts" key="id"></sn-resource>
-```
-
-Once `apis` is set, the implicit API is gone, and every operation must be declared by a spec or by
-`operations`.
-
-### 2. Operations
+### 2. Paths
 
 ```text
-[api:]METHOD /path[?query]
+[api:]/path[?query]
 ```
 
 ```html
-<sn-resource name="contact" operation="GET /contacts/{c.id}"></sn-resource>
-<sn-resource name="articles" operation="GET /articles?tag={$url.tag}&limit={10}"></sn-resource>
-<sn-resource name="invoices" operation="billing:GET /invoices?status={tab}"></sn-resource>
+<sn-resource name="contact" src="/contacts/{c.id}"></sn-resource>
+<sn-resource name="articles" src="/articles?tag={$url.tag}&limit={10}"></sn-resource>
+<sn-resource name="invoices" src="billing:/invoices?status={tab}"></sn-resource>
+<button data-sn-delete="/contacts/{c.id}" data-sn-optimistic="remove(c)">Delete</button>
+<form data-sn-post="/signup">…</form>
 ```
 
-- **`api:`** names the API. It can be left out when there is one API, or for the API named
-  `default`. With several APIs and no `default`, the name is required.
-- **`METHOD`** is `GET`, `POST`, `PUT`, `PATCH` or `DELETE`, in capitals.
-- **The path** is relative to the API's base and starts with `/`. It is written as the spec writes it,
-  with values in braces where the spec has `{param}`. Interpolation, encoding, arrays in the query and
-  `null` leaving a query parameter out all work as in `src` today.
+- **`api:`** names the API. Without it, the path goes to `defaultApi`.
+- **The path** is relative to the API's base and starts with `/`, as the spec writes its paths.
+  Interpolation, encoding, arrays in the query and `null` leaving a query parameter out work as today.
+- **The method** comes from where the path is written: `GET` for a resource (or its `method`), the
+  attribute's method for an action, `GET` for `<sn-sync>`.
+- **An absolute URL** (`https://…`) is an error once `apis` is set. Its origin belongs in an API's
+  base.
 
-The compiler resolves the operation at build time and compiles it to the same URL template that `src`
-produces today, the base in front. Loading, request sharing, prefetching, the early script and the
-server layer do not change.
+The compiler puts the base in front and compiles the same URL template as today. Loading, request
+sharing, prefetching, the early script and the server layer see the same URLs as before.
+
+A path written with the base still in it is caught by the checks. With `base: '/api'`,
+`src="/api/contacts"` becomes `/api/api/contacts`, which matches no operation. The error names
+`/contacts` as the closest one.
 
 #### How a path is matched
 
-The rules of today's `src` matching (`matchOperation`) apply, without the server prefix (the base is
-not written):
+The rules of today's matching (`matchOperation`) apply, against the API's paths and without the server
+prefix:
 
 - A literal segment matches the same literal. A segment that is one value, `{c.id}`, matches a
   `{param}`.
-- A literal path beats a templated one: `GET /articles/feed` is the feed, `GET /articles/{slug}` an
-  article.
+- A literal path beats a templated one: `/articles/feed` is the feed, `/articles/{slug}` an article.
 - Mixed segments (`/files/{id}.json`) match by their literal parts.
 
-A value can stand where the spec has a literal segment only by being written as that literal. So
-`GET /articles/{kind}` never reaches `/articles/feed`: it matches `/articles/{slug}`. That is the
-spec's own meaning of the path.
+The build decides the operation from what is written: `/articles/{kind}` is `GET /articles/{slug}`
+and typed as an article. If `kind` is `'feed'` at runtime, the request reaches the feed endpoint
+anyway. The build cannot see that; the spec's literal path is the way to name the feed.
 
 #### What a configured API checks
 
 | Check | Diagnostic |
 | --- | --- |
-| No operation of the API has this method and path | error, the closest operation as "did you mean" |
-| A query parameter the operation does not declare | error (was the `SN505` warning) |
-| A required query parameter left out | error |
-| A `GET`-only element (a resource with no `body`) naming another method | error |
-| `api:` naming no API, or left out with several and no `default` | error |
+| No operation of the API has this method and path | `SN326` error, the closest operation as "did you mean" |
+| `api:` naming no API | `SN326` error |
+| A query parameter the operation does not declare (nor `query` in the config) | `SN327` error (was the `SN505` warning) |
+| A required query parameter left out | `SN327` error |
+| An absolute URL | `SN328` error, with the API-relative path |
+
+Query parameters that sinter adds itself count as given: `paginate`'s `size-param`, `offset-param`,
+`page-param`, `direction-param` and the cursor's fields. They are checked against the operation's
+parameters too, so a typo in `size-param` is an error. A parameter declared with `style: deepObject`
+accepts `name[field]`.
 
 ### 3. What an endpoint returns, said once
 
-`items`, `total`, `key`, `order` and `type` come from the first of these that has them:
+`items`, `total`, `key` and `type` come from the first of these that has them:
 
 1. the operation's entry in `defaults` or `operations`;
-2. the spec, for `type` (as today);
-3. the element.
+2. the element;
+3. the spec, for `type` (as today).
 
-The page writes them only for an endpoint that configures none, which is every endpoint of the
-implicit API. When the config has a value, the element may not write it. The same value is a warning
-(redundant), and a different one is an error: two pages must not read different shapes from one
-endpoint.
+When the config has a value, the element may not write it (`SN330`): the same value is a warning
+(redundant), a different one an error, because two pages must not read different shapes from one
+endpoint. The element's `type` still overrides the spec's (an escape for a spec that is wrong), as
+today.
 
-`key` is never inferred: an endpoint that returns a list of objects names it in `defaults`,
-`operations` or on the element. When the response at `items` is a list of objects and no `key` is
-given, sinter warns (`SN517`): the resource is one object holding the list, which is fine for a list
-that is only read, but an `upsert`, `patch` or `remove` would act on the whole list. The build
-reports it from the spec. For an `operations` entry, whose `type` is a TypeScript type, `sinter check`
-and the editor report it.
+`key` is never inferred. A list of objects without `key` is warning `SN517`: the resource is one
+object holding the list, which is fine for a list that is only read, but an `upsert`, `patch` or
+`remove` would act on the whole list. The build reports it from the spec; for an `operations` entry,
+whose `type` is a TypeScript type, `sinter check` and the editor report it.
 
-`each`, `paginate` and its options, `when`, `then`, `cache`, `refresh` and `early` stay on the
-element. They say how this page uses the data, not what the endpoint returns.
+`order`, `each`, `paginate` and its options, `when`, `then`, `cache`, `refresh` and `early` stay on the
+element. They say how this page uses the data, and two pages may differ: one list sorted by name,
+another by date.
+
+This moves the shape off the element: a page that calls `remove(c)` depends on a `key` it no longer
+shows. That is a trade against "all of it visible on the element". The hover, `sinter check` and the
+generated types make it visible again for people and agents, and the shape is then the same on every
+page that uses the endpoint, which the element alone never guaranteed.
 
 The RealWorld `user` resource, written today on seven pages:
 
@@ -179,97 +192,80 @@ The RealWorld `user` resource, written today on seven pages:
 <!-- today -->
 <sn-resource cache name="user" src="https://api.realworld.show/api/user" items="user" then="guest = !$result" early="off"></sn-resource>
 <!-- with apis -->
-<sn-resource cache name="user" operation="GET /user" then="guest = !$result" early="off"></sn-resource>
+<sn-resource cache name="user" src="/user" then="guest = !$result" early="off"></sn-resource>
 ```
 
 ### 4. Resources
 
 | Attribute | Change |
 | --- | --- |
-| `src` | removed: `SN328` names the operation it becomes |
-| `operation` | new: required, unless `call` is set |
-| `body` | new: for a `POST` operation that loads data (search, reports, GraphQL); a value expression sent as JSON, reloaded when it changes |
-| `items`, `total`, `key`, `order`, `type` | only for endpoints with no configured value ([§3](#3-what-an-endpoint-returns-said-once)) |
+| `src` | a path relative to an API ([§2](#2-paths)) |
+| `method` | new, optional: `POST` for an endpoint that loads data with a request body (search, reports, GraphQL). Default `GET`. |
+| `body` | new, with `method="POST"`: a value expression sent as JSON, reloaded when it changes, checked against the request schema |
+| `items`, `total`, `key`, `type` | only for endpoints with no configured value ([§3](#3-what-an-endpoint-returns-said-once)) |
 
-Requests are shared by URL today. A `POST` resource is shared by URL and body, and `cache` on it is an
-error.
+A `POST` resource:
+- is shared by URL and body;
+- cannot have `cache` (a cached search or report would outlive the request that asked for it);
+- loads from the page module only. The early script, the prefetcher and the server layer's embedding
+  handle `GET` requests, so a `POST` resource is not started early, prefetched or embedded.
 
-### 5. Actions
+### 5. Actions and streams
 
-Actions keep their five method attributes. Their value is the path part of an operation: `[api:]` and
-the path, relative to the API's base, with the method taken from the attribute:
+**Actions** keep their method attributes. Their value is a path as in §2, and the method comes from
+the attribute: `data-sn-delete="/contacts/{c.id}"` names `DELETE /contacts/{id}`. Everything else
+about actions stays: `data-sn-body` is checked against the request schema, the response types
+`$result`, write-through and field errors work as today. In the implicit API an action is unchanged.
 
-```html
-<!-- today -->
-<button data-sn-delete="https://api.example.com/v1/contacts/{c.id}" data-sn-optimistic="remove(c)">Delete</button>
-<form data-sn-post="https://api.example.com/v1/signup">…</form>
-<!-- with apis -->
-<button data-sn-delete="/contacts/{c.id}" data-sn-optimistic="remove(c)">Delete</button>
-<form data-sn-post="/signup">…</form>
-<button data-sn-post="billing:/invoices/{i.id}/send">Send</button>
-```
+**Streams:** `<sn-sync src="/events">` is a path as in §2, the method `GET`. Specs rarely describe
+event streams, so a configured API declares the stream in `operations`, without `type` (a stream has
+events, not one response; `<sn-event type>` types them). The transport is still chosen by
+`configure({ transport })`, which gets the resolved URL as today; there is no transport key in the
+config.
 
-- **The same rules as a resource's operation:** the path is matched as in §2, and a configured API
-  accepts only declared operations (`SN326`, `SN327`). `data-sn-delete="/contacts/{c.id}"` names the
-  operation `DELETE /contacts/{id}`.
-- **In the implicit API** an action's value is what it is today, a same-origin path, unchecked.
-- **An absolute URL** (`https://…`) in an action is an error once `apis` is set: the origin belongs to
-  an API's base.
-- Every other action attribute stays as it is: `data-sn-body`, `-trigger`, `-debounce`, `-confirm`,
-  `-optimistic`, `-then`, `-catch`, `-concurrency`, `-apply`, `-retry`, `-encoding`.
-- What the spec already does for actions (the request schema checks `data-sn-body`, the response types
-  `$result`, write-through) works as today, through the same match.
-- Field errors: `configure({ fieldErrors })` gets `{ url, method, api, operation }`.
+### 6. Request settings
 
-Resources write the method (`GET /x`) and actions do not. That is the cost of not renaming: a page has
-an operation in two spellings, one with the method in the value and one with it in the attribute
-name. An operation copied from the spec into an action drops its method.
+- **Static settings:** `credentials` and `headers` from an API's entry apply to every request the page
+  module makes to it: resources, actions, streams (where the transport allows headers) and the
+  prefetcher. They are compiled into the page's bundle, so `headers` must not hold secrets.
+- **The early script** starts only plain `GET` requests (same-origin credentials, the default
+  `Accept`), as today for a request a middleware changes (`src/early.ts`). A resource of an API with
+  other `credentials` or `headers` is not started early. That is a cost of per-API settings, and
+  extending the early script is separate work.
+- **Dynamic settings** (a token) stay in the request layer. To tell APIs apart without comparing URLs,
+  a middleware calls `apiOf(request.url)`, which looks the URL up in a table of the page's API bases.
+  The table is written once per page, so request definitions carry no extra strings.
 
-### 6. Streams
-
-```html
-<sn-sync operation="GET /events">…</sn-sync>
-```
-
-The operation is declared with `stream` in `operations` (specs rarely describe event streams), or is
-in the spec. The implicit API accepts any. `configure({ transport })` still gets the resolved URL, and
-also `{ api, operation }`, so choosing WebSocket or SignalR no longer has to test URL prefixes.
-
-### 7. Request settings
-
-- **Static settings:** `credentials` and `headers` from the config apply to every request to that API:
-  resources, actions, streams (where the transport allows it), the early script and the prefetcher.
-- **Dynamic settings:** the request layer stays the place for these. Each middleware's context gets
-  `api` and `operation`, so `header('Authorization', token, { api: 'billing' })` can replace the URL
-  checks middlewares do today.
-
-### 8. Diagnostics
+### 7. Diagnostics
 
 The prototype's codes are not released, so they are reused with their new meaning:
 
 | Code | Name | Severity | Reported for |
 | --- | --- | --- | --- |
-| `SN326` | `unknown-operation` | error | no such method and path in the API, or no such API; with "did you mean" |
-| `SN327` | `operation-params` | error | an undeclared or missing required query parameter, an empty `{}` value |
-| `SN328` | `src-removed` | error | `src` on `<sn-resource>`/`<sn-sync>`, with the operation to write (from today's matching) and a quick fix; an absolute URL in an action when `apis` is set, with the API-relative path |
-| `SN329` | `endpoint-config` | error | `defaults` naming an operation the spec lacks, `operations` naming one it has, `operations` without `type`, an invalid `base` |
-| `SN330` | `configured-shape` | warning / error | the element restating a configured `items`, `key`, … (warning if equal, error if different) |
+| `SN326` | `unknown-operation` | error | a path no operation of the API matches with this method, or an `api:` naming no API; with "did you mean" |
+| `SN327` | `undeclared-query` | error | a query parameter the operation does not declare, a required one left out |
+| `SN328` | `absolute-url` | error | an `https://` URL in `src` or an action when `apis` is set, with the API-relative path and a quick fix |
+| `SN329` | `endpoint-config` | error | `defaults` naming an operation the spec lacks, `operations` naming one it has, an invalid or `undefined` `base`, `defaultApi` naming no API |
+| `SN330` | `configured-shape` | warning / error | the element restating a configured `items`, `total`, `key` or `type` (warning if equal, error if different) |
+| `SN517` | `unkeyed-list` | warning | a list of objects without `key` (implemented) |
 
-- **Retired:** `SN505` (now `SN327`). `SN504` remains for the implicit API, and for a configured
-  operation whose spec gives no JSON response.
-- **`SN207`, unchanged:** it still guards against a value choosing the host. A path must start with a
-  literal `/`, and the base is a literal from the config, so no value can.
+`SN505` is retired (now `SN327`). `SN504` remains for the implicit API, and for a configured operation
+that has no type ([Open questions](#open-questions)).
 
-### 9. Editor
+`SN207` is unchanged: a value can never choose the host. A path starts with a literal `/`, and the base
+is a literal from the config.
 
-**Completion** inside `operation="…"` and the value of an action's method attribute:
+### 8. Editor
 
-- **Candidates:** the operations of every API. Resources are offered `GET` operations (and `POST`
-  ones that return JSON), an action the operations of its attribute's method (inserted without the
-  method), `<sn-sync>` stream operations.
+**Completion** inside `src="…"` of `<sn-resource>` and `<sn-sync>`, and inside an action's method
+attribute:
+
+- **Candidates:** the operations of every API with the method the place implies: `GET` (or the
+  resource's `method`) for a resource, the attribute's method for an action, stream operations for
+  `<sn-sync>`. In the implicit API there is nothing to offer.
 - **What a candidate matches:** its path, its `operationId`, its summary and its API's name. Typing
-  `comments` finds `GET /articles/{slug}/comments`, `inv` finds `billing:GET /invoices`, and
-  `GetArt` finds `GET /articles` by its id.
+  `comments` finds `/articles/{slug}/comments`, `inv` finds `billing:/invoices`, `GetArt` finds
+  `/articles` by its id.
 - **Ranking:**
   1. `operationId` or path-segment prefix;
   2. a prefix of the whole path;
@@ -277,97 +273,97 @@ The prototype's codes are not released, so they are reused with their new meanin
   4. fuzzy.
 
   Within a rank, the default API comes before the others, then shorter paths.
-- **Who filters:** the server filters and ranks itself. The list is marked `isIncomplete`, so the
-  editor asks again on every keystroke, and every item's `filterText` is the typed text. Editors'
-  own filters (VS Code's matches from the start of a word) would otherwise drop middle-of-path
-  matches.
-- **What is inserted:** the operation as written on the page (`billing:` only when needed). Path
-  parameters become placeholders to fill in, because the spec's `{id}` is already valid syntax on a
-  page and would read a variable `id`:
-  - **Editors that support snippets** (`snippetSupport`): `GET /articles/{${1:slug}}/comments`. The
+- **Who filters:** the server filters and ranks. The list is marked `isIncomplete`, so the editor asks
+  again on every keystroke, and every item's `filterText` is the typed text; editors' own filters
+  (VS Code's matches from the start of a word) would otherwise drop middle-of-path matches.
+- **What is inserted:** the path, with `api:` only when it is not the default API. Path parameters
+  become placeholders, because the spec's `{id}` is valid syntax on a page and would read a variable
+  `id`:
+  - **Editors that support snippets** (`snippetSupport`): `/articles/{${1:slug}}/comments`. The
     parameter's name is selected and replaced by what you type; Tab moves to the next.
-  - **Other editors:** `GET /articles/{}/comments`. An empty value is `SN327`, so nothing compiles
-    until it is filled in.
-  - Query parameters are not inserted. Completion inside the query offers the operation's declared
-    parameters (`?` and `&` are trigger characters).
+  - **Other editors:** `/articles/{}/comments`. An empty value is an error, so nothing compiles until
+    it is filled in.
+  - Query parameters are not inserted. Completion after `?` and `&` offers the operation's declared
+    parameters.
 
-**Hover** on an operation shows:
+**Hover** on a path shows:
 
-- the absolute URL with the page's values, `GET https://api.example.com/v1/articles/{a.slug}/comments`;
+- the method and the absolute URL with the page's values, `GET https://api.example.com/v1/articles/{a.slug}/comments`;
 - the spec's template, `/articles/{slug}/comments`;
 - the API's name, the summary, the parameters (required ones marked) and the effective `items`, `key`
   and `type`, with where each comes from (spec, config, element);
 - the spec or config file.
 
-**Go to definition** on an operation opens its path in the spec, or its key in the config.
+**Go to definition** on a path opens the operation in the spec, or its key in the config.
 
-**Quick fixes:** `SN328` rewrites the attribute; `SN326` and `SN330` offer their suggestion.
+**Quick fixes:** `SN328` rewrites the URL to the API-relative path; `SN326` and `SN330` apply their
+suggestion.
 
-### 10. Migration: `sinter migrate`
+### 9. Migration: `sinter migrate`
 
-The change removes `src` from every page, so it ships with a tool that does the rewrite:
+Only an app that configures `apis` has anything to migrate:
 
 ```sh
 npx sinter migrate            # prints the changes
 npx sinter migrate --write    # applies them
 ```
 
-- **Rewrites:**
-  - `src="/api/x/{y}"` becomes `operation="GET /x/{y}"`, with the API chosen by its base;
-  - an action's URL becomes the path relative to its API: `data-sn-post="/api/signup"` becomes
-    `data-sn-post="/signup"`, with `billing:` when it is another API's;
-  - `<sn-sync src>` becomes `<sn-sync operation>`.
-- **Shapes:** an element's `items`, `key` and `type` become `defaults` in the config when every page
-  that uses the operation agrees on them. Where pages disagree, the attributes are left as they are,
-  with a report.
-- **Endpoints no API declares:** a stub is written in `operations` with `type: 'unknown'`. That is
-  `SN329` until someone gives it a type, so the build lists what is missing from the spec.
-- **Config:** it adds `apis` when the project has `openapi` or `origins`, and moves those keys into
-  it.
-- **Safety:** it is deterministic and idempotent, works through the same parser as the compiler and
-  edits only attribute values, so the rest of the markup is untouched byte for byte.
+- **Paths:** every `src` and action URL that starts with an API's base becomes the path relative to
+  it, with `api:` when it is not the default API.
+- **Shapes:** an element's `items`, `total`, `key` and `type` move to `defaults` when every page that
+  uses the operation agrees on them. Where pages disagree, the attributes stay, with a report.
+- **Endpoints no API declares:** an entry is written in `operations` for each, so the build lists what
+  is missing from the spec.
+- **Config:** `openapi` and `origins` move into `apis`.
+- **Safety:** deterministic and idempotent. It uses the compiler's parser and edits only attribute
+  values, so the rest of the markup is untouched byte for byte.
 
-The project's own pages, examples, recipes, docs and `llms.txt` are migrated with it. The examples are
-the test: their builds must produce the same modules as before.
+The examples are migrated with it, and their builds must produce the same page modules as before.
+Docs, recipes and `llms.txt` keep their same-origin `src` examples, which stay valid, and gain a
+section on `apis`.
 
 ## What happens to the prototype
 
-The `operation` + `params` commit on this branch:
+The `operation` + `params` commit on this branch is reverted:
 
-- **Kept:** `operations()`, `findOperation()` and `operationUrl()` in `compiler/openapi.ts`;
-  `operations.ts` in the LSP (hover, the GET filter, the spec file shown); the param checks
-  (moved to the query); the tests that compare a page's module with the `src` it replaces.
-- **Replaced:** the `params` attribute and its parser (values are written in the path);
-  `operationId` as a reference (it becomes a search term); taking the base from `servers[0]`
-  (it becomes the default of `base`).
-- **Reverted:** the RealWorld `profile.html` change, migrated again with `sinter migrate`.
+- **Reused:** `operations()` and `operationUrl()` in `compiler/openapi.ts`, the hover and completion
+  module `lsp/operations.ts`, the query parameter checks, and the tests that compare a page's module
+  with the URL it replaces.
+- **Dropped:** the `operation` and `params` attributes, `operationId` as a reference, the base taken
+  from `servers[0]` (now the default of `base`), and the RealWorld `profile.html` change.
 
 ## Not in this proposal
 
+- **A base chosen at runtime** (one build promoted through environments).
 - **Deriving `items` from the schema** (an object with one array property) without `defaults`. That
   can come later, once `defaults` shows which guesses would be right.
-- **A default `key`.** Considered and dropped ([Decided with the user](#proposal-apis-in-the-config-operations-on-the-page)).
-- **Fetching a spec from a URL.** Builds stay deterministic, so specs remain local files.
-- **GraphQL** beyond a `POST` resource with a body.
+- **A default `key`** (see the decisions above).
+- **Fetching a spec from a URL.** Builds stay deterministic, so specs are local files.
+- **The early script with per-API credentials and headers.**
 - **Generating TypeScript clients** from the specs.
 
 ## Plan
 
-1. `apis` in the config: parsing, validation (`SN329`), `base`, `origins` computed, the old keys
-   mapped with a warning. Nothing on pages changes yet.
-2. `operation` on resources and the implicit API; shapes from the config (§3, `SN330`); `SN326` and
-   `SN327`. `src` still compiles, with `SN328` as a warning.
-3. API-relative paths and declared operations for actions, `operation` on `<sn-sync>`; the API's name in the request layer,
-   `transport` and `fieldErrors`; static request settings per API.
+1. `apis` in the config: parsing, validation (`SN329`), `base`, `defaultApi`, `origins` computed, the
+   old keys mapped with a warning. Nothing on pages changes yet.
+2. Paths relative to an API in `src`, actions and `<sn-sync>`; the checks of a configured API
+   (`SN326`, `SN327`, `SN328`); shapes from the config (§3, `SN330`). `SN328` is a warning in this
+   step.
+3. `method` and `body` on resources; static request settings per API; `apiOf`.
 4. Editor: completion (ranking, server-side filtering, snippets), hover, definition, quick fixes.
-5. `sinter migrate`; the examples, recipes, docs and `llms.txt` migrated.
-6. `SN328` becomes an error and `src` is removed. Changelog entry under
-   "Removed".
+5. `sinter migrate`; the examples migrated; docs and `llms.txt`.
+6. `SN328` becomes an error. Changelog entries.
 
-Steps 2 to 5 leave `src` working, so the branch can be reviewed and tried in a real app before
-step 6.
+Apps without `apis` are unaffected at every step.
 
 ## Open questions
 
-1. **The `default` API's name.** With one API it is the default whatever its name. With several, is a
-   key literally named `default` the right way to pick one, or should there be `default: 'main'`?
+1. **An operation without a type.** An `operations` entry, or a spec operation without a JSON
+   response, has no type. Recommended: warning `SN504`, as for an untyped resource today. An error
+   would make configuring `apis` a cliff: an app with a partial spec could not adopt a base URL without
+   typing every endpoint first, and a migrated app would not build.
+2. **Endpoints outside every base**, such as `/logout` or `/config.json` next to `base: '/api'`.
+   Recommended: a built-in API `site:` with base `''` (same origin), declared like any other API with
+   `operations` and optionally a spec, so `src="site:/config.json"` is checked too.
+3. **`defaultApi`.** Recommended as written above (`defaultApi: 'main'`), rather than a key literally
+   named `default`, so every API keeps a name that says what it is.
