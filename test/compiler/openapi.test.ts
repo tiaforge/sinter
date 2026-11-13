@@ -93,8 +93,8 @@ describe('operation="…" on a resource', () => {
   });
 
   test('compiles to the same page as the src it stands for', () => {
-    const viaSrc = page('<sn-resource name="a" src="https://api.example.com/v1/articles?tag={t}&limit={10}" items="articles"></sn-resource>');
-    const viaOp = page('<sn-resource name="a" operation="GetArticles" params="{ tag: t, limit: 10 }" items="articles"></sn-resource>');
+    const viaSrc = page('<sn-resource name="a" src="https://api.example.com/v1/articles?tag={t}&limit={10}" items="articles" key="slug"></sn-resource>');
+    const viaOp = page('<sn-resource name="a" operation="GetArticles" params="{ tag: t, limit: 10 }" items="articles" key="slug"></sn-resource>');
     expect(viaOp.diagnostics).toEqual([]);
     expect(viaOp.module).toBe(viaSrc.module);
     const path = page('<sn-resource name="a" operation="GET /articles/{slug}" params="{ slug: $url.slug }" items="article"></sn-resource>');

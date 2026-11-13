@@ -28,9 +28,9 @@ Error, for example:
 
 > a `data-sn-for` over primitive values needs `data-sn-key`
 
-sinter keys list rows by the resource key or by object identity. Strings and numbers have neither, so rows could not be matched on update.
+sinter keys list rows by the resource key or by object identity. Strings and numbers have neither, so rows could not be matched on update. Also reported for a resource without `key` whose OpenAPI response is a list of objects at `items`: without `key` a resource is one object, and the list would be that object instead of a collection.
 
-**Fix:** Add `data-sn-key` with an expression that is unique per row, such as the value itself: `data-sn-key="tag"`.
+**Fix:** Add `data-sn-key` with an expression that is unique per row, such as the value itself: `data-sn-key="tag"`. On a resource, add `key` with the field that identifies an item: `key="id"`.
 
 ## SN104 unsupported-model
 

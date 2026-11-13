@@ -3578,6 +3578,18 @@ class Compiler {
     const openapi = type || hasCall ? null : this.openapi(el, src, attr(el, 'items') ?? null, attr(el, 'total') ?? null);
     const sch = openapi && 'schema' in openapi ? namedSchema(this.opts.openapi![openapi.spec]!.doc, openapi.schema) : null;
     if (openapi && 'schema' in openapi) this.itemSchema.set(name, { spec: openapi.spec, schema: sch?.array ? (openapi.schema as { items: unknown }).items : openapi.schema });
+    // a list of objects without `key` would be one object holding the array: the spec shows it is a collection
+    if (openapi && 'schema' in openapi && !info.key && !each) {
+      const doc = this.opts.openapi![openapi.spec]!.doc;
+      const list = deref(doc, openapi.schema);
+      const item = list?.type === 'array' ? deref(doc, list.items) : null;
+      const fields = item ? propertyNames(doc, item) : [];
+      if (item && (item.type === 'object' || fields.length)) {
+        const at = attr(el, 'items') ?? null;
+        this.report(el, at != null ? 'items' : 'name', 'SN103', `\`${openapi.label}\` returns a list${at ? ` at \`${at}\`` : ''}: resource \`${name}\` needs \`key\`, the field that identifies an item`, 0,
+          fields.length ? `its items have ${fields.map((f) => `\`${f}\``).join(', ')}` : undefined);
+      }
+    }
     if (this.check) {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
