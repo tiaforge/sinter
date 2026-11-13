@@ -302,3 +302,30 @@ test('a Worker: the manifest and pages without a file system, `env` passed on to
   // as a step in a chain: `fetch(request, next)`, the next handler as the API
   expect(await text(e.fetch(new Request('http://w.test/'), () => json('{"next":1}')))).toContain('data-sn="0">{"next":1}</script>');
 });
+
+test('escape: every `<`, at the start, the end and in a row, and nothing copied without one', async () => {
+  const { escape } = await import('../../src/server.js');
+  const s = (v: string) => new TextDecoder().decode(escape(new TextEncoder().encode(v)));
+  expect(s('<a<<b<')).toBe(E('‹a‹‹b‹'));
+  expect(s('"x"')).toBe('"x"');
+  const plain = new TextEncoder().encode('{"a":1}');
+  expect(escape(plain)).toBe(plain);
+  // a view into a larger buffer, as a response's chunk can be
+  const big = new TextEncoder().encode('xx<yy');
+  expect(new TextDecoder().decode(escape(big.subarray(1, 4)))).toBe(E('x‹y'));
+});
+
+test('pages and rules match in the manifest\'s order, with or without a trailing slash', async () => {
+  const dir = build(`{ "version": 1, "pages": [
+    { "file": "a.html", "paths": ["/article/:slug"], "data": [ { "id": 0, "resource": "a", "src": null } ] },
+    { "file": "b.html", "paths": ["/article/new", "/about/"], "data": [ { "id": 0, "resource": "b", "src": null } ] } ],
+    "routes": [ { "from": "/x.html", "to": "/x/", "status": 301 }, { "from": "/x.html", "to": "/y/", "status": 301 } ] }`,
+  { 'a.html': '<head><script type="application/json" data-sn="0"></script></head>A', 'b.html': '<head><script type="application/json" data-sn="0"></script></head>B' });
+  const get = await app({ dir, data: { a: () => '1', b: () => '2' } });
+  expect(await text(get('/article/new'))).toMatch(/A$/);
+  expect(await text(get('/about'))).toMatch(/B$/);
+  expect(await text(get('//about/'))).toMatch(/B$/);
+  expect((await get('/x.html')).headers.get('location')).toBe('/x/');
+  // a redirect is for exactly its path
+  expect(await text(get('/x.html/'))).toBe('static file');
+});

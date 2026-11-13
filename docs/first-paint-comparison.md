@@ -223,24 +223,29 @@ The two are within about 10% of each other on every page; compression is most of
 
 The same layer for JavaScript, on web-standard `Request` and `Response` ([server.md](server.md)), serving
 the same pages: `bench/realworld/sinter-server.mjs`, a port of sinter-axum's example server (the same
-resolver, cache headers; gzip on Node, flushed per chunk so the head still goes out first). Measured in
-the same run as Sinter.AspNetCore above, with the same method; every server returned the same pages, byte
-for byte.
+resolver, cache headers; gzip on Node, flushed per chunk so the head still goes out first). Measured on
+the same machine with the same method, in a later run that measured sinter-axum again; every server
+returned the same pages, byte for byte.
 
 | Pages per second, one core | Home, gzip | Article, gzip | Home | Article |
 | --- | --- | --- | --- | --- |
-| sinter-axum | 2,763 | 3,526 | 9,697 | 9,919 |
-| sinter/server on Bun 1.4 (`Bun.serve`) | — | — | 5,940 | 9,015 |
-| sinter/server on Node 22 (`node:http`) | 1,077 | 1,380 | 1,980 | 2,092 |
+| sinter-axum | 2,721 | 3,599 | 9,406 | 10,100 |
+| sinter/server on Bun 1.4 (`Bun.serve`) | — | — | 5,814 | 7,710 |
+| sinter/server on Node 22, API through `undici.request()` | 1,362 | 1,614 | 3,181 | 3,162 |
+| sinter/server on Node 22, API through `fetch` | 1,069 | 1,178 | 1,846 | 1,902 |
 
-- **Bun runs the layer at about 60-90% of the Rust layer's rate**, with the same code that runs on Node.
-  (Bun's server does not compress, so it has no gzip numbers.)
-- **On Node the layer is a small part of the cost.** A CPU profile under load puts the layer's own code at
-  about 8%; most of the time goes to `fetch` (undici) for the page's two API requests, garbage collection,
-  and turning web streams into `node:http` writes. Node serves about 2,000 pages per second per core
-  (several processes use several cores), against 583 for the earlier buffered Node middleware above.
+- **The layer itself costs about 50 µs of CPU a page on Node, 30-45 µs on Bun**, measured in-process with
+  the API answered from memory (half what it was before two changes: the scan for `<` in the API's JSON
+  is a native one, as sinter-axum's, and the page and rule lookups are built once at startup).
+- **Bun serves 60-75% of the Rust layer's pages**, with the same code that runs on Node. (Bun's server
+  does not compress, so it has no gzip numbers.)
+- **On Node, most of a page's cost is Node's own `fetch`**: a CPU profile under load puts the layer at
+  about 3% of the time and Node's `fetch` (undici behind the WHATWG `Request` and `Response`) at the
+  largest share. Giving the layer undici's `request()` instead (`fetch` option, [server.md](server.md#on-node))
+  serves 66-72% more pages uncompressed and 27-37% more with gzip. The rest is Node's HTTP server, gzip
+  and garbage collection; several processes use several cores.
 - These pages fetch their data from an API server over HTTP. With the API in the same app (the in-process
-  call `wrap(app.fetch)` makes), a page's requests skip `fetch` and the network altogether.
+  call `wrap(app.fetch)` makes), a page's requests use no HTTP client at all.
 
 ## Limits
 

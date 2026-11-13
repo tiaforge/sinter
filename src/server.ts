@@ -166,11 +166,30 @@ export function describedUrl(s: Slot, p: Record<string, string>): string | null 
   return query?.length ? withParams(url, Object.fromEntries(query)) : url;
 }
 
-/** Whether a `data-sn-path` pattern (`/article/:slug`) matches the path: as many segments, and the literal ones equal. */
-const matches = (pattern: string, path: string) => {
-  const w = pattern.split('/').filter(Boolean), s = path.split('/').filter(Boolean);
-  return w.length == s.length && w.every((x, i) => x[0] == ':' || x == s[i]);
-};
+/** A path's non-empty segments. */
+const segments = (path: string) => path.split('/').filter(Boolean);
+
+/** Whether a `data-sn-path` pattern's segments (`/article/:slug`) match a path's: as many, and the literal ones equal. */
+const matches = (want: string[], segs: string[]) => want.length == segs.length && want.every((x, i) => x[0] == ':' || x == segs[i]);
+
+/**
+ * Paths to rules, the first in their order: exact paths and literal patterns in maps (by the path's
+ * non-empty segments), `:name` patterns split once, by segment count.
+ */
+function table(rules: Array<{ pattern: string; exact: boolean }>) {
+  const exact = new Map<string, number>(), literal = new Map<string, number>(), patterns: Array<[number, string[]]> = [];
+  rules.forEach(({ pattern, exact: x }, i) => {
+    if (x) { if (!exact.has(pattern)) exact.set(pattern, i); }
+    else if (pattern.includes(':')) patterns.push([i, segments(pattern)]);
+    else { const k = segments(pattern).join('/'); if (!literal.has(k)) literal.set(k, i); }
+  });
+  return (path: string): number => {
+    const segs = segments(path);
+    let best = Math.min(exact.get(path) ?? Infinity, literal.get(segs.join('/')) ?? Infinity);
+    for (const [i, want] of patterns) { if (i >= best) break; if (matches(want, segs)) { best = i; break; } }
+    return best;
+  };
+}
 
 /** Cuts the page at each placeholder, in document order; one that is missing or not empty means the HTML and the manifest are from different builds. */
 function split(file: string, html: string, slots: Slot[]): Pick<Page, 'parts' | 'slots'> {
@@ -190,15 +209,27 @@ function split(file: string, html: string, slots: Slot[]): Pick<Page, 'parts' | 
 
 /** Every `<` as a JSON unicode escape, so the data cannot close its `<script>` (or open a comment): the same JSON, since in valid JSON `<` is only ever inside a string. */
 export function escape(json: Uint8Array): Uint8Array {
-  let n = 0;
-  for (let i = 0; i < json.length; i++) if (json[i] === 0x3c) n++;
-  if (!n) return json;
-  const out = new Uint8Array(json.length + n * 5), lt = enc.encode('\\u003c');
-  for (let i = 0, o = 0; i < json.length; i++) {
-    if (json[i] === 0x3c) { out.set(lt, o); o += 6; } else out[o++] = json[i]!;
+  // most API responses have no `<`, and then nothing is copied
+  let at = find(json, 0);
+  if (at < 0) return json;
+  const found: number[] = [];
+  for (; at >= 0; at = find(json, at + 1)) found.push(at);
+  const out = new Uint8Array(json.length + found.length * 5);
+  let from = 0, o = 0;
+  for (const i of found) {
+    out.set(json.subarray(from, i), o);
+    o += i - from;
+    out.set(LT, o);
+    o += 6;
+    from = i + 1;
   }
+  out.set(json.subarray(from), o);
   return out;
 }
+const LT = enc.encode('\\u003c');
+// where `Buffer` exists (Node, Bun, Deno), its `indexOf` is a memchr; a typed array's is a loop
+const B = (globalThis as { Buffer?: { from(a: ArrayBufferLike, o: number, n: number): Uint8Array } }).Buffer;
+const find = B ? (u: Uint8Array, from: number) => B.from(u.buffer, u.byteOffset, u.byteLength).indexOf(0x3c, from) : (u: Uint8Array, from: number) => u.indexOf(0x3c, from);
 
 const html = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -288,23 +319,20 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
   const fetchFn = o.fetch ?? fetch;
   const onError = o.onError ?? ((f) => console.warn(`sinter: ${f.page}: \`${f.resource}\`: ${f.url ?? ''} ${f.reason}; the page ends with the error text`));
 
-  // paths to pages and rules: literal paths by their segments, `:name` patterns in order
-  const key = (path: string) => '/' + path.split('/').filter(Boolean).join('/');
-  const pageLit = new Map<string, number>(), pagePat: Array<[number, string]> = [];
-  pages.forEach((p, i) => p.paths.forEach((x) => (x.includes(':') ? pagePat.push([i, x]) : pageLit.has(key(x)) || pageLit.set(key(x), i))));
-  const pageOf = (path: string) => {
-    let best = pageLit.get(key(path)) ?? Infinity;
-    for (const [i, x] of pagePat) { if (i >= best) break; if (matches(x, path)) { best = i; break; } }
-    return best == Infinity ? null : pages[best]!;
-  };
-  // a redirect for exactly its `from`, a rewrite for a path its pattern matches; the first in order
-  const routeOf = (path: string) => routes.find((r) => (r.status == 200 ? matches(r.from, path) : r.from == path));
+  // the page for a path: the first, in the manifest's order, with a path that matches
+  const pageRules = pages.flatMap((p, i) => p.paths.map((pattern) => ({ pattern, exact: false, i })));
+  const pageAt = table(pageRules);
+  const pageOf = (path: string) => { const k = pageAt(path); return k == Infinity ? null : pages[pageRules[k]!.i]!; };
+  // the rule for a path: a redirect for exactly its `from`, a rewrite for a path its pattern matches; the first in order
+  const routeAt = table(routes.map((r) => ({ pattern: r.from, exact: r.status != 200 })));
+  const routeOf = (path: string) => { const k = routeAt(path); return k == Infinity ? undefined : routes[k]; };
 
   /** a response's body, if it is a 2xx JSON one within maxBytes; else why not */
   async function body(res: Response): Promise<Uint8Array | string> {
     if (!res.ok) { await res.body?.cancel(); return `status ${res.status}`; }
     if (!isJson(res.headers.get('content-type'))) { await res.body?.cancel(); return 'not JSON'; }
-    if (Number(res.headers.get('content-length') ?? 0) > maxBytes) { await res.body?.cancel(); return `over ${maxBytes} bytes`; }
+    const length = res.headers.get('content-length');
+    if (Number(length ?? 0) > maxBytes) { await res.body?.cancel(); return `over ${maxBytes} bytes`; }
     if (!res.body) return new Uint8Array();
     const chunks: Uint8Array[] = [];
     let n = 0;

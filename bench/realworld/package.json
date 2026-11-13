@@ -8,6 +8,7 @@
   },
   "devDependencies": {
     "chrome-launcher": "1.2.3",
-    "lighthouse": "13.6.0"
+    "lighthouse": "13.6.0",
+    "undici": "^7.30.2"
   }
 }

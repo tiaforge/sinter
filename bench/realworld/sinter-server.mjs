@@ -6,6 +6,7 @@
 //   npm run build                                          (the package's dist/, at the repository root)
 //   node sinter-server.mjs <dist> [port] [api origin]      node:http, gzip flushed per chunk (the head goes out first)
 //   bun sinter-server.mjs <dist> [port] [api origin]       Bun.serve, the same handler, no compression
+//   FETCH=undici node sinter-server.mjs …                    the API through undici.request() instead of fetch (docs/server.md#on-node)
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { embed } from '../../dist/server.js';
@@ -13,8 +14,19 @@ import { embed } from '../../dist/server.js';
 const [dir, port = '4370', api = 'http://localhost:4400'] = process.argv.slice(2);
 if (!dir) { console.error('usage: sinter-server.mjs <dist> [port] [api origin]'); process.exit(1); }
 
+// on Node, undici's request() behind a fetch-shaped function: the same client as fetch, without its WHATWG layer
+let apiFetch = fetch;
+if (process.env.FETCH == 'undici') {
+  const { request } = await import('undici');
+  apiFetch = async (url, init) => {
+    const r = await request(url, { headers: init?.headers instanceof Headers ? Object.fromEntries(init.headers) : init?.headers, signal: init?.signal });
+    return new Response(r.statusCode == 204 ? null : await r.body.arrayBuffer(), { status: r.statusCode, headers: r.headers });
+  };
+}
+
 const sinter = await embed({
   dir,
+  fetch: apiFetch,
   origins: [api],
   timeout: 800,
   data: {
@@ -24,7 +36,7 @@ const sinter = await embed({
       if (!user) return null;
       const by = r.params.tab == 'favorites' ? 'favorited' : 'author';
       const offset = (Math.max(1, parseInt(r.params.page ?? '', 10) || 1) - 1) * 10;
-      return fetch(`${api}/api/articles?${by}=${encodeURIComponent(user)}&offset=${offset}&limit=10`, { signal: r.signal });
+      return apiFetch(`${api}/api/articles?${by}=${encodeURIComponent(user)}&offset=${offset}&limit=10`, { signal: r.signal });
     },
   },
 });

@@ -170,6 +170,29 @@ export default { fetch: sinter.wrap((req, env, ctx) => app.fetch(req, env, ctx))
 Extra arguments (a Worker's `env` and `ctx`) are passed on to the handler, for the page's in-process
 requests too.
 
+### On Node
+
+Node's `fetch` is undici behind the WHATWG `Request`/`Response` layer, and that layer costs more than the
+request itself: when your pages' data comes from an API over HTTP (`upstream`, `origins`, or a resolver
+that fetches), give the layer undici's own `request()`, the same client and connection pool:
+
+```ts
+import { request } from 'undici';
+
+const sinter = await embed<Build>({
+  dir: '../web/dist',
+  origins: ['https://api.example.com'],
+  fetch: async (url, init) => {
+    const r = await request(url, { headers: Object.fromEntries(new Headers(init?.headers)), signal: init?.signal });
+    return new Response(r.statusCode == 204 ? null : await r.body.arrayBuffer(), { status: r.statusCode, headers: r.headers as HeadersInit });
+  },
+});
+```
+
+On RealWorld's pages it served 66-72% more pages per second uncompressed, 27-37% more with gzip
+([measurements](first-paint-comparison.md#tiaforge-uisinterserver)). Calls to the app you wrap are
+in-process and use neither. Bun's and Deno's `fetch` are native and need nothing of the kind.
+
 ### As one step of a chain
 
 `sinter.fetch(request, next)` answers a page, a redirect or the manifest's 404, and passes anything else to
