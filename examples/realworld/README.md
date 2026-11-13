@@ -59,9 +59,9 @@ Follow/unfollow and comment deletion wait for the server; favorites are optimist
 ## e2e suite
 
 The suite runs in `spa` mode by default (this app holds the token and calls the API from the
-browser). Against a local backend, `spa` passes all but five tests and `ssr` (`TEST_MODE=ssr`)
-all but one; the rest of `ssr` is skipped by the suite. The failures are assumptions in the suite,
-not app behavior:
+browser). Against a local backend, `spa` passed all but five tests and `ssr` (`TEST_MODE=ssr`)
+all but one, before the fix below; the rest of `ssr` is skipped by the suite. The failures were
+assumptions in the suite, not app behavior:
 
 - **Settings (4, `spa` only):** the `spa` branch keeps using the settings page after the PUT: three
   tests read the response body over CDP, one calls `page.evaluate` right away. This app redirects to
@@ -69,10 +69,10 @@ not app behavior:
   (`Network.getResponseBody: No resource`) and the JS context (`Execution context was destroyed`).
   The `ssr` branch of the same tests (wait for the profile, check the bio) passes.
 - **Null/Empty Image and Bio Handling, "author avatars should render on other user articles in
-  feed" (`spa`):** it reads the author of every `.article-preview`, and the home page's "Loading
-  articles..." line is one too: reloading into the cached feed (`cache`) shows 10 articles and that
-  line while it revalidates, so the test counts 11 and times out on the 11th. It also needs a
-  backend with 10 or more articles, which the suite leaves behind.
+  feed":** it reads the author of every `.article-preview`, the "Loading articles..." line included.
+  That line now shows only while there is nothing to show (with cached articles, loading means
+  updating them), so a reload into the cached feed counts 10. It needs a backend with 10 or more
+  articles, which the suite leaves behind. Not run since this change.
 
 With the mocked API (no backend), `error-handling` and `user-fetch-errors` pass except "should handle
 403 when deleting another users comment", where the trash icon is not visible, probably because the

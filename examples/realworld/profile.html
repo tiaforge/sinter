@@ -53,7 +53,7 @@
               <li class="nav-item"><a class="nav-link" data-sn-class="{active: $url.tab == 'favorites'}" data-sn-attr="{href: '/profile/' + encodeURIComponent(profile.username) + '/favorites'}">Favorited Articles</a></li>
             </ul>
           </div>
-          <template data-sn-if="$meta.articles.loading"><div class="article-preview">Loading articles...</div></template>
+          <template data-sn-if="$meta.articles.loading && !articles.length"><div class="article-preview">Loading articles...</div></template>
           <template data-sn-if="$meta.articles.error"><div class="article-preview error-messages">Could not load articles.</div></template>
           <template data-sn-for="a in articles">
             <div class="article-preview">
