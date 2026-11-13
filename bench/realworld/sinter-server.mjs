@@ -4,7 +4,7 @@
 // comes from a resolver. Signed-out view: it is for measuring.
 //
 //   npm run build                                          (the package's dist/, at the repository root)
-//   node sinter-server.mjs <dist> [port] [api origin]      node:http
+//   node sinter-server.mjs <dist> [port] [api origin]      @hono/node-server
 //   bun sinter-server.mjs <dist> [port] [api origin]       Bun.serve, the same handler
 // both with gzip flushed per chunk (bench/gzip.mjs: the head goes out first)
 //   FETCH=undici node sinter-server.mjs …                    the API through undici.request() instead of fetch (docs/server.md#on-node)
@@ -63,15 +63,8 @@ if (globalThis.Bun) {
   Bun.serve({ port: +port, hostname: '127.0.0.1', fetch: serve });
   console.log(`http://127.0.0.1:${port}`);
 } else {
-  const { createServer } = await import('node:http');
-  createServer(async (req, res) => {
-    const ac = new AbortController();
-    // the visitor went away before the response was out (`close` comes after a finished response too)
-    res.on('close', () => { if (!res.writableFinished) ac.abort(); });
-    const out = await serve(new Request(`http://${req.headers.host}${req.url}`, { method: req.method, headers: req.headers, signal: ac.signal }));
-    res.writeHead(out.status, Object.fromEntries(out.headers));
-    if (!out.body) return res.end();
-    for await (const chunk of out.body) res.write(chunk);
-    res.end();
-  }).listen(+port, '127.0.0.1', () => console.log(`http://127.0.0.1:${port}`));
+  // @hono/node-server: the adapter docs/server.md recommends (it writes a response's body as it is, and
+  // makes the Request only when it is read)
+  const { serve: listen } = await import('@hono/node-server');
+  listen({ fetch: serve, port: +port, hostname: '127.0.0.1' }, () => console.log(`http://127.0.0.1:${port}`));
 }

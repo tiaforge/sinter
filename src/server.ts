@@ -413,10 +413,13 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
     // one signal for the page's requests: aborted at the time limit, when the visitor goes away, or when the
     // page ended early. A listener rather than AbortSignal.any, and an abort only while something is still
     // pending, with a reason made once: on most pages nothing is aborted, and that costs nothing
-    const stop = new AbortController(), signal = stop.signal, visitor = request.signal;
+    // A streamed page hears the visitor go from its body's cancel (as a server drops a body): the page
+    // request's own signal is not read, since a Node adapter makes a whole undici Request for it (a sixth of
+    // a page's time on Node). An unstreamed page has no body yet, so it listens to the signal
+    const stop = new AbortController(), signal = stop.signal, visitor = stream ? null : request.signal;
     const left = () => stop.abort(LEFT);
-    if (visitor.aborted) stop.abort(LEFT);
-    else visitor.addEventListener('abort', left, { once: true });
+    if (visitor?.aborted) stop.abort(LEFT);
+    else visitor?.addEventListener('abort', left, { once: true });
     let pending = page.slots.length;
     // the time limit, for every placeholder together: a resolver that ignores its signal does not hold the page
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -428,7 +431,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
     // the page is out (or ended early): stop whatever is still fetching
     const done = () => {
       clearTimeout(timer);
-      visitor.removeEventListener('abort', left);
+      visitor?.removeEventListener('abort', left);
       if (pending > 0) stop.abort(ENDED);
     };
     if (!stream) return whole(page, fills, done);
@@ -454,7 +457,8 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
         for (const b of out) c.enqueue(b);
         if (!open || i >= fills.length) { done(); c.close(); }
       },
-      cancel: done,
+      // the visitor went away
+      cancel: () => { if (pending > 0) stop.abort(LEFT); done(); },
     });
     return new Response(body, { status: 200, headers: pageHeaders });
   }

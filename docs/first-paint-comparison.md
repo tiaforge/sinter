@@ -227,24 +227,23 @@ server (5 s runs).
 
 | Pages per second, one core | Home, gzip | Article, gzip | Home | Article |
 | --- | --- | --- | --- | --- |
-| sinter-axum | 6,014 | 8,461 | 27,826 | 29,638 |
-| Sinter.AspNetCore, NativeAOT | 4,340 | 7,091 | 22,012 | 27,313 |
-| sinter/server on Bun 1.4, Hono | 3,899 | 4,631 | 16,601 | 20,319 |
-| sinter/server on Node 22, Hono | 1,716 | 2,219 | 6,977 | 7,263 |
+| sinter-axum | 6,579 | 8,031 | 29,434 | 31,644 |
+| Sinter.AspNetCore, NativeAOT | 5,093 | 7,373 | 21,985 | 28,128 |
+| sinter/server on Bun 1.4, Hono | 3,892 | 4,712 | 18,061 | 23,451 |
+| sinter/server on Node 22, Hono on `@hono/node-server` | 1,703 | 2,252 | 6,955 | 6,738 |
 
-- **Uncompressed, Sinter.AspNetCore serves 79-92% of the Rust layer's pages, Bun 60-69%, Node 25%.**
+- **Uncompressed, Sinter.AspNetCore serves 75-89% of the Rust layer's pages, Bun 61-74%, Node 21-24%.**
+  A single run varies by about 10% on this machine; the differences between layers are larger than that.
 - **What the layer adds to a page**, against the same server answering the API's 17.7 KB JSON route
-  directly (no layer; one core, uncompressed): sinter-axum 14-15 µs a page, Sinter.AspNetCore 10-21 µs,
-  Bun 30-41 µs, Node 65-75 µs. Bun's server is as fast as axum's (19.4 µs for the API route, axum 20.1);
-  the difference is a page's two in-process calls, each a `Request`, a Hono dispatch and a `Response`
-  (about 7 µs each on Bun), where sinter-axum calls its router with a zero-copy body. Node's server
-  itself takes 3.5 times axum's time for the API route.
-- **With gzip, the compressor is most of the work** on every server: the same zlib in sinter-axum and
-  Sinter.AspNetCore, Node's and Bun's own in JavaScript.
-- **On Node and Bun, the layer itself is a small part of a page:** about 50 µs of CPU on Node, 30-45 µs on
-  Bun, measured in-process without a server; a CPU profile of the Node server under load puts it at about
-  3%. The rest is the `Request` and `Response` objects of a fetch handler (for the page and for each
-  in-process call), socket writes and garbage collection.
+  directly (no layer, uncompressed): sinter-axum 14-15 µs, Sinter.AspNetCore 10-21 µs, Bun 30-41 µs. Bun's
+  server is as fast as axum's (19.4 µs for that route, axum 20.1); the difference is a page's two in-process
+  calls, each a `Request`, a Hono dispatch and a `Response` (about 7 µs each on Bun), where sinter-axum calls
+  its router with a zero-copy body.
+- **On Node**, the server itself is as fast (`node:http` answers the route in 24 µs, `@hono/node-server`
+  in 28 µs), but a fetch handler's objects are not: a page's 144 µs are about 44 µs for the server with a
+  streamed body, 8 µs for the request's headers (forwarded to the API), 28 µs for each of the two in-process
+  calls, and about 26 µs for the layer itself. Node implements `Request` and `Response` in JavaScript
+  (undici), Bun natively: the same code runs 2.6-3.5 times as fast on Bun.
 
 ### With the API on another server
 

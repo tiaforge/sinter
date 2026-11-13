@@ -4,7 +4,7 @@
 // absolute API URLs same-origin paths.
 //
 //   npm run build (repository root); npm install (here)
-//   node server.mjs <dist> [port] data      node:http
+//   node server.mjs <dist> [port] data      @hono/node-server
 //   bun server.mjs <dist> [port] data       Bun.serve
 // both with gzip flushed per chunk (bench/gzip.mjs: the head goes out first)
 import { readFileSync } from 'node:fs';
@@ -33,15 +33,8 @@ if (globalThis.Bun) {
   Bun.serve({ port: +port, hostname: '127.0.0.1', fetch: serve });
   console.log(`http://127.0.0.1:${port}`);
 } else {
-  const { createServer } = await import('node:http');
-  createServer(async (req, res) => {
-    const ac = new AbortController();
-    // the visitor went away before the response was out (`close` comes after a finished response too)
-    res.on('close', () => { if (!res.writableFinished) ac.abort(); });
-    const out = await serve(new Request(`http://${req.headers.host}${req.url}`, { method: req.method, headers: req.headers, signal: ac.signal }));
-    res.writeHead(out.status, Object.fromEntries(out.headers));
-    if (!out.body) return res.end();
-    for await (const chunk of out.body) res.write(chunk);
-    res.end();
-  }).listen(+port, '127.0.0.1', () => console.log(`http://127.0.0.1:${port}`));
+  // @hono/node-server: the adapter docs/server.md recommends (it writes a response's body as it is, and
+  // makes the Request only when it is read)
+  const { serve: listen } = await import('@hono/node-server');
+  listen({ fetch: serve, port: +port, hostname: '127.0.0.1' }, () => console.log(`http://127.0.0.1:${port}`));
 }

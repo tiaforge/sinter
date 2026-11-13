@@ -329,3 +329,15 @@ test('pages and rules match in the manifest\'s order, with or without a trailing
   // a redirect is for exactly its path
   expect(await text(get('/x.html/'))).toBe('static file');
 });
+
+test("a visitor who goes away aborts the page's requests (the body's cancel)", async () => {
+  const dir = build(`{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "a", "src": null } ] } ] }`,
+    { 'index.html': '<head><script type="application/json" data-sn="0"></script></head>' });
+  let aborted!: (reason: unknown) => void;
+  const seen = new Promise((ok) => (aborted = ok));
+  const get = await app({ dir, timeout: 5000, data: { a: (r) => new Promise(() => r.signal.addEventListener('abort', () => aborted(r.signal.reason))) } });
+  const reader = (await get('/')).body!.getReader();
+  await reader.read(); // the head
+  await reader.cancel();
+  expect(String(await seen)).toContain('the visitor went away');
+});
