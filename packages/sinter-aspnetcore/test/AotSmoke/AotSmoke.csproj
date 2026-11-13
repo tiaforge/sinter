@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Built with the solution (the AOT analyzers run on it). run.sh publishes the same Program.cs with NativeAOT from the packed package. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IsPackable>false</IsPackable>
+    <SinterBuild>../Sinter.AspNetCore.Tests/fixtures/web</SinterBuild>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sinter.AspNetCore/Sinter.AspNetCore.csproj" />
+    <ProjectReference Include="../../src/Sinter.AspNetCore.Generator/Sinter.AspNetCore.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Import Project="../../src/Sinter.AspNetCore/build/Sinter.AspNetCore.targets" />
+</Project>

@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    [SinterEmbed]: the generator reads the build named by <SinterBuild> (a sinter build's output
+    directory, relative to the project), compiles its sinter-embed.json into the assembly and checks
+    it against the class's [SinterResolve] and [SinterSkip] entries.
+  -->
+  <PropertyGroup Condition="'$(SinterBuild)' != ''">
+    <SinterBuildDir>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '$(SinterBuild)'))))</SinterBuildDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <CompilerVisibleProperty Include="SinterBuild" />
+    <CompilerVisibleProperty Include="SinterBuildDir" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(SinterBuildDir)' != '' and Exists('$(SinterBuildDir)/sinter-embed.json')">
+    <AdditionalFiles Include="$(SinterBuildDir)/sinter-embed.json" />
+  </ItemGroup>
+</Project>

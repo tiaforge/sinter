@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "pages": [
+    {
+      "file": "index.html",
+      "paths": ["/"],
+      "data": [
+        { "id": 0, "resource": "tags", "src": ["/api/tags"] },
+        { "id": 1, "resource": "articles", "src": null, "when": true },
+        { "id": 2, "resource": "user", "src": ["/api/user"] }
+      ]
+    }
+  ]
+}

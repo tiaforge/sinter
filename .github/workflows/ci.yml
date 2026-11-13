@@ -51,6 +51,26 @@ jobs:
       - run: cargo test --features upstream
       - run: cargo build --no-default-features
 
+  # the ASP.NET Core middleware that fills embedded data (packages/sinter-aspnetcore)
+  sinter-aspnetcore:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sinter-aspnetcore
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      # warnings are errors (Directory.Build.props), the AOT and trim analyzers included
+      - run: dotnet build -c Release
+      # net8.0 and net10.0: minimal APIs and MVC, and the generator's compile errors
+      - run: dotnet test -c Release --no-build
+      # the packed package in a NativeAOT app, its pages checked
+      - run: test/AotSmoke/run.sh
+
   # sinter across page loads in a real browser: next-page data, Speculation Rules, morphs
   # (e2e/navigation/README.md); the runner's Chrome
   e2e-navigation:

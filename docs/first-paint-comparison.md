@@ -201,15 +201,31 @@ About 35x Qwik's home pages and 3.5x the Node middleware's per core; on the arti
 A second run of 10 s gave 67, 595 and 1,884 home pages per second. Each page here is two API requests,
 which the API answered in about 1 ms: a slower API changes the latency, not the CPU per page.
 
+## Sinter.AspNetCore
+
+[`packages/sinter-aspnetcore`](../packages/sinter-aspnetcore) is the same layer for ASP.NET Core. Its
+`examples/RealWorld` is a port of sinter-axum's example server (the same resolver, gzip, cache headers),
+published with NativeAOT. Measured 2026-11-13 against sinter-axum's example on another machine than the
+tables above (a 4-core container), with the same method: `oha`, 15 s, 32 connections, the RealWorld build
+with `SINTER_EMBED=1` and the mock API; each server pinned to one core, the API to a second, the load
+generator to the other two, `accept-encoding: gzip` or `identity`. Both servers ran at 99% of their core
+with gzip, the API at 34-38% of its own. Every page was the same byte for byte (24,840 bytes for home,
+uncompressed), and gzip at each one's default level gave sizes within 4% (2,980 and 3,109 bytes).
+
+| Pages per second, one core | Home, gzip | Article, gzip | Home | Article |
+| --- | --- | --- | --- | --- |
+| sinter-axum | 2,763 (p50 11.2 ms) | 3,526 (p50 8.7 ms) | 9,697 | 9,919 |
+| Sinter.AspNetCore, NativeAOT | 2,689 (p50 11.5 ms) | 3,196 (p50 9.7 ms) | 8,656 | 10,572 |
+
+The two are within about 10% of each other on every page; compression is most of the cost of a page.
+
 ## @tiaforge-ui/sinter/server
 
 The same layer for JavaScript, on web-standard `Request` and `Response` ([server.md](server.md)), serving
 the same pages: `bench/realworld/sinter-server.mjs`, a port of sinter-axum's example server (the same
-resolver, cache headers; gzip on Node, flushed per chunk so the head still goes out first). Measured
-2026-11-13 on another machine than the tables above (a 4-core container), against sinter-axum's example
-there: `oha`, 15 s, 32 connections, the RealWorld build with `SINTER_EMBED=1` and the mock API; each server
-pinned to one core, the API to a second, the load generator to the other two. Every server returned the
-same pages, byte for byte (24,840 bytes for home, uncompressed).
+resolver, cache headers; gzip on Node, flushed per chunk so the head still goes out first). Measured in
+the same run as Sinter.AspNetCore above, with the same method; every server returned the same pages, byte
+for byte.
 
 | Pages per second, one core | Home, gzip | Article, gzip | Home | Article |
 | --- | --- | --- | --- | --- |
