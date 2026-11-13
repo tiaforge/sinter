@@ -218,8 +218,8 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Follow the message: set the environment variable, move the endpoint between `defaults` and `operations`, or move `openapi` into an API.',
   },
   SN330: {
-    example: '`items` of `GET /articles` is configured as `articles` (`main.defaults`): remove it here',
-    means: 'What an endpoint returns (`items`, `total`, `key`, `type`) is said once: when the API\'s `defaults` or `operations` give a value, a resource of that operation does not write it. The same value is a warning (it says nothing), a different one an error (two pages would read different shapes from one endpoint).',
+    example: '`items` of `GET /articles` is `articles` (`main.defaults`), not `posts`: every page reads one shape from an endpoint',
+    means: 'What an endpoint returns (`items`, `total`, `key`, `type`) is said once: when the API\'s `defaults` or `operations` give a value, a resource of that operation does not write a different one, because two pages would read different shapes from one endpoint. The same value is the warning `SN518`.',
     fix: 'Remove the attribute, or change the configured value if the page is right.',
   },
   SN401: {
@@ -306,5 +306,10 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: '`GET /api/contacts` returns a list at `contacts`: resource `contacts` has no `key`, so it is one object holding the list',
     means: 'Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `patch` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.',
     fix: 'Add `key` with the field that identifies an item, such as `key="id"`. A list that is only read can stay as it is.',
+  },
+  SN518: {
+    example: '`items` of `GET /articles` is configured as `articles` (`main.defaults`): remove it here',
+    means: 'The API\'s `defaults` or `operations` already give this value for the endpoint, so the attribute says nothing. A different value is the error `SN330`.',
+    fix: 'Remove the attribute.',
   },
 };

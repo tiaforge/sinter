@@ -96,8 +96,8 @@ const IMAGES_ONLY = ['SN511', 'SN512', 'SN514'];
 const STATIC_ONLY = ['SN322'];
 /** Lazy packages (`sinter({ lazy })`): the app's modules and the build. Fixtures in test/lazy.test.ts and test/vite/lazy.test.ts. */
 const LAZY_ONLY = ['SN324', 'SN325'];
-/** `sinter({ apis })` itself: the project refuses the option. Fixtures in test/apis.test.ts. */
-const APIS_ONLY = ['SN329'];
+/** `sinter({ apis })`: the option itself (test/apis.test.ts) and paths relative to an API (test/compiler/apis.test.ts). */
+const APIS_ONLY = ['SN326', 'SN327', 'SN328', 'SN329', 'SN330', 'SN518'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {

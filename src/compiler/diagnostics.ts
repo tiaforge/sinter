@@ -72,6 +72,7 @@ export const CODES = {
   SN515: 'redundant-path',
   SN516: 'unfed-live',
   SN517: 'unkeyed-list',
+  SN518: 'redundant-shape',
 } as const;
 
 export type Code = keyof typeof CODES;

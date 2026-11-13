@@ -28,6 +28,10 @@ paths:
     delete:
       parameters: [{ name: id, in: path, required: true }]
       responses: { '204': { description: gone } }
+  /reports:
+    get:
+      parameters: [{ name: from, in: query, required: true }, { name: filter, in: query, style: deepObject }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { n: { type: integer } } } } } } }
   /search:
     post:
       requestBody: { content: { application/json: { schema: { type: object, properties: { q: { type: string } } } } } }
