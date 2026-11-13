@@ -235,7 +235,7 @@ server (5 s runs).
 - **Uncompressed, Sinter.AspNetCore serves 79-92% of the Rust layer's pages, Bun 60-69%, Node 25%.**
 - **What the layer adds to a page**, against the same server answering the API's 17.7 KB JSON route
   directly (no layer; one core, uncompressed): sinter-axum 14-15 µs a page, Sinter.AspNetCore 10-21 µs,
-  Bun about 35 µs, Node 65-75 µs. Bun's server is as fast as axum's (19.4 µs for the API route, axum 20.1);
+  Bun 30-41 µs, Node 65-75 µs. Bun's server is as fast as axum's (19.4 µs for the API route, axum 20.1);
   the difference is a page's two in-process calls, each a `Request`, a Hono dispatch and a `Response`
   (about 7 µs each on Bun), where sinter-axum calls its router with a zero-copy body. Node's server
   itself takes 3.5 times axum's time for the API route.
