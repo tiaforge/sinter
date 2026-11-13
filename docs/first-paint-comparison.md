@@ -205,18 +205,19 @@ which the API answered in about 1 ms: a slower API changes the latency, not the 
 
 [`packages/sinter-aspnetcore`](../packages/sinter-aspnetcore) is the same layer for ASP.NET Core. Its
 `examples/RealWorld` is a port of sinter-axum's example server (the same resolver, gzip, cache headers),
-published with NativeAOT. Measured 2026-11-12 against sinter-axum's example on another machine than the
-table above (a 4-core container), with the same method: `oha`, 15 s, 32 connections, the RealWorld build
+published with NativeAOT. Measured 2026-11-13 against sinter-axum's example on another machine than the
+tables above (a 4-core container), with the same method: `oha`, 15 s, 32 connections, the RealWorld build
 with `SINTER_EMBED=1` and the mock API; each server pinned to one core, the API to a second, the load
-generator to the other two. Both servers ran at 99% of their core, the API at 34-38% of its own. The
-decompressed pages were byte for byte the same, and gzip at the default level of each gave sizes within 4%.
+generator to the other two, `accept-encoding: gzip` or `identity`. Both servers ran at 99% of their core
+with gzip, the API at 34-38% of its own. Every page was the same byte for byte (24,840 bytes for home,
+uncompressed), and gzip at each one's default level gave sizes within 4% (2,980 and 3,109 bytes).
 
 | Pages per second, one core | Home, gzip | Article, gzip | Home | Article |
 | --- | --- | --- | --- | --- |
-| sinter-axum | 2,830 (p50 10.8 ms) | 3,652 (p50 8.4 ms) | 2,910 | 3,823 |
-| Sinter.AspNetCore, NativeAOT | 2,808 (p50 10.9 ms) | 3,748 (p50 8.3 ms) | 2,857 | 3,532 |
+| sinter-axum | 2,763 (p50 11.2 ms) | 3,526 (p50 8.7 ms) | 9,697 | 9,919 |
+| Sinter.AspNetCore, NativeAOT | 2,689 (p50 11.5 ms) | 3,196 (p50 9.7 ms) | 8,656 | 10,572 |
 
-The two are within a few percent of each other.
+The two are within about 10% of each other on every page; compression is most of the cost of a page.
 
 ## Limits
 
