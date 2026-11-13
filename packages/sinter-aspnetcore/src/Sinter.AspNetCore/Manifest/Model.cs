@@ -5,7 +5,7 @@ using System.ComponentModel;
 
 namespace Sinter.AspNetCore.Manifest;
 
-/// <summary>A build's <c>sinter-embed.json</c> (version 1).</summary>
+/// <summary>A build's <c>sinter-embed.json</c> (version 2).</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
 public sealed class SinterManifest(ManifestPage[] pages, ManifestRoute[] routes, ManifestLocales? locales)
 {
@@ -19,8 +19,10 @@ public sealed class SinterManifest(ManifestPage[] pages, ManifestRoute[] routes,
 
 /// <summary>A page: its HTML file relative to the build's output, the paths it answers at, its placeholders.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class ManifestPage(string file, string[] paths, ManifestSlot[] data)
+public sealed class ManifestPage(string file, string[] paths, ManifestSlot[] data, string[]? arrays = null)
 {
+    /// <summary>Its array parameters: <c>$url</c> values read as lists (repeated keys).</summary>
+    public string[] Arrays { get; } = arrays ?? [];
     /// <summary>The HTML file, relative to the build's output directory.</summary>
     public string File { get; } = file;
     /// <summary>The paths it answers at: <c>data-sn-path</c> patterns, else where its file is served.</summary>
@@ -45,7 +47,7 @@ public sealed class ManifestSlot(int id, string resource, UrlPart[]? src, bool w
     public Cond? When { get; } = when;
     /// <summary>Paginated: the first page's query parameters, set on the template's URL.</summary>
     public KeyValuePair<string, string>[] Query { get; } = query;
-    /// <summary>Paginated, starting at a page from <c>$url</c> (<c>start-page</c>).</summary>
+    /// <summary>Paginated, starting at a page from <c>$url</c> (<c>page-model</c>).</summary>
     public ManifestStart? Start { get; } = start;
 
     /// <summary>Whether the build describes the request completely: its URL, and its <c>when</c> if it has one.</summary>
@@ -67,7 +69,7 @@ public abstract class Cond
 {
     private protected Cond() { }
     /// <summary>Whether it holds for the page URL's parameters.</summary>
-    public abstract bool Holds(IReadOnlyDictionary<string, string> p);
+    public abstract bool Holds(IReadOnlyDictionary<string, UrlParam> p);
 
     /// <summary><c>!c</c></summary>
     public static Cond Not(Cond c) => new NotCond(c);
@@ -80,21 +82,23 @@ public abstract class Cond
 
     private sealed class NotCond(Cond c) : Cond
     {
-        public override bool Holds(IReadOnlyDictionary<string, string> p) => !c.Holds(p);
+        public override bool Holds(IReadOnlyDictionary<string, UrlParam> p) => !c.Holds(p);
     }
     private sealed class AndCond(Cond[] all) : Cond
     {
-        public override bool Holds(IReadOnlyDictionary<string, string> p) => all.All(c => c.Holds(p));
+        public override bool Holds(IReadOnlyDictionary<string, UrlParam> p) => all.All(c => c.Holds(p));
     }
     private sealed class OrCond(Cond[] any) : Cond
     {
-        public override bool Holds(IReadOnlyDictionary<string, string> p) => any.Any(c => c.Holds(p));
+        public override bool Holds(IReadOnlyDictionary<string, UrlParam> p) => any.Any(c => c.Holds(p));
     }
     private sealed class UrlCond(string name, string? eq, string? ne) : Cond
     {
-        public override bool Holds(IReadOnlyDictionary<string, string> p)
+        // (a `when` that reads an array parameter is the browser's: the build never writes one as a condition)
+        public override bool Holds(IReadOnlyDictionary<string, UrlParam> p)
         {
-            var has = p.TryGetValue(name, out var v);
+            var v = p.TryGetValue(name, out var x) ? x.Value : null;
+            var has = v is not null;
             if (eq is not null) return has && v == eq;
             if (ne is not null) return !has || v != ne;
             return has && v!.Length > 0;
@@ -102,7 +106,7 @@ public abstract class Cond
     }
 }
 
-/// <summary><c>start-page</c> from <c>$url</c>: from page 2 on, <c>query</c> with <c>key</c> set to the page (with <c>skip</c>, to the items to skip, <c>(page - 1) * size</c>).</summary>
+/// <summary><c>page-model</c>: the page from its <c>$url</c> parameter; from page 2 on, <c>query</c> with <c>key</c> set to the page (with <c>skip</c>, to the items to skip, <c>(page - 1) * size</c>).</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
 public sealed class ManifestStart(string url, string key, ulong size, bool skip, KeyValuePair<string, string>[] query)
 {
@@ -118,9 +122,9 @@ public sealed class ManifestStart(string url, string key, ulong size, bool skip,
     public KeyValuePair<string, string>[] Query { get; } = query;
 
     /// <summary>The first page's query parameters for this request.</summary>
-    public KeyValuePair<string, string>[] Params(KeyValuePair<string, string>[] first, IReadOnlyDictionary<string, string> p)
+    public KeyValuePair<string, string>[] Params(KeyValuePair<string, string>[] first, IReadOnlyDictionary<string, UrlParam> p)
     {
-        var n = SinterUrl.ToPage(p.TryGetValue(Url, out var v) ? v : null);
+        var n = SinterUrl.ToPage(p.TryGetValue(Url, out var v) ? v.Value : null);
         if (n <= 1) return first;
         ulong value = n;
         if (Skip)

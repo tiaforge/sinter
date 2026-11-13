@@ -110,6 +110,13 @@ export interface PageInfo {
   usedHelpers: Set<string>;
   usedNs: Map<string, Set<string>>;
   usesNow: boolean;
+  /** a handler or model writes `$url` (the `location` feature) */
+  writesUrl?: boolean;
+  /**
+   * uses of a `$url` parameter checked once every array parameter is known: a list literal written
+   * to it (`list`), or the bare parameter tested as a condition (`test`)
+   */
+  urlWrites?: Array<{ name: string; list?: true; test?: true; report: (code: Code, message: string) => void }>;
   /** `:name` segments of the page's `data-sn-path` patterns */
   pathParams: Set<string>;
   /** literal `id`s of the page's `<dialog>` elements, for `showModal()` and `close()` */
@@ -132,6 +139,10 @@ export interface ExprOptions {
   noElement?: string;
   /** parse as `{...}` object literal; returns its entries */
   object?: 'literal-keys' | 'any-keys' | 'state';
+  /** the whole expression is a condition (`data-sn-if`, `data-sn-show`, `when`) */
+  cond?: boolean;
+  /** the history entry a `$url` write asks for, fixed at build time: a model's setter (2 typing, 3 a number field's burst, 4 push), a choice's `input` handler (4); location.ts */
+  urlKind?: number;
   /** where `$event.detail` comes from (a component's event: `@ev:<use>:<event>`) */
   detailSource?: string;
   report: (code: Code, message: string, offset: number, hint?: string) => void;
@@ -762,6 +773,23 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     return segs.map((x, i) => (i === alias.length - 1 ? '~' : x));
   }
 
+  /**
+   * A write to `$url.<name>` (an assignment, `++`, `delete`, a method that changes it): wrapped in
+   * `$.$u(name, …)` (location.ts), which normalizes the value as a reload would read it and records
+   * the write for the history
+   */
+  function urlWrite(name: string, expr: Node) {
+    page.writesUrl = true;
+    edits.push({ start: expr.start, end: expr.start, text: `$.$u(${JSON.stringify(name)}, ` }, { start: expr.end, end: expr.end, text: opts.urlKind ? `, ${opts.urlKind})` : ')' });
+  }
+
+  /** `$url.<name>` tested as a condition: an error once it turns out to be a list (always truthy) */
+  function urlTest(e: Node, locals: Locals) {
+    if (e.type !== 'MemberExpression') return;
+    const cp = chainPath(e, locals);
+    if (cp?.res.kind === 'magic' && cp.root === '$url' && cp.segs?.length === 2) (page.urlWrites ??= []).push({ name: cp.segs[1]!, test: true, report: (c, m) => report(c, m, e.start) });
+  }
+
   function writePath(target: Node, locals: Locals, at: number, expr: Node) {
     if (target.type === 'Identifier' && target.name === '$locale') {
       if (page.locale) { report('SN203', `\`$locale\` is this page's language (\`${page.locale.name}\`): with \`localePrefix\` each language is its own page. Link to it: \`<a data-sn-attr="{ href: localeUrl('…') }">\``, target.start); return; }
@@ -787,6 +815,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (!cp.segs || cp.segs.length !== 2) { report('SN203', 'assign a parameter: `$url.<param> = …`', at); return; }
       if (page.pathParams.has(cp.segs[1]!)) { report('SN203', `\`$url.${cp.segs[1]}\` is a path parameter (\`data-sn-path\`) and read-only; link to the other URL instead`, at); return; }
       writes.add(cp.segs.join('.'));
+      urlWrite(cp.segs[1]!, expr);
       return;
     }
     if (cp.res.kind === 'state' || ((cp.res.kind === 'loop' || cp.res.kind === 'local') && cp.segs)) {
@@ -823,6 +852,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
               writes.add(track(recv, recv.segs, n).join('.') + (MUTATORS.has(method) ? '.#' : ''));
             } else if (mode === 'handler' && recv.segs && recv.root === '$url') {
               writes.add(recv.segs.slice(0, 2).join('.'));
+              if (recv.segs[1]) urlWrite(recv.segs[1], n);
             }
           }
         }
@@ -1120,6 +1150,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   }
 
   function visit(n: Node, locals: Locals): void {
+    // tested as a condition: a `$url` list there is always truthy (SN211)
+    if (n.type === 'ConditionalExpression' || n.type === 'IfStatement') urlTest(n.test as Node, locals);
+    else if (n.type === 'LogicalExpression' && n.operator !== '??') urlTest(n.left as Node, locals);
+    else if (n.type === 'UnaryExpression' && n.operator === '!') urlTest(n.argument as Node, locals);
     switch (n.type) {
       case 'Identifier': {
         const res = resolveQuiet(n.name, locals);
@@ -1162,6 +1196,15 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         writePath(n.left as Node, locals, n.start, n);
         visitMemberParts(n.left as Node, locals);
         visit(n.right as Node, locals);
+        // a list literal written to a `$url` parameter: an error unless it is an array parameter; an
+        // object, a function or an instance never: the URL holds strings
+        if (n.left.type === 'MemberExpression' && /^(Array|Object|Function|ArrowFunction|Class|New)Expression$/.test(n.right.type)) {
+          const cp = chainPath(n.left as Node, locals);
+          if (cp?.res.kind === 'magic' && cp.root === '$url' && cp.segs?.length === 2) {
+            if (n.right.type === 'ArrayExpression') (page.urlWrites ??= []).push({ name: cp.segs[1]!, list: true, report: (c, m) => report(c, m, n.start) });
+            else report('SN212', `\`$url.${cp.segs[1]}\` holds a string (or a list of strings); an object cannot be written to it. Write the field you mean, such as \`$url.${cp.segs[1]} = x.id\``, n.start);
+          }
+        }
         // state that holds an item keeps where it came from: `sel = p` with `p` a row of `messages`
         if (n.operator === '=' && (n.left.type === 'Identifier' || n.left.type === 'MemberExpression')) {
           const cp = chainPath(n.left as Node, locals);
@@ -1274,6 +1317,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       entries.push({ key, code: '', deps: own, offset: p.start, literal: p.value.type === 'Literal' });
     }
   } else {
+    if (opts.cond && body.length === 1) urlTest(body[0]!, root);
     for (const e of body) {
       if (mode === 'optimistic' && !checkOptimistic(e)) continue;
       if (mode === 'optimistic') {

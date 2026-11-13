@@ -54,8 +54,8 @@ struct Slot {
 }
 
 fn slots(manifest: &serde_json::Value) -> Result<Vec<Slot>, String> {
-    if manifest.get("version").and_then(|v| v.as_u64()) != Some(1) {
-        return Err("not a sinter-embed.json of version 1".into());
+    if manifest.get("version").and_then(|v| v.as_u64()) != Some(2) {
+        return Err("not a sinter-embed.json of version 2".into());
     }
     let mut out = Vec::new();
     for p in manifest.get("pages").and_then(|v| v.as_array()).ok_or("no `pages`")? {
@@ -63,9 +63,7 @@ fn slots(manifest: &serde_json::Value) -> Result<Vec<Slot>, String> {
         for d in p.get("data").and_then(|v| v.as_array()).ok_or("a page without `data`")? {
             let resource = d.get("resource").and_then(|v| v.as_str()).ok_or("a placeholder without `resource`")?;
             let undescribed = if d.get("src").is_none_or(|v| v.is_null()) {
-                Some(
-                    "the build could not describe its request (its `src` or `start-page` calls a helper, or reads something other than `$url`)",
-                )
+                Some("the build could not describe its request (its `src` calls a helper, or reads something other than `$url`)")
             } else if d.get("when").is_some_and(|w| w.as_bool() == Some(true)) {
                 Some("its `when` is a condition only the browser can evaluate")
             } else {

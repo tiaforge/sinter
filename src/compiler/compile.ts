@@ -204,6 +204,8 @@ export interface CompileResult {
   embed: EmbedSlot[];
   /** the page's `data-sn-path` patterns */
   path: string[];
+  /** the page's array parameters (`IR.urlArrays`): the server reads them as lists */
+  urlArrays?: string[];
   /** `<html data-sn-prefetch="off">`: no other page prefetches or prerenders this one */
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
@@ -233,6 +235,8 @@ export interface PrefetchParts {
   /** helper names and namespace members the functions call */
   helpers: string[];
   namespaces: Record<string, string[]>;
+  /** the page's array parameters (`IR.urlArrays`) */
+  a?: string[];
 }
 
 /**
@@ -242,10 +246,9 @@ export interface PrefetchParts {
  * name }`), else null and the server must produce the data itself (`call`, `each` too). `when`:
  * the resource has a condition the server cannot evaluate. `query`: a paginated resource's first
  * page, the parameters the pager sends for it (`firstParams`), set on the template's URL as the
- * runtime sets them (`withParams`), in this order. `start`: its `start-page` is a `$url` value; from
- * page 2 on, the parameters are `query` of `start` with `key` set to the page (with `skip`, to
- * `(page - 1) * size`), as the pager's `pageParams` writes them. A `start-page` that reads anything
- * else makes `src` null.
+ * runtime sets them (`withParams`), in this order. `start`: its `page-model` parameter; from page 2
+ * on, the parameters are `query` of `start` with `key` set to the page (with `skip`, to
+ * `(page - 1) * size`), as the pager's `pageParams` writes them.
  */
 /**
  * A `when` a server can evaluate: a `$url` value is present and not empty (`{ url }`), equal or not
@@ -617,6 +620,30 @@ class Compiler {
   pathList: string[] = [];
   /** `$s<sid>.<name>` paths a persisted model writes at mount */
   readonly persisted = new Set<string>();
+  /** models on `$url` parameters: whether each binds a list (`<select multiple>`, a checkbox with a `value`) */
+  readonly urlBinds: Array<{ name: string; array: boolean; report: (msg: string) => void }> = [];
+  /** `page-model` parameters: one is never a list */
+  readonly pageModels: Array<{ name: string; report: (msg: string) => void }> = [];
+  /**
+   * The checks that need every array parameter: one bound as a list and as one value (SN210), a list
+   * written to a parameter that is not one (SN210), a list tested as a condition (SN211).
+   */
+  checkUrlArrays(arrays: Set<string>) {
+    // a write to an array parameter goes through `$l` (location.ts), decided here: the runtime keeps no
+    // list of them for writes. Same length as `$u`, so source maps still line up.
+    if (arrays.size) this.fns.forEach((f, i) => {
+      if (f.includes('$.$u(')) for (const n of arrays) f = f.split(`$.$u(${JSON.stringify(n)}, `).join(`$.$l(${JSON.stringify(n)}, `);
+      this.fns[i] = f;
+    });
+    for (const p of this.pageModels) if (arrays.has(p.name)) p.report(`\`page-model\` takes a URL parameter that is one value; \`$url.${p.name}\` is a list (a \`<select multiple>\` or a checkbox with a \`value\` binds it)`);
+    for (const b of this.urlBinds) if (!b.array && arrays.has(b.name)) b.report(`\`$url.${b.name}\` is a list elsewhere on the page (a \`<select multiple>\` or a checkbox with a \`value\`), and one value here; bind it as a list everywhere`);
+    for (const w of this.page.urlWrites ?? []) {
+      if (w.list && !arrays.has(w.name)) w.report('SN210', `\`$url.${w.name}\` is one value (no \`<select multiple>\` or checkbox with a \`value\` binds it), and a list is written to it; write one value`);
+      if (w.test && arrays.has(w.name)) w.report('SN211', `\`$url.${w.name}\` is a list and always truthy; use \`$url.${w.name}.length\``);
+    }
+  }
+  /** the page's array parameters (`IR.urlArrays`), sorted */
+  urlArrays(): string[] { return [...new Set(this.urlBinds.filter((b) => b.array).map((b) => b.name))].sort(); }
   /** bindings `prerender()` wrote into the HTML as constants: the early chunk leaves them out */
   readonly painted = new Set<Binding>();
   /** the page's stylesheets as a cascade (images: boxes of static and bound images) */
@@ -724,6 +751,9 @@ class Compiler {
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;
     if (paths.length) ir.path = paths;
+    const arrays = this.urlArrays();
+    if (arrays.length) ir.urlArrays = arrays;
+    this.checkUrlArrays(new Set(arrays));
     const builtin: string[] = [];
     const user: string[] = [];
     for (const h of [...this.page.usedHelpers].sort()) (this.page.helpers.has(h) ? user : builtin).push(h);
@@ -731,15 +761,15 @@ class Compiler {
     for (const [k, v] of [...this.page.usedNs].sort(([a], [b]) => a.localeCompare(b))) namespaces[k] = [...v].sort();
     // unchanged reloads skipped by version, where reloads are routine: refreshes, refetch events and reconnects
     if (this.features.has('refresh') || this.features.has('sse')) this.features.add('versions');
-    // a handler that writes `$url`: the query string follows (location.ts)
-    if (/"w":\[[^\]]*"\$url[".]/.test(JSON.stringify(ir))) this.features.add('location');
+    // a handler or model that writes `$url`: the query string follows (location.ts)
+    if (this.page.writesUrl) this.features.add('location');
     return {
       html: parse5.serialize(doc),
       runtime, ...(isStatic ? { static: true as const } : {}), ...(isStatic && this.canonicalLink ? { canonicalOnly: true } : {}),
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -2249,7 +2279,7 @@ class Compiler {
     let content: { tid: number; scope: Scope } | null = null;
     if (isTemplate && has('for')) content = this.forTemplate(el, node, scope, get('for')!, get('key'));
     else if (isTemplate && has('if')) {
-      const r = this.expr(el, 'data-sn-if', scope, { mode: 'value' });
+      const r = this.expr(el, 'data-sn-if', scope, { mode: 'value', cond: true });
       const tid = this.newTemplate();
       const b = this.binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
       node.b.push(b);
@@ -2307,7 +2337,7 @@ class Compiler {
     const get = (n: string) => sn.find((a) => a.name === `data-sn-${n}`)?.value;
     const has = (n: string) => sn.some((a) => a.name === `data-sn-${n}`);
     const valueB = (k: 'text' | 'show', name: string) => {
-      const r = this.expr(el, name, scope, { mode: 'value' });
+      const r = this.expr(el, name, scope, { mode: 'value', ...(k == 'show' ? { cond: true } : {}) });
       if (r.ok) node.b.push(this.binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
     };
     if (has('text')) valueB('text', 'data-sn-text');
@@ -2364,7 +2394,10 @@ class Compiler {
         const names = use.emits.map((m) => m.name);
         this.report(el, a.name, 'SN315', `\`<${use.name}>\` does not emit \`${event}\`; ${names.length ? `it declares ${names.map((x) => `\`${x}\``).join(', ')}` : 'it declares no events'}.${didYouMean(event, names)}`, 0);
       }
-      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'] });
+      // `$url` writes on `input`: a keystroke replaces (location.ts), but on a checkbox, radio or select it is a
+      // choice, a new history entry (4), decided here. A handler higher up hears both: there `input` replaces.
+      const choice = event === 'input' && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
+      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}) });
       const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
       if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
@@ -2388,11 +2421,14 @@ class Compiler {
     const r = analyze(src, scope, this.page, { mode: 'value', report: this.reporter(host, 'data-sn-model') });
     if (!r.ok) return;
     if (r.resource) { this.report(host, 'data-sn-model', 'SN205', `\`data-sn-model\` cannot write to resource \`${r.resource}\`; copy the item into state with structuredClone()`, 0); return; }
-    if (!r.path || !(r.path[0]!.startsWith('$s') && r.path.length >= 2)) { this.report(host, 'data-sn-model', 'SN203', '`data-sn-model` takes a state path such as `q` or `draft.stars`', 0); return; }
-    if (attr(host, 'data-sn-persist') !== undefined) {
+    const url = r.path?.[0] === '$url';
+    if (!r.path || !((r.path[0]!.startsWith('$s') || url) && r.path.length >= 2)) { this.report(host, 'data-sn-model', 'SN203', '`data-sn-model` takes a state path or a URL parameter such as `q` or `$url.q`', 0); return; }
+    if (url && attr(host, 'data-sn-persist') !== undefined) this.report(host, 'data-sn-persist', 'SN102', '`data-sn-persist` on a `$url` model: the URL already keeps this value', 0);
+    else if (attr(host, 'data-sn-persist') !== undefined) {
       this.report(host, 'data-sn-persist', 'SN102', '`data-sn-persist` on a component: persist the state the model writes instead (`data-sn-persist` on its `data-sn-state`)', 0);
     }
-    const h = this.expr(host, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'] }, `${src} = $event.detail`);
+    // a component's change pushes a history entry, as a select's does
+    const h = this.expr(host, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: 4 }, `${src} = $event.detail`);
     if (!h.ok) return;
     const f = this.fn(`($) => { if ($.$event instanceof CustomEvent) (${h.code})($); }`, { el: host, attr: 'data-sn-model', shift: 0 });
     node.b.push(this.binding({ k: 'on', n: 'change', f, w: h.writes }));
@@ -3023,6 +3059,11 @@ class Compiler {
     else { this.report(el, 'data-sn-model', 'SN102', '`data-sn-model` must be on `<input>`, `<select>` or `<textarea>`', 0); return; }
     // controls other than text fields: the models module
     if (kind != 'text') this.features.add('models');
+    const url = attr(el, 'data-sn-model')!.trim().startsWith('$url');
+    if (persist !== undefined && url) {
+      this.report(el, 'data-sn-persist', 'SN102', '`data-sn-persist` on a `$url` model: the URL already keeps this value', 0);
+      persist = undefined;
+    }
     if (persist !== undefined) {
       const ac = (attr(el, 'autocomplete') ?? '').toLowerCase().trim();
       if (type === 'password' || SECRET_AUTOCOMPLETE.test(ac)) {
@@ -3036,12 +3077,23 @@ class Compiler {
       this.report(el, 'data-sn-model', 'SN205', `\`data-sn-model\` cannot write to resource \`${r.resource}\`; copy the item into state with structuredClone()`, 0);
       return;
     }
-    if (!r.path || !(r.path[0]!.startsWith('$s') && r.path.length >= 2)) {
-      this.report(el, 'data-sn-model', 'SN203', '`data-sn-model` takes a state path such as `q` or `draft.fn_name`', 0);
+    if (!r.path || !((r.path[0]!.startsWith('$s') || r.path[0] === '$url') && r.path.length >= 2)) {
+      this.report(el, 'data-sn-model', 'SN203', '`data-sn-model` takes a state path or a URL parameter such as `q` or `$url.q`', 0);
       return;
     }
-    const inner = r.code.slice('($) => ('.length, -1);
-    const setter = this.fn(`($, v) => { ${inner} = v; }`);
+    let setter: number;
+    if (r.path[0] === '$url') {
+      // a `<select multiple>` or a checkbox with a `value` binds a list: decided here, at build time
+      this.urlBinds.push({ name: r.path[1]!, array: kind == 'multi' || (kind == 'checkbox' && attr(el, 'value') != null), report: (m) => this.report(el, 'data-sn-model', 'SN210', m, 0) });
+      // through the handler analysis: a path parameter or `$url.a.b` is refused as in a handler; typing
+      // in a text field commits at each pause, a number field's burst of steps pushes once at its pause,
+      // any other control pushes a history entry (location.ts: 2 typing, 3 burst, 4 push)
+      const h = this.expr(el, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: kind == 'text' ? 2 : kind == 'number' ? 3 : 4 }, `${attr(el, 'data-sn-model')!} = $event`);
+      // typing and a number field's steps wait for a pause: the typing module, only on pages with such a model
+      if (kind == 'text' || kind == 'number') this.features.add('typing');
+      if (!h.ok) return;
+      setter = this.fn(`($, v) => (${h.code})(Object.assign(Object.create($), { $event: v }))`);
+    } else setter = this.fn(`($, v) => { ${r.code.slice('($) => ('.length, -1)} = v; }`);
     const b = this.binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')], ...usesEl(r) });
     if (persist !== undefined) {
       b.p = persist;
@@ -3345,7 +3397,8 @@ class Compiler {
     if (!name || !this.page.resources.has(name) || this.resourceEls.get(name) !== el) return;
     if (ctx.tid >= 0) return;
     for (const a of el.attrs) {
-      if (!RESOURCE_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
+      if (a.name === 'start-page') this.report(el, a.name, 'SN401', '`start-page` is renamed to `page-model` (offset lists, a query parameter), which also writes the page back', 0);
+      else if (!RESOURCE_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const earlyAttr = attr(el, 'early');
     if (earlyAttr != null && earlyAttr !== 'off') this.report(el, 'early', 'SN401', '`early` takes only `off`', 0);
@@ -3389,7 +3442,7 @@ class Compiler {
     const call = hasCall ? this.callExpr(el, 'call', ctx.scope, deps) : null;
     let when: number | null = null;
     if (attr(el, 'when') != null) {
-      const r = this.expr(el, 'when', ctx.scope, { mode: 'value' });
+      const r = this.expr(el, 'when', ctx.scope, { mode: 'value', cond: true });
       when = this.fn(r.code);
       for (const d of r.deps) deps.add(d);
     }
@@ -3422,16 +3475,23 @@ class Compiler {
           else if (!/^[\w.\-\[\]]+$/.test(offsetParam)) this.report(el, 'offset-param', 'SN401', '`offset-param` is a query parameter name', 0);
           else paginate.offsetParam = offsetParam;
         }
-        // `start-page`: the page the first load asks for, e.g. the page number in the page's URL
-        if (attr(el, 'start-page') != null) {
-          if (mode === 'append' || (mode === 'keyset' && !paginate.offsetParam)) {
-            this.report(el, 'start-page', 'SN401', `\`start-page\` needs a resource that can ask for a page by number: \`paginate="offset"\`, or \`paginate="keyset"\` with \`offset-param\``, 0);
+        // `page-model="$url.page"`: the list's page lives in the URL, read at load and written back on every move
+        const pm = attr(el, 'page-model');
+        if (pm != null) {
+          const name = /^\s*\$url\.([A-Za-z_$][\w$]*)\s*$/.exec(pm)?.[1];
+          if (mode !== 'offset') {
+            this.report(el, 'page-model', 'SN401', `\`page-model\` applies to \`paginate="offset"\`, where every move has a page number when it is made; ${mode === 'append' ? 'append lists load more by cursor' : 'keyset lists move by cursor, and their page number is often unknown'}`, 0);
+          } else if (!name || this.page.pathParams.has(name)) {
+            this.report(el, 'page-model', 'SN203', name ? `\`page-model\` takes a URL query parameter such as \`$url.page\`; \`$url.${name}\` is a path parameter (\`data-sn-path\`)` : '`page-model` takes a URL parameter such as `$url.page`', 0);
+          } else if ([...deps].some((d) => d === '$url' || d === `$url.${name}` || d.startsWith(`$url.${name}.`))) {
+            this.report(el, 'page-model', 'SN401', `\`$url.${name}\` is this resource's page (\`page-model\`), and its \`src\` or \`when\` reads it too: each page would reset the list; read another parameter there`, 0);
           } else {
-            const r = this.expr(el, 'start-page', ctx.scope, { mode: 'value' });
-            if (r.ok) {
-              paginate.start = this.fn(r.code);
-              for (const d of r.deps) deps.add(d);
-            }
+            // the read is the compiled `$url.<name>`, where the early file, preloads and embedded data read the start page
+            paginate.start = this.fn(`($) => ($.$url.${name})`);
+            paginate.model = name;
+            deps.add(`$url.${name}`);
+            this.pageModels.push({ name, report: (m) => this.report(el, 'page-model', 'SN203', m, 0) });
+            this.page.writesUrl = true;
           }
         }
         if (attr(el, 'direction-values') != null) {
@@ -3444,7 +3504,7 @@ class Compiler {
         this.features.add('paginate');
       }
     }
-    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'start-page']) {
+    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'page-model']) {
       if (attr(el, a) != null && !paginate && mode == null) this.report(el, a, 'SN102', `\`${a}\` needs \`paginate\``, 0);
     }
     let cache: number | undefined;
@@ -4227,6 +4287,8 @@ class Compiler {
     if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, items: embedded.get(n)!.items ?? null }]));
     if (res.length) ir.res = res;
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
+    const arrays = this.urlArrays();
+    if ((url || readsUrl) && arrays.length) ir.urlArrays = arrays;
     return { ir, fns, helpers, namespaces };
   }
 
@@ -4262,12 +4324,13 @@ class Compiler {
       const used = members.filter((m) => calls(`${ns}$${m}`));
       if (used.length) namespaces[ns] = used;
     }
-    return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces };
+    const arrays = this.urlArrays();
+    return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces, ...(arrays.length ? { a: arrays } : {}) };
   }
 
   /**
    * `embed`: a placeholder at the end of the head for each resource without one whose `src`,
-   * `when` and `start-page` read only `$url`, constants and helpers (what a server knows at the
+   * `when` and `page-model` read only `$url`, constants and helpers (what a server knows at the
    * page request; helpers make it a request only a resolver can make)
    */
   addPlaceholders(doc: DefaultTreeAdapterMap['document']) {
@@ -4290,7 +4353,7 @@ class Compiler {
 
   /** The embedded-data placeholders a server can fill, with each resource's request where the URL alone decides it. */
   embedSlots(): EmbedSlot[] {
-    const out: EmbedSlot[] = [];
+    const out: EmbedSlot[] = [], arrays = this.urlArrays();
     for (const def of this.resources) {
       if (def.data == null) continue;
       const parts = def.call || def.each ? null : def.src.map((x) => {
@@ -4303,7 +4366,8 @@ class Compiler {
       const described = parts && parts.length && parts.every((x) => x != null) && startUrl !== null;
       out.push({
         id: def.data, resource: def.name, src: described ? parts as EmbedSlot['src'] : null,
-        ...(def.when != null ? { when: condOf(this.fns[def.when]!) ?? true as const } : {}), ...(pg ? { query: Object.entries(firstParams(pg)) } : {}),
+        // a `when` that reads an array parameter is the browser's to evaluate
+        ...(def.when != null ? { when: (!arrays.some((n) => readsParam(this.fns[def.when!]!, n)) && condOf(this.fns[def.when]!)) || true as const } : {}), ...(pg ? { query: Object.entries(firstParams(pg)) } : {}),
         ...(pg && startUrl ? { start: { url: startUrl, key: pg.offsetParam ?? pg.pageParam, size: pg.size, ...(pg.offsetParam ? { skip: true as const } : {}), query: Object.entries(pageParams(pg, 2)) } } : {}),
       });
     }
@@ -4723,10 +4787,13 @@ function condOf(code: string): EmbedCond | null {
   return walk(fn.body);
 }
 
+/** whether compiled code reads `$url.<name>` */
+const readsParam = (code: string, name: string) => new RegExp(`\\$\\.\\$url\\.${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(code);
+
 /** a compiled function that is one `$url` read: `($) => ($.$url.page)` */
 const URL_READ = /^\(\$\) => \(\$\.\$url\.([A-Za-z_$][\w$]*)\)$/;
 
-/** the early file's `start-page`: page n's parameters are `qn` with `k` set (the page, or with `offset-param` the items to skip) */
+/** the early file's `page-model` start: page n's parameters are `qn` with `k` set (the page, or with `offset-param` the items to skip) */
 function startOf(cfg: Paginate, f: number): NonNullable<NonNullable<EarlyIR['res']>[number]['sp']> {
   const k = cfg.offsetParam ?? cfg.pageParam;
   return { f, k, s: cfg.size, ...(cfg.offsetParam ? { o: 1 as const } : {}), qn: pageParams(cfg, 2) };

@@ -31,6 +31,7 @@ import fields from '../fields.js';
 import form from '../form.js';
 import select from '../select.js';
 import location from '../location.js';
+import typing from '../typing.js';
 import call from '../call.js';
 import debounce from '../debounce.js';
 import components from '../components.js';
@@ -39,10 +40,10 @@ import defs from '../defs.js';
 import confirm from '../confirm.js';
 import models from '../models.js';
 import sse from '../sse.js';
-import { prefetch, type PrefetchPage } from '../prefetch.js';
+import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { components, nested, defs, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, nested, defs, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, typing, call, debounce, confirm, models, transition };
 
 // ---- requests
 
@@ -273,6 +274,11 @@ export interface Rendered {
   navigations: string[];
   /** current page URL (after `$url` writes) */
   url(): string;
+  /** the page's history entries (pushed by `$url` writes; a navigation adds none), oldest first */
+  history(): string[];
+  /** Back and Forward: moves through `history()` and dispatches `popstate`; nothing past either end */
+  back(): Promise<void>;
+  forward(): Promise<void>;
   /** hides or shows the page (a background tab), then dispatches `visibilitychange` */
   visibility(state: 'hidden' | 'visible'): Promise<void>;
   /** with `frames`: runs what waits for the next frame (the browser's requestAnimationFrame) */
@@ -435,6 +441,8 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   // environment: fake clock, recorded navigation, in-memory storage
   let now = options.now instanceof Date ? options.now.getTime() : options.now ?? Date.parse('2026-01-01T09:00:00Z');
   let href = options.url ? new URL(options.url, 'http://localhost/').href : 'http://localhost/';
+  const entries = [href];
+  let at = 0;
   const timers: Timer[] = [];
   let nextTimer = 1;
   const navigations: string[] = [];
@@ -452,7 +460,11 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     storage: () => store,
     session: () => session,
     href: () => href,
-    replaceState: (url) => { href = new URL(url, href).href; },
+    replaceState: (url) => { href = entries[at] = new URL(url, href).href; },
+    // a push drops the entries after the current one, as a browser's history does
+    pushState: (url) => { href = new URL(url, href).href; entries.splice(++at, Infinity, href); },
+    // the test's simulated events are the user's; the custom events sinter dispatches are not
+    trusted: (e) => !(e instanceof CustomEvent),
     random: () => 0.5,
     hidden: () => hidden,
     ...(options.frames ? { frame: (fn: () => void) => { frameQueue.push(fn); } } : {}),
@@ -486,7 +498,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     const ns = Object.entries(other.namespaces).flatMap(([n, ms]) => ms.map((m) => [`${n}$${m}`, (helpers[n] as Record<string, unknown>)[m]] as const));
     // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
     const f = new Function('$k', ...other.helpers, ...ns.map(([k]) => k), `"use strict"; return [\n${other.fns.join(',\n')}\n];`)($k, ...other.helpers.map((h) => helpers[h]), ...ns.map(([, v]) => v));
-    ahead.push({ m: pagePaths(rel, '/', other.path), r: other.res, f });
+    ahead.push({ m: pagePaths(rel, '/', other.path), r: other.res, f, ...(other.a ? { a: other.a } : {}) });
   }
 
   const requests = options.requests;
@@ -494,7 +506,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     // the IR as the page module carries it
     ir: compactIR(parts.ir), fns, env,
     // as in a build, where every page has the app's prefetch feature
-    features: [...parts.features.map((f) => FEATURES[f]!), prefetch(ahead)],
+    features: [...parts.features.map((f) => FEATURES[f]!), prefetch(ahead, ahead.some((p) => p.a) ? lists : undefined)],
     request: [...config.request, ...(requests ? [requests] : [])],
     transport: (url) => {
       const path = new URL(url, href).pathname;
@@ -588,10 +600,20 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     };
   };
 
+  const go = async (by: number) => {
+    if (!entries[at + by]) return;
+    href = entries[(at += by)]!;
+    for (const fn of winListeners.get('popstate') ?? []) fn(new Event('popstate'));
+    await flush();
+  };
+
   await flush();
   return {
     root: doc.body, app, state, flush, settle, advance, navigations,
     url: () => href,
+    history: () => [...entries],
+    back: () => go(-1),
+    forward: () => go(1),
     frame: async () => {
       for (let j = 0; j < 10; j++) await Promise.resolve();
       for (const fn of frameQueue.splice(0)) fn();

@@ -27,7 +27,7 @@ Local state next to the markup that uses it.
 | --- | --- | --- |
 | `data-sn-state` | object literal | declares local reactive state for the element and its subtree |
 | `data-sn-let` | object literal {name: expression} | derived names for the element and its subtree, computed where they are read; later names may use earlier ones |
-| `data-sn-model` | state path | two-way binding for form controls |
+| `data-sn-model` | state path \| $url.&lt;param&gt; | two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a &lt;select multiple&gt; or a checkbox with a value makes the parameter a list |
 | `data-sn-persist` | storage key | persists the model or state in localStorage under sn: |
 
 ## Send changes
@@ -113,7 +113,7 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 - **Where the data comes from:** `name`, `src`, `call`, `each`, `when`, `early`
 - **What it looks like:** `key`, `items`, `total`, `order`, `type`
 - **How fresh it is:** `cache`, `refresh`, `then`
-- **Pagination:** `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `direction-values`, `page-param`, `offset-param`, `start-page`
+- **Pagination:** `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `direction-values`, `page-param`, `offset-param`, `page-model`
 
 ### `<sn-sync>`
 

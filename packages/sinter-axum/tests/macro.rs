@@ -24,7 +24,7 @@ async fn a_configuration_the_build_accepts_compiles_and_serves() {
 fn a_build_directory_from_another_build_is_refused() {
     let other = std::env::temp_dir().join(format!("sinter-axum-other-{}", std::process::id()));
     std::fs::create_dir_all(&other).unwrap();
-    std::fs::write(other.join("sinter-embed.json"), r#"{ "version": 1, "pages": [] }"#).unwrap();
+    std::fs::write(other.join("sinter-embed.json"), r#"{ "version": 2, "pages": [] }"#).unwrap();
     let err =
         sinter_axum::embed!("tests/fixtures/web", { "articles" => skip, "user" => skip }).dir(&other).build().err().unwrap().to_string();
     assert!(err.contains("is not the build this binary was compiled against"), "{err}");

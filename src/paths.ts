@@ -83,7 +83,7 @@ export function fixedPaths(ir: Pick<IR, 'resources' | 'roots' | 'templates'>): s
   for (const n of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) if (n.sid != null) sids.add(n.sid);
   return [
     '$locale', '$url', '$now',
-    ...ir.resources.flatMap((r) => [`$r.${r.name}`, `$meta.${r.name}`]),
+    ...ir.resources.flatMap((r) => [`$r.${r.name}`, `$meta.${r.name}`, ...(r.paginate?.model ? [`$url.${r.paginate.model}`] : [])]),
     ...[...sids].sort((a, b) => a - b).flatMap((s) => [`$s${s}.**`, `$s${s}.$error`]),
   ];
 }

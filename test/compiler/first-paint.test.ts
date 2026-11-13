@@ -213,3 +213,12 @@ test('prototype baseMessages: a text binding that calls m is written in the base
   // still rendered early, in the visitor's language
   expect(out.early).toContain('m$title');
 });
+
+test('array parameters: only a page that has them passes `lists` to its early file (and carries it)', () => {
+  const o: CompileOptions = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', prerender: true, early: { module: null }, helpers: { module: null, names: [], namespaces: {} } };
+  const one = compile(page('<input data-sn-model="$url.q"><p data-sn-text="$url.q"></p>'), o).early ?? '';
+  const list = compile(page('<select multiple data-sn-model="$url.t"><option>a</option></select><p data-sn-text="$url.t.join()"></p>'), o).early ?? '';
+  expect(one).toContain('$url');
+  expect(one).not.toMatch(/\blists\b/);
+  expect(list).toMatch(/\blists\b/);
+});

@@ -7,6 +7,31 @@ using Sinter.AspNetCore.Manifest;
 
 namespace Sinter.AspNetCore;
 
+/// <summary>
+/// A <c>$url</c> parameter: one value, or a list for an array parameter (bound to a <c>&lt;select multiple&gt;</c>
+/// or a checkbox with a <c>value</c>, written as repeated keys: <c>?tag=a&amp;tag=b</c>).
+/// </summary>
+public sealed class UrlParam
+{
+    private readonly string[]? _list;
+    private UrlParam(string? value, string[]? list) { Value = value; _list = list; }
+
+    /// <summary>One value.</summary>
+    public static UrlParam One(string value) => new(value, null);
+    /// <summary>An array parameter's values.</summary>
+    public static UrlParam List(IEnumerable<string> values) => new(null, values.ToArray());
+
+    /// <summary>The value of a parameter that is one; null for a list.</summary>
+    public string? Value { get; }
+    /// <summary>Whether it is an array parameter's list.</summary>
+    public bool IsList => _list is not null;
+    /// <summary>The values: the list's, or the one.</summary>
+    public IReadOnlyList<string> Values => _list ?? new[] { Value! };
+
+    /// <inheritdoc/>
+    public override string ToString() => _list is null ? Value! : string.Join(",", _list);
+}
+
 /// <summary>sinter's URL rules, as the browser runtime applies them.</summary>
 public static class SinterUrl
 {
@@ -25,15 +50,24 @@ public static class SinterUrl
     }
 
     /// <summary>
-    /// <c>$url</c>: the query parameters (the last of a repeated name), then the <c>:name</c> segments of
-    /// the first pattern that matches the path. <paramref name="path"/> is decoded as ASP.NET Core
-    /// decodes it (an encoded <c>/</c> stays <c>%2F</c>), <paramref name="query"/> as sent.
+    /// <c>$url</c>: the query parameters (the last of a repeated name; an array parameter, every one, an empty
+    /// list when absent), then the <c>:name</c> segments of the first pattern that matches the path.
+    /// <paramref name="path"/> is decoded as ASP.NET Core decodes it (an encoded <c>/</c> stays <c>%2F</c>),
+    /// <paramref name="query"/> as sent. Names that could reach prototypes in the browser are dropped, as there.
     /// </summary>
-    public static Dictionary<string, string> UrlParams(string path, string? query, IReadOnlyList<string> patterns)
+    public static Dictionary<string, UrlParam> UrlParams(string path, string? query, IReadOnlyList<string> patterns, IReadOnlyList<string>? arrays = null)
     {
-        var o = new Dictionary<string, string>(StringComparer.Ordinal);
+        var o = new Dictionary<string, UrlParam>(StringComparer.Ordinal);
+        var lists = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var k in arrays ?? Array.Empty<string>()) if (!BadKey(k)) lists[k] = [];
         if (!string.IsNullOrEmpty(query))
-            foreach (var (k, v) in ParseForm(query)) o[k] = v;
+            foreach (var (k, v) in ParseForm(query))
+            {
+                if (BadKey(k)) continue;
+                if (lists.TryGetValue(k, out var l)) l.Add(v);
+                else o[k] = UrlParam.One(v);
+            }
+        foreach (var (k, l) in lists) o[k] = UrlParam.List(l);
         foreach (var p in patterns)
         {
             if (!Matches(p, path)) continue;
@@ -41,17 +75,21 @@ public static class SinterUrl
             var s = new Segments(path);
             while (w.Next(out var a) && s.Next(out var b))
                 if (a.Length > 0 && a[0] == ':')
-                    o[a[1..].ToString()] = b.ToString().Replace("%2F", "/").Replace("%2f", "/");
+                    o[a[1..].ToString()] = UrlParam.One(b.ToString().Replace("%2F", "/").Replace("%2f", "/"));
             break;
         }
         return o;
     }
 
+    private static bool BadKey(string k) => k is "constructor" or "__proto__" or "prototype";
+
     /// <summary>
-    /// Fills a URL template from <c>$url</c>. An absent value leaves its query parameter out (with its
-    /// <c>&amp;</c>), or is empty elsewhere; a path value of <c>.</c> or <c>..</c> is refused (null), as in the browser.
+    /// Fills a URL template from <c>$url</c>. An absent value (or an empty list) leaves its query parameter out
+    /// (with its <c>&amp;</c>), or is empty elsewhere; a list that is a whole query value is a repeated key,
+    /// elsewhere in the query its values joined with <c>,</c> (as JavaScript writes an array); a path value of
+    /// <c>.</c> or <c>..</c>, or a list, is refused (null), as in the browser.
     /// </summary>
-    public static string? Expand(IReadOnlyList<UrlPart> parts, IReadOnlyDictionary<string, string> p)
+    public static string? Expand(IReadOnlyList<UrlPart> parts, IReadOnlyDictionary<string, UrlParam> p)
     {
         var o = new StringBuilder();
         bool query = false, dropped = false;
@@ -70,7 +108,21 @@ public static class SinterUrl
             }
             var whole = query && (i + 1 >= parts.Count || (!parts[i + 1].IsUrl && parts[i + 1].Value.Length > 0 && parts[i + 1].Value[0] is '&' or '#'));
             var key = whole ? TrailingKey(o) : -1;
-            if (p.TryGetValue(part.Value, out var v))
+            UrlParam? param = p.TryGetValue(part.Value, out var found) ? found : null;
+            if (param is { IsList: true })
+            {
+                if (!query) return null;
+                var l = param.Values;
+                if (key >= 0 && l.Count > 0)
+                {
+                    var name = o.ToString(key, o.Length - key - 1);
+                    for (var j = 0; j < l.Count; j++) o.Append(j > 0 ? $"&{name}=" : "").Append(EncodeSegment(l[j]));
+                    continue;
+                }
+                if (key < 0) { o.Append(EncodeSegment(string.Join(",", l))); continue; }
+                param = null;
+            }
+            if (param?.Value is { } v)
             {
                 if (!query && v is "." or "..") return null;
                 o.Append(EncodeSegment(v));
@@ -139,7 +191,7 @@ public static class SinterUrl
     }
 
     /// <summary>
-    /// What <c>start-page</c> gives as a page, as the runtime's <c>toPage</c>: the whole number <c>parseInt</c>
+    /// A <c>page-model</c> parameter as a page, as the runtime's <c>toPage</c>: the whole number <c>parseInt</c>
     /// reads at the start of the value (<c>"3"</c>, <c>" 3x"</c>), else, or below 1, page 1.
     /// </summary>
     public static ulong ToPage(string? v)

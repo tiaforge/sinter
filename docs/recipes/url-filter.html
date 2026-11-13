@@ -1,0 +1,14 @@
+<!-- A multi-select filter in the URL: checkboxes with a `value` make `$url.tag` a list, written as
+     repeated keys (?tag=go&tag=rust) and sent the same way. -->
+<sn-resource name="posts" src="/api/posts?tag={$url.tag}" items="posts" key="id"></sn-resource>
+
+<fieldset>
+  <label><input type="checkbox" value="go" data-sn-model="$url.tag"> Go</label>
+  <label><input type="checkbox" value="rust" data-sn-model="$url.tag"> Rust</label>
+  <label><input type="checkbox" value="ts" data-sn-model="$url.tag"> TypeScript</label>
+  <!-- a list is always truthy: test its length -->
+  <button data-sn-on-click="$url.tag = []" data-sn-show="$url.tag.length">Clear</button>
+</fieldset>
+<ul>
+  <template data-sn-for="p in posts"><li data-sn-text="p.title"></li></template>
+</ul>

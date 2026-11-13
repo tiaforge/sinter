@@ -405,7 +405,7 @@ test('offset mode: embedded data is page 1, and page(3) asks for page 3', async 
   expect(requests.calls.map((c) => c.url)).toEqual(['/api/o?page=3&limit=3']);
 });
 
-test('start-page with embedded data: the data is that page (here 3 of 3, from the URL), and paging goes on from it with the items to skip', async () => {
+test('page-model with embedded data: the data is the URL\'s page (here 3 of 3), and paging goes on from it with the items to skip', async () => {
   const requests = mockRequests({ 'GET /api/o': (call) => {
     const q = new URL(call.url, 'http://x').searchParams, o = Number(q.get('skip')), n = Number(q.get('limit'));
     return { items: ALL.slice(o, o + n), total: ALL.length };
@@ -413,7 +413,7 @@ test('start-page with embedded data: the data is that page (here 3 of 3, from th
   // what a server writes for /?page=3: the request ?skip=6&limit=3
   const third = JSON.stringify({ items: ALL.slice(6, 9), total: ALL.length });
   const { root, settle } = await render(`<html><head><script type="application/json" data-sn-data="o">${third}</script></head><body>
-    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="offset" page-size="3" offset-param="skip" start-page="$url.page"></sn-resource>
+    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="offset" page-size="3" offset-param="skip" page-model="$url.page"></sn-resource>
     <span data-sn-text="[$meta.o.page, $meta.o.pages, $meta.o.from, $meta.o.to, $meta.o.hasPrev, $meta.o.hasNext].join()"></span>
     <button data-sn-on-click="page('o', 'prev')"></button></body></html>`, { requests, url: 'http://localhost/?page=3' });
   await settle();

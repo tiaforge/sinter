@@ -5,6 +5,8 @@ use bytes::Bytes;
 use serde::Deserialize;
 use std::{fmt, path::Path};
 
+use crate::url::Param;
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct Manifest {
     pub version: u32,
@@ -51,6 +53,9 @@ pub(crate) struct PageDesc {
     pub file: String,
     /// the paths it answers at: `data-sn-path` patterns, else where its file is served
     pub paths: Vec<String>,
+    /// its array parameters: `$url` values read as lists (repeated keys)
+    #[serde(default)]
+    pub arrays: Vec<String>,
     pub data: Vec<SlotDesc>,
 }
 
@@ -67,7 +72,7 @@ pub(crate) struct SlotDesc {
     /// paginated: the first page's query parameters, set on the template's URL
     #[serde(default)]
     pub query: Vec<(String, String)>,
-    /// paginated, starting at a page from `$url` (`start-page`)
+    /// paginated, starting at the page a `$url` parameter names (`page-model`)
     #[serde(default)]
     pub start: Option<Start>,
 }
@@ -98,17 +103,18 @@ pub(crate) enum Cond {
 }
 
 impl Cond {
-    /// as JavaScript evaluates it: an absent value is `undefined`, an empty string is falsy
-    pub fn holds(&self, params: &std::collections::HashMap<String, String>) -> bool {
+    /// as JavaScript evaluates it: an absent value is `undefined`, an empty string is falsy (a `when`
+    /// that reads an array parameter is the browser's: the build never writes one as a condition)
+    pub fn holds(&self, params: &std::collections::HashMap<String, Param>) -> bool {
         match self {
             Cond::Not { not } => !not.holds(params),
             Cond::And { and } => and.iter().all(|c| c.holds(params)),
             Cond::Or { or } => or.iter().any(|c| c.holds(params)),
             Cond::Url { url, eq, ne } => {
-                let v = params.get(url);
+                let v = params.get(url).and_then(Param::as_str);
                 match (eq, ne) {
-                    (Some(e), _) => v == Some(e),
-                    (_, Some(n)) => v != Some(n),
+                    (Some(e), _) => v == Some(e.as_str()),
+                    (_, Some(n)) => v != Some(n.as_str()),
                     _ => v.is_some_and(|v| !v.is_empty()),
                 }
             }
@@ -116,7 +122,7 @@ impl Cond {
     }
 }
 
-/// `start-page` from `$url`: from page 2 on, `query` with `key` set to the page (with `skip`, to
+/// `page-model`: the page from its `$url` parameter; from page 2 on, `query` with `key` set to the page (with `skip`, to
 /// the items to skip, `(page - 1) * size`).
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct Start {
@@ -133,9 +139,9 @@ impl Start {
     pub fn params<'a>(
         &'a self,
         first: &'a [(String, String)],
-        params: &std::collections::HashMap<String, String>,
+        params: &std::collections::HashMap<String, Param>,
     ) -> std::borrow::Cow<'a, [(String, String)]> {
-        let n = crate::url::to_page(params.get(&self.url).map(String::as_str));
+        let n = crate::url::to_page(params.get(&self.url).and_then(Param::as_str));
         if n <= 1 {
             return std::borrow::Cow::Borrowed(first);
         }
@@ -159,6 +165,7 @@ pub enum Part {
 pub(crate) struct Page {
     pub file: String,
     pub paths: Vec<String>,
+    pub arrays: Vec<String>,
     pub parts: Vec<Bytes>,
     pub slots: Vec<SlotDesc>,
 }
@@ -178,8 +185,11 @@ pub(crate) const FILE: &str = "sinter-embed.json";
 
 pub(crate) fn parse(text: &str) -> Result<Manifest, Error> {
     let m: Manifest = serde_json::from_str(text).map_err(|e| Error(e.to_string()))?;
-    if m.version != 1 {
-        return Err(Error(format!("version {} (this crate reads version 1)", m.version)));
+    if m.version != 2 {
+        return Err(Error(format!(
+            "version {} (this crate reads version 2: build the frontend and the server with the same sinter release)",
+            m.version
+        )));
     }
     Ok(m)
 }
@@ -211,7 +221,7 @@ pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<Build, Error> {
             let file = dir.join(&p.file);
             let html = std::fs::read_to_string(&file).map_err(|e| Error(format!("{}: {e}", file.display())))?;
             split(&html, p.paths, p.data)
-                .map(|pg| Page { file: p.file.clone(), ..pg })
+                .map(|pg| Page { file: p.file.clone(), arrays: p.arrays.clone(), ..pg })
                 .map_err(|e| Error(format!("{}: {}", file.display(), e.0)))
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -244,5 +254,5 @@ pub(crate) fn split(html: &str, paths: Vec<String>, mut slots: Vec<SlotDesc>) ->
         out.push(s);
     }
     parts.push(Bytes::copy_from_slice(&html.as_bytes()[from..]));
-    Ok(Page { file: String::new(), paths, parts, slots: out })
+    Ok(Page { file: String::new(), paths, arrays: Vec::new(), parts, slots: out })
 }

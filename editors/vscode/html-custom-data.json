@@ -3,7 +3,7 @@
   "tags": [
     {
       "name": "sn-resource",
-      "description": "a named, page-wide cache of server data; `cache` (or `cache=\"10m\"`) shows the data from the last page load at once, then revalidates. `refresh=\"30s\"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early=\"off\"`: never preloaded or requested before the page module (for a resource whose request a middleware answers or changes). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches",
+      "description": "a named, page-wide cache of server data; `cache` (or `cache=\"10m\"`) shows the data from the last page load at once, then revalidates. `refresh=\"30s\"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early=\"off\"`: never preloaded or requested before the page module (for a resource whose request a middleware answers or changes). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches. `page-model=\"$url.page\"` (offset lists) keeps the page in the URL: read at load, written back by page() (a history entry), followed when the URL changes",
       "attributes": [
         {
           "name": "name"
@@ -57,7 +57,7 @@
           "name": "offset-param"
         },
         {
-          "name": "start-page"
+          "name": "page-model"
         },
         {
           "name": "type"
@@ -206,7 +206,7 @@
     },
     {
       "name": "data-sn-model",
-      "description": "two-way binding for form controls (state path)"
+      "description": "two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list (state path | $url.<param>)"
     },
     {
       "name": "data-sn-for",

@@ -38,7 +38,7 @@ public static class Harness
 
     /// <summary>RealWorld's shape: a list and its tags on `/`, an article and its comments.</summary>
     public static string AppBuild() => Build("app", """
-        { "version": 1, "pages": [
+        { "version": 2, "pages": [
           { "file": "index.html", "paths": ["/", "/index.html"], "data": [
             { "id": 3, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }, "&limit=10"] },
             { "id": 4, "resource": "tags", "src": ["/api/tags"] },
