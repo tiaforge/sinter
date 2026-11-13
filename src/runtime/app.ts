@@ -12,6 +12,7 @@ import { expand, readUrl as readFrom, withParams } from './url.js';
 
 export { withParams };
 import { clean, createResource, type Resource } from './store.js';
+import { TYPING, wait } from './wait.js';
 
 /** A shared GET's response, and its body, parsed on first read (a non-2xx status rejects there). */
 export interface Got { res: Response; body(): Promise<unknown> }
@@ -161,8 +162,12 @@ export interface App {
     confirm?: (question: unknown, go: () => void) => void;
     /** models of controls other than text fields (models.ts) */
     models?: (inner: ModelInner) => Models;
-    /** `$url` was written: the query string follows (location.ts) */
-    location?: () => void;
+    /**
+     * `$url` written (location.ts): `write` records a changed parameter and the history entry it asks
+     * for (1 replace, 2 typing, 3 push; the strongest of a flush pass wins); `end` ends a typing run
+     * (`change` on a text field bound to the URL), committing what waits
+     */
+    location?: { write(name: string, kind: number): void; end(): void };
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
     form?: (el: Element, a: ActionDef, body: unknown) => unknown;
     /**
@@ -193,6 +198,11 @@ export interface App {
   readonly states: Array<[number, any]>;
   /** pending debounce timers and waiting actions, for the testing module */
   busy: number;
+  /**
+   * whether a `$url` write here adds a history entry: in the handlers of a user's event and what they
+   * cause (an action's `then`/`catch`, `emit`), except a keystroke's (`input` in a text field)
+   */
+  readonly push: boolean;
   readonly isDirty: boolean;
   /** dev hooks: dev-only checks on, warnings by code (or text), and item preparation (freezing) */
   dev: boolean;
@@ -323,8 +333,6 @@ const instances = new WeakMap<object, App>();
 export interface Dirty { w: number; v: string[] }
 /** node lists in the IR (numbered by the compiler) */
 const ids = (x: PathRef[] | undefined) => (x ?? []) as number[];
-/** How long a URL change from typing waits for the next keystroke before the resource is requested. */
-const TYPING = 250;
 /** Sentinel for "not written yet". */
 const UNSET = {};
 const range = (a: Node | null, stop: Node | null) => {
@@ -398,6 +406,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
   let streaming = 0, framed = false;
   /** dirty paths of this round that keystrokes in text fields produced */
   const typed = new Set<Dirty>();
+  /** `app.push`; `synth`: a submit `run()` causes is not the user's, though the browser trusts it */
+  let push = false, synth = false;
+  /** runs `fn` with `push` as `u`: the context of the event that caused it */
+  const as = (u: boolean, fn: () => void) => { const was = push; push = u; try { fn(); } finally { push = was; } };
 
   const res = (name: string): Resource => {
     const r = resources.get(name);
@@ -575,6 +587,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     ir, fns, env, req, root, transport: o.transport ?? (() => undefined), ext: {},
     beforeFlush: [], afterFlush: [], onListen: [], states: [], busy: 0,
     get isDirty() { return dirty.length > 0 || scheduled; },
+    get push() { return push; },
     dev: false,
     warn() {},
     unhandled,
@@ -680,7 +693,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
         const t = byId(id), h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
         if (!rb) return warn(20, id);
         if (t.matches(':disabled') || t.closest('[inert]')) return;
-        t.localName == 'form' ? (t as HTMLFormElement).requestSubmit() : trigger(rb, null);
+        if (t.localName != 'form') return trigger(rb, null);
+        synth = true;
+        try { (t as HTMLFormElement).requestSubmit(); } finally { synth = false; }
       },
     }),
     serverEvent(name, payload) {
@@ -689,8 +704,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     exec(f, s, writes, o) {
       try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); }
       for (const w of writes ?? []) app.mark(w, s);
-      // `$url` written: the query string follows (location.ts, on pages whose handlers write it)
-      if (app.ext.location && writes?.some((w) => up(w as number)[0] == ps.x.$url)) app.ext.location();
     },
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),
@@ -1236,19 +1249,32 @@ export function mount(root: Document | Element, o: MountOptions): App {
     let el = e.target as Element | null;
     if (el?.nodeType != 1) el = (el as Node | null)?.parentElement ?? null;
     if (!el) return;
-    if (e.type == 'toggle' && el.localName == 'dialog' && el.hasAttribute('open')) {
-      for (const rb of [...deferred]) if (deferred.has(rb) && el.contains(rb.el)) { cur = []; walk([rb], 2); }
+    // a user's event (the testing module's simulated ones too): what its handlers write to `$url`
+    // pushes a history entry, except on a keystroke (`input` in a text field). Events sinter
+    // dispatches while handling it (`emit`, `sn-error`) keep its context.
+    const was = push;
+    if (!synth && (env.trusted ? env.trusted(e) : e.isTrusted)) push = e.type != 'input' || /^(checkbox|radio|select)/.test((el as HTMLInputElement).type);
+    try { deliver(el, e); } finally { push = was; }
+  }
+
+  function deliver(at: Element, e: Event) {
+    let el: Element | null = at;
+    if (e.type == 'toggle' && at.localName == 'dialog' && at.hasAttribute('open')) {
+      for (const rb of [...deferred]) if (deferred.has(rb) && at.contains(rb.el)) { cur = []; walk([rb], 2); }
       // a select's options inside the dialog render after its model: set its value again
       syncSelects();
     }
     // models update state before other handlers on the same event
-    const m = (el as Tagged)[MODEL];
+    const m = (at as Tagged)[MODEL];
     if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
+    // `change` on a text field bound to the URL (Enter, or leaving it): its pending write is committed, the typing run ends
+    else if (m && e.type == 'change' && app.ext.location && ids(m.b.w).some((w) => up(w)[0] == ps.x.$url)) app.ext.location.end();
     for (; el; el = el.parentElement) {
       const h = handlersOf(el as Tagged), hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
       if (hs?.length) {
         // a debounced handler (debounce.ts) runs once, with the last event, if its element is still on the page
-        for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? app.ext.debounce!(h, h.b.ms, () => h.el.isConnected && handle(h, h.b.f!, e, h.b.w)) : handle(h, h.b.f!, e, h.b.w);
+        const u = push;
+        for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? app.ext.debounce!(h, h.b.ms, () => h.el.isConnected && as(u, () => handle(h, h.b.f!, e, h.b.w))) : handle(h, h.b.f!, e, h.b.w);
         // a bubbling custom event is a notification: it goes on up until a handler prevents it. Otherwise handled:
         // any handler or action ran; for keys, a filter matched (it prevents the default), an action or a
         // debounced handler ran, or a plain handler prevented the default. A key it did not prevent goes on up.
@@ -1270,7 +1296,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const a = ir.actions[rb.b.x!]!, el = rb.el;
     // an action does not end a custom event's walk: it prevents only native defaults
     if (e && !(e instanceof CustomEvent) && (e.type == 'submit' || el.localName == 'a' || (e.type == 'click' && /^(button|input)$/.test(el.localName) && el.closest('form')))) e.preventDefault();
-    a.debounce ? app.ext.debounce!(el, a.debounce, () => fire(rb, a, e)) : fire(rb, a, e);
+    const u = push;
+    a.debounce ? app.ext.debounce!(el, a.debounce, () => as(u, () => fire(rb, a, e))) : fire(rb, a, e);
   }
 
   function act(el: Element): ActState {
@@ -1279,7 +1306,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   function fire(rb: RB, a: ActionDef, e: Event | null) {
-    const st = act(rb.el), get = a.method == 'GET';
+    // `then` and `catch` run in the context of what triggered the action (a user's event, or not)
+    const st = act(rb.el), get = a.method == 'GET', u = push;
     if (!get && a.concurrency == 'block' && st.n) return;
     const s = child(rb.s, { $el: rb.el, $event: e });
     let url = '', body: unknown;
@@ -1301,16 +1329,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const drop = a.optimistic != null ? app.ext.optimistic!.begin(a.optimistic, s) : () => {};
     if (get) {
       st.c?.abort();
-      return void send(rb, a, st, url, body, drop, (st.c = new AbortController()));
+      return void send(rb, a, st, url, body, drop, u, (st.c = new AbortController()));
     }
-    const run = () => void send(rb, a, st, url, body, drop);
+    const run = () => void send(rb, a, st, url, body, drop, u);
     if (!st.n) run();
     else if (a.concurrency == 'latest') { st.w ? st.w.drop() : app.busy++; st.w = { run, drop }; st.r?.abort(); }
     else { app.busy++; st.q.push(run); }
     }
   }
 
-  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, c?: AbortController) {
+  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, u: boolean, c?: AbortController) {
     const el = rb.el as HTMLFormElement, s = rb.s;
     // where the element is now: an optimistic remove may take its row away before an error reports
     const up: Element[] = [];
@@ -1332,14 +1360,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
       drop(true);
       // write-through lands between the commit and `then`, so `then` still has the last word
       if (a.ap) app.ext.apply?.(a, s, url, body, result);
-      if (a.then != null) handle(rb, a.then, null, a.w, { $result: result });
+      if (a.then != null) as(u, () => handle(rb, a.then!, null, a.w, { $result: result }));
     } catch (err) {
       drop();
       if (isAbort(err) || (c && st.c != c)) return;
       const error = a.call ? app.ext.call!.error(err) : toError(err);
       // shown on the form (every message on its field, or its markup reads `$error`): handled
       if (fs?.(error, { url, method: a.method }) && a.catch == null) return;
-      a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null);
+      as(u, () => a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null));
     } finally {
       if (c && st.c == c) st.c = null;
       st.r = null;
@@ -1373,7 +1401,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     app.page.$meta[def.name] = r.meta;
     // fed by a server-event stream: connecting until its first open (src/sse.ts keeps it current)
     if (app.ir.syncs?.some((s) => s.events.some((e) => e.resource == def.name))) r.meta.live = 'connecting';
-    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, typing: unknown = null, loud = false;
+    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, loud = false;
+    const typing = wait(app);
 
     const scope = () => app.scopeOf(def.scope ?? -1);
     /** `call`: the arguments of the current load; the identity of a load is its arguments' JSON */
@@ -1421,7 +1450,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       settle(ok) { for (const f of l.settled) f(ok); },
       scope, got: loadShared, get: (u, signal, lo) => loadShared(u, signal, lo).then((g) => g.body()), failed: fail, loading, url: () => url,
       inflight: () => c != null,
-      done: (v) => def.then != null && app.exec(def.then, child(scope(), { $result: v }), def.w),
+      // no user event causes a load's `then`: its `$url` writes replace
+      done: (v) => def.then != null && as(false, () => app.exec(def.then!, child(scope(), { $result: v }), def.w)),
       items(body) {
         let items = pick(def.items, body);
         if (!Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
@@ -1458,8 +1488,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       },
       /** `src` or `when` may have changed: reload from the first page if the URL differs. From typing: once the typing pauses. */
       changed(soft?: boolean) {
-        if (typing != null) { env.clearTimeout(typing); typing = null; app.busy--; }
-        if (soft) { app.busy++; typing = env.setTimeout(() => { typing = null; app.busy--; l.changed(); }, TYPING, 'debounce'); return; }
+        typing.stop();
+        if (soft) return typing.start(() => l.changed(), TYPING);
         const u = resolve();
         if (u === url) return;
         url = u;

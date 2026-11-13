@@ -15,6 +15,10 @@ export interface Env {
   /** current location (href) */
   href(): string;
   replaceState(url: string): void;
+  /** a new history entry (a `$url` write a user's event caused) */
+  pushState(url: string): void;
+  /** whether an event is the user's (its `$url` writes push a history entry); absent: `isTrusted`. The testing module counts its simulated events */
+  trusted?(e: Event): boolean;
   random(): number;
   /** add a window-level listener (pagehide, pageshow, popstate, visibilitychange); returns the remover */
   listen(type: string, fn: (e: Event) => void): () => void;
@@ -41,6 +45,7 @@ export const defaultEnv: Env = {
   session: () => tryGet(() => g.sessionStorage),
   href: () => g.location.href,
   replaceState: (url) => g.history.replaceState(g.history.state, '', url),
+  pushState: (url) => g.history.pushState(null, '', url),
   random: Math.random,
   listen: (type, fn) => (g.addEventListener(type, fn), () => g.removeEventListener(type, fn)),
   // visibilitychange fires at the document and bubbles to the window

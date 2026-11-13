@@ -110,6 +110,8 @@ export interface PageInfo {
   usedHelpers: Set<string>;
   usedNs: Map<string, Set<string>>;
   usesNow: boolean;
+  /** a handler or model writes `$url` (the `location` feature) */
+  writesUrl?: boolean;
   /** `:name` segments of the page's `data-sn-path` patterns */
   pathParams: Set<string>;
   /** literal `id`s of the page's `<dialog>` elements, for `showModal()` and `close()` */
@@ -762,6 +764,16 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     return segs.map((x, i) => (i === alias.length - 1 ? '~' : x));
   }
 
+  /**
+   * A write to `$url.<name>` (an assignment, `++`, `delete`, a method that changes it): wrapped in
+   * `$.$u(name, …)` (location.ts), which normalizes the value as a reload would read it and records
+   * the write for the history
+   */
+  function urlWrite(name: string, expr: Node) {
+    page.writesUrl = true;
+    edits.push({ start: expr.start, end: expr.start, text: `$.$u(${JSON.stringify(name)}, ` }, { start: expr.end, end: expr.end, text: ')' });
+  }
+
   function writePath(target: Node, locals: Locals, at: number, expr: Node) {
     if (target.type === 'Identifier' && target.name === '$locale') {
       if (page.locale) { report('SN203', `\`$locale\` is this page's language (\`${page.locale.name}\`): with \`localePrefix\` each language is its own page. Link to it: \`<a data-sn-attr="{ href: localeUrl('…') }">\``, target.start); return; }
@@ -787,6 +799,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (!cp.segs || cp.segs.length !== 2) { report('SN203', 'assign a parameter: `$url.<param> = …`', at); return; }
       if (page.pathParams.has(cp.segs[1]!)) { report('SN203', `\`$url.${cp.segs[1]}\` is a path parameter (\`data-sn-path\`) and read-only; link to the other URL instead`, at); return; }
       writes.add(cp.segs.join('.'));
+      urlWrite(cp.segs[1]!, expr);
       return;
     }
     if (cp.res.kind === 'state' || ((cp.res.kind === 'loop' || cp.res.kind === 'local') && cp.segs)) {
@@ -823,6 +836,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
               writes.add(track(recv, recv.segs, n).join('.') + (MUTATORS.has(method) ? '.#' : ''));
             } else if (mode === 'handler' && recv.segs && recv.root === '$url') {
               writes.add(recv.segs.slice(0, 2).join('.'));
+              if (recv.segs[1]) urlWrite(recv.segs[1], n);
             }
           }
         }

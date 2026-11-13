@@ -273,6 +273,11 @@ export interface Rendered {
   navigations: string[];
   /** current page URL (after `$url` writes) */
   url(): string;
+  /** the page's history entries (pushed by `$url` writes; a navigation adds none), oldest first */
+  history(): string[];
+  /** Back and Forward: moves through `history()` and dispatches `popstate`; nothing past either end */
+  back(): Promise<void>;
+  forward(): Promise<void>;
   /** hides or shows the page (a background tab), then dispatches `visibilitychange` */
   visibility(state: 'hidden' | 'visible'): Promise<void>;
   /** with `frames`: runs what waits for the next frame (the browser's requestAnimationFrame) */
@@ -435,6 +440,8 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   // environment: fake clock, recorded navigation, in-memory storage
   let now = options.now instanceof Date ? options.now.getTime() : options.now ?? Date.parse('2026-01-01T09:00:00Z');
   let href = options.url ? new URL(options.url, 'http://localhost/').href : 'http://localhost/';
+  const entries = [href];
+  let at = 0;
   const timers: Timer[] = [];
   let nextTimer = 1;
   const navigations: string[] = [];
@@ -452,7 +459,11 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     storage: () => store,
     session: () => session,
     href: () => href,
-    replaceState: (url) => { href = new URL(url, href).href; },
+    replaceState: (url) => { href = entries[at] = new URL(url, href).href; },
+    // a push drops the entries after the current one, as a browser's history does
+    pushState: (url) => { href = new URL(url, href).href; entries.splice(++at, Infinity, href); },
+    // the test's simulated events are the user's; the custom events sinter dispatches are not
+    trusted: (e) => !(e instanceof CustomEvent),
     random: () => 0.5,
     hidden: () => hidden,
     ...(options.frames ? { frame: (fn: () => void) => { frameQueue.push(fn); } } : {}),
@@ -588,10 +599,20 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     };
   };
 
+  const go = async (by: number) => {
+    if (!entries[at + by]) return;
+    href = entries[(at += by)]!;
+    for (const fn of winListeners.get('popstate') ?? []) fn(new Event('popstate'));
+    await flush();
+  };
+
   await flush();
   return {
     root: doc.body, app, state, flush, settle, advance, navigations,
     url: () => href,
+    history: () => [...entries],
+    back: () => go(-1),
+    forward: () => go(1),
     frame: async () => {
       for (let j = 0; j < 10; j++) await Promise.resolve();
       for (const fn of frameQueue.splice(0)) fn();
