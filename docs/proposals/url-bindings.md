@@ -1,7 +1,32 @@
 # Proposal: bindable URL parameters and pagination in the URL
 
-Status: proposed (2026-11-13). Reviewed five times against the code before implementation; the
-[Plan](#plan) is the order of work.
+Status: implemented (2026-11-13), steps 1 to 5 of the [Plan](#plan); the guides are
+[navigation.md](../navigation.md#the-url-and-the-history) and [pagination.md](../pagination.md#page-in-the-url).
+Where the implementation departs from this text:
+- A third server layer, `@tiaforge-ui/sinter/server` (merged from main meanwhile), reads array
+  parameters and manifest version 2 like sinter-axum and Sinter.AspNetCore. All three now drop
+  `__proto__`, `constructor` and `prototype` from URL parameters, as the browser does.
+- A number or range model pushes once per burst of steps (spinner clicks, arrow keys: each a
+  `change`), at the typing pause, not once per step.
+- A `data-sn-on-input` handler on a checkbox, radio or select itself is a choice, a push, decided
+  at build time; a handler higher up that hears `input` replaces.
+- The typing pause, a number field's burst and the `change` listener are their own module
+  (`@tiaforge-ui/sinter/typing`), loaded only by pages with a text, number or range model on
+  `$url`; `location.ts` keeps the writes. Array reading is `runtime/lists.ts`, so an app's shared
+  chunk carries it only when a page has array parameters.
+- The compiler sends writes to an array parameter to `$l`, others to `$u`; a list written to a
+  one-value parameter it cannot see keeps its last item, as a reload reads it.
+- An object, function or instance written to `$url` is `SN212`; at run time it deletes the
+  parameter with a dev warning. The list errors are `SN210` (bound as a list and as one value, or a
+  list literal written to one value) and `SN211` (a bare list in a condition).
+- `page-model` on an array parameter is `SN203`; the resource's own `src` or `when` reading its
+  parameter is `SN401`.
+- After a failed load, `page()` to the same page reloads it; a handler writing the same value
+  changes nothing.
+- A debounced handler, and an action's `then`/`catch`, keep the context of the event that started
+  them; a form submitted by `run()` is not the user's (the browser trusts its `submit`).
+- RealWorld's "Loading articles..." line shows only while there is nothing to show (one of the
+  e2e suite's failures).
 
 Decided with the user:
 - `$url` parameters are bindable like state: `data-sn-model="$url.q"`.
