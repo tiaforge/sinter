@@ -18,7 +18,11 @@ Decided with the user:
 - `key` has no default. Without `key` a resource is one object, so a default `id` would turn single
   objects into collections, and every rule to tell them apart (`_id` backends, `each`, APIs without a
   spec) was an exception. Instead, a list of objects without `key` is warning `SN517`.
-- Actions and streams move to operations in the same change.
+- Streams move to operations in the same change. Actions keep their method attributes
+  (`data-sn-delete`, …); only their URL changes, to a path relative to the API that must be declared,
+  as a resource's. The method is the word that matters on a button and stays easy to see and grep;
+  renaming every action would be churn for a benefit the API config already gives (reviewed
+  2026-11-13).
 - `base` is read at build time; one build serves one set of API URLs. A base chosen at runtime (one
   build promoted through environments) is not in scope, so the early script and the server layers
   keep using literal URLs and need no API config.
@@ -192,24 +196,34 @@ error.
 
 ### 5. Actions
 
-The five method attributes become one, with the method in its value. `operation` and
-`data-sn-operation` match `call` and `data-sn-call` (a resource's and an action's local call):
+Actions keep their five method attributes. Their value is the path part of an operation: `[api:]` and
+the path, relative to the API's base, with the method taken from the attribute:
 
 ```html
 <!-- today -->
-<button data-sn-delete="/api/contacts/{c.id}" data-sn-optimistic="remove(c)">Delete</button>
-<form data-sn-post="/api/signup">…</form>
-<!-- with operations -->
-<button data-sn-operation="DELETE /contacts/{c.id}" data-sn-optimistic="remove(c)">Delete</button>
-<form data-sn-operation="POST /signup">…</form>
+<button data-sn-delete="https://api.example.com/v1/contacts/{c.id}" data-sn-optimistic="remove(c)">Delete</button>
+<form data-sn-post="https://api.example.com/v1/signup">…</form>
+<!-- with apis -->
+<button data-sn-delete="/contacts/{c.id}" data-sn-optimistic="remove(c)">Delete</button>
+<form data-sn-post="/signup">…</form>
+<button data-sn-post="billing:/invoices/{i.id}/send">Send</button>
 ```
 
-- `data-sn-get`, `-post`, `-put`, `-patch` and `-delete` are removed (`SN328`).
+- **The same rules as a resource's operation:** the path is matched as in §2, and a configured API
+  accepts only declared operations (`SN326`, `SN327`). `data-sn-delete="/contacts/{c.id}"` names the
+  operation `DELETE /contacts/{id}`.
+- **In the implicit API** an action's value is what it is today, a same-origin path, unchecked.
+- **An absolute URL** (`https://…`) in an action is an error once `apis` is set: the origin belongs to
+  an API's base.
 - Every other action attribute stays as it is: `data-sn-body`, `-trigger`, `-debounce`, `-confirm`,
   `-optimistic`, `-then`, `-catch`, `-concurrency`, `-apply`, `-retry`, `-encoding`.
 - What the spec already does for actions (the request schema checks `data-sn-body`, the response types
-  `$result`, write-through) uses the operation directly, instead of matching a URL.
+  `$result`, write-through) works as today, through the same match.
 - Field errors: `configure({ fieldErrors })` gets `{ url, method, api, operation }`.
+
+Resources write the method (`GET /x`) and actions do not. That is the cost of not renaming: a page has
+an operation in two spellings, one with the method in the value and one with it in the attribute
+name. An operation copied from the spec into an action drops its method.
 
 ### 6. Streams
 
@@ -237,7 +251,7 @@ The prototype's codes are not released, so they are reused with their new meanin
 | --- | --- | --- | --- |
 | `SN326` | `unknown-operation` | error | no such method and path in the API, or no such API; with "did you mean" |
 | `SN327` | `operation-params` | error | an undeclared or missing required query parameter, an empty `{}` value |
-| `SN328` | `src-removed` | error | `src` on `<sn-resource>`/`<sn-sync>` and `data-sn-get` … `-delete`, with the operation to write (from today's matching) and a quick fix |
+| `SN328` | `src-removed` | error | `src` on `<sn-resource>`/`<sn-sync>`, with the operation to write (from today's matching) and a quick fix; an absolute URL in an action when `apis` is set, with the API-relative path |
 | `SN329` | `endpoint-config` | error | `defaults` naming an operation the spec lacks, `operations` naming one it has, `operations` without `type`, an invalid `base` |
 | `SN330` | `configured-shape` | warning / error | the element restating a configured `items`, `key`, … (warning if equal, error if different) |
 
@@ -248,10 +262,11 @@ The prototype's codes are not released, so they are reused with their new meanin
 
 ### 9. Editor
 
-**Completion** inside `operation="…"` and `data-sn-operation="…"`:
+**Completion** inside `operation="…"` and the value of an action's method attribute:
 
 - **Candidates:** the operations of every API. Resources are offered `GET` operations (and `POST`
-  ones that return JSON), actions every method, `<sn-sync>` stream operations.
+  ones that return JSON), an action the operations of its attribute's method (inserted without the
+  method), `<sn-sync>` stream operations.
 - **What a candidate matches:** its path, its `operationId`, its summary and its API's name. Typing
   `comments` finds `GET /articles/{slug}/comments`, `inv` finds `billing:GET /invoices`, and
   `GetArt` finds `GET /articles` by its id.
@@ -299,7 +314,8 @@ npx sinter migrate --write    # applies them
 
 - **Rewrites:**
   - `src="/api/x/{y}"` becomes `operation="GET /x/{y}"`, with the API chosen by its base;
-  - `data-sn-post="…"` becomes `data-sn-operation="POST …"`, and likewise for the other methods;
+  - an action's URL becomes the path relative to its API: `data-sn-post="/api/signup"` becomes
+    `data-sn-post="/signup"`, with `billing:` when it is another API's;
   - `<sn-sync src>` becomes `<sn-sync operation>`.
 - **Shapes:** an element's `items`, `key` and `type` become `defaults` in the config when every page
   that uses the operation agrees on them. Where pages disagree, the attributes are left as they are,
@@ -341,11 +357,11 @@ The `operation` + `params` commit on this branch:
    mapped with a warning. Nothing on pages changes yet.
 2. `operation` on resources and the implicit API; shapes from the config (§3, `SN330`); `SN326` and
    `SN327`. `src` still compiles, with `SN328` as a warning.
-3. `data-sn-operation` on actions, `operation` on `<sn-sync>`; the API's name in the request layer,
+3. API-relative paths and declared operations for actions, `operation` on `<sn-sync>`; the API's name in the request layer,
    `transport` and `fieldErrors`; static request settings per API.
 4. Editor: completion (ranking, server-side filtering, snippets), hover, definition, quick fixes.
 5. `sinter migrate`; the examples, recipes, docs and `llms.txt` migrated.
-6. `SN328` becomes an error and `src`, `data-sn-get` … `-delete` are removed. Changelog entry under
+6. `SN328` becomes an error and `src` is removed. Changelog entry under
    "Removed".
 
 Steps 2 to 5 leave `src` working, so the branch can be reviewed and tried in a real app before
@@ -353,7 +369,5 @@ step 6.
 
 ## Open questions
 
-1. **Attribute name.** `data-sn-operation` is long on buttons. `data-sn-op` is shorter, but `op` already
-   means something else on `<sn-event>` (`upsert`, `remove`). Keep the long name?
-2. **The `default` API's name.** With one API it is the default whatever its name. With several, is a
+1. **The `default` API's name.** With one API it is the default whatever its name. With several, is a
    key literally named `default` the right way to pick one, or should there be `default: 'main'`?
