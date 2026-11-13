@@ -53,6 +53,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN209', '<sn-resource name="remove" src="/api/r" key="id"></sn-resource><p data-sn-text="1"></p>', /`remove` is a store function \(`remove\(\)`\); a resource cannot take its name/],
   ['SN210', '<select multiple data-sn-model="$url.tag"></select><input data-sn-model="$url.tag">', /`\$url.tag` is a list elsewhere on the page/],
   ['SN211', '<select multiple data-sn-model="$url.tag"></select><p data-sn-show="$url.tag"></p>', /`\$url.tag` is a list and always truthy; use `\$url.tag.length`/],
+  ['SN212', `<button data-sn-on-click="$url.f = { a: 1 }"></button>`, /`\$url.f` holds a string \(or a list of strings\); an object cannot be written to it/],
   ['SN301', `${R}${use}<button data-sn-on-click="refresh('mesages')"></button>`, /resource `mesages` is not declared on this page/],
   ['SN302', `${R}${use}<sn-resource name="contacts" src="/x" key="id"></sn-resource>`, /resource `contacts` is declared twice/],
   ['SN303', `${R}${use}<p data-sn-text="$meta.contacts.loadng"></p>`, /`\$meta.contacts.loadng` is not a status field. Did you mean `loading`\?/],
@@ -361,12 +362,13 @@ describe('data-sn-path', () => {
 describe('$url models', () => {
   const parts = (html: string) => compileParts(html, { file: '/p/page.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); } });
   test('a model takes a URL parameter; the setter writes through $u with the kind of its control', () => {
-    const p = parts('<input type="search" data-sn-model="$url.q"><select data-sn-model="$url.sort"><option>a</option></select>');
+    const p = parts('<input type="search" data-sn-model="$url.q"><select data-sn-model="$url.sort"><option>a</option></select><input type="number" data-sn-model="$url.n">');
     expect(p.diagnostics).toEqual([]);
     expect(p.features).toContain('location');
     expect(p.fns.filter((f) => f.includes('$u('))).toEqual([
       '($, v) => (($) => {$.$u("q", $.$url.q = $.$event, 2)\n})(Object.assign(Object.create($), { $event: v }))',
-      '($, v) => (($) => {$.$u("sort", $.$url.sort = $.$event, 3)\n})(Object.assign(Object.create($), { $event: v }))',
+      '($, v) => (($) => {$.$u("sort", $.$url.sort = $.$event, 4)\n})(Object.assign(Object.create($), { $event: v }))',
+      '($, v) => (($) => {$.$u("n", $.$url.n = $.$event, 3)\n})(Object.assign(Object.create($), { $event: v }))',
     ]);
   });
   test('a path parameter, a nested path or persist is refused', () => {

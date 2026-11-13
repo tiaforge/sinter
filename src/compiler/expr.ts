@@ -141,7 +141,7 @@ export interface ExprOptions {
   object?: 'literal-keys' | 'any-keys' | 'state';
   /** the whole expression is a condition (`data-sn-if`, `data-sn-show`, `when`) */
   cond?: boolean;
-  /** a model's setter: the history entry its `$url` write asks for (2 typing, 3 push; location.ts) */
+  /** a model's setter: the history entry its `$url` write asks for (2 typing, 3 a number field's burst, 4 push; location.ts) */
   urlKind?: number;
   /** where `$event.detail` comes from (a component's event: `@ev:<use>:<event>`) */
   detailSource?: string;
@@ -1196,10 +1196,14 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         writePath(n.left as Node, locals, n.start, n);
         visitMemberParts(n.left as Node, locals);
         visit(n.right as Node, locals);
-        // a list literal written to a `$url` parameter: an error unless it is an array parameter
-        if (n.right.type === 'ArrayExpression' && n.left.type === 'MemberExpression') {
+        // a list literal written to a `$url` parameter: an error unless it is an array parameter; an
+        // object, a function or an instance never: the URL holds strings
+        if (n.left.type === 'MemberExpression' && /^(Array|Object|Function|ArrowFunction|Class|New)Expression$/.test(n.right.type)) {
           const cp = chainPath(n.left as Node, locals);
-          if (cp?.res.kind === 'magic' && cp.root === '$url' && cp.segs?.length === 2) (page.urlWrites ??= []).push({ name: cp.segs[1]!, list: true, report: (c, m) => report(c, m, n.start) });
+          if (cp?.res.kind === 'magic' && cp.root === '$url' && cp.segs?.length === 2) {
+            if (n.right.type === 'ArrayExpression') (page.urlWrites ??= []).push({ name: cp.segs[1]!, list: true, report: (c, m) => report(c, m, n.start) });
+            else report('SN212', `\`$url.${cp.segs[1]}\` holds a string (or a list of strings); an object cannot be written to it. Write the field you mean, such as \`$url.${cp.segs[1]} = x.id\``, n.start);
+          }
         }
         // state that holds an item keeps where it came from: `sel = p` with `p` a row of `messages`
         if (n.operator === '=' && (n.left.type === 'Identifier' || n.left.type === 'MemberExpression')) {

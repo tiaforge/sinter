@@ -12,7 +12,7 @@ import { expand, readUrl as readFrom, withParams } from './url.js';
 
 export { withParams };
 import { clean, createResource, type Resource } from './store.js';
-import { TYPING, wait } from './wait.js';
+import { TYPING } from './wait.js';
 
 /** A shared GET's response, and its body, parsed on first read (a non-2xx status rejects there). */
 export interface Got { res: Response; body(): Promise<unknown> }
@@ -63,8 +63,8 @@ export interface BoundBinding {
 export interface Pager {
   /**
    * the resource's URL changed: back to the first page. With `page-model`, `why` says what changed it:
-   * 0 its first URL after mount (the URL's page, restored), 1 Back or Forward (the URL's page), 2 anything
-   * else (page 1, and the parameter deleted)
+   * 0 its first URL after mount (the URL's page, restored), 2 anything later (page 1 and the parameter
+   * deleted, unless Back or Forward caused it: then the URL's page)
    */
   reset(why?: number): void;
   /** `page-model`: the parameter may have changed (the URL did not): loads the page it names */
@@ -171,12 +171,14 @@ export interface App {
     models?: (inner: ModelInner) => Models;
     /**
      * `$url` written (location.ts): `write` records a changed parameter and the history entry it asks
-     * for (1 replace, 2 typing, 3 push; the strongest of a flush pass wins); `end` ends a typing run
-     * (`change` on a text field bound to the URL), committing what waits
+     * for (1 replace, 2 typing, 3 a number field's burst, 4 push; the strongest of a flush pass wins); `end` ends a typing run
+     * (`change` on a text field bound to the URL), committing what waits;
+     * `back`: the flush running follows Back or Forward (`popstate`), so nothing it causes writes the URL
      */
     location?: {
       write(name: string, kind: number): void;
       end(): void;
+      readonly back: boolean;
       /** `page-model` (paginate.ts): sets a parameter (null deletes it) and writes it with `kind` */
       set(name: string, value: string | null, kind: number): void;
     };
@@ -210,13 +212,11 @@ export interface App {
   readonly states: Array<[number, any]>;
   /** pending debounce timers and waiting actions, for the testing module */
   busy: number;
-  /** the flush running follows Back or Forward (`popstate`): nothing it causes writes the URL */
-  readonly back: boolean;
   /**
-   * whether a `$url` write here adds a history entry: in the handlers of a user's event and what they
-   * cause (an action's `then`/`catch`, `emit`), except a keystroke's (`input` in a text field)
+   * the event whose handlers run, and what they cause (an action's `then`/`catch`, a debounced run,
+   * `emit`): location.ts pushes a history entry for a `$url` write when it is the user's
    */
-  readonly push: boolean;
+  readonly ev: Event | null;
   readonly isDirty: boolean;
   /** dev hooks: dev-only checks on, warnings by code (or text), and item preparation (freezing) */
   dev: boolean;
@@ -362,7 +362,9 @@ const after = (el: Element) => {
 };
 const ET = EventTarget.prototype;
 /** Per-element registries, kept on the element (cheaper than WeakMaps on the row creation path). */
-const HANDLERS = Symbol('sinter.on'), MODEL = Symbol('sinter.model');
+const HANDLERS = Symbol('sinter.on');
+/** a control's model binding, on the element (location.ts reads it) */
+export const MODEL = Symbol('sinter.model');
 /** an element's own `data-sn-state`: `[sid, state object]` (for feature modules: a form's `$error`) */
 export const STATE = Symbol('sinter.state');
 
@@ -420,10 +422,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
   let streaming = 0, framed = false;
   /** dirty paths of this round that keystrokes in text fields produced */
   const typed = new Set<Dirty>();
-  /** `app.push`; `synth`: a submit `run()` causes is not the user's, though the browser trusts it */
-  let push = false, synth = false, back = false;
+  /** `app.ev`; `synth`: a submit `run()` causes */
+  let ev: Event | null = null, synth = false;
   /** runs `fn` with `push` as `u`: the context of the event that caused it */
-  const as = (u: boolean, fn: () => void) => { const was = push; push = u; try { fn(); } finally { push = was; } };
+  const as = (u: Event | null, fn: () => void) => { const was = ev; ev = u; try { fn(); } finally { ev = was; } };
 
   const res = (name: string): Resource => {
     const r = resources.get(name);
@@ -601,8 +603,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     ir, fns, env, req, root, transport: o.transport ?? (() => undefined), ext: {},
     beforeFlush: [], afterFlush: [], onListen: [], states: [], busy: 0,
     get isDirty() { return dirty.length > 0 || scheduled; },
-    get push() { return push; },
-    get back() { return back; },
+    get ev() { return ev; },
     dev: false,
     warn() {},
     unhandled,
@@ -675,7 +676,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         cur = dirty = [];
         typed.clear();
         marked.clear();
-        flushing = back = false;
+        flushing = false;
       }
     },
     record(change) {
@@ -777,7 +778,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const u = app.page.$url;
     for (const k in u) delete u[k];
     Object.assign(u, readUrl());
-    back = true;
     app.mark('$url');
   }));
   if (ir.now) {
@@ -799,7 +799,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Query parameters, then the `:name` segments of the first `data-sn-path` pattern that matches. */
   function readUrl() {
-    return readFrom(env.href(), ir.path, ir.urlArrays);
+    return readFrom(env.href(), ir.path);
   }
 
 
@@ -1265,38 +1265,35 @@ export function mount(root: Document | Element, o: MountOptions): App {
     let el = e.target as Element | null;
     if (el?.nodeType != 1) el = (el as Node | null)?.parentElement ?? null;
     if (!el) return;
-    // a user's event (the testing module's simulated ones too): what its handlers write to `$url`
-    // pushes a history entry, except on a keystroke (`input` in a text field). Events sinter
-    // dispatches while handling it (`emit`, `sn-error`) keep its context.
-    const was = push;
-    if (!synth && (env.trusted ? env.trusted(e) : e.isTrusted)) push = e.type != 'input' || /^(checkbox|radio|select)/.test((el as HTMLInputElement).type);
-    try { deliver(el, e); } finally { push = was; }
-  }
-
-  function deliver(at: Element, e: Event) {
-    let el: Element | null = at;
-    if (e.type == 'toggle' && at.localName == 'dialog' && at.hasAttribute('open')) {
-      for (const rb of [...deferred]) if (deferred.has(rb) && at.contains(rb.el)) { cur = []; walk([rb], 2); }
-      // a select's options inside the dialog render after its model: set its value again
-      syncSelects();
-    }
-    // models update state before other handlers on the same event
-    const m = (at as Tagged)[MODEL];
-    if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
-    // `change` on a text field bound to the URL (Enter, or leaving it): its pending write is committed, the typing run ends
-    else if (m && e.type == 'change' && app.ext.location && ids(m.b.w).some((w) => up(w)[0] == ps.x.$url)) app.ext.location.end();
-    for (; el; el = el.parentElement) {
-      const h = handlersOf(el as Tagged), hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
-      if (hs?.length) {
-        // a debounced handler (debounce.ts) runs once, with the last event, if its element is still on the page
-        const u = push;
-        for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? app.ext.debounce!(h, h.b.ms, () => h.el.isConnected && as(u, () => handle(h, h.b.f!, e, h.b.w))) : handle(h, h.b.f!, e, h.b.w);
-        // a bubbling custom event is a notification: it goes on up until a handler prevents it. Otherwise handled:
-        // any handler or action ran; for keys, a filter matched (it prevents the default), an action or a
-        // debounced handler ran, or a plain handler prevented the default. A key it did not prevent goes on up.
-        if (e instanceof CustomEvent && e.bubbles ? e.defaultPrevented : !/^key/.test(e.type) || e.defaultPrevented || hs.some((h) => h.b.x != null || h.b.ms)) return;
+    // the outermost event (location.ts decides whether it is the user's): what its handlers, and what
+    // sinter dispatches while handling it (`emit`, `sn-error`), write to `$url` may push an entry. A
+    // submit `run()` causes has none, though the browser trusts it.
+    const was = ev;
+    if (!synth) ev ??= e;
+    try {
+      if (e.type == 'toggle' && el.localName == 'dialog' && el.hasAttribute('open')) {
+        for (const rb of [...deferred]) if (deferred.has(rb) && el.contains(rb.el)) { cur = []; walk([rb], 2); }
+        // a select's options inside the dialog render after its model: set its value again
+        syncSelects();
       }
-      if (el == root) return;
+      // models update state before other handlers on the same event
+      const m = (el as Tagged)[MODEL];
+      if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
+      for (; el; el = el.parentElement) {
+        const h = handlersOf(el as Tagged), hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
+        if (hs?.length) {
+          // a debounced handler (debounce.ts) runs once, with the last event, if its element is still on the page
+          const u = ev;
+          for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? app.ext.debounce!(h, h.b.ms, () => h.el.isConnected && as(u, () => handle(h, h.b.f!, e, h.b.w))) : handle(h, h.b.f!, e, h.b.w);
+          // a bubbling custom event is a notification: it goes on up until a handler prevents it. Otherwise handled:
+          // any handler or action ran; for keys, a filter matched (it prevents the default), an action or a
+          // debounced handler ran, or a plain handler prevented the default. A key it did not prevent goes on up.
+          if (e instanceof CustomEvent && e.bubbles ? e.defaultPrevented : !/^key/.test(e.type) || e.defaultPrevented || hs.some((h) => h.b.x != null || h.b.ms)) return;
+        }
+        if (el == root) return;
+      }
+    } finally {
+      ev = was;
     }
   }
 
@@ -1312,7 +1309,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const a = ir.actions[rb.b.x!]!, el = rb.el;
     // an action does not end a custom event's walk: it prevents only native defaults
     if (e && !(e instanceof CustomEvent) && (e.type == 'submit' || el.localName == 'a' || (e.type == 'click' && /^(button|input)$/.test(el.localName) && el.closest('form')))) e.preventDefault();
-    const u = push;
+    const u = ev;
     a.debounce ? app.ext.debounce!(el, a.debounce, () => as(u, () => fire(rb, a, e))) : fire(rb, a, e);
   }
 
@@ -1323,7 +1320,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   function fire(rb: RB, a: ActionDef, e: Event | null) {
     // `then` and `catch` run in the context of what triggered the action (a user's event, or not)
-    const st = act(rb.el), get = a.method == 'GET', u = push;
+    const st = act(rb.el), get = a.method == 'GET', u = ev;
     if (!get && a.concurrency == 'block' && st.n) return;
     const s = child(rb.s, { $el: rb.el, $event: e });
     let url = '', body: unknown;
@@ -1354,7 +1351,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
   }
 
-  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, u: boolean, c?: AbortController) {
+  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, u: Event | null, c?: AbortController) {
     const el = rb.el as HTMLFormElement, s = rb.s;
     // where the element is now: an optimistic remove may take its row away before an error reports
     const up: Element[] = [];
@@ -1418,8 +1415,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // fed by a server-event stream: connecting until its first open (src/sse.ts keeps it current)
     if (app.ir.syncs?.some((s) => s.events.some((e) => e.resource == def.name))) r.meta.live = 'connecting';
     /** `had`: the resource has had a URL (its first one after mount restores a `page-model` page) */
-    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, loud = false, had = false;
-    const typing = wait(app);
+    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, loud = false, had = false, typing: unknown = null;
 
     const scope = () => app.scopeOf(def.scope ?? -1);
     /** `call`: the arguments of the current load; the identity of a load is its arguments' JSON */
@@ -1468,7 +1464,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       scope, got: loadShared, get: (u, signal, lo) => loadShared(u, signal, lo).then((g) => g.body()), failed: fail, loading, url: () => url,
       inflight: () => c != null,
       // no user event causes a load's `then`: its `$url` writes replace
-      done: (v) => def.then != null && as(false, () => app.exec(def.then!, child(scope(), { $result: v }), def.w)),
+      done: (v) => def.then != null && as(null, () => app.exec(def.then!, child(scope(), { $result: v }), def.w)),
       items(body) {
         let items = pick(def.items, body);
         if (!Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
@@ -1506,13 +1502,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
       },
       /** `src` or `when` may have changed: reload from the first page if the URL differs. From typing: once the typing pauses. */
       changed(soft?: boolean) {
-        typing.stop();
-        if (soft) return typing.start(() => l.changed(), TYPING);
+        if (typing != null) { env.clearTimeout(typing); typing = null; app.busy--; }
+        if (soft) { app.busy++; typing = env.setTimeout(() => { typing = null; app.busy--; l.changed(); }, TYPING, 'debounce'); return; }
         const u = resolve();
         if (u === url) return l.pager?.follow?.();
         url = u;
         if (u != null) {
-          l.pager?.reset(had ? (back ? 1 : 2) : 0);
+          l.pager?.reset(had ? 2 : 0);
           had = true;
           return void l.load();
         }

@@ -87,6 +87,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'An array parameter always reads as a list, `[]` when the URL has none, and an empty list is truthy in JavaScript: a condition on the bare parameter always holds.',
     fix: 'Test its length: `data-sn-if="$url.tag.length"`, or `$url.tag.includes(\'go\')` for one value.',
   },
+  SN212: {
+    example: '`$url.filter` holds a string (or a list of strings); an object cannot be written to it. Write the field you mean, such as `$url.filter = x.id`',
+    means: 'The URL holds strings: an object, a function or an instance (`{…}`, `() => …`, `new Date()`) written to a `$url` parameter has no form a reload could read back. At run time such a value removes the parameter, with a dev warning.',
+    fix: 'Write the string or number you mean (`$url.from = d.toISOString().slice(0, 10)`), or keep the object in state.',
+  },
   SN301: {
     example: 'resource `mesages` is not declared on this page',
     means: 'A store call, `$meta` or embedded data (`data-sn-data`) names a resource that no `<sn-resource>` on the page or its partials declares. A name chosen by an expression (`page(searching ? \'results\' : \'messages\', \'next\')`, or a `data-sn-let` name that is one) is checked for each name it can take. Also reported: a store call whose name argument cannot be listed from the source (a state variable, a helper\'s result, `$event.detail`).',

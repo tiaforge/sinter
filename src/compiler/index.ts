@@ -97,8 +97,10 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   const res = early.ir.res?.map((x) => ({ ...x, scope: x.scope < 0 ? -1 : r.owner[x.scope]! }));
   const ir = { ...(res ? { res } : {}), ...(early.ir.path ? { path: early.ir.path } : {}), ...(early.ir.urlArrays ? { urlArrays: early.ir.urlArrays } : {}), ...(early.ir.emb ? { emb: early.ir.emb } : {}) };
   // `$locale` read early: the page passes the configured locale source (else the early file carries no config)
-  const lc = early.fns.some((x) => /\$\.\$locale\b/.test(x));
-  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${lc ? ', locale' : ''} }`, uses: lc ? [...r.uses, 'locale'].sort() : r.uses };
+  const lc = early.fns.some((x) => /\$\.\$locale\b/.test(x)), ls = !!early.ir.urlArrays;
+  // array parameters: the page passes `lists` (else the early file carries none of it)
+  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : [])];
+  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => ', ' + x).join('')} }`, uses: extra.length ? [...r.uses, ...extra].sort() : r.uses };
 }
 
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'baseMessages'>): MappedLines | null {

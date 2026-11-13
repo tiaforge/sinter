@@ -89,6 +89,12 @@ test('`emit` from a click pushes; `run()` from a resource `then`, and the `sn-er
   expect(url()).toBe('http://localhost/?ran=1&err=g&p=b');
 });
 
+test('an object written to $url removes the parameter, with a dev warning', async () => {
+  const { root, flush, url } = await render(`<button data-sn-on-click="$url.o = $el.dataset">o</button>`, { url: 'http://localhost/?o=1' });
+  click(root, 'button'); await flush();
+  expect(url()).toBe('http://localhost/');
+});
+
 test('a history call the browser refuses: a warning, $url keeps the value', async () => {
   const { root, flush, app, url } = await render(`<p data-sn-text="$url.tab"></p><button data-sn-on-click="$url.tab = 'a'">a</button>`);
   const warned: unknown[] = [];
@@ -163,13 +169,26 @@ describe('models on $url', () => {
     expect(field.value).toBe('');
   });
 
-  test('a number model on $url (written on `change`, a push) keeps `1.0` as typed', async () => {
-    const { root, flush, history } = await render('<input type="number" data-sn-model="$url.n">', { url: 'http://localhost/?n=2' });
+  test('a number model on $url keeps `1.0` as typed; a burst of steps (spinner, arrow keys) is one entry, a later change another', async () => {
+    const { root, flush, advance, history } = await render('<input type="number" data-sn-model="$url.n">', { url: 'http://localhost/?n=2' });
     const f = root.querySelector('input')!;
+    const step = async (v: string) => { f.value = v; f.dispatchEvent(new Event('change', { bubbles: true })); await flush(); };
     expect(f.value).toBe('2');
-    f.value = '1.0'; f.dispatchEvent(new Event('change', { bubbles: true })); await flush();
-    expect(history()).toEqual(['http://localhost/?n=2', 'http://localhost/?n=1']);
+    await step('1.0');
     expect(f.value).toBe('1.0');
+    for (const v of ['2', '3', '4', '5']) { await step(v); await advance(100); }
+    expect(history()).toEqual(['http://localhost/?n=2']);
+    await advance(150);
+    expect(history()).toEqual(['http://localhost/?n=2', 'http://localhost/?n=5']);
+    await step('7'); await advance(250);
+    expect(history()).toEqual(['http://localhost/?n=2', 'http://localhost/?n=5', 'http://localhost/?n=7']);
+  });
+  test('a range model on $url: a burst is one entry', async () => {
+    const { root, flush, advance, history } = await render('<input type="range" data-sn-model="$url.v">');
+    const f = root.querySelector('input')!;
+    for (const v of ['10', '20', '30']) { f.value = v; f.dispatchEvent(new Event('change', { bubbles: true })); await flush(); }
+    await advance(250);
+    expect(history()).toEqual(['http://localhost/', 'http://localhost/?v=30']);
   });
 });
 

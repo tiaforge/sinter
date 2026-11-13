@@ -55,8 +55,9 @@ class PagerImpl implements Pager {
     }
     // the first URL after mount restores the URL's page, Back and Forward load it; any other change of
     // the resource's URL (a filter) starts at page 1, a replace (Back restores the page)
-    if (why == 2 && this.param() > 1) this.write(1, 1);
-    this.move = this.at(why == 2 ? 1 : this.param());
+    const fresh = why == 2 && !this.loader.app.ext.location!.back;
+    if (fresh && this.param() > 1) this.write(1, 1);
+    this.move = this.at(fresh ? 1 : this.param());
   }
 
   follow(): void {
@@ -164,7 +165,7 @@ class PagerImpl implements Pager {
     if (pages != null) n = Math.min(n, pages);
     // the page asked for already: loaded again only after a failure (the URL does not change)
     if (n == this.requested && n == this.param()) { if (this.failed) void l.load(this.at(n)); return; }
-    this.write(n, 3);
+    this.write(n, 4);
   }
 
   received(items: unknown[], total: number | null, mv: unknown): void {

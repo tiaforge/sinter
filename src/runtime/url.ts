@@ -45,14 +45,10 @@ export function withParams(url: string, params: Record<string, string> | null): 
   return `${base}?${q}${hash ? '#' + hash : ''}`;
 }
 
-/**
- * `$url`: the query parameters (the last of a repeated name; an array parameter, every one, `[]`
- * when absent), and the `:name` segments of the first path pattern that matches.
- */
-export function readUrl(href: string, patterns: string[] = [], arrays: string[] = []): Record<string, string | string[]> {
+/** `$url`: the query parameters (the last of a repeated name), and the `:name` segments of the first path pattern that matches. */
+export function readUrl(href: string, patterns: string[] = []): Record<string, string | string[]> {
   const out = Object.create(null), u = new URL(href);
-  for (const k of arrays) if (!BAD_KEY.test(k)) out[k] = [];
-  for (const [k, v] of u.searchParams) if (!BAD_KEY.test(k)) Array.isArray(out[k]) ? out[k].push(v) : (out[k] = v);
+  for (const [k, v] of u.searchParams) if (!BAD_KEY.test(k)) out[k] = v;
   const segs = u.pathname.split('/').filter(Boolean);
   for (const p of patterns) {
     const want = p.split('/').filter(Boolean);
@@ -63,5 +59,15 @@ export function readUrl(href: string, patterns: string[] = [], arrays: string[] 
     });
     break;
   }
+  return out;
+}
+
+/**
+ * The page's array parameters (`IR.urlArrays`) as lists: every value of a repeated name, `[]` when
+ * absent. Apart from `readUrl`, so a page without them carries none of it.
+ */
+export function lists(href: string, names: string[], out: Record<string, unknown>): Record<string, unknown> {
+  const q = new URL(href).searchParams;
+  for (const n of names) if (!BAD_KEY.test(n)) out[n] = q.getAll(n);
   return out;
 }

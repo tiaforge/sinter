@@ -152,6 +152,16 @@ An array parameter always reads as a list, `[]` when the URL has none, and an em
 
 **Fix:** Test its length: `data-sn-if="$url.tag.length"`, or `$url.tag.includes('go')` for one value.
 
+## SN212 url-object-value
+
+Error, for example:
+
+> `$url.filter` holds a string (or a list of strings); an object cannot be written to it. Write the field you mean, such as `$url.filter = x.id`
+
+The URL holds strings: an object, a function or an instance (`{…}`, `() => …`, `new Date()`) written to a `$url` parameter has no form a reload could read back. At run time such a value removes the parameter, with a dev warning.
+
+**Fix:** Write the string or number you mean (`$url.from = d.toISOString().slice(0, 10)`), or keep the object in state.
+
 ## SN301 unknown-resource
 
 Error, for example:

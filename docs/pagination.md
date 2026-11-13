@@ -83,8 +83,8 @@ written back on every move, so reload, Back and Forward and a shared link show t
   `$url.page`; show the range from `$meta`.
 - `next` and `prev` count from the page last requested (after a failed load, from the page shown),
   so two quick clicks move two pages. A target past the last page is clamped when the total is
-  known; without a total, `next` waits while a page loads. Asking again for a page that failed loads
-  it again. With `when` false, `page()` does nothing.
+  known; without a total, `next` waits while a page loads. `page()` asking again for a page that
+  failed loads it again (a handler writing the same value changes nothing). With `when` false, `page()` does nothing.
 - The first URL the list gets restores the URL's page, at load or when a late `when` turns true
   (RealWorld's feed waits for the user). Nothing is corrected: `?page=abc` is page 1, and `?page=99`
   shows an empty page.

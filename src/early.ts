@@ -10,7 +10,9 @@ import { config } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
-import { expand, readUrl, type withParams } from './runtime/url.js';
+import { expand, readUrl, type lists, type withParams } from './runtime/url.js';
+
+export { lists } from './runtime/url.js';
 import { toPage } from './runtime/pages.js';
 import type { EarlyIR } from './ir.js';
 
@@ -42,7 +44,7 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists };
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
@@ -211,6 +213,8 @@ function embedded(emb: NonNullable<EarlyIR['emb']>): any {
 /** The base scope: what is not available before data throws, and the binding (or request) is left to the page module. */
 function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
   let emb: any = null, url: any = null;
+  // array parameters as lists: only a page that has them passes `lists` (and carries it)
+  const more = (h: string, u: any) => (o.lists ? o.lists(h, o.ir.urlArrays!, u) : u);
   return new Proxy(Object.create(null), {
     get(_, k) {
       // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
@@ -219,9 +223,9 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
       // the resources whose data is embedded in the page: read from it (the head is parsed before any binding)
       if (k == '$r' && o.ir.emb) return (emb ??= embedded(o.ir.emb));
       // the URL, as the page module reads it (a page with early requests reads it there, once for both)
-      if (k == '$url' && !req) return (url ??= readUrl(location.href, o.ir.path, o.ir.urlArrays));
+      if (k == '$url' && !req) return (url ??= more(location.href, readUrl(location.href, o.ir.path)));
       // the clock is for requests only: no early binding reads it
-      if (req) return req.read(k, o.ir.path, o.ir.urlArrays);
+      if (req) return req.read(k, o.ir.path, more);
       throw Error('sinter: not available early');
     },
   });
@@ -233,7 +237,7 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
  * only requests may read (`$now`, `$url`); `send`: starts the requests whose URL is known.
  */
 export interface EarlyRequests {
-  read(key: PropertyKey, path: string[] | undefined, arrays?: string[]): unknown;
+  read(key: PropertyKey, path: string[] | undefined, more?: (href: string, url: any) => any): unknown;
   send(ir: Pick<EarlyIR, 'res'>, scopes: any[], base: any, fns: Fn[]): void;
 }
 
@@ -246,9 +250,9 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
   // the environment only requests read (the clock, the location, fetch): read when first needed, after the app's early module ran
   const env = () => (e ??= envOf());
   return {
-    read(k, path, arrays) {
+    read(k, path, more = (_, u) => u) {
       if (k == '$now') return (now ??= new Date(env().now()));
-      if (k == '$url') return (url ??= readUrl(env().href(), path, arrays));
+      if (k == '$url') { const h = env().href(); return (url ??= more(h, readUrl(h, path))); }
       throw Error('sinter: not available early');
     },
     /** the resources whose URL is known now: `when` holds and every value is there (a paginated one: its first page) */

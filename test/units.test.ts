@@ -1,7 +1,7 @@
 // Small pure functions of the runtime.
 import { expect, test } from 'vitest';
 import { withParams } from '../src/runtime/app.js';
-import { readUrl } from '../src/runtime/url.js';
+import { lists, readUrl } from '../src/runtime/url.js';
 import { requests } from '../src/early.js';
 import { serialize } from '../src/form.js';
 import { bytes, date, number, relative } from '../src/runtime/helpers.js';
@@ -68,8 +68,9 @@ test('a calendar date is the same day for every visitor: formatted in UTC, where
 });
 
 test('readUrl: an array parameter is every value of its name ([] when none); others the last; the early requests read it the same way', () => {
-  expect(readUrl('http://x/?tag=a&q=1&tag=b&q=2&constructor=x', [], ['tag', 'f'])).toEqual({ tag: ['a', 'b'], f: [], q: '2' });
+  const href = 'http://x/?tag=a&q=1&tag=b&q=2&constructor=x';
+  expect(lists(href, ['tag', 'f'], readUrl(href))).toEqual({ tag: ['a', 'b'], f: [], q: '2' });
   expect(readUrl('http://x/a/s?slug=q', ['/a/:slug'])).toEqual({ slug: 's' });
   const r = requests(undefined, () => ({ now: () => 0, href: () => 'http://x/?tag=a&tag=b', fetch: () => Promise.reject() }));
-  expect(r.read('$url', undefined, ['tag'])).toEqual({ tag: ['a', 'b'] });
+  expect(r.read('$url', undefined, (h, u) => lists(h, ['tag'], u))).toEqual({ tag: ['a', 'b'] });
 });

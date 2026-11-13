@@ -2419,7 +2419,7 @@ class Compiler {
       this.report(host, 'data-sn-persist', 'SN102', '`data-sn-persist` on a component: persist the state the model writes instead (`data-sn-persist` on its `data-sn-state`)', 0);
     }
     // a component's change pushes a history entry, as a select's does
-    const h = this.expr(host, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: 3 }, `${src} = $event.detail`);
+    const h = this.expr(host, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: 4 }, `${src} = $event.detail`);
     if (!h.ok) return;
     const f = this.fn(`($) => { if ($.$event instanceof CustomEvent) (${h.code})($); }`, { el: host, attr: 'data-sn-model', shift: 0 });
     node.b.push(this.binding({ k: 'on', n: 'change', f, w: h.writes }));
@@ -3077,8 +3077,9 @@ class Compiler {
       // a `<select multiple>` or a checkbox with a `value` binds a list: decided here, at build time
       this.urlBinds.push({ name: r.path[1]!, array: kind == 'multi' || (kind == 'checkbox' && attr(el, 'value') != null), report: (m) => this.report(el, 'data-sn-model', 'SN210', m, 0) });
       // through the handler analysis: a path parameter or `$url.a.b` is refused as in a handler; typing
-      // in a text field commits at each pause, any other control pushes a history entry
-      const h = this.expr(el, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: kind == 'text' ? 2 : 3 }, `${attr(el, 'data-sn-model')!} = $event`);
+      // in a text field commits at each pause, a number field's burst of steps pushes once at its pause,
+      // any other control pushes a history entry (location.ts: 2 typing, 3 burst, 4 push)
+      const h = this.expr(el, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: kind == 'text' ? 2 : kind == 'number' ? 3 : 4 }, `${attr(el, 'data-sn-model')!} = $event`);
       if (!h.ok) return;
       setter = this.fn(`($, v) => (${h.code})(Object.assign(Object.create($), { $event: v }))`);
     } else setter = this.fn(`($, v) => { ${r.code.slice('($) => ('.length, -1)} = v; }`);

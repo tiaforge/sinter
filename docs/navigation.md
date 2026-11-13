@@ -126,6 +126,7 @@ decided where the write happens:
 | --- | --- |
 | a handler run by the user's event (a click, a select's `change`), and what it causes (`emit`, an action it started and that action's `then`/`catch`) | new entry |
 | a select, radio or checkbox model; a component's model | new entry |
+| a number or range model | at its pause (250 ms): a burst of steps (spinner clicks, arrow keys) is one new entry, a later change another |
 | `page()` | new entry |
 | a text-field model: typing | at each pause (250 ms); the first commit of a typing run adds an entry, later ones replace it |
 | a handler on `input` in a text field | replaces, at once |

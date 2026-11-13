@@ -6,7 +6,7 @@
 // The same layer as packages/sinter-axum and packages/sinter-aspnetcore, option for option; the URLs come
 // from the browser runtime's own code (runtime/url.ts), so the request the server makes for a placeholder
 // is the one the page would have made.
-import { expand, readUrl, withParams } from './runtime/url.js';
+import { expand, lists, readUrl, withParams } from './runtime/url.js';
 
 /** A fetch handler: an app (Hono's `app.fetch`, a framework's handler) or the next one in a chain. Extra arguments (a Worker's `env` and `ctx`) are passed on. */
 export type Handler = (request: Request, ...rest: any[]) => Response | Promise<Response>;
@@ -410,7 +410,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
   /** a page with its data: every placeholder fetched in parallel, the page streamed or sent whole */
   function render(request: Request, page: Page, api: Handler, rest: any[]): Response | Promise<Response> {
     if (request.method == 'HEAD') return new Response(null, { status: 200, headers: pageHeaders });
-    const params = readUrl(request.url, page.paths, page.arrays);
+    const params = lists(request.url, page.arrays ?? [], readUrl(request.url, page.paths)) as Record<string, string | string[]>;
     // one signal for the page's requests: aborted at the time limit, when the visitor goes away, or when the
     // page ended early. A listener rather than AbortSignal.any, and an abort only while something is still
     // pending, with a reason made once: on most pages nothing is aborted, and that costs nothing

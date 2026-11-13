@@ -8,7 +8,7 @@ import type { ResourceDef, UrlTemplate } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { PREFETCH_MARK, PREFETCH_PREFIX } from './runtime/config.js';
 import { clean } from './runtime/store.js';
-import { expand, readUrl } from './runtime/url.js';
+import { expand, lists, readUrl } from './runtime/url.js';
 
 /** One page of the app, as the build describes it. */
 export interface PrefetchPage {
@@ -85,7 +85,7 @@ export function prefetch(pages: PrefetchPage[]): Feature {
         if (net?.saveData || /2g/.test(net?.effectiveType ?? '')) return;
         const segs = segments(u.pathname), page = pages.find((p) => p.m.some((m) => matches(m, segs)));
         if (!page) return;
-        const scope = { $url: readUrl(u.href, page.m, page.a) };
+        const scope = { $url: lists(u.href, page.a ?? [], readUrl(u.href, page.m)) };
         // resources that read different parts of one response (`items`) share its request, as on the page
         const sent = new Map<string, Promise<unknown>>();
         for (const r of page.r) {

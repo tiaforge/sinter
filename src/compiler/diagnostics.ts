@@ -28,6 +28,7 @@ export const CODES = {
   SN209: 'name-conflict',
   SN210: 'url-list-mismatch',
   SN211: 'url-list-condition',
+  SN212: 'url-object-value',
   SN301: 'unknown-resource',
   SN302: 'duplicate-resource',
   SN303: 'unknown-meta-field',

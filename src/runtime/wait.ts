@@ -1,5 +1,6 @@
-// A timer counted as busy while it waits, so the testing module's settle waits for it: the
-// resource loader's typing pause and the URL's typing commit (location.ts) share it.
+// A timer counted as busy while it waits, so the testing module's settle waits for it: the URL's
+// typing commit (location.ts). The resource loader keeps its own inline (cheaper in the core), with
+// the same pause.
 import type { App } from './app.js';
 
 /** How long a change from typing waits for the next keystroke (a resource's request, the URL's commit). */
