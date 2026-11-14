@@ -186,7 +186,7 @@ async function worker(slot) {
     const g = await grade(job, r);
     const row = { ...r.meta, ...(await sourceStats(r.ws)), usesFramework: usesFramework(r.ws, job.framework), build: g.build, served: g.served, passed: g.passed, total: g.total,
       failed: (g.checks ?? []).filter((c) => !c.pass).map((c) => c.name), measure: g.measure,
-      measuredAlone: a['grade-only'] ? Number(a.slots) === 1 : Number(a.slots) === 1 }; // sizes do not depend on load, Lighthouse timings do
+      measuredAlone: Number(a.slots) === 1 }; // sizes do not depend on load, Lighthouse timings do
     rows.push(row);
     writeFileSync(resultsFile, JSON.stringify(rows, null, 2));
     console.log(`[slot ${slot}] done  ${job.id}: ${g.passed}/${g.total} $${row.costUSD?.toFixed(2)} ${row.seconds}s turns=${row.turns}${row.leaks?.length ? ' LEAK' : ''}`);
