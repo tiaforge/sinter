@@ -329,9 +329,11 @@ of one-line rows with collapsed borders; the median of 3 loads):
 
 (The table's 0.001 is its collapsed borders, which count as nothing.)
 
-Builds only (`vite dev` serves the rules with the page module, after the first paint). Not for a resource
-with embedded data (its rows are in the first frame), with a `when` over state or another resource (the
-build cannot tell whether it loads), `each` or `call`, or a list that is more than a choice between
+Builds only (`vite dev` serves the rules with the page module, after the first paint, so it writes no
+placeholders; it plans them the same way, so `SN529` says what a build says). Not for a resource
+with embedded data (its rows are in the first frame), with a `src` or `when` over state or another
+resource (the build cannot tell whether it loads at mount), `each` or `call`, rows a component's own
+`<style>` reaches, or a list that is more than a choice between
 resources (`people.filter(…)`: the build cannot count it), nor for rows side by side without a width of
 their own (or with a `flex-basis`), absolutely positioned, with `content-visibility`, table rows outside
 a `<tbody>`, or a template with more than one element. The build prints each paginated list it holds no space for, and why
@@ -349,9 +351,12 @@ meets the placeholder; a condition it cannot read counts as one that may show.
 The runtime carries no code for it: the build writes the placeholder's removal as one of the page's own
 bindings (about 60 bytes gzip per list; a branch for a list with a `when`), and its rules (about 180 bytes
 gzip for a page with one list) in the page's stylesheet, which is one more stylesheet file for a page that
-had none of its own: one shared rule per page,
+had none of its own (Vite merges it into the page's stylesheet when it has one): one shared rule per page,
 then each list's height (and width, margins or grid span) per screen width, with the weight of an id, so
 the author's rules for the row's tag do not reach it.
+
+The build does the work: following the stylesheets for each list, at each screen width and default font
+size. RealWorld (7 pages, a Bootstrap-sized theme) builds in 2.09 s against 1.93 s without it.
 
 ### A box whose width follows the list
 
@@ -376,8 +381,9 @@ adopts it:
 <template data-sn-if="$meta.people.loading && !people.length"><p>Loading…</p></template>
 ```
 
-That holds for a resource that is not embedded, `each` or `call`, whose `when` reads only what the early
-script knows (`$url`, `$now`, helpers; not state). With `cache`, or in an app with next-page data, only
+That holds for a resource that is not embedded, `each` or `call`, whose `src` and `when` read only what the
+early script knows (`$url`, `$now`, `$locale`, your helpers; not state, another resource or the
+built-in formatters such as `date()`). With `cache`, or in an app with next-page data, only
 in a tab that holds no cached or prefetched rows of that resource: otherwise they are there at mount.
 `loading`, `error` and `loadedAt` are known, also through a `data-sn-let` of the whole status; other status
 fields (a page number) are the page module's, and a binding that reads one renders when it mounts. The values are compiled into the page's early file: its
