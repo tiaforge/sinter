@@ -209,6 +209,20 @@ not wipe each other out when the first fails.
 | Delete or move | `remove(m)` |
 | Bulk mark read | one layer, one `patch` per selected message |
 | Toggle visibility | `patch(cal, {hidden: !cal.hidden})` |
+| Rename inline | `patch(i, {title})`, leaving edit mode on submit (below) |
+
+An inline edit leaves edit mode when the form is sent, not in `then`: `then` runs when the server
+answers, so the form would stay until then and the new title would wait for it. The request, the
+rollback and `catch` still run after the form is gone.
+
+```html
+<template data-sn-if="editingId === i.id">
+  <form data-sn-patch="/api/items/{i.id}" data-sn-body="{ title }"
+        data-sn-optimistic="patch(i, { title })"
+        data-sn-on-submit="editingId = null"
+        data-sn-catch="emit('toast', $error.message)">…</form>
+</template>
+```
 
 Recipe: [optimistic-toggle](recipes/optimistic-toggle.html).
 

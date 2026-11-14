@@ -8,6 +8,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 ### Changed
 
 - `llms.txt` is half its size (109 KB → 56 KB): coding agents read all of it, and in a benchmark against Astro and SvelteKit that reading was most of sinter's extra cost. Eight recipes are shown in full without their tests (those stay in `docs/recipes/`), the others are listed with links; "First paint" and "Images" keep what changes what you write and leave how the build does it to the guides; the key-filter, `$url` history and `refresh` paragraphs are shorter.
+- `llms.txt` and docs/actions.md say how to write an inline edit with an optimistic change: leave edit mode on submit (`data-sn-on-submit="editingId = null"`), not in `then`, which waits for the server. A benchmark agent closed it in `then`, so a rename showed only after the PATCH answered.
 
 - Faster builds: the OpenAPI specs and the helpers and actions modules are parsed once per file and content, no longer for each page and build step (RealWorld's `vite build` 1.98 s → 1.69 s; a 7-page app with 36 components 7.3 s → 6.3 s). The output is unchanged.
 
