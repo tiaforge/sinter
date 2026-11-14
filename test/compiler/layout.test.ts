@@ -222,6 +222,8 @@ const FLUID: Array<[string, string, string, string]> = [
   ['a flex row: a fixed sidebar and a growing main', 'body { margin: 0 } .r { display: flex; gap: 16px } .side { width: 200px; flex-shrink: 0 } .main { flex: 1; min-width: 0 } img { width: 100% }', '<div class="r"><nav class="side"></nav><main class="main"><img id="t" src="a.png" alt=""></main></div>', 'calc(100vw - 216px)'],
   ['a media object: an avatar column and a body that grows', '.m { display: flex; gap: 12px; padding: 12px; border: 1px solid } .av { flex: none; width: 48px } .b { flex: 1 } img { width: 100% }', '<div class="m"><div class="av"></div><div class="b"><img id="t" src="a.png" alt=""></div></div>', 'calc(100vw - 102px)'],
   ['flex items growing unequally from a basis', 'body { margin: 0 } .r { display: flex } .a { flex: 2 1 0 } .b { flex: 1 1 100px; padding: 0 10px; box-sizing: border-box } img { width: 100% }', '<div class="r"><div class="a"></div><div class="b"><img id="t" src="a.png" alt=""></div></div>', 'calc(33.33vw + 46.67px)'],
+  ['a column with a minimum beside a fixed one: held at the minimum on narrow screens', 'body { margin: 0 } .g { display: grid; grid-template-columns: minmax(200px, 1fr) 300px; gap: 20px } img { width: 100% }', '<div class="g"><div><img id="t" src="a.png" alt=""></div><div></div></div>', '(max-width: 519.98px) 200px, calc(100vw - 320px)'],
+  ['two columns with minimums: one held, then the other, then both share', 'body { margin: 0 } .g { display: grid; grid-template-columns: minmax(400px, 2fr) minmax(100px, 1fr) } img { width: 100% }', '<div class="g"><div></div><div><img id="t" src="a.png" alt=""></div></div>', '(max-width: 499.98px) 100px, (max-width: 599.98px) calc(100vw - 400px), 33.33vw'],
   ['a fixed share in a row that fits, no wrapping', 'body { margin: 0 } .r { display: flex } .r > * { flex: 0 0 50% } img { width: 100% }', '<div class="r"><div><img id="t" src="a.png" alt=""></div><div></div></div>', '50vw'],
 ];
 
@@ -259,6 +261,11 @@ describe('the width of a fluid image at every viewport width', () => {
     const f = new Layout([{ file: 'test.css', css: 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 2fr; gap: 30px } img { width: 100% }' }], doc).fluidSizes(find(doc, 't'))!;
     expect(f.sizes).toBe('calc(66.67vw - 20px)');
     expect(f.pieces.every((p) => p.bound === 'widest')).toBe(true);
+    // equal columns with a minimum: wherever a row lands, its width, exactly
+    const eq = parse5.parse(page('', '<div class="g"><template><div><img id="t" src="a.png" alt=""></div></template></div>'));
+    const g = new Layout([{ file: 'test.css', css: 'body { margin: 0 } .g { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px } img { width: 100% }' }], eq).fluidSizes(find(eq, 't'))!;
+    expect(g.sizes).toBe('(max-width: 469.98px) 150px, calc(33.33vw - 6.67px)');
+    expect(g.pieces.some((p) => p.bound)).toBe(false);
     // a sibling placed by its row: the item lands in some column, the widest of which bounds it
     expect(sizes('body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 3fr } .x { grid-row: 1 } img { width: 100% }', '<div class="g"><div class="x"></div><div><img id="t" src="a.png" alt=""></div></div>')).toBe('75vw');
   });
@@ -306,6 +313,9 @@ describe.skipIf(!chromium)('the browser never renders an image wider than a boun
     ['rows of a list in unequal tracks', 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 2fr; gap: 30px } img { width: 100% }',
       '<div class="g"><template><div><img id="t" src="a.png" alt=""></div></template></div>',
       '<div class="g"><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div></div>'],
+    ['rows of a list in equal columns with a minimum: exact', 'body { margin: 0 } .g { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px } img { width: 100% }',
+      '<div class="g"><template><div><img id="t" src="a.png" alt=""></div></template></div>',
+      '<div class="g"><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div></div>'],
   ];
   for (const [name, css, body, rendered] of cases) {
     test(name, async () => {

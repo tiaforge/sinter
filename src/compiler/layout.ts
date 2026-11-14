@@ -1111,46 +1111,79 @@ export class Layout {
     const norm = tracks.map((t) => t.replace(/\s+/g, '').replace(/^minmax\(0(px)?,(\d*\.?\d*)fr\)$/, '$2fr'));
     const n = norm.length;
     if (!n || norm.some((t) => t.startsWith('['))) return null;
-    if (!areas && norm.every((t) => t === norm[0])) {
+    if (!areas && norm.every((t) => t === norm[0]) && !norm[0]!.startsWith('minmax(')) {
       if (/^\d*\.?\d+fr$/.test(norm[0]!)) return area({ k: (W.k - (n - 1) * gap.k) / n, c: (W.c - (n - 1) * gap.c) / n }, n);
       const L = this.lin(parent, tracks[0]!, W, seg);
       return L && area(L, n);
     }
-    // tracks that differ: lengths first, the space left shared by the `fr` tracks
+    // tracks that differ (or have a minimum): lengths first, the space left shared by the `fr` tracks
     if (areas && areas.columns > n) return null;
-    const fixed: Array<Lin | null> = [], fr: number[] = [];
+    /** a track: a length, or `fr` with its minimum (`auto`: its content's, followed while the tracks have room) */
+    type Track = { len: Lin } | { fr: number; min: Lin | 'auto' };
+    const list: Track[] = [];
     for (let i = 0; i < n; i++) {
-      const f = /^(\d*\.?\d+)fr$/.exec(norm[i]!);
-      if (f) { fr.push(Number(f[1])); fixed.push(null); continue; }
+      const t = tracks[i]!.replace(/\s+/g, ' ').trim();
+      const f = /^(\d*\.?\d+)fr$/.exec(t);
+      if (f) { list.push({ fr: Number(f[1]), min: 'auto' }); continue; }
+      const mm = /^minmax\(\s*([^,]+?)\s*,\s*(\d*\.?\d+)fr\s*\)$/.exec(t);
+      if (mm) {
+        if (/^(auto|min-content|max-content)$/.test(mm[1]!)) { if (mm[1] !== 'auto') return null; list.push({ fr: Number(mm[2]), min: 'auto' }); continue; }
+        const min = this.lin(parent, mm[1]!, W, seg);
+        if (!min) return null;
+        list.push({ fr: Number(mm[2]), min });
+        continue;
+      }
       // content-sized tracks (auto, min-content, fit-content(), minmax() of lengths) depend on what is in them
-      if (/^(auto|min-content|max-content)$|^(fit-content|minmax)\(/.test(norm[i]!)) return null;
+      if (/^(auto|min-content|max-content)$|^(fit-content|minmax)\(/.test(t)) return null;
       const L = this.lin(parent, tracks[i]!, W, seg);
       if (!L) return null;
-      fr.push(0); fixed.push(L);
+      list.push({ len: L });
     }
-    const frs = fr.reduce((a, b) => a + b, 0);
+    const sign = (x: Lin) => {
+      const lo = x.k * Math.max(seg[0], MIN_VIEWPORT) + x.c;
+      const hi = Number.isFinite(seg[1]) ? x.k * seg[1] + x.c : x.k > 1e-9 ? Infinity : x.k < -1e-9 ? -Infinity : x.c;
+      // negative over the range (zero at an end at most), not negative, or a crossing inside: split there
+      if ((lo < -1e-6 && hi < 1e-6) || (hi < -1e-6 && lo < 1e-6)) return -1;
+      if (lo < -1e-6 || hi < -1e-6) throw new Split(-x.c / x.k);
+      return 1;
+    };
     let free: Lin = { k: W.k - (n - 1) * gap.k, c: W.c - (n - 1) * gap.c };
-    for (const L of fixed) if (L) free = { k: free.k - L.k, c: free.c - L.c };
-    if (frs > 0) {
-      // with no space left, `fr` tracks take their content's size: not followed
-      const lo = free.k * Math.max(seg[0], MIN_VIEWPORT) + free.c;
-      const hi = Number.isFinite(seg[1]) ? free.k * seg[1] + free.c : free.k > 1e-9 ? Infinity : free.k < -1e-9 ? -Infinity : free.c;
-      // negative over the range (zero at an end at most) is overflow there; a crossing inside splits it
-      if ((lo < -1e-6 && hi < 1e-6) || (hi < -1e-6 && lo < 1e-6)) return null;
-      if (lo < -1e-6 || hi < -1e-6) throw new Split(-free.c / free.k);
+    for (const t of list) if ('len' in t) free = { k: free.k - t.len.k, c: free.c - t.len.c };
+    // the browser's "find the size of an fr": a flexible track whose share is below its minimum is held at its minimum, and the rest share again
+    const held = new Set<number>();
+    let unit: Lin = lin(0), noRoom = false;
+    for (let round = 0; round <= n && !noRoom; round++) {
+      let left = free, frs = 0;
+      list.forEach((t, i) => { if ('fr' in t) { if (held.has(i)) { const m = t.min as Lin; left = { k: left.k - m.k, c: left.c - m.c }; } else frs += t.fr; } });
+      if (!frs) break;
+      // a sum of factors under 1 shares only that part of the space
+      unit = frs >= 1 ? { k: left.k / frs, c: left.c / frs } : left;
+      let again = false;
+      list.forEach((t, i) => {
+        if (!('fr' in t) || held.has(i)) return;
+        const share = { k: unit.k * t.fr, c: unit.c * t.fr };
+        // a minimum of its content's: with no room left, the track is its content's size, not followed
+        if (t.min === 'auto') { if (sign(share) < 0) noRoom = true; return; }
+        if (sign({ k: share.k - t.min.k, c: share.c - t.min.c }) < 0) { held.add(i); again = true; }
+      });
+      if (!again) break;
     }
-    // a sum of factors under 1 shares only that part of the space
-    const unit = frs >= 1 ? { k: free.k / frs, c: free.c / frs } : free;
-    const widths = fixed.map((L, i) => L ?? { k: unit.k * fr[i]!, c: unit.c * fr[i]! });
+    if (noRoom) return null;
+    const widths = list.map((t, i) => ('len' in t ? t.len : held.has(i) ? t.min as Lin : { k: unit.k * t.fr, c: unit.c * t.fr }));
     const at = this.gridColumn(parent, el, placement, n);
     if (at) return sum(widths, at.start, at.span);
     // an auto-placed item whose column is not known (the rows of a list land in each in turn): the widest it may land in, an upper bound
     if (placement.start !== null || placement.named || placement.full || placement.span > n) return null;
     const flowc = this.cascaded(parent, ['grid-auto-flow']);
     if (flowc.ambiguous || /column/i.test(flowc.value ?? '')) return null;
-    let widest: Lin | null = null;
-    for (let i = 0; i + placement.span <= n; i++) { const w = sum(widths, i, placement.span); widest = widest ? pick(widest, w, seg, 'max') : w; }
-    this.notes.bounded = true;
+    let widest: Lin | null = null, same = true;
+    for (let i = 0; i + placement.span <= n; i++) {
+      const w = sum(widths, i, placement.span);
+      if (widest && (Math.abs(widest.k - w.k) > 1e-9 || Math.abs(widest.c - w.c) > 0.01)) same = false;
+      widest = widest ? pick(widest, w, seg, 'max') : w;
+    }
+    // equal columns (`repeat(3, minmax(200px, 1fr))`): wherever it lands, that is its width
+    if (!same) this.notes.bounded = true;
     return widest;
   }
 

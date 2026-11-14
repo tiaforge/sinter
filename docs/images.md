@@ -72,8 +72,9 @@ into `sizes`. For a fluid image, it does this at every viewport width:
 It follows your width media queries (`min-width`, `max-width`, `width >= 48rem`), percentages,
 `vw`, px, rem and em, margins, padding, borders, `min()`, `max()`, `clamp()`, `max-width`, custom
 properties, and `aspect-ratio`. It resolves grids with fixed and `fr` tracks, equal or not
-(`repeat(3, 1fr)`, `240px 1fr`, `2fr 1fr`, `repeat(auto-fill, minmax(200px, 1fr))`, spans, lines
-such as `2 / -1`, `gap`), named areas (`grid-template-areas` with `grid-area: main`), and flex rows
+(`repeat(3, 1fr)`, `240px 1fr`, `2fr 1fr`, `minmax(200px, 1fr) 300px`, `repeat(auto-fill, minmax(200px, 1fr))`, spans, lines
+such as `2 / -1`, `gap`; a column with a minimum is held at it where its share is smaller, as the
+browser does), named areas (`grid-template-areas` with `grid-area: main`), and flex rows
 whose items have a known size or grow from one: equal columns, a fixed sidebar beside a `flex: 1`
 main column, an avatar beside a growing body, wrapped items. When grid tracks differ, the column an
 auto-placed item lands in follows the items before it. An image with a fixed width at every
@@ -125,7 +126,7 @@ a width depends on layout it cannot predict:
 - `em` where the font size is not fixed: in `vw`, changed by a state or a media feature other than
   width, or under a lone `monospace` font (browsers scale its default size);
 - a parent that is inline or `display: contents`, a flex row with an item sized by its content (a
-  label without a width) or that overflows the row, or a grid with `auto`, `fit-content()` or `minmax()` tracks (`minmax(0, 1fr)` is followed);
+  label without a width) or that overflows the row, or a grid with `auto`, `fit-content()` or `minmax()` tracks of two lengths (`minmax(200px, 1fr)` is followed);
 - unequal grid tracks with an item flowing by column (`grid-auto-flow: column`);
 - a rule that could win sits in `@supports` or `@container`, in `@media` with a feature other than
   width, or depends on state (`:hover`, `:has()`, `:checked`);
