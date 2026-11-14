@@ -96,8 +96,10 @@ const checks = {
   'toc: placed above the body': async (page) => {
     await intercept(page); await page.goto('/article/article-1');
     await waitFor(async () => (await tocOf(page)).length === 3, 'toc');
-    const before = await page.evaluate(() => { const t = document.querySelector('nav.article-toc'), b = document.querySelector('.article-content'); return !!(t && b && t.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING && !t.contains(b) && !b.contains(t)); });
-    assert(before, 'nav.article-toc is not before .article-content');
+    // before the body's first heading (the theme's .article-content wraps the body, so the nav may sit inside it)
+    await waitFor(async () => (await page.locator('[id="getting-started"]').count()) === 1, 'no heading #getting-started');
+    const before = await page.evaluate(() => { const t = document.querySelector('nav.article-toc'), h = document.getElementById('getting-started'); return !!(t && h && (t.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING) && !t.contains(h)); });
+    assert(before, 'nav.article-toc is not before the body');
   },
   'toc: absent without headings': async (page) => {
     await intercept(page); await page.goto('/article/article-4');
