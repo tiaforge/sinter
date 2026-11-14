@@ -85,6 +85,8 @@ export interface ResourceDef {
   sch?: string;
   /** `method="POST"`: loaded with a POST whose JSON body is this function's value (the identity of a load is its URL and body) */
   body?: number;
+  /** page module only (`compactIR`): a server-event stream of the page feeds it (an event names it): `$meta.live`, and its stream keeps it current */
+  fed?: 1;
 }
 
 export interface EventDef {
@@ -221,6 +223,13 @@ export interface TemplateDef {
    * binding whose element is missing. The generic path creates rows of templates without one.
    */
   make?: number;
+  /**
+   * page module only (`compactIR`): a row template with a lookup function whose elements only have value bindings
+   * and handlers (no state, model, nested template or dialog); its rows keep no binding objects
+   */
+  sm?: 1;
+  /** page module only (`compactIR`): a binding in its rows, nested templates included, reads a loop index, so a row that only moved re-runs those */
+  ri?: 1;
 }
 
 /** a local action call: `args` evaluates the arguments (an array), `run(args, ctx)` calls the function */
@@ -301,6 +310,12 @@ export interface IR {
   urlReads?: string[];
   /** the path table (page module only); without it, paths are strings */
   ps?: PathTable;
+  /**
+   * the event types the mount listens for at its root (page module only): each handler's, `input` and `change` with
+   * a model, `toggle` where a dialog opening has something to render (an element in a dialog, a control that is not
+   * a text field); absent for none
+   */
+  ev?: string[];
 }
 
 export type Fn = (scope: any, value?: any) => any;
@@ -420,17 +435,32 @@ const NULLS = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v])
 export function compactIR(full: IR): IR {
   const ir = structuredClone(full), ps = numberPaths(ir);
   const { syncs, ...rest } = ir;
+  // what the mount listens for: decided here, so it walks no bindings for it
+  const nodes = [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)];
+  const ev = [...new Set(nodes.flatMap((n) => [
+    ...(n.dl ? ['toggle'] : []),
+    ...n.b.flatMap((b) => (b.k == 'on' ? [b.n!] : b.k == 'model' ? [...(b.n == 'text' ? [] : ['toggle']), 'input', 'change'] : [])),
+  ]))];
+  // a template's kind, decided here: the runtime reads a flag where it walked the template's bindings
+  const SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
+  const simple = (t: TemplateDef) => t.find != null && t.nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE.has(b.k)));
+  // (a component used inside itself makes a template its own descendant: a template being visited adds nothing)
+  const reads = (t: TemplateDef, seen: Set<TemplateDef>): boolean => !seen.has(t) && (seen.add(t), t.nodes.some((nd) => nd.b.some((b) =>
+    !!b.i || ((b.k == 'for' || b.k == 'if' || b.k == 'else') && reads(ir.templates[b.x!]!, seen)))));
+  // the resources a stream feeds: the runtime reads a flag where it searched every stream's events, per resource
+  const fed = new Set((syncs ?? []).flatMap((s) => s.events.map((e) => e.resource)));
   return {
     ...rest,
     resources: ir.resources.map((r) => {
       const { deps, scope, ...rest } = r;
-      return { ...NULLS(rest), ...(deps?.length ? { deps } : {}), ...(scope != null && scope >= 0 ? { scope } : {}) } as ResourceDef;
+      return { ...NULLS(rest), ...(deps?.length ? { deps } : {}), ...(scope != null && scope >= 0 ? { scope } : {}), ...(fed.has(r.name) ? { fed: 1 } : {}) } as ResourceDef;
     }),
     ...(syncs?.length ? { syncs: syncs.map((s) => ({ ...s, events: s.events.map((e) => NULLS(e) as EventDef) })) } : {}),
     roots: ir.roots.map(compactNode),
     // a template's absent `index`, `key` and `keyFields` are null
-    templates: ir.templates.map((t) => ({ ...NULLS(t), nodes: t.nodes.map(compactNode) }) as TemplateDef),
+    templates: ir.templates.map((t) => ({ ...NULLS(t), nodes: t.nodes.map(compactNode), ...(simple(t) ? { sm: 1 } : {}), ...(reads(t, new Set()) ? { ri: 1 } : {}) }) as TemplateDef),
     ps,
+    ...(ev.length ? { ev } : {}),
   };
 }
 

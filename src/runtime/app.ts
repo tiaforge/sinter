@@ -390,7 +390,6 @@ export function scopeState(el: Element): [number, any] | null {
 }
 /** HANDLERS: one handler binding, or an array when the element has several */
 export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
-const indexReaders = new WeakMap<TemplateDef, boolean>();
 const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
 /** row templates: whether each holds one element (see oneElement()) */
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
@@ -398,7 +397,7 @@ const prepared = new WeakMap<HTMLTemplateElement, boolean>();
 const EARLY_ROWS = Symbol.for('sinter.early.rows');
 /** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
 const EARLY = Symbol.for('sinter.early');
-const simple = new WeakMap<TemplateDef, Simple | null>(), SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
+const simple = new WeakMap<TemplateDef, Simple | null>();
 /** ROW: on each node of a simple row with handlers, its instance */
 const ROW = Symbol('sinter.row');
 type RowNode = Node & { [ROW]?: Inst };
@@ -422,7 +421,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const acts = new WeakMap<Element, ActState>();
   /** props set on custom elements not defined yet, by element: the latest value of each */
   const early = new WeakMap<Element, Map<string, unknown>>();
-  const types = new Set<string>(), deferred = new Set<RB>();
+  const deferred = new Set<RB>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<Got> }>();
   /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id; `run(id)`: any element */
@@ -554,11 +553,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
    */
   const isMarked = (t: number, s: any) => marked.has(s[ir.templates[t]!.item!]);
   const level = (e: Reach, d: Dirty, s?: any) => (e.conds.length ? reachLevel(e, d.v, s, isMarked) : 2);
-
-  /** Whether a binding in a template's rows (nested templates included) reads a loop index. */
-  // (a component used inside itself makes a template its own descendant: the entry is set before it is computed)
-  const readsIndex = (t: TemplateDef): boolean => indexReaders.get(t) ?? (indexReaders.set(t, false), indexReaders.set(t, t.nodes.some((nd) => nd.b.some((b) =>
-    b.i || ((b.k == 'for' || b.k == 'if' || b.k == 'else') && readsIndex(ir.templates[b.x!]!))))), indexReaders.get(t)!);
 
   /** Dependencies of every binding in a template's rows, nested templates included. */
   const templateDeps = (t: TemplateDef): number[] => allDeps.get(t) ?? (allDeps.set(t, []), allDeps.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
@@ -756,8 +750,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   for (const def of ir.resources) createLoader(def);
   // back from the bfcache, or online again: the data may have changed meanwhile. Resources a stream
   // feeds are refetched by the stream module when it reconnects.
-  const fed = new Set((ir.syncs ?? []).flatMap((s) => s.events.map((e) => e.resource)));
-  const again = () => { for (const l of loaders) if (!fed.has(l.def.name)) void l.refetch(); };
+  const again = () => { for (const l of loaders) if (!l.def.fed) void l.refetch(); };
   app.addCleanup(env.listen('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) again(); }));
   app.addCleanup(env.listen('online', again));
   // prerendered (Speculation Rules): the page loaded while nobody saw it, maybe minutes ago, and
@@ -774,11 +767,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     doc.addEventListener('prerenderingchange', on);
     app.addCleanup(() => doc.removeEventListener('prerenderingchange', on));
   }
-  // listeners for every event type the page binds, rows included
-  listen('toggle');
-  for (const nd of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) for (const b of nd.b) {
-    if (b.k == 'on') listen(b.n!);
-    if (b.k == 'model') { listen('input'); listen('change'); }
+  // one delegated capture listener per event type the page binds, rows included, at the mount root: the compiler listed them
+  for (const type of ir.ev ?? []) {
+    ET.addEventListener.call(root, type, dispatch, true);
+    cleanups.push(() => ET.removeEventListener.call(root, type, dispatch, true));
   }
   bindNodes(ir.roots, ir.roots.map((nd) => {
     const el = found.get(nd.id!);
@@ -814,14 +806,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return readFrom(env.href(), ir.path);
   }
 
-
-  /** One delegated capture listener per used event type, at the mount root. */
-  function listen(type: string) {
-    if (types.has(type)) return;
-    types.add(type);
-    ET.addEventListener.call(root, type, dispatch, true);
-    cleanups.push(() => ET.removeEventListener.call(root, type, dispatch, true));
-  }
 
   /**
    * Only elements the compiler marked as in a dialog of their own block (`dl`) are checked for a
@@ -1051,7 +1035,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       pre.end.remove();
     }
     const t = rb.t!, old = rb.rows!, end = (rb.end ??= after(rb.el)), tpl = rb.el as HTMLTemplateElement;
-    const n = items.length, m = old.length, rows: Inst[] = new Array(n), moved = readsIndex(t);
+    const n = items.length, m = old.length, rows: Inst[] = new Array(n), moved = t.ri;
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
     const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
@@ -1236,12 +1220,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return one;
   }
 
-  /** A row template with a lookup function whose elements only have value bindings and handlers (no state, model, nested template or dialog). */
+  /** A simple row template (the compiler's `sm`: a lookup function, only value bindings and handlers; no state, model, nested template or dialog): its value bindings and handlers. */
   function isSimple(t: TemplateDef): Simple | null {
     let v = simple.get(t);
     if (v === undefined) {
       const pick = (on: boolean) => t.nodes.flatMap((nd, k) => nd.b.filter((b) => (b.k == 'on') == on).map((b): [number, Binding] => [k, b]));
-      v = t.find != null && t.nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE.has(b.k))) ? { vals: pick(false), hs: pick(true) } : null;
+      v = t.sm ? { vals: pick(false), hs: pick(true) } : null;
       simple.set(t, v);
     }
     return v;
@@ -1425,7 +1409,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     Object.defineProperty(app.page.$r, def.name, { get: r.value, enumerable: true });
     app.page.$meta[def.name] = r.meta;
     // fed by a server-event stream: connecting until its first open (src/sse.ts keeps it current)
-    if (app.ir.syncs?.some((s) => s.events.some((e) => e.resource == def.name))) r.meta.live = 'connecting';
+    if (def.fed) r.meta.live = 'connecting';
     /** `had`: the resource has had a URL (its first one after mount restores a `page-model` page) */
     let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, loud = false, had = false, typing: unknown = null, posted: unknown;
 

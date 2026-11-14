@@ -121,7 +121,7 @@ class PagerImpl implements Pager {
       else if (target === 'prev') n = page - 1;
       else if (target === 'next') n = page + 1;
       else {
-        if (meta.pages == null) { this.loader.app.warn(`page('${this.loader.def.name}', 'last') needs a known total`); return; }
+        if (meta.pages == null) { this.loader.app.warn(30, this.loader.def.name); return; }
         n = meta.pages;
       }
       n = Math.max(1, Math.floor(n));
@@ -159,7 +159,7 @@ class PagerImpl implements Pager {
     else if (target == 'prev') { if (from <= 1) return; n = from - 1; }
     else if (target == 'next') { if (pages != null ? from >= pages : l.inflight() || !meta.hasNext) return; n = from + 1; }
     else {
-      if (pages == null) { l.app.warn(`page('${l.def.name}', 'last') needs a known total`); return; }
+      if (pages == null) { l.app.warn(30, l.def.name); return; }
       n = pages;
     }
     if (pages != null) n = Math.min(n, pages);

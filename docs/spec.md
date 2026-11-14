@@ -146,15 +146,16 @@ The IR is the only contract between compiler and runtime. It is plain JSON plus 
 
 | Part | Holds |
 | --- | --- |
-| `resources` | name, URL template, key fields, items/total paths, order, pagination config (with `page-model`, its parameter `model` and the function that reads it, `start`; in the page module only the fields that are set: an absent one is null, `deps` [] and `scope` -1; the compiler keeps the full objects) |
+| `resources` | name, URL template, key fields, items/total paths, order, pagination config (with `page-model`, its parameter `model` and the function that reads it, `start`; in the page module only the fields that are set: an absent one is null, `deps` [] and `scope` -1; the compiler keeps the full objects; the page module also flags a resource that an event of one of the page's streams names, `fed`: its `$meta.live` starts as `connecting`, and `pageshow` and `online` leave its refetch to the stream, added 2026-11-14) |
 | `syncs` | stream URL, event → change-message mappings (absent event fields are null; absent on a page without streams) |
 | `roots` | per `data-sn` id: its bindings and the scope it opens (in the page module `p` is absent for a node outside any state scope) |
-| `templates` | per template: node paths, bindings, key expression (absent `index`, `key`, `keyFields` are null) |
+| `templates` | per template: node paths, bindings, key expression (absent `index`, `key`, `keyFields` are null); in the page module (`compactIR`) also its kind, which the runtime reads instead of walking the template's bindings: `sm` a simple row template (a lookup function, only value bindings and handlers: its rows keep no binding objects), `ri` a binding in its rows, nested templates included, reads a loop index (added 2026-11-14) |
 | `actions` | method, URL template, concurrency, and only where the page sets them: body source, debounce, optimistic, then, catch, the paths they write, form (the trigger event is the action's `on` binding) |
 | `bindings` | kind (`text`, `attr`, `class`, `style`, `show`, `model`, `prop`, `for`, `if`, `else`, `on`), target, function index, static dependency paths; for a key filter, the `key` to match and modifier bits |
 | `urlArrays` | the `$url` parameters that are lists (bound to a `<select multiple>` or a checkbox with a `value`), absent when none (added 2026-11-13) |
 | `urlReads` | same-page links: the `$url` parameters the page reads by name, present only on pages that load query-links (added 2026-11-14) |
 | `ps` | the path table (page module only, below) |
+| `ev` | the event types the mount listens for at its root (page module only, from `compactIR`): each handler's, `input` and `change` with a model, `toggle` where a dialog that opens has something to render (an element in a dialog, a model of a control other than a text field); absent for none. The mount adds one listener per entry and walks no bindings for it (added 2026-11-14) |
 
 Dependencies are extracted at compile time: every binding lists the state and resource paths it reads (`q`, `contacts`, `c`). The runtime matches them against dirty paths (see Reactivity), so it needs no proxies and no read tracking.
 

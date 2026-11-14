@@ -147,7 +147,7 @@ class Connection {
       if (def.resource && !this.change(def, def.resource, scope, payload)) return;
       if (def.then != null) app.exec(def.then, scope, def.w);
     } catch (e) {
-      app.warn(`event \`${def.name}\` could not be applied: ${(e as Error).message}`, payload);
+      app.warn(28, def.name, (e as Error).message, payload);
     }
   }
 
@@ -186,7 +186,7 @@ class Connection {
 
   private hasKey(fields: string[], payload: Record<string, unknown>, def: EventDef): boolean {
     const missing = fields.filter((f) => payload[f] === undefined);
-    if (missing.length) this.app.warn(`event \`${def.name}\` payload is missing key field(s) ${missing.join(', ')} for \`${def.resource}\``, payload);
+    if (missing.length) this.app.warn(29, def.name, missing.join(', '), def.resource, payload);
     return missing.length === 0;
   }
 }
