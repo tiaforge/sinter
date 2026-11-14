@@ -1286,8 +1286,9 @@ export class Layout {
   private normalLine(el: P5Element): number | null {
     const f = this.fontSize(el);
     if (f === null) return null;
-    const fam = this.fontFamily(el);
-    return (fam ? this.normal(fam) ?? 1 : 1) * f;
+    // the font's ratio less 1 px: engines round its ascent and descent to whole pixels
+    const fam = this.fontFamily(el), r = fam ? this.normal(fam.toLowerCase()) : null;
+    return r === null ? f : Math.max(0, r * f - 1);
   }
 
   /** the first family of `el`'s font-family (inherited), unquoted; null when unknown */

@@ -29,6 +29,8 @@ export interface StyleContext {
   engines?: StyleEngine[];
   /** an engine that failed, reported once by the adapter */
   warn?: (message: string) => void;
+  /** a remote stylesheet the build has (Google Fonts, downloaded: its `@font-face` rules give the fonts' metrics), or null */
+  remote?: (url: string) => Promise<string | null>;
 }
 
 const SCRIPT = /\.[cm]?[jt]sx?$/;
@@ -126,8 +128,14 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
   for (const { el, from } of elements) {
     const media = attr(el, 'media')?.trim() || null;
     if (el.tagName === 'link' && /(^|\s)stylesheet(\s|$)/i.test(attr(el, 'rel') ?? '') && !/(^|\s)alternate(\s|$)/i.test(attr(el, 'rel') ?? '')) {
-      const path = local(attr(el, 'href') ?? '', from);
+      const href = (attr(el, 'href') ?? '').replace(/&amp;/g, '&');
+      const path = local(href, from);
       if (path && isStyle(path)) await addCss(path, media);
+      else if (ctx.remote && /^https:\/\/fonts\.googleapis\.com\/css2?\?/.test(href) && !seenCss.has(href)) {
+        seenCss.add(href);
+        const css = await ctx.remote(href).catch(() => null);
+        if (css) sheets.push({ file: href, css: wrap(css, media) });
+      }
     } else if (el.tagName === 'style') {
       const text = el.childNodes.map((c) => ('value' in c ? (c as { value: string }).value : '')).join('');
       // compiled as a stylesheet next to the page, so its imports resolve from there

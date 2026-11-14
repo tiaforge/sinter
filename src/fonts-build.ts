@@ -81,6 +81,33 @@ export function fontDownloader(dir: string, fetchImpl: typeof fetch = fetch): (u
 }
 
 /**
+ * Downloads a font file once (Google Fonts' files, fonts.gstatic.com), cached in `dir` by URL: the
+ * build reads its metrics (`line-height: normal`, font-metrics.ts). Null when it cannot be had.
+ */
+export function fontFileDownloader(dir: string, fetchImpl: typeof fetch = fetch): (url: string) => Promise<Uint8Array | null> {
+  const running = new Map<string, Promise<Uint8Array | null>>();
+  return (url) => {
+    let p = running.get(url);
+    if (!p) {
+      const file = join(dir, `${createHash('sha256').update(url).digest('hex').slice(0, 24)}.font`);
+      p = (async () => {
+        try { return new Uint8Array(readFileSync(file)); } catch { /* not cached yet */ }
+        if (!/^https:\/\/fonts\.gstatic\.com\//.test(url)) return null;
+        try {
+          const res = await fetchImpl(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(15_000) });
+          if (!res.ok) return null;
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          try { mkdirSync(dir, { recursive: true }); writeFileSync(file, bytes); } catch { /* a read-only cache is fine */ }
+          return bytes;
+        } catch { return null; }
+      })();
+      running.set(url, p);
+    }
+    return p;
+  };
+}
+
+/**
  * A font face to preload (`sinter({ fonts: { preload } })`): a family name for its regular face
  * (400, normal), or the family with a weight and style.
  */

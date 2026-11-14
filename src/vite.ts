@@ -26,7 +26,8 @@ import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, RuntimeReason, 
 import { hasCspMeta, movesToDirectory, pageFile, pagePaths, pageUrl, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type PageEntry, type Route } from './page-urls.js';
 import { chooserHtml, hreflangTags, readLocales, type Locales } from './locales-build.js';
-import { faceName, faceOf, fontDownloader, inlineFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
+import { familyLineHeights } from './font-metrics.js';
+import { faceName, faceOf, fontDownloader, fontFileDownloader, inlineFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
 import { COMPONENT_NAME } from './compiler/components.js';
 import { apiOrigins } from './compiler/apis.js';
@@ -380,13 +381,32 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return null;
     }
   };
+  // Google Fonts' stylesheets and files, for the fonts' metrics (cached where the fonts plugin caches them)
+  let fontCss: ((url: string) => Promise<string | null>) | null = null, fontFile: ((url: string) => Promise<Uint8Array | null>) | null = null;
+  /** `line-height: normal` of the families the stylesheets declare, from their files: local ones, data: URIs, Google Fonts' */
+  const fontBytes = new Map<string, Promise<Uint8Array | null>>();
+  const lineHeightsOf = (styles: StyleSheet[]) => familyLineHeights(styles, (url, sheet) => {
+    const key = `${sheet}\0${url}`;
+    let p = fontBytes.get(key);
+    if (!p) fontBytes.set(key, (p = readFont(url, sheet)));
+    return p;
+  });
+  const readFont = async (url: string, sheet: string): Promise<Uint8Array | null> => {
+    if (url.startsWith('data:')) { const m = /^data:[^,]*;base64,(.*)$/s.exec(url); return m ? new Uint8Array(Buffer.from(m[1]!, 'base64')) : null; }
+    if (/^https?:\/\//i.test(url)) return (fontFile ??= fontFileDownloader(resolve(root, 'node_modules/.cache/sinter/fonts/files')))(url);
+    const path = decodeURI(url.replace(/[?#].*$/, ''));
+    const candidates = path.startsWith('/@fs/') ? [path.slice(4)] : path.startsWith('/') ? [resolve(root, '.' + path), ...(resolved!.publicDir ? [resolve(resolved!.publicDir, '.' + path)] : [])] : [resolve(dirname(sheet), path)];
+    for (const c of candidates) { try { return new Uint8Array(readFileSync(c)); } catch { /* the next */ } }
+    return null;
+  };
   /** the stylesheets the page loads, for the boxes they give its images */
   const stylesOf = async (html: string, file: string, p: ReturnType<typeof project>): Promise<StyleSheet[]> => {
     resolveId ??= resolved!.createResolver({ tryIndex: true });
     const r = resolveId;
     const modules = [p.config, p.early, p.helpersFile, p.actionsFile].filter((m): m is string => !!m);
     engines ??= detectEngines(root, resolved!.plugins.map((x) => x.name));
-    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss, engines, warn: warnOnce });
+    const remote = options.fonts?.inline === false ? undefined : (url: string) => (fontCss ??= fontDownloader(resolve(root, 'node_modules/.cache/sinter/fonts')))(url);
+    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss, engines, warn: warnOnce, ...(remote ? { remote } : {}) });
   };
   const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {
     if (!images) return undefined;
@@ -545,7 +565,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
 
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
-  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[]): { out: CompileResult; p: ReturnType<typeof project> } => {
+  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>): { out: CompileResult; p: ReturnType<typeof project> } => {
     const rel = relOf(file);
     const p = project(root, options);
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
@@ -563,6 +583,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(lazyPkgs.length ? { lazyScript } : {}),
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(styles?.length ? { styles } : {}),
+      ...(lineHeights?.size ? { normalLineHeight: (f: string) => lineHeights.get(f) ?? null } : {}),
       ...(firstPaint && !dev ? { paintCss: `${PAINT_CSS}${rel}.css` } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
@@ -940,11 +961,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const earlySrc = dev ? `${resolved?.base ?? '/'}${EARLY.slice(1)}${rel}.js` : null;
         // the cascade, for images and for the space of lists (in the page or in its components)
         const styles = (images && /<img\b|<[a-z][a-z0-9]*-/i.test(html)) || (firstPaint && /data-sn-for|<[a-z][a-z0-9]*-/i.test(html)) ? await stylesOf(html, virtual.get(file)?.source ?? file, project(root, options)) : undefined;
-        let { out, p } = build(html, file, earlySrc, styles);
+        // the fonts' `line-height: normal`, for the space of lists (builds)
+        const lineHeights = styles?.length && firstPaint && !dev && /data-sn-for|<[a-z][a-z0-9]*-/i.test(html) ? await lineHeightsOf(styles) : undefined;
+        let { out, p } = build(html, file, earlySrc, styles, lineHeights);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
         if (images && out.images?.pending.length) {
           await images.analyze(out.images.pending);
-          ({ out, p } = build(html, file, earlySrc, styles));
+          ({ out, p } = build(html, file, earlySrc, styles, lineHeights));
         }
         for (const w of out.remoteWidths ?? []) remoteWidths.add(w);
         if (out.paint !== undefined && paintCss.get(rel) !== out.paint) {
