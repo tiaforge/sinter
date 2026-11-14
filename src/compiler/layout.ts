@@ -42,7 +42,38 @@ type Match = 'yes' | 'no' | 'maybe';
 interface Decl { prop: string; value: string; important: boolean; layer: number[]; spec: [number, number, number]; order: number; conditional: boolean; inline?: boolean;
   /** the preludes of the `@media` rules around it (all must match) */
   media?: string[] }
-interface Rule { selectors: Array<{ ast: csstree.Selector; spec: [number, number, number] }>; decls: Decl[] }
+interface Rule { selectors: Array<{ ast: csstree.Selector; spec: [number, number, number]; parts: csstree.CssNode[]; need: Need }>; decls: Decl[] }
+/** what the subject of a selector must have, from its last compound's own type, id and classes (a quick no) */
+interface Need { tag: string | null; id: string | null; cls: string[] }
+/**
+ * The rules by what their selectors' subjects need: an id, else a class, else a type, else anything ('*');
+ * a rule is under each key one of its selectors needs. An element's candidates are the rules under its own.
+ */
+interface RuleIndex { by: Map<string, number[]>; any: number[] }
+const INDEXES = new WeakMap<Rule[], RuleIndex>();
+function indexOf(rules: Rule[]): RuleIndex {
+  let ix = INDEXES.get(rules);
+  if (ix) return ix;
+  ix = { by: new Map(), any: [] };
+  rules.forEach((r, i) => {
+    const keys = new Set(r.selectors.map(({ need }) => (need.id !== null ? `#${need.id}` : need.cls.length ? `.${need.cls[0]}` : need.tag !== null ? need.tag : '*')));
+    for (const k of keys) { if (k === '*') ix!.any.push(i); else { const l = ix!.by.get(k) ?? []; l.push(i); ix!.by.set(k, l); } }
+  });
+  INDEXES.set(rules, ix);
+  return ix;
+}
+
+function needOf(parts: csstree.CssNode[]): Need {
+  let i = parts.length;
+  while (i > 0 && parts[i - 1]!.type !== 'Combinator') i--;
+  const need: Need = { tag: null, id: null, cls: [] };
+  for (const n of parts.slice(i)) {
+    if (n.type === 'TypeSelector' && n.name !== '*' && !n.name.includes('|')) need.tag = n.name.toLowerCase();
+    else if (n.type === 'IdSelector') need.id = unescape(n.name);
+    else if (n.type === 'ClassSelector') need.cls.push(unescape(n.name));
+  }
+  return need;
+}
 
 /** the properties this reads (and their aliases), and what a declaration of any of them on a parent means */
 const SIZE = { width: ['width', 'inline-size'], height: ['height', 'block-size'], 'min-width': ['min-width', 'min-inline-size'], 'max-width': ['max-width', 'max-inline-size'], 'min-height': ['min-height', 'min-block-size'], 'max-height': ['max-height', 'max-block-size'] } as const;
@@ -112,10 +143,11 @@ function rulesOf(css: string): Rule[] {
       let selectors: Rule['selectors'];
       try {
         const list = csstree.parse(selText, { context: 'selectorList' }) as csstree.SelectorList;
-        selectors = list.children.toArray().map((s) => ({ ast: s as csstree.Selector, spec: specificity(s as csstree.Selector) }));
+        selectors = list.children.toArray().map((s) => { const parts = (s as csstree.Selector).children.toArray(); return { ast: s as csstree.Selector, spec: specificity(s as csstree.Selector), parts, need: needOf(parts) }; });
       } catch {
         // a selector this cannot parse: its declarations may apply anywhere
-        selectors = [{ ast: { type: 'Selector', children: new csstree.List<csstree.CssNode>().fromArray([{ type: 'PseudoClassSelector', name: '\0unknown', children: null }]) }, spec: [0, 0, 0] }];
+        const parts: csstree.CssNode[] = [{ type: 'PseudoClassSelector', name: '\0unknown', children: null }];
+        selectors = [{ ast: { type: 'Selector', children: new csstree.List<csstree.CssNode>().fromArray(parts) }, spec: [0, 0, 0], parts, need: { tag: null, id: null, cls: [] } }];
       }
       const r = rank(layer);
       const decls: Decl[] = [];
@@ -203,6 +235,16 @@ const dynamic = (el: P5Element, kind: 'class' | 'style') => el.attrs.some((a) =>
  * it), `value`/`checked` for a model; 'all' when the keys cannot be read here.
  */
 function boundAttrs(el: P5Element): Set<string> | 'all' {
+  // per element, while its attributes stay as they are (the compiler adds some after the layout ran)
+  const got = BOUND.get(el);
+  if (got && got.attrs === el.attrs && got.n === el.attrs.length) return got.v;
+  const v = readBound(el);
+  BOUND.set(el, { attrs: el.attrs, n: el.attrs.length, v });
+  return v;
+}
+const BOUND = new WeakMap<P5Element, { attrs: P5Element['attrs']; n: number; v: Set<string> | 'all' }>();
+
+function readBound(el: P5Element): Set<string> | 'all' {
   const out = new Set<string>();
   for (const a of el.attrs) {
     if (a.name === 'data-sn-model') { out.add('value'); out.add('checked'); }
@@ -449,10 +491,22 @@ export class Layout {
     let m = this.cascades.get(el);
     if (m) return m;
     m = new Map();
-    for (const r of this.rules) {
+    // the element's own type, id and classes, for a quick no (unless a binding may change them)
+    const idFixed = !mayChange(el, 'id'), clsFixed = !mayChange(el, 'class') && !dynamic(el, 'class');
+    const id = attrOf(el, 'id'), cls = new Set((attrOf(el, 'class') ?? '').split(/\s+/).filter(Boolean));
+    // the rules that may match it, in their order: all of them when a binding may change its id or classes
+    let candidates: Rule[] = this.rules;
+    if (idFixed && clsFixed) {
+      const ix = indexOf(this.rules), at = new Set(ix.any);
+      for (const k of [el.tagName, ...(id ? [`#${id}`] : []), ...[...cls].map((c) => `.${c}`)]) for (const i of ix.by.get(k) ?? []) at.add(i);
+      candidates = [...at].sort((a, b) => a - b).map((i) => this.rules[i]!);
+    }
+    for (const r of candidates) {
       let best: { match: Match; spec: [number, number, number] } | null = null;
       for (const s of r.selectors) {
-        const x = this.matches(s.ast.children.toArray(), el);
+        const nd = s.need;
+        if ((nd.tag !== null && nd.tag !== el.tagName) || (nd.id !== null && idFixed && nd.id !== id) || (clsFixed && nd.cls.some((c) => !cls.has(c)))) continue;
+        const x = this.matches(s.parts, el);
         if (x === 'no') continue;
         if (!best || (x === 'yes' && best.match === 'maybe') || (x === best.match && cmp3(s.spec, best.spec) > 0)) best = { match: x, spec: s.spec };
       }
