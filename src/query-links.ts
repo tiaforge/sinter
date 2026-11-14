@@ -57,9 +57,8 @@ const feature: Feature = {
       if (to.hash) (app.env.fragment ?? ((h) => location.replace(h)))(to.hash);
     };
     // after the page's own handlers (the core listens in the capture phase): one may prevent the default
-    const ET = EventTarget.prototype;
-    ET.addEventListener.call(app.root, 'click', click);
-    app.addCleanup(() => ET.removeEventListener.call(app.root, 'click', click));
+    app.root.addEventListener('click', click);
+    app.addCleanup(() => app.root.removeEventListener('click', click));
   },
 };
 export default feature;
