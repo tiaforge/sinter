@@ -57,6 +57,10 @@ Vue 3 (official) 80), the same CLS for every implementation; fixtures `77001a244
 - With the tag list hidden while the feed's first rows load ([docs/first-paint.md](../../../docs/first-paint.md#a-box-whose-width-follows-the-list)),
   measured the same way afterwards: sinter mobile **100** (99–100), CLS 0.000, FCP and LCP 1.53 s; the others in that
   run within two points of the table (SvelteKit 93, Solid 90, Angular 89, Vue 3 (mutoe) 86, Vue 3 (official) 80).
+- With the theme bundled into the build's CSS as well (4b64084: minified and hashed with the Google Fonts CSS, one
+  stylesheet less): sinter mobile **100** on all 5 runs, FCP and LCP 1.38 s, CLS 0.000; desktop 100. The others
+  unchanged (SvelteKit 93, Solid 90, Angular 88, Vue 3 (mutoe) 86, Vue 3 (official) 80; desktop as above).
+  [docs/realworld-comparison.md](../../../docs/realworld-comparison.md#the-same-conditions) has this run.
 - SvelteKit renders the feed on its server: almost no shift, and its largest paint waits for the API (3.16 s).
 - Angular and both Vue apps on desktop: the page container moves when the feed arrives (CLS 0.77–0.79).
 
