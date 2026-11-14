@@ -2,7 +2,7 @@
 // rewritten page plus its IR and function table.
 import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
-import { Layout } from './layout.js';
+import { Layout, type Reserved, type StyleSheet } from './layout.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -159,6 +159,15 @@ export interface CompileOptions {
   componentNames?: string[];
   /** the module the page module imports for a component's scoped styles (`CompiledParts.styles`), so the bundler puts them in the page's stylesheet */
   componentCss?: (name: string) => string;
+  /**
+   * the stylesheets the page loads, in order: the boxes they fix size images (as `images.styles`) and
+   * the space a list's rows take before its data arrives (docs/first-paint.md#reserved-space)
+   */
+  styles?: StyleSheet[];
+  /** builds: the module the page module imports for the page's generated first-paint rules (`CompiledParts.paint`), which the adapter serves */
+  paintCss?: string;
+  /** a font family's `line-height: normal` as a multiple of its size, from the font files the build has (fonts-build.ts) */
+  normalLineHeight?: (family: string) => number | null;
 }
 
 /** A place in the markup: `file`, 1-based line and column. */
@@ -203,6 +212,8 @@ export interface CompileResult {
   messages?: string[];
   /** with `images` */
   images?: ImageResult;
+  /** with `paintCss`: the rules of the page's reserved space (the placeholders of lists whose data comes later), empty when none */
+  paint?: string;
   /** every width the page asks the resizing service for (`remoteImages`) */
   remoteWidths?: number[];
   /** what another page needs to request this page's data ahead (null: nothing) */
@@ -311,6 +322,8 @@ export interface CompiledParts {
   early?: EarlyParts | null;
   /** with `images` */
   images?: ImageResult;
+  /** with `paintCss`: the rules of the page's reserved space, empty when none */
+  paint?: string;
   /** the resizing service's config, when a bound image uses it (the page module creates `$ri` from it) */
   remote?: RemoteConfig;
   /** every width the page asks the service for */
@@ -597,6 +610,11 @@ class Compiler {
   readonly resources: ResourceDef[] = [];
   /** resources with `early="off"`: no preload, no early request (one a request middleware answers or adds a header to) */
   private readonly noEarly = new Set<string>();
+  /** by `<template data-sn-for>` outside templates: its reserved space and the content-sized box around it (`planSpace`) */
+  private readonly spacePlan = new Map<P5Element, { off: boolean; sized: { el: P5Element; siblings: boolean } | null; space: Reserved | null; resource: string | null }>();
+  /** the placeholders' rules (`CompiledParts.paint`) */
+  readonly paintRules: string[] = [];
+  private spaceN = 0;
   /** origins of resources that could be requested early but are not listed in `origins` */
   readonly unlisted = new Set<string>();
   /** whether a resource's literal `src` may be requested before the page module: same-origin, or a listed origin */
@@ -772,7 +790,10 @@ class Compiler {
     if (this.opts.unrolled?.size) this.unrollLoops(doc);
     this.checkHead();
     this.componentIds();
-    const layout = this.layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
+    const sheets = this.opts.styles ?? this.opts.images?.styles;
+    const layout = this.layout = sheets?.length ? new Layout(sheets, doc, this.opts.normalLineHeight ? { normalLineHeight: this.opts.normalLineHeight } : {}) : null;
+    // the lists whose rows arrive after the first paint: their space, before anything else reads the markup's bindings
+    if (layout) this.planSpace(doc, layout);
     const images = this.opts.images ? rewriteImages(doc, {
       host: this.opts.images, root: this.opts.root,
       ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows } : {}),
@@ -867,6 +888,7 @@ class Compiler {
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
       ...(images ? { images } : {}),
+      ...(this.opts.paintCss ? { paint: this.paintRules.join('\n') + (this.paintRules.length ? '\n' : '') } : {}),
       ...(this.remoteUsed ? { remote: this.opts.remoteImages!, remoteWidths: [...this.remoteWidths].sort((a, b) => a - b) } : {}),
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       embed: this.embedSlots(),
@@ -2339,6 +2361,10 @@ class Compiler {
       if (has(n) && !isTemplate) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` must be on a \`<template>\``, 0);
     }
     if (has('key') && !(isTemplate && has('for'))) this.report(el, 'data-sn-key', 'SN102', '`data-sn-key` belongs on a `<template data-sn-for>`', 0);
+    if (has('reserve')) {
+      if (!(isTemplate && has('for')) || ctx.tid >= 0) this.report(el, 'data-sn-reserve', 'SN102', '`data-sn-reserve` belongs on a `<template data-sn-for>` outside templates', 0);
+      else if (!/^\s*(off|[1-9]\d*)\s*$/.test(get('reserve')!)) this.report(el, 'data-sn-reserve', 'SN401', '`data-sn-reserve` takes `off` or the number of rows to hold space for', 0);
+    }
 
     // a layout's `<body>`: first the handlers of the page's tag, in the page's scope
     const page = this.layoutBody.get(el);
@@ -2400,6 +2426,7 @@ class Compiler {
       }
       if (this.opts.dev) (node as NodeDef & { src?: string }).src = this.position(el);
       ctx.list.push(node);
+      if (content && isTemplate && has('for')) this.spaceFor(el, node, ctx);
     }
     stripSn(el);
 
@@ -4579,6 +4606,75 @@ class Compiler {
    * `when` and `page-model` read only `$url`, constants and helpers (what a server knows at the
    * page request; helpers make it a request only a resolver can make)
    */
+  /**
+   * The lists outside templates (and dialogs): each one's placeholder for the rows its resource brings
+   * after the first paint (`Layout.reserve`: a paginated resource's `page-size` rows, or
+   * `data-sn-reserve="n"`), and the box around it whose width follows its content
+   * (`Layout.contentSized`). Read before the walk, which removes the bindings the cascade looks at.
+   */
+  planSpace(doc: DefaultTreeAdapterMap['document'], layout: Layout) {
+    const resources = new Map<string, P5Element>(), lists: P5Element[] = [];
+    const walk = (p: P5Parent, dialog: boolean) => {
+      for (const c of p.childNodes) {
+        if (!isElement(c)) continue;
+        if (c.tagName === 'sn-resource' && attr(c, 'name')) resources.set(attr(c, 'name')!, c);
+        if (c.tagName === 'template') { if (attr(c, 'data-sn-for') !== undefined && !dialog) lists.push(c); continue; }
+        walk(c, dialog || c.tagName === 'dialog');
+      }
+    };
+    walk(doc, false);
+    for (const tpl of lists) {
+      const own = attr(tpl, 'data-sn-reserve')?.trim();
+      if (own === 'off') { this.spacePlan.set(tpl, { off: true, sized: null, space: null, resource: null }); continue; }
+      const sized = layout.contentSized(tpl);
+      const m = /^\s*(?:\(\s*[A-Za-z_]\w*\s*,\s*[A-Za-z_]\w*\s*\)|[A-Za-z_]\w*)\s+in\s+([A-Za-z_$][\w$]*)\s*$/.exec(attr(tpl, 'data-sn-for')!);
+      const r = m ? resources.get(m[1]!) : undefined;
+      let space: Reserved | null = null;
+      // where the adapter serves the rules (builds: dev would serve them with the page module, after the first paint); not a
+      // resource whose data the page has (embedded) or one that may not load at all (`when`), nor one the build cannot follow (`each`, `call`)
+      if (r && !sized && this.opts.paintCss && !['when', 'each', 'call'].some((a) => attr(r, a) !== undefined)
+        && !(this.opts.embed && attr(r, 'early') !== 'off')) {
+        const n = own && /^[1-9]\d*$/.test(own) ? Number(own) : attr(r, 'paginate') !== undefined ? Number(attr(r, 'page-size')) : NaN;
+        if (Number.isInteger(n) && n > 0) space = layout.reserve(tpl, Math.min(n, 1000));
+      }
+      this.spacePlan.set(tpl, { off: false, sized, space, resource: space ? m![1]! : null });
+    }
+  }
+
+  /**
+   * After a list's template is compiled: SN520 for a list over late data in a box whose width its rows
+   * decide, and the planned placeholder after the template (a root node whose only binding removes it
+   * once the resource has rows, has loaded or has failed: nothing of it stays to count as a child).
+   */
+  spaceFor(el: P5Element, node: NodeDef, ctx: Ctx) {
+    const plan = this.spacePlan.get(el);
+    const b = node.b.find((x) => x.k === 'for');
+    if (!plan || plan.off || !b || ctx.tid >= 0) return;
+    const late = strs(b.d).map((d) => /^\$r\.([^.]+)/.exec(d)?.[1]).filter((n): n is string => !!n && !this.embedded.has(n));
+    if (plan.sized?.siblings && late.length) {
+      const what = plan.sized.el.tagName + (attr(plan.sized.el, 'class') ? `.${attr(plan.sized.el, 'class')!.trim().split(/\s+/).join('.')}` : '');
+      this.report(el, 'data-sn-for', 'SN520', `this list's rows arrive after the first paint inside \`<${what}>\`, whose width follows its content: the rows widen it and move what is beside it`, 0,
+        'give that box a width or flex basis of its own (`flex: 1 1 0`, `width: 100%`), or add `data-sn-reserve="off"` to the template to leave it as it is');
+    }
+    const name = plan.resource;
+    if (!plan.space || !name || this.embedded.has(name) || !strs(b.d).every((d) => d === `$r.${name}` || d.startsWith(`$r.${name}.`))) return;
+    const parent = el.parentNode as P5Element;
+    // unique across pages, should two pages' rules end up in one stylesheet
+    let hash = 0x811c9dc5;
+    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
+    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
+    const k = `${(hash >>> 0).toString(36).slice(0, 5)}-${this.spaceN++}`, id = this.nextId++;
+    const ph = parse5.parseFragment(`<${plan.space.tag} class="sn-reserve sn-reserve-${k}" aria-hidden="true" data-sn="${id}"></${plan.space.tag}>`).childNodes[0] as P5Element;
+    ph.parentNode = parent;
+    parent.childNodes.splice(parent.childNodes.indexOf(el) + 1, 0, ph as never);
+    const r = JSON.stringify(name);
+    const code = `($) => { const l = $.$r[${r}], m = $.$meta[${r}]; if ((l && l.length) || m.loadedAt || m.error) $.$el.remove(); }`;
+    const pnode: NodeDef = { tag: plan.space.tag, p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(code, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${name}`, `$meta.${name}`], e: 1 })], id };
+    ctx.list.push(pnode);
+    const sel = `.sn-reserve.sn-reserve-${k}`;
+    for (const p of plan.space.pieces) this.paintRules.push(p.from ? `@media (min-width: ${Math.round(p.from * 100) / 100}px) { ${sel} { ${p.decls} } }` : `${sel} { ${p.decls} }`);
+  }
+
   addPlaceholders(doc: DefaultTreeAdapterMap['document']) {
     const html = doc.childNodes.find((n) => isElement(n) && n.tagName === 'html') as P5Element | undefined;
     const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;

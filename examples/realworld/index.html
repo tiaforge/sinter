@@ -40,7 +40,10 @@
         <template data-sn-if="meta.loading && !list.length">
           <div class="article-preview">Loading articles...</div>
         </template>
-        <template data-sn-for="a in list" data-sn-key="a.slug">
+        <!-- data-sn-reserve="off": below 768 px the Conduit theme gives its columns no width, so the feed's
+             column is as wide as its content and the tags sit beside it until the articles arrive (SN520).
+             The theme is the one every RealWorld implementation shares: left as it is -->
+        <template data-sn-for="a in list" data-sn-key="a.slug" data-sn-reserve="off">
           <div class="article-preview">
             <article-byline data-sn-prop="{ article: a }"><favorite-button class="pull-xs-right" data-sn-prop="{ article: a }"></favorite-button></article-byline>
             <article-preview data-sn-prop="{ article: a }"></article-preview>
@@ -71,7 +74,7 @@
           <template data-sn-if="$meta.tags.loading && !tags.length"><div>Loading tags...</div></template>
           <template data-sn-if="$meta.tags.error"><div class="error-messages">Could not load tags.</div></template>
           <div class="tag-list">
-            <template data-sn-for="t in tags ?? []" data-sn-key="t">
+            <template data-sn-for="t in tags ?? []" data-sn-key="t" data-sn-reserve="off">
               <a class="tag-pill tag-default" data-sn-attr="{href: '/tag/' + encodeURIComponent(t)}" data-sn-text="t"></a>
             </template>
           </div>

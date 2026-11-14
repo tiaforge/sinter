@@ -253,7 +253,7 @@ export interface RenderOptions {
   defaultApi?: string;
   /** images from the API, as `sinter({ images: { remote } })`: a bound `<img src>` gets the service's `srcset` */
   remoteImages?: RemoteImages;
-  /** the page's stylesheets, for the boxes of its images (as the Vite plugin reads them from the page) */
+  /** the page's stylesheets, for the boxes of its images and the space of its lists (as the Vite plugin reads them from the page) */
   css?: string;
 }
 
@@ -392,6 +392,8 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
     ...(options.remoteImages ? { remoteImages: resolveRemote(options.remoteImages) } : {}),
     // static images stay as written in tests (no files to encode); the stylesheets size bound ones
     ...(options.css ? { images: { info: () => null, url: () => '', styles: [{ file: 'test.css', css: options.css }] } } : {}),
+    // and hold the space of lists whose data comes later (the rules are the build's; the test reads the placeholder)
+    ...(options.css ? { styles: [{ file: 'test.css', css: options.css }], paintCss: 'paint.css' } : {}),
   });
   const errors = parts.diagnostics.filter((d) => d.severity === 'error');
   if (errors.length) throw new Error(`sinter: build failed\n${errors.map(formatDiagnostic).join('\n')}`);

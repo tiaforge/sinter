@@ -641,3 +641,13 @@ Warning, for example:
 A pager link whose `href` is only a query (`?page=3`, setting a `page-model` parameter) replaces the whole query of the current URL, as any URL resolves: on `/?tag=go` it goes to `/?page=3`, without the tag. The page reads the parameters named, so following the link loses them (in the page, with same-page links, or with a page load). A filter or tab link that drops the page is not reported: that is how a list starts at page 1. Nor is a static `href` kept as the fallback of a bound one.
 
 **Fix:** Build the whole query in `data-sn-attr` (`href: '?page=' + n + '&tag=' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose, for a link that resets it.
+
+## SN520 content-sized-list
+
+Warning, for example:
+
+> this list's rows arrive after the first paint inside `<div.col-md-9>`, whose width follows its content: the rows widen it and move what is beside it
+
+The rows of a `data-sn-for` over a resource come after the first paint (without embedded data). The list is inside a box whose width the stylesheets leave to its content: a flex item in a row with no `flex-basis` or `width`, or a float. Empty, that box is narrow and what is beside it sits next to it; once the rows arrive it widens, and its neighbours move or wrap to the next line, a layout shift as large as the boxes that move. The build cannot reserve that width, since it depends on the data. Reported where the stylesheets decide it, at any screen width.
+
+**Fix:** Give the box a width that does not depend on its content: `flex: 1 1 0` or a `flex-basis` in a row, `width: 100%` (or a basis of 100%) where it should take the whole line, as most grid systems do below their breakpoint. To keep the layout as it is, add `data-sn-reserve="off"` to the template, which silences this.

@@ -25,6 +25,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'model', value: 'state path | $url.<param>', doc: 'two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list' },
   { name: 'for', value: 'item in list | (item, i) in list', doc: 'repeats a <template> per item' },
   { name: 'key', value: 'value expression', doc: 'row identity; defaults to the resource key or object identity' },
+  { name: 'reserve', value: 'off | number of rows', doc: 'on a <template data-sn-for> outside templates: builds hold the space this many rows take (a paginated resource: its page-size, without the attribute) until the data arrives, from the sizes the stylesheets give; off: no space held and no SN520' },
   { name: 'if', value: 'value expression', doc: 'renders a <template> while truthy' },
   { name: 'else', value: '', doc: 'on a <template> directly after an if template' },
   { name: 'listbox', value: 'id of the suggestion list, or empty', doc: 'on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox] around the input), Enter or Tab clicks it, Escape fires `dismiss`' },

@@ -16,6 +16,7 @@ Bind values to the page.
 | `data-sn-prop` | object literal | sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only |
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item |
 | `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
+| `data-sn-reserve` | off \| number of rows | on a &lt;template data-sn-for&gt; outside templates: builds hold the space this many rows take (a paginated resource: its page-size, without the attribute) until the data arrives, from the sizes the stylesheets give; off: no space held and no SN520 |
 | `data-sn-if` | value expression | renders a &lt;template&gt; while truthy |
 | `data-sn-else` |  | on a &lt;template&gt; directly after an if template |
 

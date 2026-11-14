@@ -223,6 +223,10 @@
       "description": "row identity; defaults to the resource key or object identity (value expression)"
     },
     {
+      "name": "data-sn-reserve",
+      "description": "on a <template data-sn-for> outside templates: builds hold the space this many rows take (a paginated resource: its page-size, without the attribute) until the data arrives, from the sizes the stylesheets give; off: no space held and no SN520 (off | number of rows)"
+    },
+    {
       "name": "data-sn-if",
       "description": "renders a <template> while truthy (value expression)"
     },

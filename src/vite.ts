@@ -186,6 +186,8 @@ const EARLY_PKG = '@tiaforge-ui/sinter/early';
 const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/early'/.exec(code)?.[1]!.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
+/** builds: a page's reserved-space rules (docs/first-paint.md#reserved-space), imported by its module */
+const PAINT_CSS = `${PREFIX}paint-css/`;
 /** a component's scoped styles, imported by the page modules of the pages that use it */
 const COMPONENT_CSS = `${PREFIX}component-css/`;
 /** the base class a component's script imports from its HTML (`import { TaskRingComponent } from './task-ring.html'`) */
@@ -359,6 +361,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** image variants by file name, and each page's image rules */
   const variants = new Map<string, ImageVariant>();
   const imageCss = new Map<string, string>();
+  const paintCss = new Map<string, string>();
   const componentCss = new Map<string, string>();
   let resolveId: ((id: string, importer?: string) => Promise<string | undefined>) | null = null;
   let engines: StyleEngine[] | null = null;
@@ -559,6 +562,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript } : {}),
       ...(images ? { images: imageHost(rel, styles)! } : {}),
+      ...(styles?.length ? { styles } : {}),
+      ...(firstPaint && !dev ? { paintCss: `${PAINT_CSS}${rel}.css` } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
       ...((firstPaint || lang) && p.messages ? { baseMessages: lang ?? p.messages.dicts[p.messages.base] ?? {} } : {}),
@@ -873,6 +878,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // a stylesheet a page links (one with nothing to run) comes with a query in dev (`?direct`)
       const css = id.replace(/\?.*$/, '');
       if (css.startsWith(`\0${IMG_CSS}`)) return imageCss.get(css.slice(IMG_CSS.length + 1, -4)) ?? '';
+      if (css.startsWith(`\0${PAINT_CSS}`)) return paintCss.get(css.slice(PAINT_CSS.length + 1, -4)) ?? '';
       if (css.startsWith(`\0${COMPONENT_CSS}`)) return componentCss.get(css.slice(COMPONENT_CSS.length + 1, -4)) ?? '';
       if (id.startsWith(`\0${COMPONENT_BASE}`)) return componentBase(id.slice(COMPONENT_BASE.length + 1, -3));
       // lazy packages: the loader (one `import()` of the package) and each importer's stubs
@@ -932,7 +938,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const moduleSrc = `${PREFIX}${rel}.js`;
         // dev: the tag goes in with the page; a build adds it after bundling (see the post plugin)
         const earlySrc = dev ? `${resolved?.base ?? '/'}${EARLY.slice(1)}${rel}.js` : null;
-        const styles = images && /<img\b|<[a-z][a-z0-9]*-/i.test(html) ? await stylesOf(html, virtual.get(file)?.source ?? file, project(root, options)) : undefined;
+        // the cascade, for images and for the space of lists (in the page or in its components)
+        const styles = (images && /<img\b|<[a-z][a-z0-9]*-/i.test(html)) || (firstPaint && /data-sn-for|<[a-z][a-z0-9]*-/i.test(html)) ? await stylesOf(html, virtual.get(file)?.source ?? file, project(root, options)) : undefined;
         let { out, p } = build(html, file, earlySrc, styles);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
         if (images && out.images?.pending.length) {
@@ -940,6 +947,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           ({ out, p } = build(html, file, earlySrc, styles));
         }
         for (const w of out.remoteWidths ?? []) remoteWidths.add(w);
+        if (out.paint !== undefined && paintCss.get(rel) !== out.paint) {
+          paintCss.set(rel, out.paint);
+          invalidate(`${PAINT_CSS}${rel}.css`);
+        }
         if (out.images) {
           for (const v of out.images.variants) variants.set(images!.fileName(v), v);
           if (imageCss.get(rel) !== out.images.css) {
