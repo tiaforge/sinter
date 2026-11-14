@@ -39,25 +39,13 @@ and the home page's feed tabs are plain links that stay on the page when clicked
 next page, no reload. "Global Feed" from `/tag/go` is another path, a page load. The active page is
 `$meta.<name>.page`, the page shown.
 
-The home page's columns carry the theme's `col-xs-12` beside `col-md-9` and `col-md-3`, as the
-other pages' columns do: below 768 px the theme gives `col-md-*` no width, so the feed's column was
-only as wide as its content, the tags sat beside it until the articles arrived, and the build could
-hold no space for the rows (`SN529`). With a width of its own the build holds the feed's ten rows
-from the first frame, and the "Loading articles..." line takes that height
-([first paint](../../docs/first-paint.md#reserved-space)). Two more things the space needs: "Your
-Feed" loads when a token is stored (`!signedOut()`, which the early script knows) instead of when
-`user` has loaded, and the pager's branch starts with `list.length`, so the build can tell it does
-not show while the list loads. Layout shift on a phone (412 px, the API answering after 500 ms):
-0.26 before, 0.006 with the first page's ten rows. A list that brings fewer rows than a page (a
-tag with one article, the last page) still moves what follows, up by what is missing. The build is
-strict (warnings fail it).
-
-No stylesheet or font comes from another origin. The theme (`public/styles.css`) is unchanged. The
-icons are Ionicons 2.0.1 cut down to the eight the pages use (`src/icons/`: the package's rules, and
-its font with only those glyphs, 2.6 KB instead of a 51 KB stylesheet on another origin that every
-page waited for and a 188 KB font). Source Sans Pro, the one family the theme uses of the four the
-template's Google Fonts link asks for, comes from Fontsource (`src/fonts.css`) in the same weights,
-with `font-display: swap`: the feed's text no longer waits for font files from a third origin.
+The build warns twice, `SN529`, and the warnings stay: below 768 px the Conduit theme gives its grid
+columns no width, so the feed's column is only as wide as its content and the tags sit beside it
+until the articles arrive. That layout shift (0.15 on a phone, with the API answering after 500 ms;
+0.035 with the columns at full width) is the theme's, which every RealWorld implementation shares,
+so the theme stays as it is. The build is strict (warnings fail it) with `SN529` allowed, by name and
+with the reason, in `vite.config.js`. The "Loading articles..." and "Loading tags..." lines are in the first
+frame ([first paint](../../docs/first-paint.md#loading-branches)).
 
 Every resource has `cache`: a page shows what the previous page loaded at once and revalidates.
 Signing in or out calls `clearPersisted()`, since the cached data belongs to the previous identity.

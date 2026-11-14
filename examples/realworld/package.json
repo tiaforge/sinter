@@ -10,7 +10,6 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@fontsource/source-sans-pro": "5.3.0",
     "@tiaforge-ui/sinter": "file:../..",
     "dompurify": "3.3.0",
     "marked": "16.4.1"
