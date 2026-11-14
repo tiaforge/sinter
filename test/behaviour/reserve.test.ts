@@ -165,3 +165,14 @@ test('a `src` that reads another resource: its load may not start at mount, no s
   expect(out.html).not.toContain('sn-reserve');
   expect(JSON.stringify(out.unheld ?? out.diagnostics)).toContain('may not start when the page module mounts');
 });
+
+test('the `if` form\'s template stays after the rows: a `:last-child` rule never matches a row; per-row views are each list\'s own', () => {
+  const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS + ' li:last-child { height: 100px }' }], paintCss: '/p.css' };
+  const page = (when: string) => compile(`<!doctype html><html><head></head><body>${PAGE('', `paginate="offset" page-size="3" ${when}`)}</body></html>`, opts).paint;
+  expect(page('')).toContain('height:140px');
+  expect(page('when="$url.go"')).toContain('height:60px');
+  // two lists, one of each form, on one page
+  const two = compile(`<!doctype html><html><head></head><body>${PAGE()}${PAGE('', 'paginate="offset" page-size="3" when="$url.go"').replace(/people/g, 'others')}</body></html>`, opts).paint;
+  expect(two).toContain('height:140px');
+  expect(two).toContain('height:60px');
+});

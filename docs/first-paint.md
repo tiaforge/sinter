@@ -264,6 +264,10 @@ know, and gets no space. The list may be the resource itself (`p in people`) or 
 resources (`a in list` with `data-sn-let="{ list: $url.feed ? feed : articles }"`, or a resource with a
 `when`): then the placeholder is a branch the early script shows while one of them loads with no rows,
 when it can tell (their `when` reads only the URL), so a resource that will not load holds nothing.
+That branch's `<template>` stays after the rows once they are in, so a `:last-child` rule (or
+`:nth-last-child()`, `:only-child`) never matches one of them; the space counts it the same way. Either
+form needs the load to start when the page module mounts: a `src` or `when` that reads state or another
+resource holds nothing.
 
 How large: what the stylesheets say about each row in its place (`.row + .row`, `:first-child`,
 Tailwind's `space-y-*` and `:nth-child()` rules are decided per row), at each screen width the media
@@ -332,9 +336,11 @@ a `<tbody>`, or a template with more than one element. The build prints each pag
 
 A "Loading…" branch over the same status right before the list (`$meta.people.loading && !people.length`,
 one element) takes the placeholder's place: while it shows it has the rows' height and outer margins, and
-the placeholder does not show. Another branch beside the list that would show with the placeholder (a
-loading line after it) leaves the list without one, as the two would be taller than the rows. An empty
-state or an error never shows with it.
+the placeholder does not show. Any other loading indicator over the same status, anywhere on the page (a
+branch after the list, a spinner in the header, a `data-sn-show`), leaves the list without one, as the two
+together would be taller than the rows. The build reads each condition over the status (it does not run
+it): an empty state, an error, or anything that cannot show while the resource loads with no rows never
+meets the placeholder; a condition it cannot read counts as one that may show.
 
 The runtime carries no code for it: the build writes the placeholder's removal as one of the page's own
 bindings (about 60 bytes gzip per list; a branch for a list with a `when`), and its rules (about 180 bytes

@@ -8,6 +8,13 @@ import * as csstree from 'css-tree';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { genericNormal, SYSTEM_FONTS } from './system-fonts.js';
 
+/** each list's own per-row views (`withRow`), by template */
+const LIST_IDS = new WeakMap<object, number>();
+let LIST_IDS_N = 0;
+/** lists with the build's `<template data-sn-if>` after them (`reserve`'s `trailing`): an element after the rows, always there */
+const TRAILED = new WeakSet<object>();
+const TRAILER = { nodeName: 'template', tagName: 'template', attrs: [], childNodes: [], parentNode: null, namespaceURI: 'http://www.w3.org/1999/xhtml' } as unknown as P5Element;
+
 type P5Element = DefaultTreeAdapterMap['element'];
 type P5Node = DefaultTreeAdapterMap['node'];
 type P5Parent = DefaultTreeAdapterMap['parentNode'];
@@ -295,7 +302,9 @@ export class Layout {
    */
   private withRow(tpl: P5Element, row: P5Element, index: number, count: number): Layout {
     if (!this.positional) return this;
-    const key = `${this.viewport}:${index}:${count}`;
+    let id = LIST_IDS.get(tpl);
+    if (id === undefined) LIST_IDS.set(tpl, (id = LIST_IDS_N++));
+    const trail = TRAILED.has(tpl), key = `${id}:${this.viewport}:${index}:${count}:${trail ? 't' : ''}`;
     let l = this.rowViews.get(key);
     if (l) return l;
     const parent = tpl.parentNode as P5Element;
@@ -306,7 +315,7 @@ export class Layout {
     Object.assign(l, {
       rules: this.rules, hosts: this.hosts, root: this.root, viewport: this.viewport, views: this.views, notes: this.notes, normal: this.normal,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
-      row: { el: row, index, count, before: around(kids.slice(0, at + 1)), after: around(kids.slice(at + 1)) }, rowViews: this.rowViews, positional: true, base: this.base, bases: this.bases,
+      row: { el: row, index, count, before: around(kids.slice(0, at + 1)), after: [...(trail ? [{ el: TRAILER, sure: true }] : []), ...around(kids.slice(at + 1))] }, rowViews: this.rowViews, positional: true, base: this.base, bases: this.bases,
     });
     this.rowViews.set(key, l);
     return l;
@@ -1078,8 +1087,10 @@ export class Layout {
    * per viewport range from the narrowest screen up (`from`: the range's start, 0 for the first), or
    * null when the rows' layout is not one the build follows (see `shape`), at any width.
    */
-  reserve(tpl: P5Element, count: number, opts: { sized?: boolean } = {}): Reserved | null {
+  reserve(tpl: P5Element, count: number, opts: { sized?: boolean; trailing?: boolean } = {}): Reserved | null {
     this.notes.why = null;
+    if (opts.trailing) TRAILED.add(tpl);
+    else TRAILED.delete(tpl);
     const no = (why: string) => { this.notes.why ??= why; return null; };
     if (this.empty || this.viewport !== undefined || count < 1) return no('no stylesheet the build reads');
     const row = soleElement(tpl), parent = this.parentOf(tpl);

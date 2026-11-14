@@ -4762,7 +4762,8 @@ class Compiler {
         const n = ok ? Math.min(...rs.map((r) => Number(attr(r, 'page-size')))) : NaN;
         // in a box whose width follows its content, only rows of a width of their own (the placeholder takes it)
         if (Number.isInteger(n) && n > 0) {
-          space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized });
+          // the `if` form's template stays after the rows: `:last-child` and the like count it
+          space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized, trailing: form === 'if' });
           if (!space && why === '') why = sized && layout.unreserved?.startsWith('the box') ? `the box around it is as wide as its content (${sized.widths}), and the rows have no width of their own (SN529)` : layout.unreserved ?? 'unknown';
         }
       }
