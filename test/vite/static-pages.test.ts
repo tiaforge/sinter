@@ -85,6 +85,16 @@ test('a site with nothing to run: no script, no .js file, the scoped styles link
   expect(logs.join('\n')).toContain('sinter: index.html: no JavaScript');
 });
 
+test('firstPaint: false drops only the early script: constants are still written in, and a page with nothing to run ships no JavaScript', async () => {
+  // a benchmark agent set firstPaint: false on a static site: constant props were runtime bindings (SN322), and
+  // pages the build reported as "no JavaScript" still got a page module
+  const { read, assets, logs } = await site(STATIC, { firstPaint: false, static: true });
+  expect(read('about/index.html')).toContain('<main><p>About us.</p><footer>© 2026</footer></main>');
+  expect(read('about/index.html')).not.toMatch(/<script(?! type="speculationrules")/);
+  expect(assets.filter((f) => f.endsWith('.js'))).toEqual([]);
+  expect(logs.join('\n')).toContain('sinter: about.html: no JavaScript');
+});
+
 test('a mixed site: the page with data keeps its scripts, the static page has none', async () => {
   const { read } = await site({
     ...STATIC,

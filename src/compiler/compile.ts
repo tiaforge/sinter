@@ -19,7 +19,7 @@ import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
-import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
+import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { withParams } from '../runtime/url.js';
@@ -79,6 +79,11 @@ export interface CompileOptions {
   checkCycles?: boolean;
   /** write bindings whose value is a build-time constant (literal state, no helpers) into the HTML */
   prerender?: boolean;
+  /**
+   * the app's config may change requests (middleware, `header()`, `credentials()`): no `<link rel="preload">`
+   * for resources (the browser would give its response to the changed request), the early file requests them
+   */
+  changesRequests?: boolean;
   /**
    * builds: the base language's messages. With `prerender`, a text binding
    * that calls `m` is written into the HTML in the base language and marked `data-sn-m`; it is still
@@ -621,6 +626,8 @@ class Compiler {
   readonly resources: ResourceDef[] = [];
   /** resources with `early="off"`: no preload, no early request (one a request middleware answers or adds a header to) */
   private readonly noEarly = new Set<string>();
+  /** a GET resource's authentication, from the operation the spec matches (\`security\`): preloads and early requests follow it */
+  private readonly authOf = new Map<string, Auth>();
   /** by `<template data-sn-for>` outside templates: its reserved space and the content-sized box around it (`planSpace`) */
   private readonly spacePlan = new Map<P5Element, { sized: { el: P5Element; siblings: boolean; widths: string; ranges: Array<[number, number | undefined]> } | null; space: Reserved | null; resources: string[]; names: string[]; waitForm: 'static' | 'if'; waitOff: boolean; form: 'static' | 'if'; list: string; why: string | null; unsized: Array<{ el: P5Element; src: string | null; v: string | null }> }>();
   /** paginated lists over late data that hold no space, and why (the build prints them) */
@@ -873,7 +880,7 @@ class Compiler {
     if (this.opts.static) {
       const root = this.opts.root.replace(/[\\/]+$/, '') + '/', file = this.opts.file.replace(/\\/g, '/');
       const page = file.startsWith(root.replace(/\\/g, '/')) ? file.slice(root.length) : basename(file);
-      for (const r of runtime) this.diagnostics.push({ severity: 'error', code: 'SN322', message: `${page} must ship no JavaScript (\`sinter({ static })\`), but ${r.what} runs in the browser`, file: r.file, line: r.line, col: r.col, hint: 'remove it, or take the page out of `static` in vite.config' });
+      for (const r of runtime) this.diagnostics.push({ severity: 'error', code: 'SN322', message: `${page} must ship no JavaScript (\`sinter({ static })\`), but ${r.what} runs in the browser`, file: r.file, line: r.line, col: r.col, hint: 'make it a constant (a literal, a prop given as one, state nothing writes: those are written into the HTML at build time), remove it, or take the page out of `static` in vite.config' });
     }
     if (isStatic && early !== undefined) early = null;
     if (isStatic) this.linkStyles(doc, images?.css ? this.opts.images?.stylesheet ?? null : null);
@@ -1249,7 +1256,12 @@ class Compiler {
     const lhead = lhtml.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'head')!;
     const decl = attr(lhtml, 'data-sn-layout');
     if (decl === undefined || !lhtml.sourceCodeLocation?.startTag) {
-      this.diagnostics.push({ severity: 'error', code: 'SN318', message: `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``, file: lf.file, line: 1, col: 1, hint: '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>`' });
+      // the page passes no props: the empty declaration is the whole fix (agents guessed it from a hint with props)
+      const props = attr(host, 'data-sn-prop') != null;
+      const hint = lhtml.sourceCodeLocation?.startTag
+        ? (props ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-layout="{ title?: string }">`' : 'it takes no props: `<html lang="en" data-sn-layout="{}">`')
+        : '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (`data-sn-layout="{}"` for a layout without props)';
+      this.diagnostics.push({ severity: 'error', code: 'SN318', message: `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``, file: lf.file, line: 1, col: 1, hint });
       detach(host);
       return null;
     }
@@ -2537,9 +2549,10 @@ class Compiler {
         const names = use.emits.map((m) => m.name);
         this.report(el, a.name, 'SN315', `\`<${use.name}>\` does not emit \`${event}\`; ${names.length ? `it declares ${names.map((x) => `\`${x}\``).join(', ')}` : 'it declares no events'}.${didYouMean(event, names)}`, 0);
       }
-      // `$url` writes on `input`: a keystroke replaces (location.ts), but on a checkbox, radio or select it is a
-      // choice, a new history entry (4), decided here. A handler higher up hears both: there `input` replaces.
-      const choice = event === 'input' && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
+      // `$url` writes on `input` or `change`: a keystroke replaces (location.ts), but on a checkbox, radio or select it
+      // is a choice, a new history entry (4), decided here, so it holds for untrusted events too (Playwright's
+      // selectOption() dispatches them). A handler higher up hears both: there `input` replaces.
+      const choice = (event === 'input' || event === 'change') && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}) });
       const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
       if (ms > 0) this.features.add('debounce');
@@ -3617,15 +3630,29 @@ class Compiler {
   }
 
   /**
+   * A resource the HTML preloads: its URL is fixed at build time, and its request needs nothing a link
+   * cannot say (no static headers, no `credentials: 'omit'`, no middleware that may change it: a preloaded
+   * response goes to a later fetch of the URL whatever headers that adds). The early file requests the rest.
+   */
+  preloaded(r: ResourceDef): boolean {
+    const a = this.apiOfResource.get(r.name), auth = this.authOf.get(r.name);
+    // the spec says the response does not depend on what a middleware adds (public, or cookies), else the config decides
+    const plain = auth === 'public' || auth === 'browser' || (auth !== 'token' && !this.opts.changesRequests);
+    return !this.late(r.name) && plain && fixedRequest(r) && !!this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit';
+  }
+
+  /** Not requested before the page module: \`early="off"\`, or the spec says the request needs a token the app adds (an early one would be refused). */
+  private late(name: string): boolean {
+    return this.noEarly.has(name) || this.authOf.get(name) === 'token';
+  }
+
+  /**
    * `<link rel="preload" as="fetch">` for the resources whose URL is fixed at build time. A link cannot
    * carry headers, so a resource of an API with static headers (or `credentials: 'omit'`) has none, and
    * the early file's request is its first; `credentials: 'include'` is `crossorigin="use-credentials"`.
    */
   preloadLinks(): string[] {
-    const ok = this.resources.filter((r) => {
-      const a = this.apiOfResource.get(r.name);
-      return !this.noEarly.has(r.name) && fixedRequest(r) && this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit';
-    });
+    const ok = this.resources.filter((r) => this.preloaded(r));
     const include = (r: ResourceDef) => this.apiOfResource.get(r.name)?.credentials === 'include';
     const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
     const link = (cross: string) => ({ url, lo }: { url: string; lo: boolean }) => `<link rel="preload" as="fetch" ${cross} href="${esc(url)}"${lo ? ' fetchpriority="low"' : ''}>`;
@@ -3862,6 +3889,10 @@ class Compiler {
     // an operation the config declares has no schema: its type is the config's
     const generated = target ? !!this.opts.openapi![target.match.spec]!.config : false;
     const openapi = type || hasCall || generated ? null : this.openapi(el, src, items, total, target?.match, post ? 'post' : 'get');
+    if (!post && !hasCall) {
+      const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchResource(this.opts.openapi, src) : null);
+      if (m && 'path' in m && m.auth) this.authOf.set(name, m.auth);
+    }
     let body: number | null = null;
     if (post && attr(el, 'body') != null) {
       const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchOperation(this.opts.openapi, src, 'post') : null);
@@ -3967,6 +3998,19 @@ class Compiler {
     this.features.add('sse');
   }
 
+  /**
+   * The payload type an untyped `<sn-event>` most likely has, for SN506's hint: \`item="incident"\` on a resource
+   * typed \`Incident[]\` is \`{ incident: Incident }\`; anything else gets the shape with a placeholder.
+   */
+  private payloadTypeHint(el: P5Element, resource: string | null): string {
+    const resEl = resource ? this.resourceEls.get(resource) : undefined;
+    const written = (resEl && attr(resEl, 'type')?.trim()) || null;
+    const itemType = written && written !== 'any' ? (/^(.+)\[\]$/.exec(written)?.[1] ?? /^(?:Readonly)?Array<(.+)>$/.exec(written)?.[1] ?? null) : null;
+    const item = attr(el, 'item')?.trim();
+    if (item && /^[A-Za-z_$][\w$]*$/.test(item)) return `{ ${item}: ${itemType ?? '…'} }`;
+    return '{ id: number; … }';
+  }
+
   event(el: P5Element, ctx: Ctx): EventDef | null {
     for (const a of el.attrs) {
       if (!EVENT_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-event>\`.${didYouMean(a.name, EVENT_ATTRS)}`, 0);
@@ -3990,7 +4034,7 @@ class Compiler {
     const payloadType: TypeRef | null = typeAttr && typeAttr !== 'any' ? { kind: 'ts', text: typeAttr, loc: this.locOf(el, 'type') } : null;
     if (this.check && !typeAttr && ['item', 'set', 'when', 'then'].some((n) => attr(el, n) != null)) {
       this.report(el, null, 'SN506', `event \`${name}\` has no type: expressions reading its payload are not checked`, 0,
-        'add `type="…"` with the payload type from the types module, or `type="any"` to leave it unchecked');
+        `add \`type="${this.payloadTypeHint(el, resource)}"\`, the payload's fields (a type from the types module may be named), or \`type="any"\` to leave it unchecked`);
     }
     let writes: string[] = [];
     const fnOf = (n: string, object = false) => {
@@ -4664,8 +4708,8 @@ class Compiler {
     let url = false;
     for (const def of this.resources) {
       if (def.call || def.each || def.data != null || !def.src.length || !knownReq(strs(def.deps))) continue;
-      // a URL fixed at build time is preloaded from the HTML (see injectScript), earlier than this file runs
-      if (fixedRequest(def) || this.noEarly.has(def.name)) continue;
+      // a URL the HTML preloads (see injectScript) leaves earlier than this file runs
+      if (this.preloaded(def) || this.late(def.name)) continue;
       // another origin only when listed in `origins` (the runtime's allowlist, known at build time)
       const where = this.earlyOrigin(def.src);
       if (!where) continue;
@@ -5065,7 +5109,7 @@ class Compiler {
     const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
     if (!head) return;
     for (const def of this.resources) {
-      if (def.data != null || def.call || def.each || this.noEarly.has(def.name) || !def.src.length) continue;
+      if (def.data != null || def.call || def.each || this.late(def.name) || !def.src.length) continue;
       if (!strs(def.deps).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : []), ...(def.paginate?.start != null ? [def.paginate.start] : [])].map((i) => this.fns[i]!);
       if (codes.some((c) => /\$\.\$(?!url\b)/.test(c))) continue;

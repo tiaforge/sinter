@@ -175,7 +175,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   SN318: {
     example: '`src/layouts/site-layout.html` is not a layout: a layout is a whole document whose `<html>` declares its props, `<html data-sn-layout="{ …props }">`',
     means: 'A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-layout` with its props type. Also reported: `data-sn-layout` anywhere else, a default slot in the layout\'s head (the default slot is the page\'s body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page.',
-    fix: 'Write the layout as a document: `<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`. Name head slots; leave `src/layouts/` out of the build\'s inputs (a glob over every `.html` picks it up).',
+    fix: 'Write the layout as a document: `<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`; a layout without props is `data-sn-layout="{}"`. Name head slots; leave `src/layouts/` out of the build\'s inputs (a glob over every `.html` picks it up).',
   },
   SN319: {
     example: 'a page that uses the layout `<site-layout>` is only its tag: `<p>` belongs inside it',
@@ -270,7 +270,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   SN506: {
     example: 'event `contact_updated` has no type: expressions reading its payload are not checked',
     means: 'An `<sn-event>` reads its payload but has no `type`, so those expressions are not checked. Reported by `sinter check` only.',
-    fix: 'Add `type` with a payload type from `src/sinter.types.ts`, or `type="any"` to opt out.',
+    fix: 'Add `type` with the payload\'s type: the object the server sends, so `item="contact"` on a resource of `Contact[]` is `type="{ contact: Contact }"` (the hint names it), or a type from `src/sinter.types.ts`. `type="any"` opts out.',
   },
   SN507: {
     example: '`data-sn-on-click` is too complex for markup: 5 statements in one handler (limit `statements`: 4). Move the logic into a helper (pure, `x = fn(…)`) or an action',

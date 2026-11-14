@@ -84,5 +84,5 @@ connections per origin. The dev server is HTTP/1.1, so it warns in the console.
 
 ## Learn more
 
-- sinter: `node_modules/@tiaforge-ui/sinter/llms.txt` (attributes, recipes and their tests)
+- sinter: `node_modules/@tiaforge-ui/sinter/llms.txt` (attributes, recipes and testing)
 - temper: `node_modules/@tiaforge-ui/temper/llms-full.txt` (attributes, tokens, recipes)

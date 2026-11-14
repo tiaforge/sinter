@@ -222,3 +222,28 @@ test('array parameters: only a page that has them passes `lists` to its early fi
   expect(one).not.toMatch(/\blists\b/);
   expect(list).toMatch(/\blists\b/);
 });
+
+test('OpenAPI `security` decides preloads and early requests: public and cookie operations are preloaded even with request middleware; a token one is not requested early', () => {
+  // the benchmark's sign-in: a preload's response goes to the page's request whatever headers middleware adds
+  const json = { content: { 'application/json': { schema: { type: 'object' } } } };
+  const get = (security?: unknown[]) => ({ get: { ...(security ? { security } : {}), responses: { '200': { description: 'ok', ...json } } } });
+  const doc = {
+    openapi: '3.0.3',
+    components: { securitySchemes: { bearer: { type: 'http', scheme: 'bearer' }, session: { type: 'apiKey', in: 'cookie', name: 'sid' } } },
+    paths: { '/api/tags': get([]), '/api/me': get([{ bearer: [] }]), '/api/cart': get([{ session: [] }]), '/api/feed': get([{ bearer: [] }, {}]), '/api/plain': get(), '/api/search': get([{ bearer: [] }]) },
+  };
+  const html = `<!doctype html><html><head></head><body data-sn-state="{ q: $url.q }">
+    ${['tags', 'me', 'cart', 'feed', 'plain'].map((n) => `<sn-resource name="${n}" src="/api/${n}" type="any"></sn-resource><p data-sn-text="${n}"></p>`).join('\n')}
+    <sn-resource name="search" src="/api/search?q={q}" type="any"></sn-resource><p data-sn-text="search"></p>
+  </body></html>`;
+  const opts = (changesRequests: boolean): CompileOptions => ({ file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, openapi: [{ file: '/app/openapi.json', doc }], changesRequests });
+  const preloaded = (o: CompileOptions) => [...compile(html, o).html.matchAll(/rel="preload" as="fetch" crossorigin="" href="\/api\/(\w+)"/g)].map((m) => m[1]).sort();
+  const early = (o: CompileOptions) => ((compileParts(html, o).early?.ir as any)?.res ?? []).map((r: { name: string }) => r.name).sort();
+  // with middleware: public (`[]`, or an alternative `{}`) and cookie operations keep their preload; an undeclared
+  // one follows the config (early file); a token one is requested by neither, nor is a token search
+  expect(preloaded(opts(true))).toEqual(['cart', 'feed', 'tags']);
+  expect(early(opts(true))).toEqual(['plain']);
+  // without middleware: a token operation still has no early request (it would be refused)
+  expect(preloaded(opts(false))).toEqual(['cart', 'feed', 'plain', 'tags']);
+  expect(early(opts(false))).toEqual([]);
+});

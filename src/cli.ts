@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // `sinter check [--root <dir>] [--check-cycles] [--strict [--allow <codes>]] [page.html …]`: compiles the
 // pages and type-checks their expressions; `--strict` (or `SINTER_STRICT=1`) fails on warnings too. Without pages, it reads them and the plugin options from the
-// Vite config. `sinter lsp`: the language server for editors.
+// Vite config. `sinter docs [topic]`: one part of llms.txt or a diagnostic's explanation. `sinter lsp`: the language server for editors.
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { check } from './check/index.js';
@@ -10,12 +10,13 @@ import { project, staticPages, strictEnv, viteProject, type ProjectOptions } fro
 import { lazyDiagnostics, resolveFile } from './lazy-build.js';
 import { readLocales } from './locales-build.js';
 
-const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
+const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter docs [topic | data-sn-… | SN318 | words]\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   if (command === 'lsp') return lsp();
   if (command === 'migrate') return migrate(rest);
+  if (command === 'docs') return docs(rest);
   if (command !== 'check') {
     console.error(USAGE);
     return 2;
@@ -83,6 +84,16 @@ async function main(argv: string[]): Promise<number> {
   const promoted = warned - warnings;
   console.log(`sinter check${strict ? ' --strict' : ''}: ${files.length} page(s), ${errors} error(s)${promoted ? ` (${promoted} were warnings)` : ''}, ${warnings} warning(s); ${r.typed} of ${r.resources} resources typed${r.openapi ? ` (${r.openapi} via OpenAPI)` : ''}`);
   return errors ? 1 : 0;
+}
+
+/** `sinter docs [topic]`: from the llms.txt and docs/diagnostics.md that ship beside dist/. */
+async function docs(args: string[]): Promise<number> {
+  const { lookup } = await import('./docs-cli.js');
+  const pkg = new URL('..', import.meta.url);
+  const read = (f: string) => { try { return readFileSync(new URL(f, pkg), 'utf8'); } catch { return ''; } };
+  const r = lookup({ llms: read('llms.txt'), diagnostics: read('docs/diagnostics.md') }, args.join(' ') || undefined);
+  (r.found ? console.log : console.error)(r.text);
+  return r.found ? 0 : 1;
 }
 
 /**

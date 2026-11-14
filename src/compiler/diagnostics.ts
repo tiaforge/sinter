@@ -170,7 +170,7 @@ export function strictOf(s: unknown, env: string | undefined = globalThis.proces
 
 /** A build warning that has no place in a file (the build, a module, the config), as the Vite logger prints it. */
 export function formatWarning(code: Code, message: string): string {
-  return `sinter: warning ${code} ${CODES[code]}: ${message}\n  docs: ${docsUrl(code)}`;
+  return `sinter: warning ${code} ${CODES[code]}: ${message}\n  docs: \`npx sinter docs ${code}\`, ${docsUrl(code)}`;
 }
 
 /** Formats a diagnostic the way the terminal and the testing module print it. */
@@ -178,7 +178,7 @@ export function formatDiagnostic(d: Diagnostic): string {
   const name = CODES[d.code as Code] ?? '';
   let s = `${d.file}:${d.line}:${d.col} ${d.severity} ${d.code} ${name}: ${d.message}`;
   if (d.hint) s += `\n  hint: ${d.hint}`;
-  return s + `\n  docs: ${docsUrl(d.code)}`;
+  return s + `\n  docs: ${/^SN\d{3}$/.test(d.code) ? `\`npx sinter docs ${d.code}\`, ` : ''}${docsUrl(d.code)}`;
 }
 
 function distance(a: string, b: string): number {

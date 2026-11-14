@@ -209,6 +209,16 @@ export type AnyBlock = Hero | Text | Image;
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES }, complexity: { statements: 5 } })).toEqual([]);
   });
 
+  test('$error passes to a helper that takes a SinterError (an Error: name, stack)', () => {
+    const pkg = {
+      'node_modules/@tiaforge-ui/sinter/package.json': '{"name":"@tiaforge-ui/sinter","types":"index.d.ts"}',
+      'node_modules/@tiaforge-ui/sinter/index.d.ts': 'export declare class SinterError extends Error { readonly status: number | null; readonly body: unknown; readonly detail: string | null; readonly stale: boolean; constructor(status: number | null, body: unknown, message: string, detail?: string | null, stale?: boolean); }',
+    };
+    const helpers = `/** @param {import('@tiaforge-ui/sinter').SinterError} e */\nexport function say(e) { return \`\${e.name}: \${e.message}\`; }\n`;
+    const html = page(`<div data-sn-state="{ msg: '' }"><button data-sn-post="/api/x" data-sn-catch="msg = say($error) + ($error.stack ?? '')" data-sn-text="contacts.length + msg"></button></div>`);
+    expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': helpers, ...pkg } })).toEqual([]);
+  });
+
   test('refresh() with several names types each against the page\'s resources', () => {
     const html = page(`<sn-resource name="other" src="/api/o" type="any"></sn-resource><button data-sn-on-click="refresh('contacts', 'other')" data-sn-text="contacts.length + other"></button>`);
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);

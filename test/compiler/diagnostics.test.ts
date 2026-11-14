@@ -398,6 +398,10 @@ describe('$url models', () => {
     const p = parts('<input type="checkbox" data-sn-on-input="$url.a = $el.checked"><select data-sn-on-input="$url.b = $el.value"></select><input data-sn-on-input="$url.c = $el.value"><div data-sn-on-input="$url.d = 1"></div>');
     expect(p.fns.filter((f) => f.includes('$u(')).map((f) => /\$u\("(\w)".*?(, \d)?\)\n/s.exec(f)!.slice(1).join(''))).toEqual(['a, 4', 'b, 4', 'c', 'd']);
   });
+  test('a handler on `change` of a checkbox, radio or select is a choice (4) too, so it pushes for untrusted events (Playwright\'s selectOption()); on a text field or higher up, the event decides', () => {
+    const p = parts('<select data-sn-on-change="$url.a = $el.value"></select><input type="radio" data-sn-on-change="$url.b = 1"><input data-sn-on-change="$url.c = $el.value"><div data-sn-on-change="$url.d = 1"></div>');
+    expect(p.fns.filter((f) => f.includes('$u(')).map((f) => /\$u\("(\w)".*?(, \d)?\)\n/s.exec(f)!.slice(1).join(''))).toEqual(['a, 4', 'b, 4', 'c', 'd']);
+  });
   test('a write to an array parameter goes through $l, decided at build time', () => {
     const p = parts('<select multiple data-sn-model="$url.tag"></select><button data-sn-on-click="$url.tag = []; $url.q = 1">x</button>');
     const code = p.fns.filter((f) => /\$[ul]\(/.test(f)).join('\n');
@@ -453,6 +457,20 @@ describe('expressions', () => {
   test('magic names are only available where documented', () => {
     expect(diags('<p data-sn-text="$result"></p>')[0]!.message).toMatch(/not available here/);
     expect(diags('<button data-sn-post="/x" data-sn-then="$result"></button>')).toEqual([]);
+  });
+  test('SN506 names the payload type to write: the item field typed as the resource\'s item', () => {
+    const hint = (resource: string, ev: string) => diags(`${resource}<p data-sn-text="contacts.length"></p><sn-sync src="/api/events">${ev}</sn-sync>`, { check: true })
+      .find((d) => d.code === 'SN506')?.hint;
+    const typed = '<sn-resource name="contacts" src="/api/c" key="id" type="Contact[]"></sn-resource>';
+    expect(hint(typed, '<sn-event name="contact.updated" resource="contacts" op="upsert" item="contact"></sn-event>'))
+      .toBe('add `type="{ contact: Contact }"`, the payload\'s fields (a type from the types module may be named), or `type="any"` to leave it unchecked');
+    expect(hint(typed.replace('Contact[]', 'Array<Contact>'), '<sn-event name="u" resource="contacts" op="upsert" item="contact"></sn-event>')).toMatch(/^add `type="\{ contact: Contact \}"`/);
+    // the sync before the resource it feeds
+    expect(diags(`<sn-sync src="/api/events"><sn-event name="u" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>${typed}<p data-sn-text="contacts.length"></p>`, { check: true })
+      .find((d) => d.code === 'SN506')?.hint).toMatch(/^add `type="\{ contact: Contact \}"`/);
+    // an untyped resource, and an item that is not one payload field
+    expect(hint(typed.replace(' type="Contact[]"', ''), '<sn-event name="u" resource="contacts" op="upsert" item="contact"></sn-event>')).toMatch(/^add `type="\{ contact: … \}"`/);
+    expect(hint(typed, '<sn-event name="d" resource="contacts" op="remove" when="id > 0"></sn-event>')).toMatch(/^add `type="\{ id: number; … \}"`/);
   });
   test('resource mutators are SN205 with the patch() hint', () => {
     const d = diags(`${R}${use}<button data-sn-on-click="contacts.push(1)"></button>`);

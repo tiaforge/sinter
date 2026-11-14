@@ -105,9 +105,18 @@ the transport allows headers), the next-page prefetch and the early file, whose 
 module takes when its request is the one the early file sent. A middleware that adds a header (a
 token) still gets a request of its own.
 
-- A preload link (`<link rel="preload" as="fetch">`) cannot carry headers: a resource of an API with
-  `headers` gets none, and the early file's request is its first. `credentials: 'include'` writes
-  `crossorigin="use-credentials"`.
+- A preload link (`<link rel="preload" as="fetch">`) cannot carry headers, and the browser gives its
+  response to the page's request whatever headers a middleware adds: a resource of an API with
+  `headers` gets none, nor does any resource when the config module may change requests
+  (`configure({ request })`, `header()`, `credentials()`); the early file's request is then its first.
+  `credentials: 'include'` writes `crossorigin="use-credentials"`.
+- The spec's `security` refines that per operation (the operation's, else the document's):
+  - public (`security: []`, or an alternative `{}`) or a cookie (`apiKey` with `in: cookie`,
+    `mutualTLS`): preloaded even with middleware, since what it adds does not change the answer;
+  - a token the app adds (`http` bearer or basic, `apiKey` in a header or the query, OAuth): not
+    requested before the page module at all, as with `early="off"`, nor embedded by the server
+    layers: an early request would be refused;
+  - no `security`: the config decides, as without a spec.
 - The server layers send the static headers with their own requests: the build's manifest lists
   them per placeholder (`@tiaforge-ui/sinter/server`, sinter-axum and Sinter.AspNetCore).
 
