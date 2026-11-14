@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // `sinter check [--root <dir>] [--check-cycles] [--strict [--allow <codes>]] [page.html …]`: compiles the
 // pages and type-checks their expressions; `--strict` (or `SINTER_STRICT=1`) fails on warnings too. Without pages, it reads them and the plugin options from the
-// Vite config. `sinter docs [topic]`: one part of llms.txt or a diagnostic's explanation. `sinter lsp`: the language server for editors.
+// Vite config. `sinter render page.html`: the page with mocked data, driven by steps, without a browser. `sinter docs [topic]`: one part of llms.txt or a diagnostic's explanation. `sinter lsp`: the language server for editors.
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { check } from './check/index.js';
@@ -10,13 +10,14 @@ import { project, staticPages, strictEnv, viteProject, type ProjectOptions } fro
 import { lazyDiagnostics, resolveFile } from './lazy-build.js';
 import { readLocales } from './locales-build.js';
 
-const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter docs [topic | data-sn-… | SN318 | words]\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
+const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter docs [topic | data-sn-… | SN318 | words]\n       sinter render <page.html> [--url …] [--api mocks.json | http://…] [--click …] (sinter render --help)\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   if (command === 'lsp') return lsp();
   if (command === 'migrate') return migrate(rest);
   if (command === 'docs') return docs(rest);
+  if (command === 'render') return (await import('./render-cli.js')).renderCommand(rest);
   if (command !== 'check') {
     console.error(USAGE);
     return 2;

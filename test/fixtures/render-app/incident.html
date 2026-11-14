@@ -1,0 +1,19 @@
+<!doctype html>
+<html data-sn-path="/incidents/:id">
+<head><title>Incident</title></head>
+<body>
+<sn-resource name="me" src="/api/me" items="user"></sn-resource>
+<sn-resource name="incident" src="/api/incidents/{$url.id}"></sn-resource>
+<main>
+  <h1 data-sn-text="incident.title"></h1>
+  <status-badge data-sn-prop="{ status: $url.status ?? 'open' }"></status-badge>
+  <p class="who" data-sn-text="shout(me.name)"></p>
+  <select id="status" data-sn-model="$url.status">
+    <option value="">all</option>
+    <option value="open">open</option>
+    <option value="closed">closed</option>
+  </select>
+  <button id="close" data-sn-post="/api/incidents/{$url.id}/close">Close</button>
+</main>
+</body>
+</html>

@@ -115,9 +115,13 @@
     "vitest": "^5.1.0"
   },
   "peerDependencies": {
+    "jsdom": ">=24",
     "vite": ">=6"
   },
   "peerDependenciesMeta": {
+    "jsdom": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

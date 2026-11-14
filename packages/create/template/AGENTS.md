@@ -6,6 +6,10 @@
   an attribute or element (`data-sn-for`, `sn-event`), a diagnostic (`SN318`), or the lines with some
   words (`npx sinter docs optimistic rollback`); `npx sinter docs` lists the topics. It prints the
   installed version's docs: don't fetch sinter's docs from the web, which describe another version.
+- To check what a page loads, renders and does (requests and their headers, each resource's state,
+  history), run `npx sinter render page.html --api mocks.json` (`--help` for the steps: click, input,
+  select, back, …) before writing browser scripts. A browser is only needed for layout and
+  browser-specific behaviour.
 - Styling: temper (`data-variant`, `data-tone`, `data-layout`, … with fixed values; no classes for
   looks, no margins). Read `node_modules/@tiaforge-ui/temper/llms.txt` before editing markup, and
   `llms-full.txt` before building whole pages.

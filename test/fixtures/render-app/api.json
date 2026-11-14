@@ -1,0 +1,5 @@
+{
+  "GET /api/me": { "user": { "name": "ada" } },
+  "GET /api/incidents/3": { "incident": { "id": 3, "title": "Disk full" } },
+  "POST /api/incidents/3/close": { "status": 204 }
+}
