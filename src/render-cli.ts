@@ -27,7 +27,9 @@ export const RENDER_USAGE = `usage: sinter render <page.html> [options] [steps]
 steps, run in order after loading, each followed by what changed:
   --click <selector>      --input <selector>=<text>      --select <selector>=<value>
   --check <selector>      --submit <selector>            --back      --forward      --wait <ms|5s>
-  --emit <event>=<json>   a server event on the page's streams (<sn-sync>)`;
+  --emit <event>=<json>   a server event on the page's streams (<sn-sync>)
+exit code 1: the page did not compile, a step could not run, a request failed or had no mock, or the page warned.
+It runs on jsdom: no layout, CSS or browser-specific behaviour (preloads, engine quirks) — those need a browser.`;
 
 export type Step =
   | { kind: 'click' | 'check' | 'submit'; selector: string }
@@ -169,6 +171,19 @@ export async function installDom(url: string): Promise<() => void> {
     const v = win[key];
     Object.defineProperty(g, key, { value: typeof v === 'function' && !/^[A-Z]/.test(key) ? (v as (...a: unknown[]) => unknown).bind(dom.window) : v, configurable: true, writable: true });
   }
+  // what jsdom lacks and component scripts commonly use: inert stand-ins (nothing is laid out or animated)
+  class Observer { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } }
+  const media = (query: string) => ({ matches: false, media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false });
+  const stand: Record<string, unknown> = { ResizeObserver: Observer, IntersectionObserver: Observer, matchMedia: media };
+  for (const [key, v] of Object.entries(stand)) {
+    if (key in win && typeof win[key] === 'function') continue;
+    win[key] = v;
+    set.push([key, Object.getOwnPropertyDescriptor(g, key)]);
+    Object.defineProperty(g, key, { value: v, configurable: true, writable: true });
+  }
+  const proto = (dom.window as unknown as { Element: { prototype: Record<string, unknown> } }).Element.prototype;
+  proto.animate ??= function () { return { finished: Promise.resolve(), cancel() {}, finish() {}, play() {}, pause() {}, addEventListener() {}, removeEventListener() {} }; };
+  proto.scrollIntoView ??= function () {};
   for (const key of ['window', 'self', 'top', 'parent']) {
     set.push([key, Object.getOwnPropertyDescriptor(g, key)]);
     Object.defineProperty(g, key, { value: dom.window, configurable: true, writable: true });
@@ -289,6 +304,8 @@ export interface RenderReport {
   history: HistoryWrite[];
   navigations: string[];
   warnings: string[];
+  /** how many of `warnings` are the page's own (not ones that depend on the environment) */
+  pageWarnings: number;
   /** what the page and the app's modules wrote to the console (other than the warnings) */
   console: string[];
   steps: StepReport[];
@@ -303,10 +320,12 @@ function requestReport(l: Logged, origin: string): RequestReport {
   return { method: l.call.method, url: shown, headers, ...(l.call.body != null ? { body: l.call.body instanceof FormData ? '(form data)' : l.call.body } : {}), status: l.call.status ?? null, source: l.source, ...(l.error ? { error: l.error } : {}) };
 }
 
-/** A path pattern (`/incidents/:id`) or a page path matches the URL's path. */
+/** A path pattern (`/incidents/:id`) or a page path matches the URL's path; a pattern also matches with a trailing slash. */
 export function pathMatches(patterns: string[], path: string): boolean {
+  const bare = path.length > 1 ? path.replace(/\/$/, '') : path;
   return patterns.some((p) => {
-    const a = p.split('/'), b = path.split('/');
+    if (p === path) return true;
+    const a = p.split('/'), b = bare.split('/');
     return a.length === b.length && a.every((s, i) => (s[0] === ':' ? b[i] !== '' : s === b[i]));
   });
 }
@@ -320,7 +339,7 @@ export function formatHtml(root: Element): string {
   const attrs = (el: Element) => {
     const f = el as HTMLInputElement, control = /^(input|select|textarea)$/i.test(el.tagName), box = control && (f.type === 'checkbox' || f.type === 'radio');
     const list = [...el.attributes].filter((a) => a.name !== 'data-sn' && !(control && (a.name === 'value' || a.name === 'checked'))).map((a) => attr(a.name, a.value));
-    if (control && !box && el.tagName !== 'TEXTAREA' && (f.value !== '' || el.hasAttribute('value'))) list.push(attr('value', f.value));
+    if (control && !box && el.tagName !== 'TEXTAREA' && f.value !== '') list.push(attr('value', f.value));
     if (box && el.hasAttribute('value')) list.push(attr('value', f.value));
     if (box && f.checked) list.push(' checked');
     return list.join('');
@@ -362,13 +381,23 @@ export function lineDiff(before: string, after: string): string[] {
   return out;
 }
 
-function resources(r: Rendered): ResourceReport[] {
+/** The names of the page's `<sn-resource>`s with a `type` (the value's shape is declared: no wrapper hint). */
+function typedResources(html: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of html.matchAll(/<sn-resource\b[^>]*>/gi)) {
+    const name = /\sname\s*=\s*["']([^"']+)["']/i.exec(m[0])?.[1];
+    if (name && /\stype\s*=/i.test(m[0])) out.add(name);
+  }
+  return out;
+}
+
+function resources(r: Rendered, typed: Set<string> = new Set()): ResourceReport[] {
   const page = r.app.page as { $r: Record<string, unknown>; $meta: Record<string, { loading: boolean; error: unknown }> };
   return r.app.ir.resources.map((def) => {
     const meta = page.$meta[def.name], value = page.$r[def.name];
     const rep: ResourceReport = { name: def.name, loading: !!meta?.loading, error: meta?.error ?? null, value };
     // the response's wrapper stored as the value: `{ incident: {…} }` where the page reads `incident.title`
-    if (!def.items && value && typeof value === 'object' && !Array.isArray(value)) {
+    if (!def.items && !typed.has(def.name) && value && typeof value === 'object' && !Array.isArray(value)) {
       const keys = Object.keys(value);
       const only = keys.length === 1 ? (value as Record<string, unknown>)[keys[0]!] : null;
       if (only && typeof only === 'object') rep.hint = `the value is the whole response: items="${keys[0]}" stores its \`${keys[0]}\``;
@@ -478,6 +507,8 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
   // the DOM first: the runtime takes the DOM's classes (EventTarget, …) when it is imported
   const restore = typeof document === 'undefined' ? await installDom(url) : null;
   let loader: Awaited<ReturnType<typeof appLoader>> | null = null;
+  // what the app's config module sets is undone afterwards, also when rendering fails
+  let savedConfig: { config: object; was: object } | null = null;
   try {
   const { render, mockRequests, mockStream, memoryStorage } = await import('./testing/index.js');
   const log: Logged[] = [];
@@ -498,6 +529,8 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
     },
   );
 
+  const { config } = await import('./runtime/config.js');
+  savedConfig = { config, was: { ...config, request: [...config.request] } };
   loader = await appLoader(a.root);
   {
     // localStorage: the page's own (an app module may read it directly), filled from --storage
@@ -512,8 +545,6 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
     const modules = async (file: string | null) => (file ? load(file) : {});
     const abs = (u: string | null) => (u ? resolve(a.root, u.replace(/^\//, '')) : null);
     // the config module first, as the page module imports it before mounting: request middleware, onError, …
-    const { config } = await import('./runtime/config.js');
-    const saved = { ...config, request: [...config.request] };
     if (p.config) await modules(abs(p.config));
     const helpers = await modules(p.helpersFile), actions = await modules(p.actionsFile);
     const scripts: Record<string, unknown> = {};
@@ -541,6 +572,7 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
     try { await r.settle(); } catch (e) { error = (e as Error).message; }
 
     paths = pagePaths(rel, '/', r.app.ir.path ?? []);
+    const typed = typedResources(html);
     const origin = new URL(url).origin;
     const shown = () => {
       const el = a.show ? document.querySelector(a.show) : document.body;
@@ -550,17 +582,17 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
     const reqs = (n: number) => log.filter((l) => l.step === n).map((l) => requestReport(l, origin));
     const report: RenderReport = {
       page: rel, paths, url: url.startsWith(origin) ? url.slice(origin.length) : url, urlMatches: pathMatches(paths, new URL(url).pathname),
-      requests: reqs(0), rendered: shown(), resources: resources(r), history: r.historyWrites(), navigations: [...r.navigations],
-      warnings: [], console: [], steps: [],
+      requests: reqs(0), rendered: shown(), resources: resources(r, typed), history: r.historyWrites(), navigations: [...r.navigations],
+      warnings: [], pageWarnings: 0, console: [], steps: [],
     };
-    if (error) report.warnings.push(error);
+    if (error) { report.warnings.push(error); report.pageWarnings++; }
     let last = report.resources, before = report.rendered, writes = report.history.length, navs = report.navigations.length;
     for (const s of a.steps) {
       step++;
       const sr: StepReport = { step: describe(s), requests: [], history: [], navigations: [], changed: [], resources: [] };
       try { await runStep(r, s, streams); } catch (e) { sr.error = (e as Error).message; }
       const now = shown(), hist = r.historyWrites();
-      const res = resources(r);
+      const res = resources(r, typed);
       Object.assign(sr, { requests: reqs(step), history: hist.slice(writes), navigations: r.navigations.slice(navs), changed: lineDiff(before, now), resources: res.filter((x, i) => short(x, 100_000) !== short(last[i], 100_000)) });
       last = res;
       before = now; writes = hist.length; navs = r.navigations.length;
@@ -569,14 +601,15 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
     }
     const here = (t: string) => t.split(a.root + '/').join('');
     const runtime = r.warnings().map((w) => here(w.message));
+    report.pageWarnings += r.diagnostics.length + r.warnings().filter((w) => !w.environment).length;
     report.warnings.unshift(...r.diagnostics.map((d) => formatDiagnostic({ ...d, file: relative(a.root, d.file) || d.file })), ...runtime);
     // the runtime prints its warnings too: those are in `warnings` already
     report.console = logged.map(here).filter((l) => !runtime.some((w) => l.replace(/^(warn|error): /, '').startsWith(w)));
     r.app.destroy();
-    Object.assign(config, saved);
     return report;
   }
   } finally {
+    if (savedConfig) { for (const k of Object.keys(savedConfig.config)) if (!(k in savedConfig.was)) delete (savedConfig.config as Record<string, unknown>)[k]; Object.assign(savedConfig.config, savedConfig.was); }
     await loader?.close();
     restore?.();
     Object.assign(console, consoleWas);
@@ -639,6 +672,12 @@ export function formatReport(r: RenderReport): string {
   return out.join('\n');
 }
 
+/** The page did not do what it should: a step could not run, a request failed or had no mock, or the page warned. */
+export function failed(r: RenderReport): boolean {
+  const requests = [...r.requests, ...r.steps.flatMap((s) => s.requests)];
+  return r.steps.some((s) => s.error) || requests.some((q) => q.error || q.source === 'unmatched') || r.pageWarnings > 0;
+}
+
 /** `sinter render …`: the exit code; the report on stdout, a usage or setup problem on stderr. */
 export async function renderCommand(argv: string[]): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) { console.log(RENDER_USAGE); return 0; }
@@ -651,5 +690,5 @@ export async function renderCommand(argv: string[]): Promise<number> {
     return 1;
   }
   console.log(a.json ? JSON.stringify(report, null, 2) : formatReport(report));
-  return report.steps.some((s) => s.error) ? 1 : 0;
+  return failed(report) ? 1 : 0;
 }

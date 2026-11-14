@@ -2,7 +2,7 @@
 // (test/fixtures/render-app: a config module with request middleware, a helper, a component).
 import { resolve } from 'node:path';
 import { expect, test } from 'vitest';
-import { formatReport, lineDiff, parseRenderArgs, pathMatches, renderPage, splitAssignment, type RenderArgs } from '../src/render-cli.js';
+import { failed, formatReport, lineDiff, parseRenderArgs, pathMatches, renderPage, splitAssignment, type RenderArgs } from '../src/render-cli.js';
 
 const root = resolve(__dirname, 'fixtures/render-app');
 const args = (...argv: string[]) => {
@@ -58,6 +58,30 @@ test('a request no mock answers gets a 404 and is marked; a URL the page does no
   expect(text).toContain('(no mock)');
 });
 
+test('the exit code: 1 when a request had no mock or the page warned, 0 for a clean render', async () => {
+  // the fixture's bindings read `incident.title` before the data arrives: the page warns
+  expect(failed(await incident())).toBe(true);
+  const unmatched = await renderPage(args('incident.html', '--url', '/incidents/3'));
+  expect(unmatched.requests.some((q) => q.source === 'unmatched')).toBe(true);
+  expect(failed(unmatched)).toBe(true);
+  const r = await renderPage(args('clean.html', '--api', 'api.json'));
+  expect([r.pageWarnings, failed(r)]).toEqual([0, false]);
+});
+
+test('the app\'s config is undone after a render, also one that fails', async () => {
+  const { config } = await import('../src/runtime/config.js');
+  const before = config.request.length;
+  await incident();
+  expect(config.request.length).toBe(before);
+  await expect(renderPage(args('broken.html'))).rejects.toThrow();
+  expect(config.request.length).toBe(before);
+});
+
+test('no wrapper hint for a resource with a `type`', async () => {
+  const r = await renderPage(args('clean.html', '--api', 'api.json'));
+  expect(r.resources.find((x) => x.name === 'me')!.hint).toBeUndefined();
+});
+
 test('a step that cannot run stops the steps, with the reason', async () => {
   const r = await incident('--click', '#missing', '--back');
   expect(r.steps).toHaveLength(1);
@@ -79,5 +103,8 @@ test('arguments', () => {
   expect(a.steps).toEqual([{ kind: 'wait', ms: 5000 }, { kind: 'emit', name: 'x', payload: { a: 1 } }]);
   expect(pathMatches(['/incidents/:id'], '/incidents/3')).toBe(true);
   expect(pathMatches(['/incidents/:id'], '/incidents/')).toBe(false);
+  // a pattern also matches with a trailing slash (docs/static-pages.md)
+  expect(pathMatches(['/incidents/:id'], '/incidents/3/')).toBe(true);
+  expect(pathMatches(['/', '/index.html'], '/')).toBe(true);
   expect(lineDiff('a\nb\nc', 'a\nx\nc')).toEqual(['- b', '+ x']);
 });
