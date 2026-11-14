@@ -19,6 +19,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- `early="off"` is described as being for a resource a request middleware answers itself; one whose request a middleware changes (a token) needs nothing since the preload fix. A benchmark agent still put it on every resource up front, from the old wording.
+- The starter's `AGENTS.md` and `llms.txt` say to read `llms.txt` once and look things up with `npx sinter docs` after that, and not to fetch sinter's docs from the web, which describe another version.
 - `llms.txt` is half its size (109 KB → 56 KB): coding agents read all of it, and in a benchmark against Astro and SvelteKit that reading was most of sinter's extra cost. Eight recipes are shown in full without their tests (those stay in `docs/recipes/`), the others are listed with links; "First paint" and "Images" keep what changes what you write and leave how the build does it to the guides; the key-filter, `$url` history and `refresh` paragraphs are shorter.
 - `llms.txt` and docs/strict.md recommend `sinter({ typecheck: true, strict: true })`, as the starter has: without `typecheck` a strict `vite build` passes with type errors and SN504/SN506, which only `sinter check` reports. A benchmark agent that set up a project by hand had only `strict: true`.
 - `llms.txt` and docs/actions.md say how to write an inline edit with an optimistic change: leave edit mode on submit (`data-sn-on-submit="editingId = null"`), not in `then`, which waits for the server. A benchmark agent closed it in `then`, so a rename showed only after the PATCH answered.

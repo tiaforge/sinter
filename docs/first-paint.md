@@ -193,10 +193,12 @@ left to the page script. Cross-origin early requests are sent without credential
 ### Keeping a resource out
 
 `<sn-resource early="off">` keeps a resource out of the preload and the early request. Use it when
-a request middleware answers the request itself or changes it, for example adds an
-`Authorization` header: the early request would go unused, or fail where the middleware would
-have answered. A browser preload is sent without your headers, so the same goes for any resource
-that needs a header on its GET.
+a request middleware answers the request itself (a mock, its own cache): the early request would go
+unused. A middleware that changes the request, for example adds an `Authorization` header, needs
+nothing: the changed request is sent again, and when the config module may change requests the build
+writes no preload links (a browser preload is sent without your headers, and its response would go to
+the changed request). With an OpenAPI spec, operations whose `security` needs a token are not
+requested early at all ([apis](apis.md#requests)).
 
 ### Low priority for dialog-only data
 
