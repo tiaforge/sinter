@@ -287,7 +287,7 @@ export interface Rendered {
   settle(): Promise<void>;
   /** moves sinter's clock: debounce, backoff, `$now` */
   advance(ms: number): Promise<void>;
-  /** URLs sinter tried to navigate to */
+  /** URLs sinter tried to navigate to (`navigate(url, { replace: true })`: prefixed `replace `) */
   navigations: string[];
   /** the runtime's warnings (and errors) since `render()`, strict mode or not */
   warnings(): RuntimeWarning[];
@@ -504,6 +504,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     clearTimeout: (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); },
     queueMicrotask: (fn) => queueMicrotask(fn),
     navigate: (url) => { navigations.push(url); },
+    replace: (url) => { navigations.push(`replace ${url}`); },
     fetch: (req) => Promise.reject(new Error(`unexpected network request: ${req.method} ${req.url}; pass \`requests: mockRequests({...})\``)),
     storage: () => store,
     session: () => session,

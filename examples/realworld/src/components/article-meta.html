@@ -1,5 +1,5 @@
 <!-- Author, date and the follow/favorite or edit/delete actions of the page's single `article`. -->
-<template data-sn-component="{ article: Article }" data-sn-emits="{ navigate: string }">
+<template data-sn-component="{ article: Article }">
   <div class="article-meta">
     <a data-sn-attr="{href: '/profile/' + encodeURIComponent(article.author.username)}"><img data-sn-attr="{src: avatar(article.author.image), alt: article.author.username}"></a>
     <div class="info">
@@ -9,7 +9,7 @@
     <template data-sn-if="user && user.username == article.author.username">
       <a class="btn btn-outline-secondary btn-sm" data-sn-attr="{href: '/editor/' + encodeURIComponent(article.slug)}"><i class="ion-edit"></i> Edit Article</a>
       <button class="btn btn-outline-danger btn-sm" data-sn-delete="/articles/{article.slug}"
-              data-sn-then="emit('navigate', '/')"><i class="ion-trash-a"></i> Delete Article</button>
+              data-sn-then="navigate('/')"><i class="ion-trash-a"></i> Delete Article</button>
     </template>
     <template data-sn-else>
       <template data-sn-if="article.author.following">

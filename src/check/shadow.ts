@@ -358,6 +358,7 @@ export interface Store<R, D extends string = never> {
   reset(): void;
   emit(event: string, detail?: unknown): void;
   run(id: string): void;
+  navigate(url: string, options?: { replace?: boolean }): void;
 }
 type Style = 'short' | 'medium' | 'long' | 'full';
 export function date(v: unknown, style?: Style): string;

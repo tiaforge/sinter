@@ -252,6 +252,7 @@ a failure with `$error`. Both are handlers: state assignments and these built-in
 | `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
 | `reset()` | reset the nearest form |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element |
+| `navigate(url, { replace })` | go to `url` (relative to the page's): to this page with only parameters it reads changed, as a [same-page link](navigation.md#same-page-links), in the page; anywhere else the browser loads it, as a new history entry or, with `replace: true`, in the current one |
 | `run('id')` | start the action of the element with that id ([below](#run-an-action-from-a-handler)) |
 
 ### Where `patch` and `remove` act

@@ -9,6 +9,8 @@ export interface Env {
   queueMicrotask(fn: () => void): void;
   /** the only way sinter navigates */
   navigate(url: string): void;
+  /** `navigate(url, { replace: true })`: a navigation that replaces the current entry; absent: `location.replace` */
+  replace?(url: string): void;
   fetch(request: Request): Promise<Response>;
   storage(): Storage | null;
   session(): Storage | null;

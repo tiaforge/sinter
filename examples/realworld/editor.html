@@ -28,11 +28,11 @@
               </fieldset>
               <template data-sn-if="$url.slug">
                 <button class="btn btn-lg pull-xs-right btn-primary" type="button" data-sn-put="/articles/{$url.slug}" data-sn-body="{article: {...d, tagList: withTag(d.tagList, tag)}}"
-                        data-sn-then="emit('navigate', '/article/' + encodeURIComponent($result.article.slug))">Publish Article</button>
+                        data-sn-then="navigate('/article/' + encodeURIComponent($result.article.slug))">Publish Article</button>
               </template>
               <template data-sn-else>
                 <button class="btn btn-lg pull-xs-right btn-primary" type="button" data-sn-post="/articles" data-sn-body="{article: {...d, tagList: withTag(d.tagList, tag)}}"
-                        data-sn-then="emit('navigate', '/article/' + encodeURIComponent($result.article.slug))">Publish Article</button>
+                        data-sn-then="navigate('/article/' + encodeURIComponent($result.article.slug))">Publish Article</button>
               </template>
             </fieldset>
           </form>

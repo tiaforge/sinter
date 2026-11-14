@@ -1,4 +1,4 @@
-// Islands: browser work that sinter expressions cannot do (storage, navigation); Markdown is src/markdown.js.
+// Islands: browser work that sinter expressions cannot do (the token's storage, a redirect from a branch); Markdown is src/markdown.js.
 import { clearPersisted, instance } from '@tiaforge-ui/sinter';
 import { token } from './session.js';
 
@@ -14,7 +14,6 @@ document.addEventListener('signed-out', () => {
   token.clear();
   location.assign('/');
 });
-document.addEventListener('navigate', (e) => location.assign(e.detail));
 
 /** `<conduit-redirect to="/login">`: replaces the location once rendered (e.g. inside a `data-sn-if`). */
 customElements.define('conduit-redirect', class extends HTMLElement {

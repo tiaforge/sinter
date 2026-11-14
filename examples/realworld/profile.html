@@ -1,6 +1,6 @@
 <conduit-layout data-sn-path="/profile/:username /profile/:username/:tab"
   data-sn-state="{ nav: 'profile:' + $url.username, error: null }"
-  data-sn-on-sn-error="$event.detail.error.status == 401 ? emit('navigate', '/login') : error = $event.detail.error; $event.preventDefault()"
+  data-sn-on-sn-error="$event.detail.error.status == 401 ? navigate('/login') : error = $event.detail.error; $event.preventDefault()"
   data-sn-prop="{ nav, title: 'Profile', description: 'A Conduit author\'s profile: their articles and favorites.' }">
 <sn-resource cache name="profile" src="/profiles/{$url.username}"></sn-resource>
 <sn-resource cache name="articles"

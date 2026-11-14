@@ -895,7 +895,9 @@ class Compiler {
     // Not with `<base href>`: links resolve against it, not the page's URL
     const reads = this.urlReads(ir, paths), own = this.ownPaths(paths);
     if (reads) this.checkDroppedQuery(reads, paths);
-    if (reads && !hasBase(doc) && this.seesSameLink(own)) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
+    // `navigate()` may go to this page with another query too: the build cannot see where, so it loads the module
+    const navigates = this.fns.some((c) => c.includes('$f.navigate('));
+    if (reads && !hasBase(doc) && (navigates || this.seesSameLink(own))) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
     return {
       html: parse5.serialize(doc),
       runtime, ...(isStatic ? { static: true as const } : {}), ...(isStatic && this.canonicalLink ? { canonicalOnly: true } : {}),
