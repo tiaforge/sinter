@@ -317,7 +317,7 @@ test('first paint: a classic head script per page over one shared by every page,
   // the page module (async) mounts once the early script has rendered
   expect(readFileSync(join(dir, 'assets', page![1]!), 'utf8')).toMatch(/await rendered\(\);[\s\S]*mount\(document/);
   // the build reports the early scripts' size, and warns over the budget with the largest modules
-  expect(logs.find((l) => l.includes('early script of index.html'))).toMatch(/^sinter: warning SN522 early-budget: early script of index\.html: assets\/index-head-[\w-]+\.js [\d.]+ kB gzip \+ assets\/sinter-head-[\w-]+\.js [\d.]+ kB gzip \(shared\), over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
+  expect(logs.find((l) => l.includes('early script of index.html'))).toMatch(/^sinter: warning SN523 early-budget: early script of index\.html: assets\/index-head-[\w-]+\.js [\d.]+ kB gzip \+ assets\/sinter-head-[\w-]+\.js [\d.]+ kB gzip \(shared\), over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
   // `firstPaint: false`: everything waits for the page module
   await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: join(dir, 'off'), emptyOutDir: true, minify: false }, plugins: [sinter({ firstPaint: false })] });
   const off = readFileSync(join(dir, 'off', 'index.html'), 'utf8');
@@ -487,8 +487,8 @@ test('strict: the build\'s warnings fail it after it has run, all of them; `allo
     root, resolve: { alias }, customLogger: quiet, build: { outDir: join(out, dir), emptyOutDir: true, minify: false },
     plugins: [sinter({ earlyBudget: 1, strict })],
   });
-  await expect(run(true, 'strict')).rejects.toThrow(/warning\(s\) fail the build in strict mode[\s\S]*sinter: warning SN522 early-budget: early script of index\.html/);
-  await run({ allow: { SN522: 'the fixture has no budget' } }, 'strict-allow');
-  expect(() => sinter({ strict: { allow: { SN522: '' } } })).toThrow(/`allow.SN522` takes the reason/);
+  await expect(run(true, 'strict')).rejects.toThrow(/warning\(s\) fail the build in strict mode[\s\S]*sinter: warning SN523 early-budget: early script of index\.html/);
+  await run({ allow: { SN523: 'the fixture has no budget' } }, 'strict-allow');
+  expect(() => sinter({ strict: { allow: { SN523: '' } } })).toThrow(/`allow.SN523` takes the reason/);
   expect(() => sinter({ strict: { allow: { SN999: 'x' } } })).toThrow(/`SN999` in `allow` is not a diagnostic code/);
 });

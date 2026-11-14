@@ -76,15 +76,16 @@ export const CODES = {
   SN516: 'unfed-live',
   SN517: 'unkeyed-list',
   SN518: 'redundant-shape',
-  SN519: 'unused-preload',
-  SN520: 'redirected-link',
-  SN521: 'untranslated-messages',
-  SN522: 'early-budget',
-  SN523: 'redirects-limit',
-  SN524: 'images-unoptimized',
-  SN525: 'font-download',
-  SN526: 'css-image-sizes',
-  SN527: 'remote-image',
+  SN519: 'dropped-query',
+  SN520: 'unused-preload',
+  SN521: 'redirected-link',
+  SN522: 'untranslated-messages',
+  SN523: 'early-budget',
+  SN524: 'redirects-limit',
+  SN525: 'images-unoptimized',
+  SN526: 'font-download',
+  SN527: 'css-image-sizes',
+  SN528: 'remote-image',
 } as const;
 
 export type Code = keyof typeof CODES;
@@ -106,7 +107,7 @@ export function severityOf(code: Code): Severity {
  * installed, a download that failed): `--strict` does not turn them into errors, since a build
  * would then pass or fail with the network.
  */
-export const ENVIRONMENT_CODES: ReadonlySet<string> = new Set(['SN524', 'SN525', 'SN526', 'SN527']);
+export const ENVIRONMENT_CODES: ReadonlySet<string> = new Set(['SN525', 'SN526', 'SN527', 'SN528']);
 
 /**
  * Warnings that are a measure, not a mistake: `--strict` leaves them warnings. `SN507` has its own

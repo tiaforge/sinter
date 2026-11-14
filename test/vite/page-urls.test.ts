@@ -193,7 +193,7 @@ test('a link built at run time that names a moved page by its file: the build sa
     const logs: string[] = [];
     const log = (m: string) => { logs.push(m); };
     await build({ root: dir, customLogger: { info: log, warn: log, warnOnce: log, error: log, clearScreen() {}, hasErrorLogged: () => false, hasWarned: false }, resolve: { alias }, plugins: [sinter()], build: { outDir: join(dir, 'dist'), rollupOptions: { input: [join(dir, 'list.html'), join(dir, 'item.html')] } } });
-    expect(logs.join('\n')).toContain('sinter: warning SN520 redirected-link: list.html builds a link to item.html at run time, which is served at /item/ now: it arrives through a redirect');
+    expect(logs.join('\n')).toContain('sinter: warning SN521 redirected-link: list.html builds a link to item.html at run time, which is served at /item/ now: it arrives through a redirect');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60_000);
 

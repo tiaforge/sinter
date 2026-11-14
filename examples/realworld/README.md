@@ -34,7 +34,10 @@ config module and the islands (`src/markdown.js` too); the pages are declarative
 
 The article lists keep their page in the URL with `page-model="$url.page"`: `?page=3` (or a reload,
 or Back) loads the third page, in the early request and the embedded data too. The pager's links
-navigate, as the reference app's do; the active page is `$meta.<name>.page`, the page shown.
+and the home page's feed tabs are plain links that stay on the page when clicked
+([same-page links](../../docs/navigation.md#same-page-links)): a new history entry and the list's
+next page, no reload. "Global Feed" from `/tag/go` is another path, a page load. The active page is
+`$meta.<name>.page`, the page shown.
 
 Every resource has `cache`: a page shows what the previous page loaded at once and revalidates.
 Signing in or out calls `clearPersisted()`, since the cached data belongs to the previous identity.

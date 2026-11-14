@@ -1,6 +1,6 @@
 # sinter diagnostics
 
-Generated from `src/compiler/diagnostic-docs.ts` by `npm run docs`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build. `sinter check --strict` fails on warnings too, except the ones that depend on the machine or the network (SN524 to SN527) and SN507 ([docs/strict.md](strict.md)). Codes from SN519 up are reported by the build rather than by a page, without a file and line.
+Generated from `src/compiler/diagnostic-docs.ts` by `npm run docs`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build. `sinter check --strict` fails on warnings too, except the ones that depend on the machine or the network (SN525 to SN528) and SN507 ([docs/strict.md](strict.md)). Codes from SN520 up are reported by the build rather than by a page, without a file and line.
 
 ## SN101 unknown-attribute
 
@@ -632,7 +632,17 @@ The API's `defaults` or `operations` already give this value for the endpoint, s
 
 **Fix:** Remove the attribute.
 
-## SN519 unused-preload
+## SN519 dropped-query
+
+Warning, for example:
+
+> `?page=3` keeps only its own query: `tag`, which this page reads, is dropped when it is followed
+
+A pager link whose `href` is only a query (`?page=3`, setting a `page-model` parameter) replaces the whole query of the current URL, as any URL resolves: on `/?tag=go` it goes to `/?page=3`, without the tag. The page reads the parameters named, so following the link loses them (in the page, with same-page links, or with a page load). A filter or tab link that drops the page is not reported: that is how a list starts at page 1. Nor is a static `href` kept as the fallback of a bound one.
+
+**Fix:** Build the whole query in `data-sn-attr` (`href: '?page=' + n + '&tag=' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose, for a link that resets it.
+
+## SN520 unused-preload
 
 Warning, for example:
 
@@ -642,7 +652,7 @@ A `data-sn-preload` names a module that no module of the app imports, so the bui
 
 **Fix:** Remove the name from `data-sn-preload`, or correct it to the module the page's scripts import.
 
-## SN520 redirected-link
+## SN521 redirected-link
 
 Warning, for example:
 
@@ -652,7 +662,7 @@ An expression builds a URL to another page by its file name (`'/item.html?id=' +
 
 **Fix:** Write the page's URL in the expression, as the message shows: `'/item/?id=' + i.id`.
 
-## SN521 untranslated-messages
+## SN522 untranslated-messages
 
 Warning, for example:
 
@@ -662,7 +672,7 @@ The inlang project has messages without a text in one of its languages, so pages
 
 **Fix:** Add the translations to the language's message file.
 
-## SN522 early-budget
+## SN523 early-budget
 
 Warning, for example:
 
@@ -672,7 +682,7 @@ The script that renders before the first paint is larger than the budget (`sinte
 
 **Fix:** Keep heavy imports out of `src/sinter.early.ts` and of the helpers that early bindings call, or raise the budget.
 
-## SN523 redirects-limit
+## SN524 redirects-limit
 
 Warning, for example:
 
@@ -682,7 +692,7 @@ The `_redirects` file the build writes has more rules than Cloudflare Pages read
 
 **Fix:** Move the rules beyond the limit to the host's bulk redirects, or turn the file off with `sinter({ redirects: false })`.
 
-## SN524 images-unoptimized
+## SN525 images-unoptimized
 
 Warning, for example:
 
@@ -692,7 +702,7 @@ Image optimization needs the `sharp` package, which is not installed, so images 
 
 **Fix:** Install it, `npm install -D sharp`, or turn optimization off with `sinter({ images: false })`.
 
-## SN525 font-download
+## SN526 font-download
 
 Warning, for example:
 
@@ -702,7 +712,7 @@ The build self-hosts the fonts a page links to, and one could not be downloaded,
 
 **Fix:** Build with network access, or turn self-hosting off with `sinter({ fonts: { inline: false } })`.
 
-## SN526 css-image-sizes
+## SN527 css-image-sizes
 
 Warning, for example:
 
@@ -712,7 +722,7 @@ The build reads the page's CSS to size its images, and a stylesheet could not be
 
 **Fix:** Fix the error the message shows, or install the preprocessor the stylesheet needs.
 
-## SN527 remote-image
+## SN528 remote-image
 
 Warning, for example:
 

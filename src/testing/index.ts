@@ -35,6 +35,7 @@ import form from '../form.js';
 import select from '../select.js';
 import location from '../location.js';
 import typing from '../typing.js';
+import queryLinks from '../query-links.js';
 import call from '../call.js';
 import debounce from '../debounce.js';
 import components from '../components.js';
@@ -46,7 +47,7 @@ import sse from '../sse.js';
 import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { components, nested, defs, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, typing, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, nested, defs, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, typing, 'query-links': queryLinks, call, debounce, confirm, models, transition };
 
 // ---- requests
 
@@ -508,6 +509,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     replaceState: (url) => { href = entries[at] = new URL(url, href).href; },
     // a push drops the entries after the current one, as a browser's history does
     pushState: (url) => { href = new URL(url, href).href; entries.splice(++at, Infinity, href); },
+    fragment: (hash) => { href = entries[at] = new URL(hash, href).href; },
     // the test's simulated events are the user's; the custom events sinter dispatches are not
     trusted: (e) => !(e instanceof CustomEvent),
     random: () => 0.5,

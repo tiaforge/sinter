@@ -18,7 +18,7 @@ it where the agent or the CI job runs, so the config cannot quietly opt out.
 | Where | In strict mode |
 | --- | --- |
 | `sinter check` | a page's warnings are printed as errors, exit code 1 (`--strict`, `--no-strict` and `--allow SN504,SN517` for one run) |
-| `vite build` | a page's warnings fail it as its errors do; the build's own warnings (`SN519` and up: an unused preload, a link through a redirect, missing translations, the early budget, …) fail it once it has run, all of them listed |
+| `vite build` | a page's warnings fail it as its errors do; the build's own warnings (`SN520` and up: an unused preload, a link through a redirect, missing translations, the early budget, …) fail it once it has run, all of them listed |
 | dev server | a page's warnings fail the page in Vite's overlay, as its errors do; the runtime's warnings in the browser (a duplicate key, an item without its key field, state changed outside sinter, a binding that threw, …) are printed in the terminal and shown in the overlay |
 | `render()` | a page's warnings throw as its errors do; a runtime warning makes the call that ran it reject (`render`, `flush`, `settle`, `advance`, `frame`, `back`, …) |
 
@@ -31,9 +31,9 @@ index.html:3:1 error SN501 unused-resource: resource `addressbooks` is declared 
 
 ## What stays a warning
 
-- Warnings that depend on the machine or the network, not on the project: `SN524` (sharp not
-  installed), `SN525` (a font that could not be downloaded), `SN526` (a stylesheet the CSS tools
-  could not compile), `SN527` (an image the API did not serve). A strict build would otherwise pass
+- Warnings that depend on the machine or the network, not on the project: `SN525` (sharp not
+  installed), `SN526` (a font that could not be downloaded), `SN527` (a stylesheet the CSS tools
+  could not compile), `SN528` (an image the API did not serve). A strict build would otherwise pass
   or fail with the network.
 - `SN507` (`complex-expression`), which is a measure rather than a mistake. Failing on it pushes code
   into odd shapes to get under a limit. `sinter({ complexity: { level: 'error' } })` makes it an error

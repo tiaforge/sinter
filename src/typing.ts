@@ -17,9 +17,12 @@ const feature: Feature = {
     const loc = () => app.ext.location!;
     const commit = () => { if (loc().commit(run ? REPLACE : PUSH)) run = true; };
     const stop = () => { pause.stop(); run = fin = false; };
+    /** what typing waits to commit is committed now, and the run ends */
+    const finish = () => { if (pause.on()) { pause.stop(); commit(); } run = false; };
     app.ext.typing = {
       stop,
-      waits: () => pause.on(),
+      finish,
+      waits: pause.on,
       flush(k) {
         // a number field's steps: one entry once they pause (it takes what typing waited to commit too)
         if (k == BURST) { run = false; pause.start(() => loc().commit(PUSH)); }
@@ -32,14 +35,13 @@ const feature: Feature = {
     // page's own `change` handlers (as the core's models).
     const change = (e: Event) => {
       const m = (e.target as Tagged | null)?.[MODEL];
-      if (m?.b.n != 'text' || !(m.b.w ?? []).some((p) => { let n = p as number; while (ps.p[n]! >= 0) n = ps.p[n]!; return n == ps.x.$url; })) return;
+      // a model writes one path, and a parameter's is right under `$url`
+      if (m?.b.n != 'text' || ps.p[m.b.w![0] as number] != ps.x.$url) return;
       if (loc().kind == TYPED) return void (fin = true);
-      if (pause.on()) { pause.stop(); commit(); }
-      run = false;
+      finish();
     };
-    const ET = EventTarget.prototype;
-    ET.addEventListener.call(app.root, 'change', change, true);
-    app.addCleanup(() => ET.removeEventListener.call(app.root, 'change', change, true));
+    app.root.addEventListener('change', change, true);
+    app.addCleanup(() => app.root.removeEventListener('change', change, true));
   },
 };
 export default feature;

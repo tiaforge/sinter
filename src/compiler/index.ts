@@ -37,6 +37,7 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   const out: CompileResult = {
     html: parts.html, module: css + page.text(), runtime: parts.runtime, preload: parts.preload, ...(parts.static ? { static: true as const } : {}),
     diagnostics: parts.diagnostics, files: parts.files, styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.ir.urlArrays ? { urlArrays: parts.ir.urlArrays } : {}), ...(parts.prefetchOff ? { prefetchOff: true as const } : {}),
+    ...(parts.ir.urlReads ? { sameLinks: true as const } : {}),
   };
   if (parts.check) out.check = parts.check;
   const lazy = parts.scripts.filter((x) => x.lazy);
@@ -162,10 +163,11 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
   lines.push(`import { ${core.join(', ')} } from '${PACKAGE}';`);
-  // prefixed: a helper may be named as a feature (`keys`, `form`, …)
-  for (const f of parts.features) lines.push(`import sn$${f} from '${PACKAGE}/${f}';`);
+  // prefixed (a helper may be named as a feature: `keys`, `form`, …), and an identifier (`query-links` is `sn$query_links`)
+  const local = (f: string) => `sn$${f.replace(/-/g, '_')}`;
+  for (const f of parts.features) lines.push(`import ${local(f)} from '${PACKAGE}/${f}';`);
   // next-page data: the app's pages, described in one module every page shares
-  const features = [...parts.features.map((f) => `sn$${f}`), ...(options.prefetch ? ['$prefetch'] : [])];
+  const features = [...parts.features.map(local), ...(options.prefetch ? ['$prefetch'] : [])];
   if (options.prefetch) lines.push(`import $prefetch from ${JSON.stringify(options.prefetch)};`);
   if (parts.helpers.user.length && options.helpers.module) {
     lines.push(`import { ${parts.helpers.user.join(', ')} } from ${JSON.stringify(options.helpers.module)};`);

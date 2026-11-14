@@ -85,6 +85,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN513', '<div data-sn-state="{ dark: false }"><img alt="" data-sn-attr="{src: dark ? \'./logo-dark.png\' : \'./logo.png\'}"></div>', /`src` is bound to local images \(`\.\/logo-dark\.png`, `\.\/logo\.png`\), which are not optimized/],
   ['SN517', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
   ['SN516', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
+  ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" items="a" key="id" paginate="offset" page-size="2" page-model="$url.page"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],
   ['SN515', '<!doctype html><html data-sn-path="/page/"><head></head><body></body></html>', /`data-sn-path="\/page\/"` is the URL this page has anyway/],
   ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
   ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="patch(x, $result.contact)"></button></template>`,
@@ -101,8 +102,8 @@ const STATIC_ONLY = ['SN322'];
 const LAZY_ONLY = ['SN324', 'SN325'];
 /** `sinter({ apis })`: the option itself (test/apis.test.ts) and paths relative to an API (test/compiler/apis.test.ts). */
 const APIS_ONLY = ['SN326', 'SN327', 'SN328', 'SN329', 'SN330', 'SN518'];
-/** Warnings of the Vite plugin, with no page position (`formatWarning`): SN520 in test/vite/page-urls.test.ts, SN522 in test/vite/build.test.ts. */
-const BUILD_ONLY = ['SN519', 'SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527'];
+/** Warnings of the Vite plugin, with no page position (`formatWarning`): SN521 in test/vite/page-urls.test.ts, SN523 in test/vite/build.test.ts. */
+const BUILD_ONLY = ['SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527', 'SN528'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {

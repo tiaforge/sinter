@@ -11,15 +11,15 @@ const at = { file: 'index.html', line: 1, col: 1 };
 const warning = (code: string): Diagnostic => ({ severity: 'warning', code, message: 'm', ...at });
 
 test('applyStrict promotes warnings, keeps environment, heuristic and allowed codes, and leaves errors alone', () => {
-  const out = applyStrict([warning('SN501'), warning('SN518'), warning('SN524'), warning('SN507'), { severity: 'error', code: 'SN201', message: 'e', ...at }], new Set(['SN518']));
-  expect(out.map((d) => `${d.code} ${d.severity}`)).toEqual(['SN501 error', 'SN518 warning', 'SN524 warning', 'SN507 warning', 'SN201 error']);
+  const out = applyStrict([warning('SN501'), warning('SN518'), warning('SN525'), warning('SN507'), { severity: 'error', code: 'SN201', message: 'e', ...at }], new Set(['SN518']));
+  expect(out.map((d) => `${d.code} ${d.severity}`)).toEqual(['SN501 error', 'SN518 warning', 'SN525 warning', 'SN507 warning', 'SN201 error']);
   expect(out[0]!.hint).toContain('--allow SN501');
   expect(out[4]!.hint).toBeUndefined();
 });
 
 test('the codes strict mode skips are warnings, and every build warning prints its code and docs', () => {
   for (const c of [...ENVIRONMENT_CODES, ...HEURISTIC_CODES]) expect(severityOf(c as Code)).toBe('warning');
-  expect(formatWarning('SN519', 'x')).toBe(`sinter: warning SN519 ${CODES.SN519}: x\n  docs: https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn519-unused-preload`);
+  expect(formatWarning('SN520', 'x')).toBe(`sinter: warning SN520 ${CODES.SN520}: x\n  docs: https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn520-unused-preload`);
 });
 
 const root = mkdtempSync(join(tmpdir(), 'sinter-strict-'));
