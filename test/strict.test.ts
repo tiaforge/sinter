@@ -19,7 +19,7 @@ test('applyStrict promotes warnings, keeps environment, heuristic and allowed co
 
 test('the codes strict mode skips are warnings, and every build warning prints its code and docs', () => {
   for (const c of [...ENVIRONMENT_CODES, ...HEURISTIC_CODES]) expect(severityOf(c as Code)).toBe('warning');
-  expect(formatWarning('SN520', 'x')).toBe(`sinter: warning SN520 ${CODES.SN520}: x\n  docs: https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn520-unused-preload`);
+  expect(formatWarning('SN520', 'x')).toBe(`sinter: warning SN520 ${CODES.SN520}: x\n  docs: \`npx sinter docs SN520\`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn520-unused-preload`);
 });
 
 const root = mkdtempSync(join(tmpdir(), 'sinter-strict-'));
