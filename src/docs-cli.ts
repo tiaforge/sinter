@@ -1,5 +1,5 @@
-// `sinter docs [topic]`: one part of the docs that ship in the package (llms.txt, docs/diagnostics.md), so a
-// coding agent can look up a section, an attribute or a diagnostic instead of reading all of llms.txt.
+// `sinter docs [topic]`: one part of the docs that ship in the package (llms-full.txt, docs/diagnostics.md), so a
+// coding agent can look up a section, an attribute or a diagnostic instead of reading the full reference.
 
 export interface Section { title: string; slug: string; level: number; text: string }
 
@@ -30,7 +30,7 @@ export function lookup(docs: Docs, topic: string | undefined): { text: string; f
     const toc = all.map((s) => `${s.level === 3 ? '    ' : '  '}${s.slug.padEnd(s.level === 3 ? 34 : 36)} ${s.title}`);
     return {
       found: true,
-      text: ['sinter docs <topic>: one part of llms.txt. Topics:', '', ...toc, '',
+      text: ['sinter docs <topic>: one part of the reference (llms-full.txt). Topics:', '', ...toc, '',
         'Also: an attribute or element (`sinter docs data-sn-for`, `sinter docs sn-event`), a diagnostic (`sinter docs SN318`),',
         'or any words (`sinter docs optimistic rollback`): the lines that have all of them.'].join('\n'),
     };

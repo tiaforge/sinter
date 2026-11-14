@@ -6,6 +6,7 @@ import { expect, test } from 'vitest';
 import { CODES, severityOf, type Code } from '../src/compiler/diagnostics.js';
 import { DIAGNOSTIC_DOCS } from '../src/compiler/diagnostic-docs.js';
 import { ALL_MAGIC, BUILTIN_HELPERS, STORE_FNS } from '../src/compiler/expr.js';
+import { sections } from '../src/docs-cli.js';
 import { ATTRIBUTES, CHAR_KEYS, DEBOUNCE_ON_DOC, ELEMENTS, KEY_ON_DOC, MODIFIERS, NAMED_KEYS, ON_DOC } from '../src/compiler/vocabulary.js';
 
 const root = resolve(__dirname, '..');
@@ -50,6 +51,8 @@ Package: @tiaforge-ui/sinter. Every directive is a \`data-sn-*\` attribute or an
 Work in strict mode, so warnings fail like errors instead of scrolling past: \`sinter({ typecheck: true, strict: true })\` in the Vite config (or \`SINTER_STRICT=1\`; without \`typecheck\` the build does not type-check, so type errors and the untyped-resource and untyped-event warnings SN504 and SN506 come only from \`sinter check\`), \`npx sinter check --strict\` after every change, \`render(html, { strict: true })\` in tests (\`render()\` reads \`SINTER_STRICT\` too), and read the dev server's terminal, where strict mode prints the browser's runtime warnings. A clean exit means no warnings, not only no errors. Fix what a warning reports; do not turn strict mode off. Keep a code a warning only when the user agrees, in \`strict: { allow: { SN504: 'reason' } }\`. Details: docs/strict.md and "Type checking" below.
 
 Read this once, and not again: to look something up later, run \`npx sinter docs <topic>\`, which prints one section (\`layouts\`), an attribute or element (\`data-sn-for\`, \`sn-event\`), a diagnostic (\`SN318\`) or the lines that have all of some words; \`npx sinter docs\` lists the topics. It prints this version's docs; sinter's docs on the web describe another version. To see what a page requests, renders and does (each request with its headers, each resource's state, history), run \`npx sinter render page.html --api mocks.json\` (\`--help\` for the steps: click, input, select, back) before writing browser or curl scripts; a browser is only needed for layout and browser-specific behaviour. Paths under \`docs/\` name the longer guides, for people, in the repository (https://github.com/tiaforge/sinter/tree/main/docs); \`docs/diagnostics.md\` ships in this package and \`sinter docs SN…\` prints from it.
+
+{{FILES}}
 
 ## Attributes
 `);
@@ -317,13 +320,44 @@ function check(path: string, content: string) {
   expect(current, `${path} is stale: run \`npm run docs\``).toBe(content);
 }
 
-test('llms.txt is current', () => check('llms.txt', llms()));
+/** The full reference, `llms-full.txt`: what `sinter docs` reads. */
+function llmsFull(): string {
+  return llms().replace('{{FILES}}', 'This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short version: the core reference and an index of these sections.');
+}
+
+/** The sections `llms.txt` keeps in full: what every page needs; the rest is an index of `sinter docs` topics. */
+const CORE = ['attributes', 'elements', 'expressions-and-scope', 'what-belongs-in-markup', 'magic-names', 'store-functions'];
+
+/**
+ * `llms.txt`: short enough that a shell's `cat` shows all of it (Claude Code keeps about 30 KB of a command's
+ * output; a benchmark agent's `cat` of the 57 KB full file showed only a preview, and none of its advice).
+ */
+function llmsShort(): string {
+  const full = llmsFull(), all = sections(full);
+  const head = llms().slice(0, llms().indexOf('\n## Attributes\n')).replace('{{FILES}}',
+    'This is the short version, small enough for a shell to show whole: the core reference, then an index of the other sections. `npx sinter docs <topic>` prints any of them; `llms-full.txt` beside this file has everything.');
+  const core = CORE.map((slug) => all.find((x) => x.level === 2 && x.slug === slug)!.text);
+  const code = (t: string) => '`' + t + '`';
+  const index = all.filter((x) => x.level === 2 && !CORE.includes(x.slug)).map((x) => {
+    const kids = x.slug === 'recipes' ? all.filter((k) => k.level === 3 && x.text.includes(k.text.split('\n')[0]!)) : [];
+    return `- ${x.title}: ${code(`npx sinter docs ${x.slug}`)}${kids.length ? ` (one recipe: ${kids.map((k) => code(k.slug)).join(', ')})` : ''}`;
+  });
+  return `${head}\n\n${core.join('\n\n')}\n\n## More: ${code('npx sinter docs <topic>')}\n\n${index.join('\n')}\n`;
+}
+
+test('llms-full.txt is current', () => check('llms-full.txt', llmsFull()));
+test('llms.txt is current, and small enough for a shell to show whole', () => {
+  check('llms.txt', llmsShort());
+  expect(Buffer.byteLength(llmsShort())).toBeLessThan(25_000);
+  // every section of the full file is in the short one, or in its index
+  for (const x of sections(llmsFull()).filter((x) => x.level === 2)) expect(llmsShort()).toContain(CORE.includes(x.slug) ? x.text : `npx sinter docs ${x.slug}`);
+});
 test('docs/attributes.md is current', () => check('docs/attributes.md', attributes()));
 test('docs/diagnostics.md is current', () => check('docs/diagnostics.md', diagnostics()));
 // a marker a server writes on its error body (sinter-axum), not an attribute developers write: kept out of
 // what tells developers and models which attributes exist
 test('`data-sn-failed` is in neither llms.txt nor the editors\' custom data', () => {
-  expect(llms()).not.toContain('data-sn-failed');
+  expect(llmsFull()).not.toContain('data-sn-failed');
   expect(customData()).not.toContain('data-sn-failed');
 });
 test('html-custom-data.json is current', () => check('html-custom-data.json', customData()));

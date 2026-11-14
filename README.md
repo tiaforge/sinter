@@ -248,7 +248,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   typed. [Components](docs/components.md)
 - **Scripts for the rest.** Canvases, editors and charts are a component's script, or plain custom
   elements that get data in and send events out. [Components with a script](docs/islands.md)
-- **LLM-ready.** [`llms.txt`](llms.txt) has the whole attribute reference and recipes.
+- **LLM-ready.** [`llms.txt`](llms.txt) has the attribute reference and the rules in 23 KB, and an index of the rest; [`llms-full.txt`](llms-full.txt) has everything, recipes included, and `npx sinter docs <topic>` prints one part of it.
 
 ### Safety
 

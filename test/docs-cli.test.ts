@@ -7,7 +7,7 @@ import { expect, test } from 'vitest';
 import { lookup, sections } from '../src/docs-cli.js';
 
 const root = resolve(__dirname, '..');
-const docs = { llms: readFileSync(resolve(root, 'llms.txt'), 'utf8'), diagnostics: readFileSync(resolve(root, 'docs/diagnostics.md'), 'utf8') };
+const docs = { llms: readFileSync(resolve(root, 'llms-full.txt'), 'utf8'), diagnostics: readFileSync(resolve(root, 'docs/diagnostics.md'), 'utf8') };
 const get = (t?: string) => lookup(docs, t);
 
 test('without a topic: every section, by slug', () => {

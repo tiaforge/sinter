@@ -87,12 +87,12 @@ async function main(argv: string[]): Promise<number> {
   return errors ? 1 : 0;
 }
 
-/** `sinter docs [topic]`: from the llms.txt and docs/diagnostics.md that ship beside dist/. */
+/** `sinter docs [topic]`: from the llms-full.txt (else llms.txt) and docs/diagnostics.md that ship beside dist/. */
 async function docs(args: string[]): Promise<number> {
   const { lookup } = await import('./docs-cli.js');
   const pkg = new URL('..', import.meta.url);
   const read = (f: string) => { try { return readFileSync(new URL(f, pkg), 'utf8'); } catch { return ''; } };
-  const r = lookup({ llms: read('llms.txt'), diagnostics: read('docs/diagnostics.md') }, args.join(' ') || undefined);
+  const r = lookup({ llms: read('llms-full.txt') || read('llms.txt'), diagnostics: read('docs/diagnostics.md') }, args.join(' ') || undefined);
   (r.found ? console.log : console.error)(r.text);
   return r.found ? 0 : 1;
 }
