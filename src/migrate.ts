@@ -1,11 +1,15 @@
 // `sinter migrate`: rewrites the URLs a project's markup writes into paths relative to its APIs
 // (`sinter({ apis })`, docs/apis.md), and reports what to add to the config: the shapes every page
-// agrees on (`defaults`) and the endpoints no API declares (`operations`). It edits only attribute
-// values, byte for byte, and never the Vite config (JavaScript it cannot rewrite safely).
+// agrees on (`defaults`), the endpoints no API declares (`operations`) and the query parameters the
+// spec leaves out (`query`). Once the config has them, it removes the attributes they replace. It
+// edits only attribute values and attributes, byte for byte, and never the Vite config (JavaScript
+// it cannot rewrite safely).
 import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { apiOf, shapeTemplate, SITE, type ApisDef } from './compiler/apis.js';
 import { matchOperation, type Method, type OpenApiSpec } from './compiler/openapi.js';
+import type { Diagnostic } from './compiler/diagnostics.js';
+import { pathFix } from './lsp/paths.js';
 
 type P5Element = DefaultTreeAdapterMap['element'];
 type P5Parent = DefaultTreeAdapterMap['parentNode'];
@@ -63,25 +67,40 @@ function* urlAttrs(text: string): Generator<{ el: P5Element; name: string; from:
   }
 }
 
-/** A file's markup with its URLs relative to the APIs, the rewrites made, and every URL it writes (after the rewrite). */
-export function migrateMarkup(text: string, file: string, apis: ApisDef): { text: string; rewrites: Rewrite[]; uses: Use[]; unsure: Rewrite[] } {
+/**
+ * A file's markup with its URLs relative to the APIs, the rewrites made, every URL it writes (after the
+ * rewrite), and the same-origin paths it could not decide.
+ *
+ * A same-origin path under no base, while the default API has one, is decided only in a file this run
+ * migrates (it rewrites another URL of it): there the path was the page's own origin. It becomes
+ * `site:/path` when no operation of the default API matches it (with `specs`), and is reported when one
+ * does (the page's own, or the API's?). In a file migrated before, the path may already be relative to
+ * the API (an endpoint not declared yet): it stays, and is reported when no operation matches it.
+ */
+export function migrateMarkup(text: string, file: string, apis: ApisDef, specs?: OpenApiSpec[]): { text: string; rewrites: Rewrite[]; uses: Use[]; unsure: Rewrite[] } {
   const edits: Array<{ from: number; to: number; text: string }> = [];
   const uses: Use[] = [];
   const unsure: Rewrite[] = [];
   const dflt = apis.list.find((a) => a.name === apis.defaultApi);
   const lineOf = (o: number) => text.slice(0, o).split('\n').length;
-  for (const a of urlAttrs(text)) {
-    const value = text.slice(a.from, a.to);
-    const next = relativeUrl(apis, value);
+  const found = [...urlAttrs(text)].map((a) => ({ a, value: text.slice(a.from, a.to) }));
+  const nexts = found.map(({ value }) => relativeUrl(apis, value));
+  const migrating = nexts.some((n) => n != null);
+  found.forEach(({ a, value }, i) => {
+    let next = nexts[i] ?? null;
+    if (next == null && dflt?.base && value.startsWith('/') && !value.startsWith('//')) {
+      const site = `site:${value}`;
+      const matches = specs ? 'path' in matchOperation(specs, shapeTemplate(value), a.method, dflt.specs) : true;
+      if (migrating && !matches) next = site;
+      else if (migrating || !matches) unsure.push({ line: lineOf(a.from), from: value, to: site });
+    }
     if (next != null) edits.push({ from: a.from, to: a.to, text: next });
-    // a same-origin path under no base, while the default API has one: the page's own (`site:`), or already relative?
-    else if (dflt?.base && value.startsWith('/') && !value.startsWith('//')) unsure.push({ line: lineOf(a.from), from: value, to: `site:${value}` });
     const resource = a.el.tagName === 'sn-resource';
     uses.push({
       file, method: a.method, value: next ?? value, stream: a.el.tagName === 'sn-sync',
       shape: resource ? Object.fromEntries(SHAPE.flatMap((k) => { const v = a.el.attrs.find((x) => x.name === k)?.value; return v != null ? [[k, v.trim()]] : []; })) : null,
     });
-  }
+  });
   let out = text;
   const rewrites: Rewrite[] = [];
   for (const e of edits.sort((x, y) => y.from - x.from)) {
@@ -92,10 +111,10 @@ export function migrateMarkup(text: string, file: string, apis: ApisDef): { text
 }
 
 export interface ConfigReport {
-  /** `apis.<name>.defaults`: shapes every resource of an operation writes the same way */
-  defaults: Record<string, Record<string, Record<string, string>>>;
+  /** `apis.<name>.defaults`: shapes every resource of an operation writes the same way, and query parameters the spec leaves out */
+  defaults: Record<string, Record<string, Record<string, string | string[]>>>;
   /** `apis.<name>.operations`: endpoints no spec or config of the API declares */
-  operations: Record<string, Record<string, Record<string, string>>>;
+  operations: Record<string, Record<string, Record<string, string | string[]>>>;
   /** operations whose resources disagree on a shape attribute: they keep their attributes */
   disagree: string[];
 }
@@ -149,4 +168,58 @@ export function formatReport(r: ConfigReport): string {
     lines.push('  },');
   }
   return lines.join('\n');
+}
+
+/** What the build reports about the migrated markup that migrate can fix or must name. */
+export interface FollowUp {
+  /** query parameters the operation does not declare, sent by the page (no likely typo): `query` in the config */
+  query: Array<{ api: string; op: string; name: string }>;
+  /** what only the author can fix: a likely typo of a query parameter, a required one left out */
+  notes: string[];
+  /** attributes restating a configured shape (SN518): removed with `--write` */
+  redundant: Array<{ file: string; span: NonNullable<Diagnostic['span']> }>;
+}
+
+/** The build's SN327 and SN518 on the migrated markup, sorted into fixes and notes. */
+export function followUp(diagnostics: Diagnostic[]): FollowUp {
+  const out: FollowUp = { query: [], notes: [], redundant: [] };
+  const seen = new Set<string>();
+  for (const d of diagnostics) {
+    const id = `${d.file}:${d.line}:${d.col}:${d.code}:${d.message}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const at = `${d.file}:${d.line}`;
+    if (d.code === 'SN518' && d.span) out.redundant.push({ file: d.file, span: d.span });
+    if (d.code !== 'SN327') continue;
+    const m = /^`([A-Z]+ [^`]+)` of the API `([^`]+)` declares no query parameter `([^`]+)`( \(sent by `paginate`\))?\.(.*)$/.exec(d.message);
+    if (m && !m[5]!.includes('Did you mean')) out.query.push({ api: m[2]!, op: m[1]!, name: m[3]! });
+    else out.notes.push(`${at}  ${d.message}`);
+  }
+  return out;
+}
+
+/** Adds the query parameters to declare to the report: in `operations` for an endpoint the config declares, else in `defaults`. */
+export function addQuery(report: ConfigReport, query: FollowUp['query'], apis: ApisDef, specs: OpenApiSpec[]): void {
+  for (const q of query) {
+    const api = apis.list.find((a) => a.name === q.api);
+    if (!api) continue;
+    const [method, path] = q.op.split(' ') as [string, string];
+    const inConfig = report.operations[q.api]?.[q.op] != null || api.specs.some((i) => specs[i]!.config && (specs[i]!.doc as { paths: Record<string, Record<string, unknown>> }).paths[path]?.[method.toLowerCase()] != null);
+    const table = inConfig ? (report.operations[q.api] ??= {}) : (report.defaults[q.api] ??= {});
+    const entry = (table[q.op] ??= {});
+    const list = [...((api.shapes[q.op]?.query) ?? []), ...((entry.query as string[] | undefined) ?? [])];
+    if (!list.includes(q.name)) entry.query = [...list, q.name];
+  }
+}
+
+/** A file's text without the attributes at these spans (and the whitespace before each). */
+export function removeAttributes(text: string, spans: Array<NonNullable<Diagnostic['span']>>): string {
+  const offset = (line: number, col: number) => text.split('\n').slice(0, line - 1).reduce((n, l) => n + l.length + 1, 0) + col - 1;
+  const ranges = [...new Map(spans.map((s) => [offset(s.line, s.col), offset(s.endLine, s.endCol)])).entries()].sort((a, b) => b[0] - a[0]);
+  let out = text;
+  for (const [from, to] of ranges) {
+    const fix = pathFix(out, from, to, 'SN518', '');
+    if (fix) out = out.slice(0, fix.from) + fix.text + out.slice(fix.to);
+  }
+  return out;
 }

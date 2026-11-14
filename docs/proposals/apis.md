@@ -7,9 +7,10 @@ Where the implementation departs from this text:
   `SN329` `api-config`.
 - `SN328` is an error from the start: nothing shipped between the steps.
 - `sinter migrate` does not edit the Vite config (JavaScript it cannot rewrite safely): it prints the
-  `defaults` and `operations` to add, and leaves the attributes they replace, which `SN518` and its
-  quick fix then remove. A same-origin path under no base is reported, not rewritten, so that a
-  second run changes nothing.
+  `defaults`, `operations` and `query` parameters to add; a second run with `--write` removes the
+  attributes the config then restates. A same-origin path under no base becomes `site:` only in a file
+  that run migrates and when no operation of the default API matches it; otherwise it is reported, so
+  that a second run changes nothing.
 - The top-level `sinter({ openapi })` keeps its old behaviour (full URLs, warnings) with the
   deprecation warning, instead of becoming an API with base `''`, which would have made every
   existing app strict at once.

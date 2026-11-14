@@ -139,12 +139,23 @@ npx sinter migrate            # prints the changes
 npx sinter migrate --write    # rewrites the pages, components and layouts
 ```
 
-It rewrites every URL that starts with an API's base into the path relative to it (with `api:` for
-another API than the default), and edits nothing else. It prints what to add to the config: the
-`defaults` every page agrees on (then remove those attributes: `SN518` and its quick fix point at
-them) and the `operations` no spec declares. A same-origin path under no base is listed, not
-changed: write `site:` in front if it is the page's own. It does not edit the Vite config, and a
-second run changes nothing.
+What it does:
+
+- **URLs.** Every URL that starts with an API's base becomes the path relative to it, with `api:` for
+  another API than the default.
+- **The page's own paths.** In a file it migrates, a same-origin path under no base (`/config.json`
+  with `base: '/api'`) becomes `site:/config.json` when no operation of the default API matches it.
+  When one matches, it is listed: write `site:` if it is the page's own. In a file migrated before, such
+  a path stays (it may be the API's, not declared yet) and is listed if no operation matches it.
+- **What to add to the config,** printed: the `defaults` every page agrees on, the `operations` no spec
+  declares, and the query parameters the spec leaves out (`query`, those `paginate` sends included).
+  A likely typo of a query parameter, or a required one left out, is listed for you instead.
+- **The attributes the config then says.** Once the config has the `defaults`, `--write` removes the
+  `items`, `total`, `key` and `type` it restates (`SN518`), with the space before each.
+
+Run it, add what it prints to the config, and run it again with `--write`. It edits only attribute
+values and those attributes, never the Vite config, and a second run changes nothing. On RealWorld,
+one run gives the example as it is in this repository, which builds byte for byte as before.
 
 ## In tests
 
