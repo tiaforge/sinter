@@ -1,6 +1,6 @@
 # sinter diagnostics
 
-Generated from `src/compiler/diagnostic-docs.ts` by `npm run docs`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build. `sinter check --strict` fails on warnings too, except the ones that depend on the machine or the network (SN524 to SN527) and SN507 ([docs/type-checking.md](type-checking.md#strict-mode)). Codes from SN519 up are reported by the build rather than by a page, without a file and line.
+Generated from `src/compiler/diagnostic-docs.ts` by `npm run docs`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build. `sinter check --strict` fails on warnings too, except the ones that depend on the machine or the network (SN524 to SN527) and SN507 ([docs/strict.md](strict.md)). Codes from SN519 up are reported by the build rather than by a page, without a file and line.
 
 ## SN101 unknown-attribute
 

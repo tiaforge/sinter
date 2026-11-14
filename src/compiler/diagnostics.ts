@@ -132,6 +132,39 @@ export function applyStrict(diagnostics: readonly Diagnostic[], allow: ReadonlyS
   });
 }
 
+/** The `strict` option with `SINTER_STRICT` applied: on or off, and the codes that stay warnings, with their reasons. */
+export interface Strict {
+  on: boolean;
+  allow: Map<string, string>;
+}
+
+/** `SINTER_STRICT`: `1`/`true` on, `0`/`false` off, anything else (unset, empty) leaves the option to decide. */
+export function strictEnv(value: string | undefined): boolean | null {
+  const v = (value ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' ? true : v === '0' || v === 'false' ? false : null;
+}
+
+/** The `strict` option, checked: `allow` names diagnostic codes, each with a reason. */
+export function strictOf(s: unknown, env: string | undefined = globalThis.process?.env?.SINTER_STRICT): Strict {
+  const bad = (m: string): never => { throw new Error(`sinter({ strict }): ${m}`); };
+  const allow = new Map<string, string>();
+  let on = false;
+  if (s === true || s === false) on = s;
+  else if (s != null) {
+    if (typeof s !== 'object' || Array.isArray(s)) bad('takes `true`, `false` or `{ allow: { SN504: \'why it stays a warning\' } }`');
+    for (const k of Object.keys(s as object)) if (k !== 'allow') bad(`\`${k}\` is not an option; the only one is \`allow\``);
+    on = true;
+    const a = (s as { allow?: unknown }).allow ?? {};
+    if (typeof a !== 'object' || a === null || Array.isArray(a)) bad('`allow` takes an object of codes and reasons: `{ SN504: \'the legacy API has no types\' }`');
+    for (const [code, why] of Object.entries(a as object)) {
+      if (!(code in CODES)) bad(`\`${code}\` in \`allow\` is not a diagnostic code (docs/diagnostics.md)`);
+      if (typeof why !== 'string' || !why.trim()) bad(`\`allow.${code}\` takes the reason it stays a warning, as a string`);
+      allow.set(code, why);
+    }
+  }
+  return { on: strictEnv(env) ?? on, allow };
+}
+
 /** A build warning that has no place in a file (the build, a module, the config), as the Vite logger prints it. */
 export function formatWarning(code: Code, message: string): string {
   return `sinter: warning ${code} ${CODES[code]}: ${message}\n  docs: ${docsUrl(code)}`;

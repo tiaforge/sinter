@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, expect, test } from 'vitest';
-import { applyStrict, CODES, ENVIRONMENT_CODES, formatWarning, HEURISTIC_CODES, severityOf, type Code, type Diagnostic } from '../src/compiler/diagnostics.js';
+import { applyStrict, CODES, strictOf, ENVIRONMENT_CODES, formatWarning, HEURISTIC_CODES, severityOf, type Code, type Diagnostic } from '../src/compiler/diagnostics.js';
 
 const at = { file: 'index.html', line: 1, col: 1 };
 const warning = (code: string): Diagnostic => ({ severity: 'warning', code, message: 'm', ...at });
@@ -46,4 +46,18 @@ test('sinter check: a warning passes, --strict and SINTER_STRICT fail on it, --a
   expect(cli([], { SINTER_STRICT: '1' }).code).toBe(1);
   expect(cli(['--allow', 'sn501'], { SINTER_STRICT: '1' }).code).toBe(0);
   expect(cli(['--allow', 'nope']).code).toBe(2);
+});
+
+test('strictOf: SINTER_STRICT wins over the option; allow takes known codes with reasons', () => {
+  expect(strictOf(undefined, undefined).on).toBe(false);
+  expect(strictOf(true, undefined).on).toBe(true);
+  expect(strictOf(true, '0').on).toBe(false);
+  expect(strictOf(false, '1').on).toBe(true);
+  expect(strictOf(undefined, '').on).toBe(false);
+  const s = strictOf({ allow: { SN504: 'no types yet' } }, undefined);
+  expect([s.on, [...s.allow]]).toEqual([true, [['SN504', 'no types yet']]]);
+  expect(() => strictOf({ allow: { SN504: ' ' } }, undefined)).toThrow(/takes the reason/);
+  expect(() => strictOf({ allow: { SN1: 'x' } }, undefined)).toThrow(/not a diagnostic code/);
+  expect(() => strictOf({ alow: {} }, undefined)).toThrow(/`alow` is not an option/);
+  expect(() => strictOf('yes', undefined)).toThrow(/takes `true`, `false`/);
 });

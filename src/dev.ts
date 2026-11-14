@@ -54,6 +54,46 @@ export function protocolOf(url: string, base: string, perf: Pick<Performance, 'g
   return null;
 }
 
+/**
+ * Runtime warnings that depend on the server, the browser or timing rather than on the page (an
+ * HTTP/1.1 stream, a large response, a CSP header, a font's timing, the browser refusing a history
+ * write): strict mode reports them but does not fail on them.
+ */
+export const ENVIRONMENT_WARNINGS: ReadonlySet<number> = new Set([18, 19, 22, 25, 26]);
+
+/** One runtime warning, as strict mode's listeners get it (the dev server's relay, `render()` in tests). */
+export interface RuntimeWarning {
+  /** the core's warning number, or `null` for a message without one */
+  code: number | null;
+  message: string;
+  /** an error (a handler or binding threw, an unhandled error) rather than a warning */
+  error: boolean;
+  /** depends on the environment: reported, never failed on (`ENVIRONMENT_WARNINGS`) */
+  environment: boolean;
+}
+
+/**
+ * Where runtime warnings go besides the console: kept from the start (the relay may load after the
+ * page has mounted), and passed to `on` once something listens.
+ */
+export interface WarningSink {
+  list: RuntimeWarning[];
+  on: ((w: RuntimeWarning) => void) | null;
+}
+
+export const SINK = Symbol.for('sinter.warnings');
+
+export function warningSink(): WarningSink {
+  const g = globalThis as { [SINK]?: WarningSink };
+  return (g[SINK] ??= { list: [], on: null });
+}
+
+function report(w: RuntimeWarning) {
+  const sink = warningSink();
+  if (sink.list.length < 200) sink.list.push(w);
+  sink.on?.(w);
+}
+
 /** The frames after mount within which a preloaded font must have been used (warning 25). */
 export const FONT_FRAMES = 3;
 
@@ -89,7 +129,12 @@ const dev: Feature = {
         const message = (e as Error)?.message ?? String(e);
         args = code == 24 ? [where, message, e] : [...(code == 6 ? [(o as Binding).k] : []), el!.localName, where, message, e];
         // each failed run of a handler is reported, as the core reports it without the dev module
-        if (code == 24) return console.error(`sinter: handler${where} threw: ${message}`, e), true;
+        if (code == 24) {
+          const text = `sinter: handler${where} threw: ${message}`;
+          console.error(text, e);
+          report({ code, message: text, error: true, environment: false });
+          return true;
+        }
       }
       let i = 0;
       const text = typeof code == 'string' ? code : MESSAGES[code]!.replace(/%/g, () => String(args[i++]).replace(/\x1f/g, ','));
@@ -97,6 +142,8 @@ const dev: Feature = {
       if (seen.has(msg)) return;
       seen.add(msg);
       (code == 16 ? console.error : console.warn)(msg, ...args.slice(i));
+      const n = typeof code == 'number' ? code : null;
+      report({ code: n, message: msg, error: n == 16, environment: n != null && ENVIRONMENT_WARNINGS.has(n) });
     };
     app.prep = deepFreeze;
     app.dupes = (keys) => {

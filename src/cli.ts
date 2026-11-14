@@ -6,7 +6,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { check } from './check/index.js';
 import { applyStrict, compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
-import { project, staticPages, viteProject, type ProjectOptions } from './project.js';
+import { project, staticPages, strictEnv, viteProject, type ProjectOptions } from './project.js';
 import { lazyDiagnostics, resolveFile } from './lazy-build.js';
 
 const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
@@ -22,14 +22,14 @@ async function main(argv: string[]): Promise<number> {
   let root = process.cwd();
   const pages: string[] = [];
   let cycles = false;
-  let strict = /^(1|true)$/i.test(process.env.SINTER_STRICT ?? '');
+  let strictFlag: boolean | null = null;
   const allow = new Set<string>();
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
     if (a === '--root') root = resolve(rest[++i] ?? '.');
     else if (a === '--check-cycles') cycles = true;
-    else if (a === '--strict') strict = true;
-    else if (a === '--no-strict') strict = false;
+    else if (a === '--strict') strictFlag = true;
+    else if (a === '--no-strict') strictFlag = false;
     else if (a === '--allow' || a.startsWith('--allow=')) {
       const list = a === '--allow' ? rest[++i] : a.slice('--allow='.length);
       const codes = (list ?? '').split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
@@ -48,6 +48,9 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const p = project(root, options);
+  // the flag, else SINTER_STRICT, else sinter({ strict }); its `allow` joins --allow
+  const strict = strictFlag ?? strictEnv(process.env.SINTER_STRICT) ?? p.strict.on;
+  for (const c of p.strict.allow.keys()) allow.add(c);
   let diagnostics: Diagnostic[] = [...p.diagnostics];
   const units: CheckUnit[] = [];
   for (const file of files) {

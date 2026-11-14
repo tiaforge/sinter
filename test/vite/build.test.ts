@@ -480,3 +480,15 @@ test('an app without messages pays nothing: no i18n module, picker or language f
   const all = [readFileSync(join(dir, 'index.html'), 'utf8'), ...files.map((f) => readFileSync(join(dir, 'assets', f), 'utf8'))].join('\n');
   expect(all).not.toMatch(/sinter\.i18n|data-sn-i18n|await ready\(\)/);
 });
+
+test('strict: the build\'s warnings fail it after it has run, all of them; `allow` keeps a code a warning', async () => {
+  const quiet = { info: () => {}, warn: () => {}, warnOnce: () => {}, error: () => {}, clearScreen: () => {}, hasErrorLogged: () => false, hasWarned: false } as never;
+  const run = (strict: NonNullable<Parameters<typeof sinter>[0]>['strict'], dir: string) => build({
+    root, resolve: { alias }, customLogger: quiet, build: { outDir: join(out, dir), emptyOutDir: true, minify: false },
+    plugins: [sinter({ earlyBudget: 1, strict })],
+  });
+  await expect(run(true, 'strict')).rejects.toThrow(/warning\(s\) fail the build in strict mode[\s\S]*sinter: warning SN522 early-budget: early script of index\.html/);
+  await run({ allow: { SN522: 'the fixture has no budget' } }, 'strict-allow');
+  expect(() => sinter({ strict: { allow: { SN522: '' } } })).toThrow(/`allow.SN522` takes the reason/);
+  expect(() => sinter({ strict: { allow: { SN999: 'x' } } })).toThrow(/`SN999` in `allow` is not a diagnostic code/);
+});
