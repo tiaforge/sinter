@@ -142,3 +142,26 @@ test('SN530: an image without a height in rows that arrive after the first paint
   expect(codes('<img class="avatar" data-sn-attr="{src: p.photo}" alt="">')).toBe(0);
   expect(codes('<img class="cover" data-sn-attr="{src: p.photo}" alt="">')).toBe(0);
 });
+
+test('indicators anywhere on the page: a `data-sn-show` or a branch elsewhere over the same status leaves the list without space; ones that never show while loading do not', () => {
+  const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/p.css' };
+  const list = '<sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="3"></sn-resource>';
+  const tpl = '<ul><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>';
+  const page = (other: string) => compile(`<!doctype html><html><head></head><body>${list}${other}${tpl}</body></html>`, opts);
+  expect(page('<p data-sn-show="$meta.people.loading">Loading…</p>').html).not.toContain('sn-reserve');
+  expect(page('<header><template data-sn-if="$meta.people.loading"><span>…</span></template></header>').html).not.toContain('sn-reserve');
+  // an error, a "loaded" note, a count once there are rows
+  for (const quiet of ['<p data-sn-show="$meta.people.error">Failed</p>', '<template data-sn-if="!$meta.people.loading"><p>Done</p></template>', '<p data-sn-show="people.length > 0">Some</p>'])
+    expect(page(quiet).html).toContain('sn-reserve');
+  // one the build cannot evaluate: may show, so no space
+  expect(page('<p data-sn-show="$meta.people.loading && Math.random() > 0.5">…</p>').html).not.toContain('sn-reserve');
+});
+
+test('a `src` that reads another resource: its load may not start at mount, no space and a note', () => {
+  const page = `<sn-resource name="me" src="/api/me"></sn-resource>
+    <sn-resource name="people" src="/api/people/{me.id}" items="people" key="id" paginate="offset" page-size="3"></sn-resource>
+    <ul><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>`;
+  const out = compile(`<!doctype html><html><head></head><body>${page}</body></html>`, { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/p.css' });
+  expect(out.html).not.toContain('sn-reserve');
+  expect(JSON.stringify(out.unheld ?? out.diagnostics)).toContain('may not start when the page module mounts');
+});
