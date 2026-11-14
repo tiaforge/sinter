@@ -225,6 +225,13 @@ const FLUID: Array<[string, string, string, string]> = [
   ['a fixed share in a row that fits, no wrapping', 'body { margin: 0 } .r { display: flex } .r > * { flex: 0 0 50% } img { width: 100% }', '<div class="r"><div><img id="t" src="a.png" alt=""></div><div></div></div>', '50vw'],
 ];
 
+/** [name, css, body, sizes]: ranges the build cannot follow (bound pieces), beside ones it does */
+const BOUNDED: Array<[string, string, string, string]> = [
+  ['a fixed sidebar that overflows the narrowest screens', 'body { margin: 0 } .r { display: flex; gap: 16px } .side { width: 280px; flex-shrink: 0 } .main { flex: 1; min-width: 0 } img { width: 100% }', '<div class="r"><nav class="side"></nav><main class="main"><img id="t" src="a.png" alt=""></main></div>', '(max-width: 295.98px) 100vw, calc(100vw - 296px)'],
+  ['a label sized by its text on phones, a grid from 640 px', 'body { margin: 0 } .r { display: flex } .b { flex: 1 } @media (min-width: 640px) { .r { display: grid; grid-template-columns: 200px 1fr } } img { width: 100% }', '<div class="r"><span>label</span><div class="b"><img id="t" src="a.png" alt=""></div></div>', '(max-width: 639.98px) 100vw, calc(100vw - 200px)'],
+  ['a bound from a container where the range is not followed', 'body { margin: 0 } main { max-width: 500px } .r { display: flex } .b { flex: 1 } @media (min-width: 900px) { main { max-width: none } .r { display: block } } img { width: 100% }', '<main><div class="r"><span>label</span><div class="b"><img id="t" src="a.png" alt=""></div></div></main>', '(max-width: 499.98px) 100vw, (max-width: 899.98px) 500px, 100vw'],
+];
+
 describe('the width of a fluid image at every viewport width', () => {
   const sizes = (css: string, body: string) => {
     const doc = parse5.parse(page('', body));
@@ -243,11 +250,23 @@ describe('the width of a fluid image at every viewport width', () => {
     expect(sizes('main { padding: 0 2em } main:hover { font-size: 20px } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>')).toBeNull();
     expect(sizes('main { font-family: monospace; padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>')).toBeNull();
   });
-  test('given up: unequal tracks with rows from a template, a content-sized track or sibling, an item placed by its row', () => {
-    expect(sizes('.g { display: grid; grid-template-columns: 1fr 2fr } img { width: 100% }', '<div class="g"><template><div><img id="t" src="a.png" alt=""></div></template></div>')).toBeNull();
+  test('given up at every width: a content-sized track or sibling', () => {
     expect(sizes('.g { display: grid; grid-template-columns: auto 1fr } img { width: 100% }', '<div class="g"><div></div><div><img id="t" src="a.png" alt=""></div></div>')).toBeNull();
-    expect(sizes('.g { display: grid; grid-template-columns: 1fr 2fr } .x { grid-row: 1 } img { width: 100% }', '<div class="g"><div class="x"></div><div><img id="t" src="a.png" alt=""></div></div>')).toBeNull();
     expect(sizes('.r { display: flex } .b { flex: 1 } img { width: 100% }', '<div class="r"><span>label</span><div class="b"><img id="t" src="a.png" alt=""></div></div>')).toBeNull();
+  });
+  test('an auto-placed item whose column is not known: the widest it may land in', () => {
+    const doc = parse5.parse(page('', '<div class="g"><template><div><img id="t" src="a.png" alt=""></div></template></div>'));
+    const f = new Layout([{ file: 'test.css', css: 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 2fr; gap: 30px } img { width: 100% }' }], doc).fluidSizes(find(doc, 't'))!;
+    expect(f.sizes).toBe('calc(66.67vw - 20px)');
+    expect(f.pieces.every((p) => p.bound === 'widest')).toBe(true);
+    // a sibling placed by its row: the item lands in some column, the widest of which bounds it
+    expect(sizes('body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 3fr } .x { grid-row: 1 } img { width: 100% }', '<div class="g"><div class="x"></div><div><img id="t" src="a.png" alt=""></div></div>')).toBe('75vw');
+  });
+  test('a range not followed gets a bound there; the others stay exact', () => {
+    const doc = parse5.parse(page('', BOUNDED[0]![2]));
+    const f = new Layout([{ file: 'test.css', css: BOUNDED[0]![1] }], doc).fluidSizes(find(doc, 't'))!;
+    expect(f.pieces.map((p) => p.bound ?? 'exact')).toEqual(['fallback', 'exact']);
+    for (const [, css, body, want] of BOUNDED) expect(sizes(css, body)).toBe(want);
   });
 });
 
@@ -269,6 +288,41 @@ describe.skipIf(!chromium)('the browser renders a fluid image as wide as its siz
         await tab.setContent(page(css, body.replaceAll('src="a.png"', `src="${IMG}"`)));
         const w = await tab.evaluate(() => document.getElementById('t')!.getBoundingClientRect().width);
         expect(w, `${name} at ${v} px (sizes ${f!.sizes})`).toBeCloseTo(p!.k * v + p!.c, 0);
+      }
+    });
+  }
+});
+
+describe.skipIf(!chromium)('the browser never renders an image wider than a bound piece says, and exactly as wide as the others', () => {
+  let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
+  let tab: Page;
+  beforeAll(async () => { browser = await chromium!.launch(); tab = await browser.newPage(); }, 30_000);
+  afterAll(async () => { await browser?.close(); });
+  const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  const WIDTHS = [240, 260, 295, 296, 320, 375, 480, 500, 639, 640, 768, 899, 900, 1280, 1920];
+  const cases: Array<[string, string, string, string]> = [
+    ...BOUNDED.map(([n, c, b]) => [n, c, b, b] as [string, string, string, string]),
+    // the rows a list renders: each in its column, none wider than the widest
+    ['rows of a list in unequal tracks', 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 2fr; gap: 30px } img { width: 100% }',
+      '<div class="g"><template><div><img id="t" src="a.png" alt=""></div></template></div>',
+      '<div class="g"><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div></div>'],
+  ];
+  for (const [name, css, body, rendered] of cases) {
+    test(name, async () => {
+      const doc = parse5.parse(page('', body));
+      const f = new Layout([{ file: 'test.css', css }], doc).fluidSizes(find(doc, 't'))!;
+      expect(f).not.toBeNull();
+      for (const v of WIDTHS) {
+        const p = f.pieces.find((x) => v >= x.from && v < x.to) ?? f.pieces[0]!;
+        await tab.setViewportSize({ width: v, height: 600 });
+        await tab.setContent(page(css, rendered.replaceAll('src="a.png"', `src="${IMG}"`)));
+        const ws = await tab.evaluate(() => [...document.querySelectorAll('#t, .row')].map((e) => e.getBoundingClientRect().width));
+        const said = p.k * v + p.c;
+        for (const w of ws) {
+          if (p.bound) expect(w, `${name} at ${v} px (sizes ${f.sizes})`).toBeLessThanOrEqual(said + 0.5);
+          else expect(w, `${name} at ${v} px (sizes ${f.sizes})`).toBeCloseTo(said, 0);
+        }
+        if (p.bound === 'widest') expect(Math.max(...ws), `${name} at ${v} px: the widest row`).toBeCloseTo(said, 0);
       }
     });
   }

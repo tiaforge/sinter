@@ -286,7 +286,7 @@ export class Layout {
   private viewport: number | undefined;
   private readonly views = new Map<number, Layout>();
   /** why the last `fluidSizes()` gave up, when it is something the author can change (shared by `at()` views) */
-  private readonly notes: { autoFitRows: P5Element | null; why: string | null } = { autoFitRows: null, why: null };
+  private readonly notes: { autoFitRows: P5Element | null; why: string | null; bounded: boolean } = { autoFitRows: null, why: null, bounded: false };
   /** a row of a list, in a view for its position (`withRow`): its siblings are the other rows and what is around the template */
   private row: RowCtx | null = null;
   private readonly rowViews = new Map<string, Layout>();
@@ -775,8 +775,10 @@ export class Layout {
    * tracks (fixed and `fr`, equal or not, `repeat(auto-fill, minmax(200px, 1fr))`, gaps, `span`, lines,
    * named areas, the column an auto-placed item lands in), flex rows (items of a known base size that
    * may grow: equal `flex: 1` columns, a fixed sidebar beside a growing main; wrapped items with a basis),
-   * margins, padding and borders, and em of a font size the cascade fixes, resolve; anything else is
-   * null (the caller falls back to `maxWidth()`). Checked against Chromium at many widths.
+   * margins, padding and borders, and em of a font size the cascade fixes, resolve. A range where
+   * anything else decides gets an upper bound (`bound: 'fallback'`: `maxWidth()` in that range, else the
+   * viewport), an auto-placed item of unknown column the widest it may land in (`'widest'`); null when no
+   * range is followed (the caller falls back to `maxWidth()`). Checked against Chromium at many widths.
    */
   fluidSizes(img: P5Element, intrinsic?: number): FluidSizes | null {
     this.notes.autoFitRows = null;
@@ -793,6 +795,7 @@ export class Layout {
       const seg = queue.shift()!;
       const mid = Number.isFinite(seg[1]) ? (seg[0] + seg[1]) / 2 : seg[0] + 1000;
       let w: Lin | null;
+      this.notes.bounded = false;
       try {
         w = this.at(mid).imgWidth(img, seg, intrinsic);
       } catch (e) {
@@ -803,17 +806,26 @@ export class Layout {
         queue.unshift([seg[0], at], [at, seg[1]]);
         continue;
       }
-      if (!w) return null;
-      // a width of 0 or less on any real screen: not an image size the browser can use
+      // a negative width on a real screen is no size the browser can use (0 at a range's end is: a column the others leave no room for)
       const from = Math.max(seg[0], MIN_VIEWPORT), to = Number.isFinite(seg[1]) ? seg[1] : Infinity;
-      if (w.k * from + w.c < 1 || (Number.isFinite(to) ? w.k * to + w.c < 1 : w.k < 0)) return null;
-      pieces.push({ from: seg[0], to: seg[1], k: w.k, c: w.c });
+      const end = !w ? null : Number.isFinite(to) ? w.k * to + w.c : w.k > 1e-9 ? Infinity : w.k < -1e-9 ? -1 : w.c;
+      if (w && w.k * from + w.c > -0.01 && end! > -0.01 && Math.max(w.k * from + w.c, end!) >= 1) {
+        pieces.push({ from: seg[0], to: seg[1], k: w.k, c: w.c, ...(this.notes.bounded ? { bound: 'widest' as const } : {}) });
+        continue;
+      }
+      // not followed in this range: there, no wider than its containers allow (else the viewport); the other ranges stay exact
+      if (this.notes.autoFitRows) return null;
+      const b = this.at(mid).maxWidth(img);
+      if (b !== null && b > seg[0] + 1e-6 && b < seg[1] - 1e-6) { queue.unshift([seg[0], b], [b, seg[1]]); continue; }
+      pieces.push({ from: seg[0], to: seg[1], ...(b !== null && b <= seg[0] + 1e-6 ? { k: 0, c: b } : { k: 1, c: 0 }), bound: 'fallback' as const });
     }
+    // followed nowhere: the caller's bound
+    if (pieces.every((p) => p.bound === 'fallback')) return null;
     pieces.sort((a, b) => a.from - b.from);
     const merged: FluidPiece[] = [];
     for (const p of pieces) {
       const last = merged[merged.length - 1];
-      if (last && Math.abs(last.k - p.k) < 1e-9 && Math.abs(last.c - p.c) < 0.01) last.to = p.to;
+      if (last && last.bound === p.bound && Math.abs(last.k - p.k) < 1e-9 && Math.abs(last.c - p.c) < 0.01) last.to = p.to;
       else merged.push({ ...p });
     }
     const last = merged[merged.length - 1]!;
@@ -1026,7 +1038,8 @@ export class Layout {
     const text = (this.subst(gc.value, parent) ?? '').trim().toLowerCase();
     const auto = /^repeat\(\s*(auto-fill|auto-fit)\s*,\s*(.+)\)$/s.exec(text);
     if (auto) {
-      if (areas) return null;
+      // a bound of the container is no bound of its columns: more room may fit another, narrower column
+      if (areas || this.notes.bounded) return null;
       const track = auto[2]!.trim();
       const mm = /^minmax\(\s*([^,]+?)\s*,\s*1fr\s*\)$/.exec(track);
       if (!mm) {
@@ -1090,14 +1103,23 @@ export class Layout {
       // with no space left, `fr` tracks take their content's size: not followed
       const lo = free.k * Math.max(seg[0], MIN_VIEWPORT) + free.c;
       const hi = Number.isFinite(seg[1]) ? free.k * seg[1] + free.c : free.k > 1e-9 ? Infinity : free.k < -1e-9 ? -Infinity : free.c;
-      if (lo < 0 && hi < 0) return null;
-      if (lo < 0 || hi < 0) throw new Split(-free.c / free.k);
+      // negative over the range (zero at an end at most) is overflow there; a crossing inside splits it
+      if ((lo < -1e-6 && hi < 1e-6) || (hi < -1e-6 && lo < 1e-6)) return null;
+      if (lo < -1e-6 || hi < -1e-6) throw new Split(-free.c / free.k);
     }
     // a sum of factors under 1 shares only that part of the space
     const unit = frs >= 1 ? { k: free.k / frs, c: free.c / frs } : free;
     const widths = fixed.map((L, i) => L ?? { k: unit.k * fr[i]!, c: unit.c * fr[i]! });
     const at = this.gridColumn(parent, el, placement, n);
-    return at && sum(widths, at.start, at.span);
+    if (at) return sum(widths, at.start, at.span);
+    // an auto-placed item whose column is not known (the rows of a list land in each in turn): the widest it may land in, an upper bound
+    if (placement.start !== null || placement.named || placement.full || placement.span > n) return null;
+    const flowc = this.cascaded(parent, ['grid-auto-flow']);
+    if (flowc.ambiguous || /column/i.test(flowc.value ?? '')) return null;
+    let widest: Lin | null = null;
+    for (let i = 0; i + placement.span <= n; i++) { const w = sum(widths, i, placement.span); widest = widest ? pick(widest, w, seg, 'max') : w; }
+    this.notes.bounded = true;
+    return widest;
   }
 
   /** where `el` is placed in its grid's columns, as written: lines (1-based, negative from the end), a span, or a named area */
@@ -1283,7 +1305,7 @@ export class Layout {
     // the items overflow (they would shrink, or wrap): not followed; where that starts, the range splits
     const lo = free.k * Math.max(seg[0], MIN_VIEWPORT) + free.c;
     const hi = Number.isFinite(seg[1]) ? free.k * seg[1] + free.c : free.k > 1e-9 ? Infinity : free.k < -1e-9 ? -Infinity : free.c;
-    if (lo < -1e-6 && hi < -1e-6) return null;
+    if ((lo < -1e-6 && hi < 1e-6) || (hi < -1e-6 && lo < 1e-6)) return null;
     if (lo < -1e-6 || hi < -1e-6) throw new Split(-free.c / free.k);
     const grows = items.reduce((a, x) => a + x.grow, 0);
     if (!me.grow) return me.base;
@@ -2600,7 +2622,8 @@ const lin = (c: number): Lin => ({ k: 0, c });
 class Split { constructor(readonly at: number) {} }
 const MIN_VIEWPORT = 240, MAX_VIEWPORT = 4096;
 
-export interface FluidPiece { from: number; to: number; k: number; c: number }
+/** `bound`: an upper bound there, not the width (`widest`: the widest column a list's row may land in; `fallback`: the range is not followed) */
+export interface FluidPiece { from: number; to: number; k: number; c: number; bound?: 'widest' | 'fallback' }
 export interface FluidSizes {
   /** the `sizes` attribute */
   sizes: string;

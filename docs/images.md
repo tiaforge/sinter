@@ -108,8 +108,7 @@ a width depends on layout it cannot predict:
   width, or under a lone `monospace` font (browsers scale its default size);
 - a parent that is inline or `display: contents`, a flex row with an item sized by its content (a
   label without a width) or that overflows the row, or a grid with `auto`, `fit-content()` or `minmax()` tracks (`minmax(0, 1fr)` is followed);
-- unequal grid tracks whose items come from a `<template>` (the column depends on the row), or
-  with an item placed by its row (`grid-row`), reordered (`order`) or flowing `dense` or by column;
+- unequal grid tracks with an item flowing by column (`grid-auto-flow: column`);
 - a rule that could win sits in `@supports` or `@container`, in `@media` with a feature other than
   width, or depends on state (`:hover`, `:has()`, `:checked`);
 - a structural selector inside a `<template>`, where rows repeat;
@@ -117,8 +116,20 @@ a width depends on layout it cannot predict:
   `data-sn-style`, which can change what the selectors read.
 
 When the stylesheets set `width: 100%`, the image is fluid even with smaller `width`/`height`
-attributes: CSS decides, not the attributes. If a fluid width cannot be fully resolved, `sizes`
-uses an upper bound such as `(max-width: 800px) 100vw, 800px`. Images in the rows of a
+attributes: CSS decides, not the attributes.
+
+**Only where it is needed.** The fallback applies per range of viewport widths: a layout that
+cannot be followed on phones (a label sized by its text beside the image) but can from a breakpoint
+up keeps exact widths there, and so does a fixed sidebar that leaves no room on the narrowest
+screens. In a range that cannot be followed, the width is bounded by the containers there (a
+`max-width: 500px` column), else by the viewport. Only when no range can be followed does `sizes`
+fall back to one upper bound such as `(max-width: 800px) 100vw, 800px`.
+
+**Rows in unequal tracks.** When an auto-placed item's column is not known, because it is a row of
+a `data-sn-for` (each row lands in the next column) or an item before it is placed by its row or
+reordered, it gets the widest column it can land in: in `grid-template-columns: 1fr 2fr` with a
+30 px gap, `calc(66.67vw - 20px)` for every row. The narrow column's rows fetch a larger file than
+they need, never a smaller one. Images in the rows of a
 `data-sn-for` inside a `repeat(auto-fit, ...)` grid get the upper bound too ([`SN514`](#warnings)).
 
 ## Images from the API
