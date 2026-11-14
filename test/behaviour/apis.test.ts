@@ -105,7 +105,8 @@ describe('the build: preloads, the early file, embedding', () => {
 
   test('the page module sets the APIs; the manifest lists the static headers', () => {
     expect(build({ headers: { 'X-Api': '2' } }, PAGE).module).toContain('$apis([{"n":"main","b":"https://api.example.com/v1","h":{"X-Api":"2"}},{"n":"site","b":""}]);');
-    expect(build({}, PAGE).module).not.toContain('$apis');
+    // without settings too: `apiOf(url)` names a request's API for middleware
+    expect(build({}, PAGE).module).toContain('$apis([{"n":"main","b":"https://api.example.com/v1"},{"n":"site","b":""}]);');
     const embedded = build({ headers: { 'X-Api': '2' }, embed: true } as never, '<html><head></head><body><sn-resource name="contacts" src="/contacts?q={$url.q}"></sn-resource><p data-sn-text="contacts.length"></p></body></html>');
     expect(embedded.embed?.[0]).toMatchObject({ resource: 'contacts', headers: { 'X-Api': '2' } });
   });

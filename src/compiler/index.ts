@@ -204,7 +204,7 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   // the build's origins join the runtime's allowlist, after the app's config module (imports run first): listed once
   if (options.origins?.length) lines.push(`import { $origins } from '${PACKAGE}';`, `$origins(${JSON.stringify(options.origins)});`);
   // `sinter({ apis })`: the runtime sends each API's credentials and headers, and `apiOf(url)` names a request's API
-  if (options.apis?.list.some((a) => a.credentials || a.headers)) {
+  if (options.apis?.list.length) {
     const table = options.apis.list.map((a) => ({ n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) }));
     lines.push(`import { $apis } from '${PACKAGE}';`, `$apis(${JSON.stringify(table)});`);
   }

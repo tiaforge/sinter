@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs the official e2e suite against a local RealWorld backend instead of api.realworld.show.
 #   API=http://localhost:8000/api CHROME=/path/to/chrome ./e2e-local.sh [playwright args…]
-# The app's API URL is a literal in its pages (by design), so a copy is built with it replaced.
+# The app's API is the spec's server (apis.js), so a copy is built with it replaced.
 # The specs that hardcode the public API for their mocks are pointed at $API in the copy too.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -15,13 +15,9 @@ node "$here/e2e-seed.mjs" "$API"
 
 tar -C "$here" --exclude=node_modules --exclude=dist --exclude=test-results --exclude=playwright-report -cf - . | tar -C "$work" -xf -
 ln -s "$here/node_modules" "$work/node_modules"
-# The spec's `servers` URL moves with the pages: resources and mutations are matched to operations under it.
+# The spec's `servers` URL is the API's base (and its origin is allowed on every page); the auth middleware's too.
 grep -rl 'https://api.realworld.show/api' "$work" --include='*.html' --include='*.js' --include='openapi.yml' | grep -v '/e2e/' \
   | xargs sed -i "s#https://api.realworld.show/api#$API#g"
-# The API's origin in sinter({ origins }) (allowed on every page, requested early): the local one.
-origin=$(node -p "new URL(process.argv[1]).origin" "$API")
-sed -i "s#'https://api.realworld.show'#'$origin'#g" "$work/vite.config.js"
-grep -q "'$origin'" "$work/vite.config.js" || { echo "vite.config.js: no origins entry for $origin"; exit 1; }
 # Two specs (and the health check) hardcode the public API for their route mocks; point the copy at $API.
 sed -i "s#https://api.realworld.show/api#$API#g" "$work"/e2e/{error-handling,user-fetch-errors,health}.spec.ts
 cd "$work"

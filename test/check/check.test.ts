@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { compile, readHelperManifest } from '../../src/compiler/index.js';
 import { check, checkPage, findTsc, typeExports } from '../../src/check/index.js';
 import { schemaToTs, specDeclarations } from '../../src/check/openapi-types.js';
-import { project as projectOf, viteProject } from '../../src/project.js';
+import { project as projectOf } from '../../src/project.js';
 
 const tsc = findTsc(process.cwd());
 
@@ -513,12 +513,13 @@ export type { Kept } from './kept'; // export { Trailing }
 export type Also = '*/';`)).toEqual(['Also', 'H', 'Kept', 'Real']);
   });
 
-  test('the RealWorld example, as its Vite config sets it up (`sinter({ apis })`): typed from its spec, no false positives', async () => {
+  test('the RealWorld example with its APIs (`examples/realworld/apis.js`): typed from its spec, no false positives', async () => {
     const root = join(import.meta.dirname, '../../examples/realworld');
     const pages = readdirSync(root).filter((f) => f.endsWith('.html'));
-    const { options } = await viteProject(root);
-    expect(options.apis).toBeDefined();
-    const p = projectOf(root, options);
+    // the example's config module (its Vite config imports it; CI does not install the example's dependencies)
+    const config = '../../examples/realworld/apis.js';
+    const { apis } = (await import(config)) as { apis: NonNullable<Parameters<typeof projectOf>[1]>['apis'] };
+    const p = projectOf(root, { apis });
     expect(p.diagnostics).toEqual([]);
     const out = pages.map((f) => compile(p.readFile(join(root, f)), {
       file: join(root, f), root, dev: false, helpers: p.helpers, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis,

@@ -23,7 +23,10 @@ describe('paths relative to an API', () => {
     const viaApi = page(`<sn-resource name="contacts" src="/contacts?q={q}"></sn-resource>${USE}`);
     const viaUrl = page(`<sn-resource name="contacts" src="https://api.example.com/v1/contacts?q={q}" items="contacts" key="id"></sn-resource>${USE}`, { openapi: 'openapi.yml' });
     expect(viaApi.diagnostics).toEqual([]);
-    expect(viaApi.module).toBe(viaUrl.module);
+    // the same page module, plus the APIs for the runtime (`$apis`, for `apiOf` and request settings)
+    const own = (m: string) => m.split('\n').filter((l) => !/\$apis\b/.test(l)).join('\n');
+    expect(own(viaApi.module)).toBe(viaUrl.module);
+    expect(viaApi.module).toContain('$apis([{"n":"main","b":"https://api.example.com/v1"},{"n":"site","b":""}]);');
   });
 
   test('actions and other APIs: a path, the method from the attribute', () => {

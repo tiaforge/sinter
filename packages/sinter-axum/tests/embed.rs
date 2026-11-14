@@ -228,7 +228,8 @@ async fn the_static_headers_of_the_resources_api_go_with_its_request() {
         "/api/version",
         get(|h: HeaderMap| async move { json(format!(r#"{{"x":"{}"}}"#, h.get("x-api").and_then(|v| v.to_str().ok()).unwrap_or("-"))) }),
     );
-    let (_, _, html) = text(Router::new().fallback(|| async { "static file" }).layer(Embed::from_dir(dir).api(api).build().unwrap()), get_("/")).await;
+    let (_, _, html) =
+        text(Router::new().fallback(|| async { "static file" }).layer(Embed::from_dir(dir).api(api).build().unwrap()), get_("/")).await;
     assert!(html.contains(r#"{"x":"2"}"#), "{html}");
 }
 
