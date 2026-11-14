@@ -306,14 +306,20 @@ smaller one, and so does the space).
   rows' text arrives: `table-layout: fixed` keeps them.
 
 When fewer rows arrive than were held (the last page, an empty list), what follows moves up by
-what is missing. Measured with the API answering after 500 ms (Chromium, a list of 12 rows of 56 px
-with content below it):
+what is missing. Measured with the API answering after 500 ms (Chromium, 1280 px and 412 px wide,
+`page-size="12"` with content below; a list of 56 px rows, a three-column grid of 160 px cards, a table
+of one-line rows with collapsed borders; the median of 3 loads):
 
-| Rows that arrive | Layout shift without | With reserved space |
-| --- | ---: | ---: |
-| 12 of 12 | 0.081 desktop, 0.183 phone | 0, 0 |
-| 7 of 12 | 0.073, 0.214 | 0.034, 0.076 |
-| none | 0, 0 | 0.081, 0.183 |
+| Rows that arrive | List, without / with | Grid, without / with | Table, without / with |
+| --- | ---: | ---: | ---: |
+| 12 of 12, desktop | 0.081 / 0 | 0.102 / 0 | 0.083 / 0.001 |
+| 12 of 12, phone | 0.183 / 0 | 0.227 / 0 | 0.242 / 0.003 |
+| 7 of 12, desktop | 0.073 / 0.034 | 0.096 / 0.024 | 0.048 / 0.030 |
+| 7 of 12, phone | 0.214 / 0.076 | 0.279 / 0.052 | 0.141 / 0.088 |
+| none, desktop | 0 / 0.081 | 0 / 0.102 | 0 / 0.081 |
+| none, phone | 0 / 0.183 | 0 / 0.227 | 0 / 0.235 |
+
+(The table's 0.001 is its collapsed borders, which count as nothing.)
 
 Builds only (`vite dev` serves the rules with the page module, after the first paint). Not for a resource
 with embedded data (its rows are in the first frame), with a `when` over state or another resource (the
@@ -331,7 +337,9 @@ loading line after it) leaves the list without one, as the two would be taller t
 state or an error never shows with it.
 
 The runtime carries no code for it: the build writes the placeholder's removal as one of the page's own
-bindings (about 65 bytes gzip per list; a branch for a list with a `when`), and its rule in the page's stylesheet: one shared rule per page,
+bindings (about 60 bytes gzip per list; a branch for a list with a `when`), and its rules (about 180 bytes
+gzip for a page with one list) in the page's stylesheet, which is one more stylesheet file for a page that
+had none of its own: one shared rule per page,
 then each list's height (and width, margins or grid span) per screen width, with the weight of an id, so
 the author's rules for the row's tag do not reach it.
 
