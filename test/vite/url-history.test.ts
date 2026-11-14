@@ -168,8 +168,9 @@ test.skipIf(!chromium)('a pager of links: a plain click stays on the page, Back 
       await tab.evaluate(() => { delete (window as any).clicked; });
     }
     expect(await tab.evaluate(() => (window as any).clicked)).toEqual({ id: 'p2', modified: true, prevented: false });
+    // the new page starts as about:blank and then navigates: its load state can be the blank document's, so wait for its URL
     const page = await opened;
-    await page.waitForLoadState();
+    await page.waitForURL((u) => u.protocol !== 'about:');
     expect(new URL(page.url()).search).toBe('?tag=go&page=2');
     expect(new URL(tab.url()).search).toBe('?tag=go&page=3');
     expect(await tab.evaluate(() => history.length)).toBe(entries);
