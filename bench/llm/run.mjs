@@ -63,14 +63,17 @@ async function agent(job, slot) {
   const prompt = readFileSync(join(here, T.dir, 'PROMPT.md'), 'utf8')
     .replaceAll('{{FRAMEWORK}}', FRAMEWORKS[job.framework].name).replaceAll('{{PORT}}', String(PORT)).replaceAll('{{API_PORT}}', String(API_PORT));
   writeFileSync(join(dir, 'prompt.md'), prompt);
-  const env = { ...process.env };
+  mkdirSync(join(dir, 'tmp'));
+  const env = { ...process.env, TMPDIR: join(dir, 'tmp') };
   for (const k of Object.keys(env)) if (/^CLAUDE_(CODE_)?ADDITIONAL_DIRECTORIES/.test(k)) delete env[k];
   const args = ['-p', prompt, '--model', MODELS[job.model], '--output-format', 'stream-json', '--verbose',
     '--allowedTools', cond.tools.join(' '), '--disallowedTools', 'Agent Task',
     '--setting-sources', 'project', '--strict-mcp-config', '--no-session-persistence', '--max-budget-usd', a.budget];
   const t0 = Date.now();
   const res = await new Promise((resolve) => {
-    const p = spawn('claude', args, { cwd: ws, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    // its own PID namespace: agents clean up with `pkill -f "vite preview"` and the like, which would otherwise kill
+    // other slots' servers (and their agents); the network and the file system are shared
+    const p = spawn('unshare', ['--pid', '--fork', '--mount-proc', 'claude', ...args], { cwd: ws, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     const chunks = []; let err = '';
     p.stdout.on('data', (d) => chunks.push(d)); p.stderr.on('data', (d) => (err += d));
     const timer = setTimeout(() => { try { process.kill(-p.pid, 'SIGKILL'); } catch {} }, Number(a.timeout) * 60_000);
@@ -120,7 +123,7 @@ function usesFramework(ws, framework) {
 
 async function grade(job, r) {
   await killPorts([r.PORT, r.API_PORT]);
-  const g = await run('node', [join(here, TASKS[job.task].dir, 'grader/grade.mjs'), r.ws], { env: { PREVIEW_PORT: String(r.PORT), API_PORT: String(r.API_PORT) }, timeout: 900_000 });
+  const g = await run('unshare', ['--pid', '--fork', '--mount-proc', 'node', join(here, TASKS[job.task].dir, 'grader/grade.mjs'), r.ws], { env: { PREVIEW_PORT: String(r.PORT), API_PORT: String(r.API_PORT) }, timeout: 900_000 });
   let grade; try { grade = JSON.parse(g.out.slice(g.out.indexOf('{'))); } catch { grade = { error: g.out.slice(-2000), passed: 0, total: null, checks: [] }; }
   writeFileSync(join(r.dir, 'grade.json'), JSON.stringify(grade, null, 2));
   await killPorts([r.PORT, r.API_PORT]);
