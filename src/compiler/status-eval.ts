@@ -9,9 +9,10 @@ type V = unknown;
 
 /**
  * The truth of `code` (a compiled function, `($) => (…)`) when the resources `names` have `status`
- * (`$meta.<name>`) and `rows` (`$r.<name>`): true, false, or null when it cannot be told.
+ * (`$meta.<name>`) and `rows` (`$r.<name>`; `data` overrides it per resource, `null` for one object not
+ * loaded yet): true, false, or null when it cannot be told.
  */
-export function shows(code: string, names: string[], status: { loading: boolean }, rows: unknown[]): boolean | null {
+export function shows(code: string, names: string[], status: { loading: boolean }, rows: unknown[], data: Record<string, unknown> = {}): boolean | null {
   let fn: any;
   try { fn = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }); } catch { return null; }
   if (fn.type !== 'ArrowFunctionExpression' || fn.params.length !== 1 || fn.params[0].type !== 'Identifier') return null;
@@ -29,7 +30,7 @@ export function shows(code: string, names: string[], status: { loading: boolean 
         const o = n.object;
         if (o.type === 'MemberExpression' && o.object.type === 'Identifier' && o.object.name === self && !o.computed && !n.computed) {
           if (o.property.name === '$meta' && set.has(n.property.name)) return meta;
-          if (o.property.name === '$r' && set.has(n.property.name)) return rows;
+          if (o.property.name === '$r' && set.has(n.property.name)) return n.property.name in data ? data[n.property.name] : rows;
           return UNKNOWN;
         }
         const v = ev(o);
