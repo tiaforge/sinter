@@ -211,6 +211,18 @@ const FLUID: Array<[string, string, string, string]> = [
   ['negative margins (a full-bleed image in a padded column)', 'body { margin: 0 } main { padding: 0 20px } .bleed { margin: 0 -20px } img { width: 100% }', '<main><div class="bleed"><img id="t" src="a.png" alt=""></div></main>', '100vw'],
   ['clamp() and min() in the container', 'body { margin: 0 } .c { width: min(90vw, 70rem); margin-inline: auto } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>', '(max-width: 1244.42px) 90vw, 1120px'],
   ['an image narrower than its column: min(source, column)', 'body { margin: 0 } img { max-width: 100% }', '<div><img id="t" src="a.png" width="600" alt=""></div>', '(max-width: 599.98px) 100vw, 600px'],
+  ['padding in em', 'main { padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>', 'calc(100vw - 80px)'],
+  ['a measure in em of its own font size', 'body { margin: 0 } .prose { font-size: 1.125rem; max-width: 40em; margin: 0 auto; padding: 0 1em } img { width: 100% }', '<article class="prose"><p><img id="t" src="a.png" alt=""></p></article>', '(max-width: 755.98px) calc(100vw - 36px), 720px'],
+  ['a sidebar track and a fr track, from a breakpoint', 'body { margin: 0 } .l { display: grid; gap: 24px } @media (min-width: 768px) { .l { grid-template-columns: 240px 1fr } } img { width: 100% }', '<div class="l"><nav></nav><main><img id="t" src="a.png" alt=""></main></div>', '(max-width: 767.98px) 100vw, calc(100vw - 264px)'],
+  ['unequal fr tracks, the second item auto-placed', 'body { margin: 0 } .g { display: grid; grid-template-columns: 2fr 1fr; gap: 30px } img { width: 100% }', '<div class="g"><div></div><div><img id="t" src="a.png" alt=""></div></div>', 'calc(33.33vw - 10px)'],
+  ['unequal tracks, the cursor wraps to the next row', 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 3fr; gap: 20px } img { width: 100% }', '<div class="g"><div></div><div></div><div><img id="t" src="a.png" alt=""></div></div>', 'calc(25vw - 5px)'],
+  ['unequal tracks, placed by lines', 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 2fr 1fr; column-gap: 16px } .w { grid-column: 2 / -1 } img { width: 100% }', '<div class="g"><div class="w"><img id="t" src="a.png" alt=""></div></div>', 'calc(75vw - 8px)'],
+  ['named areas, the main column first in the grid and last in the markup', 'body { margin: 0 } .l { display: grid } @media (min-width: 640px) { .l { grid-template-columns: 1fr 300px; grid-template-areas: "main side"; column-gap: 20px } .m { grid-area: main } .s { grid-area: side } } img { width: 100% }', '<div class="l"><aside class="s"></aside><main class="m"><img id="t" src="a.png" alt=""></main></div>', '(max-width: 639.98px) 100vw, calc(100vw - 320px)'],
+  ['equal tracks, placed in the second column', 'body { margin: 0 } .g { display: grid; grid-template-columns: repeat(3, 1fr) } .b { grid-column: 2 } img { width: 100% }', '<div class="g"><div class="b"><img id="t" src="a.png" alt=""></div></div>', '33.33vw'],
+  ['a flex row: a fixed sidebar and a growing main', 'body { margin: 0 } .r { display: flex; gap: 16px } .side { width: 200px; flex-shrink: 0 } .main { flex: 1; min-width: 0 } img { width: 100% }', '<div class="r"><nav class="side"></nav><main class="main"><img id="t" src="a.png" alt=""></main></div>', 'calc(100vw - 216px)'],
+  ['a media object: an avatar column and a body that grows', '.m { display: flex; gap: 12px; padding: 12px; border: 1px solid } .av { flex: none; width: 48px } .b { flex: 1 } img { width: 100% }', '<div class="m"><div class="av"></div><div class="b"><img id="t" src="a.png" alt=""></div></div>', 'calc(100vw - 102px)'],
+  ['flex items growing unequally from a basis', 'body { margin: 0 } .r { display: flex } .a { flex: 2 1 0 } .b { flex: 1 1 100px; padding: 0 10px; box-sizing: border-box } img { width: 100% }', '<div class="r"><div class="a"></div><div class="b"><img id="t" src="a.png" alt=""></div></div>', 'calc(33.33vw + 46.67px)'],
+  ['a fixed share in a row that fits, no wrapping', 'body { margin: 0 } .r { display: flex } .r > * { flex: 0 0 50% } img { width: 100% }', '<div class="r"><div><img id="t" src="a.png" alt=""></div><div></div></div>', '50vw'],
 ];
 
 describe('the width of a fluid image at every viewport width', () => {
@@ -223,10 +235,19 @@ describe('the width of a fluid image at every viewport width', () => {
     // 200 px columns and 20 px gaps: 2 from 420 px, 3 from 640, 4 from 860; the container stops at 900
     expect(sizes(FLUID[3]![1], FLUID[3]![2])).toBe('(max-width: 419.98px) 100vw, (max-width: 639.98px) calc(50vw - 10px), (max-width: 859.98px) calc(33.33vw - 13.33px), (max-width: 899.98px) calc(25vw - 15px), 210px');
   });
-  test('given up: a column count from items rendered later, an unknown media feature, em', () => {
+  test('given up: a column count from items rendered later, an unknown media feature, an em the build cannot know', () => {
     expect(sizes('.r { display: flex } .r > * { flex: 1 } img { width: 100% }', '<div class="r"><template><div><img id="t" src="a.png" alt=""></div></template></div>')).toBeNull();
     expect(sizes('img { width: 100% } @media (hover: hover) { img { width: 50% } }', '<div><img id="t" src="a.png" alt=""></div>')).toBeNull();
-    expect(sizes('main { padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>')).toBeNull();
+    // a font size in vw, or one a state may change, or a lone monospace (whose default the browsers scale)
+    expect(sizes('main { font-size: 2vw; padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>')).toBeNull();
+    expect(sizes('main { padding: 0 2em } main:hover { font-size: 20px } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>')).toBeNull();
+    expect(sizes('main { font-family: monospace; padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>')).toBeNull();
+  });
+  test('given up: unequal tracks with rows from a template, a content-sized track or sibling, an item placed by its row', () => {
+    expect(sizes('.g { display: grid; grid-template-columns: 1fr 2fr } img { width: 100% }', '<div class="g"><template><div><img id="t" src="a.png" alt=""></div></template></div>')).toBeNull();
+    expect(sizes('.g { display: grid; grid-template-columns: auto 1fr } img { width: 100% }', '<div class="g"><div></div><div><img id="t" src="a.png" alt=""></div></div>')).toBeNull();
+    expect(sizes('.g { display: grid; grid-template-columns: 1fr 2fr } .x { grid-row: 1 } img { width: 100% }', '<div class="g"><div class="x"></div><div><img id="t" src="a.png" alt=""></div></div>')).toBeNull();
+    expect(sizes('.r { display: flex } .b { flex: 1 } img { width: 100% }', '<div class="r"><span>label</span><div class="b"><img id="t" src="a.png" alt=""></div></div>')).toBeNull();
   });
 });
 

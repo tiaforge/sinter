@@ -70,11 +70,23 @@ into `sizes`. For a fluid image, it does this at every viewport width:
 ```
 
 It follows your width media queries (`min-width`, `max-width`, `width >= 48rem`), percentages,
-`vw`, px and rem, margins, padding, borders, `min()`, `max()`, `clamp()`, `max-width`, custom
-properties, and `aspect-ratio`. It resolves grids with equal tracks (`repeat(3, 1fr)`,
-`repeat(auto-fill, minmax(200px, 1fr))`, spans, `gap`) and flex rows with equal columns or wrapped
-items. An image with a fixed width at every viewport gets exactly 1x and 2x (3x for small ones);
-otherwise widths stop at 3x of the widest it can be.
+`vw`, px, rem and em, margins, padding, borders, `min()`, `max()`, `clamp()`, `max-width`, custom
+properties, and `aspect-ratio`. It resolves grids with fixed and `fr` tracks, equal or not
+(`repeat(3, 1fr)`, `240px 1fr`, `2fr 1fr`, `repeat(auto-fill, minmax(200px, 1fr))`, spans, lines
+such as `2 / -1`, `gap`), named areas (`grid-template-areas` with `grid-area: main`), and flex rows
+whose items have a known size or grow from one: equal columns, a fixed sidebar beside a `flex: 1`
+main column, an avatar beside a growing body, wrapped items. When grid tracks differ, the column an
+auto-placed item lands in follows the items before it. An image with a fixed width at every
+viewport gets exactly 1x and 2x (3x for small ones); otherwise widths stop at 3x of the widest it
+can be.
+
+```css
+body { margin: 0 }
+.layout { display: grid; gap: 24px }
+@media (min-width: 768px) { .layout { grid-template-columns: 240px 1fr } }
+.layout img { width: 100% }
+/* an image in the second column: sizes="(max-width: 767.98px) 100vw, calc(100vw - 264px)" */
+```
 
 **Which CSS is read.** The page's `<link rel="stylesheet">` and `<style>` elements, and
 stylesheets imported by its module scripts. Remote stylesheets, CSS modules and `?inline`/`?url`
@@ -91,9 +103,13 @@ variants (`md:size-20`) are `@media` rules, so an image with one stays fluid.
 A wrong size makes an image blurry, while no size only costs bytes, so sinter stays fluid whenever
 a width depends on layout it cannot predict:
 
-- widths in `em`, `vh`, `fit-content`, `max-content` or `auto`, or a `%` of a fluid parent;
-- a parent that is inline or `display: contents`, a flex container with other children, or a
-  grid with unequal tracks or named areas;
+- widths in `vh`, `ch`, `fit-content`, `max-content` or `auto`, or a `%` of a fluid parent;
+- `em` where the font size is not fixed: in `vw`, changed by a state or a media feature other than
+  width, or under a lone `monospace` font (browsers scale its default size);
+- a parent that is inline or `display: contents`, a flex row with an item sized by its content (a
+  label without a width) or that overflows the row, or a grid with `auto`, `fit-content()` or `minmax()` tracks (`minmax(0, 1fr)` is followed);
+- unequal grid tracks whose items come from a `<template>` (the column depends on the row), or
+  with an item placed by its row (`grid-row`), reordered (`order`) or flowing `dense` or by column;
 - a rule that could win sits in `@supports` or `@container`, in `@media` with a feature other than
   width, or depends on state (`:hover`, `:has()`, `:checked`);
 - a structural selector inside a `<template>`, where rows repeat;

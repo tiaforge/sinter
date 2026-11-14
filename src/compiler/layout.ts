@@ -436,7 +436,8 @@ export class Layout {
       const c = this.cascaded(el, props);
       if (c.ambiguous) return undefined;
       if (c.value === null || /%|^\s*(none|auto)\s*$/i.test(c.value)) return null;
-      const v = this.subst(c.value, el);
+      const s = this.subst(c.value, el);
+      const v = s === undefined ? undefined : this.ems(el, s);
       return v === undefined ? undefined : evaluate(v, { rem, percent: 0 });
     };
     let own = abs(SIZE['max-width']) ?? null;
@@ -668,7 +669,8 @@ export class Layout {
     if (c.ambiguous || c.value === null) return null;
     const rem = this.rootFont();
     if (rem === null) return null;
-    const value = this.subst(c.value, el);
+    const sub = this.subst(c.value, el);
+    const value = sub === undefined ? undefined : this.ems(el, sub);
     if (value === undefined) return null;
     const percent = /%/.test(value) ? this.basis(el, axis) : 0;
     if (percent === null) return null;
@@ -679,7 +681,8 @@ export class Layout {
       const mc = this.cascaded(el, SIZE[prop]);
       if (mc.ambiguous) { if (prop.startsWith('min')) return null; continue; }
       if (mc.value === null || /%/.test(mc.value) || /^(none|auto)$/i.test(mc.value.trim())) continue;
-      const mv = this.subst(mc.value, el);
+      const ms = this.subst(mc.value, el);
+      const mv = ms === undefined ? undefined : this.ems(el, ms);
       const m = mv === undefined ? null : evaluate(mv, { rem, percent: 0 });
       if (m === null) { if (prop.startsWith('min')) return null; continue; }
       n = pick(n, m);
@@ -736,7 +739,8 @@ export class Layout {
     const kw = { thin: 1, medium: 3, thick: 5 }[raw.toLowerCase() as 'thin'];
     if (kw !== undefined) return kw;
     if (/%/.test(raw)) return null;
-    return evaluate(raw, { rem, percent: 0 });
+    const px = this.ems(el, raw);
+    return px === undefined ? null : evaluate(px, { rem, percent: 0 });
   }
 
   /**
@@ -767,10 +771,12 @@ export class Layout {
   /**
    * The rendered width of a fluid image at every viewport width, as `sizes`: the cascade per range
    * between the page's width media queries, widths linear in the viewport (`calc(50vw - 24px)`),
-   * ranges split where a `min()`/`max-width` or a grid's column count changes. Grid tracks
-   * (`repeat(3, 1fr)`, `repeat(auto-fill, minmax(200px, 1fr))`, gaps, `span`), flex rows (equal
-   * `flex: 1` columns, wrapped items with a basis) and margins, padding and borders resolve; anything
-   * else is null (the caller falls back to `maxWidth()`). Checked against Chromium at many widths.
+   * ranges split where a `min()`/`max-width`, a grid's column count or a row's overflow changes. Grid
+   * tracks (fixed and `fr`, equal or not, `repeat(auto-fill, minmax(200px, 1fr))`, gaps, `span`, lines,
+   * named areas, the column an auto-placed item lands in), flex rows (items of a known base size that
+   * may grow: equal `flex: 1` columns, a fixed sidebar beside a growing main; wrapped items with a basis),
+   * margins, padding and borders, and em of a font size the cascade fixes, resolve; anything else is
+   * null (the caller falls back to `maxWidth()`). Checked against Chromium at many widths.
    */
   fluidSizes(img: P5Element, intrinsic?: number): FluidSizes | null {
     this.notes.autoFitRows = null;
@@ -875,7 +881,8 @@ export class Layout {
   private lin(el: P5Element, value: string, percent: Lin | null, seg: [number, number]): Lin | null {
     const rem = this.rootFont();
     if (rem === null) return null;
-    const v = this.subst(value, el);
+    const s = this.subst(value, el);
+    const v = s === undefined ? undefined : this.ems(el, s);
     return v === undefined ? null : evaluateLin(v, rem, percent, seg);
   }
 
@@ -979,40 +986,55 @@ export class Layout {
     return all[0] ? { prop: all[0].p, value: all[0].d.value } : null;
   }
 
-  /** the width of the grid area `el` is placed in: equal tracks, a gap, one column or a `span` */
+  /**
+   * The width of the grid area `el` is placed in: a gap, tracks of fixed lengths and `fr` (equal or not),
+   * auto-fill and auto-fit columns, a `span`, lines (`2 / 4`, `1 / -1`) and named areas
+   * (`grid-template-areas` with `grid-area: <name>`). When the tracks differ, the column an auto-placed
+   * item lands in follows the items before it, which must all be known.
+   */
   private gridArea(parent: P5Element, el: P5Element, seg: [number, number]): Lin | null {
     const pm = this.declsOf(parent);
-    if (pm.has('grid') || pm.has('grid-template') || pm.has('grid-template-areas')) return null;
+    if (pm.has('grid') || pm.has('grid-template')) return null;
     const W = this.contentOf(parent, seg);
     if (!W) return null;
     const gap = this.columnGap(parent, W, seg);
     if (!gap) return null;
-    const gc = this.cascaded(parent, ['grid-template-columns']);
-    if (gc.ambiguous) return null;
-    // the span
-    const sc = this.cascaded(el, ['grid-column']);
-    const em = this.declsOf(el);
-    if (sc.ambiguous || em.has('grid-column-start') || em.has('grid-column-end') || em.has('grid-area')) return null;
-    const spanText = (sc.value ?? 'auto').trim();
-    const sm = /^span\s+(\d+)(\s*\/\s*auto)?$/i.exec(spanText);
-    const full = /^1\s*\/\s*-1$/.test(spanText);
-    if (!sm && !full && !/^auto$/i.test(spanText)) return null;
-    const area = (track: Lin, n: number) => {
-      const span = full ? n : sm ? Math.min(Number(sm[1]), n) : 1;
+    const gc = this.cascaded(parent, ['grid-template-columns']), ga = this.cascaded(parent, ['grid-template-areas']);
+    if (gc.ambiguous || ga.ambiguous) return null;
+    const areasText = ga.value === null || /^\s*none\s*$/i.test(ga.value) ? null : this.subst(ga.value, parent);
+    if (areasText === undefined) return null;
+    const areas = areasText === null ? null : gridAreas(areasText);
+    if (areas === undefined) return null;
+    const placement = this.gridPlacement(el, areas);
+    if (!placement) return null;
+    const sum = (tracks: Lin[], start: number, span: number): Lin => {
+      let k = gap.k * (span - 1), c = gap.c * (span - 1);
+      for (let i = start; i < start + span; i++) { k += tracks[i]!.k; c += tracks[i]!.c; }
+      return { k, c };
+    };
+    /** equal tracks: where the item is does not matter, only how many it spans */
+    const area = (track: Lin, n: number): Lin | null => {
+      let span = placement.full ? n : Math.min(placement.span, n);
+      if (placement.start !== null && !placement.full) {
+        const at = Number.isFinite(n) ? this.gridColumn(parent, el, placement, n) : null;
+        if (!at) return null;
+        span = at.span;
+      }
       return { k: track.k * span + gap.k * (span - 1), c: track.c * span + gap.c * (span - 1) };
     };
-    if (gc.value === null || /^\s*none\s*$/i.test(gc.value)) return area(W, 1);
-    const text = (this.subst(gc.value, el) ?? '').trim().toLowerCase();
+    if (gc.value === null || /^\s*none\s*$/i.test(gc.value)) return areas && areas.columns > 1 ? null : area(W, 1);
+    const text = (this.subst(gc.value, parent) ?? '').trim().toLowerCase();
     const auto = /^repeat\(\s*(auto-fill|auto-fit)\s*,\s*(.+)\)$/s.exec(text);
     if (auto) {
+      if (areas) return null;
       const track = auto[2]!.trim();
       const mm = /^minmax\(\s*([^,]+?)\s*,\s*1fr\s*\)$/.exec(track);
       if (!mm) {
         // a fixed track: its width, however many fit
-        const L = this.lin(el, track, W, seg);
-        return L && !full && Math.abs(L.k) < 1e-9 && Math.abs(gap.k) < 1e-9 ? area(L, Infinity) : null;
+        const L = this.lin(parent, track, W, seg);
+        return L && !placement.full && Math.abs(L.k) < 1e-9 && Math.abs(gap.k) < 1e-9 ? area(L, Infinity) : null;
       }
-      const min = this.lin(el, mm[1]!, W, seg);
+      const min = this.lin(parent, mm[1]!, W, seg);
       if (!min || Math.abs(min.k) > 1e-9 || Math.abs(gap.k) > 1e-9 || W.k < -1e-9) return null;
       const step = min.c + gap.c;
       if (step <= 0) return null;
@@ -1035,18 +1057,124 @@ export class Layout {
       }
       return area({ k: (W.k - 0) / n, c: (W.c - (n - 1) * gap.c) / n }, n);
     }
-    // a fixed number of tracks; all equal
+    // a fixed number of tracks
     const tracks: string[] = [];
     for (const t of splitTop(text)) {
       const rm = /^repeat\(\s*(\d+)\s*,\s*(.+)\)$/s.exec(t);
       if (rm) { for (let i = 0; i < Number(rm[1]); i++) tracks.push(...splitTop(rm[2]!)); } else tracks.push(t);
     }
     const norm = tracks.map((t) => t.replace(/\s+/g, '').replace(/^minmax\(0(px)?,(\d*\.?\d*)fr\)$/, '$2fr'));
-    if (!norm.length || norm.some((t) => t !== norm[0])) return null;
     const n = norm.length;
-    if (/^\d*\.?\d+fr$/.test(norm[0]!)) return area({ k: (W.k - (n - 1) * gap.k) / n, c: (W.c - (n - 1) * gap.c) / n }, n);
-    const L = this.lin(el, tracks[0]!, W, seg);
-    return L && area(L, n);
+    if (!n || norm.some((t) => t.startsWith('['))) return null;
+    if (!areas && norm.every((t) => t === norm[0])) {
+      if (/^\d*\.?\d+fr$/.test(norm[0]!)) return area({ k: (W.k - (n - 1) * gap.k) / n, c: (W.c - (n - 1) * gap.c) / n }, n);
+      const L = this.lin(parent, tracks[0]!, W, seg);
+      return L && area(L, n);
+    }
+    // tracks that differ: lengths first, the space left shared by the `fr` tracks
+    if (areas && areas.columns > n) return null;
+    const fixed: Array<Lin | null> = [], fr: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const f = /^(\d*\.?\d+)fr$/.exec(norm[i]!);
+      if (f) { fr.push(Number(f[1])); fixed.push(null); continue; }
+      // content-sized tracks (auto, min-content, fit-content(), minmax() of lengths) depend on what is in them
+      if (/^(auto|min-content|max-content)$|^(fit-content|minmax)\(/.test(norm[i]!)) return null;
+      const L = this.lin(parent, tracks[i]!, W, seg);
+      if (!L) return null;
+      fr.push(0); fixed.push(L);
+    }
+    const frs = fr.reduce((a, b) => a + b, 0);
+    let free: Lin = { k: W.k - (n - 1) * gap.k, c: W.c - (n - 1) * gap.c };
+    for (const L of fixed) if (L) free = { k: free.k - L.k, c: free.c - L.c };
+    if (frs > 0) {
+      // with no space left, `fr` tracks take their content's size: not followed
+      const lo = free.k * Math.max(seg[0], MIN_VIEWPORT) + free.c;
+      const hi = Number.isFinite(seg[1]) ? free.k * seg[1] + free.c : free.k > 1e-9 ? Infinity : free.k < -1e-9 ? -Infinity : free.c;
+      if (lo < 0 && hi < 0) return null;
+      if (lo < 0 || hi < 0) throw new Split(-free.c / free.k);
+    }
+    // a sum of factors under 1 shares only that part of the space
+    const unit = frs >= 1 ? { k: free.k / frs, c: free.c / frs } : free;
+    const widths = fixed.map((L, i) => L ?? { k: unit.k * fr[i]!, c: unit.c * fr[i]! });
+    const at = this.gridColumn(parent, el, placement, n);
+    return at && sum(widths, at.start, at.span);
+  }
+
+  /** where `el` is placed in its grid's columns, as written: lines (1-based, negative from the end), a span, or a named area */
+  private gridPlacement(el: P5Element, areas: GridAreas | null): GridPlacement | null {
+    const em = this.declsOf(el);
+    // rows set on the item place it before the auto-placed ones: not followed
+    for (const p of ['grid-row', 'grid-row-start', 'grid-row-end', 'grid-column-start', 'grid-column-end']) if (em.has(p)) return null;
+    const ac = this.cascaded(el, ['grid-area']);
+    if (ac.ambiguous) return null;
+    if (ac.value !== null) {
+      const name = ac.value.trim();
+      const a = areas && /^[a-z_-][\w-]*$/i.test(name) ? areas.names.get(name) : undefined;
+      if (!a || em.has('grid-column')) return null;
+      return { start: a.start + 1, end: a.start + a.span + 1, span: a.span, full: false, named: true };
+    }
+    const sc = this.cascaded(el, ['grid-column']);
+    if (sc.ambiguous) return null;
+    const text = (sc.value ?? 'auto').trim().toLowerCase();
+    const [a, b = 'auto'] = text.split('/').map((x) => x.trim());
+    const line = (x: string) => (/^-?[1-9]\d*$/.test(x) ? Number(x) : null);
+    const span = (x: string) => { const m = /^span\s+([1-9]\d*)$/.exec(x); return m ? Number(m[1]) : null; };
+    if (a === '1' && b === '-1') return { start: 1, end: -1, span: 1, full: true, named: false };
+    if (a === 'auto') return b === 'auto' ? { start: null, end: null, span: 1, full: false, named: false } : null;
+    const sa = span(a!);
+    if (sa !== null) return b === 'auto' ? { start: null, end: null, span: sa, full: false, named: false } : null;
+    const la = line(a!);
+    if (la === null) return null;
+    if (b === 'auto') return { start: la, end: null, span: 1, full: false, named: false };
+    const sb = span(b), lb = line(b);
+    if (sb !== null) return { start: la, end: null, span: sb, full: false, named: false };
+    return lb === null ? null : { start: la, end: lb, span: 1, full: false, named: false };
+  }
+
+  /** the first column (0-based) and the span of `el` in a grid of `n` explicit columns; null when it may fall outside them or cannot be known */
+  private gridColumn(parent: P5Element, el: P5Element, p: GridPlacement, n: number): { start: number; span: number } | null {
+    const lines = (x: number) => (x < 0 ? n + 2 + x : x);
+    if (p.full) return { start: 0, span: n };
+    if (p.start !== null) {
+      const s = lines(p.start), e = p.end !== null ? lines(p.end) : s + p.span;
+      // a line past the explicit grid, or an end before the start: implicit tracks, not followed
+      if (s < 1 || e > n + 1 || e <= s) return null;
+      return { start: s - 1, span: e - s };
+    }
+    if (p.span > n) return null;
+    // auto-placed: the cursor of the browser's row-major, sparse placement over the items before it
+    const flowc = this.cascaded(parent, ['grid-auto-flow']);
+    if (flowc.ambiguous || (flowc.value !== null && !/^\s*row\s*$/i.test(flowc.value))) return null;
+    let col = 0;
+    for (const c of parent.childNodes) {
+      if (!isEl(c)) { if (c.nodeName === '#text' && /\S/.test((c as { value: string }).value)) return null; continue; }
+      if (c.tagName === 'template') return null;
+      const x = c as P5Element;
+      if (x !== el) {
+        const d = this.displayOf(x);
+        if (d === null || d === 'contents') return null;
+        if (d === 'none') continue;
+        const pos = this.declsOf(x).get('position') ?? [];
+        if (pos.some((v) => /^\s*(absolute|fixed)\s*$/i.test(v.value))) { if (pos.every((v) => !v.conditional)) continue; return null; }
+      }
+      if (this.declsOf(x).has('order')) return null;
+      const q = x === el ? p : this.gridPlacement(x, null);
+      if (!q || q.named || q.full) return null;
+      let start: number, span: number;
+      if (q.start !== null) {
+        const at = this.gridColumn(parent, x, q, n);
+        if (!at) return null;
+        start = at.start; span = at.span;
+      } else {
+        span = q.span;
+        if (span > n) return null;
+        if (col + span > n) col = 0;
+        start = col;
+      }
+      if (x === el) return { start, span };
+      col = start + span;
+    }
+    return null;
   }
 
   /** a flex item's border-box width; 'stretch' for a column container (the item fills it like a block) */
@@ -1100,28 +1228,68 @@ export class Layout {
     const own = flexOf(el);
     if (!own) return null;
     const zero = (b: string) => /^0([a-z%]*)?$/.test(b);
-    if (own.grow > 0 && zero(own.basis)) {
-      // equal columns: every item grows alike from 0, and their number is known
-      if (parent.childNodes.some((c) => isEl(c) && c.tagName === 'template')) return null;
-      const items = parent.childNodes.filter((c): c is P5Element => isEl(c));
-      for (const it of items) { const f = flexOf(it); if (!f || f.grow !== own.grow || !zero(f.basis)) return null; }
-      const n = items.length;
-      return { k: (W.k - (n - 1) * gap.k) / n, c: (W.c - (n - 1) * gap.c) / n };
-    }
-    if (own.grow === 0) {
-      // a wrapped item with a basis (or width) keeps it: no line is shrunk to fit
-      const wrap = flow('wrap');
-      if (wrap === undefined || !wrap || !/^wrap/.test(wrap)) return null;
-      let basis = own.basis;
-      if (basis === 'auto') { const wc = this.cascaded(el, SIZE.width); if (wc.ambiguous || wc.value === null || /^\s*auto\s*$/i.test(wc.value)) return null; basis = wc.value; }
-      if (basis === 'content') return null;
-      const bs = this.cascaded(el, ['box-sizing']);
-      const e = this.edges(el, 'width');
+    const wrap = flow('wrap');
+    if (wrap === undefined) return null;
+    const wraps = !!wrap && /^wrap/.test(wrap);
+    /** an item's border-box width before it grows (its flex base size with padding and border), or null when its content decides it */
+    const base = (x: P5Element, basis: string): Lin | null => {
+      if (basis === 'auto') {
+        const wc = this.cascaded(x, SIZE.width);
+        if (wc.ambiguous || wc.value === null || /^\s*auto\s*$/i.test(wc.value)) return null;
+        basis = wc.value;
+      }
+      if (basis === 'content' || /^(min-|max-|fit-)content/.test(basis)) return null;
+      const bs = this.cascaded(x, ['box-sizing']);
+      const e = this.edges(x, 'width');
       if (bs.ambiguous || e === null) return null;
-      const v = this.lin(el, basis, W, seg);
+      const v = this.lin(x, basis, W, seg);
       if (!v) return null;
-      return this.minMax(el, /^\s*border-box\s*$/i.test(bs.value ?? '') ? v : { k: v.k, c: v.c + e }, W, seg);
+      return /^\s*border-box\s*$/i.test(bs.value ?? '') ? pick(v, lin(e), seg, 'max') : { k: v.k, c: v.c + e };
+    };
+    if (own.grow === 0 && wraps) {
+      // a wrapped item with a basis (or width) keeps it: no line is shrunk to fit
+      const v = base(el, own.basis);
+      return v && this.minMax(el, v, W, seg);
     }
+    // one line: every item's base size is known, and the space left goes to those that grow
+    if (parent.childNodes.some((c) => isEl(c) && c.tagName === 'template')) return null;
+    const items: Array<{ el: P5Element; grow: number; base: Lin; margin: Lin }> = [];
+    for (const c of parent.childNodes) {
+      if (!isEl(c)) { if (c.nodeName === '#text' && /\S/.test((c as { value: string }).value)) return null; continue; }
+      const x = c as P5Element;
+      const d = this.displayOf(x);
+      if (d === null || d === 'contents') return null;
+      if (d === 'none') continue;
+      const pos = this.declsOf(x).get('position') ?? [];
+      if (pos.some((v) => /^\s*(absolute|fixed)\s*$/i.test(v.value))) { if (pos.every((v) => !v.conditional)) continue; return null; }
+      const f = x === el ? own : flexOf(x);
+      if (!f) return null;
+      // a max-width or min-width may freeze an item at it, and an item that grows from its content's size is its content's
+      for (const [prop, none] of [['max-width', /^\s*none\s*$/i], ['min-width', /^\s*(auto|0[a-z%]*)\s*$/i]] as const) {
+        const m = this.cascaded(x, SIZE[prop]);
+        if (m.ambiguous || (m.value !== null && !none.test(m.value))) return null;
+      }
+      const b = f.grow > 0 && zero(f.basis) ? (() => { const e = this.edges(x, 'width'); return e === null ? null : lin(e); })() : base(x, f.basis);
+      if (!b) return null;
+      const ml = this.margin(x, 'left', W, seg), mr = this.margin(x, 'right', W, seg);
+      if (!ml || !mr) return null;
+      for (const side of ['left', 'right'] as const) if (/^\s*auto\s*$/i.test(this.sideValue(x, 'margin', side) ?? '')) return null;
+      items.push({ el: x, grow: f.grow, base: b, margin: { k: ml.k + mr.k, c: ml.c + mr.c } });
+    }
+    const me = items.find((x) => x.el === el);
+    if (!me) return null;
+    let free: Lin = { k: W.k - (items.length - 1) * gap.k, c: W.c - (items.length - 1) * gap.c };
+    for (const x of items) free = { k: free.k - x.base.k - x.margin.k, c: free.c - x.base.c - x.margin.c };
+    // the items overflow (they would shrink, or wrap): not followed; where that starts, the range splits
+    const lo = free.k * Math.max(seg[0], MIN_VIEWPORT) + free.c;
+    const hi = Number.isFinite(seg[1]) ? free.k * seg[1] + free.c : free.k > 1e-9 ? Infinity : free.k < -1e-9 ? -Infinity : free.c;
+    if (lo < -1e-6 && hi < -1e-6) return null;
+    if (lo < -1e-6 || hi < -1e-6) throw new Split(-free.c / free.k);
+    const grows = items.reduce((a, x) => a + x.grow, 0);
+    if (!me.grow) return me.base;
+    // factors that sum to less than 1 share only that part of the space
+    const share = grows >= 1 ? me.grow / grows : me.grow;
+    return { k: me.base.k + free.k * share, c: me.base.c + free.c * share };
     return null;
   }
 
@@ -1601,6 +1769,33 @@ export class Layout {
     }
     if (/%/.test(v) && percent === null) return null;
     return evaluate(v, { rem, percent: percent ?? 0 });
+  }
+
+  /**
+   * The font size of `el` in px when it is the same however the page is used: every element up to the root
+   * has one size that surely wins (no state, no media feature other than the viewport's width), none in
+   * viewport units, none under a lone `monospace` (whose default the browsers scale). Null otherwise: a
+   * width in em is then not one the build can know.
+   */
+  private exactFont(el: P5Element): number | null {
+    for (let x: P5Element | null = el; x; x = this.parentOf(x)) {
+      const c = this.candidateDecls(x, ['font-size', 'font']);
+      if (!c || c.length !== 1) return null;
+      if (c[0] && /\d(s|l|d)?v(w|h|i|b|min|max)\b|\d(ex|ch|cap|ic|lh|rlh)\b/i.test(c[0].value)) return null;
+      const f = this.cascaded(x, ['font-family', 'font']);
+      if (f.ambiguous) return null;
+      const fam = this.fontFamilies(x);
+      if (!fam || (fam.length === 1 && fam[0] === 'monospace')) return null;
+    }
+    return this.fontSize(el);
+  }
+
+  /** `value` with its em lengths in px, of `el`'s exact font size; undefined when that is not known */
+  private ems(el: P5Element, value: string): string | undefined {
+    if (!/\d*\.?\d+(?:e-?\d+)?em\b/i.test(value.replace(/rem\b/gi, ''))) return value;
+    const em = this.exactFont(el);
+    if (em === null) return undefined;
+    return value.replace(/(^|[^\w.-])(-?\d*\.?\d+(?:e-?\d+)?)em\b/gi, (_, pre: string, n: string) => `${pre}${Number(n) * em}px`);
   }
 
   /** the computed font size of `el` in px (inherited), null when the cascade cannot tell */
@@ -2380,6 +2575,26 @@ ul ul, ul ol, ul menu, ol ul, ol ol, ol menu, menu ul, menu ol, menu menu { marg
 
 /** px = k × viewport width + c */
 interface Lin { k: number; c: number }
+/** an item's columns as written: lines (1-based, negative from the end) or null, a span, `1 / -1`, or a named area's lines */
+interface GridPlacement { start: number | null; end: number | null; span: number; full: boolean; named: boolean }
+interface GridAreas { columns: number; names: Map<string, { start: number; span: number }> }
+
+/** `grid-template-areas`: the column count and each name's columns (one rectangle); null for `none`, undefined when invalid */
+function gridAreas(text: string): GridAreas | undefined {
+  const rows = [...text.matchAll(/"([^"]*)"|'([^']*)'/g)].map((m) => (m[1] ?? m[2]!).trim().split(/\s+/).map((c) => (/^\.+$/.test(c) ? null : c)));
+  if (!rows.length || rows.some((r) => r.length !== rows[0]!.length)) return undefined;
+  const names = new Map<string, { start: number; span: number }>();
+  for (const r of rows) for (let i = 0; i < r.length; i++) {
+    const name = r[i];
+    if (!name || (i > 0 && r[i - 1] === name)) continue;
+    let j = i;
+    while (j + 1 < r.length && r[j + 1] === name) j++;
+    const seen = names.get(name);
+    if (seen && (seen.start !== i || seen.span !== j - i + 1)) return undefined;
+    names.set(name, { start: i, span: j - i + 1 });
+  }
+  return { columns: rows[0]!.length, names };
+}
 const lin = (c: number): Lin => ({ k: 0, c });
 /** the range has to be split at a viewport width (where a min()/max() or a column count changes) */
 class Split { constructor(readonly at: number) {} }
