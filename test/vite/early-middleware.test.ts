@@ -61,7 +61,7 @@ test('what counts as a config that may change requests', () => {
   expect(changesRequests('configure({ sessionProbe: "/api/me" })')).toBe(false);
 });
 
-test.skipIf(!chromium)('signed in: every resource is requested with the token, and no 401 reaches onUnauthorized', async () => {
+test.skipIf(!chromium)('signed in: every resource is requested once, with the token: no early request without it, no 401', async () => {
   const seen: string[] = [];
   const site = http((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
@@ -86,8 +86,8 @@ test.skipIf(!chromium)('signed in: every resource is requested with the token, a
     await tab.goto(base + '/');
     await tab.waitForFunction(() => document.querySelector('#me')!.textContent === 'Ada' && document.querySelectorAll('li').length === 1);
     expect(await tab.title()).toBe('Board');
-    // the early requests went without the token (401, not handed over); the page's own requests carried it
-    expect(seen.filter((s) => s.endsWith('Bearer t')).sort()).toEqual(['/api/items Bearer t', '/api/me Bearer t']);
+    // one request per resource, with the token: none went before the middleware (it would have been refused and sent again)
+    expect(seen.sort()).toEqual(['/api/items Bearer t', '/api/me Bearer t']);
   } finally {
     await browser.close();
     site.close();

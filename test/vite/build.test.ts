@@ -134,11 +134,14 @@ test('`embed: true`: placeholders for the resources only the URL decides, last i
   try {
     const plain = join(out, 'embed-off');
     await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: plain, emptyOutDir: true, minify: false }, plugins: [sinter()] });
-    // the fixture's config adds a header (`header('X-Sinter', '1')`): a preload would hand its response to the request
-    // with the header, which then never reaches the server, so the early file requests it (test/vite/early-middleware.test.ts)
+    // the fixture's config adds a header (`header('X-Sinter', '1')`): a request sent before the middleware runs would
+    // only be sent again with it, so nothing is requested early, and the early file carries no request code
+    // (test/vite/early-middleware.test.ts)
     const plainHtml = readFileSync(join(plain, 'index.html'), 'utf8');
     expect(plainHtml).not.toContain('rel="preload" as="fetch"');
-    expect(readFileSync(join(plain, 'assets', readdirSync(join(plain, 'assets')).find((f) => /^index-head-.*\.js$/.test(f))!), 'utf8')).toContain('/api/people');
+    const early = readFileSync(join(plain, 'assets', readdirSync(join(plain, 'assets')).find((f) => /^index-head-.*\.js$/.test(f))!), 'utf8');
+    expect(early).not.toContain('/api/people');
+    expect(early).not.toMatch(/\brequests\b/);
     expect(readdirSync(plain)).not.toContain('sinter-embed.json');
     const dir = join(out, 'embed-on');
     await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ embed: true })] });

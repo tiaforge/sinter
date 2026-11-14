@@ -172,10 +172,22 @@ Without embedded data, a resource's request still leaves before the page script 
 The page's resource takes the response when it loads, so there is one request. It goes through your
 request middleware as always: the early response is used at the end of the chain if the request is
 exactly the one sent early (a plain GET with no extra headers), so response middleware such as
-`onUnauthorized` still runs. A request your middleware changes is sent again. A preload link cannot
-do that (the browser gives its response to a later fetch of the URL whatever headers it adds), so when
-the config module may change requests (`configure({ request })`, `header()`, `credentials()`) the build
-writes no preload links for resources and the early script requests them instead.
+`onUnauthorized` still runs.
+
+### Request middleware and sign-in
+
+Early requests leave before your request middleware runs, so they cannot carry what it adds. When the
+config module may change requests (`configure({ request })`, `header()`, `credentials()`), the build
+requests nothing early: an early request without, say, a token would be refused (a 401 in the console)
+and sent again by the page with it, one wasted request per resource. A preload link would be worse: the
+browser gives its response to the page's request whatever headers that adds, so the token would never
+be sent. With an OpenAPI spec, operations whose `security` is public or answered with cookies are still
+preloaded ([apis](apis.md#requests)).
+
+If you control the API, sign in with a session cookie (`HttpOnly`, `Secure`, `SameSite=Lax`) rather
+than a token the page keeps in localStorage and adds in a middleware. The browser sends the cookie with
+preloads and early requests, so they work with no middleware and no configuration; and no script on the
+page can read the cookie, which a token in localStorage cannot say.
 
 ### Other origins
 
@@ -195,10 +207,7 @@ left to the page script. Cross-origin early requests are sent without credential
 `<sn-resource early="off">` keeps a resource out of the preload and the early request. Use it when
 a request middleware answers the request itself (a mock, its own cache): the early request would go
 unused. A middleware that changes the request, for example adds an `Authorization` header, needs
-nothing: the changed request is sent again, and when the config module may change requests the build
-writes no preload links (a browser preload is sent without your headers, and its response would go to
-the changed request). With an OpenAPI spec, operations whose `security` needs a token are not
-requested early at all ([apis](apis.md#requests)).
+nothing: with such a config nothing is requested early (see above).
 
 ### Low priority for dialog-only data
 
