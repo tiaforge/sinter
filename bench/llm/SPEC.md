@@ -152,7 +152,7 @@ Sources:
 
 ```sh
 node tasks/t2-realworld/setup.mjs                    # T2 bases → /tmp/llmbench/bases
-node run.mjs --tasks t1,t2,t3 --frameworks sinter,astro,sveltekit --models haiku,sonnet,opus --reps 3 --slots 3
+node run.mjs --tasks t1,t2,t3,t4,t5 --frameworks sinter,astro,sveltekit --models haiku,sonnet,opus --reps 3 --slots 3
 node report.mjs /tmp/llmbench/runs/<time>            # tables
 ```
 
@@ -175,6 +175,6 @@ See [`results/2026-11-14-cold.md`](results/2026-11-14-cold.md).
 
 1. Run the `docs` and `offline` conditions and report the familiarity gap.
 2. Use n ≥ 3 per cell.
-3. Add an Astro T2 base (hand-written, reviewed by an Astro user) and more tasks (T4 to T8).
+3. Add an Astro T2 base (hand-written, reviewed by an Astro user) and more tasks (T6 to T8).
 4. Ablate sinter's diagnostics.
 5. Add a second agent harness.
