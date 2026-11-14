@@ -8,7 +8,7 @@ implementation is built from source and served under the same conditions, the be
 
 | implementation | source lines | JS, home + article (gz KB) | Lighthouse mobile perf, same conditions |
 | --- | ---: | ---: | ---: |
-| **sinter** | **666** | **35.7** | **100** |
+| **sinter** | **670** | **35.7** | **100** |
 | SvelteKit | 1153 | - | 93 |
 | Solid | 1281 | - | 90 |
 | Vue 3 | 1848 | 63.7 | 86 |
@@ -47,7 +47,7 @@ deduplicate saves.
 
 | implementation | files | lines | by type |
 | --- | ---: | ---: | --- |
-| **sinter** | 23 | **666** | html 491, js 175 |
+| **sinter** | 23 | **670** | html 495, js 175 |
 | SvelteKit | 41 | 1153 | svelte 816, js 312, html 25 |
 | Solid | 27 | 1281 | js 1248, html 33 |
 | Vue 3 | 41 | 1848 | vue 1344, ts 488, html 16 |

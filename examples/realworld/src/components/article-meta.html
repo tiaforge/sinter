@@ -1,5 +1,7 @@
 <!-- Author, date and the follow/favorite or edit/delete actions of the page's single `article`. It is on the
-     page twice: `place` keeps the ids of its toggles (which keep the focus across a click) unique. -->
+     page twice: `place` keeps the ids of its toggles (which keep the focus across a click) unique. Following
+     answers with the author's profile, which write-through does not apply to the article it is nested in:
+     `then` does. -->
 <template data-sn-component="{ article: Article; place: 'banner' | 'actions' }">
   <div class="article-meta">
     <a data-sn-attr="{href: '/profile/' + encodeURIComponent(article.author.username)}"><img data-sn-attr="{src: avatar(article.author.image), alt: article.author.username}"></a>
@@ -14,12 +16,14 @@
     </template>
     <template data-sn-else>
       <template data-sn-if="article.author.following">
-        <button class="btn btn-sm btn-secondary" data-sn-attr="{ id: 'follow-' + place }" data-sn-delete="/profiles/{article.author.username}/follow">
+        <button class="btn btn-sm btn-secondary" data-sn-attr="{ id: 'follow-' + place }" data-sn-delete="/profiles/{article.author.username}/follow"
+                data-sn-then="patch(article, { author: $result.profile })">
           <i class="ion-plus-round"></i> <span data-sn-text="'Unfollow ' + article.author.username"></span>
         </button>
       </template>
       <template data-sn-else>
-        <button class="btn btn-sm btn-outline-secondary" data-sn-attr="{ id: 'follow-' + place }" data-sn-post="/profiles/{article.author.username}/follow">
+        <button class="btn btn-sm btn-outline-secondary" data-sn-attr="{ id: 'follow-' + place }" data-sn-post="/profiles/{article.author.username}/follow"
+                data-sn-then="patch(article, { author: $result.profile })">
           <i class="ion-plus-round"></i> <span data-sn-text="'Follow ' + article.author.username"></span>
         </button>
       </template>
