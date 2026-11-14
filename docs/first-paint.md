@@ -258,22 +258,33 @@ The built page has an empty, `aria-hidden` element after the template, 12 × 57 
 page's stylesheet: no inline style, nothing for a CSP to allow). The page module removes it in the same
 update that inserts the rows, or when the load ends empty or fails. Nothing moves when the rows arrive.
 
-How many rows: a paginated resource's `page-size`, or the number on the template
-(`data-sn-reserve="10"`), for a list without pages. `data-sn-reserve="off"` turns it off for one list.
+How many rows: a paginated resource's `page-size`. A list without pages has no count the build can
+know, and gets no space.
 
-How tall: what the stylesheets say about the row, at each screen width the media queries split.
+How large: what the stylesheets say about the row, at each screen width the media queries split.
 
 - A height the stylesheets fix (`height`, `block-size`, a grid's `grid-auto-rows`) is exact: the rows
   take exactly the space held.
 - Otherwise the space is a lower bound, never taller than the rows: a bound text counts as one
   line, a `data-sn-if` or `data-sn-show` inside the row, a nested list, a float or anything the
-  cascade cannot decide counts as nothing. Lines follow `line-height`; `normal` is read from the
-  font's file when the build has it (a local `@font-face`, Fontsource, Google Fonts), else counts as
-  the font size. Text that wraps makes the rows taller than the space, and what follows moves by the
-  difference, not by the whole list.
-- Rows stacked in a block or a flex column, with their margins (collapsing) and gaps, and rows in a
-  grid: the placeholder spans the grid rows the items fill, over every column (`auto-fill` and
-  `auto-fit` columns are counted at each width).
+  cascade cannot decide counts as nothing. Text that wraps makes the rows taller than the space, and
+  what follows moves by the difference, not by the whole list.
+- Lines follow `line-height`. `normal` depends on the font, and the text may be in any face of its
+  stack: a web font shows only once it has loaded (`font-display: swap`), and a family a platform
+  lacks falls through to the next. So `normal` counts the least of them: each family the page
+  ships (from its file, a local `@font-face`, Fontsource or Google Fonts, or the overrides of a
+  fallback face: `ascent-override`, `descent-override`, `size-adjust`, `src: local(…)`), each
+  system font the build has metrics for (Arial, Helvetica, Segoe UI, Roboto, San Francisco, Times
+  New Roman, DejaVu, Noto and others), and the first generic family on every platform
+  (`system-ui` is Segoe UI, San Francisco, Roboto or a Linux desktop's font; without one, the
+  browser's default, serif). A family neither the page nor that table has is taken as absent. An
+  explicit `line-height` avoids all of this: it is the same in every face.
+- Widths: rows stacked in a block or a flex column take the container's width, as the placeholder
+  does. Rows with a width of their own (`width` in px, rem, em) also work side by side in a flex row
+  (the placeholder as wide as the rows and their gaps), and wrapping in one (as many lines as the
+  container's width gives, at each screen width).
+- Rows in a grid: the placeholder spans the grid rows the items fill, over every column (`auto-fill`
+  and `auto-fit` columns are counted at each width).
 
 When fewer rows arrive than were held (the last page, an empty list), what follows moves up by
 what is missing. Measured with the API answering after 500 ms (Chromium, a list of 12 rows of 56 px
@@ -287,17 +298,22 @@ with content below it):
 
 Builds only (`vite dev` serves the rules with the page module, after the first paint). Not for a resource
 with embedded data (its rows are in the first frame), with `when` (it may not load), `each` or `call`, or a
-list that is not the resource itself (`people.filter(…)`: the build cannot count it), nor for rows laid
-out side by side, absolutely positioned, or a template with more than one element.
+list that is not the resource itself (`people.filter(…)`: the build cannot count it), nor for rows side
+by side without a width of their own, absolutely positioned, or a template with more than one element.
+`sinter({ firstPaint: false })` turns it off with the rest of the first-paint work.
+
+The page module carries no code for it: the build writes the placeholder's removal as one of the
+page's own bindings (about 100 bytes gzip per list), its rule goes in the page's stylesheet.
 
 ### A box whose width follows the list
 
 A list inside a box whose width the stylesheets leave to its content (a flex item in a row with no
 `flex-basis` or `width`, or a float) has a different problem: empty, the box is narrow and what is
-beside it sits next to it; the rows widen it, and its neighbours move or wrap to the next line. No
-placeholder can hold that width, which the data decides. The build reports it, `SN520`: give the box a
-width of its own (`flex: 1 1 0`, or a basis of 100% where it takes the line, as grid systems do below
-their breakpoint), or add `data-sn-reserve="off"` to keep the layout as it is.
+beside it sits next to it; the rows widen it, and its neighbours move or wrap to the next line. When
+the rows have a width of their own, the placeholder takes it, and the box is as wide from the first
+frame. Otherwise the data decides the width, and the build reports it, `SN520`: give the box a width
+of its own (`flex: 1 1 0`, or a basis of 100% where it takes the line, as grid systems do below their
+breakpoint), or give the rows one.
 
 ### Loading branches
 
@@ -337,7 +353,6 @@ Put only what needs data inside the template. The complete version is in
 | --- | --- |
 | Turn off all first-paint work for the app | `sinter({ firstPaint: false })`: everything waits for the page script |
 | Keep one resource out of preload and early request | `<sn-resource early="off">` |
-| Hold no space for one list (and silence `SN520`) | `<template data-sn-for="…" data-sn-reserve="off">` |
 | Skip Google Fonts bundling | `sinter({ fonts: { inline: false } })` |
 | Leave out next-page data and Speculation Rules | `sinter({ prefetch: false })` or `<html data-sn-prefetch="off">`, see [navigation.md](navigation.md) |
 

@@ -5,6 +5,7 @@
 // USE_TYPO_METRICS, or its Windows ascent and descent. The smallest of them, without line gaps,
 // holds in every engine: the space is a lower bound.
 import { brotliDecompressSync, inflateSync } from 'node:zlib';
+import { SYSTEM_FONTS } from './compiler/system-fonts.js';
 
 /** Tables the reader needs, as their bytes. */
 type Tables = Map<string, Uint8Array>;
@@ -98,15 +99,24 @@ function woff2(b: Uint8Array): Tables | null {
   return out;
 }
 
-/** The `@font-face` rules of a stylesheet: each face's family (lower case) and the URLs of its files, in order. */
-export function fontFaces(css: string): Array<{ family: string; urls: string[]; latin: boolean; regular: boolean }> {
-  const out: Array<{ family: string; urls: string[]; latin: boolean; regular: boolean }> = [];
+/**
+ * A face of a stylesheet's `@font-face` rules: its family (lower case), the URLs of its files and the
+ * fonts it takes from the system (`local()`, lower case), in order, and the metrics it overrides
+ * (`ascent-override`, `descent-override`, `size-adjust`, as fractions), as fallback faces set them.
+ */
+export interface FontFace { family: string; urls: string[]; local: string[]; latin: boolean; regular: boolean; ascent?: number; descent?: number; sizeAdjust?: number }
+
+/** The `@font-face` rules of a stylesheet. */
+export function fontFaces(css: string): FontFace[] {
+  const out: FontFace[] = [];
   for (const m of css.matchAll(/@font-face\s*\{([^}]*)\}/gi)) {
     const body = m[1]!;
     const fam = /font-family\s*:\s*([^;]+)/i.exec(body)?.[1]?.trim().replace(/^(['"])(.*)\1$/, '$2');
     const src = /(?:^|;)\s*src\s*:\s*([^;]+)/i.exec(body)?.[1];
     if (!fam || !src) continue;
     const urls = [...src.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi)].map((u) => u[2]!.trim());
+    const local = [...src.matchAll(/local\(\s*(['"]?)([^'")]+)\1\s*\)/gi)].map((u) => u[2]!.trim().toLowerCase());
+    const pct = (name: string) => { const v = new RegExp(`${name}\\s*:\\s*([\\d.]+)%`, 'i').exec(body)?.[1]; return v === undefined ? {} : { [name === 'size-adjust' ? 'sizeAdjust' : name.split('-')[0]!]: Number(v) / 100 }; };
     const range = /unicode-range\s*:\s*([^;]+)/i.exec(body)?.[1];
     // a face for Latin text: no unicode-range, or one that covers A (U+0041)
     const latin = !range || range.split(',').some((r) => {
@@ -117,7 +127,7 @@ export function fontFaces(css: string): Array<{ family: string; urls: string[]; 
     });
     const w = /font-weight\s*:\s*([^;]+)/i.exec(body)?.[1]?.trim() ?? '400', s = /font-style\s*:\s*([^;]+)/i.exec(body)?.[1]?.trim() ?? 'normal';
     const regular = /^normal$/i.test(s) && (/^(400|normal)$/i.test(w) || /^\d+\s+\d+$/.test(w));
-    if (urls.length) out.push({ family: fam.toLowerCase(), urls, latin, regular });
+    if (urls.length || local.length) out.push({ family: fam.toLowerCase(), urls, local, latin, regular, ...pct('ascent-override'), ...pct('descent-override'), ...pct('size-adjust') });
   }
   return out;
 }
@@ -136,10 +146,15 @@ export async function familyLineHeights(sheets: Array<{ file: string; css: strin
     const order = [...mine.filter((f) => f.latin && f.regular), ...mine.filter((f) => f.latin && !f.regular), ...mine.filter((f) => !f.latin)];
     for (const f of order) {
       let r: number | null = null;
-      for (const url of f.urls) {
+      // overridden metrics are the face's, whatever its file; else its first file that reads, or the system font it takes
+      if (f.ascent !== undefined && f.descent !== undefined) r = f.ascent + f.descent;
+      for (const url of r === null ? f.urls : []) {
         const bytes = await read(url, f.sheet).catch(() => null);
         if (bytes && (r = normalLineHeight(bytes)) !== null) break;
       }
+      for (const l of r === null ? f.local : []) if (SYSTEM_FONTS[l] !== undefined) { r = SYSTEM_FONTS[l]!; break; }
+      // `size-adjust` scales the metrics (whether it scales overrides too is read both ways: the smaller)
+      if (r !== null && f.sizeAdjust !== undefined) r = Math.min(r, r * f.sizeAdjust);
       if (r !== null) { out.set(family, r); break; }
     }
   }

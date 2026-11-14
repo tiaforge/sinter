@@ -31,7 +31,15 @@ const CASES: Array<[string, string, string, number, [number, number] | null, Fit
   ['em and the font shorthand', '.row { font: 600 20px/1.2 sans-serif; padding: 0.5em 0 }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 4, [4 * (24 + 20), 4 * (24 + 20)], 'tight'],
   ['an avatar beside the text', '.row { display: flex; gap: 8px; align-items: center; padding: 4px 0 } img { width: 40px; height: 40px } .row span { line-height: 20px }',
     '<div><template id="t"><div class="row"><img src="a.png" alt=""><span data-sn-text="r.name"></span></div></template></div>', 5, [5 * 48, 5 * 48], 'tight'],
-  ['line-height normal: a lower bound', '.row { font-size: 16px }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 5, [80, 80], 'bound'],
+  // no family: the browser's default, serif, whose default on macOS (Times) the table counts as 1: 16 px less the rounded pixel
+  ['line-height normal: the default font', '.row { font-size: 16px }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 5, [75, 75], 'bound'],
+  // system-ui: the least of Segoe UI, San Francisco, Roboto, Cantarell, Ubuntu (1.121), DejaVu Sans, Noto Sans
+  ['line-height normal: system-ui on every platform', '.row { font: 20px system-ui }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, [2 * (20 * (932 + 189) / 1000 - 1), 2 * (20 * (932 + 189) / 1000 - 1)], 'bound'],
+  // a named system font, then the generic family: either may render it
+  ['line-height normal: a stack, each face counted', '.row { font: 20px Verdana, Tahoma, sans-serif }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, [2 * 19, 2 * 19], 'bound'],
+  ['rows side by side, a width of their own', 'ul { display: flex; gap: 10px; padding: 0 } li { width: 40px; height: 40px; margin: 0 2px }', '<ul><template id="t"><li></li></template></ul>', 6, [40, 40], 'exact'],
+  ['a wrapping row of chips: rows per line from the container', 'body { margin: 0 } .chips { display: flex; flex-wrap: wrap; gap: 8px; max-width: 600px } .chip { width: 92px; height: 30px }',
+    '<div class="chips"><template id="t"><span class="chip"></span></template></div>', 12, [2 * 30 + 8, 4 * 30 + 3 * 8], 'exact'],
   ['a branch inside the row counts as nothing', '.row { line-height: 20px }', '<div><template id="t"><div class="row"><span data-sn-text="r.name"></span><template data-sn-if="r.note"><p>note</p></template></div></template></div>', 3, [60, 60], 'bound'],
   ['a height per media query', '.row { height: 40px } @media (min-width: 600px) { .row { height: 60px } }', '<div><template id="t"><div class="row"></div></template></div>', 3, [180, 120], 'exact'],
   ['a font size in vw: its least in each range', 'body { margin: 0 } .row { font-size: 4vw; line-height: 1 }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, [2 * 0.04 * 240, 2 * 0.04 * 240], 'bound'],
@@ -74,6 +82,22 @@ describe('the space of a list\'s rows', () => {
     expect(heightAt(r!, 1280)).toBeCloseTo(want[0], 1);
     expect(heightAt(r!, 390)).toBeCloseTo(want[1], 1);
     expect(r!.exact).toBe(fit === 'exact');
+  });
+
+  test('rows side by side: the placeholder is as wide as the rows', () => {
+    const r = reserve('ul { display: flex; gap: 10px } li { width: 40px; height: 40px; margin: 0 2px }', '<ul><template id="t"><li></li></template></ul>', 6)!;
+    expect(ruleAt(r, 1280)).toContain('width:314px');
+  });
+
+  test('in a box as wide as its content: rows of a width of their own get a placeholder as wide, others none', () => {
+    const css = '.row { display: flex; flex-wrap: wrap } .card { width: 300px; height: 80px; margin: 0 0 10px }';
+    const doc = (body: string) => parse5.parse(page('', body));
+    const d1 = doc('<div class="row"><div><template id="t"><div class="card"></div></template></div><aside>x</aside></div>');
+    const r = new Layout([{ file: 't.css', css }], d1).reserve(find(d1, 't'), 3, { sized: true })!;
+    expect(ruleAt(r, 1280)).toContain('width:300px');
+    expect(heightAt(r, 1280)).toBe(260);
+    const d2 = doc('<div class="row"><div><template id="t"><p class="text"></p></template></div><aside>x</aside></div>');
+    expect(new Layout([{ file: 't.css', css: css + ' .text { line-height: 20px }' }], d2).reserve(find(d2, 't'), 3, { sized: true })).toBeNull();
   });
 
   test('in a list, an <li>; elsewhere a <div>', () => {

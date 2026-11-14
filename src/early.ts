@@ -6,7 +6,7 @@
 // adopted, not rendered again). The early file and the page bundle are bundled apart (they share
 // one chunk, `runtime/security` and `url`, and hold copies of the rest), so what they
 // share goes through a global: `start` (early file) and `rendered` (page module, from the core) meet there.
-import { CACHE_PREFIX, config } from './runtime/config.js';
+import { config } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
@@ -45,7 +45,7 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb' | 'pre'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists };
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
@@ -211,55 +211,17 @@ function embedded(emb: NonNullable<EarlyIR['emb']>): any {
   });
 }
 
-/**
- * `$r` and `$meta` over the resources whose state at mount is known (`EarlyIR.pre`): no data yet, loading if their `when`
- * holds; a resource with `cache` only in a tab that has cached nothing. Any other resource (and any other status field) throws.
- */
-function predicted(o: ReturnType<EarlyPage>, base: () => any, emb: () => any) {
-  const pre = o.ir.pre ?? {};
-  const known = (name: PropertyKey) => {
-    const p = typeof name == 'string' ? pre[name] : undefined;
-    if (!p) return null;
-    if (p.c) {
-      let s: Storage | null = null;
-      try { s = sessionStorage; } catch { /* no storage: nothing cached */ }
-      for (let i = 0; s && i < s.length; i++) if (s.key(i)!.startsWith(CACHE_PREFIX)) return null;
-    }
-    return p;
-  };
-  const no = () => { throw Error('sinter: not available early'); };
-  const r = new Proxy(Object.create(null), {
-    get(_, name) {
-      if (o.ir.emb && typeof name == 'string' && o.ir.emb[name]) return emb()[name];
-      const p = known(name);
-      return p ? (p.k ? [] : null) : no();
-    },
-  });
-  const meta = new Proxy(Object.create(null), {
-    get(_, name) {
-      const p = known(name);
-      if (!p) return no();
-      const loading = p.w == null || !!o.fns[p.w]!(base());
-      return new Proxy({ loading, error: null, loadedAt: null } as Record<string, unknown>, { get: (m, f) => (typeof f == 'string' && f in m ? m[f] : no()) });
-    },
-  });
-  return { r, meta };
-}
-
 /** The base scope: what is not available before data throws, and the binding (or request) is left to the page module. */
 function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
-  let emb: any = null, url: any = null, pre: ReturnType<typeof predicted> | null = null;
+  let emb: any = null, url: any = null;
   // array parameters as lists: only a page that has them passes `lists` (and carries it)
   const more = (h: string, u: any) => (o.lists ? o.lists(h, o.ir.urlArrays!, u) : u);
-  const self: any = new Proxy(Object.create(null), {
+  return new Proxy(Object.create(null), {
     get(_, k) {
       // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
       const l = k == '$locale' ? o.locale?.() : null;
       if (l) return l.get();
-      // the resources whose state at mount is known, and those whose data is embedded in the page: read from it (the head
-      // is parsed before any binding)
-      if (k == '$r' && o.ir.pre) return (pre ??= predicted(o, () => self, () => (emb ??= embedded(o.ir.emb!)))).r;
-      if (k == '$meta' && o.ir.pre) return (pre ??= predicted(o, () => self, () => (emb ??= embedded(o.ir.emb!)))).meta;
+      // the resources whose data is embedded in the page: read from it (the head is parsed before any binding)
       if (k == '$r' && o.ir.emb) return (emb ??= embedded(o.ir.emb));
       // the URL, as the page module reads it (a page with early requests reads it there, once for both)
       if (k == '$url' && !req) return (url ??= more(location.href, readUrl(location.href, o.ir.path)));
@@ -268,7 +230,6 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
       throw Error('sinter: not available early');
     },
   });
-  return self;
 }
 
 /**

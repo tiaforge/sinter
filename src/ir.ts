@@ -196,12 +196,6 @@ export interface EarlyIR {
     /** the request settings of the resource's API (`sinter({ apis })`): credentials and static headers */
     a?: { c?: RequestCredentials; h?: Record<string, string> };
   }>;
-  /**
-   * resources whose state at mount the early bindings read (`$r.<name>`, `$meta.<name>.loading|error|loadedAt`): no data
-   * (`k`: a collection, `[]`; else null), loading when `w` (a function index, over the page's base scope) holds or there
-   * is none; `c`: cached, known only in a tab with no cached data
-   */
-  pre?: Record<string, { k?: 1; c?: 1; w?: number }>;
   /** `data-sn-path` patterns, when a request reads `$url` */
   path?: string[];
   /** the page's array parameters (`IR.urlArrays`), when something early reads `$url` */

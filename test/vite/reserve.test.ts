@@ -38,14 +38,21 @@ const files: Record<string, string | Buffer> = {
 </html>
 `,
   'src/styles/app.css': `@font-face { font-family: Lined; src: url(../fonts/lined.ttf) format('truetype') }
+@font-face { font-family: Lined Fallback; src: local(Arial); ascent-override: 100%; descent-override: 25% }
 body { margin: 0 } ul { margin: 0; padding: 0; list-style: none }
 .text li { font: 20px Lined, sans-serif; padding: 4px 0 }
+.fb li { font: 20px Lined, 'Lined Fallback', system-ui; padding: 4px 0 }
 .fixed li { height: 48px; border-bottom: 1px solid #ccc; box-sizing: border-box }
 `,
   'src/fonts/lined.ttf': font(),
   'index.html': `<app-layout>
   <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
   <ul class="text"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
+</app-layout>
+`,
+  'fallback.html': `<app-layout>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
+  <ul class="fb"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
 </app-layout>
 `,
   'fixed.html': `<app-layout>
@@ -59,7 +66,7 @@ beforeAll(async () => {
   for (const [p, text] of Object.entries(files)) { mkdirSync(dirname(join(root, p)), { recursive: true }); writeFileSync(join(root, p), text); }
   await build({
     root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()],
-    build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input: { index: join(root, 'index.html'), fixed: join(root, 'fixed.html') } } },
+    build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input: { index: join(root, 'index.html'), fixed: join(root, 'fixed.html'), fallback: join(root, 'fallback.html') } } },
   });
 }, 60_000);
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -69,8 +76,11 @@ const css = () => readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.cs
 test('the placeholder after the template, its height from the layout\'s stylesheet and the font\'s metrics', () => {
   const html = readFileSync(join(out, 'index.html'), 'utf8');
   expect(html).toMatch(/<\/template><li class="sn-reserve sn-reserve-[\w]+-0" aria-hidden="true" data-sn="\d+"><\/li><\/ul>/);
-  // a row: one line of `normal` (1.25 × 20 px, less the pixel engines may round away) and 8 px of padding
-  expect(css()).toMatch(/\.sn-reserve\.sn-reserve-[\w]+-0\s*\{[^}]*height:\s*160px\s*!important/);
+  // a row: one line of `normal` and 8 px of padding. Lined's ratio is 1.25, but until it has loaded the text is in the
+  // fallback, sans-serif, whose least is Helvetica's 1.0: 20 px, less the pixel engines may round away
+  expect(css()).toMatch(/\.sn-reserve\.sn-reserve-[\w]+-0\s*\{[^}]*height:\s*135px\s*!important/);
+  // each face of the stack counts: Lined (1.25), its fallback face's overrides (1.25), and system-ui's least (Ubuntu, 1.121)
+  expect(css()).toMatch(/\.sn-reserve\.sn-reserve-[\w]+-0\s*\{[^}]*height:\s*147\.1px\s*!important/);
   // fixed rows: 5 × 48
   expect(css()).toMatch(/\.sn-reserve\.sn-reserve-[\w]+-0\s*\{[^}]*height:\s*240px\s*!important/);
 });

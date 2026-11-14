@@ -78,8 +78,8 @@ describe('the faces of the stylesheets', () => {
   test('@font-face rules: family, files, Latin, regular', () => {
     expect(fontFaces(`@font-face { font-family: 'Source Sans'; font-weight: 400; src: url(./a.woff2) format('woff2'), url("./a.woff") format('woff'); unicode-range: U+0000-00FF }
       @font-face { font-family: X; font-style: italic; src: url(b.woff2); unicode-range: U+0400-045F }`)).toEqual([
-      { family: 'source sans', urls: ['./a.woff2', './a.woff'], latin: true, regular: true },
-      { family: 'x', urls: ['b.woff2'], latin: false, regular: false },
+      { family: 'source sans', urls: ['./a.woff2', './a.woff'], local: [], latin: true, regular: true },
+      { family: 'x', urls: ['b.woff2'], local: [], latin: false, regular: false },
     ]);
   });
   test('a family\'s ratio from its regular Latin face, the first file that reads', async () => {
@@ -88,6 +88,14 @@ describe('the faces of the stylesheets', () => {
       @font-face { font-family: F; src: url(missing.woff2), url(good.woff) }`;
     const r = await familyLineHeights([{ file: '/app/a.css', css }], async (u) => files[u] ?? null);
     expect(r.get('f')).toBeCloseTo(1.25, 5);
+  });
+  test('a fallback face: its overrides, or the system font it takes, scaled by size-adjust', async () => {
+    const r = await familyLineHeights([{ file: '/app/a.css', css: `@font-face { font-family: "Inter Fallback"; src: local("Arial"); ascent-override: 90%; descent-override: 22.4%; size-adjust: 107% }
+      @font-face { font-family: Narrow; src: local('Arial'); size-adjust: 90% }
+      @font-face { font-family: Plain; src: local(Helvetica Neue) }` }], async () => null);
+    expect(r.get('inter fallback')).toBeCloseTo(1.124, 5);
+    expect(r.get('narrow')).toBeCloseTo((2288 / 2048) * 0.9, 5);
+    expect(r.get('plain')).toBeCloseTo(1.165, 5);
   });
 });
 

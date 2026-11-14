@@ -6,6 +6,7 @@
 // stays fluid. A wrong size would make it blurry; no size only costs bytes. See docs/images.md.
 import * as csstree from 'css-tree';
 import type { DefaultTreeAdapterMap } from 'parse5';
+import { genericNormal, SYSTEM_FONTS } from './system-fonts.js';
 
 type P5Element = DefaultTreeAdapterMap['element'];
 type P5Node = DefaultTreeAdapterMap['node'];
@@ -974,12 +975,13 @@ export class Layout {
    * per viewport range from the narrowest screen up (`from`: the range's start, 0 for the first), or
    * null when the rows' layout is not one the build follows (see `shape`), at any width.
    */
-  reserve(tpl: P5Element, count: number): Reserved | null {
+  reserve(tpl: P5Element, count: number, opts: { sized?: boolean } = {}): Reserved | null {
     if (this.empty || this.viewport !== undefined || count < 1) return null;
     const row = soleElement(tpl), parent = this.parentOf(tpl);
     if (!row || !parent) return null;
     const cuts = this.breakpoints().filter((b) => b > MIN_VIEWPORT && b < MAX_VIEWPORT);
-    const shapeAt = (w: number) => this.at(w).shape(parent, row);
+    // in a box whose width follows its content, the placeholder needs the rows' width: rows of a width of their own, stacked
+    const shapeAt = (w: number) => { const sh = this.at(w).shape(parent, row); return sh && opts.sized && sh.mode !== 'block' && sh.mode !== 'column' ? null : sh; };
     const key = (s: Shape | null) => (s ? `${s.mode} ${s.columns}` : '');
     // ranges between breakpoints, split where the shape changes inside one (a column more in an auto-fill grid)
     const ranges: Array<[number, number, Shape]> = [];
@@ -998,10 +1000,12 @@ export class Layout {
     let exact = true;
     for (const [a, b, s] of ranges) {
       // a range's height is its least: at either end (a height that follows the viewport is smallest at one of them)
-      const x = this.at(a).space(parent, row, count, s), y = this.at(Math.max(a, b - 0.5)).space(parent, row, count, s);
+      const x = this.at(a).space(parent, row, count, s, !!opts.sized), y = this.at(Math.max(a, b - 0.5)).space(parent, row, count, s, !!opts.sized);
       if (!x || !y) return null;
       const sp = x.height <= y.height ? x : y;
-      exact &&= x.exact && y.exact && Math.abs(x.height - y.height) < 0.01;
+      exact &&= x.exact && y.exact && Math.abs(x.height - y.height) < 0.01 && Math.abs((x.width ?? 0) - (y.width ?? 0)) < 0.01;
+      // a width that follows the viewport: the narrower end
+      if (x.width !== undefined && y.width !== undefined && y.width < x.width) sp.width = y.width;
       const decls = spaceCss(sp, row.tagName);
       const last = pieces[pieces.length - 1];
       if (last && last.decls === decls) continue;
@@ -1110,8 +1114,20 @@ export class Layout {
     if (!this.inFlow(row)) return null;
     if (/^(block|list-item|flow-root)$/.test(pd)) return /^(block|list-item|flow-root|flex|grid|table)$/.test(rd) ? { mode: 'block', columns: 1 } : null;
     if (/^(inline-)?flex$/.test(pd)) {
-      const dir = this.flexFlow(parent, 'direction');
-      return dir && dir.startsWith('column') ? { mode: 'column', columns: 1 } : null;
+      const dir = this.flexFlow(parent, 'direction'), wrap = this.flexFlow(parent, 'wrap');
+      if (dir === undefined || wrap === undefined) return null;
+      if (dir && dir.startsWith('column')) return { mode: 'column', columns: 1 };
+      if (dir && dir !== 'row') return null;
+      // side by side: rows of a width of their own, nothing else in the row
+      if (parent.childNodes.some((c) => isEl(c) && c.tagName !== 'template') || !this.rowWidth(row)) return null;
+      if (!wrap || wrap === 'nowrap') return { mode: 'line', columns: 1 };
+      if (wrap !== 'wrap') return null;
+      // rows per line, from the row's width and the container's
+      const v = this.viewport!, W = this.contentOf(parent, [v, v]);
+      const gap = W && this.columnGap(parent, W, [v, v]), w = this.rowWidth(row)!;
+      if (!W || !gap) return null;
+      const c = W.k * v + W.c, g = gap.k * v + gap.c;
+      return c > 0 ? { mode: 'wrap', columns: Math.max(1, Math.floor((c + g) / (w.outer + g) + 1e-9)) } : null;
     }
     if (/^(inline-)?grid$/.test(pd)) {
       // auto-placed rows, and nothing else in the grid that would take a cell first
@@ -1157,22 +1173,68 @@ export class Layout {
   }
 
   /** the placeholder's box for `count` rows in this shape, at this viewport width */
-  private space(parent: P5Element, row: P5Element, count: number, s: Shape): Space | null {
+  private space(parent: P5Element, row: P5Element, count: number, s: Shape, sized = false): Space | null {
     const h = this.height(row);
     const mt = this.vMargin(row, 'top'), mb = this.vMargin(row, 'bottom');
     if (mt === null || mb === null) return null;
+    // in a box as wide as its content: the placeholder as wide as a row, so the box is as wide as with the rows
+    const own = sized ? this.rowWidth(row) : null;
+    if (sized && !own) return null;
+    const width = own ? { width: own.outer } : {};
     if (s.mode === 'block') {
       // margins between rows collapse; the outer ones stay on the placeholder, to collapse as the rows' would
-      return { height: count * h.h + (count - 1) * collapse([mb, mt]), mt, mb, span: 0, exact: h.exact };
+      return { height: count * h.h + (count - 1) * collapse([mb, mt]), mt, mb, span: 0, exact: h.exact && (!own || own.exact), ...width };
     }
     const gap = this.rowGap(parent);
     if (gap === null) return null;
-    if (s.mode === 'column') return { height: count * (h.h + mt + mb) + (count - 1) * gap, mt: 0, mb: 0, span: 0, exact: h.exact };
+    if (s.mode === 'column') return { height: count * (h.h + mt + mb) + (count - 1) * gap, mt: 0, mb: 0, span: 0, exact: h.exact && (!own || own.exact), ...width };
+    if (s.mode === 'line' || s.mode === 'wrap') {
+      const w = this.rowWidth(row), cgap = this.columnGap(parent, lin(0), [this.viewport!, this.viewport!]);
+      if (!w || !cgap) return null;
+      const g = cgap.c;
+      if (s.mode === 'line') return { height: h.h + mt + mb, mt: 0, mb: 0, span: 0, exact: h.exact && w.exact, width: count * w.outer + (count - 1) * g, flex: 'shrink' };
+      const lines = Math.ceil(count / s.columns);
+      return { height: lines * (h.h + mt + mb) + (lines - 1) * gap, mt: 0, mb: 0, span: 0, exact: h.exact && w.exact, flex: 'line' };
+    }
     // grid: one item over as many rows as the rows fill; a row is as tall as its track, or its tallest item
     const rows = Math.ceil(count / s.columns);
     const track = this.autoRow(parent);
     const one = Math.max(h.h + mt + mb, track ?? 0);
     return { height: rows * one + (rows - 1) * gap, mt: 0, mb: 0, span: rows, exact: track !== null || h.exact };
+  }
+
+  /**
+   * A row's width when the stylesheets give it one (a length, not a percentage or `auto`; an image's
+   * box): its border box, and `outer` with its horizontal margins. Null otherwise.
+   */
+  private rowWidth(el: P5Element): { border: number; outer: number; exact: boolean } | null {
+    let border: number | null = null, exact = true;
+    const wc = this.cascaded(el, SIZE.width);
+    if (wc.ambiguous) return null;
+    if (wc.value !== null && !/^\s*(auto|fit-content|max-content|min-content)\s*$/i.test(wc.value) && !/%/.test(wc.value)) {
+      const v = this.length(el, wc.value, null);
+      if (v === null) return null;
+      const l = this.vEdge(el, 'left'), r = this.vEdge(el, 'right');
+      exact = l.exact && r.exact;
+      const bs = this.cascaded(el, ['box-sizing']);
+      if (bs.ambiguous) return null;
+      border = /^\s*border-box\s*$/i.test(bs.value ?? '') ? Math.max(v, l.v + r.v) : v + l.v + r.v;
+      for (const [prop, pick] of [['max-width', Math.min], ['min-width', Math.max]] as const) {
+        const c = this.cascaded(el, SIZE[prop]);
+        if (c.ambiguous) return null;
+        if (c.value === null || /^\s*(none|auto)\s*$/i.test(c.value)) continue;
+        const m = /%/.test(c.value) ? null : this.length(el, c.value, null);
+        if (m === null) return null;
+        border = pick(border, /^\s*border-box\s*$/i.test(bs.value ?? '') ? m : m + l.v + r.v);
+      }
+    } else if (wc.value === null && el.tagName === 'img') {
+      const b = this.box(el);
+      if (b && b !== 'fluid') border = b.width;
+    }
+    if (border === null) return null;
+    const ml = this.vMargin(el, 'left'), mr = this.vMargin(el, 'right');
+    if (ml === null || mr === null) return null;
+    return { border, outer: border + ml + mr, exact };
   }
 
   /** a fixed `grid-auto-rows` (one size), or null */
@@ -1282,17 +1344,31 @@ export class Layout {
     return this.normalLine(el);
   }
 
-  /** `line-height: normal`: the font's own spacing, when the build has its file; else the font size (a lower bound for text fonts) */
+  /**
+   * `line-height: normal`: the least spacing of every face that may render the text, since a web font
+   * shows only once it has loaded (`font-display: swap`) and a family a platform lacks falls through:
+   * each family of the stack the build has the file of (`@font-face`), each system font of the table
+   * (system-fonts.ts), up to the first generic family, which counts its default on every platform (none:
+   * the browser's default, serif). A family neither the page nor the table has is taken as absent. Less
+   * 1 px: engines round the ascent and the descent to whole pixels.
+   */
   private normalLine(el: P5Element): number | null {
     const f = this.fontSize(el);
     if (f === null) return null;
-    // the font's ratio less 1 px: engines round its ascent and descent to whole pixels
-    const fam = this.fontFamily(el), r = fam ? this.normal(fam.toLowerCase()) : null;
-    return r === null ? f : Math.max(0, r * f - 1);
+    const fams = this.fontFamilies(el);
+    let r = fams ? Infinity : 1, generic = false;
+    for (const fam of fams ?? []) {
+      const g = genericNormal(fam);
+      if (g !== null) { r = Math.min(r, g); generic = true; break; }
+      const own = this.normal(fam) ?? SYSTEM_FONTS[fam];
+      if (own !== undefined && own !== null) r = Math.min(r, own);
+    }
+    if (fams && !generic) r = Math.min(r, genericNormal('serif')!);
+    return Math.max(0, r * f - 1);
   }
 
-  /** the first family of `el`'s font-family (inherited), unquoted; null when unknown */
-  private fontFamily(el: P5Element): string | null {
+  /** `el`'s font-family (inherited), each unquoted and in lower case; null when unknown */
+  private fontFamilies(el: P5Element): string[] | null {
     for (let x: P5Element | null = el; x; x = this.parentOf(x)) {
       const c = this.cascaded(x, ['font-family', 'font']);
       if (c.ambiguous) return null;
@@ -1301,14 +1377,13 @@ export class Layout {
       const sub = this.subst(w.value, x);
       const list = sub === undefined ? null : w.prop === 'font' ? fontShorthand(sub)?.family ?? null : sub;
       if (!list || /^\s*(inherit|unset)\s*$/i.test(list)) { if (list) continue; return null; }
-      const first = topCommas(list)[0]!.trim().replace(/^(['"])(.*)\1$/, '$2');
-      return first || null;
+      return topCommas(list).map((x) => x.trim().replace(/^(['"])(.*)\1$/, '$2').toLowerCase()).filter(Boolean);
     }
-    return null;
+    return [];
   }
 
   /** a vertical margin in px (auto and what cannot be read count as 0); null when it may be negative and is unknown */
-  private vMargin(el: P5Element, side: 'top' | 'bottom'): number | null {
+  private vMargin(el: P5Element, side: 'top' | 'bottom' | 'left' | 'right'): number | null {
     const raw = this.sideValue(el, 'margin', side);
     if (raw === undefined) return null;
     if (raw === null || /^\s*auto\s*$/i.test(raw)) return 0;
@@ -1318,7 +1393,7 @@ export class Layout {
   }
 
   /** padding and border on `side`, in px; what cannot be read counts as 0 (`exact` false) */
-  private vEdge(el: P5Element, side: 'top' | 'bottom'): { v: number; exact: boolean } {
+  private vEdge(el: P5Element, side: 'top' | 'bottom' | 'left' | 'right'): { v: number; exact: boolean } {
     let exact = true;
     const pad = this.sideValue(el, 'padding', side);
     let v = 0;
@@ -1639,8 +1714,10 @@ export interface Reserved {
   /** the stylesheets fix the rows' height: the placeholder is as tall as the rows (when `count` arrive) */
   exact: boolean;
 }
-interface Shape { mode: 'block' | 'column' | 'grid'; columns: number }
-interface Space { height: number; mt: number; mb: number; span: number; exact: boolean }
+/** `line`: side by side in a flex row; `wrap`: a wrapping flex row, `columns` rows per line */
+interface Shape { mode: 'block' | 'column' | 'grid' | 'line' | 'wrap'; columns: number }
+/** `width`: the placeholder's own (rows side by side, or in a box as wide as its content); `line`: it takes a flex line of its own */
+interface Space { height: number; mt: number; mb: number; span: number; exact: boolean; width?: number; flex?: 'shrink' | 'line' }
 interface Height { h: number; exact: boolean }
 
 /** elements that lay out nothing in a row */
@@ -1672,6 +1749,9 @@ function spaceCss(s: Space, _rowTag: string): string {
   if (s.mt) d.push(`margin-top:${fmt(s.mt)}px`);
   if (s.mb) d.push(`margin-bottom:${fmt(s.mb)}px`);
   if (s.span) d.push('grid-column:1/-1', `grid-row:span ${s.span}`);
+  if (s.width !== undefined) d.push(`width:${fmt(s.width)}px`, 'max-width:none', 'min-width:0');
+  if (s.flex === 'shrink') d.push('flex:0 1 auto');
+  if (s.flex === 'line') d.push('flex:0 0 100%');
   return d.map((x) => `${x} !important`).join(';');
 }
 

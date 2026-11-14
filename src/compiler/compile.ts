@@ -611,7 +611,7 @@ class Compiler {
   /** resources with `early="off"`: no preload, no early request (one a request middleware answers or adds a header to) */
   private readonly noEarly = new Set<string>();
   /** by `<template data-sn-for>` outside templates: its reserved space and the content-sized box around it (`planSpace`) */
-  private readonly spacePlan = new Map<P5Element, { off: boolean; sized: { el: P5Element; siblings: boolean } | null; space: Reserved | null; resource: string | null }>();
+  private readonly spacePlan = new Map<P5Element, { sized: { el: P5Element; siblings: boolean } | null; space: Reserved | null; resource: string | null }>();
   /** the placeholders' rules (`CompiledParts.paint`) */
   readonly paintRules: string[] = [];
   private spaceN = 0;
@@ -2361,10 +2361,6 @@ class Compiler {
       if (has(n) && !isTemplate) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` must be on a \`<template>\``, 0);
     }
     if (has('key') && !(isTemplate && has('for'))) this.report(el, 'data-sn-key', 'SN102', '`data-sn-key` belongs on a `<template data-sn-for>`', 0);
-    if (has('reserve')) {
-      if (!(isTemplate && has('for')) || ctx.tid >= 0) this.report(el, 'data-sn-reserve', 'SN102', '`data-sn-reserve` belongs on a `<template data-sn-for>` outside templates', 0);
-      else if (!/^\s*(off|[1-9]\d*)\s*$/.test(get('reserve')!)) this.report(el, 'data-sn-reserve', 'SN401', '`data-sn-reserve` takes `off` or the number of rows to hold space for', 0);
-    }
 
     // a layout's `<body>`: first the handlers of the page's tag, in the page's scope
     const page = this.layoutBody.get(el);
@@ -4409,23 +4405,23 @@ class Compiler {
     const fields = new Map<number, Map<string, string>>();
     // a resource with embedded data: its data is in the page, so bindings over it render early (rows too)
     const embedded = new Map(this.resources.filter((r) => r.data != null).map((r) => [r.name, r]));
-    const usedEmb = new Set<string>(), usedPre = new Set<string>();
+    const usedEmb = new Set<string>();
     let readsUrl = false;
     // resources whose state at mount the early file knows: no data yet, and loading if their `when` holds (`$meta.<name>.loading`,
     // `.error` and `.loadedAt`): not embedded, `each` or `call`, and a `when` the early file can evaluate. With `cache`, only in a tab
     // that has cached nothing (the early file checks): cached rows would be there at mount
     const pre = this.predictable();
-    const known = (deps: string[]) => deps.every((d) => {
+    const known = (deps: string[], status = true) => deps.every((d) => {
       if (d === '$locale') return true;
       // the URL: the browser knows it as the head is parsed
       if (d === '$url' || d.startsWith('$url.')) return (readsUrl = true);
       // with embedded or predictable data, any resource: one the early file cannot tell throws when it is read, which leaves
       // that binding to the page module (`($url.feed ? feed : articles)`)
       const r = /^\$r\.([^.]+)/.exec(d);
-      if (r) { if (!embedded.size && !pre.size) return false; if (embedded.has(r[1]!)) usedEmb.add(r[1]!); else if (pre.has(r[1]!)) usedPre.add(r[1]!); return true; }
-      // a status field, or the whole status (a `data-sn-let` of it): another field throws early
+      if (r) { if (!embedded.size && !(status && pre.size)) return false; if (embedded.has(r[1]!)) usedEmb.add(r[1]!); return true; }
+      // a status field, or the whole status (a `data-sn-let` of it); another resource's throws early
       const mt = /^\$meta\.([^.]+)(?:\.([^.]+))?$/.exec(d);
-      if (mt) { if (!pre.size || (mt[2] !== undefined && !['loading', 'error', 'loadedAt'].includes(mt[2]))) return false; if (pre.has(mt[1]!)) usedPre.add(mt[1]!); return true; }
+      if (mt) return status && !!pre.size && (mt[2] === undefined || ['loading', 'error', 'loadedAt'].includes(mt[2]));
       const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
       const f = m ? fields.get(Number(m[1])) : undefined;
       if (!m || !f) return false;
@@ -4435,7 +4431,8 @@ class Compiler {
     for (const st of [...this.stateInits].sort((a, b) => a.sid - b.sid)) {
       const f = new Map<string, string>();
       for (const x of st.fields) {
-        if (known(x.deps) && !builtin(x.code) && x.code.startsWith('($) => (')) f.set(x.key, x.code.slice('($) => ('.length, -1));
+        // (a field over a resource's status is not: one that throws early takes its state's other fields with it)
+        if (known(x.deps, false) && !builtin(x.code) && x.code.startsWith('($) => (')) f.set(x.key, x.code.slice('($) => ('.length, -1));
         else f.delete(x.key);
       }
       fields.set(st.sid, f);
@@ -4460,6 +4457,18 @@ class Compiler {
     }
     const fns: string[] = [], index = new Map<string, number>();
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
+    /**
+     * A binding over the resources the early file knows, with their state at mount written in: `[]` (null for one object)
+     * for the data, `{ loading, error: null, loadedAt: null }` for the status, loading when the `when` holds. A resource
+     * with `cache` checks first that this tab has cached nothing (else it throws, and the page module renders the binding).
+     */
+    const status = (code: string): string => code.replace(/\$\.\$(meta|r)\.([A-Za-z_$][\w$]*)\b/g, (all, kind: string, name: string) => {
+      const def = pre.get(name);
+      if (!def) return all;
+      const nc = def.cache != null ? `f[${fn('() => { for (let i = 0; i < sessionStorage.length; i++) if (sessionStorage.key(i).startsWith("sn:c:")) throw 0; }')}](), ` : '';
+      if (kind === 'r') return `(${nc}${def.key ? '[]' : 'null'})`;
+      return `(${nc}{ loading: ${def.when != null ? `!!(${this.fns[def.when]!})($)` : 'true'}, error: null, loadedAt: null })`;
+    });
     const templates: EarlyIR['templates'] = this.templates.map(() => null);
     // a binding over a resource without data is early only when it reads a status the early file knows (a loading branch):
     // anything else of it reads data that is not there yet
@@ -4485,7 +4494,7 @@ class Compiler {
         }
         for (const b of bs[i]!) {
           reads.push(...strs(b.d), ...strs(b.w));
-          const nb: Binding = { k: b.k, f: fn(this.fns[b.f!]!) };
+          const nb: Binding = { k: b.k, f: fn(status(this.fns[b.f!]!)) };
           if (b.n !== undefined) nb.n = b.n;
           if (b.k === 'model') { nb.a = fn(this.fns[b.a!]!); if (b.p !== undefined) nb.p = b.p; }
           if (b.k === 'if') { nb.x = tpl(b.x!); if (b.y !== undefined) nb.y = keep.get(b.y)!; }
@@ -4569,10 +4578,6 @@ class Compiler {
     }
     const ir: EarlyIR = { roots, templates };
     if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, items: embedded.get(n)!.items ?? null }]));
-    if (usedPre.size) ir.pre = Object.fromEntries([...usedPre].sort().map((n) => {
-      const def = pre.get(n)!;
-      return [n, { ...(def.key ? { k: 1 as const } : {}), ...(def.cache != null ? { c: 1 as const } : {}), ...(def.when != null ? { w: fn(this.fns[def.when]!) } : {}) }];
-    }));
     if (res.length) ir.res = res;
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
     const arrays = this.urlArrays();
@@ -4662,20 +4667,19 @@ class Compiler {
     };
     walk(doc, false);
     for (const tpl of lists) {
-      const own = attr(tpl, 'data-sn-reserve')?.trim();
-      if (own === 'off') { this.spacePlan.set(tpl, { off: true, sized: null, space: null, resource: null }); continue; }
       const sized = layout.contentSized(tpl);
       const m = /^\s*(?:\(\s*[A-Za-z_]\w*\s*,\s*[A-Za-z_]\w*\s*\)|[A-Za-z_]\w*)\s+in\s+([A-Za-z_$][\w$]*)\s*$/.exec(attr(tpl, 'data-sn-for')!);
       const r = m ? resources.get(m[1]!) : undefined;
       let space: Reserved | null = null;
       // where the adapter serves the rules (builds: dev would serve them with the page module, after the first paint); not a
       // resource whose data the page has (embedded) or one that may not load at all (`when`), nor one the build cannot follow (`each`, `call`)
-      if (r && !sized && this.opts.paintCss && !['when', 'each', 'call'].some((a) => attr(r, a) !== undefined)
+      if (r && this.opts.paintCss && !['when', 'each', 'call'].some((a) => attr(r, a) !== undefined)
         && !(this.opts.embed && attr(r, 'early') !== 'off')) {
-        const n = own && /^[1-9]\d*$/.test(own) ? Number(own) : attr(r, 'paginate') !== undefined ? Number(attr(r, 'page-size')) : NaN;
-        if (Number.isInteger(n) && n > 0) space = layout.reserve(tpl, Math.min(n, 1000));
+        const n = attr(r, 'paginate') !== undefined ? Number(attr(r, 'page-size')) : NaN;
+        // in a box whose width follows its content, only rows of a width of their own (the placeholder takes it)
+        if (Number.isInteger(n) && n > 0) space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized });
       }
-      this.spacePlan.set(tpl, { off: false, sized, space, resource: space ? m![1]! : null });
+      this.spacePlan.set(tpl, { sized, space, resource: space ? m![1]! : null });
     }
   }
 
@@ -4687,15 +4691,17 @@ class Compiler {
   spaceFor(el: P5Element, node: NodeDef, ctx: Ctx) {
     const plan = this.spacePlan.get(el);
     const b = node.b.find((x) => x.k === 'for');
-    if (!plan || plan.off || !b || ctx.tid >= 0) return;
+    if (!plan || !b || ctx.tid >= 0) return;
     const late = strs(b.d).map((d) => /^\$r\.([^.]+)/.exec(d)?.[1]).filter((n): n is string => !!n && !this.embedded.has(n));
-    if (plan.sized?.siblings && late.length) {
+    // a placeholder as wide as the rows settles the box's width already
+    const held = !!plan.space && !!plan.resource && !this.embedded.has(plan.resource) && strs(b.d).every((d) => d === `$r.${plan.resource}` || d.startsWith(`$r.${plan.resource}.`));
+    if (plan.sized?.siblings && late.length && !held) {
       const what = plan.sized.el.tagName + (attr(plan.sized.el, 'class') ? `.${attr(plan.sized.el, 'class')!.trim().split(/\s+/).join('.')}` : '');
       this.report(el, 'data-sn-for', 'SN520', `this list's rows arrive after the first paint inside \`<${what}>\`, whose width follows its content: the rows widen it and move what is beside it`, 0,
-        'give that box a width or flex basis of its own (`flex: 1 1 0`, `width: 100%`), or add `data-sn-reserve="off"` to the template to leave it as it is');
+        'give that box a width or flex basis of its own (`flex: 1 1 0`, `width: 100%`), or give the rows a width');
     }
     const name = plan.resource;
-    if (!plan.space || !name || this.embedded.has(name) || !strs(b.d).every((d) => d === `$r.${name}` || d.startsWith(`$r.${name}.`))) return;
+    if (!held || !plan.space || !name) return;
     const parent = el.parentNode as P5Element;
     // unique across pages, should two pages' rules end up in one stylesheet
     let hash = 0x811c9dc5;
