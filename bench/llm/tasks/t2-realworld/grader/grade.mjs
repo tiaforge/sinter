@@ -3,6 +3,8 @@
 // fetches go to the same data over HTTP (REALWORLD_API, set up by setup.mjs for SvelteKit).
 import { createServer } from 'node:http';
 import { assert, buildAndServe, runChecks } from '../../../lib.mjs';
+import { measure } from '../../../measure.mjs';
+import { mockApi } from '../../../../realworld/mock-api.mjs';
 
 const dir = process.argv[2], PORT = Number(process.env.PREVIEW_PORT ?? 4400), BASE = `http://127.0.0.1:${PORT}`;
 
@@ -156,6 +158,12 @@ const checks = {
 };
 
 if (app.ok) out.checks = await runChecks(checks, { baseURL: BASE });
+if (app.ok) {
+  // Lighthouse cannot route requests: Chrome resolves api.realworld.show (and the theme's CDNs) to bench/realworld's mock instead
+  const mock = await mockApi();
+  out.measure = await measure({ dir, baseURL: BASE, paths: ['/', '/article/article-3'], setup: intercept, flags: mock.flags });
+  await mock.close();
+}
 app.server?.stop(); http.close();
 out.passed = out.checks.filter((c) => c.pass).length;
 out.total = Object.keys(checks).length;

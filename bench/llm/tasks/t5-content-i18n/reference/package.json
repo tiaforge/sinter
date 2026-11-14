@@ -1,0 +1,2 @@
+{ "name": "t5-reference", "private": true, "type": "module",
+  "scripts": { "build": "node build.mjs", "preview": "node serve.mjs" } }

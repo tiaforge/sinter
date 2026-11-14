@@ -15,7 +15,7 @@ const { values: a } = parseArgs({ options: {
   tasks: { type: 'string', default: 't1,t2,t3' }, frameworks: { type: 'string', default: 'sinter,astro,sveltekit' },
   models: { type: 'string', default: 'haiku,sonnet,opus' }, reps: { type: 'string', default: '1' }, slots: { type: 'string', default: '3' },
   condition: { type: 'string', default: 'cold' }, budget: { type: 'string', default: '15' }, timeout: { type: 'string', default: '45' },
-  out: { type: 'string' }, bases: { type: 'string', default: '/tmp/llmbench/bases' }, 'grade-only': { type: 'boolean', default: false },
+  out: { type: 'string' }, 'slot-base': { type: 'string', default: '0' }, bases: { type: 'string', default: '/tmp/llmbench/bases' }, 'grade-only': { type: 'boolean', default: false },
 } });
 
 const MODELS = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' };
@@ -28,6 +28,8 @@ const FRAMEWORKS = {
 };
 const TASKS = {
   t1: { dir: 'tasks/t1-incidents', workspace: 'tasks/t1-incidents/workspace' },
+  t4: { dir: 'tasks/t4-ops', workspace: 'tasks/t4-ops/workspace' },
+  t5: { dir: 'tasks/t5-content-i18n', workspace: 'tasks/t5-content-i18n/workspace' },
   t2: { dir: 'tasks/t2-realworld', base: true }, // starts from <bases>/<framework> (setup.mjs); no Astro base exists
   t3: { dir: 'tasks/t3-content', workspace: 'tasks/t3-content/workspace' },
 };
@@ -53,7 +55,7 @@ const killPorts = (ports) => run('sh', ['-c', ports.map((p) => `fuser -k -n tcp 
 
 async function agent(job, slot) {
   const dir = join(out, job.id), ws = join(dir, 'workspace');
-  const PORT = 4400 + slot, API_PORT = 3100 + slot;
+  const PORT = 4400 + Number(a['slot-base']) + slot, API_PORT = 3100 + Number(a['slot-base']) + slot; // --slot-base: a second run.mjs beside this one
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
   const T = TASKS[job.task];
   if (T.base) cpSync(join(a.bases, job.framework), ws, { recursive: true });
@@ -66,14 +68,16 @@ async function agent(job, slot) {
   mkdirSync(join(dir, 'tmp'));
   const env = { ...process.env, TMPDIR: join(dir, 'tmp') };
   for (const k of Object.keys(env)) if (/^CLAUDE_(CODE_)?ADDITIONAL_DIRECTORIES/.test(k)) delete env[k];
-  const args = ['-p', prompt, '--model', MODELS[job.model], '--output-format', 'stream-json', '--verbose',
+  // the prompt goes in on stdin: in argv it would match the agents' own `pgrep -f api/server.mjs`, and they kill claude
+  const args = ['-p', '--model', MODELS[job.model], '--output-format', 'stream-json', '--verbose',
     '--allowedTools', cond.tools.join(' '), '--disallowedTools', 'Agent Task',
     '--setting-sources', 'project', '--strict-mcp-config', '--no-session-persistence', '--max-budget-usd', a.budget];
   const t0 = Date.now();
   const res = await new Promise((resolve) => {
     // its own PID namespace: agents clean up with `pkill -f "vite preview"` and the like, which would otherwise kill
     // other slots' servers (and their agents); the network and the file system are shared
-    const p = spawn('unshare', ['--pid', '--fork', '--mount-proc', 'claude', ...args], { cwd: ws, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const p = spawn('unshare', ['--pid', '--fork', '--mount-proc', 'claude', ...args], { cwd: ws, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+    p.stdin.end(prompt);
     const chunks = []; let err = '';
     p.stdout.on('data', (d) => chunks.push(d)); p.stderr.on('data', (d) => (err += d));
     const timer = setTimeout(() => { try { process.kill(-p.pid, 'SIGKILL'); } catch {} }, Number(a.timeout) * 60_000);
@@ -130,23 +134,25 @@ async function grade(job, r) {
   return grade;
 }
 
-const rows = existsSync(join(out, 'results.json')) ? JSON.parse(readFileSync(join(out, 'results.json'), 'utf8')) : [];
+// --grade-only regrades every run from scratch (results-regraded.json); otherwise finished runs are skipped
+const resultsFile = join(out, a['grade-only'] ? 'results-regraded.json' : 'results.json');
+const rows = !a['grade-only'] && existsSync(resultsFile) ? JSON.parse(readFileSync(resultsFile, 'utf8')) : [];
 const done = new Set(rows.map((x) => x.id));
-const queue = jobs.filter((j) => !done.has(j.id));
+const queue = jobs.filter((j) => !done.has(j.id) && (!a['grade-only'] || existsSync(join(out, j.id, 'meta.json'))));
 async function worker(slot) {
   while (queue.length) {
     const job = queue.shift();
     console.log(`[slot ${slot}] start ${job.id}`);
     let r;
-    if (a['grade-only']) { const dir = join(out, job.id); r = { dir, ws: join(dir, 'workspace'), PORT: 4400 + slot, API_PORT: 3100 + slot, meta: JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')) }; }
+    if (a['grade-only']) { const dir = join(out, job.id); const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')); r = { dir, ws: join(dir, 'workspace'), PORT: meta.PORT, API_PORT: meta.API_PORT, meta }; } // the ports the app was built for
     else r = await agent(job, slot);
     const g = await grade(job, r);
     const row = { ...r.meta, ...(await sourceStats(r.ws)), usesFramework: usesFramework(r.ws, job.framework), build: g.build, served: g.served, passed: g.passed, total: g.total,
-      failed: (g.checks ?? []).filter((c) => !c.pass).map((c) => c.name) };
+      failed: (g.checks ?? []).filter((c) => !c.pass).map((c) => c.name), measure: g.measure };
     rows.push(row);
-    writeFileSync(join(out, 'results.json'), JSON.stringify(rows, null, 2));
+    writeFileSync(resultsFile, JSON.stringify(rows, null, 2));
     console.log(`[slot ${slot}] done  ${job.id}: ${g.passed}/${g.total} $${row.costUSD?.toFixed(2)} ${row.seconds}s turns=${row.turns}${row.leaks?.length ? ' LEAK' : ''}`);
   }
 }
 await Promise.all(Array.from({ length: Number(a.slots) }, (_, i) => worker(i)));
-console.log(`results: ${join(out, 'results.json')}`);
+console.log(`results: ${resultsFile}`);

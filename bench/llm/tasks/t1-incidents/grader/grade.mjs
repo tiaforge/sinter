@@ -2,6 +2,7 @@
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assert, buildAndServe, runChecks, start, waitForUrl } from '../../../lib.mjs';
+import { measure } from '../../../measure.mjs';
 
 const dir = process.argv[2];
 const PORT = Number(process.env.PREVIEW_PORT ?? 4400), API_PORT = process.env.API_PORT ?? '3001', API = `http://localhost:${API_PORT}`;
@@ -178,6 +179,7 @@ const checks = {
 };
 
 if (app.ok) out.checks = await runChecks(checks, { before: reset, baseURL: `http://127.0.0.1:${PORT}` });
+if (app.ok) { await reset(); out.measure = await measure({ dir, baseURL: `http://127.0.0.1:${PORT}`, paths: ['/', '/incidents/1'] }); }
 app.server?.stop(); api.stop();
 out.passed = out.checks.filter((c) => c.pass).length;
 out.total = Object.keys(checks).length;

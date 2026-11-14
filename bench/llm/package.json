@@ -1,0 +1,10 @@
+{
+  "name": "sinter-bench-llm",
+  "private": true,
+  "type": "module",
+  "description": "Agent benchmark across frameworks and models (SPEC.md)",
+  "dependencies": {
+    "chrome-launcher": "1.2.1",
+    "lighthouse": "13.6.0"
+  }
+}

@@ -1,5 +1,6 @@
 // Hidden checks for T3 (static content site). Usage: node grade.mjs <workspace> → JSON on stdout.
 import { assert, buildAndServe, runChecks } from '../../../lib.mjs';
+import { measure } from '../../../measure.mjs';
 
 const dir = process.argv[2], PORT = Number(process.env.PREVIEW_PORT ?? 4400), BASE = `http://127.0.0.1:${PORT}`;
 const app = await buildAndServe(dir, PORT);
@@ -79,6 +80,7 @@ const checks = {
 };
 
 if (app.ok) out.checks = await runChecks(checks, { baseURL: BASE, javaScriptEnabled: false });
+if (app.ok) out.measure = await measure({ dir, baseURL: BASE, paths: ['/', '/posts/tuning-the-sourdough-starter/'] });
 app.server?.stop();
 out.passed = out.checks.filter((c) => c.pass).length;
 out.total = Object.keys(checks).length;

@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 // Tables from a run directory's results.json: node report.mjs <out> [> results.md]
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const all = JSON.parse(readFileSync(join(process.argv[2], 'results.json'), 'utf8'));
+// results-regraded.json (run.mjs --grade-only: every run graded by the current graders) when there is one
+const file = process.argv[3] ?? (existsSync(join(process.argv[2], 'results-regraded.json')) ? 'results-regraded.json' : 'results.json');
+const all = JSON.parse(readFileSync(join(process.argv[2], file), 'utf8'));
 const rows = all.filter((r) => !r.leaks?.length);
-const FW = ['sinter', 'astro', 'sveltekit'], MODELS = ['haiku', 'sonnet', 'opus'], TASKS = ['t1', 't2', 't3'];
+const kb = (b) => (b == null ? '–' : `${(b / 1024).toFixed(1)}`);
+const ms = (x) => (x == null ? '–' : `${(x / 1000).toFixed(2)} s`);
+const FW = ['sinter', 'astro', 'sveltekit'], MODELS = ['haiku', 'sonnet', 'opus'], TASKS = ['t1', 't2', 't3', 't4', 't5'];
 const BASE = { t2: 5 }; // checks the untouched base already passes
 const cell = (t, f, m) => rows.filter((r) => r.task === t && r.framework === f && r.model === m);
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -36,8 +40,15 @@ for (const f of FW) {
   if (!r.length) continue;
   md += `| ${f} | ${pct(mean(r.map(rate)))} | ${r.filter((x) => x.passed === x.total).length}/${r.length} | ${r.filter((x) => x.build).length}/${r.length} | ${usd(median(r.map((x) => x.costUSD ?? 0)))} | ${Math.round(median(r.map((x) => x.seconds)) / 60)} | ${mean(r.map((x) => x.docReads)).toFixed(1)} | ${mean(r.map((x) => x.webFetches.length)).toFixed(1)} | ${mean(r.map((x) => x.buildRuns)).toFixed(1)} | ${median(r.map((x) => x.linesAdded))} |\n`;
 }
-md += `\n### Mean pass rate per model, T1 and T3 only (the tasks every framework ran)\n\n| model | ${FW.join(' | ')} |\n| --- | ${FW.map(() => '---:').join(' | ')} |\n`;
-for (const m of MODELS) md += `| ${m} | ${FW.map((f) => pct(mean(rows.filter((x) => x.framework === f && x.model === m && x.task !== 't2').map(rate)))).join(' | ')} |\n`;
+md += `\n### Mean pass rate per model (every task but T2, which Astro has no base for)\n\n| model | ${FW.join(' | ')} |\n| --- | ${FW.map(() => '---:').join(' | ')} |\n`;
+for (const m of MODELS) md += `| ${m} | ${FW.map((f) => pct(mean(rows.filter((x) => x.framework === f && x.model === m && !['t2'].includes(x.task)).map(rate)))).join(' | ')} |\n`;
+md += `\n### What users get: build output, download per page (gzip KB), Lighthouse mobile on the first page\n\n`;
+md += `| run | checks | output dir | output KB | JS KB, page 1 · page 2 | CSS KB | HTML KB | requests | Lighthouse perf | LCP | TBT | CLS | a11y |\n| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n`;
+for (const r of [...rows].sort((x, y) => x.id.localeCompare(y.id))) {
+  const m = r.measure; if (!m) { md += `| ${r.id} | ${r.passed}/${r.total} | not measured | | | | | | | | | | |\n`; continue; }
+  const w = Object.values(m.weight ?? {}).filter((x) => typeof x === 'object'), lh = Object.values(m.lighthouse ?? {}).filter((x) => typeof x === 'object')[0] ?? {};
+  md += `| ${r.id} | ${r.passed}/${r.total} | ${m.output?.dir ?? '–'} | ${kb(m.output?.bytes)} | ${w.map((x) => kb(x.jsGz)).join(' · ')} | ${kb(w[0]?.cssGz)} | ${kb(w[0]?.htmlGz)} | ${w[0]?.requests ?? '–'} | ${lh.performance ?? '–'} | ${ms(lh.lcp)} | ${lh.tbt == null ? '–' : Math.round(lh.tbt) + ' ms'} | ${lh.cls == null ? '–' : lh.cls.toFixed(3)} | ${lh.accessibility ?? '–'} |\n`;
+}
 md += `\n### Failed checks per run\n\n`;
 for (const r of rows.filter((x) => x.passed !== x.total)) md += `- **${r.id}**${r.build ? '' : ' (build failed)'}: ${r.failed.join('; ') || '–'}\n`;
 const excluded = all.filter((r) => r.leaks?.length);

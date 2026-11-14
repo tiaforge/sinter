@@ -36,6 +36,8 @@ the end.
 | **T1** incidents | greenfield app | From an empty directory and a given JSON API (`api/server.mjs`, `API.md`): a list with live search, a status filter in the URL, a create form with server-side validation errors, optimistic resolve/reopen with rollback, delete, a detail page with comments, and a not-found state. | 19 | sinter, SvelteKit |
 | **T2** RealWorld | change an existing project | Into each framework's RealWorld app: a table of contents from the Markdown headings (slugged ids) and a "related articles" section fetched from the API. Regressions are checked too. | 13 (5 already pass on the base) | neutral: reading code |
 | **T3** content | greenfield static site | From 6 Markdown posts (one draft): an index, post pages with no JavaScript at all, tag pages, an RSS feed, titles and meta descriptions. Graded with JavaScript disabled. | 13 | Astro |
+| **T4** ops board (hard) | greenfield app | T1 grown up. It adds sign-in with a redirect back to the page first asked for; server-side pagination, search, filter and sort, all in the URL, with Back and Forward working; live updates from other users over SSE; rename with version conflicts (409); undo on delete, with the server delete only after 5 s; optimistic changes with rollback; and a live detail page. | 24 | sinter, SvelteKit |
+| **T5** bilingual site (hard) | greenfield static site | T3 grown up. Two languages with partial translations, a paginated index, a series with previous and next links per language, a computed reading time, dates per language, a language switcher with a fallback, `hreflang` alternates, feeds per language and a sitemap, with no JavaScript anywhere. | 15 | Astro |
 
 T2 bases (`tasks/t2-realworld/setup.mjs`):
 - sinter: `examples/realworld`.
@@ -43,18 +45,18 @@ T2 bases (`tasks/t2-realworld/setup.mjs`):
 - **Astro has no maintained RealWorld app**, so Astro sits out T2. A hand-written Astro base, reviewed
   by an Astro user, is listed under [next steps](#next-steps).
 
+T1 to T3 turned out too easy to separate the frameworks: nearly every model passes nearly every check.
+T4 and T5 are the hard versions. Each was validated with a dependency-free reference solution that
+passes every check (`tasks/t4-ops/reference`: 24/24, `tasks/t5-content-i18n/reference`: 15/15).
+
 ### Tasks to add for the full benchmark
 
 The aim is 8–12 tasks, so that one task cannot swing the result:
 
-- **T4 live data** (sinter turf): a dashboard over SSE where values update without a reload. Every
-  framework can do it; the spec is in the prompt.
-- **T5 debug** (neutral): a seeded bug in the base project, described only by its symptom (for example,
+- **T6 debug** (neutral): a seeded bug in the base project, described only by its symptom (for example,
   "the favourite count goes wrong after paging"). This measures diagnosis, where compile-time errors
   should help.
-- **T6 forms and auth** (neutral): login, a guarded page, a redirect after login, logout.
-- **T7 i18n or a11y** (Astro and SvelteKit turf): a second language with a switcher, or
-  keyboard-navigable tabs. Graded with axe and the keyboard.
+- **T7 a11y** (neutral): keyboard-navigable tabs, a combobox and a dialog. Graded with axe and the keyboard.
 - **T8 migration**: port T3's site from plain HTML into the framework. This measures how far a
   framework lets an agent keep existing markup.
 
@@ -73,6 +75,9 @@ Per run (`results.json` has one row per run):
 | doc reads, web fetches and searches | tool calls that read `llms.txt`, `AGENTS.md` or package docs; WebFetch URLs | where the agent learned the framework |
 | lines and files written | `git diff --numstat` against the start, without lockfiles or generated files | size of the solution; review burden |
 | leaks | tool calls touching this repository | runs with a leak are excluded |
+| **build output** | bytes of the client build output (`dist/`, `build/`, `.svelte-kit/output/client`; server bundles left out), split into JS, CSS and HTML | what is deployed |
+| **download per page** | JS, CSS and HTML the browser fetches on each task's two key pages, each gzipped at level 9 by the grader, plus the request count | what users pay for |
+| **Lighthouse** | mobile preset on the key pages (T4: `/login`, since Lighthouse cannot sign in): performance, accessibility, best practices, FCP, LCP, TBT, CLS. For T2 the RealWorld API is answered by `bench/realworld`'s mock, through Chrome's host mapping | output quality beyond "works" |
 
 Per cell (task × framework × model), aggregated over repetitions:
 - **pass@1**: mean pass rate.
@@ -84,8 +89,10 @@ Secondary, not in the headline:
 - **Code quality.** An LLM judge with a rubric (idiomatic for the framework, no dead code, no
   disabled checks), blind to the framework where the syntax allows. This only adds information when
   pass rates are equal.
-- **Lighthouse, JS shipped.** This is reported separately in `bench/realworld`. Agent friendliness
-  and output performance are different claims.
+- **Weight and Lighthouse** are measured for every run, but reported in their own table. Agent
+  friendliness and output performance are different claims. Lighthouse runs in a separate pass, one
+  run at a time on an otherwise idle machine (`run.mjs --grade-only --slots 1`). Agents running in
+  parallel would skew the timings.
 
 ## Conditions: separating the framework from the training data
 
