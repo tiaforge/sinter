@@ -192,6 +192,8 @@ export interface App {
     typing?: { flush(kind: number): void; waits(): boolean; stop(): void; finish(): void };
     /** whether a plain click on this link stays in the page (query-links.ts); next-page data leaves it alone */
     sameLink?: (a: Element) => unknown;
+    /** `navigate(url)` to this page with only parameters it reads changed (query-links.ts): followed in the page, true; else false */
+    follow?: (url: string, replace?: boolean) => boolean;
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
     form?: (el: Element, a: ActionDef, body: unknown) => unknown;
     /**
@@ -710,6 +712,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
         for (const c of form.elements) { const rb = (c as Tagged)[MODEL]; if (rb) setModel(rb, readModel(rb)); }
       },
       emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
+      // to this page with only parameters it reads changed: as a same-page link (no load); else the browser navigates
+      navigate: (url: string, o?: { replace?: boolean }) => {
+        const to = new URL(url, app.env.href()).href;
+        if (app.ext.follow?.(to, o?.replace)) return;
+        if (o?.replace) (app.env.replace ?? ((u: string) => location.replace(u)))(to);
+        else app.env.navigate(to);
+      },
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
       run: (id: string) => {
         const t = byId(id), h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
@@ -1129,7 +1138,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       pre.end.remove();
     }
     if (br == rb.br) return;
-    const end = (rb.end ??= after(rb.el)), [old] = rb.rows ?? [];
+    // same id, same control: the focused element goes with the old branch, its twin in the new one takes focus
+    const end = (rb.end ??= after(rb.el)), [old] = rb.rows ?? [], f = doc.activeElement;
     if (old) {
       for (const n of range(old.first, end)) (n as ChildNode).remove();
       if (old.rbs) forget(old.rbs);
@@ -1141,6 +1151,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const x = instantiate(anchor as HTMLTemplateElement, ir.templates[tid]!, Object.create(rb.s), '', null, 0);
     end.before(...rowNodes(x));
     rb.rows = [x];
+    if (f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
   }
 
   /** `pre`: nodes the early chunk already rendered from this template, bound instead of a clone. */

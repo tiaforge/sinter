@@ -1,9 +1,6 @@
 <conduit-layout data-sn-path="/editor /editor/:slug"
-  data-sn-state="{ nav: 'editor', guest: signedOut() }"
-  data-sn-prop="{ nav, guest, title: 'Editor', description: 'Write or edit an article on Conduit.' }">
-<!-- early="off": the auth middleware answers this request without a token, and adds one otherwise:
-     a request sent before the page module would go unused -->
-<sn-resource cache name="user" src="/user" then="guest = !$result" early="off"></sn-resource>
+  data-sn-state="{ nav: 'editor' }"
+  data-sn-prop="{ nav, title: 'Editor', description: 'Write or edit an article on Conduit.' }">
 <template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 <sn-resource cache name="article" src="/articles/{$url.slug}" when="$url.slug"></sn-resource>
 
@@ -30,12 +27,12 @@
                 </div>
               </fieldset>
               <template data-sn-if="$url.slug">
-                <button class="btn btn-lg pull-xs-right btn-primary" type="button" data-sn-put="/articles/{$url.slug}" data-sn-body="{article: {...d, tagList: tag.trim() && !d.tagList.includes(tag.trim()) ? [...d.tagList, tag.trim()] : d.tagList}}"
-                        data-sn-then="emit('navigate', '/article/' + encodeURIComponent($result.article.slug))">Publish Article</button>
+                <button class="btn btn-lg pull-xs-right btn-primary" type="button" data-sn-put="/articles/{$url.slug}" data-sn-body="{article: {...d, tagList: withTag(d.tagList, tag)}}"
+                        data-sn-then="navigate('/article/' + encodeURIComponent($result.article.slug))">Publish Article</button>
               </template>
               <template data-sn-else>
-                <button class="btn btn-lg pull-xs-right btn-primary" type="button" data-sn-post="/articles" data-sn-body="{article: {...d, tagList: tag.trim() && !d.tagList.includes(tag.trim()) ? [...d.tagList, tag.trim()] : d.tagList}}"
-                        data-sn-then="emit('navigate', '/article/' + encodeURIComponent($result.article.slug))">Publish Article</button>
+                <button class="btn btn-lg pull-xs-right btn-primary" type="button" data-sn-post="/articles" data-sn-body="{article: {...d, tagList: withTag(d.tagList, tag)}}"
+                        data-sn-then="navigate('/article/' + encodeURIComponent($result.article.slug))">Publish Article</button>
               </template>
             </fieldset>
           </form>

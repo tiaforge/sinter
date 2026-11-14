@@ -217,6 +217,8 @@ export interface CompileResult {
   paint?: string;
   /** the paginated lists over late data that hold no space, and why (the Vite plugin prints them) */
   unheld?: Array<{ file: string; line: number; col: number; why: string }>;
+  /** the boxes whose following siblings stay invisible while their list's first rows load (the Vite plugin prints them) */
+  waits?: Array<{ file: string; line: number; col: number; what: string; widths: string }>;
   /** every width the page asks the resizing service for (`remoteImages`) */
   remoteWidths?: number[];
   /** what another page needs to request this page's data ahead (null: nothing) */
@@ -329,6 +331,8 @@ export interface CompiledParts {
   paint?: string;
   /** the paginated lists over late data that hold no space, and why */
   unheld?: Array<{ file: string; line: number; col: number; why: string }>;
+  /** the boxes whose following siblings wait for their list's first rows */
+  waits?: Array<{ file: string; line: number; col: number; what: string; widths: string }>;
   /** the resizing service's config, when a bound image uses it (the page module creates `$ri` from it) */
   remote?: RemoteConfig;
   /** every width the page asks the service for */
@@ -616,11 +620,15 @@ class Compiler {
   /** resources with `early="off"`: no preload, no early request (one a request middleware answers or adds a header to) */
   private readonly noEarly = new Set<string>();
   /** by `<template data-sn-for>` outside templates: its reserved space and the content-sized box around it (`planSpace`) */
-  private readonly spacePlan = new Map<P5Element, { sized: { el: P5Element; siblings: boolean; widths: string } | null; space: Reserved | null; resources: string[]; form: 'static' | 'if'; list: string; why: string | null; unsized: P5Element[] }>();
+  private readonly spacePlan = new Map<P5Element, { sized: { el: P5Element; siblings: boolean; widths: string; ranges: Array<[number, number | undefined]> } | null; space: Reserved | null; resources: string[]; names: string[]; waitForm: 'static' | 'if'; waitOff: boolean; form: 'static' | 'if'; list: string; why: string | null; unsized: P5Element[] }>();
   /** paginated lists over late data that hold no space, and why (the build prints them) */
   readonly unheld: Array<{ file: string; line: number; col: number; why: string }> = [];
   /** the placeholders' rules (`CompiledParts.paint`) */
   readonly paintRules: string[] = [];
+  /** the rules that keep what follows a content-sized box invisible while its list's first rows load (`waitFor`) */
+  readonly waitRules: string[] = [];
+  /** each box whose following siblings wait for its list's first rows, for the build's output */
+  readonly waits: Array<{ file: string; line: number; col: number; what: string; widths: string }> = [];
   private spaceN = 0;
   /** the static placeholders and their nodes, given ids after the walk (`placeholders`) */
   private readonly pendingSpace: Array<{ el: P5Element; node: NodeDef }> = [];
@@ -887,7 +895,9 @@ class Compiler {
     // Not with `<base href>`: links resolve against it, not the page's URL
     const reads = this.urlReads(ir, paths), own = this.ownPaths(paths);
     if (reads) this.checkDroppedQuery(reads, paths);
-    if (reads && !hasBase(doc) && this.seesSameLink(own)) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
+    // `navigate()` may go to this page with another query too: the build cannot see where, so it loads the module
+    const navigates = this.fns.some((c) => c.includes('$f.navigate('));
+    if (reads && !hasBase(doc) && (navigates || this.seesSameLink(own))) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
     return {
       html: parse5.serialize(doc),
       runtime, ...(isStatic ? { static: true as const } : {}), ...(isStatic && this.canonicalLink ? { canonicalOnly: true } : {}),
@@ -900,8 +910,9 @@ class Compiler {
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
       ...(images ? { images } : {}),
-      ...(this.opts.paintCss ? { paint: this.paintRules.join('\n') + (this.paintRules.length ? '\n' : '') } : {}),
+      ...(this.opts.paintCss ? { paint: [...this.paintRules, ...this.waitRules].join('\n') + (this.paintRules.length + this.waitRules.length ? '\n' : '') } : {}),
       ...(this.unheld.length ? { unheld: this.unheld } : {}),
+      ...(this.waits.length ? { waits: this.waits } : {}),
       ...(this.remoteUsed ? { remote: this.opts.remoteImages!, remoteWidths: [...this.remoteWidths].sort((a, b) => a - b) } : {}),
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       embed: this.embedSlots(),
@@ -4753,6 +4764,10 @@ class Compiler {
       const sized = layout.contentSized(tpl);
       const m = /^\s*(?:\(\s*[A-Za-z_]\w*\s*,\s*[A-Za-z_]\w*\s*\)|[A-Za-z_]\w*)\s+in\s+([\s\S]+)$/.exec(attr(tpl, 'data-sn-for')!);
       let space: Reserved | null = null, names: string[] = [], form: 'static' | 'if' = 'static', why: string | null = null;
+      // what follows a content-sized box waits for the list (`waitFor`): needs no row count, only which resources it can be
+      let cands: string[] = [], waitForm: 'static' | 'if' = 'if';
+      // read here: the walk removes the box's directives before it reaches the list
+      const waitOff = sized ? attr(sized.el, 'data-sn-wait')?.trim() === 'off' : false;
       // planned in dev too (no placeholders there): what SN529 says follows the same plan as a build
       if (m) {
         const list = m[1]!.trim();
@@ -4767,6 +4782,7 @@ class Compiler {
         const used = words(list);
         for (const { k, v } of around) if (used.has(k)) for (const w of words(v)) used.add(w);
         names = [...used].filter((n) => resources.has(n));
+        cands = names.slice();
         // worth a note when it does not work out: a list over a paginated resource
         if (names.some((n) => attr(resources.get(n)!, 'paginate') !== undefined)) why = '';
         if (names.length && !names.every((n) => attr(resources.get(n)!, 'paginate') !== undefined)) { names = []; why &&= ''; if (why === '') why = 'it can be a resource without `paginate`, whose rows the build cannot count'; }
@@ -4777,6 +4793,9 @@ class Compiler {
           return !/[.[\]{}]|[\w$)\]]\s*\(|=>/.test(bare);
         };
         const lets = around.filter(({ k }) => words(list).has(k)).map(({ v }) => v);
+        if (![list, ...lets].every(chooses)) cands = [];
+        if (cands.some((c) => ['each', 'call'].some((x) => attr(resources.get(c)!, x) !== undefined))) cands = [];
+        waitForm = cands.length === 1 && list === cands[0] && attr(resources.get(cands[0])!, 'when') === undefined ? 'static' : 'if';
         if (![list, ...lets].every(chooses)) { if (why === '') why = 'the list is not a resource or a choice between resources (a filter, a field), whose rows the build could count'; names = []; }
         const rs = names.map((n) => resources.get(n)!);
         // paginated (their page-size, the least), loading by URL or always: not `each` or `call`, nor data the page has (embedded)
@@ -4798,7 +4817,7 @@ class Compiler {
       const unsized: P5Element[] = [];
       const scan = (p: P5Parent) => { for (const c of p.childNodes) { if (!isElement(c)) continue; if (/^(img|video|iframe|embed|object)$/.test(c.tagName) && layout.sized(c) === false) unsized.push(c); scan(c.tagName === 'template' ? (c as P5Template).content : c); } };
       scan((tpl as P5Template).content);
-      this.spacePlan.set(tpl, { sized, space, resources: space ? names : [], form, list: m?.[1]!.trim() ?? '', why: why || null, unsized });
+      this.spacePlan.set(tpl, { sized, space, resources: space ? names : [], names: cands, waitForm, waitOff, form, list: m?.[1]!.trim() ?? '', why: why || null, unsized });
     }
   }
 
@@ -4825,7 +4844,8 @@ class Compiler {
     const held = !!plan.space && names.length > 0 && !names.some((n) => this.embedded.has(n)) && names.every((n) => /^[A-Za-z_$][\w$]*$/.test(n))
       && names.every((n) => (plan.form === 'static' ? starts(n) : pre.has(n)))
       && (plan.form === 'static' ? deps.every(reads) : deps.every((d) => reads(d) || d === '$url' || d.startsWith('$url.') || d === '$locale'));
-    if (plan.sized?.siblings && late.length && !held) {
+    const waits = plan.sized?.siblings && late.length && !held ? this.waitFor(el, plan, deps, starts, pre, ctx) : false;
+    if (plan.sized?.siblings && late.length && !held && !waits) {
       const what = plan.sized.el.tagName + (attr(plan.sized.el, 'class') ? `.${attr(plan.sized.el, 'class')!.trim().split(/\s+/).join('.')}` : '');
       this.report(el, 'data-sn-for', 'SN529', `this list's rows arrive after the first paint inside \`<${what}>\`, whose width follows its content (${plan.sized.widths}): the rows widen it and move what is beside it`, 0,
         'give that box a width or flex basis of its own (`flex: 1 1 0`, `width: 100%`), or give the rows a width');
@@ -4836,7 +4856,7 @@ class Compiler {
       const o = this.origins.get(el), at = o && el.sourceCodeLocation ? this.lineCol(o.src, el.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
       this.unheld.push({ file: o?.file ?? this.opts.file, line: at.line, col: at.col, why });
     };
-    if (plan.why) note(plan.why);
+    if (plan.why && !waits) note(plan.why);
     else if (plan.space && !held) note(!names.every((n) => (plan.form === 'static' ? starts(n) : pre.has(n))) ? 'a resource\'s `src` or `when` reads more than the URL (state, another resource): its load may not start when the page module mounts' : 'the list reads more than its resources and the URL');
     if (!held || !plan.space || !this.opts.paintCss) return;
     const parent = el.parentNode as P5Element;
@@ -4865,6 +4885,59 @@ class Compiler {
       if (origin) this.tag(t, origin);
       this.spaces.push({ list: el, names, k, space: plan.space, note, tpl: t });
     }
+  }
+
+  /**
+   * A list over late data in a box whose width follows its content, with boxes after it (SN529's case), and no
+   * space held: what follows the box stays invisible (`visibility: hidden`, still laid out) while the list's first
+   * rows load, so when they widen or lengthen the box nothing that is shown moves. A marker after the list's
+   * template is there exactly then: the static form's element is removed for good once the resource has rows or no
+   * load is running; the `if` form's branch shows with no rows while one of its resources the early file knows
+   * makes its first load (`!loadedAt`): a resource it cannot tell (a `when` over another resource, as "Your Feed"
+   * over the user) never shows it. The box's following siblings are hidden by a rule over the marker (`:has()`;
+   * a browser without it shows them, as before), for at most 3 s (an animation), should the page script never run.
+   * Builds only; dev plans the same and reports nothing. Returns whether it did (then no SN529).
+   */
+  waitFor(el: P5Element, plan: NonNullable<ReturnType<typeof this.spacePlan.get>>, deps: string[], starts: (n: string) => boolean, pre: Map<string, ResourceDef>, ctx: Ctx): boolean {
+    const names = plan.names, box = plan.sized?.el;
+    if (!box || !names.length || names.some((n) => this.embedded.has(n) || !/^[A-Za-z_$][\w$]*$/.test(n))) return false;
+    if (plan.waitOff) return false;
+    const reads = (d: string) => names.some((n) => d === `$r.${n}` || d.startsWith(`$r.${n}.`));
+    const known = names.filter((n) => pre.has(n));
+    if (plan.waitForm === 'static' ? !(names.every(starts) && deps.every(reads)) : !(known.length && deps.every((d) => reads(d) || d === '$url' || d.startsWith('$url.') || d === '$locale'))) return false;
+    const o = this.origins.get(el), at = o && el.sourceCodeLocation ? this.lineCol(o.src, el.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
+    const what = box.tagName + (attr(box, 'class') ? `.${attr(box, 'class')!.trim().split(/\s+/).join('.')}` : '');
+    this.waits.push({ file: o?.file ?? this.opts.file, line: at.line, col: at.col, what, widths: plan.sized!.widths });
+    if (!this.opts.paintCss) return true;
+    let hash = 0x811c9dc5;
+    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
+    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
+    const k = `snw${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    setAttr(box, 'class', [attr(box, 'class'), k].filter(Boolean).join(' '));
+    const parent = el.parentNode as P5Element, i = parent.childNodes.indexOf(el) + 1, markup = `<i class="${k}m" hidden></i>`;
+    if (plan.waitForm === 'static') {
+      const mk = parse5.parseFragment(markup).childNodes[0] as P5Element;
+      mk.parentNode = parent;
+      parent.childNodes.splice(i, 0, mk as never);
+      const r = `.${names[0]!}`;
+      this.pendingSpace.push({ el: mk, node: { tag: 'i', p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(`($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${names[0]!}`, `$meta.${names[0]!}`], e: 1 })] } });
+    } else {
+      const cond = `!(${plan.list})?.length && (${known.map((n) => `$meta.${n}.loading && !$meta.${n}.loadedAt`).join(' || ')})`;
+      const t = parse5.parseFragment(`<template data-sn-if="${cond.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${markup}</template>`).childNodes[0] as P5Element;
+      t.parentNode = parent;
+      parent.childNodes.splice(i, 0, t as never);
+      if (o) this.tag(t, o);
+    }
+    if (!this.waitRules.length) this.waitRules.push('@keyframes sn-wait { to { visibility: visible } }');
+    // `:not(#_)`: an id's weight, over the author's rules for those boxes; the animation shows them after 3 s whatever happens
+    // only at the widths where the box follows its content: elsewhere nothing moves, and nothing is hidden
+    const rule = `.${k}:has(.${k}m) ~ :not(#_) { visibility: hidden; animation: sn-wait 0s 3s forwards }`;
+    for (const [lo, hi] of plan.sized!.ranges) {
+      // the breakpoints are the stylesheets' own: `max-width` one hundredth below the next so the two never overlap
+      const q = [lo > 0 ? `(min-width: ${Math.round(lo * 100) / 100}px)` : '', hi !== undefined ? `(max-width: ${Math.round(hi * 100) / 100 - 0.02}px)` : ''].filter(Boolean).join(' and ');
+      this.waitRules.push(q ? `@media ${q} { ${rule} }` : rule);
+    }
+    return true;
   }
 
   /**

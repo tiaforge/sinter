@@ -1,7 +1,7 @@
-<!-- Navbar. The page declares the `user` resource; `nav` is the active link, `guest` whether the
-     visitor is signed out (`signedOut()` at first, then whether the server knows the user). -->
-<template data-sn-component="{ nav: string; guest: boolean }">
-  <nav class="navbar navbar-light">
+<!-- Navbar. The layout declares the `user` resource; `nav` is the active link, `guest` whether the
+     visitor is signed out (`signedOut()` until `user` has loaded, then whether the server knows them). -->
+<template data-sn-component="{ nav: string }">
+  <nav class="navbar navbar-light" data-sn-let="{ guest: $meta.user.loadedAt ? !user : signedOut() }">
     <div class="container">
       <a class="navbar-brand" href="/">conduit</a>
       <ul class="nav navbar-nav pull-xs-right">

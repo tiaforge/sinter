@@ -2,25 +2,29 @@
 
 **How does a sinter app compare with the same app written with other tools?** RealWorld is a public
 spec for a blogging app (Conduit) that many frameworks implement against the same API. sinter's version
-has the fewest source lines and the least JavaScript of the apps that show articles, and its Lighthouse
-mobile score is within a few points of the best.
+has the fewest source lines and the least JavaScript of the apps that show articles, and when every
+implementation is built from source and served under the same conditions, the best Lighthouse score:
+100 on mobile and on desktop.
 
-| implementation | source lines | JS, home + article (gz KB) | Lighthouse mobile perf |
+| implementation | source lines | JS, home + article (gz KB) | Lighthouse mobile perf, same conditions |
 | --- | ---: | ---: | ---: |
-| **sinter** | **777** | **35.7** | 94 |
-| SvelteKit | 1153 | - | 95 |
-| Solid | 1281 | - | 97 (empty feed) |
-| Vue 3 | 1848 | 63.7 | 85 |
+| **sinter** | **670** | **35.7** | **100** |
+| SvelteKit | 1153 | - | 93 |
+| Solid | 1281 | - | 90 |
+| Vue 3 | 1848 | 63.7 | 86 |
 | React + Redux | 2087 | - | - |
-| Angular | 2210 | 123.0 | 77 |
+| Angular | 2210 | 123.0 | 88 |
 
-A dash means the number could not be measured (see the notes under each table below). sinter's source
-lines are for its version with components (2026-11-10); its download size and Lighthouse score in
-these tables are from before components; [Components](#components) compares the two builds on one
-machine. Scripts:
+A dash means the number could not be measured (see the notes under each table below). Lighthouse: the
+median of 5 runs on 2026-11-14 with every implementation built from its latest commit, served by one local
+server against the same local API, [below](#the-same-conditions); on their public demos the same day,
+sinter scored 98, SvelteKit 95, Solid 98 (an empty feed), Vue 3 86 and Angular 82. sinter's source lines
+are counted on 2026-11-14 (after the theme moved into `src/`, and the `user` resource, the pager, the feed row and the button errors were written once); its download size is from before components;
+[Components](#components) compares the two builds on one machine. Scripts:
 [`bench/realworld/loc.mjs`](../bench/realworld/loc.mjs) (source lines),
 [`bench/realworld/weight.mjs`](../bench/realworld/weight.mjs) (what the browser downloads),
-[`bench/realworld/lighthouse.mjs`](../bench/realworld/lighthouse.mjs) (Lighthouse).
+[`bench/realworld/fair/run.mjs`](../bench/realworld/fair/README.md) (Lighthouse under the same conditions),
+[`bench/realworld/lighthouse.mjs`](../bench/realworld/lighthouse.mjs) (Lighthouse on the public demos).
 
 | implementation | repo (commit) | architecture |
 | --- | --- | --- |
@@ -34,15 +38,16 @@ machine. Scripts:
 ## Source size
 
 Non-blank lines of app source; tests, mocks, type declarations, generated code (Vue 3's 790-line
-generated API client) and the shared theme CSS excluded. sinter's count includes its 43-line Vite
-config (page entries and path rewrites), and leaves out its generated `src/sinter.components.d.ts`.
+generated API client) and the shared theme CSS excluded. sinter's count includes its 26-line Vite
+config (page entries and path rewrites) and its `apis.js` (the API config), and leaves out its generated
+`src/sinter.components.d.ts`.
 Before components, with partials, the same script counts 765 lines (html 593, js 172): the components'
 `<template data-sn-component>` wrappers and their props cost more lines than the favorite button they
 deduplicate saves.
 
 | implementation | files | lines | by type |
 | --- | ---: | ---: | --- |
-| **sinter** | 20 | **777** | html 605, js 172 |
+| **sinter** | 23 | **670** | html 495, js 175 |
 | SvelteKit | 41 | 1153 | svelte 816, js 312, html 25 |
 | Solid | 27 | 1281 | js 1248, html 33 |
 | Vue 3 | 41 | 1848 | vue 1344, ts 488, html 16 |
@@ -71,18 +76,75 @@ comes from the browser cache.
 
 ## Lighthouse
 
-Lighthouse 13.6 in Chrome for Testing 153: the home page, each run in a new Chrome with an empty cache,
-five runs per implementation and form factor; the run with the median performance score is shown, with
-the range of the five. Mobile is Lighthouse's default (simulated slow 4G, 4x CPU slowdown). The others
-run on their live demos; sinter's production build is served by
-[`bench/realworld/serve.mjs`](../bench/realworld/serve.mjs) (brotli, immutable assets, HTTP/1.1).
+Lighthouse 13.6 in Chrome for Testing 153.0.8010.12, the home page, each run in a new Chrome with an empty
+cache. Mobile is Lighthouse's default (simulated slow 4G, 4x CPU slowdown). The median of five runs, with
+their range.
+
+### The same conditions
+
+Every implementation built from its latest commit on 2026-11-14, served on one machine by the same server,
+against the same local API (25 articles, 10 per page, every answer after 150 ms) and the same recorded copies
+of Ionicons and Google Fonts, so none gets a host, a CDN or an API latency the others don't. The runs are
+interleaved across implementations; every audit is checked for failed requests (there were none).
+[bench/realworld/fair](../bench/realworld/fair/README.md) has the method, the exact commits and the edits
+(the API's host for Solid, whose `api.realworld.io` is gone, and its theme, whose host answers 404;
+SvelteKit on its Node adapter). sinter at 4b64084.
+
+| implementation | repo (commit) |
+| --- | --- |
+| Angular | realworld-apps/angular-realworld-example-app (d426ec8) |
+| Vue 3 (official) | realworld-apps/vue-realworld-example-app (db749e3) |
+| Vue 3 (mutoe) | mutoe/vue3-realworld-example-app (741c215) |
+| SvelteKit | sveltejs/realworld (df79670) |
+| Solid | solidjs/solid-realworld (f6e77ec) |
+
+Mobile:
+
+| implementation | perf (range) | FCP | LCP | TBT | CLS | JS (KB) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **sinter** | **100** (100-100) | **1.38 s** | **1.38 s** | 0 ms | **0** | 27.7 |
+| SvelteKit | 93 (92-93) | 1.81 s | 3.01 s | 0 ms | 0.002 | 44.4 |
+| Solid | 90 (90-90) | 1.65 s | 2.55 s | 0 ms | 0.151 | 11.3 |
+| Angular | 88 (81-95) | 1.50 s | 2.81 s | 162 ms | 0.138 | 89.9 |
+| Vue 3 (mutoe) | 86 (85-86) | 1.44 s | 2.34 s | 0 ms | 0.227 | 45.0 |
+| Vue 3 (official) | 80 (77-80) | 1.51 s | 3.76 s | 44 ms | 0.191 | 45.9 |
+
+Desktop:
+
+| implementation | perf (range) | FCP | LCP | TBT | CLS | JS (KB) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **sinter** | **100** (100-100) | **391 ms** | **391 ms** | 0 ms | 0 | 27.7 |
+| SvelteKit | 100 (100-100) | 449 ms | 776 ms | 0 ms | 0 | 44.4 |
+| Solid | 100 (100-100) | 404 ms | 646 ms | 0 ms | 0 | 11.3 |
+| Angular | 76 (76-76) | 450 ms | 691 ms | 0 ms | 0.767 | 89.9 |
+| Vue 3 (official) | 76 (76-76) | 407 ms | 817 ms | 0 ms | 0.793 | 45.9 |
+| Vue 3 (mutoe) | 76 (76-76) | 483 ms | 726 ms | 0 ms | 0.790 | 45.0 |
+
+JS is what was transferred (brotli). sinter's largest paint is in its first frame; SvelteKit, which
+renders the feed on its server, has no shift, and its first paint waits for the API. The client-rendered
+apps shift when the feed arrives: on a phone the tag list below the feed moves down (Solid), on desktop
+the page's content (Angular, both Vue apps). sinter's home page did the same on a phone (CLS 0.151,
+mobile 93) until the build kept the tag list hidden while the feed's first rows load
+([first paint](first-paint.md#a-box-whose-width-follows-the-list)); moving the theme into the build's CSS
+(minified and hashed with the Google Fonts CSS, one stylesheet less) took the first paint from 1.53 s to
+1.38 s.
+
+Not the same, still: each app's own markup, scripts and fonts; server rendering on this machine; one
+machine's CPU and Lighthouse's simulated network, not a CDN at the edge with HTTP/2.
+
+### On the public demos
+
+The same day, with [`bench/realworld/lighthouse.mjs`](../bench/realworld/lighthouse.mjs): the others on their
+live demos, sinter's build (before the two changes above) served by
+[`bench/realworld/serve.mjs`](../bench/realworld/serve.mjs) (brotli, immutable assets, HTTP/1.1), all through
+this machine's network proxy.
 
 | implementation | demo |
 | --- | --- |
 | Angular | https://demo.realworld.show/ (the official demo) |
 | SvelteKit | https://realworld.svelte.dev/ |
 | Vue 3 | https://vue3-realworld-example-app-mutoe.vercel.app/ |
-| Solid | https://solid-realworld.netlify.app/ (its API, `api.realworld.io`, answers 530: an empty feed) |
+| Solid | https://solid-realworld.netlify.app/ (its API, `api.realworld.io`, does not answer: an empty feed) |
 
 React + Redux has no demo online.
 
@@ -90,34 +152,26 @@ Mobile:
 
 | implementation | perf (range) | a11y | best pr. | SEO | FCP | LCP | TBT | CLS | JS (KB) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| **sinter** | **94** (93-95) | 94 | 100 | **100** | **1.57 s** | 2.95 s | 0 ms | 0 | **24.0** |
-| SvelteKit | 95 (94-95) | 95 | 100 | 92 | 1.76 s | 2.78 s | 0 ms | 0 | 48.7 |
-| Vue 3 | 85 (71-86) | 93 | 100 | 91 | 1.98 s | 3.20 s | 79 ms | 0.150 | 50.7 |
-| Angular | 77 (71-83) | 67 | 100 | 75 | 2.57 s | 3.86 s | 193 ms | 0.102 | 118.1 |
-| Solid (empty feed) | 97 (96-98) | 77 | 96 | 82 | 1.92 s | 2.22 s | 0 ms | 0 | 11.5 |
+| **sinter** | **98** (97-99) | 94 | 100 | **100** | **1.58 s** | 2.29 s | 0 ms | 0.001 | 27.7 |
+| SvelteKit | 95 (94-96) | 95 | 100 | 92 | 1.77 s | 2.73 s | 0 ms | 0 | 48.7 |
+| Vue 3 | 86 (74-87) | 93 | 100 | 91 | 1.97 s | 3.09 s | 53 ms | 0.150 | 50.7 |
+| Angular | 82 (78-86) | 67 | 100 | 75 | 2.38 s | 3.33 s | 184 ms | 0.102 | 118.1 |
+| Solid (empty feed) | 98 (96-98) | 77 | 96 | 82 | 1.83 s | 2.12 s | 0 ms | 0 | 11.4 |
 
 Desktop:
 
 | implementation | perf (range) | a11y | best pr. | SEO | FCP | LCP | TBT | CLS | JS (KB) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| **sinter** | **99** (98-99) | 94 | 100 | **100** | **544 ms** | 950 ms | 0 ms | 0 | **24.0** |
-| SvelteKit | 98 (98-99) | 95 | 100 | 92 | 635 ms | 951 ms | 0 ms | 0 | 48.6 |
-| Vue 3 | 74 (74-76) | 93 | 100 | 91 | 846 ms | 1.23 s | 0 ms | 0.513 | 50.6 |
-| Angular | 77 (70-79) | 67 | 100 | 75 | 1.34 s | 1.88 s | 23 ms | 0.168 | 118.1 |
-| Solid (empty feed) | 98 (97-99) | 77 | 96 | 82 | 870 ms | 870 ms | 0 ms | 0 | 11.4 |
+| **sinter** | **99** (98-99) | 94 | 100 | **100** | **525 ms** | 884 ms | 0 ms | 0 | 27.7 |
+| SvelteKit | 99 (98-99) | 95 | 100 | 92 | 710 ms | 839 ms | 0 ms | 0 | 48.7 |
+| Vue 3 | 76 (74-78) | 93 | 100 | 91 | 729 ms | 1.02 s | 0 ms | 0.513 | 50.7 |
+| Angular | 80 (71-81) | 67 | 100 | 75 | 1.29 s | 1.73 s | 0 ms | 0.168 | 118.1 |
+| Solid (empty feed) | 99 (98-99) | 77 | 96 | 82 | 743 ms | 751 ms | 0 ms | 0 | 11.4 |
 
-JS is what was transferred (the hosts' own compression). sinter paints first and ships the least JS of
-the implementations that show articles; SvelteKit, which renders the feed on the server, has its
-largest paint 0.2 s sooner on mobile. Every implementation loses accessibility points for the Conduit
-theme's text colors (`#bbb`, `#999` and the green on white, `color-contrast`); sinter's 94 is only that.
-
-A sinter build that requests resources on the API's origin (listed in `sinter({ origins })`) before the
-stylesheets have loaded, and bundles the Google Fonts stylesheet as the app's own CSS (Angular's CLI
-does the same by default), measured with the same setup: mobile 98 (97-98), LCP 2.30 s, FCP 1.54 s;
-desktop 98 (98-99), LCP 1.08 s; CLS 0.001 and 0. The tables above are the build without those two options.
-
-Demos change under their URLs. Lighthouse replays every page on the same simulated network, but each
-server's response time counts as measured.
+The live API had 4 articles that day, so the feed's shift on a phone barely showed. Every implementation
+loses accessibility points for the Conduit theme's text colors (`#bbb`, `#999` and the green on white,
+`color-contrast`); sinter's 94 is only that. Demos change under their URLs, and each server's response time
+counts as measured.
 
 ## htmx and Datastar
 

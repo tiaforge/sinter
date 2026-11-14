@@ -1,8 +1,8 @@
 <!-- The document every page shares: the head, the navbar and the footer. A page is this tag, with its
-     state (`nav`, `guest` and its own fields) and its title and description as props; its content is
-     the body between the navbar and the footer. -->
+     state (`nav` and its own fields) and its title and description as props; its content is the body
+     between the navbar and the footer. -->
 <!DOCTYPE html>
-<html lang="en" data-sn-layout="{ nav: string; guest: boolean; title: string; description: string }">
+<html lang="en" data-sn-layout="{ nav: string; title: string; description: string }">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,11 +10,17 @@
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Titillium+Web:700|Source+Serif+Pro:400,700|Merriweather+Sans:400,700|Source+Sans+Pro:400,300,600,700,300italic,400italic,600italic,700italic">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/src/styles.css">
   <slot name="head"></slot>
 </head>
-<body>
-<conduit-header data-sn-prop="{ nav, guest }"></conduit-header>
+<!-- a failed button (favorite, follow, delete) that nothing else showed: its error under the navbar on every page;
+     a 401 means the session is gone (forms show theirs, including a 401, in their own list) -->
+<body data-sn-state="{ error: null }"
+  data-sn-on-sn-error="$event.detail.error.status == 401 ? navigate('/login') : error = $event.detail.error; $event.preventDefault()">
+<!-- early="off": the auth middleware answers this request without a token, and adds one otherwise -->
+<sn-resource cache name="user" src="/user" early="off"></sn-resource>
+<conduit-header data-sn-prop="{ nav }"></conduit-header>
+<div class="container"><error-list data-sn-prop="{ error }"></error-list></div>
 <slot></slot>
 <conduit-footer></conduit-footer>
 </body>

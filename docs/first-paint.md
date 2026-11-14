@@ -364,9 +364,36 @@ A list inside a box whose width the stylesheets leave to its content (a flex ite
 `flex-basis` or `width`, or a float) has a different problem: empty, the box is narrow and what is
 beside it sits next to it; the rows widen it, and its neighbours move or wrap to the next line. When
 the rows have a width of their own, the placeholder takes it, and the box is as wide from the first
-frame. Otherwise the data decides the width, and the build reports it, `SN529`, naming the screen widths
-where it is so: give the box a width of its own (`flex: 1 1 0`, or a basis of 100% where it takes the line,
-as grid systems do below their breakpoint), or give the rows one.
+frame. Otherwise the data decides the width, and no space the build could hold keeps the neighbours in
+place. So, in a build, what follows the box stays invisible (`visibility: hidden`: laid out, not shown)
+while the list's first rows load, and shows with them: what moves is not shown, so nothing visible
+shifts. The build prints each box it does this for:
+
+```
+sinter: index.html:43: what follows <div.col-md-9> stays hidden while this list's first rows load: its width follows its content (below 768 px), so they would move it; data-sn-wait="off" on it keeps it shown
+```
+
+- Only at the screen widths where the box follows its content (RealWorld's theme: below 768 px; from there
+  the columns have a width, and nothing is hidden), and only the boxes after it in its container.
+- Only the first load: the list's resource that always loads, until it has rows or no load is running
+  (the marker that hides them is removed for good); a choice between resources, while one the early script
+  knows (`src` and `when` over the URL) makes its first load (`!$meta.<name>.loadedAt`). One it cannot tell
+  (RealWorld's "Your Feed", whose `when` waits for the user) hides nothing. Cached rows show at once, so
+  nothing is hidden then either.
+- For at most 3 s, whatever happens (an animation in the rule): a page script that never runs leaves
+  nothing hidden for good.
+- It needs `:has()`; a browser without it shows them, and they move, as before.
+- While they are hidden they are out of the accessibility tree and tab order, and their content
+  (RealWorld's popular tags) shows only with the list: when what follows matters on its own, or holds the
+  page's largest content, give the box a width of its own instead (`flex: 1 1 0`, or a basis of 100% where
+  it takes the line, as grid systems do below their breakpoint), or give the rows one.
+
+`data-sn-wait="off"` on the box keeps what follows it shown, and the build reports `SN529` instead,
+naming the screen widths where the rows move it. The rules are 154 bytes in the page's stylesheet
+(142 gzip on their own), and the marker a branch or a binding of the page; dev plans the same and hides
+nothing. Measured on RealWorld's home page under the same conditions as the other implementations (the
+API answering after 150 ms with 10 articles, 5 runs): Lighthouse mobile CLS 0.151 → 0.000, performance
+93 → 100 (99–100), first and largest paint unchanged (1.53 s) ([bench/realworld/fair](../bench/realworld/fair/README.md)).
 
 An image without a height in rows that arrive late (no `width` and `height` attributes, no `aspect-ratio`
 or height in CSS) grows its row again when its file loads: `SN530`.

@@ -34,28 +34,35 @@ const feature: Feature = {
       return key(at) != key(to) && (key(at, reads) == key(to, reads) || undefined);
     };
     app.ext.sameLink = (a) => { const to = place(a); return to && differs(to); };
-    const click = (e: Event) => {
-      const m = e as MouseEvent, a = (e.target as Element | null)?.closest?.('a[href],area[href]');
-      const to = !m.defaultPrevented && !(m.button || m.ctrlKey || m.metaKey || m.shiftKey || m.altKey) && a && place(a);
-      if (!to) return;
+    /** goes to `to` in the page when it may (true: done here, the browser does nothing); `replace`: in the current entry */
+    const follow = (to: URL, replace?: boolean): boolean => {
       // what typing waits to commit goes into its own entry first: the link is compared with that URL
       app.ext.typing?.finish();
       const d = differs(to);
-      if (d == null) return;
+      if (d == null) return false;
       // the same query: a `#hash` (the link's or the address bar's) is the browser's; else nothing changes
-      if (!d && (to.hash || here().hash)) return;
-      e.preventDefault();
-      if (!d) return;
-      const loc = app.ext.location!, u = app.page.$url;
+      if (!d && (to.hash || here().hash)) return false;
+      if (!d) return true;
+      const loc = app.ext.location!, u = app.page.$url, href = to.href.replace(/#.*/, '');
       // a history call the browser refuses (Safari, too often): the link loads
       // the URL as the link wrote it (`?` stays), without its hash
-      try { loc.push(to.href.replace(/#.*/, '')); } catch { return app.env.navigate(to.href); }
+      try { replace ? app.env.replaceState(href) : loc.push(href); } catch { app.env.navigate(to.href); return true; }
       for (const k in u) delete u[k];
       Object.assign(u, readUrl(app.env.href(), app.ir.path));
       loc.arrive();
       app.mark('$url');
       // a native fragment navigation in the new entry: `:target`, `scroll-margin` and focus as in any page
       if (to.hash) (app.env.fragment ?? ((h) => location.replace(h)))(to.hash);
+      return true;
+    };
+    app.ext.follow = (url, replace) => {
+      const at = here(), to = new URL(url, at);
+      return to.origin == at.origin && to.pathname == at.pathname && follow(to, replace);
+    };
+    const click = (e: Event) => {
+      const m = e as MouseEvent, a = (e.target as Element | null)?.closest?.('a[href],area[href]');
+      const to = !m.defaultPrevented && !(m.button || m.ctrlKey || m.metaKey || m.shiftKey || m.altKey) && a && place(a);
+      if (to && follow(to)) e.preventDefault();
     };
     // after the page's own handlers (the core listens in the capture phase): one may prevent the default
     app.root.addEventListener('click', click);

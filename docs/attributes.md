@@ -16,7 +16,7 @@ Bind values to the page.
 | `data-sn-prop` | object literal | sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only |
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item |
 | `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
-| `data-sn-if` | value expression | renders a &lt;template&gt; while truthy |
+| `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when a change swaps the branch the focused element is in, the element with its id in the new branch takes focus (a toggle's two buttons: &lt;button id="follow" data-sn-delete=…&gt; and &lt;button id="follow" data-sn-post=…&gt;) |
 | `data-sn-else` |  | on a &lt;template&gt; directly after an if template |
 
 ## Keep state
@@ -86,7 +86,7 @@ In a component file in `src/components/`, and on a component's tag (`early`). De
 
 ## Pages and navigation
 
-Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [first paint](first-paint.md).
+Set on `<html>` or on shared elements; `wait` on a box around a list. Details: [navigation](navigation.md), [first paint](first-paint.md).
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
@@ -94,6 +94,7 @@ Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [fi
 | `data-sn-prefetch` | off | on &lt;html&gt;: no other page prefetches this one's data or the page itself (Speculation Rules), and none prerenders it; for pages that do something when they load |
 | `data-sn-transition` | value expression (a name) | the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too) |
 | `data-sn-data` | resource name | on &lt;script type="application/json"&gt; in &lt;head&gt;: initial data for a resource |
+| `data-sn-wait` | off | on a box whose width follows its content (a flex item without a basis or width, a float) around a list over late data: by default what follows the box stays invisible while the list's first rows load, for at most 3 s, so nothing that is shown moves when they widen the box (builds; at the screen widths where it is so); off keeps it shown, and SN529 says it moves |
 
 ## Lazy packages
 
@@ -130,5 +131,5 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 ## Names available in expressions
 
 - **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`.
-- **Store functions:** `refresh()`, `upsert()`, `patch()`, `remove()`, `page()`, `showModal()`, `close()`, `reset()`, `emit()`, `run()`.
+- **Store functions:** `refresh()`, `upsert()`, `patch()`, `remove()`, `page()`, `showModal()`, `close()`, `reset()`, `emit()`, `run()`, `navigate()`.
 - **Built-in helpers:** `date()`, `time()`, `datetime()`, `relative()`, `number()`, `bytes()`.

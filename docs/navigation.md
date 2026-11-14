@@ -165,7 +165,8 @@ rules, and no other pause.
 
 A plain click on a link to the page itself that changes only query parameters the page reads stays
 on the page: a new history entry, and the page shows what loading the link's URL would show. Only
-the state you made (`data-sn-state`) and the scroll position stay. Nothing to write:
+the state you made (`data-sn-state`) and the scroll position stay. Nothing to write (and `navigate(url)` in a handler,
+`then` or `catch` follows the same rule, `{ replace: true }` in the current entry):
 
 ```html
 <a data-sn-attr="{ href: '?tag=' + encodeURIComponent($url.tag) + '&page=' + n }" data-sn-text="n"></a>

@@ -1,16 +1,18 @@
 <!-- The favorite button, on the feed, the profile and the article page. `patch(article, …)` names no
      resource: it changes the article where it came from at each use (a row of `articles` or `feed`, or
-     the single `article`), and write-through applies the response. `label`: the article page's wording. -->
-<template data-sn-component="{ article: Omit<Article, 'body'>; label?: boolean }">
+     the single `article`), and write-through applies the response. `label`: the article page's wording.
+     Both buttons have the id `favorite-<idSuffix>`, so the one a click brings keeps the focus (unique on the
+     page; the literal start keeps data from naming a global, SN503). -->
+<template data-sn-component="{ article: Omit<Article, 'body'>; label?: boolean; idSuffix: string }">
   <span class="favorite">
     <template data-sn-if="article.favorited">
-      <button class="btn btn-sm btn-primary" data-sn-delete="/articles/{article.slug}/favorite"
+      <button class="btn btn-sm btn-primary" data-sn-attr="{ id: 'favorite-' + idSuffix }" data-sn-delete="/articles/{article.slug}/favorite"
               data-sn-optimistic="patch(article, { favorited: false, favoritesCount: article.favoritesCount - 1 })">
         <i class="ion-heart"></i> <template data-sn-if="label">Unfavorite Article </template><span class="counter" data-sn-text="label ? '(' + article.favoritesCount + ')' : article.favoritesCount"></span>
       </button>
     </template>
     <template data-sn-else>
-      <button class="btn btn-sm btn-outline-primary" data-sn-post="/articles/{article.slug}/favorite"
+      <button class="btn btn-sm btn-outline-primary" data-sn-attr="{ id: 'favorite-' + idSuffix }" data-sn-post="/articles/{article.slug}/favorite"
               data-sn-optimistic="patch(article, { favorited: true, favoritesCount: article.favoritesCount + 1 })">
         <i class="ion-heart"></i> <template data-sn-if="label">Favorite Article </template><span class="counter" data-sn-text="label ? '(' + article.favoritesCount + ')' : article.favoritesCount"></span>
       </button>

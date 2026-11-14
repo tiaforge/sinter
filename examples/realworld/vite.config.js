@@ -16,9 +16,10 @@ export default defineConfig({
     sinter({
       apis,
       embed: !!process.env.SINTER_EMBED,
-      // warnings fail the build, except SN529: the feed and the tag list sit in the RealWorld theme's
-      // columns, which follow their content below 768 px, and the shared theme stays as it is
-      strict: { allow: { SN529: 'the shared RealWorld theme sizes .col-md-9 and .col-md-3 by their content below 768 px; it is not ours to change' } },
+      // warnings fail the build, except SN529 for the tag list: the feed and the tag list sit in the RealWorld theme's
+      // columns, which follow their content below 768 px. The build keeps the tag column hidden while the feed's first
+      // rows load; the tags' own column is the row's last, so nothing follows it to move
+      strict: { allow: { SN529: 'the shared RealWorld theme sizes .col-md-3 by its content below 768 px; nothing follows it in its row' } },
     }),
   ],
   build: {

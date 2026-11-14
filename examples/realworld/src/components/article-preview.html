@@ -1,11 +1,22 @@
-<!-- Title, description and tags of an article in a list (which has no `body`), linking to it. -->
+<!-- An article in a list (which has no `body`): its favorite button, author and date, then its title,
+     description and tags, linking to it. -->
 <template data-sn-component="{ article: Omit<Article, 'body'> }">
-  <a class="preview-link" data-sn-attr="{href: '/article/' + encodeURIComponent(article.slug)}">
-    <h1 data-sn-text="article.title" data-sn-transition="'article-' + article.slug"></h1>
-    <p data-sn-text="article.description"></p>
-    <span>Read more...</span>
-    <ul class="tag-list">
-      <template data-sn-for="t in article.tagList" data-sn-key="t"><li class="tag-default tag-pill tag-outline" data-sn-text="t"></li></template>
-    </ul>
-  </a>
+  <div class="article-preview">
+    <div class="article-meta">
+      <favorite-button class="pull-xs-right" data-sn-prop="{ article, idSuffix: article.slug }"></favorite-button>
+      <a data-sn-attr="{href: '/profile/' + encodeURIComponent(article.author.username)}"><img data-sn-attr="{src: avatar(article.author.image), alt: article.author.username}"></a>
+      <div class="info">
+        <a class="author" data-sn-attr="{href: '/profile/' + encodeURIComponent(article.author.username)}" data-sn-text="article.author.username"></a>
+        <span class="date" data-sn-text="date(article.createdAt, 'long')"></span>
+      </div>
+    </div>
+    <a class="preview-link" data-sn-attr="{href: '/article/' + encodeURIComponent(article.slug)}">
+      <h1 data-sn-text="article.title" data-sn-transition="'article-' + article.slug"></h1>
+      <p data-sn-text="article.description"></p>
+      <span>Read more...</span>
+      <ul class="tag-list">
+        <template data-sn-for="t in article.tagList" data-sn-key="t"><li class="tag-default tag-pill tag-outline" data-sn-text="t"></li></template>
+      </ul>
+    </a>
+  </div>
 </template>
