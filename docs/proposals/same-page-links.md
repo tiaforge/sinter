@@ -6,7 +6,7 @@ Status: implemented (2026-11-14), steps 1 to 4 of the [Plan](#plan); the guide i
   the click's load: the core's loader takes prefetched data only at a resource's first load, and
   taking it later would add to the core. A click on such a link sends its request then.
 - The build warning is `SN519` (`main` had taken `SN517` and `SN518`), and it came with step 1.
-- The module is 0.7 KB gzip (737 B), not the 250–350 B estimated: what is left is the click checks and reading `$url` again, which the core does on Back but does not share without growing every page.
+- The module is 0.7 KB gzip (710 B), not the 250–350 B estimated: what is left is the click checks and reading `$url` again, which the core does on Back but does not share without growing every page.
 - The Speculation Rules exclusion is `{ href_matches: '?*', relative_to: 'document' }` on pages with
   same-page links, checked against Chromium's preload candidates (without it, the page's
   `?page=2` is one; with it, only other pages). A rules file for a response header has it once any

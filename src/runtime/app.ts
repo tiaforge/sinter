@@ -191,7 +191,7 @@ export interface App {
      */
     typing?: { flush(kind: number): void; waits(): boolean; stop(): void; finish(): void };
     /** whether a plain click on this link stays in the page (query-links.ts); next-page data leaves it alone */
-    sameLink?: (a: Element) => boolean;
+    sameLink?: (a: Element) => unknown;
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
     form?: (el: Element, a: ActionDef, body: unknown) => unknown;
     /**

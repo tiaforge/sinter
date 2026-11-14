@@ -11,28 +11,29 @@ import { readUrl } from './runtime/url.js';
 const feature: Feature = {
   name: 'query-links',
   install(app: App) {
-    const reads = new Set(app.ir.urlReads);
+    const reads = app.ir.urlReads!, here = () => new URL(app.env.href());
     /** where a click on `a` goes when it may stay in the page: the same origin and path; nothing: the browser's */
     const place = (a: Element): URL | void => {
       if (a.matches('[download],[target]:not([target=_self]),[rel~=external]')) return;
-      const here = new URL(app.env.href());
+      const at = here();
       try {
-        const to = new URL(a.getAttribute('href')!, here);
-        if (to.origin == here.origin && to.pathname == here.pathname) return to;
+        const to = new URL(a.getAttribute('href')!, at);
+        if (to.origin == at.origin && to.pathname == at.pathname) return to;
       } catch { /* not a URL: the browser's */ }
+    };
+    /** a query without the parameters `drop`, each name's values together in their order: equal for equal queries */
+    const key = (u: URL, drop: string[] = []) => {
+      const q = new URLSearchParams(u.search);
+      for (const n of drop) q.delete(n);
+      q.sort();
+      return '' + q;
     };
     /** whether the query of `to` differs from the current one, by name and values (`?a=1&b=2` is `?b=2&a=1`); nothing: a parameter the page does not read does */
     const differs = (to: URL): boolean | void => {
-      const q = new URL(app.env.href()).searchParams;
-      let d = false;
-      for (const n of new Set([...q.keys(), ...to.searchParams.keys()])) {
-        if (q.getAll(n).join('\0') == to.searchParams.getAll(n).join('\0')) continue;
-        if (!reads.has(n)) return;
-        d = true;
-      }
-      return d;
+      const at = here();
+      return key(at) != key(to) && (key(at, reads) == key(to, reads) || undefined);
     };
-    app.ext.sameLink = (a) => { const to = place(a); return !!to && !!differs(to); };
+    app.ext.sameLink = (a) => { const to = place(a); return to && differs(to); };
     const click = (e: Event) => {
       const m = e as MouseEvent, a = (e.target as Element | null)?.closest?.('a[href],area[href]');
       const to = !m.defaultPrevented && !(m.button || m.ctrlKey || m.metaKey || m.shiftKey || m.altKey) && a && place(a);
@@ -42,7 +43,7 @@ const feature: Feature = {
       const d = differs(to);
       if (d == null) return;
       // the same query: a `#hash` (the link's or the address bar's) is the browser's; else nothing changes
-      if (!d && (to.hash || new URL(app.env.href()).hash)) return;
+      if (!d && (to.hash || here().hash)) return;
       e.preventDefault();
       if (!d) return;
       const loc = app.ext.location!, u = app.page.$url;
