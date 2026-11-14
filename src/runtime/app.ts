@@ -1138,7 +1138,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       pre.end.remove();
     }
     if (br == rb.br) return;
-    const end = (rb.end ??= after(rb.el)), [old] = rb.rows ?? [];
+    // same id, same control: the focused element goes with the old branch, its twin in the new one takes focus
+    const end = (rb.end ??= after(rb.el)), [old] = rb.rows ?? [], f = doc.activeElement;
     if (old) {
       for (const n of range(old.first, end)) (n as ChildNode).remove();
       if (old.rbs) forget(old.rbs);
@@ -1150,6 +1151,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const x = instantiate(anchor as HTMLTemplateElement, ir.templates[tid]!, Object.create(rb.s), '', null, 0);
     end.before(...rowNodes(x));
     rb.rows = [x];
+    if (f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
   }
 
   /** `pre`: nodes the early chunk already rendered from this template, bound instead of a clone. */

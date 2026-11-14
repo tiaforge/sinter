@@ -1,5 +1,6 @@
-<!-- Author, date and the follow/favorite or edit/delete actions of the page's single `article`. -->
-<template data-sn-component="{ article: Article }">
+<!-- Author, date and the follow/favorite or edit/delete actions of the page's single `article`. It is on the
+     page twice: `place` keeps the ids of its toggles (which keep the focus across a click) unique. -->
+<template data-sn-component="{ article: Article; place: 'banner' | 'actions' }">
   <div class="article-meta">
     <a data-sn-attr="{href: '/profile/' + encodeURIComponent(article.author.username)}"><img data-sn-attr="{src: avatar(article.author.image), alt: article.author.username}"></a>
     <div class="info">
@@ -13,17 +14,17 @@
     </template>
     <template data-sn-else>
       <template data-sn-if="article.author.following">
-        <button class="btn btn-sm btn-secondary" data-sn-delete="/profiles/{article.author.username}/follow">
+        <button class="btn btn-sm btn-secondary" data-sn-attr="{ id: 'follow-' + place }" data-sn-delete="/profiles/{article.author.username}/follow">
           <i class="ion-plus-round"></i> <span data-sn-text="'Unfollow ' + article.author.username"></span>
         </button>
       </template>
       <template data-sn-else>
-        <button class="btn btn-sm btn-outline-secondary" data-sn-post="/profiles/{article.author.username}/follow">
+        <button class="btn btn-sm btn-outline-secondary" data-sn-attr="{ id: 'follow-' + place }" data-sn-post="/profiles/{article.author.username}/follow">
           <i class="ion-plus-round"></i> <span data-sn-text="'Follow ' + article.author.username"></span>
         </button>
       </template>
       &nbsp;
-      <favorite-button data-sn-prop="{ article, label: true }"></favorite-button>
+      <favorite-button data-sn-prop="{ article, label: true, idSuffix: place }"></favorite-button>
     </template>
   </div>
 </template>

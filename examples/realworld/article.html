@@ -17,7 +17,7 @@
     <div class="banner">
       <div class="container">
         <h1 data-sn-text="article.title" data-sn-transition="'article-' + $url.slug"></h1>
-        <article-meta data-sn-prop="{ article }"></article-meta>
+        <article-meta data-sn-prop="{ article, place: 'banner' }"></article-meta>
       </div>
     </div>
     <div class="container page">
@@ -30,7 +30,7 @@
         </div>
       </div>
       <hr>
-      <div class="article-actions"><article-meta data-sn-prop="{ article }"></article-meta></div>
+      <div class="article-actions"><article-meta data-sn-prop="{ article, place: 'actions' }"></article-meta></div>
       <div class="row">
         <div class="col-xs-12 col-md-8 offset-md-2">
           <error-list data-sn-prop="{ error: commentError }"></error-list>

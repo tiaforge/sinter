@@ -228,7 +228,7 @@
     },
     {
       "name": "data-sn-if",
-      "description": "renders a <template> while truthy (value expression)"
+      "description": "renders a <template> while truthy. Same id, same control: when a change swaps the branch the focused element is in, the element with its id in the new branch takes focus (a toggle's two buttons: <button id=\"follow\" data-sn-delete=…> and <button id=\"follow\" data-sn-post=…>) (value expression)"
     },
     {
       "name": "data-sn-else",
