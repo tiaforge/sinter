@@ -2,7 +2,7 @@
 // rewritten page plus its IR and function table.
 import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
-import { Layout, PLACEHOLDER_BASE, type Reserved, type StyleSheet } from './layout.js';
+import { boxSizesCss, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import type { RemoteConfig } from '../remote.js';
@@ -169,6 +169,8 @@ export interface CompileOptions {
   paintCss?: string;
   /** a font family's `line-height: normal` as a multiple of its size, from the font files the build has (fonts-build.ts) */
   normalLineHeight?: (family: string) => number | null;
+  /** the width of `0` (`1ch`) in a web font, as a multiple of its size, from its files (font-metrics.ts); null when they were not read */
+  zeroWidth?: (family: string) => number | null;
 }
 
 /** A place in the markup: `file`, 1-based line and column. */
@@ -620,7 +622,7 @@ class Compiler {
   /** resources with `early="off"`: no preload, no early request (one a request middleware answers or adds a header to) */
   private readonly noEarly = new Set<string>();
   /** by `<template data-sn-for>` outside templates: its reserved space and the content-sized box around it (`planSpace`) */
-  private readonly spacePlan = new Map<P5Element, { sized: { el: P5Element; siblings: boolean; widths: string; ranges: Array<[number, number | undefined]> } | null; space: Reserved | null; resources: string[]; names: string[]; waitForm: 'static' | 'if'; waitOff: boolean; form: 'static' | 'if'; list: string; why: string | null; unsized: P5Element[] }>();
+  private readonly spacePlan = new Map<P5Element, { sized: { el: P5Element; siblings: boolean; widths: string; ranges: Array<[number, number | undefined]> } | null; space: Reserved | null; resources: string[]; names: string[]; waitForm: 'static' | 'if'; waitOff: boolean; form: 'static' | 'if'; list: string; why: string | null; unsized: Array<{ el: P5Element; src: string | null; v: string | null }> }>();
   /** paginated lists over late data that hold no space, and why (the build prints them) */
   readonly unheld: Array<{ file: string; line: number; col: number; why: string }> = [];
   /** the placeholders' rules (`CompiledParts.paint`) */
@@ -810,12 +812,12 @@ class Compiler {
     this.checkHead();
     this.componentIds();
     const sheets = this.opts.styles ?? this.opts.images?.styles;
-    const layout = this.layout = sheets?.length ? new Layout(sheets, doc, this.opts.normalLineHeight ? { normalLineHeight: this.opts.normalLineHeight } : {}) : null;
+    const layout = this.layout = sheets?.length ? new Layout(sheets, doc, { ...(this.opts.normalLineHeight ? { normalLineHeight: this.opts.normalLineHeight } : {}), ...(this.opts.zeroWidth ? { zeroWidth: this.opts.zeroWidth } : {}) }) : null;
     // the lists whose rows arrive after the first paint: their space, before anything else reads the markup's bindings
     if (layout) this.planSpace(doc, layout);
     const images = this.opts.images ? rewriteImages(doc, {
       host: this.opts.images, root: this.opts.root,
-      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows } : {}),
+      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows, scaled: (el: P5Element, what: 'box' | 'bound') => this.scaledWidth(layout, el, what) } : {}),
       fileOf: (el) => this.origins.get(el)?.file ?? this.opts.file,
       warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
     }) : undefined;
@@ -3116,7 +3118,13 @@ class Compiler {
       widths = [w, 2 * w, ...(small ? [3 * w] : [])];
       at = w;
       if (box.height !== null && box.fit === 'cover' && this.opts.remoteImages.cover) r = Math.round(box.height) / w;
-      sizes = `(max-width: ${w}px) 100vw, ${w}px`;
+      const scaled = this.scaledWidth(this.layout!, el, 'box');
+      if (scaled && Math.abs(scaled.b) > 1e-6) {
+        // a box in rem or em grows with the default font size: its 2x at a 24 px default too, and `sizes` in em
+        const w24 = Math.round(2 * (scaled.a + 24 * scaled.b));
+        if (!widths.includes(w24)) widths = [...widths, w24].sort((a, b) => a - b);
+        sizes = boxSizesCss(scaled);
+      } else sizes = `(max-width: ${w}px) 100vw, ${w}px`;
       if (attr(el, 'width') === undefined) setAttr(el, 'width', String(w));
       if (box.height !== null && attr(el, 'height') === undefined) setAttr(el, 'height', String(Math.round(box.height)));
     } else {
@@ -3128,7 +3136,8 @@ class Compiler {
       widths = fluid?.constant ? [...new Set(fluid.constant.flatMap((w) => [w, 2 * w, 3 * w]))].sort((a, b) => a - b)
         : bound === null ? [...ladder] : [...ladder.filter((w) => w < 3 * bound * 0.9), 3 * bound];
       at = fluid?.constant ? Math.max(...fluid.constant) : bound === null ? 1280 : Math.min(1280, bound);
-      sizes = `auto, ${fluid ? fluid.sizes : bound === null ? '100vw' : `(max-width: ${bound}px) 100vw, ${bound}px`}`;
+      const scaled = !fluid && bound !== null ? this.scaledWidth(this.layout!, el, 'bound') : null;
+      sizes = `auto, ${fluid ? fluid.sizes : bound === null ? '100vw' : scaled && Math.abs(scaled.b) > 1e-6 ? boxSizesCss(scaled) : `(max-width: ${bound}px) 100vw, ${bound}px`}`;
     }
     if (attr(el, 'sizes') === undefined) setAttr(el, 'sizes', sizes);
     // rows load as they scroll in; an image outside a template may be the page's largest, so it is not deferred
@@ -3138,6 +3147,50 @@ class Compiler {
     for (const w of widths) this.remoteWidths.add(w);
     const value = e.code.slice('($) => '.length);
     return { src: `($) => $ri.src(${value}, ${at}, ${r})`, srcset: `($) => $ri.set(${value}, ${JSON.stringify(widths)}, ${r})` };
+  }
+
+  /**
+   * The fix SN530 suggests for an image without a height in a list's rows, the most specific the build can give: its
+   * size from the API (fields next to the URL its `src` is bound to, in the resource's OpenAPI schema), the
+   * attribute it lacks, or an `aspect-ratio` rule for it. Nothing at runtime: attributes and CSS.
+   */
+  unsizedFix(u: { el: P5Element; src: string | null; v: string | null }, list: string): string {
+    const el = u.el;
+    const w = attr(el, 'width') !== undefined, h = attr(el, 'height') !== undefined;
+    if (w !== h) return `give it \`${w ? 'height' : 'width'}\` too: with both, the browser keeps their ratio before the file loads (\`height: auto\` in its CSS keeps it fluid)`;
+    // the API's own width and height, next to the URL
+    const path = u.src?.split('.') ?? [];
+    const info = u.v && path[0] === u.v && path.length >= 2 && /^[A-Za-z_$][\w$]*$/.test(list) ? this.itemSchema.get(list) : undefined;
+    if (info) {
+      const doc = this.opts.openapi![info.spec]!.doc;
+      // a list's schema (an inline array response) stands for its items
+      const items = (x: unknown) => { const d = deref(doc, x) as { type?: unknown; items?: unknown } | null; return d?.type === 'array' ? d.items : x; };
+      let schema: unknown = items(info.schema);
+      for (const seg of path.slice(1, -1)) schema = schema === undefined ? undefined : properties(doc, schema).get(seg);
+      const props = schema === undefined ? new Map<string, unknown>() : properties(doc, schema);
+      const num = (k: string) => { const t = (deref(doc, props.get(k)) as { type?: unknown } | null)?.type; return t === 'integer' || t === 'number' || (Array.isArray(t) && t.some((x) => x === 'integer' || x === 'number')); };
+      const last = path[path.length - 1]!, cap = last.charAt(0).toUpperCase() + last.slice(1);
+      const pair = [['width', 'height'], ['w', 'h'], [`${last}Width`, `${last}Height`], [`${last}_width`, `${last}_height`], ['imageWidth', 'imageHeight'], ['image_width', 'image_height'], [`width${cap}`, `height${cap}`]].find(([a, b]) => num(a!) && num(b!));
+      if (pair) {
+        const at = path.slice(0, -1).join('.');
+        return `the API gives its size next to the URL: add \`width: ${at}.${pair[0]}, height: ${at}.${pair[1]}\` to its \`data-sn-attr\`, so the browser has its ratio before the file loads (\`height: auto\` in its CSS keeps it fluid)`;
+      }
+    }
+    // an aspect-ratio rule, with a selector for it: its classes, or the closest class in its row
+    const cls = (x: P5Element) => (attr(x, 'class') ?? '').trim().split(/\s+/).filter((c) => c && !/[{}$]/.test(c));
+    let sel = cls(el).length ? `${el.tagName}.${cls(el)[0]}` : null;
+    for (let up = el.parentNode as P5Element | null; !sel && up && 'attrs' in up && up.tagName !== 'template'; up = up.parentNode as P5Element | null) if (cls(up).length) sel = `.${cls(up)[0]} ${el.tagName}`;
+    const video = el.tagName !== 'img';
+    return `give it its images' ratio in the stylesheets: \`${sel ?? el.tagName} { width: 100%; aspect-ratio: ${video ? '16 / 9' : '4 / 3'};${video ? '' : ' object-fit: cover;'} }\` (with your ratio${video ? '' : '; `object-fit: cover` crops any image to it'}), or \`width\` and \`height\` attributes${u.src ? ', or bind both from the data in its `data-sn-attr`' : ''}`;
+  }
+
+  /** an image's box width (`box`) or fluid bound (`bound`) from the stylesheets at every default font size */
+  scaledWidth(layout: Layout, el: P5Element, what: 'box' | 'bound'): Affine | null {
+    return layout.scalable((l) => {
+      if (what === 'bound') return l.maxWidth(el);
+      const b = l.box(el);
+      return b && b !== 'fluid' ? b.width : null;
+    });
   }
 
   objectBinding(el: P5Element, node: NodeDef, scope: Scope, k: 'class' | 'style' | 'prop') {
@@ -4814,8 +4867,11 @@ class Compiler {
         }
       }
       // images in the rows without a height before their file: each one grows its row when it loads
-      const unsized: P5Element[] = [];
-      const scan = (p: P5Parent) => { for (const c of p.childNodes) { if (!isElement(c)) continue; if (/^(img|video|iframe|embed|object)$/.test(c.tagName) && layout.sized(c) === false) unsized.push(c); scan(c.tagName === 'template' ? (c as P5Template).content : c); } };
+      // with what its `src` is bound to (read here: the walk removes the bindings), for the fix SN530 suggests
+      const unsized: Array<{ el: P5Element; src: string | null; v: string | null }> = [];
+      const v = /^\s*(?:\(\s*([A-Za-z_]\w*)\s*,\s*[A-Za-z_]\w*\s*\)|([A-Za-z_]\w*))\s+in\b/.exec(attr(tpl, 'data-sn-for')!);
+      const srcOf = (c: P5Element) => /(?:^|[{,]\s*)src\s*:\s*([A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)+)\s*(?=[,}])/.exec(attr(c, 'data-sn-attr') ?? '')?.[1]?.replace(/\?\./g, '.') ?? null;
+      const scan = (p: P5Parent) => { for (const c of p.childNodes) { if (!isElement(c)) continue; if (/^(img|video|iframe|embed|object)$/.test(c.tagName) && layout.sized(c) === false) unsized.push({ el: c, src: srcOf(c), v: v?.[1] ?? v?.[2] ?? null }); scan(c.tagName === 'template' ? (c as P5Template).content : c); } };
       scan((tpl as P5Template).content);
       this.spacePlan.set(tpl, { sized, space, resources: space ? names : [], names: cands, waitForm, waitOff, form, list: m?.[1]!.trim() ?? '', why: why || null, unsized });
     }
@@ -4850,8 +4906,8 @@ class Compiler {
       this.report(el, 'data-sn-for', 'SN529', `this list's rows arrive after the first paint inside \`<${what}>\`, whose width follows its content (${plan.sized.widths}): the rows widen it and move what is beside it`, 0,
         'give that box a width or flex basis of its own (`flex: 1 1 0`, `width: 100%`), or give the rows a width');
     }
-    if (late.length) for (const img of plan.unsized) this.report(img, null, 'SN530', `\`<${img.tagName}>\` in a list whose rows arrive after the first paint has no height before its file loads: when it does, its row grows and what follows moves`, 0,
-      'give it `width` and `height` attributes (its ratio), or an `aspect-ratio` or a height in the stylesheets');
+    if (late.length) for (const u of plan.unsized) this.report(u.el, null, 'SN530', `\`<${u.el.tagName}>\` in a list whose rows arrive after the first paint has no height before its file loads: when it does, its row grows and what follows moves`, 0,
+      this.unsizedFix(u, plan.list));
     const note = (why: string) => {
       const o = this.origins.get(el), at = o && el.sourceCodeLocation ? this.lineCol(o.src, el.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
       this.unheld.push({ file: o?.file ?? this.opts.file, line: at.line, col: at.col, why });

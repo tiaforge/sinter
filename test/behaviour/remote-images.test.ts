@@ -34,7 +34,7 @@ test('a fixed box from the stylesheets: 1x/2x/3x through the template, cover cro
   const enc = encodeURIComponent('https://uploads.example.com/a/1.jpg');
   expect(imgs[0]!.getAttribute('src')).toBe(`https://img.example.com/40x40/${enc}`);
   expect(imgs[0]!.getAttribute('srcset')).toBe(`https://img.example.com/40x40/${enc} 40w, https://img.example.com/80x80/${enc} 80w, https://img.example.com/120x120/${enc} 120w`);
-  expect(imgs[0]!.getAttribute('sizes')).toBe('(max-width: 40px) 100vw, 40px');
+  expect(imgs[0]!.getAttribute('sizes')).toBe('(max-width: 2.5em) 100vw, 2.5em');
   expect([imgs[0]!.getAttribute('width'), imgs[0]!.getAttribute('height'), imgs[0]!.getAttribute('loading'), imgs[0]!.getAttribute('decoding')]).toEqual(['40', '40', 'lazy', 'async']);
   // same origin: its path
   expect(imgs[1]!.getAttribute('src')).toBe(`https://img.example.com/40x40/${encodeURIComponent('/media/2.jpg')}`);

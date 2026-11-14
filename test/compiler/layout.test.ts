@@ -6,7 +6,7 @@ import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Layout, evaluate } from '../../src/compiler/layout.js';
-import { chromium } from '../browser.js';
+import { chromium, engines } from '../browser.js';
 import type { Page } from 'playwright';
 
 type El = DefaultTreeAdapterMap['element'];
@@ -209,8 +209,30 @@ const FLUID: Array<[string, string, string, string]> = [
   ['wrapped flex items with a basis, by breakpoint', 'body { margin: 0 } .r { display: flex; flex-wrap: wrap } .r > * { flex: 0 0 100% } @media (min-width: 640px) { .r > * { flex-basis: 50% } } img { width: 100% }', '<div class="r"><div><img id="t" src="a.png" alt=""></div></div>', '(max-width: 639.98px) 100vw, 50vw'],
   ['a fixed size per breakpoint', 'img.a { width: 40px } @media (min-width: 768px) { img.a { width: 64px } }', '<img id="t" class="a" src="a.png" alt="">', '(max-width: 767.98px) 40px, 64px'],
   ['negative margins (a full-bleed image in a padded column)', 'body { margin: 0 } main { padding: 0 20px } .bleed { margin: 0 -20px } img { width: 100% }', '<main><div class="bleed"><img id="t" src="a.png" alt=""></div></main>', '100vw'],
-  ['clamp() and min() in the container', 'body { margin: 0 } .c { width: min(90vw, 70rem); margin-inline: auto } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>', '(max-width: 1244.42px) 90vw, 1120px'],
+  ['clamp() and min() in the container', 'body { margin: 0 } .c { width: min(90vw, 70rem); margin-inline: auto } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>', '(max-width: 77.7753em) 90vw, 70em'],
   ['an image narrower than its column: min(source, column)', 'body { margin: 0 } img { max-width: 100% }', '<div><img id="t" src="a.png" width="600" alt=""></div>', '(max-width: 599.98px) 100vw, 600px'],
+  ['padding in em', 'main { padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>', 'calc(100vw - 16px - 4em)'],
+  ['a measure in em of its own font size', 'body { margin: 0 } .prose { font-size: 1.125rem; max-width: 40em; margin: 0 auto; padding: 0 1em } img { width: 100% }', '<article class="prose"><p><img id="t" src="a.png" alt=""></p></article>', '(max-width: 47.2475em) calc(100vw - 2.25em), 45em'],
+  ['a sidebar track and a fr track, from a breakpoint', 'body { margin: 0 } .l { display: grid; gap: 24px } @media (min-width: 768px) { .l { grid-template-columns: 240px 1fr } } img { width: 100% }', '<div class="l"><nav></nav><main><img id="t" src="a.png" alt=""></main></div>', '(max-width: 767.98px) 100vw, calc(100vw - 264px)'],
+  ['unequal fr tracks, the second item auto-placed', 'body { margin: 0 } .g { display: grid; grid-template-columns: 2fr 1fr; gap: 30px } img { width: 100% }', '<div class="g"><div></div><div><img id="t" src="a.png" alt=""></div></div>', 'calc(33.33vw - 10px)'],
+  ['unequal tracks, the cursor wraps to the next row', 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 3fr; gap: 20px } img { width: 100% }', '<div class="g"><div></div><div></div><div><img id="t" src="a.png" alt=""></div></div>', 'calc(25vw - 5px)'],
+  ['unequal tracks, placed by lines', 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 2fr 1fr; column-gap: 16px } .w { grid-column: 2 / -1 } img { width: 100% }', '<div class="g"><div class="w"><img id="t" src="a.png" alt=""></div></div>', 'calc(75vw - 8px)'],
+  ['named areas, the main column first in the grid and last in the markup', 'body { margin: 0 } .l { display: grid } @media (min-width: 640px) { .l { grid-template-columns: 1fr 300px; grid-template-areas: "main side"; column-gap: 20px } .m { grid-area: main } .s { grid-area: side } } img { width: 100% }', '<div class="l"><aside class="s"></aside><main class="m"><img id="t" src="a.png" alt=""></main></div>', '(max-width: 639.98px) 100vw, calc(100vw - 320px)'],
+  ['equal tracks, placed in the second column', 'body { margin: 0 } .g { display: grid; grid-template-columns: repeat(3, 1fr) } .b { grid-column: 2 } img { width: 100% }', '<div class="g"><div class="b"><img id="t" src="a.png" alt=""></div></div>', '33.33vw'],
+  ['a flex row: a fixed sidebar and a growing main', 'body { margin: 0 } .r { display: flex; gap: 16px } .side { width: 200px; flex-shrink: 0 } .main { flex: 1; min-width: 0 } img { width: 100% }', '<div class="r"><nav class="side"></nav><main class="main"><img id="t" src="a.png" alt=""></main></div>', 'calc(100vw - 216px)'],
+  ['a media object: an avatar column and a body that grows', '.m { display: flex; gap: 12px; padding: 12px; border: 1px solid } .av { flex: none; width: 48px } .b { flex: 1 } img { width: 100% }', '<div class="m"><div class="av"></div><div class="b"><img id="t" src="a.png" alt=""></div></div>', 'calc(100vw - 102px)'],
+  ['flex items growing unequally from a basis', 'body { margin: 0 } .r { display: flex } .a { flex: 2 1 0 } .b { flex: 1 1 100px; padding: 0 10px; box-sizing: border-box } img { width: 100% }', '<div class="r"><div class="a"></div><div class="b"><img id="t" src="a.png" alt=""></div></div>', 'calc(33.33vw + 46.67px)'],
+  ['a column with a minimum beside a fixed one: held at the minimum on narrow screens', 'body { margin: 0 } .g { display: grid; grid-template-columns: minmax(200px, 1fr) 300px; gap: 20px } img { width: 100% }', '<div class="g"><div><img id="t" src="a.png" alt=""></div><div></div></div>', '(max-width: 519.98px) 200px, calc(100vw - 320px)'],
+  ['two columns with minimums: one held, then the other, then both share', 'body { margin: 0 } .g { display: grid; grid-template-columns: minmax(400px, 2fr) minmax(100px, 1fr) } img { width: 100% }', '<div class="g"><div></div><div><img id="t" src="a.png" alt=""></div></div>', '(max-width: 499.98px) 100px, (max-width: 599.98px) calc(100vw - 400px), 33.33vw'],
+  ['a fixed share in a row that fits, no wrapping', 'body { margin: 0 } .r { display: flex } .r > * { flex: 0 0 50% } img { width: 100% }', '<div class="r"><div><img id="t" src="a.png" alt=""></div><div></div></div>', '50vw'],
+];
+
+/** [name, css, body, sizes]: ranges the build cannot follow (bound pieces), beside ones it does */
+const BOUNDED: Array<[string, string, string, string]> = [
+  ['a fixed sidebar that overflows the narrowest screens', 'body { margin: 0 } .r { display: flex; gap: 16px } .side { width: 280px; flex-shrink: 0 } .main { flex: 1; min-width: 0 } img { width: 100% }', '<div class="r"><nav class="side"></nav><main class="main"><img id="t" src="a.png" alt=""></main></div>', '(max-width: 295.98px) 100vw, calc(100vw - 296px)'],
+  ['a label sized by its text on phones, a grid from 640 px', 'body { margin: 0 } .r { display: flex } .b { flex: 1 } @media (min-width: 640px) { .r { display: grid; grid-template-columns: 200px 1fr } } img { width: 100% }', '<div class="r"><span>label</span><div class="b"><img id="t" src="a.png" alt=""></div></div>', '(max-width: 639.98px) 100vw, calc(100vw - 200px)'],
+  ['a measure in ch: at most 0.7em per ch, whatever font renders it', '.prose { max-width: 65ch; margin: 0 auto } img { width: 100% }', '<article class="prose"><p><img id="t" src="a.png" alt=""></p></article>', 'min(100vw - 16px, 45.5em), (max-width: 743.98px) calc(100vw - 16px), 728px'],
+  ['a bound from a container where the range is not followed', 'body { margin: 0 } main { max-width: 500px } .r { display: flex } .b { flex: 1 } @media (min-width: 900px) { main { max-width: none } .r { display: block } } img { width: 100% }', '<main><div class="r"><span>label</span><div class="b"><img id="t" src="a.png" alt=""></div></div></main>', '(max-width: 499.98px) 100vw, (max-width: 899.98px) 500px, 100vw'],
 ];
 
 describe('the width of a fluid image at every viewport width', () => {
@@ -223,10 +245,46 @@ describe('the width of a fluid image at every viewport width', () => {
     // 200 px columns and 20 px gaps: 2 from 420 px, 3 from 640, 4 from 860; the container stops at 900
     expect(sizes(FLUID[3]![1], FLUID[3]![2])).toBe('(max-width: 419.98px) 100vw, (max-width: 639.98px) calc(50vw - 10px), (max-width: 859.98px) calc(33.33vw - 13.33px), (max-width: 899.98px) calc(25vw - 15px), 210px');
   });
-  test('given up: a column count from items rendered later, an unknown media feature, em', () => {
+  test('given up: a column count from items rendered later, an unknown media feature, an em the build cannot know', () => {
     expect(sizes('.r { display: flex } .r > * { flex: 1 } img { width: 100% }', '<div class="r"><template><div><img id="t" src="a.png" alt=""></div></template></div>')).toBeNull();
     expect(sizes('img { width: 100% } @media (hover: hover) { img { width: 50% } }', '<div><img id="t" src="a.png" alt=""></div>')).toBeNull();
-    expect(sizes('main { padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>')).toBeNull();
+    // a font size in vw, or one a state may change, or a lone monospace (whose default the browsers scale)
+    expect(sizes('main { font-size: 2vw; padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>')).toBeNull();
+    expect(sizes('main { padding: 0 2em } main:hover { font-size: 20px } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>')).toBeNull();
+    expect(sizes('main { font-family: monospace; padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>')).toBeNull();
+  });
+  test('given up at every width: a content-sized track or sibling', () => {
+    expect(sizes('.g { display: grid; grid-template-columns: auto 1fr } img { width: 100% }', '<div class="g"><div></div><div><img id="t" src="a.png" alt=""></div></div>')).toBeNull();
+    expect(sizes('.r { display: flex } .b { flex: 1 } img { width: 100% }', '<div class="r"><span>label</span><div class="b"><img id="t" src="a.png" alt=""></div></div>')).toBeNull();
+  });
+  test('an auto-placed item whose column is not known: the widest it may land in', () => {
+    const doc = parse5.parse(page('', '<div class="g"><template><div><img id="t" src="a.png" alt=""></div></template></div>'));
+    const f = new Layout([{ file: 'test.css', css: 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 2fr; gap: 30px } img { width: 100% }' }], doc).fluidSizes(find(doc, 't'))!;
+    expect(f.sizes).toBe('calc(66.67vw - 20px)');
+    expect(f.pieces.every((p) => p.bound === 'widest')).toBe(true);
+    // equal columns with a minimum: wherever a row lands, its width, exactly
+    const eq = parse5.parse(page('', '<div class="g"><template><div><img id="t" src="a.png" alt=""></div></template></div>'));
+    const g = new Layout([{ file: 'test.css', css: 'body { margin: 0 } .g { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px } img { width: 100% }' }], eq).fluidSizes(find(eq, 't'))!;
+    expect(g.sizes).toBe('(max-width: 469.98px) 150px, calc(33.33vw - 6.67px)');
+    expect(g.pieces.some((p) => p.bound)).toBe(false);
+    // a sibling placed by its row: the item lands in some column, the widest of which bounds it
+    expect(sizes('body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 3fr } .x { grid-row: 1 } img { width: 100% }', '<div class="g"><div class="x"></div><div><img id="t" src="a.png" alt=""></div></div>')).toBe('75vw');
+  });
+  test('ch: a web font wider than 0.7em raises the bound, one whose file was not read leaves it unknown, and ch is followed only in a box\'s width', () => {
+    const css = '@font-face { font-family: Wide; src: url(wide.woff2) } body { margin: 0 } .prose { font-family: Wide, sans-serif; max-width: 40ch } img { width: 100% }';
+    const body = '<div class="prose"><img id="t" src="a.png" alt=""></div>';
+    const at = (zero: number | null) => { const doc = parse5.parse(page('', body)); return new Layout([{ file: 'test.css', css }], doc, { zeroWidth: () => zero }).fluidSizes(find(doc, 't')); };
+    expect(at(0.9)!.sizes).toBe('(max-width: 35.9975em) 100vw, 36em');
+    expect(at(0.6)!.sizes).toBe('(max-width: 27.9975em) 100vw, 28em');
+    expect(at(null)).toBeNull();
+    expect(sizes('body { margin: 0 } .c { padding: 0 2ch } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>')).toBeNull();
+    expect(sizes('body { margin: 0 } .r { display: flex } .a { width: 20ch } .b { flex: 1 } img { width: 100% }', '<div class="r"><div class="a"></div><div class="b"><img id="t" src="a.png" alt=""></div></div>')).toBeNull();
+  });
+  test('a range not followed gets a bound there; the others stay exact', () => {
+    const doc = parse5.parse(page('', BOUNDED[0]![2]));
+    const f = new Layout([{ file: 'test.css', css: BOUNDED[0]![1] }], doc).fluidSizes(find(doc, 't'))!;
+    expect(f.pieces.map((p) => p.bound ?? 'exact')).toEqual(['fallback', 'exact']);
+    for (const [, css, body, want] of BOUNDED) expect(sizes(css, body)).toBe(want);
   });
 });
 
@@ -253,6 +311,97 @@ describe.skipIf(!chromium)('the browser renders a fluid image as wide as its siz
   }
 });
 
+describe.skipIf(!chromium)('the browser never renders an image wider than a bound piece says, and exactly as wide as the others', () => {
+  let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
+  let tab: Page;
+  beforeAll(async () => { browser = await chromium!.launch(); tab = await browser.newPage(); }, 30_000);
+  afterAll(async () => { await browser?.close(); });
+  const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  const WIDTHS = [240, 260, 295, 296, 320, 375, 480, 500, 639, 640, 768, 899, 900, 1280, 1920];
+  const cases: Array<[string, string, string, string]> = [
+    ...BOUNDED.map(([n, c, b]) => [n, c, b, b] as [string, string, string, string]),
+    // the rows a list renders: each in its column, none wider than the widest
+    ['rows of a list in unequal tracks', 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 2fr; gap: 30px } img { width: 100% }',
+      '<div class="g"><template><div><img id="t" src="a.png" alt=""></div></template></div>',
+      '<div class="g"><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div></div>'],
+    ['rows of a list in equal columns with a minimum: exact', 'body { margin: 0 } .g { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px } img { width: 100% }',
+      '<div class="g"><template><div><img id="t" src="a.png" alt=""></div></template></div>',
+      '<div class="g"><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div><div><img class="row" src="a.png" alt=""></div></div>'],
+  ];
+  for (const [name, css, body, rendered] of cases) {
+    test(name, async () => {
+      const doc = parse5.parse(page('', body));
+      const f = new Layout([{ file: 'test.css', css }], doc).fluidSizes(find(doc, 't'))!;
+      expect(f).not.toBeNull();
+      for (const v of WIDTHS) {
+        const p = f.pieces.find((x) => v >= x.from && v < x.to) ?? f.pieces[0]!;
+        await tab.setViewportSize({ width: v, height: 600 });
+        await tab.setContent(page(css, rendered.replaceAll('src="a.png"', `src="${IMG}"`)));
+        const ws = await tab.evaluate(() => [...document.querySelectorAll('#t, .row')].map((e) => e.getBoundingClientRect().width));
+        const said = p.k * v + p.c;
+        for (const w of ws) {
+          if (p.bound) expect(w, `${name} at ${v} px (sizes ${f.sizes})`).toBeLessThanOrEqual(said + 0.5);
+          else expect(w, `${name} at ${v} px (sizes ${f.sizes})`).toBeCloseTo(said, 0);
+        }
+        if (p.bound === 'widest') expect(Math.max(...ws), `${name} at ${v} px: the widest row`).toBeCloseTo(said, 0);
+      }
+    });
+  }
+});
+
+const PNG_URL = 'https://x.test/img.png';
+
+describe.skipIf(!chromium)('at every default font size, the width the browser reads from sizes is the width it renders', () => {
+  // the browser picks the smallest of 1 px steps at least as wide as `sizes` says (at 1x): that is how it reads `sizes`
+  let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
+  let tab: Page;
+  let html = '';
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+  const STEPS = Array.from({ length: 3000 }, (_, i) => `https://x.test/w${i + 1}.png ${i + 1}w`).join(', ');
+  beforeAll(async () => {
+    browser = await chromium!.launch();
+    tab = await browser.newPage({ deviceScaleFactor: 1 });
+    await tab.route('https://x.test/**', (r) => (r.request().url().endsWith('/') ? r.fulfill({ contentType: 'text/html', body: html }) : r.fulfill({ contentType: 'image/png', body: PNG })));
+  }, 30_000);
+  afterAll(async () => { await browser?.close(); });
+  const cases: Array<[string, string, string]> = [
+    ...FLUID.filter(([, , , want]) => want).map(([n, c, b]) => [n, c, b] as [string, string, string]),
+    ...BOUNDED.map(([n, c, b]) => [n, c, b] as [string, string, string]),
+    ['a padded rem container with a body margin (ends that mix px and em)', '.c { max-width: 60rem; padding: 0 1rem; margin: 0 auto } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>'],
+    ['an em breakpoint, a rem gap, a page root of 62.5%', 'html { font-size: 62.5% } body { margin: 0 } .g { display: grid; gap: 2rem } @media (min-width: 40em) { .g { grid-template-columns: 1fr 1fr } } img { width: 100% }', '<div class="g"><div><img id="t" src="a.png" alt=""></div><div></div></div>'],
+  ];
+  for (const [name, css, body] of cases) {
+    test(name, async () => {
+      const doc = parse5.parse(page('', body));
+      const f = new Layout([{ file: 'test.css', css }], doc).fluidSizes(find(doc, 't'))!;
+      expect(f).not.toBeNull();
+      const cdp = await tab.context().newCDPSession(tab);
+      for (const font of [12, 16, 20, 24]) {
+        await cdp.send('Page.setFontSizes', { fontSizes: { standard: font, fixed: Math.round((font * 13) / 16) } });
+        for (const v of [320, 480, 700, 768, 1024, 1280, 1920]) {
+          await tab.setViewportSize({ width: v, height: 600 });
+          html = page(css, body.replaceAll('src="a.png"', `src="${PNG_URL}"`) + `<img id="probe" style="position: absolute; width: 1px" sizes="${f.sizes}" srcset="${STEPS}" alt="">`);
+          await tab.goto('https://x.test/');
+          const [w, said] = await tab.evaluate(() => [document.getElementById('t')!.getBoundingClientRect().width, Number((document.getElementById('probe') as HTMLImageElement).currentSrc.replace(/.*\/w|\.png/g, ''))]);
+          const bound = f.pieces.some((p) => p.bound);
+          const msg = `${name} at ${v} px, default font ${font} px (sizes ${f.sizes}): rendered ${w}, sizes ${said}`;
+          if (bound) expect(said, msg).toBeGreaterThanOrEqual(w - 1);
+          else expect(Math.abs(said - w), msg).toBeLessThanOrEqual(1);
+          // a browser that cannot read min()/max() in sizes skips those entries: what follows is the 16 px answer
+          if (font === 16 && /\b(min|max)\(/.test(f.sizes)) {
+            html = html.replace(`sizes="${f.sizes}"`, `sizes="${f.sizes.replace(/\b(min|max)\(/g, 'unknown-fn(')}"`);
+            await tab.goto('https://x.test/');
+            const old = await tab.evaluate(() => Number((document.getElementById('probe') as HTMLImageElement).currentSrc.replace(/.*\/w|\.png/g, '')));
+            if (bound) expect(old, `${msg}, without min()/max()`).toBeGreaterThanOrEqual(w - 1);
+            else expect(Math.abs(old - w), `${msg}, without min()/max(): ${old}`).toBeLessThanOrEqual(1);
+          }
+        }
+      }
+      await cdp.detach();
+    }, 60_000);
+  }
+});
+
 describe.skipIf(!chromium)('an unbounded auto-fill grid: exact while columns are few, then within 15% and never narrower than it is', () => {
   let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
   let tab: Page;
@@ -276,3 +425,54 @@ describe.skipIf(!chromium)('an unbounded auto-fill grid: exact while columns are
     }
   });
 });
+
+// The same checks in every engine installed (all three in CI): the widths the build computes are the ones
+// Firefox and WebKit render, and they read `sizes` (em, its media conditions, min()/max()) as Chromium does.
+// Firefox's default font size is a pref; WebKit, under Playwright, has none, so it is checked at 16 px.
+const ENGINE_CASES: Array<[string, string, string]> = [
+  ...FLUID.filter(([, , , want]) => want).map(([n, c, b]) => [n, c, b] as [string, string, string]),
+  ...BOUNDED.map(([n, c, b]) => [n, c, b] as [string, string, string]),
+  ['a padded rem container with a body margin (ends that mix px and em)', '.c { max-width: 60rem; padding: 0 1rem; margin: 0 auto } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>'],
+  ['an em breakpoint, a rem gap, a page root of 62.5%', 'html { font-size: 62.5% } body { margin: 0 } .g { display: grid; gap: 2rem } @media (min-width: 40em) { .g { grid-template-columns: 1fr 1fr } } img { width: 100% }', '<div class="g"><div><img id="t" src="a.png" alt=""></div><div></div></div>'],
+];
+for (const engine of (await engines()).filter((e) => e.name !== 'chromium')) {
+  describe(`${engine.name}: the widths the build computes, rendered and read from sizes`, () => {
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+    const STEPS = Array.from({ length: 3000 }, (_, i) => `https://x.test/w${i + 1}.png ${i + 1}w`).join(', ');
+    const fonts = engine.name === 'firefox' ? [12, 16, 20, 24] : [16];
+    for (const font of fonts) {
+      test(`default font ${font} px`, async () => {
+        const browser = await engine.type.launch({
+          ...(engine.executablePath ? { executablePath: engine.executablePath } : {}),
+          ...(engine.name === 'firefox' ? { firefoxUserPrefs: { 'font.size.variable.x-western': font, 'font.size.variable.x-unicode': font, 'font.size.monospace.x-western': Math.round((font * 13) / 16), 'font.minimum-size.x-western': 0 } } : {}),
+        });
+        const misses: string[] = [];
+        try {
+          const tab = await browser.newPage({ deviceScaleFactor: 1 });
+          let html = '';
+          await tab.route('https://x.test/**', (r) => (r.request().url().endsWith('/') ? r.fulfill({ contentType: 'text/html', body: html }) : r.fulfill({ contentType: 'image/png', body: PNG })));
+          for (const [name, css, body] of ENGINE_CASES) {
+            const doc = parse5.parse(page('', body));
+            const f = new Layout([{ file: 'test.css', css }], doc).fluidSizes(find(doc, 't'))!;
+            const bound = f.pieces.some((p) => p.bound);
+            for (const v of [320, 480, 700, 768, 1024, 1280, 1920]) {
+              await tab.setViewportSize({ width: v, height: 600 });
+              html = page(css, body.replaceAll('src="a.png"', 'src="https://x.test/img.png"') + `<img id="probe" style="position: absolute; width: 1px" sizes="${f.sizes}" srcset="${STEPS}" alt="">`);
+              await tab.goto('https://x.test/');
+              await tab.waitForFunction(() => !!(document.getElementById('probe') as HTMLImageElement).currentSrc);
+              const [w, said, fs] = await tab.evaluate(() => [document.getElementById('t')!.getBoundingClientRect().width, Number((document.getElementById('probe') as HTMLImageElement).currentSrc.replace(/.*\/w|\.png/g, '')), parseFloat(getComputedStyle(document.documentElement).fontSize)]);
+              if (fs !== font && !/62\.5%/.test(css)) misses.push(`${name}: the default font is ${fs}, not ${font}`);
+              // at 16 px, what the build computed for the 16 px page is what renders
+              if (font === 16) {
+                const p = f.pieces.find((x) => v >= x.from && v < x.to) ?? f.pieces[0]!;
+                if (p.bound ? w > p.k * v + p.c + 0.5 : Math.abs(w - (p.k * v + p.c)) > 0.5) misses.push(`${name} at ${v} px: renders ${w}, the build says ${p.k * v + p.c}${p.bound ? ' at most' : ''}`);
+              }
+              if (bound ? said < w - 1 : Math.abs(said - w) > 1) misses.push(`${name} at ${v} px: renders ${w}, reads ${said} from sizes ${f.sizes}`);
+            }
+          }
+        } finally { await browser.close(); }
+        expect(misses).toEqual([]);
+      }, 180_000);
+    }
+  });
+}

@@ -5,7 +5,7 @@
 // USE_TYPO_METRICS, or its Windows ascent and descent. The smallest of them, without line gaps,
 // holds in every engine: the space is a lower bound.
 import { brotliDecompressSync, inflateSync } from 'node:zlib';
-import { SYSTEM_FONTS } from './compiler/system-fonts.js';
+import { SYSTEM_FONTS, UNKNOWN_ZERO } from './compiler/system-fonts.js';
 
 /** Tables the reader needs, as their bytes. */
 type Tables = Map<string, Uint8Array>;
@@ -31,9 +31,89 @@ export function normalLineHeight(bytes: Uint8Array): number | null {
   return Number.isFinite(r) ? r : null;
 }
 
+/**
+ * The advance width of the digit zero (`0`, U+0030) as a multiple of the font's size: what `1ch` is in that
+ * font. Null when the file cannot be read or has no `0`.
+ */
+export function zeroWidth(bytes: Uint8Array): number | null {
+  let tables: Tables | null;
+  try { tables = tablesOf(bytes); } catch { return null; }
+  const head = tables?.get('head'), hhea = tables?.get('hhea'), cmap = tables?.get('cmap'), hmtx = tables?.get('hmtx');
+  if (!head || head.length < 54 || !hhea || hhea.length < 36 || !cmap || !hmtx) return null;
+  try {
+    const upm = view(head).getUint16(18);
+    const gid = glyphOf(cmap, 0x30);
+    const n = view(hhea).getUint16(34);
+    if (!upm || !gid || !n) return null;
+    const adv = view(hmtx).getUint16(Math.min(gid, n - 1) * 4);
+    return adv ? adv / upm : null;
+  } catch { return null; }
+}
+
+/** the glyph of a code point from a `cmap` (format 12 or 4 of a Unicode subtable); 0 when none */
+function glyphOf(cmap: Uint8Array, cp: number): number {
+  const v = view(cmap), n = v.getUint16(2);
+  const subs: Array<{ rank: number; off: number }> = [];
+  for (let i = 0; i < n; i++) {
+    const pid = v.getUint16(4 + i * 8), eid = v.getUint16(6 + i * 8), off = v.getUint32(8 + i * 8);
+    const rank = pid === 3 && eid === 10 ? 0 : pid === 0 && eid >= 4 ? 1 : pid === 3 && eid === 1 ? 2 : pid === 0 ? 3 : -1;
+    if (rank >= 0) subs.push({ rank, off });
+  }
+  for (const { off } of subs.sort((a, b) => a.rank - b.rank)) {
+    const format = v.getUint16(off);
+    if (format === 12) {
+      const groups = v.getUint32(off + 12);
+      for (let g = 0; g < groups; g++) {
+        const at = off + 16 + g * 12, lo = v.getUint32(at), hi = v.getUint32(at + 4);
+        if (cp >= lo && cp <= hi) return v.getUint32(at + 8) + (cp - lo);
+      }
+    } else if (format === 4) {
+      const seg2 = v.getUint16(off + 6), ends = off + 14, starts = ends + seg2 + 2, deltas = starts + seg2, ranges = deltas + seg2;
+      for (let i = 0; i < seg2; i += 2) {
+        if (v.getUint16(ends + i) < cp) continue;
+        const start = v.getUint16(starts + i);
+        if (start > cp) break;
+        const delta = v.getInt16(deltas + i), ro = v.getUint16(ranges + i);
+        if (!ro) return (cp + delta) & 0xffff;
+        const g = v.getUint16(ranges + i + ro + (cp - start) * 2);
+        return g ? (g + delta) & 0xffff : 0;
+      }
+    }
+  }
+  return 0;
+}
+
+/**
+ * The width of `0` in each family the stylesheets declare with `@font-face` (lower case), from its regular
+ * Latin face's first file that reads; null for a family none of whose files can be read (its `ch` is not known).
+ */
+export async function familyZeroWidths(sheets: Array<{ file: string; css: string }>, read: (url: string, sheet: string) => Promise<Uint8Array | null>): Promise<Map<string, number | null>> {
+  const faces = sheets.flatMap((s) => fontFaces(s.css).map((f) => ({ ...f, sheet: s.file })));
+  const out = new Map<string, number | null>();
+  for (const family of new Set(faces.map((f) => f.family))) {
+    const mine = faces.filter((f) => f.family === family);
+    let widest: number | null = null, unread = false;
+    // every face may render `0` (a weight, an italic): the widest of them; one that cannot be read leaves it unknown
+    for (const f of mine.filter((x) => x.latin)) {
+      let r: number | null = null;
+      for (const url of f.urls) {
+        const bytes = await read(url, f.sheet).catch(() => null);
+        if (bytes && (r = zeroWidth(bytes)) !== null) break;
+      }
+      // a face from the system (`local()`): a font the build does not have, at most `UNKNOWN_ZERO`
+      if (r === null && f.local.length) r = UNKNOWN_ZERO;
+      if (r === null) { unread = true; break; }
+      if (f.sizeAdjust !== undefined) r = Math.max(r, r * f.sizeAdjust);
+      widest = Math.max(widest ?? 0, r);
+    }
+    out.set(family, unread ? null : widest);
+  }
+  return out;
+}
+
 const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
 const tag = (b: Uint8Array, at: number) => String.fromCharCode(b[at]!, b[at + 1]!, b[at + 2]!, b[at + 3]!);
-const WANTED = new Set(['head', 'hhea', 'OS/2']);
+const WANTED = new Set(['head', 'hhea', 'OS/2', 'cmap', 'hmtx']);
 
 function tablesOf(b: Uint8Array): Tables | null {
   const sig = tag(b, 0);
@@ -80,20 +160,21 @@ function woff2(b: Uint8Array): Tables | null {
     for (let i = 0; i < 5; i++) { const c = b[at++]!; x = x * 128 + (c & 0x7f); if (!(c & 0x80)) return x; }
     throw new Error('bad UIntBase128');
   };
-  const dir: Array<{ tag: string; length: number }> = [];
+  const dir: Array<{ tag: string; length: number; transformed: boolean }> = [];
   for (let i = 0; i < n; i++) {
     const flags = b[at++]!, known = flags & 0x3f;
     const t = known === 63 ? tag(b, (at += 4) - 4) : KNOWN[known]!;
     const orig = base128();
     // glyf and loca are transformed unless their version is 3; every other table only with a version other than 0
     const version = flags >> 6, transformed = t === 'glyf' || t === 'loca' ? version !== 3 : version !== 0;
-    dir.push({ tag: t, length: transformed ? base128() : orig });
+    dir.push({ tag: t, length: transformed ? base128() : orig, transformed });
   }
   const data = new Uint8Array(brotliDecompressSync(b.subarray(at, at + compressed)));
   const out: Tables = new Map();
   let off = 0;
   for (const d of dir) {
-    if (WANTED.has(d.tag)) out.set(d.tag, data.subarray(off, off + d.length));
+    // a transformed hmtx (its advances in another layout) is left out: not read
+    if (WANTED.has(d.tag) && !(d.tag === 'hmtx' && d.transformed)) out.set(d.tag, data.subarray(off, off + d.length));
     off += d.length;
   }
   return out;

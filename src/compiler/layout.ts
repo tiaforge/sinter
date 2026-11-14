@@ -6,7 +6,7 @@
 // stays fluid. A wrong size would make it blurry; no size only costs bytes. See docs/images.md.
 import * as csstree from 'css-tree';
 import type { DefaultTreeAdapterMap } from 'parse5';
-import { genericNormal, SYSTEM_FONTS } from './system-fonts.js';
+import { genericNormal, SYSTEM_FONTS, UNKNOWN_ZERO } from './system-fonts.js';
 
 /** each list's own per-row views (`withRow`), by template */
 const LIST_IDS = new WeakMap<object, number>();
@@ -286,7 +286,7 @@ export class Layout {
   private viewport: number | undefined;
   private readonly views = new Map<number, Layout>();
   /** why the last `fluidSizes()` gave up, when it is something the author can change (shared by `at()` views) */
-  private readonly notes: { autoFitRows: P5Element | null; why: string | null } = { autoFitRows: null, why: null };
+  private readonly notes: { autoFitRows: P5Element | null; why: string | null; bounded: null | 'widest' | 'font'; ch: boolean } = { autoFitRows: null, why: null, bounded: null, ch: false };
   /** a row of a list, in a view for its position (`withRow`): its siblings are the other rows and what is around the template */
   private row: RowCtx | null = null;
   private readonly rowViews = new Map<string, Layout>();
@@ -294,13 +294,21 @@ export class Layout {
   private positional = false;
   /** the browser's default font size this layout is for (`withBase`) */
   private base = 16;
-  private readonly bases = new Map<number, Layout>();
+  /** the px of an em in media queries (the browser's default font size; `withBase` keeps 16 unless told) */
+  private mq = 16;
+  private readonly bases = new Map<string, Layout>();
 
   /** a font family's `line-height: normal` as a multiple of its size (the smallest of its metrics), when the build has its file */
   private readonly normal: (family: string) => number | null;
+  /** the width of `0` in a web font (a multiple of its size), when the build has read its files */
+  private readonly zero: (family: string) => number | null;
+  /** the families the stylesheets declare with `@font-face` (lower case): their `0` only from their files */
+  private readonly webFonts = new Set<string>();
 
-  constructor(sheets: StyleSheet[], doc: P5Parent, opts: { normalLineHeight?: (family: string) => number | null } = {}) {
+  constructor(sheets: StyleSheet[], doc: P5Parent, opts: { normalLineHeight?: (family: string) => number | null; zeroWidth?: (family: string) => number | null } = {}) {
     this.normal = opts.normalLineHeight ?? (() => null);
+    this.zero = opts.zeroWidth ?? (() => null);
+    for (const s of sheets) for (const m of s.css.matchAll(/@font-face\s*\{[^}]*?font-family\s*:\s*([^;}]+)/gi)) this.webFonts.add(m[1]!.trim().replace(/^(['"])(.*)\1$/, '$2').toLowerCase());
     let order = 0;
     // the browser's own defaults that move a box's edges: below every author rule, as the UA origin is
     for (const r of rulesOf(UA)) this.rules.push({ selectors: r.selectors, decls: r.decls.map((d) => ({ ...d, layer: [-1], order: order++ })) });
@@ -328,9 +336,9 @@ export class Layout {
     if (l) return l;
     l = Object.create(Layout.prototype) as Layout;
     Object.assign(l, {
-      rules: this.rules, hosts: this.hosts, root: this.root, viewport: width, views: this.views, notes: this.notes, normal: this.normal,
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: width, views: this.views, notes: this.notes, normal: this.normal, zero: this.zero, webFonts: this.webFonts,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
-      row: null, rowViews: this.rowViews, positional: this.positional, base: this.base, bases: this.bases,
+      row: null, rowViews: this.rowViews, positional: this.positional, base: this.base, mq: this.mq, bases: this.bases,
     });
     this.views.set(width, l);
     return l;
@@ -355,9 +363,9 @@ export class Layout {
     const around = (list: P5Element[]) => list.flatMap((e) => [{ el: e, sure: true }, ...(e !== tpl && e.tagName === 'template' ? ((e as P5Template).content?.childNodes ?? []).filter(isEl).map((c) => ({ el: c, sure: false })) : [])]);
     l = Object.create(Layout.prototype) as Layout;
     Object.assign(l, {
-      rules: this.rules, hosts: this.hosts, root: this.root, viewport: this.viewport, views: this.views, notes: this.notes, normal: this.normal,
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: this.viewport, views: this.views, notes: this.notes, normal: this.normal, zero: this.zero, webFonts: this.webFonts,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
-      row: { el: row, index, count, before: around(kids.slice(0, at + 1)), after: [...(trail ? [{ el: TRAILER, sure: true }] : []), ...around(kids.slice(at + 1))] }, rowViews: this.rowViews, positional: true, base: this.base, bases: this.bases,
+      row: { el: row, index, count, before: around(kids.slice(0, at + 1)), after: [...(trail ? [{ el: TRAILER, sure: true }] : []), ...around(kids.slice(at + 1))] }, rowViews: this.rowViews, positional: true, base: this.base, mq: this.mq, bases: this.bases,
     });
     if (!fresh) this.rowViews.set(key, l);
     return l;
@@ -367,7 +375,7 @@ export class Layout {
   breakpoints(): number[] {
     const out = new Set<number>();
     for (const r of this.rules) for (const d of r.decls) {
-      const ranges = d.media ? mediaRanges(d.media) : null;
+      const ranges = d.media ? mediaRanges(d.media, this.mq) : null;
       if (ranges && ranges !== 'unknown') for (const [lo, hi] of ranges) { if (lo > 0) out.add(lo); if (Number.isFinite(hi)) out.add(hi); }
     }
     return [...out].sort((a, b) => a - b);
@@ -406,7 +414,9 @@ export class Layout {
    */
   maxWidth(img: P5Element): number | null {
     if (this.empty) return null;
-    return this.bound(img, true);
+    const was = this.notes.ch;
+    this.notes.ch = true;
+    try { return this.bound(img, true); } finally { this.notes.ch = was; }
   }
 
   private readonly bounds = new Map<P5Element, number | null>();
@@ -436,10 +446,17 @@ export class Layout {
       const c = this.cascaded(el, props);
       if (c.ambiguous) return undefined;
       if (c.value === null || /%|^\s*(none|auto)\s*$/i.test(c.value)) return null;
-      const v = this.subst(c.value, el);
+      const s = this.subst(c.value, el);
+      const v = s === undefined ? undefined : this.ems(el, s);
       return v === undefined ? undefined : evaluate(v, { rem, percent: 0 });
     };
     let own = abs(SIZE['max-width']) ?? null;
+    // a width or max-width in ch: at most as wide as its widest `0` says (an upper bound, as this is)
+    for (const props of [SIZE.width, SIZE['max-width']]) {
+      const c = this.cascaded(el, props);
+      const b = !c.ambiguous && c.value !== null ? this.chBound(el, c.value) : undefined;
+      if (b) own = own === null ? b.c : Math.min(own, b.c);
+    }
     if (isImg) {
       // the `width` attribute, when no stylesheet sets the width
       const wc = this.cascaded(el, SIZE.width);
@@ -515,7 +532,7 @@ export class Layout {
         // a media query: decided for this layout's viewport, else it may or may not apply
         let media = !!d.media;
         if (d.media && this.viewport !== undefined) {
-          const ranges = mediaRanges(d.media);
+          const ranges = mediaRanges(d.media, this.mq);
           if (ranges !== 'unknown') {
             if (!ranges.some(([lo, hi]) => this.viewport! >= lo && this.viewport! < hi)) continue;
             media = false;
@@ -640,17 +657,18 @@ export class Layout {
   }
 
   /** The page for a visitor whose browser's default font size is `px` (16 unless they changed it): its rem and keywords follow. */
-  private withBase(px: number): Layout {
-    if (px === this.base) return this;
-    let l = this.bases.get(px);
+  private withBase(px: number, mq = 16): Layout {
+    if (px === this.base && mq === this.mq) return this;
+    const key = `${px}:${mq}`;
+    let l = this.bases.get(key);
     if (l) return l;
     l = Object.create(Layout.prototype) as Layout;
     Object.assign(l, {
-      rules: this.rules, hosts: this.hosts, root: this.root, viewport: undefined, views: new Map(), notes: this.notes, normal: this.normal,
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: undefined, views: new Map(), notes: this.notes, normal: this.normal, zero: this.zero, webFonts: this.webFonts,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
-      row: null, rowViews: new Map(), positional: this.positional, base: px, bases: this.bases,
+      row: null, rowViews: new Map(), positional: this.positional, base: px, mq, bases: this.bases,
     });
-    this.bases.set(px, l);
+    this.bases.set(key, l);
     return l;
   }
 
@@ -668,7 +686,8 @@ export class Layout {
     if (c.ambiguous || c.value === null) return null;
     const rem = this.rootFont();
     if (rem === null) return null;
-    const value = this.subst(c.value, el);
+    const sub = this.subst(c.value, el);
+    const value = sub === undefined ? undefined : this.ems(el, sub);
     if (value === undefined) return null;
     const percent = /%/.test(value) ? this.basis(el, axis) : 0;
     if (percent === null) return null;
@@ -679,7 +698,8 @@ export class Layout {
       const mc = this.cascaded(el, SIZE[prop]);
       if (mc.ambiguous) { if (prop.startsWith('min')) return null; continue; }
       if (mc.value === null || /%/.test(mc.value) || /^(none|auto)$/i.test(mc.value.trim())) continue;
-      const mv = this.subst(mc.value, el);
+      const ms = this.subst(mc.value, el);
+      const mv = ms === undefined ? undefined : this.ems(el, ms);
       const m = mv === undefined ? null : evaluate(mv, { rem, percent: 0 });
       if (m === null) { if (prop.startsWith('min')) return null; continue; }
       n = pick(n, m);
@@ -736,7 +756,8 @@ export class Layout {
     const kw = { thin: 1, medium: 3, thick: 5 }[raw.toLowerCase() as 'thin'];
     if (kw !== undefined) return kw;
     if (/%/.test(raw)) return null;
-    return evaluate(raw, { rem, percent: 0 });
+    const px = this.ems(el, raw);
+    return px === undefined ? null : evaluate(px, { rem, percent: 0 });
   }
 
   /**
@@ -767,12 +788,45 @@ export class Layout {
   /**
    * The rendered width of a fluid image at every viewport width, as `sizes`: the cascade per range
    * between the page's width media queries, widths linear in the viewport (`calc(50vw - 24px)`),
-   * ranges split where a `min()`/`max-width` or a grid's column count changes. Grid tracks
-   * (`repeat(3, 1fr)`, `repeat(auto-fill, minmax(200px, 1fr))`, gaps, `span`), flex rows (equal
-   * `flex: 1` columns, wrapped items with a basis) and margins, padding and borders resolve; anything
-   * else is null (the caller falls back to `maxWidth()`). Checked against Chromium at many widths.
+   * ranges split where a `min()`/`max-width`, a grid's column count or a row's overflow changes. Grid
+   * tracks (fixed and `fr`, equal or not, `repeat(auto-fill, minmax(200px, 1fr))`, gaps, `span`, lines,
+   * named areas, the column an auto-placed item lands in), flex rows (items of a known base size that
+   * may grow: equal `flex: 1` columns, a fixed sidebar beside a growing main; wrapped items with a basis),
+   * margins, padding and borders, and em of a font size the cascade fixes, resolve. A range where
+   * anything else decides gets an upper bound (`bound: 'fallback'`: `maxWidth()` in that range, else the
+   * viewport), an auto-placed item of unknown column the widest it may land in (`'widest'`); null when no
+   * range is followed (the caller falls back to `maxWidth()`). Solved again for 24 and 12 px default font
+   * sizes (`scaleSizes`): what follows the default size is written in em. Checked against Chromium at many
+   * widths and default font sizes.
    */
   fluidSizes(img: P5Element, intrinsic?: number): FluidSizes | null {
+    const at16 = this.fluidAt(img, intrinsic);
+    if (!at16 || this.viewport !== undefined || this.base !== 16) return at16;
+    // the same page for visitors whose default font size is larger or smaller: rem, em and em breakpoints follow it
+    const others = DEFAULTS.map((d) => this.withBase(d, d).fluidAt(img, intrinsic));
+    if (others.every((o) => o && o.sizes === at16.sizes)) return at16;
+    const scaled = others.every((o) => o) ? scaleSizes([at16, ...(others as FluidSizes[])]) : null;
+    if (!scaled) return at16;
+    const max = [at16, ...others].some((o) => o!.max === null) ? null : Math.max(...[at16, ...others].map((o) => o!.max!));
+    // fixed widths: files for 16 and 24 px defaults (a smaller default only fetches a little more)
+    const constant = at16.constant && others[0]!.constant ? [...new Set([...at16.constant, ...others[0]!.constant])].sort((a, b) => a - b) : null;
+    return { ...at16, sizes: scaled, max, constant };
+  }
+
+  /**
+   * A length of `el` at every default font size, as `a px + b em` (em: the browser's default font size, as
+   * `sizes` and media queries read it), from `f` on the page at 16, 24 and 12 px; null when `f` has no
+   * answer at one of them or the three are not on one line.
+   */
+  scalable(f: (l: Layout) => number | null): Affine | null {
+    const vs = [16, ...DEFAULTS].map((d) => f(d === 16 ? this : this.withBase(d, d)));
+    if (vs.some((v) => v === null)) return null;
+    const [v16, v24, v12] = vs as [number, number, number];
+    const b = (v24 - v16) / 8, a = v16 - 16 * b;
+    return Math.abs(a + 12 * b - v12) < 0.05 ? { a, b } : null;
+  }
+
+  private fluidAt(img: P5Element, intrinsic?: number): FluidSizes | null {
     this.notes.autoFitRows = null;
     if (this.empty || this.viewport !== undefined) return null;
     const cuts = this.breakpoints().filter((b) => b > MIN_VIEWPORT && b < MAX_VIEWPORT);
@@ -787,7 +841,9 @@ export class Layout {
       const seg = queue.shift()!;
       const mid = Number.isFinite(seg[1]) ? (seg[0] + seg[1]) / 2 : seg[0] + 1000;
       let w: Lin | null;
+      this.notes.bounded = null;
       try {
+        this.notes.ch = true;
         w = this.at(mid).imgWidth(img, seg, intrinsic);
       } catch (e) {
         if (!(e instanceof Split)) throw e;
@@ -796,18 +852,27 @@ export class Layout {
         if (!(at > seg[0] + 1e-6 && at < seg[1] - 1e-6)) return null;
         queue.unshift([seg[0], at], [at, seg[1]]);
         continue;
-      }
-      if (!w) return null;
-      // a width of 0 or less on any real screen: not an image size the browser can use
+      } finally { this.notes.ch = false; }
+      // a negative width on a real screen is no size the browser can use (0 at a range's end is: a column the others leave no room for)
       const from = Math.max(seg[0], MIN_VIEWPORT), to = Number.isFinite(seg[1]) ? seg[1] : Infinity;
-      if (w.k * from + w.c < 1 || (Number.isFinite(to) ? w.k * to + w.c < 1 : w.k < 0)) return null;
-      pieces.push({ from: seg[0], to: seg[1], k: w.k, c: w.c });
+      const end = !w ? null : Number.isFinite(to) ? w.k * to + w.c : w.k > 1e-9 ? Infinity : w.k < -1e-9 ? -1 : w.c;
+      if (w && w.k * from + w.c > -0.01 && end! > -0.01 && Math.max(w.k * from + w.c, end!) >= 1) {
+        pieces.push({ from: seg[0], to: seg[1], k: w.k, c: w.c, ...(this.notes.bounded ? { bound: this.notes.bounded } : {}) });
+        continue;
+      }
+      // not followed in this range: there, no wider than its containers allow (else the viewport); the other ranges stay exact
+      if (this.notes.autoFitRows) return null;
+      const b = this.at(mid).maxWidth(img);
+      if (b !== null && b > seg[0] + 1e-6 && b < seg[1] - 1e-6) { queue.unshift([seg[0], b], [b, seg[1]]); continue; }
+      pieces.push({ from: seg[0], to: seg[1], ...(b !== null && b <= seg[0] + 1e-6 ? { k: 0, c: b } : { k: 1, c: 0 }), bound: 'fallback' as const });
     }
+    // followed nowhere: the caller's bound
+    if (pieces.every((p) => p.bound === 'fallback')) return null;
     pieces.sort((a, b) => a.from - b.from);
     const merged: FluidPiece[] = [];
     for (const p of pieces) {
       const last = merged[merged.length - 1];
-      if (last && Math.abs(last.k - p.k) < 1e-9 && Math.abs(last.c - p.c) < 0.01) last.to = p.to;
+      if (last && last.bound === p.bound && Math.abs(last.k - p.k) < 1e-9 && Math.abs(last.c - p.c) < 0.01) last.to = p.to;
       else merged.push({ ...p });
     }
     const last = merged[merged.length - 1]!;
@@ -875,7 +940,8 @@ export class Layout {
   private lin(el: P5Element, value: string, percent: Lin | null, seg: [number, number]): Lin | null {
     const rem = this.rootFont();
     if (rem === null) return null;
-    const v = this.subst(value, el);
+    const s = this.subst(value, el);
+    const v = s === undefined ? undefined : this.ems(el, s);
     return v === undefined ? null : evaluateLin(v, rem, percent, seg);
   }
 
@@ -930,7 +996,8 @@ export class Layout {
     if (wc.ambiguous) return null;
     let box: Lin;
     if (wc.value !== null && !/^\s*auto\s*$/i.test(wc.value)) {
-      const v = this.lin(el, wc.value, avail, seg);
+      const ch = this.chBound(el, wc.value);
+      const v = ch === undefined ? this.lin(el, wc.value, avail, seg) : ch;
       if (!v) return null;
       box = borderBox ? v : { k: v.k, c: v.c + e };
     } else {
@@ -944,7 +1011,7 @@ export class Layout {
     const asBox = (v: Lin) => (borderBox ? v : { k: v.k, c: v.c + e });
     const mx = this.cascaded(el, SIZE['max-width']);
     if (mx.ambiguous) return null;
-    if (mx.value !== null && !/^\s*none\s*$/i.test(mx.value)) { const v = this.lin(el, mx.value, avail, seg); if (!v) return null; box = pick(box, asBox(v), seg, 'min'); }
+    if (mx.value !== null && !/^\s*none\s*$/i.test(mx.value)) { const ch = this.chBound(el, mx.value); const v = ch === undefined ? this.lin(el, mx.value, avail, seg) : ch; if (!v) return null; box = pick(box, asBox(v), seg, 'min'); }
     const mn = this.cascaded(el, SIZE['min-width']);
     if (mn.ambiguous) return null;
     if (mn.value !== null && !/^\s*(auto|0[a-z%]*)\s*$/i.test(mn.value)) { const v = this.lin(el, mn.value, avail, seg); if (!v) return null; box = pick(box, asBox(v), seg, 'max'); }
@@ -979,40 +1046,56 @@ export class Layout {
     return all[0] ? { prop: all[0].p, value: all[0].d.value } : null;
   }
 
-  /** the width of the grid area `el` is placed in: equal tracks, a gap, one column or a `span` */
+  /**
+   * The width of the grid area `el` is placed in: a gap, tracks of fixed lengths and `fr` (equal or not),
+   * auto-fill and auto-fit columns, a `span`, lines (`2 / 4`, `1 / -1`) and named areas
+   * (`grid-template-areas` with `grid-area: <name>`). When the tracks differ, the column an auto-placed
+   * item lands in follows the items before it, which must all be known.
+   */
   private gridArea(parent: P5Element, el: P5Element, seg: [number, number]): Lin | null {
     const pm = this.declsOf(parent);
-    if (pm.has('grid') || pm.has('grid-template') || pm.has('grid-template-areas')) return null;
+    if (pm.has('grid') || pm.has('grid-template')) return null;
     const W = this.contentOf(parent, seg);
     if (!W) return null;
     const gap = this.columnGap(parent, W, seg);
     if (!gap) return null;
-    const gc = this.cascaded(parent, ['grid-template-columns']);
-    if (gc.ambiguous) return null;
-    // the span
-    const sc = this.cascaded(el, ['grid-column']);
-    const em = this.declsOf(el);
-    if (sc.ambiguous || em.has('grid-column-start') || em.has('grid-column-end') || em.has('grid-area')) return null;
-    const spanText = (sc.value ?? 'auto').trim();
-    const sm = /^span\s+(\d+)(\s*\/\s*auto)?$/i.exec(spanText);
-    const full = /^1\s*\/\s*-1$/.test(spanText);
-    if (!sm && !full && !/^auto$/i.test(spanText)) return null;
-    const area = (track: Lin, n: number) => {
-      const span = full ? n : sm ? Math.min(Number(sm[1]), n) : 1;
+    const gc = this.cascaded(parent, ['grid-template-columns']), ga = this.cascaded(parent, ['grid-template-areas']);
+    if (gc.ambiguous || ga.ambiguous) return null;
+    const areasText = ga.value === null || /^\s*none\s*$/i.test(ga.value) ? null : this.subst(ga.value, parent);
+    if (areasText === undefined) return null;
+    const areas = areasText === null ? null : gridAreas(areasText);
+    if (areas === undefined) return null;
+    const placement = this.gridPlacement(el, areas);
+    if (!placement) return null;
+    const sum = (tracks: Lin[], start: number, span: number): Lin => {
+      let k = gap.k * (span - 1), c = gap.c * (span - 1);
+      for (let i = start; i < start + span; i++) { k += tracks[i]!.k; c += tracks[i]!.c; }
+      return { k, c };
+    };
+    /** equal tracks: where the item is does not matter, only how many it spans */
+    const area = (track: Lin, n: number): Lin | null => {
+      let span = placement.full ? n : Math.min(placement.span, n);
+      if (placement.start !== null && !placement.full) {
+        const at = Number.isFinite(n) ? this.gridColumn(parent, el, placement, n) : null;
+        if (!at) return null;
+        span = at.span;
+      }
       return { k: track.k * span + gap.k * (span - 1), c: track.c * span + gap.c * (span - 1) };
     };
-    if (gc.value === null || /^\s*none\s*$/i.test(gc.value)) return area(W, 1);
-    const text = (this.subst(gc.value, el) ?? '').trim().toLowerCase();
+    if (gc.value === null || /^\s*none\s*$/i.test(gc.value)) return areas && areas.columns > 1 ? null : area(W, 1);
+    const text = (this.subst(gc.value, parent) ?? '').trim().toLowerCase();
     const auto = /^repeat\(\s*(auto-fill|auto-fit)\s*,\s*(.+)\)$/s.exec(text);
     if (auto) {
+      // a bound of the container is no bound of its columns: more room may fit another, narrower column
+      if (areas || this.notes.bounded) return null;
       const track = auto[2]!.trim();
       const mm = /^minmax\(\s*([^,]+?)\s*,\s*1fr\s*\)$/.exec(track);
       if (!mm) {
         // a fixed track: its width, however many fit
-        const L = this.lin(el, track, W, seg);
-        return L && !full && Math.abs(L.k) < 1e-9 && Math.abs(gap.k) < 1e-9 ? area(L, Infinity) : null;
+        const L = this.lin(parent, track, W, seg);
+        return L && !placement.full && Math.abs(L.k) < 1e-9 && Math.abs(gap.k) < 1e-9 ? area(L, Infinity) : null;
       }
-      const min = this.lin(el, mm[1]!, W, seg);
+      const min = this.lin(parent, mm[1]!, W, seg);
       if (!min || Math.abs(min.k) > 1e-9 || Math.abs(gap.k) > 1e-9 || W.k < -1e-9) return null;
       const step = min.c + gap.c;
       if (step <= 0) return null;
@@ -1035,18 +1118,166 @@ export class Layout {
       }
       return area({ k: (W.k - 0) / n, c: (W.c - (n - 1) * gap.c) / n }, n);
     }
-    // a fixed number of tracks; all equal
+    // a fixed number of tracks
     const tracks: string[] = [];
     for (const t of splitTop(text)) {
       const rm = /^repeat\(\s*(\d+)\s*,\s*(.+)\)$/s.exec(t);
       if (rm) { for (let i = 0; i < Number(rm[1]); i++) tracks.push(...splitTop(rm[2]!)); } else tracks.push(t);
     }
     const norm = tracks.map((t) => t.replace(/\s+/g, '').replace(/^minmax\(0(px)?,(\d*\.?\d*)fr\)$/, '$2fr'));
-    if (!norm.length || norm.some((t) => t !== norm[0])) return null;
     const n = norm.length;
-    if (/^\d*\.?\d+fr$/.test(norm[0]!)) return area({ k: (W.k - (n - 1) * gap.k) / n, c: (W.c - (n - 1) * gap.c) / n }, n);
-    const L = this.lin(el, tracks[0]!, W, seg);
-    return L && area(L, n);
+    if (!n || norm.some((t) => t.startsWith('['))) return null;
+    if (!areas && norm.every((t) => t === norm[0]) && !norm[0]!.startsWith('minmax(')) {
+      if (/^\d*\.?\d+fr$/.test(norm[0]!)) return area({ k: (W.k - (n - 1) * gap.k) / n, c: (W.c - (n - 1) * gap.c) / n }, n);
+      const L = this.lin(parent, tracks[0]!, W, seg);
+      return L && area(L, n);
+    }
+    // tracks that differ (or have a minimum): lengths first, the space left shared by the `fr` tracks
+    if (areas && areas.columns > n) return null;
+    /** a track: a length, or `fr` with its minimum (`auto`: its content's, followed while the tracks have room) */
+    type Track = { len: Lin } | { fr: number; min: Lin | 'auto' };
+    const list: Track[] = [];
+    for (let i = 0; i < n; i++) {
+      const t = tracks[i]!.replace(/\s+/g, ' ').trim();
+      const f = /^(\d*\.?\d+)fr$/.exec(t);
+      if (f) { list.push({ fr: Number(f[1]), min: 'auto' }); continue; }
+      const mm = /^minmax\(\s*([^,]+?)\s*,\s*(\d*\.?\d+)fr\s*\)$/.exec(t);
+      if (mm) {
+        if (/^(auto|min-content|max-content)$/.test(mm[1]!)) { if (mm[1] !== 'auto') return null; list.push({ fr: Number(mm[2]), min: 'auto' }); continue; }
+        const min = this.lin(parent, mm[1]!, W, seg);
+        if (!min) return null;
+        list.push({ fr: Number(mm[2]), min });
+        continue;
+      }
+      // content-sized tracks (auto, min-content, fit-content(), minmax() of lengths) depend on what is in them
+      if (/^(auto|min-content|max-content)$|^(fit-content|minmax)\(/.test(t)) return null;
+      const L = this.lin(parent, tracks[i]!, W, seg);
+      if (!L) return null;
+      list.push({ len: L });
+    }
+    const sign = (x: Lin) => {
+      const lo = x.k * Math.max(seg[0], MIN_VIEWPORT) + x.c;
+      const hi = Number.isFinite(seg[1]) ? x.k * seg[1] + x.c : x.k > 1e-9 ? Infinity : x.k < -1e-9 ? -Infinity : x.c;
+      // negative over the range (zero at an end at most), not negative, or a crossing inside: split there
+      if ((lo < -1e-6 && hi < 1e-6) || (hi < -1e-6 && lo < 1e-6)) return -1;
+      if (lo < -1e-6 || hi < -1e-6) throw new Split(-x.c / x.k);
+      return 1;
+    };
+    let free: Lin = { k: W.k - (n - 1) * gap.k, c: W.c - (n - 1) * gap.c };
+    for (const t of list) if ('len' in t) free = { k: free.k - t.len.k, c: free.c - t.len.c };
+    // the browser's "find the size of an fr": a flexible track whose share is below its minimum is held at its minimum, and the rest share again
+    const held = new Set<number>();
+    let unit: Lin = lin(0), noRoom = false;
+    for (let round = 0; round <= n && !noRoom; round++) {
+      let left = free, frs = 0;
+      list.forEach((t, i) => { if ('fr' in t) { if (held.has(i)) { const m = t.min as Lin; left = { k: left.k - m.k, c: left.c - m.c }; } else frs += t.fr; } });
+      if (!frs) break;
+      // a sum of factors under 1 shares only that part of the space
+      unit = frs >= 1 ? { k: left.k / frs, c: left.c / frs } : left;
+      let again = false;
+      list.forEach((t, i) => {
+        if (!('fr' in t) || held.has(i)) return;
+        const share = { k: unit.k * t.fr, c: unit.c * t.fr };
+        // a minimum of its content's: with no room left, the track is its content's size, not followed
+        if (t.min === 'auto') { if (sign(share) < 0) noRoom = true; return; }
+        if (sign({ k: share.k - t.min.k, c: share.c - t.min.c }) < 0) { held.add(i); again = true; }
+      });
+      if (!again) break;
+    }
+    if (noRoom) return null;
+    const widths = list.map((t, i) => ('len' in t ? t.len : held.has(i) ? t.min as Lin : { k: unit.k * t.fr, c: unit.c * t.fr }));
+    const at = this.gridColumn(parent, el, placement, n);
+    if (at) return sum(widths, at.start, at.span);
+    // an auto-placed item whose column is not known (the rows of a list land in each in turn): the widest it may land in, an upper bound
+    if (placement.start !== null || placement.named || placement.full || placement.span > n) return null;
+    const flowc = this.cascaded(parent, ['grid-auto-flow']);
+    if (flowc.ambiguous || /column/i.test(flowc.value ?? '')) return null;
+    let widest: Lin | null = null, same = true;
+    for (let i = 0; i + placement.span <= n; i++) {
+      const w = sum(widths, i, placement.span);
+      if (widest && (Math.abs(widest.k - w.k) > 1e-9 || Math.abs(widest.c - w.c) > 0.01)) same = false;
+      widest = widest ? pick(widest, w, seg, 'max') : w;
+    }
+    // equal columns (`repeat(3, minmax(200px, 1fr))`): wherever it lands, that is its width
+    if (!same) this.notes.bounded ??= 'widest';
+    return widest;
+  }
+
+  /** where `el` is placed in its grid's columns, as written: lines (1-based, negative from the end), a span, or a named area */
+  private gridPlacement(el: P5Element, areas: GridAreas | null): GridPlacement | null {
+    const em = this.declsOf(el);
+    // rows set on the item place it before the auto-placed ones: not followed
+    for (const p of ['grid-row', 'grid-row-start', 'grid-row-end', 'grid-column-start', 'grid-column-end']) if (em.has(p)) return null;
+    const ac = this.cascaded(el, ['grid-area']);
+    if (ac.ambiguous) return null;
+    if (ac.value !== null) {
+      const name = ac.value.trim();
+      const a = areas && /^[a-z_-][\w-]*$/i.test(name) ? areas.names.get(name) : undefined;
+      if (!a || em.has('grid-column')) return null;
+      return { start: a.start + 1, end: a.start + a.span + 1, span: a.span, full: false, named: true };
+    }
+    const sc = this.cascaded(el, ['grid-column']);
+    if (sc.ambiguous) return null;
+    const text = (sc.value ?? 'auto').trim().toLowerCase();
+    const [a, b = 'auto'] = text.split('/').map((x) => x.trim());
+    const line = (x: string) => (/^-?[1-9]\d*$/.test(x) ? Number(x) : null);
+    const span = (x: string) => { const m = /^span\s+([1-9]\d*)$/.exec(x); return m ? Number(m[1]) : null; };
+    if (a === '1' && b === '-1') return { start: 1, end: -1, span: 1, full: true, named: false };
+    if (a === 'auto') return b === 'auto' ? { start: null, end: null, span: 1, full: false, named: false } : null;
+    const sa = span(a!);
+    if (sa !== null) return b === 'auto' ? { start: null, end: null, span: sa, full: false, named: false } : null;
+    const la = line(a!);
+    if (la === null) return null;
+    if (b === 'auto') return { start: la, end: null, span: 1, full: false, named: false };
+    const sb = span(b), lb = line(b);
+    if (sb !== null) return { start: la, end: null, span: sb, full: false, named: false };
+    return lb === null ? null : { start: la, end: lb, span: 1, full: false, named: false };
+  }
+
+  /** the first column (0-based) and the span of `el` in a grid of `n` explicit columns; null when it may fall outside them or cannot be known */
+  private gridColumn(parent: P5Element, el: P5Element, p: GridPlacement, n: number): { start: number; span: number } | null {
+    const lines = (x: number) => (x < 0 ? n + 2 + x : x);
+    if (p.full) return { start: 0, span: n };
+    if (p.start !== null) {
+      const s = lines(p.start), e = p.end !== null ? lines(p.end) : s + p.span;
+      // a line past the explicit grid, or an end before the start: implicit tracks, not followed
+      if (s < 1 || e > n + 1 || e <= s) return null;
+      return { start: s - 1, span: e - s };
+    }
+    if (p.span > n) return null;
+    // auto-placed: the cursor of the browser's row-major, sparse placement over the items before it
+    const flowc = this.cascaded(parent, ['grid-auto-flow']);
+    if (flowc.ambiguous || (flowc.value !== null && !/^\s*row\s*$/i.test(flowc.value))) return null;
+    let col = 0;
+    for (const c of parent.childNodes) {
+      if (!isEl(c)) { if (c.nodeName === '#text' && /\S/.test((c as { value: string }).value)) return null; continue; }
+      if (c.tagName === 'template') return null;
+      const x = c as P5Element;
+      if (x !== el) {
+        const d = this.displayOf(x);
+        if (d === null || d === 'contents') return null;
+        if (d === 'none') continue;
+        const pos = this.declsOf(x).get('position') ?? [];
+        if (pos.some((v) => /^\s*(absolute|fixed)\s*$/i.test(v.value))) { if (pos.every((v) => !v.conditional)) continue; return null; }
+      }
+      if (this.declsOf(x).has('order')) return null;
+      const q = x === el ? p : this.gridPlacement(x, null);
+      if (!q || q.named || q.full) return null;
+      let start: number, span: number;
+      if (q.start !== null) {
+        const at = this.gridColumn(parent, x, q, n);
+        if (!at) return null;
+        start = at.start; span = at.span;
+      } else {
+        span = q.span;
+        if (span > n) return null;
+        if (col + span > n) col = 0;
+        start = col;
+      }
+      if (x === el) return { start, span };
+      col = start + span;
+    }
+    return null;
   }
 
   /** a flex item's border-box width; 'stretch' for a column container (the item fills it like a block) */
@@ -1100,28 +1331,68 @@ export class Layout {
     const own = flexOf(el);
     if (!own) return null;
     const zero = (b: string) => /^0([a-z%]*)?$/.test(b);
-    if (own.grow > 0 && zero(own.basis)) {
-      // equal columns: every item grows alike from 0, and their number is known
-      if (parent.childNodes.some((c) => isEl(c) && c.tagName === 'template')) return null;
-      const items = parent.childNodes.filter((c): c is P5Element => isEl(c));
-      for (const it of items) { const f = flexOf(it); if (!f || f.grow !== own.grow || !zero(f.basis)) return null; }
-      const n = items.length;
-      return { k: (W.k - (n - 1) * gap.k) / n, c: (W.c - (n - 1) * gap.c) / n };
-    }
-    if (own.grow === 0) {
-      // a wrapped item with a basis (or width) keeps it: no line is shrunk to fit
-      const wrap = flow('wrap');
-      if (wrap === undefined || !wrap || !/^wrap/.test(wrap)) return null;
-      let basis = own.basis;
-      if (basis === 'auto') { const wc = this.cascaded(el, SIZE.width); if (wc.ambiguous || wc.value === null || /^\s*auto\s*$/i.test(wc.value)) return null; basis = wc.value; }
-      if (basis === 'content') return null;
-      const bs = this.cascaded(el, ['box-sizing']);
-      const e = this.edges(el, 'width');
+    const wrap = flow('wrap');
+    if (wrap === undefined) return null;
+    const wraps = !!wrap && /^wrap/.test(wrap);
+    /** an item's border-box width before it grows (its flex base size with padding and border), or null when its content decides it */
+    const base = (x: P5Element, basis: string): Lin | null => {
+      if (basis === 'auto') {
+        const wc = this.cascaded(x, SIZE.width);
+        if (wc.ambiguous || wc.value === null || /^\s*auto\s*$/i.test(wc.value)) return null;
+        basis = wc.value;
+      }
+      if (basis === 'content' || /^(min-|max-|fit-)content/.test(basis)) return null;
+      const bs = this.cascaded(x, ['box-sizing']);
+      const e = this.edges(x, 'width');
       if (bs.ambiguous || e === null) return null;
-      const v = this.lin(el, basis, W, seg);
+      const v = this.lin(x, basis, W, seg);
       if (!v) return null;
-      return this.minMax(el, /^\s*border-box\s*$/i.test(bs.value ?? '') ? v : { k: v.k, c: v.c + e }, W, seg);
+      return /^\s*border-box\s*$/i.test(bs.value ?? '') ? pick(v, lin(e), seg, 'max') : { k: v.k, c: v.c + e };
+    };
+    if (own.grow === 0 && wraps) {
+      // a wrapped item with a basis (or width) keeps it: no line is shrunk to fit
+      const v = base(el, own.basis);
+      return v && this.minMax(el, v, W, seg);
     }
+    // one line: every item's base size is known, and the space left goes to those that grow
+    if (parent.childNodes.some((c) => isEl(c) && c.tagName === 'template')) return null;
+    const items: Array<{ el: P5Element; grow: number; base: Lin; margin: Lin }> = [];
+    for (const c of parent.childNodes) {
+      if (!isEl(c)) { if (c.nodeName === '#text' && /\S/.test((c as { value: string }).value)) return null; continue; }
+      const x = c as P5Element;
+      const d = this.displayOf(x);
+      if (d === null || d === 'contents') return null;
+      if (d === 'none') continue;
+      const pos = this.declsOf(x).get('position') ?? [];
+      if (pos.some((v) => /^\s*(absolute|fixed)\s*$/i.test(v.value))) { if (pos.every((v) => !v.conditional)) continue; return null; }
+      const f = x === el ? own : flexOf(x);
+      if (!f) return null;
+      // a max-width or min-width may freeze an item at it, and an item that grows from its content's size is its content's
+      for (const [prop, none] of [['max-width', /^\s*none\s*$/i], ['min-width', /^\s*(auto|0[a-z%]*)\s*$/i]] as const) {
+        const m = this.cascaded(x, SIZE[prop]);
+        if (m.ambiguous || (m.value !== null && !none.test(m.value))) return null;
+      }
+      const b = f.grow > 0 && zero(f.basis) ? (() => { const e = this.edges(x, 'width'); return e === null ? null : lin(e); })() : base(x, f.basis);
+      if (!b) return null;
+      const ml = this.margin(x, 'left', W, seg), mr = this.margin(x, 'right', W, seg);
+      if (!ml || !mr) return null;
+      for (const side of ['left', 'right'] as const) if (/^\s*auto\s*$/i.test(this.sideValue(x, 'margin', side) ?? '')) return null;
+      items.push({ el: x, grow: f.grow, base: b, margin: { k: ml.k + mr.k, c: ml.c + mr.c } });
+    }
+    const me = items.find((x) => x.el === el);
+    if (!me) return null;
+    let free: Lin = { k: W.k - (items.length - 1) * gap.k, c: W.c - (items.length - 1) * gap.c };
+    for (const x of items) free = { k: free.k - x.base.k - x.margin.k, c: free.c - x.base.c - x.margin.c };
+    // the items overflow (they would shrink, or wrap): not followed; where that starts, the range splits
+    const lo = free.k * Math.max(seg[0], MIN_VIEWPORT) + free.c;
+    const hi = Number.isFinite(seg[1]) ? free.k * seg[1] + free.c : free.k > 1e-9 ? Infinity : free.k < -1e-9 ? -Infinity : free.c;
+    if ((lo < -1e-6 && hi < 1e-6) || (hi < -1e-6 && lo < 1e-6)) return null;
+    if (lo < -1e-6 || hi < -1e-6) throw new Split(-free.c / free.k);
+    const grows = items.reduce((a, x) => a + x.grow, 0);
+    if (!me.grow) return me.base;
+    // factors that sum to less than 1 share only that part of the space
+    const share = grows >= 1 ? me.grow / grows : me.grow;
+    return { k: me.base.k + free.k * share, c: me.base.c + free.c * share };
     return null;
   }
 
@@ -1601,6 +1872,66 @@ export class Layout {
     }
     if (/%/.test(v) && percent === null) return null;
     return evaluate(v, { rem, percent: percent ?? 0 });
+  }
+
+  /**
+   * The font size of `el` in px when it is the same however the page is used: every element up to the root
+   * has one size that surely wins (no state, no media feature other than the viewport's width), none in
+   * viewport units, none under a lone `monospace` (whose default the browsers scale). Null otherwise: a
+   * width in em is then not one the build can know.
+   */
+  private exactFont(el: P5Element): number | null {
+    for (let x: P5Element | null = el; x; x = this.parentOf(x)) {
+      const c = this.candidateDecls(x, ['font-size', 'font']);
+      if (!c || c.length !== 1) return null;
+      if (c[0] && /\d(s|l|d)?v(w|h|i|b|min|max)\b|\d(ex|ch|cap|ic|lh|rlh)\b/i.test(c[0].value)) return null;
+      const f = this.cascaded(x, ['font-family', 'font']);
+      if (f.ambiguous) return null;
+      const fam = this.fontFamilies(x);
+      if (!fam || (fam.length === 1 && fam[0] === 'monospace')) return null;
+    }
+    return this.fontSize(el);
+  }
+
+  /**
+   * `1ch` of `el` in px at most: its exact font size times the widest `0` that may render it: `UNKNOWN_ZERO`
+   * for the fonts the browser has (the stack's fallbacks, shown until a web font loads), or a web font's, from
+   * its file, when wider. Null when the size is not exact or a web font in the stack was not read.
+   */
+  private chOf(el: P5Element): number | null {
+    const size = this.exactFont(el), fams = this.fontFamilies(el);
+    if (size === null || !fams) return null;
+    let widest = UNKNOWN_ZERO;
+    for (const f of fams) {
+      if (!this.webFonts.has(f)) continue;
+      const z = this.zero(f);
+      if (z === null) return null;
+      widest = Math.max(widest, z);
+    }
+    return widest * size;
+  }
+
+  /**
+   * A `width` or `max-width` of `ch` (`65ch`) as an upper bound of what it renders (`notes.bounded`): undefined
+   * when the value is not one, null when its `ch` is not known. Only where a wider box can only make the image
+   * wider; anywhere else (a sibling's width, a margin, a grid track) `ch` is not followed.
+   */
+  private chBound(el: P5Element, value: string): Lin | null | undefined {
+    // only while an image's width is solved: the reserved space wants lower bounds of what boxes are
+    const m = this.notes.ch ? /^\s*(\d*\.?\d+)ch\s*$/i.exec(this.subst(value, el) ?? '') : null;
+    if (!m) return undefined;
+    const ch = this.chOf(el);
+    if (ch === null) return null;
+    this.notes.bounded ??= 'font';
+    return lin(Number(m[1]) * ch);
+  }
+
+  /** `value` with its em lengths in px, of `el`'s exact font size; undefined when that is not known */
+  private ems(el: P5Element, value: string): string | undefined {
+    if (!/\d*\.?\d+(?:e-?\d+)?em\b/i.test(value.replace(/rem\b/gi, ''))) return value;
+    const em = this.exactFont(el);
+    if (em === null) return undefined;
+    return value.replace(/(^|[^\w.-])(-?\d*\.?\d+(?:e-?\d+)?)em\b/gi, (_, pre: string, n: string) => `${pre}${Number(n) * em}px`);
   }
 
   /** the computed font size of `el` in px (inherited), null when the cascade cannot tell */
@@ -2380,12 +2711,33 @@ ul ul, ul ol, ul menu, ol ul, ol ol, ol menu, menu ul, menu ol, menu menu { marg
 
 /** px = k × viewport width + c */
 interface Lin { k: number; c: number }
+/** an item's columns as written: lines (1-based, negative from the end) or null, a span, `1 / -1`, or a named area's lines */
+interface GridPlacement { start: number | null; end: number | null; span: number; full: boolean; named: boolean }
+interface GridAreas { columns: number; names: Map<string, { start: number; span: number }> }
+
+/** `grid-template-areas`: the column count and each name's columns (one rectangle); null for `none`, undefined when invalid */
+function gridAreas(text: string): GridAreas | undefined {
+  const rows = [...text.matchAll(/"([^"]*)"|'([^']*)'/g)].map((m) => (m[1] ?? m[2]!).trim().split(/\s+/).map((c) => (/^\.+$/.test(c) ? null : c)));
+  if (!rows.length || rows.some((r) => r.length !== rows[0]!.length)) return undefined;
+  const names = new Map<string, { start: number; span: number }>();
+  for (const r of rows) for (let i = 0; i < r.length; i++) {
+    const name = r[i];
+    if (!name || (i > 0 && r[i - 1] === name)) continue;
+    let j = i;
+    while (j + 1 < r.length && r[j + 1] === name) j++;
+    const seen = names.get(name);
+    if (seen && (seen.start !== i || seen.span !== j - i + 1)) return undefined;
+    names.set(name, { start: i, span: j - i + 1 });
+  }
+  return { columns: rows[0]!.length, names };
+}
 const lin = (c: number): Lin => ({ k: 0, c });
 /** the range has to be split at a viewport width (where a min()/max() or a column count changes) */
 class Split { constructor(readonly at: number) {} }
 const MIN_VIEWPORT = 240, MAX_VIEWPORT = 4096;
 
-export interface FluidPiece { from: number; to: number; k: number; c: number }
+/** `bound`: an upper bound there, not the width (`widest`: the widest column a list's row may land in; `font`: a width in `ch`, at the widest `0` of the fonts that may render; `fallback`: the range is not followed) */
+export interface FluidPiece { from: number; to: number; k: number; c: number; bound?: 'widest' | 'fallback' | 'font' }
 export interface FluidSizes {
   /** the `sizes` attribute */
   sizes: string;
@@ -2395,6 +2747,117 @@ export interface FluidSizes {
   max: number | null;
   /** the widths, when the image has a fixed width in every range (40 px on phones, 64 px elsewhere) */
   constant: number[] | null;
+}
+
+/** default font sizes the build solves for, besides 16: one larger and one smaller (fitting a line through 16 and 24, checked at 12) */
+const DEFAULTS = [24, 12];
+/** a length at a default font size D: `a + b × D` px */
+export interface Affine { a: number; b: number }
+/** `a px + b em` as CSS (`em`: the default font size, as in `sizes` and media queries) */
+export function affineCss(x: Affine): string {
+  const em = (n: number) => `${Math.round(n * 1e4) / 1e4}em`;
+  if (Math.abs(x.b) < 1e-6) return `${fmt(x.a)}px`;
+  if (Math.abs(x.a) < 0.01) return em(x.b);
+  return `calc(${fmt(x.a)}px ${x.b < 0 ? '-' : '+'} ${em(Math.abs(x.b))})`;
+}
+/** `sizes` for a box no wider than `w` and no wider than the viewport */
+export function boxSizesCss(w: Affine): string {
+  if (Math.abs(w.b) < 1e-6) return `(max-width: ${fmt(w.a)}px) 100vw, ${fmt(w.a)}px`;
+  if (Math.abs(w.a) < 0.01) return `(max-width: ${affineCss(w)}) 100vw, ${affineCss(w)}`;
+  return `min(100vw, ${affineCss(w).replace(/^calc\((.*)\)$/, '$1')})`;
+}
+
+/** a piece's width at every default font size: k × viewport + c + r × D px */
+interface Scaled { k: number; c: number; r: number; bound?: FluidPiece['bound'] }
+
+/**
+ * `sizes` for every default font size from the same image solved at 16, 24 and 12 px (`all`, in that order),
+ * or null when they do not line up: the same pieces, each width and each range's end a line in the default
+ * size. An end in px or em is a media condition; one that mixes both (`72rem + 16px`) is where two pieces
+ * cross, written as `min()`/`max()` of them (no `calc()` in media queries, which not every browser reads).
+ */
+function scaleSizes(all: FluidSizes[]): string | null {
+  const [p16, p24, p12] = all.map((f) => f.pieces) as [FluidPiece[], FluidPiece[], FluidPiece[]];
+  if (p24.length !== p16.length || p12.length !== p16.length) return null;
+  const fit = (v16: number, v24: number, v12: number): Affine | null => {
+    const b = (v24 - v16) / 8, a = v16 - 16 * b;
+    return Math.abs(a + 12 * b - v12) < 0.05 ? { a, b } : null;
+  };
+  const pieces: Scaled[] = [], ends: Array<Affine | null> = [];
+  for (let i = 0; i < p16.length; i++) {
+    const [x, y, z] = [p16[i]!, p24[i]!, p12[i]!];
+    if (x.bound !== y.bound || x.bound !== z.bound || Math.abs(x.k - y.k) > 1e-9 || Math.abs(x.k - z.k) > 1e-9) return null;
+    const c = fit(x.c, y.c, z.c);
+    if (!c) return null;
+    pieces.push({ k: x.k, c: c.a, r: c.b, ...(x.bound ? { bound: x.bound } : {}) });
+    if (i < p16.length - 1) ends.push(fit(x.to, y.to, z.to));
+  }
+  if (ends.some((e) => e === null)) return null;
+  const width = (p: Scaled, v: number, d: number) => p.k * v + p.c + p.r * d;
+  // groups of pieces between ends a media condition can say; inside one, pieces that meet where they cross
+  type Group = { pieces: Scaled[]; ends: Affine[]; to: Affine | null; at16: FluidPiece[] };
+  const groups: Group[] = [{ pieces: [pieces[0]!], ends: [], to: null, at16: [p16[0]!] }];
+  for (let i = 0; i < ends.length; i++) {
+    const e = ends[i]!, g = groups[groups.length - 1]!;
+    const pure = Math.abs(e.b) < 1e-6 || Math.abs(e.a) < 0.01;
+    if (pure) { g.to = e; groups.push({ pieces: [pieces[i + 1]!], ends: [], to: null, at16: [p16[i + 1]!] }); continue; }
+    // continuous at the end, at every default size: a crossing
+    for (const d of [16, 24, 12]) { const v = e.a + e.b * d; if (Math.abs(width(pieces[i]!, v, d) - width(pieces[i + 1]!, v, d)) > 0.5) return null; }
+    g.pieces.push(pieces[i + 1]!); g.ends.push(e); g.at16.push(p16[i + 1]!);
+  }
+  const term = (p: Scaled): string => {
+    const parts: string[] = [];
+    if (Math.abs(p.k) > 1e-9) parts.push(`${fmt(p.k * 100)}vw`);
+    if (Math.abs(p.c) >= 0.005) parts.push(`${fmt(Math.abs(p.c))}px`);
+    if (Math.abs(p.r) > 1e-6) parts.push(`${Math.round(Math.abs(p.r) * 1e4) / 1e4}em`);
+    const signs = [...(Math.abs(p.k) > 1e-9 ? [p.k] : []), ...(Math.abs(p.c) >= 0.005 ? [p.c] : []), ...(Math.abs(p.r) > 1e-6 ? [p.r] : [])];
+    if (!parts.length) return '0px';
+    return parts.map((t, i) => (i === 0 ? (signs[0]! < 0 ? `-${t}` : t) : `${signs[i]! < 0 ? '-' : '+'} ${t}`)).join(' ');
+  };
+  const single = (p: Scaled) => { const t = term(p); return /\s/.test(t) ? `calc(${t})` : t; };
+  const out: string[] = [];
+  for (let gi = 0; gi < groups.length; gi++) {
+    const g = groups[gi]!;
+    // fold the pieces into min()/max(): each crossing keeps the lesser or the greater on both sides
+    let expr = single(g.pieces[0]!), fn: Array<(v: number, d: number) => number> = [(v, d) => width(g.pieces[0]!, v, d)];
+    let value = fn[0]!;
+    for (let j = 1; j < g.pieces.length; j++) {
+      const p = g.pieces[j]!, e = g.ends[j - 1]!, prev = value;
+      const v = e.a + e.b * 16 - 1;
+      const min = prev(v, 16) <= width(p, v, 16);
+      expr = `${min ? 'min' : 'max'}(${expr.replace(/^calc\((.*)\)$/, '$1')}, ${term(p)})`;
+      value = min ? (x, d) => Math.min(prev(x, d), width(p, x, d)) : (x, d) => Math.max(prev(x, d), width(p, x, d));
+    }
+    // checked against the pieces over the group's range at every default size
+    for (const d of [16, 24, 12]) {
+      const lo = gi === 0 ? MIN_VIEWPORT : groups[gi - 1]!.to!.a + groups[gi - 1]!.to!.b * d;
+      const hi = g.to ? g.to.a + g.to.b * d : Math.max(lo, MAX_VIEWPORT);
+      const cuts = [lo, ...g.ends.map((e) => e.a + e.b * d), hi];
+      for (let j = 0; j < g.pieces.length; j++) for (const t of [0.1, 0.5, 0.9]) {
+        const v = cuts[j]! + (cuts[j + 1]! - cuts[j]!) * t;
+        if (!(cuts[j + 1]! > cuts[j]!) || Math.abs(value(v, d) - width(g.pieces[j]!, v, d)) > 0.5) return null;
+      }
+    }
+    const when = g.to ? `(max-width: ${maxEnd(g.to)})` : '';
+    out.push(when ? `${when} ${expr}` : expr);
+    // for a browser that does not read min()/max() in `sizes` (it skips the entry): the same range as at a 16 px default, in px
+    if (g.pieces.length > 1) g.at16.forEach((p, j) => {
+      const conds = [...(when ? [when] : []), ...(j < g.at16.length - 1 ? [`(max-width: ${maxWidthOf(p.to)}px)`] : [])];
+      out.push(conds.length ? `${conds.join(' and ')} ${linCss(p)}` : linCss(p));
+    });
+  }
+  return out.join(', ');
+}
+
+/**
+ * A range's end as a `max-width`: inclusive (a `max-width` query's, which ends a hair past it) as is,
+ * exclusive a hair before. Browsers compare media lengths to about 1/64 px (Chromium: `(max-width: 39.999em)`
+ * and `(min-width: 40.001em)` both hold at 480 px with a 12 px default), so the hair is 0.02 px at an 8 px default.
+ */
+function maxEnd(e: Affine): string {
+  if (Math.abs(e.b) < 1e-6) return `${maxWidthOf(e.a)}px`;
+  const inclusive = Math.abs(e.a - EPS) < EPS / 2;
+  return `${Math.round((inclusive ? e.b : e.b - 0.0025) * 1e4) / 1e4}em`;
 }
 
 /** the smaller (or larger) of two widths over a viewport range; Split where they cross inside it */
@@ -2491,16 +2954,16 @@ const mediaCache = new Map<string, Array<[number, number]> | 'unknown'>();
 /**
  * The viewport widths (px, `[from, to)`) at which all of `queries` (the preludes of nested `@media`
  * rules) apply on a screen: `min-width`, `max-width` and the range syntax (`width >= 40rem`), in
- * px, em or rem (16 px: media queries do not read the page's font size). 'unknown' for any other
+ * px, em or rem (`em` px each: the browser's default font size, 16 unless the visitor changed it; media queries do not read the page's font size). 'unknown' for any other
  * feature (`hover`, `prefers-color-scheme`, `orientation`), whose value the build cannot know.
  */
-function mediaRanges(queries: string[]): Array<[number, number]> | 'unknown' {
-  const key = queries.join('\0');
+function mediaRanges(queries: string[], em = 16): Array<[number, number]> | 'unknown' {
+  const key = em + '\0' + queries.join('\0');
   const r = mediaCache.get(key);
   if (r) return r;
   let acc: Array<[number, number]> = [[0, Infinity]];
   for (const q of queries) {
-    const one = mediaList(q);
+    const one = mediaList(q, em);
     if (one === 'unknown') { mediaCache.set(key, 'unknown'); return 'unknown'; }
     const next: Array<[number, number]> = [];
     for (const [a, b] of acc) for (const [c, d] of one) { const lo = Math.max(a, c), hi = Math.min(b, d); if (lo < hi) next.push([lo, hi]); }
@@ -2510,7 +2973,7 @@ function mediaRanges(queries: string[]): Array<[number, number]> | 'unknown' {
   return acc;
 }
 
-function mediaList(prelude: string): Array<[number, number]> | 'unknown' {
+function mediaList(prelude: string, em: number): Array<[number, number]> | 'unknown' {
   const out: Array<[number, number]> = [];
   for (const raw of topCommas(prelude)) {
     let q = raw.trim().toLowerCase().replace(/^only\s+/, '');
@@ -2521,7 +2984,7 @@ function mediaList(prelude: string): Array<[number, number]> | 'unknown' {
     if (type === 'print' || type === 'speech' || (type !== 'all' && type !== 'screen')) continue;
     let lo = 0, hi = Infinity;
     for (const cond of q ? q.split(/\s+and\s+/) : []) {
-      const r = widthCondition(cond.trim());
+      const r = widthCondition(cond.trim(), em);
       if (r === null) return 'unknown';
       lo = Math.max(lo, r[0]); hi = Math.min(hi, r[1]);
     }
@@ -2532,11 +2995,11 @@ function mediaList(prelude: string): Array<[number, number]> | 'unknown' {
 
 const EPS = 1e-4;
 /** one `(…)` condition on the viewport width, as `[from, to)` px; null when it is about something else */
-function widthCondition(cond: string): [number, number] | null {
+function widthCondition(cond: string, em = 16): [number, number] | null {
   const m = /^\((.*)\)$/s.exec(cond);
   if (!m) return null;
   const inner = m[1]!.trim();
-  const len = (v: string): number | null => { const x = /^(-?\d*\.?\d+)(px|em|rem)?$/.exec(v.trim()); return x ? Number(x[1]) * (x[2] === 'em' || x[2] === 'rem' ? 16 : 1) : null; };
+  const len = (v: string): number | null => { const x = /^(-?\d*\.?\d+)(px|em|rem)?$/.exec(v.trim()); return x ? Number(x[1]) * (x[2] === 'em' || x[2] === 'rem' ? em : 1) : null; };
   const named = /^(min|max)-width\s*:\s*(.+)$/.exec(inner);
   if (named) { const v = len(named[2]!); if (v === null) return null; return named[1] === 'min' ? [v, Infinity] : [0, v + EPS]; }
   // range syntax: width >= 40rem, 30em < width <= 60em

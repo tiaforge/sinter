@@ -27,7 +27,7 @@ import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, RuntimeReason, 
 import { hasCspMeta, movesToDirectory, pageFile, pagePaths, pageUrl, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type PageEntry, type Route } from './page-urls.js';
 import { chooserHtml, hreflangTags, readLocales, type Locales } from './locales-build.js';
-import { familyLineHeights } from './font-metrics.js';
+import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
 import { faceName, faceOf, fontDownloader, fontFileDownloader, inlineFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
 import { COMPONENT_NAME } from './compiler/components.js';
@@ -415,6 +415,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!p) fontBytes.set(key, (p = readFont(url, sheet)));
     return p;
   });
+  /** the width of `0` in the families the stylesheets declare, for images in a box sized in `ch` (dev and builds alike) */
+  const zeroWidthsOf = (styles: StyleSheet[]) => familyZeroWidths(styles, (url, sheet) => {
+    const key = `${sheet}\0${url}`;
+    let p = fontBytes.get(key);
+    if (!p) fontBytes.set(key, (p = readFont(url, sheet)));
+    return p;
+  });
   const readFont = async (url: string, sheet: string): Promise<Uint8Array | null> => {
     if (url.startsWith('data:')) { const m = /^data:[^,]*;base64,(.*)$/s.exec(url); return m ? new Uint8Array(Buffer.from(m[1]!, 'base64')) : null; }
     if (/^https?:\/\//i.test(url)) return (fontFile ??= fontFileDownloader(resolve(root, 'node_modules/.cache/sinter/fonts/files')))(url);
@@ -590,7 +597,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
 
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
-  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>): { out: CompileResult; p: ReturnType<typeof project> } => {
+  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>): { out: CompileResult; p: ReturnType<typeof project> } => {
     const rel = relOf(file);
     const p = project(root, options);
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
@@ -609,6 +616,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(styles?.length ? { styles } : {}),
       ...(lineHeights?.size ? { normalLineHeight: (f: string) => lineHeights.get(f) ?? null } : {}),
+      ...(zeros?.size ? { zeroWidth: (f: string) => zeros.get(f) ?? null } : {}),
       ...(firstPaint && !dev ? { paintCss: `${PAINT_CSS}${rel}.css` } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
@@ -1005,11 +1013,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const styles = (images && /<img\b|<[a-z][a-z0-9]*-/i.test(html)) || (firstPaint && /data-sn-for|<[a-z][a-z0-9]*-/i.test(html)) ? await stylesOf(html, virtual.get(file)?.source ?? file, project(root, options)) : undefined;
         // the fonts' `line-height: normal`, for the space of lists (builds)
         const lineHeights = styles?.length && firstPaint && !dev && /data-sn-for|<[a-z][a-z0-9]*-/i.test(html) ? await lineHeightsOf(styles) : undefined;
-        let { out, p } = build(html, file, earlySrc, styles, lineHeights);
+        // the fonts' `0`, for images in a box sized in ch
+        const zeros = images && styles?.some((s) => /\dch\b/i.test(s.css)) && styles.some((s) => /@font-face/i.test(s.css)) ? await zeroWidthsOf(styles) : undefined;
+        let { out, p } = build(html, file, earlySrc, styles, lineHeights, zeros);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
         if (images && out.images?.pending.length) {
           await images.analyze(out.images.pending);
-          ({ out, p } = build(html, file, earlySrc, styles, lineHeights));
+          ({ out, p } = build(html, file, earlySrc, styles, lineHeights, zeros));
         }
         for (const w of out.remoteWidths ?? []) remoteWidths.add(w);
         // the page's early file from this compile (with the stylesheets), which wrote the page: its ids are the page's

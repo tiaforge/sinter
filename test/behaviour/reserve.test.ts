@@ -201,6 +201,22 @@ test('SN530: an image without a height in rows that arrive after the first paint
   expect(codes('<img class="cover" data-sn-attr="{src: p.photo}" alt="">')).toBe(0);
 });
 
+test('SN530 suggests the fix for that image: its size from the API, the attribute it lacks, or an aspect-ratio rule for it', () => {
+  const json = (schema: unknown) => ({ content: { 'application/json': { schema } } });
+  const person = { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, photo: { type: 'object', properties: { url: { type: 'string' }, width: { type: 'integer' }, height: { type: 'integer' } } }, avatar: { type: 'string' }, avatarWidth: { type: 'number' }, avatarHeight: { type: 'number' }, banner: { type: 'string' } } };
+  const openapi = [{ file: '/app/openapi.json', doc: { openapi: '3.0.3', paths: { '/api/people': { get: { responses: { '200': json({ type: 'array', items: person }) } } } } } }];
+  const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, openapi, styles: [{ file: 'a.css', css: 'img { max-width: 100% }' }], paintCss: '/p.css' };
+  const hint = (img: string) => compile(`<!doctype html><html><head></head><body><sn-resource name="people" src="/api/people" key="id"></sn-resource><ul><template data-sn-for="p in people"><li class="person">${img}<span data-sn-text="p.name"></span></li></template></ul></body></html>`, opts).diagnostics.find((d) => d.code === 'SN530')?.hint;
+  // the API's width and height next to the URL: bind them
+  expect(hint('<img data-sn-attr="{src: p.photo.url}" alt="">')).toContain('add `width: p.photo.width, height: p.photo.height` to its `data-sn-attr`');
+  expect(hint('<img data-sn-attr="{src: p.avatar, alt: p.name}" alt="">')).toContain('add `width: p.avatarWidth, height: p.avatarHeight`');
+  // one attribute of the two
+  expect(hint('<img data-sn-attr="{src: p.banner}" width="1200" alt="">')).toContain('give it `height` too');
+  // no size in the API: a rule for it, by its row's class or its own
+  expect(hint('<img data-sn-attr="{src: p.banner}" alt="">')).toContain('`.person img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }`');
+  expect(hint('<img class="banner" data-sn-attr="{src: p.banner}" alt="">')).toContain('`img.banner {');
+});
+
 test('indicators anywhere on the page: a `data-sn-show` or a branch elsewhere over the same status leaves the list without space; ones that never show while loading do not', () => {
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/p.css' };
   const list = '<sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="3"></sn-resource>';
