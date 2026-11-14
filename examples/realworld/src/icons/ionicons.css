@@ -1,0 +1,20 @@
+/* Ionicons 2.0.1 (MIT, https://github.com/driftyco/ionicons), cut down to the eight icons the pages use:
+   the rules are the package's own (css/ionicons.css), and the font is its fonts/ionicons.ttf with only
+   these glyphs:
+     pyftsubset ionicons.ttf --flavor=woff2 --output-file=ionicons.woff2 \
+       --unicodes=U+F129,U+F12C,U+F13D,U+F141,U+F217,U+F219,U+F252,U+F2BF
+   The whole set is a 51 KB stylesheet on another origin, which every page waited for before its first
+   paint, and a 188 KB font. A page that uses another icon adds its rule here and its glyph to the font. */
+@font-face { font-family: "Ionicons"; src: url("./ionicons.woff2") format("woff2"); font-weight: normal; font-style: normal; }
+.ion-close-round:before, .ion-compose:before, .ion-edit:before, .ion-gear-a:before, .ion-heart:before, .ion-plus-round:before, .ion-pound:before, .ion-trash-a:before {
+  display: inline-block; font-family: "Ionicons"; speak: none; font-style: normal; font-weight: normal; font-variant: normal;
+  text-transform: none; text-rendering: auto; line-height: 1; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+}
+.ion-close-round:before { content: "\f129"; }
+.ion-compose:before { content: "\f12c"; }
+.ion-edit:before { content: "\f2bf"; }
+.ion-gear-a:before { content: "\f13d"; }
+.ion-heart:before { content: "\f141"; }
+.ion-plus-round:before { content: "\f217"; }
+.ion-pound:before { content: "\f219"; }
+.ion-trash-a:before { content: "\f252"; }

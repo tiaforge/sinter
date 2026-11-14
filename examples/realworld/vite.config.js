@@ -16,12 +16,14 @@ export default defineConfig({
     sinter({
       apis,
       embed: !!process.env.SINTER_EMBED,
-      // warnings fail the build, except SN529: the feed and the tag list sit in the RealWorld theme's
-      // columns, which follow their content below 768 px, and the shared theme stays as it is
-      strict: { allow: { SN529: 'the shared RealWorld theme sizes .col-md-9 and .col-md-3 by their content below 768 px; it is not ours to change' } },
+      // warnings fail the build
+      strict: true,
     }),
   ],
   build: {
+    // font files stay files: inlined (Vite's default below 4 KB), the small subsets of the text font would be in the
+    // stylesheet every page waits for, for scripts most visitors never see
+    assetsInlineLimit: 0,
     rollupOptions: { input: Object.fromEntries(pages.map((p) => [p, resolve(import.meta.dirname, `${p}.html`)])) },
   },
 });

@@ -9,7 +9,7 @@
 <!-- the page lives in the URL (page-model): ?page=3 loads the third page (offset 20); the pager's links navigate -->
 <sn-resource cache name="articles" when="$url.feed != 'following'"
   src="/articles?tag={$url.tag}" paginate="offset" page-size="10" size-param="limit" offset-param="offset" page-model="$url.page"></sn-resource>
-<sn-resource cache name="feed" when="$url.feed == 'following' && user"
+<sn-resource cache name="feed" when="$url.feed == 'following' && !signedOut()" early="off"
   src="/articles/feed" paginate="offset" page-size="10" size-param="limit" offset-param="offset" page-model="$url.page"></sn-resource>
 <sn-resource cache name="tags" src="/tags"></sn-resource>
 <template data-sn-if="$url.feed == 'following' && $meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
@@ -20,7 +20,7 @@
   </template>
   <div class="container page">
     <div class="row">
-      <div class="col-md-9" data-sn-let="{ list: $url.feed == 'following' ? feed : articles, meta: $url.feed == 'following' ? $meta.feed : $meta.articles }">
+      <div class="col-xs-12 col-md-9" data-sn-let="{ list: $url.feed == 'following' ? feed : articles, meta: $url.feed == 'following' ? $meta.feed : $meta.articles }">
         <div class="feed-toggle">
           <ul class="nav nav-pills outline-active">
             <template data-sn-if="user">
@@ -52,7 +52,7 @@
           </template>
           <template data-sn-else><div class="article-preview empty-feed-message">No articles are here... yet.</div></template>
         </template>
-        <template data-sn-if="pages(meta.total, 10).length > 1">
+        <template data-sn-if="list.length && pages(meta.total, 10).length > 1">
           <nav>
             <ul class="pagination">
               <template data-sn-for="n in pages(meta.total, 10)" data-sn-key="n">
@@ -65,7 +65,7 @@
           </nav>
         </template>
       </div>
-      <div class="col-md-3">
+      <div class="col-xs-12 col-md-3">
         <div class="sidebar">
           <p>Popular Tags</p>
           <template data-sn-if="$meta.tags.loading && !tags?.length"><div>Loading tags...</div></template>
