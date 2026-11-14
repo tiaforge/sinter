@@ -1,7 +1,7 @@
 // `sinter check --strict`: warnings fail the check, except the machine's and the heuristics',
 // and the codes passed to `--allow`. Build warnings carry a code.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, expect, test } from 'vitest';
@@ -24,6 +24,9 @@ test('the codes strict mode skips are warnings, and every build warning prints i
 
 const root = mkdtempSync(join(tmpdir(), 'sinter-strict-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
+// the check resolves TypeScript from the project, as an app's own install would give it
+mkdirSync(join(root, 'node_modules'));
+symlinkSync(resolve(__dirname, '../node_modules/typescript'), join(root, 'node_modules/typescript'));
 writeFileSync(join(root, 'index.html'), `<!doctype html><html lang="en"><head><title>t</title></head><body>
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="any"></sn-resource>
 </body></html>`);
@@ -32,20 +35,21 @@ const cli = (args: string[], env: Record<string, string> = {}) => {
   const r = spawnSync(process.execPath, [resolve(__dirname, '../node_modules/jiti/lib/jiti-cli.mjs'), resolve(__dirname, '../src/cli.ts'), 'check', '--root', root, ...args, 'index.html'], { encoding: 'utf8', env: { ...process.env, SINTER_STRICT: '', ...env } });
   return { code: r.status, out: r.stdout + r.stderr };
 };
+const expectExit = (r: { code: number | null; out: string }, code: number) => expect(r.code, r.out).toBe(code);
 
 test('sinter check: a warning passes, --strict and SINTER_STRICT fail on it, --allow keeps it a warning', { timeout: 30_000 }, () => {
   const plain = cli([]);
-  expect(plain.code).toBe(0);
+  expectExit(plain, 0);
   expect(plain.out).toContain('warning SN501 unused-resource');
 
   const strict = cli(['--strict']);
-  expect(strict.code).toBe(1);
+  expectExit(strict, 1);
   expect(strict.out).toContain('error SN501 unused-resource');
   expect(strict.out).toContain('sinter check --strict: 1 page(s), 1 error(s) (1 were warnings), 0 warning(s)');
 
-  expect(cli([], { SINTER_STRICT: '1' }).code).toBe(1);
-  expect(cli(['--allow', 'sn501'], { SINTER_STRICT: '1' }).code).toBe(0);
-  expect(cli(['--allow', 'nope']).code).toBe(2);
+  expectExit(cli([], { SINTER_STRICT: '1' }), 1);
+  expectExit(cli(['--allow', 'sn501'], { SINTER_STRICT: '1' }), 0);
+  expectExit(cli(['--allow', 'nope']), 2);
 });
 
 test('strictOf: SINTER_STRICT wins over the option; allow takes known codes with reasons', () => {
