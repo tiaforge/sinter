@@ -82,6 +82,19 @@ test('no wrapper hint for a resource with a `type`', async () => {
   expect(r.resources.find((x) => x.name === 'me')!.hint).toBeUndefined();
 });
 
+test('storage: each key read is listed; a --storage key nothing read is a warning that names the keys read', async () => {
+  const wrong = await incident('--storage', 'token=abc');
+  expect(wrong.requests.every((q) => !q.headers.authorization)).toBe(true);
+  expect(wrong.storage).toContainEqual({ area: 'local', key: 'ops.token', value: null });
+  expect(wrong.warnings).toContain('--storage token: nothing read it; the page read `ops.token` (not set)');
+  expect(formatReport(wrong)).toContain('storage\n  localStorage ops.token  (not set)');
+  const right = await incident('--storage', 'ops.token=abc');
+  expect(right.requests.every((q) => q.headers.authorization === 'Bearer abc')).toBe(true);
+  expect(right.storage).toContainEqual({ area: 'local', key: 'ops.token', value: 'abc' });
+  expect(right.warnings.some((w) => w.startsWith('--storage'))).toBe(false);
+  expect(formatReport(right)).toContain('localStorage ops.token  = "abc"');
+});
+
 test('a step that cannot run stops the steps, with the reason', async () => {
   const r = await incident('--click', '#missing', '--back');
   expect(r.steps).toHaveLength(1);

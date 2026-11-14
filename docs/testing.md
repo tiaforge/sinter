@@ -284,6 +284,8 @@ warnings
   sinter: binding `text` on <h1> at incident.html:8:21 threw: Cannot read properties of null (reading 'title')
 ```
 
+The `storage` section lists each localStorage and sessionStorage key the page and the app's modules read (the config module's middleware included), with its value or `(not set)`. A `--storage` or `--session` key nothing read is a warning that names the keys that were read: `--storage token: nothing read it; the page read \`ops.token\` (not set)`. sinter's own entries (next-page data, the cache) are left out; a `data-sn-persist` key is read as `sn:<key>`.
+
 Components are expanded at build time, so their tags are not on the page: select inside one by its root, `[data-sn-c="status-badge"]`. The exit code is 1 when the page cannot be compiled, a step cannot run (no element matches), a request failed or had no mock, or the page warned (a binding threw, an unhandled error); else 0, so a script or an agent reading the exit status notices. A `--url` with a trailing slash matches the page's patterns, as the server does.
 
 It runs on jsdom, like the tests: install it in the project (`npm i -D jsdom`). There is no layout, no CSS and no real browser behaviour, so visual problems, network quirks and anything specific to one browser engine still need a browser.

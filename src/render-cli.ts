@@ -277,6 +277,64 @@ async function forward(backend: string, req: Request): Promise<Response> {
   return new Response(res.status === 204 || res.status === 304 ? null : await res.arrayBuffer(), { status: res.status, statusText: res.statusText, headers: res.headers });
 }
 
+// ---- storage
+
+export interface StorageRead { area: 'local' | 'session'; key: string; value: string | null }
+
+const INTERNAL_KEY = /^sn:(?:[pc]:|vt$|return$)/;
+
+/** A Storage whose reads are recorded: each key once, with the value it had at its first read. */
+export function recordingStorage(area: StorageRead['area'], reads: StorageRead[]): Storage {
+  const m = new Map<string, string>();
+  return {
+    get length() { return m.size; },
+    key: (i: number) => [...m.keys()][i] ?? null,
+    getItem: (k: string) => {
+      const v = m.get(String(k)) ?? null;
+      // sinter's own entries (next-page data, the cache, view transitions, the sign-in return) are not the app's keys;
+      // `data-sn-persist` keys (`sn:<key>`) are, and stay
+      if (!INTERNAL_KEY.test(String(k)) && !reads.some((x) => x.area === area && x.key === String(k))) reads.push({ area, key: String(k), value: v });
+      return v;
+    },
+    setItem: (k: string, v: string) => { m.set(String(k), String(v)); },
+    removeItem: (k: string) => { m.delete(String(k)); },
+    clear: () => m.clear(),
+  };
+}
+
+/** The stores as the globals `localStorage` and `sessionStorage` (and the window's), for app modules that read them directly. */
+function installStorage(stores: Record<'localStorage' | 'sessionStorage', Storage>): () => void {
+  const targets = [...new Set([globalThis, (globalThis as { window?: object }).window].filter((t): t is object => !!t))];
+  const undo: Array<() => void> = [];
+  for (const t of targets) {
+    for (const [k, v] of Object.entries(stores)) {
+      const was = Object.getOwnPropertyDescriptor(t, k);
+      try {
+        Object.defineProperty(t, k, { value: v, configurable: true, writable: true });
+        undo.push(() => { if (was) Object.defineProperty(t, k, was); else delete (t as Record<string, unknown>)[k]; });
+      } catch { /* not replaceable here: the page's own reads still go through render()'s storage */ }
+    }
+  }
+  return () => { for (const u of undo.reverse()) u(); };
+}
+
+/** The read keys most like `key`: those that contain it or it contains, else within a few edits, else all (up to 3). */
+export function nearest(key: string, keys: string[]): string[] {
+  const k = key.toLowerCase();
+  const near = keys.filter((x) => x.toLowerCase().includes(k) || k.includes(x.toLowerCase()) || edits(x.toLowerCase(), k) <= Math.max(2, Math.floor(k.length / 3)));
+  return (near.length ? near : keys).slice(0, 3);
+}
+
+function edits(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length]!;
+}
+
 // ---- the report
 
 export interface ResourceReport { name: string; loading: boolean; error: unknown; value: unknown; hint?: string }
@@ -306,6 +364,8 @@ export interface RenderReport {
   warnings: string[];
   /** how many of `warnings` are the page's own (not ones that depend on the environment) */
   pageWarnings: number;
+  /** the localStorage and sessionStorage keys the page and the app's modules read, first read each, with the value then (null: not set) */
+  storage: StorageRead[];
   /** what the page and the app's modules wrote to the console (other than the warnings) */
   console: string[];
   steps: StepReport[];
@@ -509,8 +569,10 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
   let loader: Awaited<ReturnType<typeof appLoader>> | null = null;
   // what the app's config module sets is undone afterwards, also when rendering fails
   let savedConfig: { config: object; was: object } | null = null;
+  const reads: StorageRead[] = [];
+  let undoStorage: (() => void) | null = null;
   try {
-  const { render, mockRequests, mockStream, memoryStorage } = await import('./testing/index.js');
+  const { render, mockRequests, mockStream } = await import('./testing/index.js');
   const log: Logged[] = [];
   let step = 0;
   const routes = readMocks(a.mocks, a.root);
@@ -534,11 +596,11 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
   loader = await appLoader(a.root);
   {
     // localStorage: the page's own (an app module may read it directly), filled from --storage
-    const store = globalThis.localStorage ?? memoryStorage();
-    const session = globalThis.sessionStorage ?? memoryStorage();
-    store.clear(); session.clear();
+    // recorded: the report lists each key the page and the app's modules read, and the --storage keys nothing read
+    const store = recordingStorage('local', reads), session = recordingStorage('session', reads);
     for (const [k, v] of a.storage) store.setItem(k, v);
     for (const [k, v] of a.session) session.setItem(k, v);
+    undoStorage = installStorage({ localStorage: store, sessionStorage: session });
     try { if (globalThis.location && globalThis.location.href !== url) (globalThis as { history?: History }).history?.replaceState(null, '', url); } catch { /* another origin */ }
 
     const load = loader.load;
@@ -583,7 +645,7 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
     const report: RenderReport = {
       page: rel, paths, url: url.startsWith(origin) ? url.slice(origin.length) : url, urlMatches: pathMatches(paths, new URL(url).pathname),
       requests: reqs(0), rendered: shown(), resources: resources(r, typed), history: r.historyWrites(), navigations: [...r.navigations],
-      warnings: [], pageWarnings: 0, console: [], steps: [],
+      warnings: [], pageWarnings: 0, console: [], storage: [], steps: [],
     };
     if (error) { report.warnings.push(error); report.pageWarnings++; }
     let last = report.resources, before = report.rendered, writes = report.history.length, navs = report.navigations.length;
@@ -600,6 +662,16 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
       if (sr.error) break;
     }
     const here = (t: string) => t.split(a.root + '/').join('');
+    report.storage = reads;
+    // a --storage key nothing read: most often the app uses another name for it
+    for (const [flag, area, given] of [['--storage', 'local', a.storage], ['--session', 'session', a.session]] as const) {
+      const read = reads.filter((x) => x.area === area);
+      for (const [k] of given) {
+        if (read.some((x) => x.key === k)) continue;
+        report.warnings.push(`${flag} ${k}: nothing read it; ${read.length ? `the page read ${nearest(k, read.map((x) => x.key)).map((n) => `\`${n}\` (${read.find((x) => x.key === n)!.value === null ? 'not set' : 'set'})`).join(', ')}` : `the page read no ${area}Storage key`}`);
+        report.pageWarnings++;
+      }
+    }
     const runtime = r.warnings().map((w) => here(w.message));
     report.pageWarnings += r.diagnostics.length + r.warnings().filter((w) => !w.environment).length;
     report.warnings.unshift(...r.diagnostics.map((d) => formatDiagnostic({ ...d, file: relative(a.root, d.file) || d.file })), ...runtime);
@@ -611,6 +683,7 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
   } finally {
     if (savedConfig) { for (const k of Object.keys(savedConfig.config)) if (!(k in savedConfig.was)) delete (savedConfig.config as Record<string, unknown>)[k]; Object.assign(savedConfig.config, savedConfig.was); }
     await loader?.close();
+    undoStorage?.();
     restore?.();
     Object.assign(console, consoleWas);
   }
@@ -655,6 +728,10 @@ export function formatReport(r: RenderReport): string {
   out.push('state');
   resLines(r.resources, '  ');
   if (r.history.length || r.navigations.length) { out.push('history'); histLines(r.history, r.navigations, '  '); }
+  if (r.storage.length) {
+    out.push('storage');
+    for (const x of r.storage) out.push(`  ${x.area}Storage ${x.key}  ${x.value === null ? '(not set)' : `= ${short(x.value, 60)}`}`);
+  }
   for (const s of r.steps) {
     out.push('', `step ${s.step}`);
     if (s.error) out.push(`  error: ${s.error}`);
