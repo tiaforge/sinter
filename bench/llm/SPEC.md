@@ -92,7 +92,8 @@ Secondary, not in the headline:
 - **Weight and Lighthouse** are measured for every run, but reported in their own table. Agent
   friendliness and output performance are different claims. Lighthouse runs in a separate pass, one
   run at a time on an otherwise idle machine (`run.mjs --grade-only --slots 1`). Agents running in
-  parallel would skew the timings.
+  parallel would skew the timings. Sizes and Lighthouse are always collected during grading; each row records
+  `measuredAlone`, and a run measured beside others can be measured again with `--grade-only --slots 1`.
 
 ## Conditions: separating the framework from the training data
 

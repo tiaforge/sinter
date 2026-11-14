@@ -120,7 +120,8 @@ async function agent(job, slot) {
   });
   writeFileSync(join(dir, 'transcript.jsonl'), res.stdout);
   await killPorts([PORT, API_PORT]); // anything the agent left on its ports (its process group is killed above)
-  const meta = { ...job, slot, PORT, API_PORT, condition: a.condition, registry: a.registry ?? null, note: a.note ?? null, exit: res.code, seconds: Math.round((Date.now() - t0) / 1000), stderr: res.stderr.slice(-2000), ...transcriptStats(res.stdout) };
+  const meta = { ...job, slot, PORT, API_PORT, condition: a.condition, parallelSlots: Number(a.slots), // Lighthouse beside other runs: compare its timings with care
+    registry: a.registry ?? null, note: a.note ?? null, exit: res.code, seconds: Math.round((Date.now() - t0) / 1000), stderr: res.stderr.slice(-2000), ...transcriptStats(res.stdout) };
   writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
   return { dir, ws, PORT, API_PORT, meta };
 }
@@ -184,7 +185,8 @@ async function worker(slot) {
     else r = await agent(job, slot);
     const g = await grade(job, r);
     const row = { ...r.meta, ...(await sourceStats(r.ws)), usesFramework: usesFramework(r.ws, job.framework), build: g.build, served: g.served, passed: g.passed, total: g.total,
-      failed: (g.checks ?? []).filter((c) => !c.pass).map((c) => c.name), measure: g.measure };
+      failed: (g.checks ?? []).filter((c) => !c.pass).map((c) => c.name), measure: g.measure,
+      measuredAlone: a['grade-only'] ? Number(a.slots) === 1 : Number(a.slots) === 1 }; // sizes do not depend on load, Lighthouse timings do
     rows.push(row);
     writeFileSync(resultsFile, JSON.stringify(rows, null, 2));
     console.log(`[slot ${slot}] done  ${job.id}: ${g.passed}/${g.total} $${row.costUSD?.toFixed(2)} ${row.seconds}s turns=${row.turns}${row.leaks?.length ? ' LEAK' : ''}`);
