@@ -10,7 +10,8 @@ Decided with the user:
   made (`data-sn-state`) and the scroll position differ. Every rule below follows from it.
 - Only links whose path stays the same, permanently: crossing a path is routing, a Non-goal.
 - State stays; the scroll position stays and a `#hash` is the browser's; no opt-out attribute.
-- The module is `@tiaforge-ui/sinter/query-links`.
+- The module is `@tiaforge-ui/sinter/query-links`, loaded only by pages with a link the build can
+  see is to the page itself.
 - It does not address RealWorld's four failing settings tests (a form's redirect to another page);
   those stay a documented limitation of the suite's `spa` branch for multi-page apps.
 
@@ -124,10 +125,25 @@ the invariant, since it depends on what each page reads. The docs say so.
 ### 5. Where it lives
 
 `@tiaforge-ui/sinter/query-links` (estimated 250–350 B gzip): one `click` listener on the root, the
-checks of 1 against the page's list of read names (in the IR), the write through `location.ts`. The
-compiler loads it on every page that reads a query parameter by name, so links an island renders
-are covered too; it brings `location.ts` with it. A page that reads no query parameter does not
-load it.
+checks of 1 against the page's list of read names (in the IR), the write through `location.ts`,
+which it brings with it.
+
+The compiler loads it only on a page that reads a query parameter by name **and** has a link the
+build can see goes to the page itself:
+
+- a static `href` that resolves to one of the page's paths (`data-sn-path` patterns, or its file's
+  URL): `?page=3`, `/?feed=following` on `/`, `/tag/go?page=2` on `/tag/:tag`;
+- a `data-sn-attr` `href` whose expression starts with such a path, or with `?`: the literal start
+  is followed through `+`, template literals and both branches of `?:`, so
+  `($url.tag ? '/tag/' + encodeURIComponent($url.tag) : '/') + '?page=' + n` matches `/tag/:tag`
+  and `/`, and `'/profile/' + encodeURIComponent(p.username) + '?page=' + n` matches
+  `/profile/:username`;
+- layouts and components count where they are expanded, per page: a layout's nav link to `/?feed=…`
+  loads the module on `/` only.
+
+A link the build cannot see (an `href` from data, a helper's result, a link an island renders) loads
+its URL as today: correct, only not in the page. The runtime checks of 1 still decide each click; the
+build only decides whether a page carries the module. The docs say which links are seen.
 
 ### 6. Building links
 
@@ -159,6 +175,7 @@ parameter the page does not read is a navigation. A test for each rule of 1 and 
   requests), embedded resources are not prefetched, an automatic version through the Navigation
   API loses its requests when the next page commits, and the next page's early file already
   requests its data first.
+- Links the build cannot see (from data, helpers, islands): they load, as today.
 - An opt-out attribute: a parameter the page does not read already makes a link load, and
   `rel="external"` does for any link. Revisit if real pages need more.
 - RealWorld's settings tests (see Decided).
@@ -175,7 +192,7 @@ row. spec.md, pagination.md (links first), llms.txt, CHANGELOG.
 One commit each:
 
 1. **The module:** the read names in the IR, `query-links.ts` (the checks, the write, the hash),
-   the compiler loading it, `take` for loads a click causes, the "load as Back does" rule for the
+   the compiler loading it (a seen same-page link: static `href`s and `data-sn-attr` prefixes), `take` for loads a click causes, the "load as Back does" rule for the
    pager; testing support and tests for each rule.
 2. **The build warning** for a static query-only `href` that drops parameters the page reads.
 3. **Speculation Rules:** verify the relative exclusion in Chromium (a Playwright check), then the
