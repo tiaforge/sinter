@@ -306,8 +306,8 @@ export interface Meta {
   hasPrev?: boolean;
   hasNext?: boolean;
 }
-/** $error (SinterError); stale: code it loads lazily is gone from the server (docs/lazy.md) */
-export interface Err { status: number | null; body: any; message: string; detail: string | null; stale: boolean }
+/** $error (SinterError, an Error: name, message, stack); stale: code it loads lazily is gone from the server (docs/lazy.md) */
+export interface Err extends Error { status: number | null; body: any; message: string; detail: string | null; stale: boolean }
 declare global {
   /**
    * Value types for attributes bound with data-sn-attr. Empty here; a library extends it to type its own
