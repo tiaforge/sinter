@@ -101,7 +101,8 @@ async function agent(job, slot) {
   await run('sh', ['-c', 'git add -A && git -c user.name=bench -c user.email=bench@localhost commit -qm condition || true'], { cwd: ws });
   writeFileSync(join(dir, 'prompt.md'), prompt2);
   mkdirSync(join(dir, 'tmp'));
-  const env = { ...process.env, TMPDIR: join(dir, 'tmp') };
+  // its own npm cache too: npx keeps `npm create` starters there by name and version, and branch builds share a version
+  const env = { ...process.env, TMPDIR: join(dir, 'tmp'), npm_config_cache: join(dir, 'npm-cache') };
   for (const k of Object.keys(env)) if (/^CLAUDE_(CODE_)?ADDITIONAL_DIRECTORIES/.test(k)) delete env[k];
   // the prompt goes in on stdin: in argv it would match the agents' own `pgrep -f api/server.mjs`, and they kill claude
   const args = ['-p', '--model', MODELS[job.model], '--output-format', 'stream-json', '--verbose',
@@ -164,7 +165,7 @@ function usesFramework(ws, framework) {
 
 async function grade(job, r) {
   await killPorts([r.PORT, r.API_PORT]);
-  const g = await run('unshare', ['--pid', '--fork', '--mount-proc', 'node', join(here, TASKS[job.task].dir, 'grader/grade.mjs'), r.ws], { env: { PREVIEW_PORT: String(r.PORT), API_PORT: String(r.API_PORT) }, timeout: 900_000 });
+  const g = await run('unshare', ['--pid', '--fork', '--mount-proc', 'node', join(here, TASKS[job.task].dir, 'grader/grade.mjs'), r.ws], { env: { PREVIEW_PORT: String(r.PORT), API_PORT: String(r.API_PORT), npm_config_cache: join(r.dir, 'npm-cache-grade') }, timeout: 900_000 });
   let grade; try { grade = JSON.parse(g.out.slice(g.out.indexOf('{'))); } catch { grade = { error: g.out.slice(-2000), passed: 0, total: null, checks: [] }; }
   writeFileSync(join(r.dir, 'grade.json'), JSON.stringify(grade, null, 2));
   await killPorts([r.PORT, r.API_PORT]);

@@ -188,6 +188,27 @@ node run.mjs --tasks t4 --frameworks sinter --models haiku --registry http://127
 
 The commit goes in each run's `meta.json` (`note`).
 
+**Temporary: temper removed from the starter, for fairness.** `create-sinter`'s template uses temper for
+styling, so a sinter agent that runs `npm create sinter` also reads temper's docs and runs `temper check`.
+That is work the Astro and SvelteKit agents do not do, and the graders do not score it. Until the
+comparison includes styling, runs use a starter without it:
+
+```sh
+node pack-branch.mjs <commit> --patch starter/no-temper.mjs
+```
+
+The patch changes only the packed copy, never `packages/create`, and fails if the template no longer
+matches it. It removes:
+- the temper dependencies, its Vite plugin and `temper check`;
+- the temper lines in `AGENTS.md` and the README;
+- temper's attributes from the markup, which becomes plain HTML with a few lines of plain CSS.
+
+Record it in the run's `--note`.
+
+Each run also gets its own npm cache. `npm create` keeps starters in npx's cache by name and version,
+and every branch build is packed as the same version, so a shared cache would hand a run an earlier
+build's starter.
+
 ## Threats to validity
 
 - **The author's bias.** sinter's authors wrote these tasks, and T1 plays to sinter's strengths

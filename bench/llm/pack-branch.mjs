@@ -11,6 +11,7 @@ import { parseArgs } from 'node:util';
 
 const { values: a, positionals: [ref] } = parseArgs({ allowPositionals: true, options: {
   version: { type: 'string', default: '0.18.1' }, out: { type: 'string', default: '/tmp/llmbench/registry' },
+  patch: { type: 'string' }, // a script run on the packed copy of packages/create (starter/no-temper.mjs); the repo is not changed
 } });
 if (!ref) throw new Error('usage: node pack-branch.mjs <git ref> [--version x.y.z] [--out dir]');
 const repo = new URL('../../', import.meta.url).pathname, tree = join(a.out, 'tree');
@@ -27,6 +28,7 @@ symlinkSync(join(repo, 'node_modules'), join(tree, 'node_modules')); // the buil
 sh('npm', ['run', 'build'], tree);
 const setVersion = (dir) => { const f = join(dir, 'package.json'); const p = JSON.parse(readFileSync(f, 'utf8')); p.version = a.version; writeFileSync(f, JSON.stringify(p, null, 2) + '\n'); };
 setVersion(tree); setVersion(join(tree, 'packages/create'));
+if (a.patch) sh('node', [join(new URL('.', import.meta.url).pathname, a.patch), join(tree, 'packages/create')]);
 const packs = [tree, join(tree, 'packages/create')].map((dir) => join(a.out, sh('npm', ['pack', '--silent', '--pack-destination', a.out], dir).split('\n').pop()));
 sh('git', ['worktree', 'remove', '--force', tree]);
-console.log(JSON.stringify({ commit, version: a.version, packs }, null, 2));
+console.log(JSON.stringify({ commit, version: a.version, patch: a.patch ?? null, packs }, null, 2));
