@@ -121,7 +121,7 @@ const requests = mockRequests({
 
 | Member | Purpose |
 | --- | --- |
-| `calls` | every request, in order: `{ method, url, path, body, headers }`. `body` is parsed JSON, `FormData` or text |
+| `calls` | every request, in order: `{ method, url, path, body, headers, status }`. `body` is parsed JSON, `FormData` or text; `status` is the response's, once answered |
 | `pending` | requests waiting to be answered |
 | `deliver()` | answer every waiting request now; returns how many |
 | `errors` | errors for unmatched requests |
@@ -223,6 +223,72 @@ The locale is `locale`, else the stored choice (`locale` in `storage`), else the
 ## Tests that come with the recipes
 
 Each page in [docs/recipes](recipes/) has a test file next to it using these functions, for form dialogs, pagination, optimistic updates, SSE and SignalR sync, offline drafts and more. Copying a recipe means copying its test.
+
+## sinter render
+
+`npx sinter render` runs `render()` from the command line on a page of your project, to see what it does with some data without writing a test or opening a browser. It is meant for coding agents debugging a page: one command answers "what did the page request, with which headers, and what did it show?"
+
+```bash
+npx sinter render incident.html --url /incidents/3 --api mocks.json --storage ops.token=abc --select "#status=open"
+```
+
+The page is compiled as `sinter check` compiles it, with the project's files: components, layouts, the APIs of `sinter({ apis })`, the helpers and actions modules, component scripts, and the config module, whose request middleware runs on every request (so a token it adds shows in the output). The modules are loaded with Vite, so TypeScript works.
+
+| Option | |
+| --- | --- |
+| `--api mocks.json` | answers requests from a JSON object of `mockRequests` routes: `{ "GET /api/me": { "user": { … } }, "GET /api/incidents/3": { "status": 404 } }`. A request no route matches gets a 404 and is marked `(no mock)` |
+| `--api http://localhost:3000` | sends the requests no mock answers to this backend, with their headers. Both may be given |
+| `--url` | the page's URL (default: its own path). A URL the page does not answer at (its `data-sn-path` patterns) is pointed out |
+| `--storage k=v`, `--session k=v` | localStorage and sessionStorage entries, repeatable |
+| `--now`, `--locale` | sinter's clock and the page's language |
+| `--show <selector>` | prints only that part of the page; `--raw` prints the markup unindented; `--json` the whole report as JSON |
+
+Steps run in order after the page has loaded, each followed by what it changed: the requests it sent, history writes, the lines of the page that changed, and the resources whose state changed.
+
+| Step | |
+| --- | --- |
+| `--click <selector>` | clicks the element |
+| `--input <selector>=<text>` | sets the field and dispatches `input` |
+| `--select <selector>=<value>` | picks the option and dispatches `input` and `change` |
+| `--check <selector>`, `--submit <selector>` | toggles a checkbox or radio button; submits the form (or the element's form) |
+| `--back`, `--forward` | moves through the history |
+| `--wait 5s` | moves sinter's clock (debounce, `refresh`, `$now`) |
+| `--emit <event>=<json>` | delivers a server event on the page's streams (`<sn-sync>`) |
+
+```text
+page      incident.html at /incidents/:id
+url       /incidents/3
+requests
+  GET /api/me           Authorization: Bearer abc  → 200 (mock)
+  GET /api/incidents/3  Authorization: Bearer abc  → 200 (mock)
+rendered
+  <body>
+    <main>
+      <h1></h1>
+      …
+state
+  me        loading: false  error: null  value: {"name":"ada"}
+  incident  loading: false  error: null  value: {"incident":{"id":3,"title":"Disk full"}}
+            ← the value is the whole response: items="incident" stores its `incident`
+
+step --select #status=closed
+  history
+    push /incidents/3?status=closed
+  changed
+    -     <span class="badge" data-sn-c="status-badge">open</span>
+    +     <span class="badge" data-sn-c="status-badge">closed</span>
+  state
+    (unchanged)
+
+warnings
+  sinter: binding `text` on <h1> at incident.html:8:21 threw: Cannot read properties of null (reading 'title')
+```
+
+Components are expanded at build time, so their tags are not on the page: select inside one by its root, `[data-sn-c="status-badge"]`. The exit code is 1 when the page cannot be compiled or a step cannot run (no element matches), else 0.
+
+It runs on jsdom, like the tests: install it in the project (`npm i -D jsdom`). There is no layout, no CSS and no real browser behaviour, so visual problems, network quirks and anything specific to one browser engine still need a browser.
+
+`render()` gives tests the same information: `historyWrites()` lists every push and replace (`history()` shows only the entries), `diagnostics` the build's warnings, and each of `requests.calls` has its `status` once answered. `mockRequests(routes, { fallback })` answers the requests no route matches instead of failing them; a function route gets the `Request` as its second argument.
 
 ## Testing helpers and config
 
