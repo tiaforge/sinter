@@ -43,7 +43,8 @@ The build warns twice, `SN529`, and the warnings stay: below 768 px the Conduit 
 columns no width, so the feed's column is only as wide as its content and the tags sit beside it
 until the articles arrive. That layout shift (0.15 on a phone, with the API answering after 500 ms;
 0.035 with the columns at full width) is the theme's, which every RealWorld implementation shares,
-so the theme stays as it is. The "Loading articles..." and "Loading tags..." lines are in the first
+so the theme stays as it is. The build is strict (warnings fail it) with `SN529` allowed, by name and
+with the reason, in `vite.config.js`. The "Loading articles..." and "Loading tags..." lines are in the first
 frame ([first paint](../../docs/first-paint.md#loading-branches)).
 
 Every resource has `cache`: a page shows what the previous page loaded at once and revalidates.
