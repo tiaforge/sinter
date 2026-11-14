@@ -78,3 +78,13 @@ describe('a template\'s kind', () => {
     expect(li()).toEqual(['0:c', '1:b', '2:a']);
   });
 });
+
+test('the resources a stream feeds are flagged (`fed`): any event that names them', () => {
+  const ir = compact(`<html><body>
+    <sn-resource name="a" src="/api/a" key="id"></sn-resource>
+    <sn-resource name="b" src="/api/b" key="id"></sn-resource>
+    <sn-resource name="c" src="/api/c"></sn-resource>
+    <sn-sync src="/events"><sn-event name="a" resource="a" op="upsert"></sn-event><sn-event name="c" resource="c" op="refetch"></sn-event></sn-sync>
+    <p data-sn-text="a.length + b.length + (c ? 1 : 0)"></p></body></html>`);
+  expect(ir.resources.map((r) => [r.name, r.fed])).toEqual([['a', 1], ['b', undefined], ['c', 1]]);
+});

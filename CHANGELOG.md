@@ -36,6 +36,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 - Build-time work the runtime did at mount, per page:
   - The event types a page listens for are listed by the compiler (`IR.ev`, in the page module): the mount adds one listener per entry instead of walking every binding of the page and its templates, and a page without a dialog or a non-text model has no `toggle` listener. Core −75 B gzip (RealWorld pages −50 to −58 B).
+  - The resources a server-event stream feeds are flagged by the compiler (`fed`): the mount read every stream's events once per resource and once more for the set that `pageshow` and `online` leave to the stream. Core −48 B gzip (RealWorld pages −46 to −55 B).
   - A row template's kind is decided by the compiler (`sm`: a simple template, whose rows keep no binding objects; `ri`: its rows read a loop index, nested templates included): the runtime reads a flag where it walked the template's bindings, and its nested templates', when a list first rendered. Core −110 B gzip (RealWorld pages −110 to −115 B). A component used inside itself whose inner copy alone reads the index is now always re-run when its row moves (it depended on which list rendered first).
 
 ### Breaking

@@ -750,8 +750,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   for (const def of ir.resources) createLoader(def);
   // back from the bfcache, or online again: the data may have changed meanwhile. Resources a stream
   // feeds are refetched by the stream module when it reconnects.
-  const fed = new Set((ir.syncs ?? []).flatMap((s) => s.events.map((e) => e.resource)));
-  const again = () => { for (const l of loaders) if (!fed.has(l.def.name)) void l.refetch(); };
+  const again = () => { for (const l of loaders) if (!l.def.fed) void l.refetch(); };
   app.addCleanup(env.listen('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) again(); }));
   app.addCleanup(env.listen('online', again));
   // prerendered (Speculation Rules): the page loaded while nobody saw it, maybe minutes ago, and
@@ -1410,7 +1409,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     Object.defineProperty(app.page.$r, def.name, { get: r.value, enumerable: true });
     app.page.$meta[def.name] = r.meta;
     // fed by a server-event stream: connecting until its first open (src/sse.ts keeps it current)
-    if (app.ir.syncs?.some((s) => s.events.some((e) => e.resource == def.name))) r.meta.live = 'connecting';
+    if (def.fed) r.meta.live = 'connecting';
     /** `had`: the resource has had a URL (its first one after mount restores a `page-model` page) */
     let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, loud = false, had = false, typing: unknown = null, posted: unknown;
 

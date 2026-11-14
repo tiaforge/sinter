@@ -146,7 +146,7 @@ The IR is the only contract between compiler and runtime. It is plain JSON plus 
 
 | Part | Holds |
 | --- | --- |
-| `resources` | name, URL template, key fields, items/total paths, order, pagination config (with `page-model`, its parameter `model` and the function that reads it, `start`; in the page module only the fields that are set: an absent one is null, `deps` [] and `scope` -1; the compiler keeps the full objects) |
+| `resources` | name, URL template, key fields, items/total paths, order, pagination config (with `page-model`, its parameter `model` and the function that reads it, `start`; in the page module only the fields that are set: an absent one is null, `deps` [] and `scope` -1; the compiler keeps the full objects; the page module also flags a resource that an event of one of the page's streams names, `fed`: its `$meta.live` starts as `connecting`, and `pageshow` and `online` leave its refetch to the stream, added 2026-11-14) |
 | `syncs` | stream URL, event → change-message mappings (absent event fields are null; absent on a page without streams) |
 | `roots` | per `data-sn` id: its bindings and the scope it opens (in the page module `p` is absent for a node outside any state scope) |
 | `templates` | per template: node paths, bindings, key expression (absent `index`, `key`, `keyFields` are null); in the page module (`compactIR`) also its kind, which the runtime reads instead of walking the template's bindings: `sm` a simple row template (a lookup function, only value bindings and handlers: its rows keep no binding objects), `ri` a binding in its rows, nested templates included, reads a loop index (added 2026-11-14) |

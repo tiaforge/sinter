@@ -85,6 +85,8 @@ export interface ResourceDef {
   sch?: string;
   /** `method="POST"`: loaded with a POST whose JSON body is this function's value (the identity of a load is its URL and body) */
   body?: number;
+  /** page module only (`compactIR`): a server-event stream of the page feeds it (an event names it): `$meta.live`, and its stream keeps it current */
+  fed?: 1;
 }
 
 export interface EventDef {
@@ -445,11 +447,13 @@ export function compactIR(full: IR): IR {
   // (a component used inside itself makes a template its own descendant: a template being visited adds nothing)
   const reads = (t: TemplateDef, seen: Set<TemplateDef>): boolean => !seen.has(t) && (seen.add(t), t.nodes.some((nd) => nd.b.some((b) =>
     !!b.i || ((b.k == 'for' || b.k == 'if' || b.k == 'else') && reads(ir.templates[b.x!]!, seen)))));
+  // the resources a stream feeds: the runtime reads a flag where it searched every stream's events, per resource
+  const fed = new Set((syncs ?? []).flatMap((s) => s.events.map((e) => e.resource)));
   return {
     ...rest,
     resources: ir.resources.map((r) => {
       const { deps, scope, ...rest } = r;
-      return { ...NULLS(rest), ...(deps?.length ? { deps } : {}), ...(scope != null && scope >= 0 ? { scope } : {}) } as ResourceDef;
+      return { ...NULLS(rest), ...(deps?.length ? { deps } : {}), ...(scope != null && scope >= 0 ? { scope } : {}), ...(fed.has(r.name) ? { fed: 1 } : {}) } as ResourceDef;
     }),
     ...(syncs?.length ? { syncs: syncs.map((s) => ({ ...s, events: s.events.map((e) => NULLS(e) as EventDef) })) } : {}),
     roots: ir.roots.map(compactNode),
