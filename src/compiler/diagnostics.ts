@@ -77,8 +77,17 @@ export const CODES = {
   SN517: 'unkeyed-list',
   SN518: 'redundant-shape',
   SN519: 'dropped-query',
-  SN520: 'content-sized-list',
-  SN521: 'unsized-late-image',
+  SN520: 'unused-preload',
+  SN521: 'redirected-link',
+  SN522: 'untranslated-messages',
+  SN523: 'early-budget',
+  SN524: 'redirects-limit',
+  SN525: 'images-unoptimized',
+  SN526: 'font-download',
+  SN527: 'css-image-sizes',
+  SN528: 'remote-image',
+  SN529: 'content-sized-list',
+  SN530: 'unsized-late-image',
 } as const;
 
 export type Code = keyof typeof CODES;
@@ -93,6 +102,75 @@ export function docsUrl(code: string): string {
 
 export function severityOf(code: Code): Severity {
   return code >= 'SN500' ? 'warning' : 'error';
+}
+
+/**
+ * Warnings that depend on the machine or the network rather than on the project (a package not
+ * installed, a download that failed): `--strict` does not turn them into errors, since a build
+ * would then pass or fail with the network.
+ */
+export const ENVIRONMENT_CODES: ReadonlySet<string> = new Set(['SN525', 'SN526', 'SN527', 'SN528']);
+
+/**
+ * Warnings that are a measure, not a mistake: `--strict` leaves them warnings. `SN507` has its own
+ * switch, `sinter({ complexity: { level: 'error' } })`.
+ */
+export const HEURISTIC_CODES: ReadonlySet<string> = new Set(['SN507']);
+
+/** Whether `--strict` turns a warning with this code into an error (unless allowed). */
+export function strictPromotes(code: string): boolean {
+  return !ENVIRONMENT_CODES.has(code) && !HEURISTIC_CODES.has(code);
+}
+
+/**
+ * `--strict`: the warnings become errors, except those of `ENVIRONMENT_CODES` and
+ * `HEURISTIC_CODES` and the codes in `allow`. A promoted diagnostic keeps its code and says
+ * `(strict)` in its hint.
+ */
+export function applyStrict(diagnostics: readonly Diagnostic[], allow: ReadonlySet<string> = new Set()): Diagnostic[] {
+  return diagnostics.map((d) => {
+    if (d.severity !== 'warning' || allow.has(d.code) || !strictPromotes(d.code)) return d;
+    const note = `a warning, an error with --strict (\`--allow ${d.code}\` keeps it a warning)`;
+    return { ...d, severity: 'error', hint: d.hint ? `${d.hint}; ${note}` : note };
+  });
+}
+
+/** The `strict` option with `SINTER_STRICT` applied: on or off, and the codes that stay warnings, with their reasons. */
+export interface Strict {
+  on: boolean;
+  allow: Map<string, string>;
+}
+
+/** `SINTER_STRICT`: `1`/`true` on, `0`/`false` off, anything else (unset, empty) leaves the option to decide. */
+export function strictEnv(value: string | undefined): boolean | null {
+  const v = (value ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' ? true : v === '0' || v === 'false' ? false : null;
+}
+
+/** The `strict` option, checked: `allow` names diagnostic codes, each with a reason. */
+export function strictOf(s: unknown, env: string | undefined = globalThis.process?.env?.SINTER_STRICT): Strict {
+  const bad = (m: string): never => { throw new Error(`sinter({ strict }): ${m}`); };
+  const allow = new Map<string, string>();
+  let on = false;
+  if (s === true || s === false) on = s;
+  else if (s != null) {
+    if (typeof s !== 'object' || Array.isArray(s)) bad('takes `true`, `false` or `{ allow: { SN504: \'why it stays a warning\' } }`');
+    for (const k of Object.keys(s as object)) if (k !== 'allow') bad(`\`${k}\` is not an option; the only one is \`allow\``);
+    on = true;
+    const a = (s as { allow?: unknown }).allow ?? {};
+    if (typeof a !== 'object' || a === null || Array.isArray(a)) bad('`allow` takes an object of codes and reasons: `{ SN504: \'the legacy API has no types\' }`');
+    for (const [code, why] of Object.entries(a as object)) {
+      if (!(code in CODES)) bad(`\`${code}\` in \`allow\` is not a diagnostic code (docs/diagnostics.md)`);
+      if (typeof why !== 'string' || !why.trim()) bad(`\`allow.${code}\` takes the reason it stays a warning, as a string`);
+      allow.set(code, why);
+    }
+  }
+  return { on: strictEnv(env) ?? on, allow };
+}
+
+/** A build warning that has no place in a file (the build, a module, the config), as the Vite logger prints it. */
+export function formatWarning(code: Code, message: string): string {
+  return `sinter: warning ${code} ${CODES[code]}: ${message}\n  docs: ${docsUrl(code)}`;
 }
 
 /** Formats a diagnostic the way the terminal and the testing module print it. */

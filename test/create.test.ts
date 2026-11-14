@@ -91,6 +91,11 @@ describe('the demo API', () => {
 // temper is a devDependency of the repo, for this build
 const temperDir = join(repo, 'node_modules/@tiaforge-ui/temper');
 
+test('the template turns strict mode on, and tells agents to keep it on', () => {
+  expect(readFileSync(join(repo, 'packages/create/template/vite.config.js'), 'utf8')).toContain('sinter({ typecheck: true, strict: true })');
+  expect(readFileSync(join(repo, 'packages/create/template/AGENTS.md'), 'utf8')).toContain('Do not turn `strict` off');
+});
+
 describe('the template builds', () => {
   const dir = join(tmp, 'built');
   const src = resolve(repo, 'src');
@@ -121,7 +126,7 @@ describe('the template builds', () => {
       const input = { index: join(dir, 'index.html'), task: join(dir, 'task.html') };
       await build({
         configFile: false, root: dir, logLevel: 'silent', appType: 'mpa',
-        plugins: [sinter({ typecheck: true }), temper(), api()],
+        plugins: [sinter({ typecheck: true, strict: true }), temper(), api()],
         resolve: { alias },
         build: { outDir: join(dir, 'dist'), emptyOutDir: true, rollupOptions: { input } },
       });

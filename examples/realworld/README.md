@@ -39,7 +39,7 @@ and the home page's feed tabs are plain links that stay on the page when clicked
 next page, no reload. "Global Feed" from `/tag/go` is another path, a page load. The active page is
 `$meta.<name>.page`, the page shown.
 
-The build warns twice, `SN520`, and the warnings stay: below 768 px the Conduit theme gives its grid
+The build warns twice, `SN529`, and the warnings stay: below 768 px the Conduit theme gives its grid
 columns no width, so the feed's column is only as wide as its content and the tags sit beside it
 until the articles arrive. That layout shift (0.15 on a phone, with the API answering after 500 ms;
 0.035 with the columns at full width) is the theme's, which every RealWorld implementation shares,

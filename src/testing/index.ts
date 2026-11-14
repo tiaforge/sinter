@@ -3,7 +3,7 @@
 // No test-runner imports: works with Vitest or anything else, on jsdom or happy-dom.
 import { compileParts } from '../compiler/compile.js';
 import { earlyPage } from '../compiler/index.js';
-import { formatDiagnostic } from '../compiler/diagnostics.js';
+import { applyStrict, formatDiagnostic, strictOf, type Strict } from '../compiler/diagnostics.js';
 import { apiOrigins, resolveApis, type ApiOptions, type ApisDef } from '../compiler/apis.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import { compactIR } from '../ir.js';
@@ -20,7 +20,8 @@ import { remote, resolveRemote, type RemoteImages } from '../remote.js';
 import cache from '../cache.js';
 import refresh from '../refresh.js';
 import versions from '../versions.js';
-import dev from '../dev.js';
+import dev, { warningSink, type RuntimeWarning } from '../dev.js';
+export type { RuntimeWarning } from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
 import each from '../each.js';
@@ -255,6 +256,13 @@ export interface RenderOptions {
   remoteImages?: RemoteImages;
   /** the page's stylesheets, for the boxes of its images and the space of its lists (as the Vite plugin reads them from the page) */
   css?: string;
+  /**
+   * strict mode (docs/strict.md), as `sinter({ strict })` takes it (default: `SINTER_STRICT`; `false` wins over it, for a test that expects warnings): the page's
+   * warnings throw like its errors, except the codes in `allow`, and a runtime warning makes the call
+   * that ran it (`render`, `flush`, `settle`, `advance`, …) reject. Runtime warnings that depend on the
+   * environment do not (`warnings()` has them)
+   */
+  strict?: boolean | { allow?: Record<string, string> };
 }
 
 export interface FirstPaintTestOptions {
@@ -281,6 +289,8 @@ export interface Rendered {
   advance(ms: number): Promise<void>;
   /** URLs sinter tried to navigate to */
   navigations: string[];
+  /** the runtime's warnings (and errors) since `render()`, strict mode or not */
+  warnings(): RuntimeWarning[];
   /** current page URL (after `$url` writes) */
   url(): string;
   /** the page's history entries (pushed by `$url` writes; a navigation adds none), oldest first */
@@ -358,7 +368,7 @@ function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () 
   runEarly(document, made);
 }
 
-function compilePage(html: string, options: RenderOptions): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown>; apis: ApisDef | null } {
+function compilePage(html: string, options: RenderOptions, strict: Strict = { on: false, allow: new Map() }): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown>; apis: ApisDef | null } {
   const helpers = options.helpers ?? {};
   const manifest: HelperManifest = { module: null, names: [], namespaces: {} };
   for (const [k, v] of Object.entries(helpers)) {
@@ -395,7 +405,8 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
     // and hold the space of lists whose data comes later (the rules are the build's; the test reads the placeholder)
     ...(options.css ? { styles: [{ file: 'test.css', css: options.css }], paintCss: 'paint.css' } : {}),
   });
-  const errors = parts.diagnostics.filter((d) => d.severity === 'error');
+  const diagnostics = strict.on ? applyStrict(parts.diagnostics, new Set(strict.allow.keys())) : parts.diagnostics;
+  const errors = diagnostics.filter((d) => d.severity === 'error');
   if (errors.length) throw new Error(`sinter: build failed\n${errors.map(formatDiagnostic).join('\n')}`);
   return { parts, manifest, actions, apis: apis?.apis ?? null };
 }
@@ -428,7 +439,19 @@ export async function render(html: string, options: RenderOptions = {}): Promise
 
   // compile with the real compiler
   const helpers = withMessages(options);
-  const { parts, actions, apis } = compilePage(html, { ...options, helpers });
+  // `strict: false` on one test wins over SINTER_STRICT: that test expects its warnings
+  const strict = options.strict === false ? { on: false, allow: new Map<string, string>() } : strictOf(options.strict);
+  const { parts, actions, apis } = compilePage(html, { ...options, helpers }, strict);
+  // the runtime's warnings: all of them for `warnings()`; in strict mode the next call rejects with the page's own
+  const sink = warningSink(), seenWarnings: RuntimeWarning[] = [], failing: RuntimeWarning[] = [];
+  sink.list.length = 0;
+  sink.on = (w) => { seenWarnings.push(w); if (strict.on && !w.environment) failing.push(w); };
+  const failOnWarnings = () => {
+    if (!failing.length) return;
+    const list = failing.splice(0);
+    throw new Error(`sinter: ${list.length} runtime warning(s) in strict mode (docs/strict.md; \`render(html, { strict: false })\` turns it off for a test that expects them):\n${list.map((w) => w.message).join('\n')}`);
+  };
+  const strictly = <A extends unknown[]>(fn: (...a: A) => Promise<void>) => async (...a: A) => { await fn(...a); failOnWarnings(); };
   // the page module's `$apis`: each API's base, credentials and headers
   config.apis = apis?.list.map((a) => ({ n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) })) ?? [];
   // and their origins join the allowlist, as the page module's `$origins` does
@@ -634,29 +657,31 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   };
 
   await flush();
+  failOnWarnings();
   return {
-    root: doc.body, app, state, flush, settle, advance, navigations,
+    root: doc.body, app, state, flush: strictly(flush), settle: strictly(settle), advance: strictly(advance), navigations,
+    warnings: () => [...seenWarnings],
     url: () => href,
     history: () => [...entries],
-    back: () => go(-1),
-    forward: () => go(1),
-    frame: async () => {
+    back: strictly(() => go(-1)),
+    forward: strictly(() => go(1)),
+    frame: strictly(async () => {
       for (let j = 0; j < 10; j++) await Promise.resolve();
       for (const fn of frameQueue.splice(0)) fn();
       check();
-    },
-    visibility: async (state) => {
+    }),
+    visibility: strictly(async (state: 'hidden' | 'visible') => {
       hidden = state === 'hidden';
       for (const fn of winListeners.get('visibilitychange') ?? []) fn(new Event('visibilitychange'));
       await flush();
-    },
-    window: async (type, props) => {
+    }),
+    window: strictly(async (type: Parameters<Rendered['window']>[0], props?: Record<string, unknown>) => {
       const e = new Event(type);
       if (type === 'pageshow') Object.defineProperty(e, 'persisted', { value: true });
       for (const [k, v] of Object.entries(props ?? {})) Object.defineProperty(e, k, { value: v, writable: true });
       for (const fn of winListeners.get(type) ?? []) fn(e);
       await flush();
-    },
+    }),
   };
 }
 

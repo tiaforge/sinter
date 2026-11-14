@@ -341,12 +341,12 @@ A list inside a box whose width the stylesheets leave to its content (a flex ite
 `flex-basis` or `width`, or a float) has a different problem: empty, the box is narrow and what is
 beside it sits next to it; the rows widen it, and its neighbours move or wrap to the next line. When
 the rows have a width of their own, the placeholder takes it, and the box is as wide from the first
-frame. Otherwise the data decides the width, and the build reports it, `SN520`, naming the screen widths
+frame. Otherwise the data decides the width, and the build reports it, `SN529`, naming the screen widths
 where it is so: give the box a width of its own (`flex: 1 1 0`, or a basis of 100% where it takes the line,
 as grid systems do below their breakpoint), or give the rows one.
 
 An image without a height in rows that arrive late (no `width` and `height` attributes, no `aspect-ratio`
-or height in CSS) grows its row again when its file loads: `SN521`.
+or height in CSS) grows its row again when its file loads: `SN530`.
 
 ### Loading branches
 

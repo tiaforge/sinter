@@ -8,7 +8,9 @@ export default defineConfig({
   appType: 'mpa',
   plugins: [
     // Compiles the data-sn-* pages; typecheck: every expression is checked against src/sinter.types.ts in `vite build`.
-    sinter({ typecheck: true }),
+    // strict: warnings fail the build, `sinter check` and the dev server's page (docs/strict.md). Keep a code a warning
+    // with its reason, strict: { allow: { SN504: 'why' } }, rather than turning strict off.
+    sinter({ typecheck: true, strict: true }),
     // temper check on the markup: a wrong data-* value fails the build, the dev server warns. `inspect` also audits
     // the rendered page in dev (overflow, contrast, clipped text) and prints findings in the terminal.
     temper({ inspect: true }),

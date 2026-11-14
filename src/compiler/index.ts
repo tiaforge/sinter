@@ -7,12 +7,12 @@ import { earlyRender } from './early-render.js';
 
 export type { SourceMap };
 export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, FnSource, FnSources, HelperManifest, HelperOrigin, PrefetchParts, EmbedSlot, EmbedCond, RuntimeReason };
-export type { Diagnostic } from './diagnostics.js';
+export type { Code, Diagnostic } from './diagnostics.js';
 export type { CheckUnit } from './check-unit.js';
 export type { ImageFormat, ImageHost, ImageInfo, ImageKind, ImageResult, ImageVariant } from './images.js';
 export { FLUID_WIDTHS, TINY_BYTES } from './images.js';
 export { Layout, evaluate, type FixedBox, type FluidPiece, type FluidSizes, type StyleSheet } from './layout.js';
-export { formatDiagnostic, docsUrl, CODES } from './diagnostics.js';
+export { formatDiagnostic, formatWarning, applyStrict, strictPromotes, docsUrl, CODES, ENVIRONMENT_CODES, HEURISTIC_CODES } from './diagnostics.js';
 export { DIAGNOSTIC_DOCS, type DiagnosticDoc } from './diagnostic-docs.js';
 export { compileParts };
 export { COMPLEXITY_DEFAULTS, type ComplexityLimits, type ComplexityOptions } from './complexity.js';

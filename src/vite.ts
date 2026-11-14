@@ -10,8 +10,8 @@ import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
-import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
-import { lazyOf, project, staticPages, type ProjectOptions } from './project.js';
+import { applyStrict, compile, formatDiagnostic, formatWarning, strictPromotes, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
+import { lazyOf, project, staticPages, strictOf, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, helperProblem, isComponentScript, LAZY, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
@@ -19,6 +19,7 @@ import { loadImages, MIME, type Images } from './images.js';
 import { pageStyles } from './styles.js';
 import { detectEngines, type StyleEngine } from './engines.js';
 import { IMAGE_CHECK } from './image-check.js';
+import type { RuntimeWarning } from './dev.js';
 import { rewriteCssImages, type CssImageHost } from './css-images.js';
 import { resolveRemote, type RemoteImages } from './remote.js';
 import { devRemote, remoteMiddleware } from './remote-dev.js';
@@ -173,6 +174,16 @@ const relativeBase = (base: string) => base === '' || base.startsWith('.');
 const pageBase = (base: string, rel: string) => (relativeBase(base) ? '../'.repeat(rel.split('/').length - 1) || './' : base);
 
 const PREFIX = '/@sinter/';
+
+/**
+ * Dev, strict: sends the page's runtime warnings to the dev server, which prints them in the terminal
+ * and shows them in Vite's overlay. It takes the ones kept before it loaded (`warningSink` in dev.ts).
+ */
+const WARN_RELAY = `const sink = (globalThis[Symbol.for('sinter.warnings')] ??= { list: [], on: null });
+const send = (w) => { if (import.meta.hot) import.meta.hot.send('sinter:warn', { ...w, page: location.pathname }); };
+for (const w of sink.list.splice(0)) send(w);
+sink.on = send;
+`;
 const EARLY = `${PREFIX}early/`;
 
 /**
@@ -367,6 +378,19 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let resolveId: ((id: string, importer?: string) => Promise<string | undefined>) | null = null;
   let engines: StyleEngine[] | null = null;
   const warned = new Set<string>();
+  /** strict mode (docs/strict.md): the option with SINTER_STRICT applied, refused before Vite starts when invalid */
+  const strict = strictOf(options.strict);
+  const allowed = new Set(strict.allow.keys());
+  /** build, strict: the build's warnings, which fail it once it has finished (all of them, not the first) */
+  const strictFailures = new Set<string>();
+  /** a build warning with its code; in a strict build it is also kept to fail the build */
+  const coded = (code: Code, message: string) => {
+    const text = formatWarning(code, message);
+    if (strict.on && !dev && strictPromotes(code) && !allowed.has(code)) strictFailures.add(text);
+    return text;
+  };
+  /** a page's or the options' diagnostics, with strict mode's promotions */
+  const strictly = (ds: Diagnostic[]): Diagnostic[] => (strict.on ? applyStrict(ds, allowed) : ds);
   const warnOnce = (m: string) => { if (!warned.has(m)) { warned.add(m); resolved!.logger.warn(m); } };
   /** a stylesheet as Vite compiles it: Sass, Less, Stylus, the project's PostCSS, `@import` */
   const failedCss = new Set<string>();
@@ -377,7 +401,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return { code: out.code, deps: [...(out.deps ?? [])] };
     } catch (e) {
       // e.g. a .scss file without sass installed: the build reports it; here its sizes are unknown
-      if (!failedCss.has(file)) { failedCss.add(file); resolved!.logger.warn(`sinter: image sizes from ${relOf(file)} are not read: ${(e as Error).message.split('\n')[0]}`); }
+      if (!failedCss.has(file)) { failedCss.add(file); resolved!.logger.warn(coded('SN527', `image sizes from ${relOf(file)} are not read: ${(e as Error).message.split('\n')[0]}`)); }
       return null;
     }
   };
@@ -407,7 +431,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     engines ??= detectEngines(root, resolved!.plugins.map((x) => x.name));
     // Google Fonts' stylesheets only in builds, where their fonts' metrics are read
     const remote = options.fonts?.inline === false || dev ? undefined : (url: string) => (fontCss ??= fontDownloader(resolve(root, 'node_modules/.cache/sinter/fonts')))(url);
-    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss, engines, warn: warnOnce, ...(remote ? { remote } : {}) });
+    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss, engines, warn: (m) => warnOnce(coded('SN527', m)), ...(remote ? { remote } : {}) });
   };
   const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {
     if (!images) return undefined;
@@ -572,7 +596,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
     const v = virtual.get(file), src = v?.source ?? file;
     const lang = v && p.messages ? { ...p.messages.dicts[p.messages.base], ...p.messages.dicts[v.locale] } : null;
-    const fatal = p.diagnostics.filter((d) => d.severity === 'error');
+    const fatal = strictly(p.diagnostics).filter((d) => d.severity === 'error');
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
     // a warning about the options (a deprecated one): once per build
     for (const d of p.diagnostics) if (d.severity === 'warning' && !warnedOptions.has(d.message)) { warnedOptions.add(d.message); resolved?.logger.warn(formatDiagnostic(d)); }
@@ -682,14 +706,22 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       }
       if (options.images !== false) {
         images = await loadImages(resolve(root, 'node_modules/.cache/sinter/images'), dev);
-        if (!images) config.logger.warn('sinter: images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this');
+        if (!images) config.logger.warn(coded('SN525', 'images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this'));
       }
     },
 
     configureServer(s) {
       server = s;
+      // strict: a runtime warning in the browser is printed here and fails the page in the overlay, unless it depends on the environment
+      if (strict.on) s.ws.on('sinter:warn', (w: Partial<RuntimeWarning> & { page?: unknown }, client) => {
+        if (typeof w?.message !== 'string') return;
+        const text = `sinter (browser${typeof w.page === 'string' ? `, ${w.page}` : ''}): ${w.message.replace(/^sinter: /, '')}`;
+        if (w.environment) { s.config.logger.warn(`${text} (strict mode does not fail on this one: it depends on the environment)`); return; }
+        s.config.logger.error(text, { timestamp: true });
+        client.send({ type: 'error', err: { message: `${text}\n\nStrict mode (docs/strict.md): runtime warnings fail the page in the dev server.`, stack: '', plugin: 'sinter' } });
+      });
       // dev: an image variant is encoded the first time it is requested (and cached)
-      if (remoteConfig) s.middlewares.use(remoteMiddleware(remoteConfig, (m) => s.config.logger.warn(m)));
+      if (remoteConfig) s.middlewares.use(remoteMiddleware(remoteConfig, (m) => s.config.logger.warn(coded('SN528', m))));
       s.middlewares.use((req, res, next) => {
         const url = req.url?.split('?')[0] ?? '';
         const at = url.indexOf(IMG);
@@ -725,6 +757,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     /** build: the pages that have something to run early (bundled into one file each in generateBundle) */
     async buildStart(input) {
       unhashedPages = 0;
+      strictFailures.clear();
       speculationHashes.clear();
       sharedHead = null;
       earlyPages.clear();
@@ -743,7 +776,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         for (const l of messages.locales) {
           if (l === messages.base) continue;
           const missing = Object.keys(messages.keys).filter((k) => !(k in (messages!.dicts[l] ?? {})));
-          if (missing.length) this.warn(`sinter: ${missing.length} message(s) not translated to \`${l}\` (the ${messages.base} text is used): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}`);
+          if (missing.length) this.warn(coded('SN522', `${missing.length} message(s) not translated to \`${l}\` (the ${messages.base} text is used): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}`));
         }
       }
       if (!firstPaint && !messages) return;
@@ -915,6 +948,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
       if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;
+      if (id === `\0${PREFIX}warn-relay.js`) return WARN_RELAY;
       if (id === `\0${PREFETCH}`) return prefetchModule(prefetchPages(), project(root, options).helpers);
       const lang = id.startsWith(`\0${PREFIX}messages/`) && messages ? id.slice(`\0${PREFIX}messages/`.length, -3) : null;
       if (lang && messages?.dicts[lang]) return languageFile(lang, { ...messages.dicts[messages.base], ...messages.dicts[lang] });
@@ -934,6 +968,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     closeBundle() {
       if (dev) return;
+      // strict: the build's warnings fail it, now that every one has been reported
+      if (strictFailures.size) {
+        const list = [...strictFailures];
+        strictFailures.clear();
+        throw new Error(`sinter: ${list.length} warning(s) fail the build in strict mode (sinter({ strict: { allow: { SNxxx: 'reason' } } }) keeps a code a warning; docs/strict.md)\n${list.join('\n')}`);
+      }
       // inline rules: name what a CSP must allow; header: what the server must send. Once per build
       // pages with a CSP <meta> got the hash: nothing to say. The rest may have a CSP header the build cannot see
       if (speculationHash && unhashedPages) resolved?.logger.info(`sinter: Speculation Rules are inline in the pages: nothing to do without a CSP; a CSP sent as a response header must allow them: add 'inline-speculation-rules' to its script-src (or ${[...speculationHashes].map((h) => `'${h}'`).join(' and ')}, which change${speculationHashes.size > 1 ? '' : 's'} with the pages). docs/navigation.md`);
@@ -990,8 +1030,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (out.check) units.set(file, out.check);
         for (const f of out.files) watch(f);
         for (const f of [p.helpersFile, p.actionsFile]) if (f) watch(f);
-        const errors = out.diagnostics.filter((d) => d.severity === 'error');
-        for (const d of out.diagnostics) if (d.severity === 'warning') console.warn(formatDiagnostic(d));
+        const diagnostics = strictly(out.diagnostics);
+        const errors = diagnostics.filter((d) => d.severity === 'error');
+        for (const d of diagnostics) if (d.severity === 'warning') console.warn(formatDiagnostic(d));
         if (errors.length) {
           const err = new Error(`sinter: ${errors.length} error(s)\n${errors.map(formatDiagnostic).join('\n')}`) as Error & { loc?: unknown; id?: string };
           err.id = errors[0]!.file;
@@ -1004,7 +1045,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // dev: the picker first in the head, with every language's whole dictionary; a build adds it after bundling
         const base = resolved?.base ?? '/', early = out.early != null;
         // dev: the console warns about images shown with too few pixels
-        const checked = dev && images ? out.html.replace('</body>', `<script type="module" src="${base}${PREFIX.slice(1)}img-check.js"></script></body>`) : out.html;
+        const imageChecked = dev && images ? out.html.replace('</body>', `<script type="module" src="${base}${PREFIX.slice(1)}img-check.js"></script></body>`) : out.html;
+        // dev, strict: the runtime's warnings go to the terminal and the overlay
+        const checked = dev && strict.on ? imageChecked.replace('</body>', `<script type="module" src="${base}${PREFIX.slice(1)}warn-relay.js"></script></body>`) : imageChecked;
         // Speculation Rules for links to the app's pages: the browser fetches (or prerenders) the next page
         const samePage = !!out.sameLinks;
         samePage ? sameLinkPages.add(rel) : sameLinkPages.delete(rel);
@@ -1198,7 +1241,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     for (const x of lazyScriptsOf.get(rel) ?? []) if (x.lazy.some((s) => specs.includes(s))) ids.push({ spec: x.module, id: resolve(root, '.' + x.module) });
     for (const { spec, id } of ids) {
       const c = id ? chunks.find((x) => x.type === 'chunk' && x.facadeModuleId === id) : undefined;
-      if (!c) { warnOnce(`sinter: ${rel} preloads ${spec} (data-sn-preload), but no module of the app imports it: there is nothing to preload`); continue; }
+      if (!c) { warnOnce(coded('SN520', `${rel} preloads ${spec} (data-sn-preload), but no module of the app imports it: there is nothing to preload`)); continue; }
       const todo = [c.fileName];
       while (todo.length) {
         const f = todo.shift()!;
@@ -1308,7 +1351,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const top = Object.entries({ ...sharedHead?.modules, ...early.modules }).sort((a, b) => b[1].renderedLength - a[1].renderedLength).slice(0, 5)
       .map(([id, m]) => `${id.includes(PREFIX) ? `the early bindings of ${rel}` : relative(root, id.replace(/^\0/, '')).split(sep).join('/')} ${kb(m.renderedLength)}`);
     const msg = `${line}, over the early budget of ${kb(budget)}. It renders before the first paint: keep heavy imports out of src/sinter.early.ts and of the helpers early bindings call. Largest (before gzip): ${top.join(', ')}`;
-    if (logger) logger.warn(msg); else console.warn(msg);
+    const warning = coded('SN523', msg.replace(/^sinter: /, ''));
+    if (logger) logger.warn(warning); else console.warn(warning);
   }
 
   // Google Fonts as the app's own CSS (`fonts`, on by default; see fonts-build.ts), and the faces to preload
@@ -1334,7 +1378,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (dev || options.fonts?.inline === false) return html;
         const out = await inlineFonts(html, download());
         for (const [id, url] of out.ids) fontSheets.set(id, url);
-        for (const url of out.failed) resolved?.logger.warn(`sinter: could not download ${url}; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)`);
+        for (const url of out.failed) resolved?.logger.warn(coded('SN526', `could not download ${url}; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)`));
         return out.html;
       },
     },
@@ -1531,7 +1575,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           const code = modules.get(`${PREFIX}${other.rel}.js`) ?? '';
           const old = `/${page.rel}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           if (new RegExp(`['"\`]${(base().startsWith('/') ? base().replace(/\/$/, '') : '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}${old}(?![\\w/-])`).test(code)) {
-            resolved?.logger.warn(`sinter: ${other.rel} builds a link to ${page.rel} at run time, which is served at ${pageUrl(page.rel, base(), page.patterns)} now: it arrives through a redirect. Write the URL in the expression (\`'${pageUrl(page.rel, base(), page.patterns)}?…'\`)`);
+            resolved?.logger.warn(coded('SN521', `${other.rel} builds a link to ${page.rel} at run time, which is served at ${pageUrl(page.rel, base(), page.patterns)} now: it arrives through a redirect. Write the URL in the expression (\`'${pageUrl(page.rel, base(), page.patterns)}?…'\`)`));
           }
         }
         // the old URL still arrives: a redirect to the page's URL (relative under a relative base)
@@ -1562,7 +1606,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       let own: string | null = null;
       try { own = pub ? readFileSync(pub, 'utf8') : null; } catch { /* the app has none */ }
       const fixed = routes.filter((r) => !/[:*]/.test(r.from)).length, patterns = routes.length - fixed;
-      if (fixed > 2000 || patterns > 100) resolved?.logger.warn(`sinter: _redirects has ${fixed} fixed rules and ${patterns} with patterns; Cloudflare Pages reads at most 2,000 and 100 (Netlify has no such limit). Move the rest to the host's bulk redirects, or turn the file off with sinter({ redirects: false })`);
+      if (fixed > 2000 || patterns > 100) resolved?.logger.warn(coded('SN524', `_redirects has ${fixed} fixed rules and ${patterns} with patterns; Cloudflare Pages reads at most 2,000 and 100 (Netlify has no such limit). Move the rest to the host's bulk redirects, or turn the file off with sinter({ redirects: false })`));
       this.emitFile({ type: 'asset', fileName: '_redirects', source: redirectsFile(routes, own) });
     },
   };

@@ -121,8 +121,8 @@ test('SN514: an API image in the rows of an auto-fit grid; auto-fill gets exact 
     remoteImages: resolveRemote({ url: 'netlify', origins: ['self'] }),
     images: { info: () => null, url: () => '', styles: [{ file: 'a.css', css: `body { margin: 0 } .g { display: grid; grid-template-columns: repeat(${fit}, minmax(200px, 1fr)); gap: 16px } img { width: 100% }` }] },
   });
-  // (the images have no height before their files load either: SN521, which this test is not about)
-  const codes = (x: ReturnType<typeof grid>) => x.diagnostics.filter((d) => d.code !== 'SN521');
+  // (the images have no height before their files load either: SN530, which this test is not about)
+  const codes = (x: ReturnType<typeof grid>) => x.diagnostics.filter((d) => d.code !== 'SN530');
   const fit = grid('auto-fit');
   expect(codes(fit).map((d) => d.code)).toEqual(['SN514']);
   expect(codes(fit)[0]!.hint).toMatch(/use `repeat\(auto-fill, …\)`/);

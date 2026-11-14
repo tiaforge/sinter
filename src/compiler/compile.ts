@@ -4761,7 +4761,7 @@ class Compiler {
         // in a box whose width follows its content, only rows of a width of their own (the placeholder takes it)
         if (Number.isInteger(n) && n > 0) {
           space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized });
-          if (!space && why === '') why = sized && layout.unreserved?.startsWith('the box') ? `the box around it is as wide as its content (${sized.widths}), and the rows have no width of their own (SN520)` : layout.unreserved ?? 'unknown';
+          if (!space && why === '') why = sized && layout.unreserved?.startsWith('the box') ? `the box around it is as wide as its content (${sized.widths}), and the rows have no width of their own (SN529)` : layout.unreserved ?? 'unknown';
         }
       }
       // images in the rows without a height before their file: each one grows its row when it loads
@@ -4773,7 +4773,7 @@ class Compiler {
   }
 
   /**
-   * After a list's template is compiled: SN520 for a list over late data in a box whose width its rows
+   * After a list's template is compiled: SN529 for a list over late data in a box whose width its rows
    * decide, and the planned placeholder after the template. `static` (the list is a resource that always
    * loads): an element whose one binding removes it once the resource has rows or no load is running.
    * `if` (a `when`, a `data-sn-let` or an expression over resources): a `data-sn-if` over the same, so
@@ -4796,10 +4796,10 @@ class Compiler {
     const branch = held ? this.loadingBranch(el, names) : null;
     if (plan.sized?.siblings && late.length && !held) {
       const what = plan.sized.el.tagName + (attr(plan.sized.el, 'class') ? `.${attr(plan.sized.el, 'class')!.trim().split(/\s+/).join('.')}` : '');
-      this.report(el, 'data-sn-for', 'SN520', `this list's rows arrive after the first paint inside \`<${what}>\`, whose width follows its content (${plan.sized.widths}): the rows widen it and move what is beside it`, 0,
+      this.report(el, 'data-sn-for', 'SN529', `this list's rows arrive after the first paint inside \`<${what}>\`, whose width follows its content (${plan.sized.widths}): the rows widen it and move what is beside it`, 0,
         'give that box a width or flex basis of its own (`flex: 1 1 0`, `width: 100%`), or give the rows a width');
     }
-    if (late.length) for (const img of plan.unsized) this.report(img, null, 'SN521', `\`<${img.tagName}>\` in a list whose rows arrive after the first paint has no height before its file loads: when it does, its row grows and what follows moves`, 0,
+    if (late.length) for (const img of plan.unsized) this.report(img, null, 'SN530', `\`<${img.tagName}>\` in a list whose rows arrive after the first paint has no height before its file loads: when it does, its row grows and what follows moves`, 0,
       'give it `width` and `height` attributes (its ratio), or an `aspect-ratio` or a height in the stylesheets');
     const note = (why: string) => {
       const o = this.origins.get(el), at = o && el.sourceCodeLocation ? this.lineCol(o.src, el.sourceCodeLocation.startOffset) : { line: 1, col: 1 };

@@ -333,11 +333,56 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Build the whole query in `data-sn-attr` (`href: \'?page=\' + n + \'&tag=\' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose, for a link that resets it.',
   },
   SN520: {
+    example: '`index.html` preloads `chart.js` (data-sn-preload), but no module of the app imports it: there is nothing to preload',
+    means: 'A `data-sn-preload` names a module that no module of the app imports, so the build has no chunk to preload and the attribute does nothing. Reported by the build.',
+    fix: 'Remove the name from `data-sn-preload`, or correct it to the module the page\'s scripts import.',
+  },
+  SN521: {
+    example: '`list.html` builds a link to `item.html` at run time, which is served at `/item/` now: it arrives through a redirect',
+    means: 'An expression builds a URL to another page by its file name (`\'/item.html?id=\' + i.id`). The build rewrites such links in the markup, but not ones built at run time, so the link costs a redirect to the page\'s URL. Reported by the build.',
+    fix: 'Write the page\'s URL in the expression, as the message shows: `\'/item/?id=\' + i.id`.',
+  },
+  SN522: {
+    example: '3 message(s) not translated to `de` (the en text is used): save, cancel, title',
+    means: 'The inlang project has messages without a text in one of its languages, so pages in that language show the base language\'s text. Reported by the build.',
+    fix: 'Add the translations to the language\'s message file.',
+  },
+  SN523: {
+    example: 'early script of index.html: assets/index-head.js 12.4 kB gzip, over the early budget of 10.0 kB',
+    means: 'The script that renders before the first paint is larger than the budget (`sinter({ earlyBudget })`, 10 kB gzip by default). It blocks the first frame, so its size is paid on every visit. The message names the largest modules. Reported by the build.',
+    fix: 'Keep heavy imports out of `src/sinter.early.ts` and of the helpers that early bindings call, or raise the budget.',
+  },
+  SN524: {
+    example: '_redirects has 2400 fixed rules and 12 with patterns; Cloudflare Pages reads at most 2,000 and 100 (Netlify has no such limit)',
+    means: 'The `_redirects` file the build writes has more rules than Cloudflare Pages reads; the rest would be ignored there. Reported by the build.',
+    fix: 'Move the rules beyond the limit to the host\'s bulk redirects, or turn the file off with `sinter({ redirects: false })`.',
+  },
+  SN525: {
+    example: 'images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this',
+    means: 'Image optimization needs the `sharp` package, which is not installed, so images are served as they are. This depends on the machine, so `--strict` leaves it a warning.',
+    fix: 'Install it, `npm install -D sharp`, or turn optimization off with `sinter({ images: false })`.',
+  },
+  SN526: {
+    example: 'could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)',
+    means: 'The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font\'s host. This depends on the network, so `--strict` leaves it a warning.',
+    fix: 'Build with network access, or turn self-hosting off with `sinter({ fonts: { inline: false } })`.',
+  },
+  SN527: {
+    example: 'image sizes from src/styles.scss are not read: Undefined variable $gap',
+    means: 'The build reads the page\'s CSS to size its images, and a stylesheet could not be compiled (by Vite\'s CSS pipeline, Sass, PostCSS, …). Those images get sizes without that stylesheet. This depends on the tools installed, so `--strict` leaves it a warning.',
+    fix: 'Fix the error the message shows, or install the preprocessor the stylesheet needs.',
+  },
+  SN528: {
+    example: 'images from the API: fetch failed',
+    means: 'In dev, `images.remote` optimizes images from the API, and one could not be fetched or converted. The request answers 502. This depends on the API being reachable, so `--strict` leaves it a warning.',
+    fix: 'Check that the API is running and serves the image at that URL.',
+  },
+  SN529: {
     example: 'this list\'s rows arrive after the first paint inside `<div.col-md-9>`, whose width follows its content: the rows widen it and move what is beside it',
     means: 'The rows of a `data-sn-for` over a resource come after the first paint (without embedded data). The list is inside a box whose width the stylesheets leave to its content: a flex item in a row with no `flex-basis` or `width`, or a float. Empty, that box is narrow and what is beside it sits next to it; once the rows arrive it widens, and its neighbours move or wrap to the next line, a layout shift as large as the boxes that move. The build cannot reserve that width, since it depends on the data. Reported where the stylesheets decide it, at any screen width.',
     fix: 'Give the box a width that does not depend on its content: `flex: 1 1 0` or a `flex-basis` in a row, `width: 100%` (or a basis of 100%) where it should take the whole line, as most grid systems do below their breakpoint. With rows of a width of their own (`width` in px or rem) on a paginated list, the build holds the box\'s width from the first frame, and this is not reported.',
   },
-  SN521: {
+  SN530: {
     example: '`<img>` in a list whose rows arrive after the first paint has no height before its file loads: when it does, its row grows and what follows moves',
     means: 'An image (or a video, an iframe, an embed) in the rows of a `data-sn-for` over data that comes after the first paint has neither `width` and `height` attributes nor a height or `aspect-ratio` from the stylesheets. Until its file has loaded it is 0 px tall (or its alt text), then it takes its own size, and the row, and everything after the list, moves. With images from an API this happens on every page view. Reported when the build reads the page\'s stylesheets.',
     fix: 'Give it `width` and `height` attributes with its ratio (`<img width="400" height="300" data-sn-attr="{src: a.image}">`, with `height: auto` in CSS to keep it fluid), or an `aspect-ratio`, or a fixed height in the stylesheets.',

@@ -116,27 +116,27 @@ test('the build: the placeholder\'s rule in the page\'s first-paint stylesheet, 
   expect(none.module).not.toContain('/p.css');
 });
 
-test('SN520: a list over late data in a flex item whose width follows its content', async () => {
+test('SN529: a list over late data in a flex item whose width follows its content', async () => {
   const css = '.row { display: flex; flex-wrap: wrap }';
   const page = (resource = '') => `<sn-resource name="people" src="/api/people" items="people" key="id" ${resource}></sn-resource>
     <div class="row"><div class="feed"><template data-sn-for="p in people"><p class="card" data-sn-text="p.name"></p></template></div><aside>tags</aside></div>`;
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }], paintCss: '/p.css' };
-  const warned = compile(page(), opts).diagnostics.filter((d) => d.code === 'SN520');
+  const warned = compile(page(), opts).diagnostics.filter((d) => d.code === 'SN529');
   expect(warned).toHaveLength(1);
   expect(warned[0]!.message).toContain('`<div.feed>`');
   // with a basis of its own, nothing to say
-  expect(compile(page(), { ...opts, styles: [{ file: 'a.css', css: css + ' .feed { flex: 1 1 0 }' }] }).diagnostics.filter((d) => d.code === 'SN520')).toEqual([]);
+  expect(compile(page(), { ...opts, styles: [{ file: 'a.css', css: css + ' .feed { flex: 1 1 0 }' }] }).diagnostics.filter((d) => d.code === 'SN529')).toEqual([]);
   // rows of a width of their own, paginated: a placeholder as wide holds the box's width, nothing to say either
   const fixed = compile(page('paginate="offset" page-size="4"'), { ...opts, styles: [{ file: 'a.css', css: css + ' .card { width: 280px; height: 40px; margin: 0 }' }] });
-  expect(fixed.diagnostics.filter((d) => d.code === 'SN520')).toEqual([]);
+  expect(fixed.diagnostics.filter((d) => d.code === 'SN529')).toEqual([]);
   expect(fixed.paint).toContain('width:280px');
   expect(fixed.paint).toContain('height:160px');
 });
 
-test('SN521: an image without a height in rows that arrive after the first paint', () => {
+test('SN530: an image without a height in rows that arrive after the first paint', () => {
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: 'img { max-width: 100% } .avatar { width: 32px; height: 32px } .cover { aspect-ratio: 16 / 9; width: 100% }' }], paintCss: '/p.css' };
   const page = (img: string) => `<!doctype html><html><head></head><body><sn-resource name="people" src="/api/people" key="id"></sn-resource><ul><template data-sn-for="p in people"><li>${img}<span data-sn-text="p.name"></span></li></template></ul></body></html>`;
-  const codes = (img: string) => compile(page(img), opts).diagnostics.filter((d) => d.code === 'SN521').length;
+  const codes = (img: string) => compile(page(img), opts).diagnostics.filter((d) => d.code === 'SN530').length;
   expect(codes('<img data-sn-attr="{src: p.photo}" alt="">')).toBe(1);
   expect(codes('<img data-sn-attr="{src: p.photo}" width="400" height="300" alt="">')).toBe(0);
   expect(codes('<img class="avatar" data-sn-attr="{src: p.photo}" alt="">')).toBe(0);
