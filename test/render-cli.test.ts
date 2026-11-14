@@ -95,6 +95,13 @@ test('storage: each key read is listed; a --storage key nothing read is a warnin
   expect(formatReport(right)).toContain('localStorage ops.token  = "abc"');
 });
 
+test('the stand-ins used are one line, and not a failure', async () => {
+  const r = await renderPage(args('clean.html', '--api', 'api.json'));
+  r.standIns = ['ResizeObserver (nothing is measured)'];
+  expect(formatReport(r)).toContain('\njsdom stand-ins used: ResizeObserver (nothing is measured)\n');
+  expect(failed(r)).toBe(false);
+});
+
 test('a step that cannot run stops the steps, with the reason', async () => {
   const r = await incident('--click', '#missing', '--back');
   expect(r.steps).toHaveLength(1);

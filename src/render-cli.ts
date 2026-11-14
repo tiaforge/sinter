@@ -148,7 +148,17 @@ export function parseRenderArgs(argv: string[], cwd = process.cwd()): RenderArgs
 // ---- the DOM
 
 /** jsdom's window as the globals the runtime and the testing module use, as Vitest's jsdom environment sets them. */
+/** The jsdom stand-ins called since `installDom()`, by name, each once. */
+export const standIns = new Set<string>();
+const used = (name: string) => { standIns.add(name); };
+
+const STAND_IN_EFFECT: Record<string, string> = {
+  ResizeObserver: 'nothing is measured', IntersectionObserver: 'nothing is ever visible', matchMedia: 'every media query is false',
+  'Element.animate': 'animations finish at once', scrollIntoView: 'nothing scrolls',
+};
+
 export async function installDom(url: string): Promise<() => void> {
+  standIns.clear();
   // (jsdom ships no types; the package needs none of them)
   type Dom = { window: Window & { close(): void } };
   let JSDOM: new (html: string, o: object) => Dom;
@@ -172,9 +182,10 @@ export async function installDom(url: string): Promise<() => void> {
     Object.defineProperty(g, key, { value: typeof v === 'function' && !/^[A-Z]/.test(key) ? (v as (...a: unknown[]) => unknown).bind(dom.window) : v, configurable: true, writable: true });
   }
   // what jsdom lacks and component scripts commonly use: inert stand-ins (nothing is laid out or animated)
-  class Observer { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } }
-  const media = (query: string) => ({ matches: false, media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false });
-  const stand: Record<string, unknown> = { ResizeObserver: Observer, IntersectionObserver: Observer, matchMedia: media };
+  // each records that it was used: the report says so, as a component that measures itself renders as if nothing happened
+  const observer = (name: string) => class { constructor() { used(name); } observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } };
+  const media = (query: string) => (used('matchMedia'), { matches: false, media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false });
+  const stand: Record<string, unknown> = { ResizeObserver: observer('ResizeObserver'), IntersectionObserver: observer('IntersectionObserver'), matchMedia: media };
   for (const [key, v] of Object.entries(stand)) {
     if (key in win && typeof win[key] === 'function') continue;
     win[key] = v;
@@ -182,8 +193,8 @@ export async function installDom(url: string): Promise<() => void> {
     Object.defineProperty(g, key, { value: v, configurable: true, writable: true });
   }
   const proto = (dom.window as unknown as { Element: { prototype: Record<string, unknown> } }).Element.prototype;
-  proto.animate ??= function () { return { finished: Promise.resolve(), cancel() {}, finish() {}, play() {}, pause() {}, addEventListener() {}, removeEventListener() {} }; };
-  proto.scrollIntoView ??= function () {};
+  proto.animate ??= function () { used('Element.animate'); return { finished: Promise.resolve(), cancel() {}, finish() {}, play() {}, pause() {}, addEventListener() {}, removeEventListener() {} }; };
+  proto.scrollIntoView ??= function () { used('scrollIntoView'); };
   for (const key of ['window', 'self', 'top', 'parent']) {
     set.push([key, Object.getOwnPropertyDescriptor(g, key)]);
     Object.defineProperty(g, key, { value: dom.window, configurable: true, writable: true });
@@ -366,6 +377,8 @@ export interface RenderReport {
   pageWarnings: number;
   /** the localStorage and sessionStorage keys the page and the app's modules read, first read each, with the value then (null: not set) */
   storage: StorageRead[];
+  /** jsdom stand-ins the page called (no layout, media queries or animation): not a failure, a reason a part may look empty */
+  standIns: string[];
   /** what the page and the app's modules wrote to the console (other than the warnings) */
   console: string[];
   steps: StepReport[];
@@ -645,7 +658,7 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
     const report: RenderReport = {
       page: rel, paths, url: url.startsWith(origin) ? url.slice(origin.length) : url, urlMatches: pathMatches(paths, new URL(url).pathname),
       requests: reqs(0), rendered: shown(), resources: resources(r, typed), history: r.historyWrites(), navigations: [...r.navigations],
-      warnings: [], pageWarnings: 0, console: [], storage: [], steps: [],
+      warnings: [], pageWarnings: 0, console: [], storage: [], standIns: [], steps: [],
     };
     if (error) { report.warnings.push(error); report.pageWarnings++; }
     let last = report.resources, before = report.rendered, writes = report.history.length, navs = report.navigations.length;
@@ -663,6 +676,7 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
     }
     const here = (t: string) => t.split(a.root + '/').join('');
     report.storage = reads;
+    report.standIns = [...standIns].map((n) => `${n} (${STAND_IN_EFFECT[n]})`);
     // a --storage key nothing read: most often the app uses another name for it
     for (const [flag, area, given] of [['--storage', 'local', a.storage], ['--session', 'session', a.session]] as const) {
       const read = reads.filter((x) => x.area === area);
@@ -744,6 +758,7 @@ export function formatReport(r: RenderReport): string {
     else out.push('    (unchanged)');
   }
   if (r.console.length) { out.push('', 'console'); out.push(r.console.map((l) => l.split('\n').map((x) => '  ' + x).join('\n')).join('\n')); }
+  if (r.standIns.length) out.push('', `jsdom stand-ins used: ${r.standIns.join(', ')}`);
   out.push('', 'warnings');
   out.push(r.warnings.length ? r.warnings.map((w) => w.split('\n').map((l) => '  ' + l).join('\n')).join('\n') : '  (none)');
   return out.join('\n');
