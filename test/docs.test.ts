@@ -43,6 +43,8 @@ function llms(): string {
 
 Package: @tiaforge-ui/sinter. Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element. Anything else is a build error with a suggestion.
 
+Work in strict mode, so warnings fail like errors instead of scrolling past: \`sinter({ strict: true })\` in the Vite config (or \`SINTER_STRICT=1\`), \`npx sinter check --strict\` after every change, \`render(html, { strict: true })\` in tests (\`render()\` reads \`SINTER_STRICT\` too), and read the dev server's terminal, where strict mode prints the browser's runtime warnings. A clean exit means no warnings, not only no errors. Fix what a warning reports; do not turn strict mode off. Keep a code a warning only when the user agrees, in \`strict: { allow: { SN504: 'reason' } }\`. Details: docs/strict.md and "Type checking" below.
+
 ## Attributes
 `);
   for (const a of [...ATTRIBUTES, ON_DOC, KEY_ON_DOC, DEBOUNCE_ON_DOC]) out.push(`- \`data-sn-${a.name}\`${a.value ? ` (${a.value})` : ''}: ${a.doc}`);

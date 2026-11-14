@@ -12,5 +12,8 @@
   component's script (`src/components/<name>.ts` beside `<name>.html`, extending the class imported
   from `./<name>.html`; it writes state, never nodes sinter renders).
 - Types for `type="…"` go in `src/sinter.types.ts`.
-- Run `npm run check` after editing; `npm run build` runs the same checks.
+- Run `npm run check` after editing; `npm run build` runs the same checks. Strict mode is on: a warning
+  fails like an error, and the dev server prints the browser's runtime warnings in the terminal. Fix
+  what they report. Do not turn `strict` off, and add a code to `strict.allow` (with its reason) only
+  when the user agrees that it should stay a warning.
 - `server/api.js` is a demo backend. Do not grow it into the real one.
