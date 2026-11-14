@@ -88,3 +88,14 @@ test('with next-page data in the app, the early binding first checks this tab ho
   // `when` is called from the table, not written out again
   expect(ahead).toMatch(/!!f\[\d+\]\(\$\)/);
 });
+
+test('embedded rows chosen by the URL between an embedded resource and one that is not: in the first paint (as before)', async () => {
+  const page = `<!doctype html><html><head><script type="application/json" data-sn-data="all">{"c":[{"id":1,"name":"Ada"},{"id":2,"name":"Grace"}]}</script></head><body>
+    <sn-resource name="user" src="/api/user"></sn-resource>
+    <sn-resource name="mine" src="/api/mine" items="c" key="id" when="user"></sn-resource>
+    <sn-resource name="all" src="/api/all" items="c" key="id"></sn-resource>
+    <ul data-sn-let="{ list: $url.feed == 'following' ? mine : all }"><template data-sn-for="x in list"><li data-sn-text="x.name"></li></template></ul>
+  </body></html>`;
+  await firstPaint(page);
+  expect([...document.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['Ada', 'Grace']);
+});

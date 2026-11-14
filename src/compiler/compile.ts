@@ -4527,7 +4527,9 @@ class Compiler {
     const templates: EarlyIR['templates'] = this.templates.map(() => null);
     // a binding over a resource without data is early only when it reads a status the early file knows (a loading branch):
     // anything else of it reads data that is not there yet
-    const statusOnly = (deps: string[]) => !deps.some((d) => { const r = /^\$r\.([^.]+)/.exec(d); return r && !embedded.has(r[1]!); })
+    // (with embedded data on the page, as before: a binding may name another resource, which throws only if it is read,
+    // `$url.feed ? feed : articles`)
+    const statusOnly = (deps: string[]) => embedded.size > 0 || !deps.some((d) => { const r = /^\$r\.([^.]+)/.exec(d); return r && !embedded.has(r[1]!); })
       || deps.some((d) => { const m = /^\$meta\.([^.]+)/.exec(d); return !!m && pre.has(m[1]!); });
     const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for'] : [])].includes(b.k) && !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
     const list = (defs: NodeDef[]): NodeDef[] => {
