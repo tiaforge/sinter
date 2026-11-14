@@ -173,6 +173,20 @@ node run.mjs --tasks t1,t2,t3,t4,t5 --frameworks sinter,astro,sveltekit --models
 node report.mjs /tmp/llmbench/runs/<time>            # tables
 ```
 
+### Against an unpublished sinter build
+
+To measure a change before it is released, pack it and serve it from a local registry. The agent's
+`npm install @tiaforge-ui/sinter` and `npm create sinter` then get that build, as they would after a
+release, and everything else still comes from npmjs:
+
+```sh
+node pack-branch.mjs <branch or commit>     # sinter and create-sinter, one commit, version 0.18.1
+node registry.mjs /tmp/llmbench/registry/*.tgz
+node run.mjs --tasks t4 --frameworks sinter --models haiku --registry http://127.0.0.1:4873/ --note "<commit>"
+```
+
+The commit goes in each run's `meta.json` (`note`).
+
 ## Threats to validity
 
 - **The author's bias.** sinter's authors wrote these tasks, and T1 plays to sinter's strengths
