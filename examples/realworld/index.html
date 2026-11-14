@@ -1,6 +1,5 @@
 <conduit-layout data-sn-path="/ /tag/:tag"
-  data-sn-state="{ nav: 'home', error: null }"
-  data-sn-on-sn-error="$event.detail.error.status == 401 ? navigate('/login') : error = $event.detail.error; $event.preventDefault()"
+  data-sn-state="{ nav: 'home' }"
   data-sn-prop="{ nav, title: 'Home', description: 'Conduit, a place to share your knowledge: the global feed, your feed and popular tags.' }">
 
 <!-- the page lives in the URL (page-model): ?page=3 loads the third page (offset 20); the pager's links navigate -->
@@ -29,7 +28,6 @@
             </template>
           </ul>
         </div>
-        <error-list data-sn-prop="{ error }"></error-list>
         <template data-sn-if="meta.error">
           <div class="article-preview error-messages">Could not load articles.</div>
         </template>

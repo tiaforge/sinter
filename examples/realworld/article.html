@@ -1,6 +1,5 @@
 <conduit-layout data-sn-path="/article/:slug"
-  data-sn-state="{ nav: '', error: null, commentError: null }"
-  data-sn-on-sn-error="$event.detail.error.status == 401 ? navigate('/login') : error = $event.detail.error; $event.preventDefault()"
+  data-sn-state="{ nav: '', commentError: null }"
   data-sn-prop="{ nav, title: 'Article', description: 'An article on Conduit, with its comments.' }">
 <!-- <conduit-markdown>: only this page renders Markdown -->
 <script slot="head" type="module" src="/src/markdown.js"></script>
@@ -22,7 +21,6 @@
       </div>
     </div>
     <div class="container page">
-      <error-list data-sn-prop="{ error }"></error-list>
       <div class="row article-content">
         <div class="col-md-12">
           <conduit-markdown data-sn-prop="{source: article.body}"></conduit-markdown>
