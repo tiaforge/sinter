@@ -72,6 +72,9 @@ const CASES: Array<[string, string, string, number, [number, number] | null | 'f
   ['a height per media query', '.row { height: 40px } @media (min-width: 600px) { .row { height: 60px } }', '<div><template id="t"><div class="row"></div></template></div>', 3, [180, 120], 'exact'],
   ['a font size in vw: a share of the width, exact at every width', 'body { margin: 0 } .row { font-size: 4vw; line-height: 1 }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, 'fluid', 'tight'],
   ['rows side by side: not followed', 'ul { display: flex } li { height: 30px }', '<ul><template id="t"><li></li></template></ul>', 4, null, 'bound'],
+  ['a grid with explicit rows: not followed', '.g { display: grid; grid-template-rows: 200px 10px } .g > * { height: 30px }', '<div class="g"><template id="t"><div></div></template></div>', 4, null, 'bound'],
+  ['a row an attribute binding may hide: nothing held', 'ul { padding: 0 } li { height: 40px }', '<ul><template id="t"><li data-sn-attr="{hidden: r.gone}"></li></template></ul>', 4, null, 'bound'],
+  ['zoom on the container: not followed', 'ul { zoom: 0.5 } li { height: 30px }', '<ul><template id="t"><li></li></template></ul>', 4, null, 'bound'],
   ['absolute rows: not followed', 'li { position: absolute; height: 30px }', '<ul><template id="t"><li></li></template></ul>', 4, null, 'bound'],
   ['a grid with other items first: not followed', '.g { display: grid; grid-template-columns: 1fr 1fr } .g > * { height: 30px }', '<div class="g"><div>first</div><template id="t"><div></div></template></div>', 4, null, 'bound'],
   ['inline rows: not followed', 'span { line-height: 20px }', '<p><template id="t"><span data-sn-text="r.name"></span></template></p>', 4, null, 'bound'],
@@ -80,6 +83,13 @@ const CASES: Array<[string, string, string, number, [number, number] | null | 'f
 
 /** [name, css, body, rows]: layouts where the space is a lower bound well below the rows; Chromium checks it is never above */
 const BELOW: Array<[string, string, string, number]> = [
+  ['a column flex list of a limited height: rows shrink to their content', 'ul { display: flex; flex-direction: column; height: 100px; margin: 0; padding: 0 } li { height: 40px; line-height: 20px; overflow: hidden }', '<ul><template id="t"><li data-sn-text="r.x"></li></template></ul>', 5],
+  ['a column flex list: the flex basis, not the height', 'ul { display: flex; flex-direction: column; margin: 0; padding: 0 } li { height: 40px; flex: 0 0 25px }', '<ul><template id="t"><li></li></template></ul>', 4],
+  ['a button with a height, padding and a border: border-box by default', 'ul { padding: 0 } li { display: flex } button { height: 30px; padding: 10px; border: 2px solid }', '<ul><template id="t"><li><button>Go</button></li></template></ul>', 4],
+  ['a nested list: no margins of its own', 'ul { padding: 0 } li { list-style: none }', '<ul><template id="t"><li><ul><li data-sn-text="r.x"></li></ul></li></template></ul>', 4],
+  ['a hidden <br>', 'br { display: none } ul { padding: 0 } li { line-height: 20px }', '<ul><template id="t"><li><span data-sn-text="r.a"></span><br><span data-sn-text="r.b"></span></li></template></ul>', 4],
+  ['<sup> and <sub>: smaller text', 'body { font: 16px/1 Arial } ul { padding: 0 } li { display: flex } sup, sub { display: block; line-height: normal }', '<ul><template id="t"><li><sup>1</sup><sub>2</sub></li></template></ul>', 4],
+  ['a negative first-child margin through the row\'s edge', 'ul { padding: 0; margin: 0 } li { height: 40px; list-style: none } li p { margin: -10px 0 0 }', '<ul><template id="t"><li><p data-sn-text="r.x"></p></li></template></ul>', 4],
   ['a fluid image (Tailwind\'s reset), its attributes shrunk to the width it has', 'img { max-width: 100%; height: auto } ul { padding: 0 } li { list-style: none }', '<ul><template id="t"><li><img src="a.png" width="800" height="600" alt=""></li></template></ul>', 6],
   ['a flex row with smaller text: the item\'s own line height', 'body { font: 16px/1.5 Arial } ul { padding: 0 } li { display: flex } .meta { font-size: 12px }', '<ul><template id="t"><li><span class="meta" data-sn-text="r.x"></span></li></template></ul>', 6],
   ['a grid row with <small>', 'body { font: 16px/1.5 Arial } ul { padding: 0 } li { display: grid }', '<ul><template id="t"><li><small data-sn-text="r.x"></small></li></template></ul>', 6],

@@ -78,9 +78,8 @@ body { margin: 0 } ul { margin: 0; padding: 0; list-style: none }
 `,
   'early.html': `<app-layout>
   <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
-  <ul class="fixed"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
+  <ul class="fixed"><template data-sn-if="$meta.people.loading && !people.length"><li id="loading">Loading…</li></template><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
   <p id="q" data-sn-text="'Query: ' + $url.q"></p>
-  <template data-sn-if="$meta.people.loading && !people.length"><p id="loading">Loading…</p></template>
 </app-layout>
 `,
   'fixed.html': `<app-layout>

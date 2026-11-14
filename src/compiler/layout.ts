@@ -1228,6 +1228,14 @@ export class Layout {
     return null;
   }
 
+  /** a `zoom` other than 1 (or one the cascade cannot tell) on the container, an ancestor, or inside the row */
+  private zoomed(parent: P5Element, row: P5Element): boolean {
+    const z = (el: P5Element) => { const c = this.cascaded(el, ['zoom']); return c.ambiguous || (c.value !== null && !/^\s*(1|normal|100%|reset)\s*$/i.test(c.value)); };
+    for (let e: P5Element | null = parent; e; e = this.parentOf(e)) if (z(e)) return true;
+    const down = (e: P5Element): boolean => z(e) || (e.tagName === 'template' ? ((e as P5Template).content?.childNodes ?? []) : e.childNodes).some((c) => isEl(c) && down(c));
+    return down(row);
+  }
+
   /** a flex item's basis as written (`auto`, `content`, `0`, a length), null when the cascade cannot tell */
   private flexBasis(el: P5Element): string | null {
     const props = ['flex', 'flex-basis'];
@@ -1282,6 +1290,7 @@ export class Layout {
     if (pd === null || rd === null || this.declsOf(parent).has('\0dynamic')) return no('a rule the build cannot decide (a state, a binding) sets how the rows or their parent are laid out');
     if (rd === 'none') return no('the rows are hidden');
     if (!this.inFlow(row)) return no('the rows are positioned or floated');
+    if (this.zoomed(parent, row)) return no('`zoom` scales the rows or their container');
     // rows that skip their layout off screen are as tall as `contain-intrinsic-size` says, not as their content
     const cv = this.cascaded(row, ['content-visibility']);
     if (cv.ambiguous || (cv.value !== null && !/^\s*visible\s*$/i.test(cv.value))) return no('the rows use `content-visibility`');
@@ -1310,6 +1319,9 @@ export class Layout {
       if (['grid-column', 'grid-column-start', 'grid-column-end', 'grid-row', 'grid-row-start', 'grid-row-end', 'grid-area'].some((p) => rm.has(p))) return no('the rows place themselves in the grid');
       const flow = this.cascaded(parent, ['grid-auto-flow']);
       if (flow.ambiguous || (flow.value !== null && !/^\s*row\s*$/i.test(flow.value))) return no('the grid places its items other than row by row');
+      // explicit tracks size the first rows, not the items
+      const tr = this.cascaded(parent, ['grid-template-rows', 'grid-template', 'grid']);
+      if (tr.ambiguous || (tr.value !== null && !/^\s*none\s*$/i.test(tr.value))) return no('the grid sets explicit rows (`grid-template-rows`)');
       const n = this.gridColumns(parent);
       return n ? { mode: 'grid', columns: n } : no('the grid\'s columns are ones the build cannot count');
     }
@@ -1646,14 +1658,74 @@ export class Layout {
     const got = this.heights.get(el);
     if (got) return got;
     this.heights.set(el, { h: 0, exact: false }); // cycle guard
-    const out = this.computeHeight(el);
+    const out = this.columnItem(el, this.computeHeight(el));
     this.heights.set(el, out);
     return out;
   }
 
+  /**
+   * An item of a column flex container: its height is the flex basis, not `height`, when the basis is
+   * not auto, and it may shrink to its automatic minimum (an explicit `min-height`, else its content)
+   * when the container's height is limited (a height or max-height of its own, or it is a flex or grid
+   * item itself). The least of each.
+   */
+  private columnItem(el: P5Element, h: Height): Height {
+    const parent = this.parentOf(el);
+    if (!parent || h.h === 0) return h;
+    const pd = this.disp(parent);
+    if (pd === null || !/^(inline-)?flex$/.test(pd)) return h;
+    const dir = this.flexFlow(parent, 'direction');
+    if (dir === null || (dir !== undefined && !dir.startsWith('column'))) return h;
+    const zero = { h: 0, exact: false };
+    if (dir === undefined) return zero;
+    const basis = this.flexBasis(el);
+    if (basis === null) return zero;
+    let least = h.h, exact = h.exact;
+    if (!/^(auto|content)$/.test(basis)) {
+      const b = /%/.test(basis) ? 0 : this.length(el, basis, null);
+      least = Math.min(least, b ?? 0);
+      exact = false;
+    }
+    const gp = this.parentOf(parent), gd = gp ? this.disp(gp) : null;
+    const limited = [...SIZE.height, ...SIZE['max-height']].some((p) => this.cascaded(parent, [p]).value !== null || this.cascaded(parent, [p]).ambiguous) || gd === null || /flex$|grid$/.test(gd);
+    if (limited && this.flexShrink(el) !== 0) {
+      const mn = this.cascaded(el, SIZE['min-height']);
+      const floor = mn.ambiguous ? 0 : mn.value !== null && !/^\s*auto\s*$/i.test(mn.value) ? (this.length(el, mn.value, null) ?? 0) : this.contentOnly(el);
+      least = Math.min(least, floor);
+      exact = false;
+    }
+    return { h: least, exact };
+  }
+
+  /** a box's height from its content and edges alone, without `height` (a flex item's automatic minimum) */
+  private contentOnly(el: P5Element): number {
+    const d = this.disp(el);
+    if (d === null || d === 'none' || d === 'contents') return 0;
+    if (REPLACED.has(el.tagName)) return this.replacedHeight(el);
+    const t = this.vEdge(el, 'top', false), b = this.vEdge(el, 'bottom', false);
+    return this.contentHeight(el, d, t.v > 0, b.v > 0) + t.v + b.v;
+  }
+
+  /** a flex item's shrink factor as written, null when the cascade cannot tell */
+  private flexShrink(el: P5Element): number | null {
+    const props = ['flex', 'flex-shrink'];
+    if (this.cascaded(el, props).ambiguous) return null;
+    let shrink = 1;
+    const m = this.declsOf(el);
+    const decls = props.flatMap((p) => (m.get(p) ?? []).map((d) => ({ d, p }))).filter(({ d }) => !d.conditional).sort((a, b) => cascadeCmp(a.d, b.d));
+    for (const { d, p } of decls) {
+      const v = (this.subst(d.value, el) ?? '').trim().toLowerCase();
+      if (p === 'flex-shrink') shrink = /^\d*\.?\d+$/.test(v) ? Number(v) : 1;
+      else if (v === 'none') shrink = 0;
+      else if (v === 'auto' || v === 'initial') shrink = 1;
+      else { const nums = splitTop(v).filter((t) => /^\d*\.?\d+$/.test(t)); shrink = nums.length >= 2 ? Number(nums[1]) : 1; }
+    }
+    return shrink;
+  }
+
   private computeHeight(el: P5Element): Height {
     const zero = { h: 0, exact: false };
-    if (attrOf(el, 'hidden') !== undefined || attrOf(el, 'data-sn-show') !== undefined) return zero;
+    if (attrOf(el, 'hidden') !== undefined || attrOf(el, 'data-sn-show') !== undefined || /\bhidden\b/.test(attrOf(el, 'data-sn-attr') ?? '')) return zero;
     const d = this.disp(el);
     if (d === null) return zero;
     if (d === 'none') return { h: 0, exact: true };
@@ -1682,6 +1754,9 @@ export class Layout {
     const hc = this.cascaded(el, SIZE.height);
     const hs = lengths(SIZE.height, /^\s*(auto|fit-content|max-content|min-content)\s*$/i);
     if (hs && hs.every((v) => v !== null)) {
+      // a negative margin of the first child collapses through a top edge with no padding or border
+      const pull = top.v === 0 && /^(block|list-item)$/.test(d) && !this.establishesBfc(el, d) ? (() => { const f = this.flow(el)[0]; return f && typeof f !== 'number' ? Math.min(0, this.vMargin(f, 'top') ?? 0) : 0; })() : 0;
+      if (pull < 0) return { h: Math.max(0, clamp(asBox(Math.min(...(hs as number[])))) + pull), exact: false };
       return { h: clamp(asBox(Math.min(...(hs as number[])))), exact: edgesExact && !hc.ambiguous && sizing !== 'either' && !this.cascaded(el, SIZE['min-height']).ambiguous && !this.cascaded(el, SIZE['max-height']).ambiguous };
     }
     // one that may be fixed or follow the content: the least of both (below)
@@ -1746,9 +1821,12 @@ export class Layout {
     // block flow: block children stacked with their margins collapsing, each run of inline content a line box
     const bfc = this.establishesBfc(el, d);
     let total = 0, pending: number[] = [], first = true;
+    // a margin that collapses through this box's edge joins its own: a negative one pulls the box's outer edge in, counted
+    // here (the box's own margin plus this is the collapsed one's least); a positive one is the box's margin's business
+    const through = (ms: number[]) => Math.min(0, collapse(ms));
     for (const k of kids) {
       if (typeof k === 'number') {
-        if (pending.length && !(first && !padTop && !bfc)) total += collapse(pending);
+        if (pending.length) total += first && !padTop && !bfc ? through(pending) : collapse(pending);
         pending = []; total += k; first = false;
         continue;
       }
@@ -1757,11 +1835,11 @@ export class Layout {
       pending.push(mt);
       const h = this.height(k).h;
       if (h > 0) {
-        if (!(first && !padTop && !bfc)) total += collapse(pending);
+        total += first && !padTop && !bfc ? through(pending) : collapse(pending);
         total += h; pending = [mb]; first = false;
       } else pending.push(mb);
     }
-    if (pending.length && !first && (padBottom || bfc)) total += collapse(pending);
+    if (pending.length && !first) total += padBottom || bfc ? collapse(pending) : through(pending);
     return Math.max(0, total);
   }
 
@@ -1818,7 +1896,7 @@ export class Layout {
         return;
       }
       // a line break ends a line, an empty one too
-      if (n.tagName === 'br') { out.push(run ?? strut()); run = null; return; }
+      if (n.tagName === 'br') { const bd = this.disp(n); if (bd === null || bd === 'none') return; out.push(run ?? strut()); run = null; return; }
       // a branch and its `data-sn-else`: the lesser of the two
       if (n.tagName === 'template' && attrOf(n, 'data-sn-if') !== undefined) {
         const next = (n.parentNode?.childNodes ?? []).slice((n.parentNode?.childNodes ?? []).indexOf(n) + 1).find(isEl);
@@ -2176,12 +2254,14 @@ function fontShorthand(v: string): { size: string; lineHeight: string | null; fa
  */
 const UA = `body { margin: 8px } ul, ol, menu { padding-inline-start: 40px } figure, blockquote { margin-inline: 40px } dd { margin-inline-start: 40px }
 fieldset { margin-inline: 2px; padding-inline: 0.75em; border: 2px groove }
-h1, h2 { font-size: 1.5em } h3 { font-size: 1.17em } h5 { font-size: 0.83em } h6 { font-size: 0.67em } small { font-size: smaller }
+h1, h2 { font-size: 1.5em } h3 { font-size: 1.17em } h5 { font-size: 0.83em } h6 { font-size: 0.67em } small, sub, sup { font-size: smaller }
 button, input, select, textarea { font-size: 13.333px; line-height: normal; font-family: system-ui }
 code, kbd, samp, pre, tt { font-family: monospace }
 h1 { margin-block: 0.67em } h2 { margin-block: 0.83em } h3, p, blockquote, figure, dl, pre, ul, ol, menu { margin-block: 1em } h4 { margin-block: 1.33em }
 h5 { margin-block: 1.67em } h6 { margin-block: 2.33em } hr { margin-block: 0.5em }
-table { border-spacing: 2px } td, th { padding: 1px }`;
+table { border-spacing: 2px } td, th { padding: 1px }
+button, select, meter, progress, input[type=button], input[type=submit], input[type=reset], input[type=color], input[type=file], input[type=image], input[type=checkbox], input[type=radio], input[type=search] { box-sizing: border-box }
+ul ul, ul ol, ul menu, ol ul, ol ol, ol menu, menu ul, menu ol, menu menu { margin-block: 0 }`;
 
 /** px = k × viewport width + c */
 interface Lin { k: number; c: number }
