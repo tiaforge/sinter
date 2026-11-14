@@ -32,6 +32,11 @@ Attribute names, function names and diagnostic codes are public API. Before
 - Testing: `history()`, `back()` and `forward()` on `render()`; the events a test dispatches count as the user's.
 - Recipes: pagination in the URL, search in the URL, a multi-select filter in the URL.
 
+### Changed
+
+- Build-time work the runtime did at mount, per page:
+  - The event types a page listens for are listed by the compiler (`IR.ev`, in the page module): the mount adds one listener per entry instead of walking every binding of the page and its templates, and a page without a dialog or a non-text model has no `toggle` listener. Core −75 B gzip (RealWorld pages −50 to −58 B).
+
 ### Breaking
 
 - A link to the page itself that changes only query parameters the page reads no longer reloads the page: `data-sn-state` stays, and there is no cross-document view transition.

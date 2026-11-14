@@ -155,6 +155,7 @@ The IR is the only contract between compiler and runtime. It is plain JSON plus 
 | `urlArrays` | the `$url` parameters that are lists (bound to a `<select multiple>` or a checkbox with a `value`), absent when none (added 2026-11-13) |
 | `urlReads` | same-page links: the `$url` parameters the page reads by name, present only on pages that load query-links (added 2026-11-14) |
 | `ps` | the path table (page module only, below) |
+| `ev` | the event types the mount listens for at its root (page module only, from `compactIR`): each handler's, `input` and `change` with a model, `toggle` where a dialog that opens has something to render (an element in a dialog, a model of a control other than a text field); absent for none. The mount adds one listener per entry and walks no bindings for it (added 2026-11-14) |
 
 Dependencies are extracted at compile time: every binding lists the state and resource paths it reads (`q`, `contacts`, `c`). The runtime matches them against dirty paths (see Reactivity), so it needs no proxies and no read tracking.
 

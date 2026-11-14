@@ -301,6 +301,12 @@ export interface IR {
   urlReads?: string[];
   /** the path table (page module only); without it, paths are strings */
   ps?: PathTable;
+  /**
+   * the event types the mount listens for at its root (page module only): each handler's, `input` and `change` with
+   * a model, `toggle` where a dialog opening has something to render (an element in a dialog, a control that is not
+   * a text field); absent for none
+   */
+  ev?: string[];
 }
 
 export type Fn = (scope: any, value?: any) => any;
@@ -420,6 +426,12 @@ const NULLS = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v])
 export function compactIR(full: IR): IR {
   const ir = structuredClone(full), ps = numberPaths(ir);
   const { syncs, ...rest } = ir;
+  // what the mount listens for: decided here, so it walks no bindings for it
+  const nodes = [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)];
+  const ev = [...new Set(nodes.flatMap((n) => [
+    ...(n.dl ? ['toggle'] : []),
+    ...n.b.flatMap((b) => (b.k == 'on' ? [b.n!] : b.k == 'model' ? [...(b.n == 'text' ? [] : ['toggle']), 'input', 'change'] : [])),
+  ]))];
   return {
     ...rest,
     resources: ir.resources.map((r) => {
@@ -431,6 +443,7 @@ export function compactIR(full: IR): IR {
     // a template's absent `index`, `key` and `keyFields` are null
     templates: ir.templates.map((t) => ({ ...NULLS(t), nodes: t.nodes.map(compactNode) }) as TemplateDef),
     ps,
+    ...(ev.length ? { ev } : {}),
   };
 }
 

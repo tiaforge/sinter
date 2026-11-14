@@ -422,7 +422,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const acts = new WeakMap<Element, ActState>();
   /** props set on custom elements not defined yet, by element: the latest value of each */
   const early = new WeakMap<Element, Map<string, unknown>>();
-  const types = new Set<string>(), deferred = new Set<RB>();
+  const deferred = new Set<RB>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<Got> }>();
   /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id; `run(id)`: any element */
@@ -774,11 +774,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     doc.addEventListener('prerenderingchange', on);
     app.addCleanup(() => doc.removeEventListener('prerenderingchange', on));
   }
-  // listeners for every event type the page binds, rows included
-  listen('toggle');
-  for (const nd of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) for (const b of nd.b) {
-    if (b.k == 'on') listen(b.n!);
-    if (b.k == 'model') { listen('input'); listen('change'); }
+  // one delegated capture listener per event type the page binds, rows included, at the mount root: the compiler listed them
+  for (const type of ir.ev ?? []) {
+    ET.addEventListener.call(root, type, dispatch, true);
+    cleanups.push(() => ET.removeEventListener.call(root, type, dispatch, true));
   }
   bindNodes(ir.roots, ir.roots.map((nd) => {
     const el = found.get(nd.id!);
@@ -814,14 +813,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return readFrom(env.href(), ir.path);
   }
 
-
-  /** One delegated capture listener per used event type, at the mount root. */
-  function listen(type: string) {
-    if (types.has(type)) return;
-    types.add(type);
-    ET.addEventListener.call(root, type, dispatch, true);
-    cleanups.push(() => ET.removeEventListener.call(root, type, dispatch, true));
-  }
 
   /**
    * Only elements the compiler marked as in a dialog of their own block (`dl`) are checked for a
