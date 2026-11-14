@@ -22,9 +22,9 @@ const MODELS = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: '
 // How each framework is named in the prompt: what a developer would type. sinter is new, so its npm package is named
 // as well (the others are found by name alone); nothing else differs between the frameworks' prompts.
 const FRAMEWORKS = {
-  sinter: { name: 'sinter (the npm package `@tiaforge-ui/sinter`)' },
-  astro: { name: 'Astro' },
-  sveltekit: { name: 'SvelteKit' },
+  sinter: { name: 'sinter (the npm package `@tiaforge-ui/sinter`)', short: 'sinter' },
+  astro: { name: 'Astro', short: 'Astro' },
+  sveltekit: { name: 'SvelteKit', short: 'SvelteKit' },
 };
 const TASKS = {
   t1: { dir: 'tasks/t1-incidents', workspace: 'tasks/t1-incidents/workspace' },
@@ -34,9 +34,24 @@ const TASKS = {
   t3: { dir: 'tasks/t3-content', workspace: 'tasks/t3-content/workspace' },
 };
 // Conditions (SPEC.md § Conditions). cold: no docs given, web tools allowed: an agent as people use it today.
+// cold: no help, web tools on (what people get today). offline: no help, no web: what the model knows plus what the
+// installed packages carry. docs: offline, plus the framework's documentation under the same cap (docs/fetch.mjs) in
+// framework-docs/, named in one identical line of the prompt. tools: offline, plus the vendor's recommended setup for
+// coding agents (tools/, MCP below), with nothing added to the prompt.
+const LOCAL = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'TodoWrite'];
 const CONDITIONS = {
-  cold: { tools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite'] },
-  offline: { tools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'TodoWrite'] },
+  cold: { tools: [...LOCAL, 'WebFetch', 'WebSearch'] },
+  offline: { tools: LOCAL },
+  docs: { tools: LOCAL, docs: true },
+  tools: { tools: LOCAL, vendor: true },
+};
+// What each vendor recommends for coding agents (SPEC.md § Conditions): Astro's "Build with AI" guide, the Docs MCP
+// server; Svelte's AI docs, its MCP server and its AGENTS.md (tools/sveltekit.md); sinter, its starter template's agent
+// notes (tools/sinter.md: llms.txt and `sinter check`). The instructions go in the project's CLAUDE.md.
+const VENDOR = {
+  astro: { mcp: { 'astro-docs': { type: 'http', url: 'https://mcp.docs.astro.build/mcp' } } },
+  sveltekit: { mcp: { svelte: { type: 'http', url: 'https://mcp.svelte.dev/mcp' } }, instructions: 'tools/sveltekit.md' },
+  sinter: { instructions: 'tools/sinter.md' },
 };
 
 const out = a.out ?? `/tmp/llmbench/runs/${new Date().toISOString().replace(/[:.]/g, '-')}`;
@@ -64,20 +79,38 @@ async function agent(job, slot) {
   if (!existsSync(join(ws, '.git'))) await run('sh', ['-c', 'git init -q && git add -A && git -c user.name=bench -c user.email=bench@localhost commit -qm base --allow-empty'], { cwd: ws });
   const prompt = readFileSync(join(here, T.dir, 'PROMPT.md'), 'utf8')
     .replaceAll('{{FRAMEWORK}}', FRAMEWORKS[job.framework].name).replaceAll('{{PORT}}', String(PORT)).replaceAll('{{API_PORT}}', String(API_PORT));
-  writeFileSync(join(dir, 'prompt.md'), prompt);
+  let prompt2 = prompt;
+  const extraTools = [], extraArgs = [];
+  if (cond.docs) {
+    mkdirSync(join(ws, 'framework-docs'), { recursive: true });
+    cpSync(join(here, 'docs', `${job.framework}.txt`), join(ws, 'framework-docs', `${job.framework}.txt`));
+    prompt2 += `\nThe ${FRAMEWORKS[job.framework].short} documentation is in \`framework-docs/${job.framework}.txt\`. Read what you need from it before you start.\n`;
+  }
+  if (cond.vendor) {
+    const v = VENDOR[job.framework];
+    if (v.instructions) { const f = join(ws, 'CLAUDE.md'); writeFileSync(f, (existsSync(f) ? readFileSync(f, 'utf8') + '\n' : '') + readFileSync(join(here, v.instructions), 'utf8')); }
+    if (v.mcp) {
+      writeFileSync(join(dir, 'mcp.json'), JSON.stringify({ mcpServers: v.mcp }, null, 2));
+      extraArgs.push('--mcp-config', join(dir, 'mcp.json'));
+      extraTools.push(...Object.keys(v.mcp).map((n) => `mcp__${n}`));
+    }
+  }
+  // what the condition added is part of the start, not of the agent's work
+  await run('sh', ['-c', 'git add -A && git -c user.name=bench -c user.email=bench@localhost commit -qm condition || true'], { cwd: ws });
+  writeFileSync(join(dir, 'prompt.md'), prompt2);
   mkdirSync(join(dir, 'tmp'));
   const env = { ...process.env, TMPDIR: join(dir, 'tmp') };
   for (const k of Object.keys(env)) if (/^CLAUDE_(CODE_)?ADDITIONAL_DIRECTORIES/.test(k)) delete env[k];
   // the prompt goes in on stdin: in argv it would match the agents' own `pgrep -f api/server.mjs`, and they kill claude
   const args = ['-p', '--model', MODELS[job.model], '--output-format', 'stream-json', '--verbose',
-    '--allowedTools', cond.tools.join(' '), '--disallowedTools', 'Agent Task',
-    '--setting-sources', 'project', '--strict-mcp-config', '--no-session-persistence', '--max-budget-usd', a.budget];
+    '--allowedTools', [...cond.tools, ...extraTools].join(' '), '--disallowedTools', 'Agent Task',
+    '--setting-sources', 'project', '--strict-mcp-config', ...extraArgs, '--no-session-persistence', '--max-budget-usd', a.budget];
   const t0 = Date.now();
   const res = await new Promise((resolve) => {
     // its own PID namespace: agents clean up with `pkill -f "vite preview"` and the like, which would otherwise kill
     // other slots' servers (and their agents); the network and the file system are shared
     const p = spawn('unshare', ['--pid', '--fork', '--mount-proc', 'claude', ...args], { cwd: ws, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
-    p.stdin.end(prompt);
+    p.stdin.end(prompt2);
     const chunks = []; let err = '';
     p.stdout.on('data', (d) => chunks.push(d)); p.stderr.on('data', (d) => (err += d));
     const timer = setTimeout(() => { try { process.kill(-p.pid, 'SIGKILL'); } catch {} }, Number(a.timeout) * 60_000);
@@ -99,14 +132,15 @@ function transcriptStats(text) {
   const inputs = uses.map((u) => JSON.stringify(u.input ?? {}));
   const urls = uses.filter((u) => u.name === 'WebFetch').map((u) => u.input?.url);
   const searches = uses.filter((u) => u.name === 'WebSearch').map((u) => u.input?.query);
-  const docReads = inputs.filter((s) => /llms(-full)?\.txt|AGENTS\.md|CLAUDE\.md|node_modules\/[^"]*\/(docs?|README)/i.test(s)).length;
+  const docReads = inputs.filter((s) => /llms(-full|-small)?\.txt|framework-docs\/|AGENTS\.md|node_modules\/[^"]*\/(docs?|README)/i.test(s)).length;
+  const mcpCalls = uses.filter((u) => u.name.startsWith('mcp__')).length;
   const builds = uses.filter((u) => u.name === 'Bash' && /\b(npm run (build|check)|vite build|astro (build|check)|svelte-check|sinter check)\b/.test(u.input?.command ?? '')).length;
   // the agent must not see this repository (examples/realworld would be an answer key): any path into it is flagged
   const leaks = inputs.filter((s) => /\/home\/user\b|tiaforge\/sinter\/(tree|blob)\/[^"]*examples/.test(s)).slice(0, 5);
   return {
     costUSD: result.total_cost_usd ?? null, turns: result.num_turns ?? null, apiSeconds: result.duration_api_ms ? Math.round(result.duration_api_ms / 1000) : null,
     outputTokens: result.usage?.output_tokens ?? null, resultSubtype: result.subtype ?? null, toolCalls: uses.length, tools,
-    webFetches: urls, webSearches: searches, docReads, buildRuns: builds, leaks,
+    webFetches: urls, webSearches: searches, docReads, mcpCalls, buildRuns: builds, leaks,
   };
 }
 

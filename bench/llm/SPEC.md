@@ -103,13 +103,35 @@ the literature and from framework vendors' own evals:
 | --- | --- | --- | --- |
 | **No mitigation** (`cold`): the framework's name only, web tools on | what a user gets today; familiarity included | 1× | **baseline run** |
 | **Offline** (`offline`): no web tools | pure parametric knowledge plus what the installed packages carry (sinter ships `llms.txt`) | 1× | harness ready |
-| **Equal docs** (`docs`): every framework's official `llms.txt` (or docs trimmed to the same token budget) put in the workspace and pointed to from the prompt, the same way for all | learnability from docs, with the delivery format held constant. Vercel's Next.js evals found passive in-context docs (AGENTS.md) beat on-demand skills, so format is a confound to hold fixed | 1× | to add |
+| **Equal docs** (`docs`): no web; each framework's documentation, capped at the same 200,000 characters (about 50k tokens), in `framework-docs/`, named in one identical prompt line ([details](#the-docs-each-framework-gets)) | learnability from docs, with the amount and the delivery held constant. Vercel's Next.js evals found passive in-context docs (AGENTS.md) beat on-demand skills, so the delivery is a confound to hold fixed | 1× | harness ready |
+| **Vendor tooling** (`tools`): no web; what each vendor recommends for coding agents. Astro: its Docs MCP server. SvelteKit: the Svelte MCP server and Svelte's AGENTS.md. sinter: its starter template's agent notes, pointing at `llms.txt` and `sinter check` (it has no MCP server). Instructions go in `CLAUDE.md`; the prompt is unchanged | each ecosystem's best foot forward for agents, as its makers set it up | 1× | harness ready |
 | **Familiarity gap** = score(`docs`) − score(`offline`) per framework | how much a framework's score depends on the model already knowing it. sinter should be near zero; a large gap for Astro measures the training-data advantage | from the two runs above | report |
 | **Renamed clone** (MonkeyEval/BeatNumEval style): e.g. Astro with renamed components, directives, config keys and docs, published under a new name | pure familiarity. Astro vs clone is the training-data effect; clone vs sinter is the fairest learnability comparison, since neither is known | high: a fork plus doc rewriting, once | optional control |
 | **Novel task specs, kept private** (LiveCodeBench, SWE-bench-Live) | stops memorised solutions. RealWorld itself is heavily memorised, so T2 changes it with features no implementation has | low | yes: T1 to T3 are new |
 | **Several models with different cutoffs** (Haiku, Sonnet, Opus) | whether friendliness holds for weaker models, which have less capacity to learn from docs in context | linear in models | **yes** |
 | **Post-cutoff breaking versions** (GitChameleon, CodeUpdateArena) | *prior interference*: models write Svelte 4 in a Svelte 5 project. A cost of familiarity, not a benefit | low | grade for it in the judge |
 | **Perplexity probes** (Min-K% Prob) | whether framework idioms were in pretraining | needs logprobs; Claude has none | no |
+
+### The docs each framework gets
+
+The rule is the same for every framework (`docs/fetch.mjs`, which rebuilds the files):
+
+1. The framework's own documentation written for LLMs, as published, when it fits under the cap.
+2. Otherwise, that documentation is cut at the cap, at a page boundary, in its own order.
+
+The cap is a maximum, not a quota.
+
+| framework | file | size |
+| --- | --- | ---: |
+| sinter | `llms.txt` from the published package, complete | 109 KB |
+| SvelteKit | `svelte.dev/llms-small.txt`, the Svelte team's condensed docs for Svelte and SvelteKit, complete. Its `llms-medium.txt` (886 KB) cut at the cap would hold only the Svelte runtime and no SvelteKit | 53 KB |
+| Astro | Astro's own abridged docs (`llms-small.txt`), rebuilt; see below | 155 KB |
+
+How Astro's file is rebuilt:
+- **Why rebuild.** Astro published `llms.txt`, `llms-small.txt` and `llms-full.txt` until 2026-04-20, when withastro/docs#13538 removed them in favour of its Docs MCP server.
+- **Settings.** `docs/fetch.mjs` applies that last configuration (its `promote` and `exclude` lists, and starlight-llms-txt's ordering and minify defaults) to the current docs source.
+- **Size.** That comes to 839 KB, cut at the cap after 15 of 60 pages, in Astro's own order: the promoted introduction pages, then the guides alphabetically, from Actions to Scripts.
+- **Effect.** Astro gets less of its documentation under the cap than the others do. That follows from its documentation's size and order, not from a choice made here. The `tools` condition, with Astro's MCP server, is the counterweight.
 
 Recommended reporting:
 - **Headline:** pass rate under `docs`.
