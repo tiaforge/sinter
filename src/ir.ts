@@ -297,6 +297,8 @@ export interface IR {
   path?: string[];
   /** `$url` parameters bound to a `<select multiple>` or a checkbox with a `value`: lists (repeated keys) */
   urlArrays?: string[];
+  /** same-page links (query-links.ts): the `$url` parameters the page reads by name; a click that changes another loads its URL */
+  urlReads?: string[];
   /** the path table (page module only); without it, paths are strings */
   ps?: PathTable;
 }

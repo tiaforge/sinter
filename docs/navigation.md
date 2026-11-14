@@ -1,7 +1,7 @@
 # Between pages: next-page data, Speculation Rules, page transitions
 
-A sinter app is multi-page: every navigation is a page load. Three things make that load feel
-instant, and none needs code in the pages:
+A sinter app is multi-page: every navigation to another page is a page load. Three things make that
+load feel instant, and none needs code in the pages:
 
 | | What you get | Browsers |
 | --- | --- | --- |
@@ -12,7 +12,8 @@ instant, and none needs code in the pages:
 Where a browser lacks a feature, navigation is a normal page load.
 
 Within a page, [the URL and the history](#the-url-and-the-history) behave as in a single-page app:
-Back steps through the filters and pages the user chose.
+Back steps through the filters and pages the user chose. A link that changes only the query is to a
+sinter page what a `#hash` link is to any page: [it stays on the page](#same-page-links).
 
 ## Next-page data
 
@@ -132,6 +133,7 @@ decided where the write happens:
 | a handler on `input` (a keystroke) | replaces, at once; on a checkbox, radio or select itself it is a choice: a new entry |
 | a resource's or stream's `then`, `sn-error` handlers, anything no user event caused | replaces |
 | a list's reset to page 1 after its URL changed | replaces (with a typing commit waiting, it goes into that one) |
+| a [same-page link](#same-page-links) | new entry: the link's URL, as written |
 | Back, Forward | writes nothing |
 
 A typing run ends at a new entry, at `change` on the field (Enter, or leaving it, which a click on a
@@ -158,6 +160,53 @@ rules, and no other pause.
   it is wrapped. Test it with `$url.tag.length` (a bare list is always truthy: SN211); a parameter
   bound as a list in one place and one value in another is SN210.
 - Browsers refuse history calls made too often (Safari throws): sinter keeps `$url` and warns in dev.
+
+## Same-page links
+
+A plain click on a link to the page itself that changes only query parameters the page reads stays
+on the page: a new history entry, and the page shows what loading the link's URL would show. Only
+the state you made (`data-sn-state`) and the scroll position stay. Nothing to write:
+
+```html
+<a data-sn-attr="{ href: '?tag=' + encodeURIComponent($url.tag) + '&page=' + n }" data-sn-text="n"></a>
+<a href="?feed=following">Your feed</a>
+```
+
+- **Which clicks:** the primary button without Ctrl, Cmd, Shift or Alt, on a link with the same
+  origin and path (path parameters included: `/tag/go?page=2` → `/tag/go?page=3` stays,
+  `/tag/go` → `/` loads), when every parameter that differs is one the page reads (`$url.<name>`).
+  A link with `download`, a `target` other than `_self` or `rel="external"`, a click a handler
+  prevented, and a parameter the page does not read (`?lang=de`, one a server or an island acts on)
+  load the URL as before. Middle-click and Ctrl/Cmd-click open a new tab, as always.
+- **What follows:** `$url` takes the link's query, and everything that reads it follows as after
+  Back or Forward: a [`page-model`](pagination.md#page-in-the-url) list loads the link's page, so
+  `?tag=js&page=3` shows page 3 and `?tag=js` page 1. A text field's pending typing gets its own
+  entry first. A link to the current URL changes nothing. A `#hash` in the link is followed by the
+  browser, in the new entry.
+- **What it does not do:** no other path or page (that is a page load, always); no cross-document
+  view transition (the list keeps its rows until the response, as with `page()`); no
+  `<form method="get">` (bind the field instead: `data-sn-model="$url.q"`).
+- **Which pages:** the build loads it (`@tiaforge-ui/sinter/query-links`, about 0.7 KB gzip) on a
+  page that reads a query parameter by name and has a link it can see goes to the page: a static
+  `href` (`?page=3`, the page's own URL or its file, `about.html?q=1`), or a `data-sn-attr` `href`
+  that starts with one (followed through `+`, template literals, `?:`, `||` and `??`). A link it
+  cannot see (an `href` from data, a helper, a link an island renders) loads its URL, as before. A
+  page that reads `$url` whole or by a computed name (`$url[k]`), or has a `<base href>`, does not
+  load it: every link loads. The same link in a layout stays on one page and loads from another: it
+  depends on what each page reads. A parameter that is a path parameter (`/tag/:tag`) is not a
+  query parameter the page reads, on any of its paths, as for `$url` writes.
+- **Building the query:** `href="?page=3"` keeps only `page`, as any URL resolves: on `?tag=go` it
+  drops the tag. Build the whole query. A pager link (a static query-only `href` that sets a
+  `page-model` parameter) that drops other parameters the page reads is SN519; a filter or tab
+  link that drops the page is how the list starts at page 1, and needs nothing.
+- Next-page data leaves same-page links alone. Speculation Rules on such a page leave out its own
+  path with any other query, so a link there that changes a parameter the page does not read
+  (and loads) is not prefetched either.
+- A history call the browser refuses (Safari, called too often): the link loads.
+
+For a pager, links are the recommended form: crawlable, a new tab, copy link, and on the page with
+this. `page('next')` stays for relative moves and buttons. A pager link should carry
+`aria-current="page"` for the active page.
 
 ## Opting a page out
 

@@ -57,7 +57,7 @@ export function staticReach(w: string, d: string): { conds: Cond[]; all: boolean
 }
 
 /** Every path field of the IR, by visitor: `dep` for paths read, `write` for paths written. */
-function eachPath(ir: IR, dep: (p: any, set: (n: number) => void) => void, write: (p: any, set: (n: number) => void) => void) {
+export function eachPath(ir: IR, dep: (p: any, set: (n: number) => void) => void, write: (p: any, set: (n: number) => void) => void) {
   const list = (o: any, key: string, f: typeof dep) => {
     const v = o[key] as Array<string | number> | undefined;
     if (v) v.forEach((p, i) => f(p as string, (n) => { v[i] = n; }));
