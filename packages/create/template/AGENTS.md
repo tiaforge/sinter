@@ -1,10 +1,11 @@
 # Notes for coding agents
 
 - Data and behavior: sinter (`data-sn-*` attributes, `<sn-*>` elements). Read
-  `node_modules/@tiaforge-ui/sinter/llms.txt` once before editing pages. After that, look things up
-  instead of reading it again: `npx sinter docs <topic>` prints one section (`layouts`, `static-pages`),
-  an attribute or element (`data-sn-for`, `sn-event`) or a diagnostic (`SN318`); `npx sinter docs` lists
-  the topics.
+  `node_modules/@tiaforge-ui/sinter/llms.txt` once, before editing pages, and not again.
+- To look something up later, run `npx sinter docs <topic>`: one section (`layouts`, `static-pages`),
+  an attribute or element (`data-sn-for`, `sn-event`), a diagnostic (`SN318`), or the lines with some
+  words (`npx sinter docs optimistic rollback`); `npx sinter docs` lists the topics. It prints the
+  installed version's docs: don't fetch sinter's docs from the web, which describe another version.
 - To check what a page loads, renders and does (requests and their headers, each resource's state,
   history), run `npx sinter render page.html --api mocks.json` (`--help` for the steps: click, input,
   select, back, …) before writing browser scripts. A browser is only needed for layout and

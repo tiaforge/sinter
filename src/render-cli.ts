@@ -147,7 +147,6 @@ export function parseRenderArgs(argv: string[], cwd = process.cwd()): RenderArgs
 
 // ---- the DOM
 
-/** jsdom's window as the globals the runtime and the testing module use, as Vitest's jsdom environment sets them. */
 /** The jsdom stand-ins called since `installDom()`, by name, each once. */
 export const standIns = new Set<string>();
 const used = (name: string) => { standIns.add(name); };
@@ -157,6 +156,7 @@ const STAND_IN_EFFECT: Record<string, string> = {
   'Element.animate': 'animations finish at once', scrollIntoView: 'nothing scrolls',
 };
 
+/** jsdom's window as the globals the runtime and the testing module use, as Vitest's jsdom environment sets them. */
 export async function installDom(url: string): Promise<() => void> {
   standIns.clear();
   // (jsdom ships no types; the package needs none of them)
