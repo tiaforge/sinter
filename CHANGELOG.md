@@ -54,6 +54,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- `sinter check` and `sinter({ typecheck: true })` with `localePrefix`: `localeUrl()` is typed (`(locale: string) => string`) instead of failing with "Cannot find name 'localeUrl'".
 - The build reads the stylesheets of a page's layout too (a `<link>` in `src/layouts/<name>.html`): image boxes and `sizes` now follow them on pages that use a layout.
 - `fonts.preload`: a family set through a custom property (`--font-sans: Inter, sans-serif` … `font-family: var(--font-sans)`, as token-based CSS like temper does) counts as used; the build no longer fails for it.
 

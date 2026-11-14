@@ -86,6 +86,19 @@ describe('sinter check', () => {
     expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Type 'boolean' is not assignable to type 'string'/)]);
   });
 
+  test('localeUrl() (localePrefix): a function from a language to a URL', () => {
+    const locale = (html: string) => {
+      const root = project({ 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': HELPERS, 'src/messages.js': MESSAGES });
+      const file = join(root, 'index.html');
+      writeFileSync(file, html);
+      const out = compile(html, { file, root, dev: false, helpers, readFile: (p) => readFileSync(p, 'utf8'), check: true, locale: { name: 'de', urls: { de: '/de/', en: '/en/' }, base: '/' } });
+      expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+      return check({ root, units: [out.check!], helpers, types: join(root, 'src/sinter.types.ts'), tsc }).diagnostics.map((d) => d.message);
+    };
+    expect(locale(page(`<a hreflang="en" data-sn-attr="{ href: localeUrl('en') }">English</a>`))).toEqual([]);
+    expect(locale(page(`<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n = localeUrl('en')"></button></div>`))).toEqual([expect.stringMatching(/Type 'string' is not assignable to type 'number'/)]);
+  });
+
   test('$event and $el have the DOM types of the event and element', () => {
     one(page(`<div data-sn-state="{ q: '' }">
   <input data-sn-on-input="q = $el.value">

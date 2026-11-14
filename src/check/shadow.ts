@@ -158,6 +158,12 @@ export function shadow(o: ShadowOptions): Shadow {
   line('const $now = $any;');
   line('/** @type {string} */');
   line('let $locale = $any;');
+  // with `localePrefix`, this page's URL in another language; the check does not know whether the build has
+  // one, so an app helper of that name (what the compiler resolves without it) wins
+  if (!userHelpers.includes('localeUrl') && !taken.has('localeUrl') && !('localeUrl' in o.helpers.namespaces)) {
+    line('/** @type {(locale: string) => string} */');
+    line('const localeUrl = $any;');
+  }
   line('/** @type {string} */');
   line('const $site = $any;');
   line('/** @type {string} */');
