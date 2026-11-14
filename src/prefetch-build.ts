@@ -125,15 +125,17 @@ export function prefetchModule(pages: Array<{ paths: string[]; parts: PrefetchPa
     for (const h of parts.helpers) user.add(h);
     for (const [n, members] of Object.entries(parts.namespaces)) for (const m of members) (ns.get(n) ?? ns.set(n, new Set()).get(n)!).add(m);
   }
-  const lines = [`import { $k } from '${PACKAGE}';`, `import { prefetch } from '${PACKAGE}/prefetch';`];
+  // array parameters: only an app with a page that has them passes `lists` (and carries it)
+  const ls = pages.some((p) => p.parts.a);
+  const lines = [`import { $k } from '${PACKAGE}';`, `import { prefetch${ls ? ', lists' : ''} } from '${PACKAGE}/prefetch';`];
   if (user.size && helpers.module) lines.push(`import { ${[...user].sort().join(', ')} } from ${JSON.stringify(helpers.module)};`);
   for (const [n, members] of ns) lines.push(`import { ${[...members].sort().map((m) => `${m} as ${n}$${m}`).join(', ')} } from ${JSON.stringify(helpers.namespaces[n]!.module)};`);
   lines.push('', 'void $k;', 'export default prefetch([');
   for (const { paths, parts } of pages) {
-    lines.push(`  { m: ${JSON.stringify(paths)}, r: ${JSON.stringify(parts.res)}, f: [`);
+    lines.push(`  { m: ${JSON.stringify(paths)}, r: ${JSON.stringify(parts.res)}, ${parts.a ? `a: ${JSON.stringify(parts.a)}, ` : ''}f: [`);
     for (const f of parts.fns) lines.push(`    ${f},`);
     lines.push('  ] },');
   }
-  lines.push(']);');
+  lines.push(ls ? '], lists);' : ']);');
   return lines.join('\n') + '\n';
 }

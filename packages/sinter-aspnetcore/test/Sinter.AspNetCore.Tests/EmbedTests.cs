@@ -116,7 +116,7 @@ public sealed class EmbedTests
     {
         // the build: `paginate="offset" page-size="10" size-param="limit"` over a tag from the path
         var dir = Build("paginated", """
-            { "version": 1, "pages": [ { "file": "index.html", "paths": ["/tag/:tag"], "data": [
+            { "version": 2, "pages": [ { "file": "index.html", "paths": ["/tag/:tag"], "data": [
               { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }], "query": [["page", "1"], ["limit", "10"]] } ] } ] }
             """, ("index.html", """<head><script type="application/json" data-sn="0"></script></head>"""));
         await using var a = await App(api, o => o.Dir = dir);
@@ -129,11 +129,32 @@ public sealed class EmbedTests
     {
         // `sinter({ apis: { main: { headers: { 'X-Api': '2' } } } })`: the manifest lists them per placeholder
         var dir = Build("headers", """
-            { "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+            { "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
               { "id": 0, "resource": "v", "src": ["/api/version"], "headers": { "X-Api": "2" } } ] } ] }
             """, ("index.html", """<head><script type="application/json" data-sn="0"></script></head>"""));
         await using var a = await App(api, o => o.Dir = dir);
         Assert.Contains("""data-sn="0">{"x":"2"}</script>""", await Html(a, "/"));
+    }
+
+    [Theory, MemberData(nameof(Apis))]
+    public async Task An_array_parameter_is_a_list(Api api)
+    {
+        var dir = Build("arrays", """
+            { "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "arrays": ["tag"], "data": [
+              { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }, "&limit=10"] },
+              { "id": 1, "resource": "seen", "src": ["/api/seen"] } ] } ] }
+            """, ("index.html", """<head><script type="application/json" data-sn="0"></script><script type="application/json" data-sn="1"></script></head>"""));
+        await using var a = await App(api, o =>
+        {
+            o.Dir = dir;
+            o.Resolve("seen", r => ValueTask.FromResult(SlotData.From($$"""{"tags":"{{string.Join("|", r.ParamValues("tag"))}}","x":"{{r.Param("x")}}","one":"{{r.Param("tag") ?? "-"}}"}""")));
+        });
+        // repeated keys in the request, as the runtime writes them; a list in the resolver's params
+        var html = await Html(a, "/?tag=a&tag=b%20c&x=1&x=2");
+        Assert.Contains("\"q\":\"tag=a&tag=b%20c&limit=10\"", html);
+        Assert.Contains("""{"tags":"a|b c","x":"2","one":"-"}""", html);
+        // none: the parameter is left out
+        Assert.Contains("\"q\":\"limit=10\"", await Html(a, "/"));
     }
 
     [Theory, MemberData(nameof(Apis))]
@@ -203,7 +224,7 @@ public sealed class EmbedTests
         await server.StartAsync();
         var @base = server.Urls.First().TrimEnd('/');
         var dir = Build("upstream", $$"""
-            { "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+            { "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
             { "id": 0, "resource": "a", "src": ["/api/articles?tag=", { "url": "tag" }] },
             { "id": 1, "resource": "b", "src": ["{{@base}}/api/tags"] },
             { "id": 2, "resource": "c", "src": ["{{@base}}/api/articles"] },
@@ -230,16 +251,16 @@ public sealed class EmbedTests
     [Fact]
     public async Task A_page_from_another_build_is_refused()
     {
-        var dir = Build("stale", """{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 9, "resource": "a", "src": null } ] } ] }""",
+        var dir = Build("stale", """{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 9, "resource": "a", "src": null } ] } ] }""",
             ("index.html", """<head><script type="application/json" data-sn="1"></script></head>"""));
         Assert.Contains("no placeholder for `a`", (await Assert.ThrowsAsync<SinterException>(() => App(Api.Minimal, o => { o.Dir = dir; o.Skip("a"); }))).Message);
-        dir = Build("filled", """{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 1, "resource": "a", "src": null } ] } ] }""",
+        dir = Build("filled", """{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 1, "resource": "a", "src": null } ] } ] }""",
             ("index.html", """<head><script type="application/json" data-sn="1">{}</script></head>"""));
         Assert.Contains("not empty", (await Assert.ThrowsAsync<SinterException>(() => App(Api.Minimal, o => { o.Dir = dir; o.Skip("a"); }))).Message);
         var none = Path.Combine(Path.GetTempPath(), "sinter-aspnetcore-none");
         Assert.Contains("sinter-embed.json", (await Assert.ThrowsAsync<SinterException>(() => App(Api.Minimal, o => o.Dir = none))).Message);
-        dir = Build("v2", """{ "version": 2, "pages": [] }""");
-        Assert.Contains("version 2 (this package reads version 1)", (await Assert.ThrowsAsync<SinterException>(() => App(Api.Minimal, o => o.Dir = dir))).Message);
+        dir = Build("v1", """{ "version": 1, "pages": [] }""");
+        Assert.Contains("version 1 (this package reads version 2", (await Assert.ThrowsAsync<SinterException>(() => App(Api.Minimal, o => o.Dir = dir))).Message);
     }
 
     [Fact]
@@ -266,10 +287,10 @@ public sealed class EmbedTests
     }
 
     [Fact]
-    public async Task When_and_start_page_are_evaluated_from_the_url()
+    public async Task When_and_page_model_are_evaluated_from_the_url()
     {
         var dir = Build("when", """
-            { "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+            { "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
               { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }], "when": { "url": "feed", "ne": "following" },
                 "query": [["offset", "0"], ["limit", "10"]],
                 "start": { "url": "page", "key": "offset", "size": 10, "skip": true, "query": [["offset", "10"], ["limit", "10"]] } } ] } ] }
@@ -288,7 +309,7 @@ public sealed class EmbedTests
     public async Task Follows_the_sites_rules_301s_and_rewrites()
     {
         var dir = Build("routes", """
-            { "version": 1, "pages": [
+            { "version": 2, "pages": [
               { "file": "article.html", "paths": ["/article/:slug"], "data": [
                 { "id": 0, "resource": "article", "src": ["/api/articles/", { "url": "slug" }] } ] } ],
               "routes": [
@@ -315,7 +336,7 @@ public sealed class EmbedTests
     public async Task Sends_an_unprefixed_url_to_the_visitors_language()
     {
         var dir = Build("locales", """
-            { "version": 1, "pages": [],
+            { "version": 2, "pages": [],
               "routes": [
                 { "from": "/docs/about.html", "to": "/docs/about/", "status": 200, "file": "about.html", "choose": true },
                 { "from": "/docs/about/", "to": "/docs/about/", "status": 200, "file": "about/index.html", "choose": true },
@@ -347,7 +368,7 @@ public sealed class EmbedTests
     [Theory, MemberData(nameof(Apis))]
     public async Task The_signed_in_user_reaches_an_authorized_endpoint_through_the_forwarded_cookie(Api api)
     {
-        var dir = Build("me", """{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "me", "src": ["/api/me"] } ] } ] }""",
+        var dir = Build("me", """{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "me", "src": ["/api/me"] } ] } ] }""",
             ("index.html", """<head><script type="application/json" data-sn="0"></script></head>"""));
         await using var a = await App(api, o => o.Dir = dir,
             services: s =>
@@ -367,7 +388,7 @@ public sealed class EmbedTests
     [Fact]
     public async Task Each_placeholder_has_a_service_scope_of_its_own()
     {
-        var dir = Build("scope", """{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "a", "src": null }, { "id": 1, "resource": "b", "src": null } ] } ] }""",
+        var dir = Build("scope", """{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "a", "src": null }, { "id": 1, "resource": "b", "src": null } ] } ] }""",
             ("index.html", """<head><script type="application/json" data-sn="0"></script><script type="application/json" data-sn="1"></script></head>"""));
         SlotResolver count = r =>
         {
@@ -384,7 +405,7 @@ public sealed class EmbedTests
     [Fact]
     public async Task A_resolver_that_throws_ends_the_page_with_the_error_text()
     {
-        var dir = Build("throws", """{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "a", "src": null } ] } ] }""",
+        var dir = Build("throws", """{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "a", "src": null } ] } ] }""",
             ("index.html", """<head><script type="application/json" data-sn="0"></script></head>"""));
         await using var a = await App(Api.Minimal, o => { o.Dir = dir; o.Resolve("a", (SlotResolver)(_ => throw new InvalidOperationException("no"))); });
         Assert.Contains("data-sn-failed", await Html(a, "/"));
@@ -400,7 +421,7 @@ public sealed class PlacementTests
     [Fact]
     public async Task After_routing_and_authentication_as_well()
     {
-        var dir = Build("placed", """{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "me", "src": ["/api/me"] } ] } ] }""",
+        var dir = Build("placed", """{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "me", "src": ["/api/me"] } ] } ] }""",
             ("index.html", """<head><script type="application/json" data-sn="0"></script></head>"""));
         var b = WebApplication.CreateSlimBuilder();
         b.WebHost.UseTestServer();

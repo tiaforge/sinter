@@ -129,7 +129,7 @@ web-standard `Request` and `Response` (Node, Bun, Deno, Workers, Hono and other 
 sinter({ embed: true })
 ```
 
-Every resource whose request the page's URL decides (its `src`, `when` and `start-page` read only
+Every resource whose request the page's URL decides (its `src`, `when` and `page-model` read only
 `$url`, constants and helpers) gets an empty slot, last in the head, so a streaming server sends
 the stylesheets and scripts before it has the data. The build lists the slots in
 `dist/sinter-embed.json`: per page, its paths and per slot the resource and the request the browser

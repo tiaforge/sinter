@@ -50,8 +50,8 @@ The page is sent head first, before the data is in, so its status is `200` from 
 `embed!` reads the build's `sinter-embed.json` when your crate compiles; the path is relative to your `Cargo.toml`. It's a compile error when the build has a slot your configuration can't fill, and the error names the page, the resource and the fix:
 
 ```text
-error: index.html: `articles`: the build could not describe its request (its `src` or `start-page`
-       calls a helper, or reads something other than `$url`). Add `"articles" => |req| async move { … }`
+error: index.html: `articles`: the build could not describe its request (its `src` calls a
+       helper, or reads something other than `$url`). Add `"articles" => |req| async move { … }`
        to give its data, or `"articles" => skip` to leave it to the browser
 ```
 
@@ -85,7 +85,7 @@ You need one when the build can't describe the request: the frontend's `src` cal
 
 A resolver receives a `SlotRequest` with:
 
-- `params`: the page URL's parameters: query parameters and named path segments (`/article/:slug` gives `slug`);
+- `params`: the page URL's parameters, each a `Param`: query parameters and named path segments (`/article/:slug` gives `slug`), `Param::One` (`as_str()`), or `Param::List` for an array parameter (one a `<select multiple>` or a checkbox with a `value` binds: `?tag=a&tag=b`; `values()` gives either as a slice);
 - `headers`: the page request's headers;
 - `url`: the URL the layer would request, if the build describes one;
 - `page`, `resource`: which slot it is.
@@ -98,8 +98,8 @@ async fn load_articles(user: &str, page: u64) -> anyhow::Result<ArticleList> { /
 
 let embed = sinter_axum::embed!("../web/dist", {
     "profile.html:articles" => |req| async move {
-        let page = sinter_axum::to_page(req.params.get("page").map(String::as_str));
-        let list = load_articles(req.params.get("username")?, page).await.ok()?;
+        let page = sinter_axum::to_page(req.params.get("page").and_then(sinter_axum::Param::as_str));
+        let list = load_articles(req.params.get("username")?.as_str()?, page).await.ok()?;
         serde_json::to_vec(&list).ok().map(Into::into)
     },
 });

@@ -16,8 +16,8 @@ const feature: Feature = {
         if (k == 'checkbox') el.checked = Array.isArray(v) ? has(el.value) : !!v;
         else if (k == 'radio') el.checked = v != null && '' + v == el.value;
         else if (k == 'multi') for (const opt of el.options) opt.selected = has(opt.value);
-        // loose comparison: '1.0' == 1 keeps a number input's text as typed
-        else if (el.value != (v ?? '')) el.value = v ?? '';
+        // compared as numbers: '1.0' stays as typed, also where the model holds a string (`$url`)
+        else if (k == 'number' ? (v == null || v === '' ? el.value !== '' : el.value === '' || +el.value != +v) : el.value != (v ?? '')) el.value = v ?? '';
       };
       return {
         write,

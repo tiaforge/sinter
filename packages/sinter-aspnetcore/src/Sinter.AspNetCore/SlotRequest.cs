@@ -18,7 +18,7 @@ public sealed class SlotRequest : IAsyncDisposable
     private readonly IServiceScopeFactory _scopes;
     private AsyncServiceScope? _scope;
 
-    internal SlotRequest(HttpContext context, string page, string resource, string? url, IReadOnlyDictionary<string, string> @params, CancellationToken cancellation, KeyValuePair<string, string>[]? headers = null)
+    internal SlotRequest(HttpContext context, string page, string resource, string? url, IReadOnlyDictionary<string, UrlParam> @params, CancellationToken cancellation, KeyValuePair<string, string>[]? headers = null)
     {
         StaticHeaders = headers ?? [];
         HttpContext = context;
@@ -38,12 +38,12 @@ public sealed class SlotRequest : IAsyncDisposable
     public string Resource { get; }
     /// <summary>
     /// The request the build describes, filled from <c>$url</c>: the resource's <c>src</c>, a paginated one
-    /// at its first page (or the page <c>start-page</c> names); null when the build could not describe it,
+    /// at its first page (or the page its <c>page-model</c> parameter names); null when the build could not describe it,
     /// or its <c>when</c> does not hold for this URL.
     /// </summary>
     public string? Url { get; }
-    /// <summary>The page URL's parameters: the query, then the path's <c>:name</c> segments.</summary>
-    public IReadOnlyDictionary<string, string> Params { get; }
+    /// <summary>The page URL's parameters: the query (an array parameter as a list), then the path's <c>:name</c> segments.</summary>
+    public IReadOnlyDictionary<string, UrlParam> Params { get; }
     /// <summary>The page request (its headers include cookies: the data can be the user's).</summary>
     public HttpContext HttpContext { get; }
     /// <summary>The page request's headers.</summary>
@@ -59,8 +59,11 @@ public sealed class SlotRequest : IAsyncDisposable
     /// </summary>
     public IServiceProvider Services => (_scope ??= _scopes.CreateAsyncScope()).ServiceProvider;
 
-    /// <summary>A page URL parameter, or null.</summary>
-    public string? Param(string name) => Params.TryGetValue(name, out var v) ? v : null;
+    /// <summary>A page URL parameter that is one value, or null (absent, or an array parameter: see <see cref="ParamValues"/>).</summary>
+    public string? Param(string name) => Params.TryGetValue(name, out var v) ? v.Value : null;
+
+    /// <summary>A page URL parameter's values: an array parameter's list, the one value, or none.</summary>
+    public IReadOnlyList<string> ParamValues(string name) => Params.TryGetValue(name, out var v) ? v.Values : Array.Empty<string>();
 
     /// <inheritdoc/>
     public ValueTask DisposeAsync() => _scope?.DisposeAsync() ?? ValueTask.CompletedTask;

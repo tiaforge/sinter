@@ -13,7 +13,7 @@ internal static class ManifestReader
         using var doc = JsonDocument.Parse(text, new JsonDocumentOptions { AllowTrailingCommas = false });
         var root = doc.RootElement;
         var version = root.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
-        if (version != 1) throw new SinterException($"version {version} (this package reads version 1)");
+        if (version != 2) throw new SinterException($"version {version} (this package reads version 2: build the frontend and the server with the same sinter release)");
         var pages = Array(root, "pages", required: true).Select(Page).ToArray();
         var routes = Array(root, "routes", required: false).Select(Route).ToArray();
         ManifestLocales? locales = null;
@@ -38,7 +38,8 @@ internal static class ManifestReader
     }
 
     private static ManifestPage Page(JsonElement p) =>
-        new(Str(p, "file"), Array(p, "paths", true).Select(x => x.GetString()!).ToArray(), Array(p, "data", true).Select(Slot).ToArray());
+        new(Str(p, "file"), Array(p, "paths", true).Select(x => x.GetString()!).ToArray(), Array(p, "data", true).Select(Slot).ToArray(),
+            Array(p, "arrays", false).Select(x => x.GetString()!).ToArray());
 
     private static ManifestSlot Slot(JsonElement d)
     {

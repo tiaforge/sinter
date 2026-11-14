@@ -51,6 +51,7 @@
     "./form": "./dist/form.js",
     "./select": "./dist/select.js",
     "./location": "./dist/location.js",
+    "./typing": "./dist/typing.js",
     "./call": "./dist/call.js",
     "./lazy": "./dist/lazy.js",
     "./debounce": "./dist/debounce.js",

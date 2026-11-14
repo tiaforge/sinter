@@ -40,9 +40,15 @@ The module imports no test runner. Use Vitest or anything else, on jsdom or happ
 | `advance(ms)` | move sinter's clock: debounce, backoff, `$now` |
 | `navigations` | URLs sinter tried to go to, such as a login redirect. The test DOM never navigates |
 | `url()` | the current page URL, after `$url` writes |
+| `history()` | the page's history entries, oldest first: a `$url` write a user's event caused pushes one, other writes replace the current one |
+| `back()`, `forward()` | move through `history()` and dispatch `popstate`, as the browser's buttons do; nothing happens past either end. A navigation adds no entry, so they never leave the page |
 | `visibility('hidden' \| 'visible')` | hide or show the page like a background tab |
 | `window(type, props)` | dispatch `pagehide`, `pageshow`, `popstate`, `online`, `beforeunload`, `pageswap` or `pagereveal` |
 | `frame()` | with `frames`, run what waits for the next animation frame |
+
+The events a test dispatches (`click()`, `dispatchEvent(new Event('input'))`) count as the user's, so
+their `$url` writes push a history entry; the custom events sinter dispatches itself (`emit`,
+`sn-error`) do not.
 
 A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn-persist`, bindings), as in the browser. Each `render` replaces the previous page.
 

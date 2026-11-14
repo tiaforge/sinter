@@ -7,7 +7,7 @@
 <sn-resource cache name="user" src="/user" then="guest = !$result" early="off"></sn-resource>
 <sn-resource cache name="profile" src="/profiles/{$url.username}"></sn-resource>
 <sn-resource cache name="articles"
-  src="/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}" paginate="offset" page-size="10" size-param="limit" offset-param="offset" start-page="$url.page"></sn-resource>
+  src="/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}" paginate="offset" page-size="10" size-param="limit" offset-param="offset" page-model="$url.page"></sn-resource>
 
 <main class="profile-page">
   <template data-sn-if="$meta.profile.error">
@@ -53,7 +53,7 @@
               <li class="nav-item"><a class="nav-link" data-sn-class="{active: $url.tab == 'favorites'}" data-sn-attr="{href: '/profile/' + encodeURIComponent(profile.username) + '/favorites'}">Favorited Articles</a></li>
             </ul>
           </div>
-          <template data-sn-if="$meta.articles.loading"><div class="article-preview">Loading articles...</div></template>
+          <template data-sn-if="$meta.articles.loading && !articles.length"><div class="article-preview">Loading articles...</div></template>
           <template data-sn-if="$meta.articles.error"><div class="article-preview error-messages">Could not load articles.</div></template>
           <template data-sn-for="a in articles">
             <div class="article-preview">
@@ -68,7 +68,7 @@
             <nav>
               <ul class="pagination">
                 <template data-sn-for="n in pages($meta.articles.total, 10)" data-sn-key="n">
-                  <li class="page-item" data-sn-class="{active: n == (Number.parseInt($url.page, 10) || 1)}">
+                  <li class="page-item" data-sn-class="{active: n == $meta.articles.page}">
                     <a class="page-link" data-sn-text="n"
                        data-sn-attr="{href: '/profile/' + encodeURIComponent(profile.username) + ($url.tab == 'favorites' ? '/favorites' : '') + '?page=' + n}"></a>
                   </li>

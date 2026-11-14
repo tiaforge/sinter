@@ -47,6 +47,7 @@ const entries = {
   form: `export { default } from '${dist}/form.js';`,
   select: `export { default } from '${dist}/select.js';`,
   location: `export { default } from '${dist}/location.js';`,
+  typing: `export { default } from '${dist}/typing.js';`,
   call: `export { default } from '${dist}/call.js';`,
   debounce: `export { default } from '${dist}/debounce.js';`,
   confirm: `export { default } from '${dist}/confirm.js';`,

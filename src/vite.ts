@@ -336,7 +336,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** build: the pages with an early module, and each one's bundled early script */
   const earlyPages = new Map<string, string>();
   /** build: each page's embedded-data placeholders and the paths it answers at, by file */
-  const embedPages = new Map<string, { file: string; paths: string[]; data: EmbedSlot[] }>();
+  const embedPages = new Map<string, { file: string; paths: string[]; arrays?: string[]; data: EmbedSlot[] }>();
   /** origins of resources that could have been requested early, not listed in `origins` (reported once per build) */
   const unlisted = new Set<string>();
   const earlyFiles = new Map<string, { code: string; modules: Record<string, { renderedLength: number }> }>();
@@ -576,7 +576,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       invalidate(`${COMPONENT_CSS}${x.name}.css`);
     }
     if (out.early) setModule(`${EARLY}${rel}.js`, out.early, out.earlyMap);
-    if (!dev && out.embed.length) embedPages.set(rel, { file: pageFile(rel, resolved?.base ?? '/', out.path), paths: pagePaths(rel, resolved?.base ?? '/', out.path), data: out.embed });
+    if (!dev && out.embed.length) embedPages.set(rel, { file: pageFile(rel, resolved?.base ?? '/', out.path), paths: pagePaths(rel, resolved?.base ?? '/', out.path), ...(out.urlArrays ? { arrays: out.urlArrays } : {}), data: out.embed });
     else embedPages.delete(rel);
     if (out.module.includes(`/transition';`)) holdPages.add(rel); else holdPages.delete(rel);
     messages = p.messages;
@@ -737,13 +737,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       guardLazy(this);
       // the placeholders a server fills (data-sn-data), next to the pages: what a middleware reads to know each page's requests
       if (embedPages.size) {
-        const pages = [...embedPages].sort(([a], [b]) => a.localeCompare(b)).map(([, p]) => ({ file: p.file, paths: p.paths, data: p.data }));
+        const pages = [...embedPages].sort(([a], [b]) => a.localeCompare(b)).map(([, p]) => ({ file: p.file, paths: p.paths, ...(p.arrays ? { arrays: p.arrays } : {}), data: p.data }));
         // the site's URLs, which sinter-axum follows as a host follows _redirects: 301s, and rewrites to a page's file
         const b = resolved?.base ?? '/';
         const routes: Array<Route & { choose?: true }> = b.startsWith('/') ? siteRoutes().map((x) => (x.file && !x.choose ? { ...x, file: pageFile(x.file, b, describe(resolve(root, x.file)).path) } : x.file ? { ...x, file: chooserFile(x.file) } : x)) : [];
         // a server picks the language at a fixed unprefixed URL too (`/about/`, `/`), where a host serves the chooser file
         if (locales && b.startsWith('/')) for (const s of sourceEntries()) { const u = pageUrl(relOf(s), b, describeSource(s).path); if (u) routes.push({ from: u, to: u, status: 200, file: chooserFile(relOf(s)), choose: true }); }
-        this.emitFile({ type: 'asset', fileName: EMBED_FILE, source: JSON.stringify({ version: 1, pages, ...(routes.length ? { routes } : {}), ...(locales ? { locales: { ...locales, at: b.replace(/\/?$/, '/') } } : {}) }, null, 2) + '\n' });
+        this.emitFile({ type: 'asset', fileName: EMBED_FILE, source: JSON.stringify({ version: 2, pages, ...(routes.length ? { routes } : {}), ...(locales ? { locales: { ...locales, at: b.replace(/\/?$/, '/') } } : {}) }, null, 2) + '\n' });
         // the same placeholders as types, for `embed<Build>()` from `@tiaforge-ui/sinter/server`: a name no placeholder has, or a
         // placeholder whose request the build cannot describe left without an entry, is a type error in the server's code
         this.emitFile({ type: 'asset', fileName: EMBED_TYPES, source: embedTypes(pages) });

@@ -67,7 +67,7 @@ every problem in one error:
 
 ```text
 sinter: 1 placeholder(s) have no source:
-  profile.html: `articles`: the build could not describe its request (its `src` or `start-page` calls a
+  profile.html: `articles`: the build could not describe its request (its `src` calls a
   helper, or reads something other than `$url`); add `articles: (req) => …` or `articles: 'skip'` to `data`
 ```
 
@@ -109,7 +109,8 @@ const sinter = await embed<Build>({
 It receives a `SlotRequest`:
 
 - `params`: the page URL's parameters: query parameters and named path segments (`/article/:slug`
-  gives `slug`);
+  gives `slug`); an array parameter (one a `<select multiple>` or checkboxes with a `value` bind,
+  `?tag=a&tag=b`) is a list of strings, `[]` when absent;
 - `request`: the page request (its headers, cookies included);
 - `url`: the URL the layer would request, if the build describes one;
 - `page`, `resource`: which slot it is;

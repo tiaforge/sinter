@@ -23,18 +23,13 @@ export function pageParams(cfg: Cfg, n: number): Record<string, string> {
 
 /**
  * The query parameters of the first page, as the pager sends them on the first load (and after a
- * `src` change), when there is no `start-page`.
+ * `src` change); with `page-model`, the page the URL names (`pageParams`) from page 2 on.
  */
 export function firstParams(cfg: Cfg): Record<string, string> {
   return cfg.mode === 'offset' ? pageParams(cfg, 1) : base(cfg, 'first');
 }
 
-/** the first load's parameters when it starts at page `n` (`start-page`) */
-export function startParams(cfg: Cfg, n: number): Record<string, string> {
-  return n > 1 ? pageParams(cfg, n) : firstParams(cfg);
-}
-
-/** what `start-page` evaluates to, as a page: a whole number from 1 (`"3"`, `3`), anything else page 1 */
+/** a `page-model` parameter as a page: a whole number from 1 (`"3"`, `3`), anything else page 1 */
 export function toPage(v: unknown): number {
   const n = typeof v == 'number' ? Math.floor(v) : Number.parseInt(String(v ?? ''), 10);
   return Number.isFinite(n) && n >= 1 ? n : 1;

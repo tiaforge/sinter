@@ -6,6 +6,7 @@
 // The same layer as packages/sinter-axum and packages/sinter-aspnetcore, option for option; the URLs come
 // from the browser runtime's own code (runtime/url.ts), so the request the server makes for a placeholder
 // is the one the page would have made.
+import { lists } from './runtime/lists.js';
 import { expand, readUrl, withParams } from './runtime/url.js';
 
 /** A fetch handler: an app (Hono's `app.fetch`, a framework's handler) or the next one in a chain. Extra arguments (a Worker's `env` and `ctx`) are passed on. */
@@ -19,12 +20,12 @@ export interface SlotRequest {
   resource: string;
   /**
    * the request the build describes, filled from `$url`: the resource's `src`, a paginated one at its first
-   * page (or the page `start-page` names); null when the build could not describe it, or its `when` does
+   * page (or the page its `page-model` parameter names); null when the build could not describe it, or its `when` does
    * not hold for this URL
    */
   url: string | null;
-  /** the page URL's parameters: the query, then the path's `:name` segments */
-  params: Record<string, string>;
+  /** the page URL's parameters: the query (an array parameter, as a list), then the path's `:name` segments */
+  params: Record<string, string | string[]>;
   /** the page request (its headers include cookies: the data can be the user's) */
   request: Request;
   /** aborted when the page's time limit passes or the visitor goes away */
@@ -127,14 +128,15 @@ type Part = string | { url: string };
 type Cond = { url: string; eq?: string; ne?: string } | { not: Cond } | { and: Cond[] } | { or: Cond[] };
 interface Slot { id: number; resource: string; src: Part[] | null; when?: true | Cond; query?: Array<[string, string]>; start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> }; headers?: Record<string, string> }
 interface Route { from: string; to: string; status: number; file?: string; choose?: true }
-interface Manifest { version: number; pages: Array<{ file: string; paths: string[]; data: Slot[] }>; routes?: Route[]; locales?: { base: string; list: string[]; at?: string } }
-interface Page { file: string; paths: string[]; parts: Uint8Array[]; slots: Slot[] }
+interface Manifest { version: number; pages: Array<{ file: string; paths: string[]; arrays?: string[]; data: Slot[] }>; routes?: Route[]; locales?: { base: string; list: string[]; at?: string } }
+interface Page { file: string; paths: string[]; arrays?: string[]; parts: Uint8Array[]; slots: Slot[] }
+type Params = Record<string, string | string[]>;
 
 const FILE = 'sinter-embed.json';
 const enc = new TextEncoder();
 
 /** As JavaScript evaluates a `when` over `$url`: an absent value is `undefined`, an empty string is falsy. */
-const holds = (c: Cond, p: Record<string, string>): boolean =>
+const holds = (c: Cond, p: Params): boolean =>
   'not' in c ? !holds(c.not, p)
     : 'and' in c ? c.and.every((x) => holds(x, p))
     : 'or' in c ? c.or.some((x) => holds(x, p))
@@ -142,25 +144,25 @@ const holds = (c: Cond, p: Record<string, string>): boolean =>
     : c.ne != null ? p[c.url] !== c.ne
     : !!p[c.url];
 
-/** `start-page` as the runtime's `toPage`: the whole number `parseInt` reads, else (or below 1) page 1. */
+/** A `page-model` parameter as the runtime's `toPage`: the whole number `parseInt` reads, else (or below 1) page 1. */
 const toPage = (v: string | undefined) => {
   const n = parseInt(v ?? '', 10);
   return Number.isFinite(n) && n >= 1 ? n : 1;
 };
 
 /** The request the build describes for a placeholder at this URL, if any and if its `when` holds. */
-export function describedUrl(s: Slot, p: Record<string, string>): string | null {
+export function describedUrl(s: Slot, p: Params): string | null {
   if (s.src == null) return null;
   // a `when` only the browser evaluates is the resolver's to decide (the startup check requires one)
   if (s.when && s.when !== true && !holds(s.when, p)) return null;
   // the runtime's template: literals, and indexes of functions that read `$url`
-  const fns: Array<(x: Record<string, string>) => string | undefined> = [];
+  const fns: Array<(x: Params) => string | string[] | undefined> = [];
   const tpl = s.src.map((x) => (typeof x == 'string' ? x : (fns.push((v) => v[x.url]), fns.length - 1)));
   let url: string;
   try { url = expand(tpl, p, fns); } catch { return null; } // a path value of `.` or `..`, refused as in the browser
   let query = s.query;
   if (s.start) {
-    const n = toPage(p[s.start.url]);
+    const n = toPage(p[s.start.url] as string | undefined);
     if (n > 1) query = s.start.query.map(([k, v]) => [k, k == s.start!.key ? String(s.start!.skip ? (n - 1) * s.start!.size : n) : v]);
   }
   return query?.length ? withParams(url, Object.fromEntries(query)) : url;
@@ -293,7 +295,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
   } catch (e) {
     throw Error(`sinter: ${dir ?? ''}${FILE}: ${(e as Error).message} (built with sinter's Vite plugin, with \`embed: true\` or a \`data-sn-data\` placeholder?)`);
   }
-  if (m?.version !== 1) throw Error(`sinter: ${FILE}: version ${m?.version} (this layer reads version 1)`);
+  if (m?.version !== 2) throw Error(`sinter: ${FILE}: version ${m?.version} (this layer reads version 2: build and layer from the same sinter release)`);
 
   const data = (o.data ?? {}) as Record<string, Entry>;
   const origins = (o.origins ?? []).map((x) => x.replace(/\/+$/, ''));
@@ -308,7 +310,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
   for (const p of m.pages) for (const s of p.data) {
     if (data[`${p.file}:${s.resource}`] ?? data[s.resource]) continue;
     const first = typeof s.src?.[0] == 'string' ? s.src[0] : '';
-    const why = s.src == null ? 'the build could not describe its request (its `src` or `start-page` calls a helper, or reads something other than `$url`)'
+    const why = s.src == null ? 'the build could not describe its request (its `src` calls a helper, or reads something other than `$url`)'
       : s.when === true ? 'its `when` is a condition only the browser can evaluate'
       : sameOrigin(first) || allowed(first) ? null
       : `\`${first}…\` is on an origin not allowed with \`origins\``;
@@ -316,7 +318,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
   }
   if (problems.length) throw Error(`sinter: ${problems.length} placeholder(s) have no source:\n  ${problems.join('\n  ')}`);
 
-  const pages: Page[] = await Promise.all(m.pages.map(async (p) => ({ file: p.file, paths: p.paths, ...split(p.file, text(await read(p.file)), p.data) })));
+  const pages: Page[] = await Promise.all(m.pages.map(async (p) => ({ file: p.file, paths: p.paths, ...(p.arrays ? { arrays: p.arrays } : {}), ...split(p.file, text(await read(p.file)), p.data) })));
   const routes = m.routes ?? [];
   const locales = m.locales && { ...m.locales, at: m.locales.at ?? '/' };
   const forward = (o.forward ?? ['cookie', 'authorization', 'accept-language']).map((h) => h.toLowerCase());
@@ -410,7 +412,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
   /** a page with its data: every placeholder fetched in parallel, the page streamed or sent whole */
   function render(request: Request, page: Page, api: Handler, rest: any[]): Response | Promise<Response> {
     if (request.method == 'HEAD') return new Response(null, { status: 200, headers: pageHeaders });
-    const params = readUrl(request.url, page.paths);
+    const params = lists(request.url, page.arrays ?? [], readUrl(request.url, page.paths)) as Record<string, string | string[]>;
     // one signal for the page's requests: aborted at the time limit, when the visitor goes away, or when the
     // page ended early. A listener rather than AbortSignal.any, and an abort only while something is still
     // pending, with a reason made once: on most pages nothing is aborted, and that costs nothing

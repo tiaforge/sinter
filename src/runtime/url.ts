@@ -45,8 +45,8 @@ export function withParams(url: string, params: Record<string, string> | null): 
   return `${base}?${q}${hash ? '#' + hash : ''}`;
 }
 
-/** `$url`: the query parameters, and the `:name` segments of the first path pattern that matches. */
-export function readUrl(href: string, patterns: string[] = []): Record<string, string> {
+/** `$url`: the query parameters (the last of a repeated name), and the `:name` segments of the first path pattern that matches. */
+export function readUrl(href: string, patterns: string[] = []): Record<string, string | string[]> {
   const out = Object.create(null), u = new URL(href);
   for (const [k, v] of u.searchParams) if (!BAD_KEY.test(k)) out[k] = v;
   const segs = u.pathname.split('/').filter(Boolean);

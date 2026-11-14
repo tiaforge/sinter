@@ -51,6 +51,9 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN207', '<a data-sn-attr="{onclick: 1}"></a>', /`onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click`/],
   ['SN209', '<div data-sn-state="{ s: 1 }" data-sn-let="{ s: 2 }"><p data-sn-text="s"></p></div>', /`s` is already defined here; use another name/],
   ['SN209', '<sn-resource name="remove" src="/api/r" key="id"></sn-resource><p data-sn-text="1"></p>', /`remove` is a store function \(`remove\(\)`\); a resource cannot take its name/],
+  ['SN210', '<select multiple data-sn-model="$url.tag"></select><input data-sn-model="$url.tag">', /`\$url.tag` is a list elsewhere on the page/],
+  ['SN211', '<select multiple data-sn-model="$url.tag"></select><p data-sn-show="$url.tag"></p>', /`\$url.tag` is a list and always truthy; use `\$url.tag.length`/],
+  ['SN212', `<button data-sn-on-click="$url.f = { a: 1 }"></button>`, /`\$url.f` holds a string \(or a list of strings\); an object cannot be written to it/],
   ['SN301', `${R}${use}<button data-sn-on-click="refresh('mesages')"></button>`, /resource `mesages` is not declared on this page/],
   ['SN302', `${R}${use}<sn-resource name="contacts" src="/x" key="id"></sn-resource>`, /resource `contacts` is declared twice/],
   ['SN303', `${R}${use}<p data-sn-text="$meta.contacts.loadng"></p>`, /`\$meta.contacts.loadng` is not a status field. Did you mean `loading`\?/],
@@ -356,6 +359,70 @@ describe('data-sn-path', () => {
   test('belongs on <html> and takes patterns', () => {
     expect(diags('<div data-sn-path="/a"></div>')[0]!.code).toBe('SN102');
     expect(diags('<html data-sn-path="article/:slug /a/:__proto__ //x"></html>').map((x) => x.code)).toEqual(['SN401', 'SN401', 'SN401']);
+  });
+});
+
+describe('$url models', () => {
+  const parts = (html: string) => compileParts(html, { file: '/p/page.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); } });
+  test('a model takes a URL parameter; the setter writes through $u with the kind of its control', () => {
+    const p = parts('<input type="search" data-sn-model="$url.q"><select data-sn-model="$url.sort"><option>a</option></select><input type="number" data-sn-model="$url.n">');
+    expect(p.diagnostics).toEqual([]);
+    expect(p.features).toContain('location');
+    expect(p.fns.filter((f) => f.includes('$u('))).toEqual([
+      '($, v) => (($) => {$.$u("q", $.$url.q = $.$event, 2)\n})(Object.assign(Object.create($), { $event: v }))',
+      '($, v) => (($) => {$.$u("sort", $.$url.sort = $.$event, 4)\n})(Object.assign(Object.create($), { $event: v }))',
+      '($, v) => (($) => {$.$u("n", $.$url.n = $.$event, 3)\n})(Object.assign(Object.create($), { $event: v }))',
+    ]);
+  });
+  test('a path parameter, a nested path or persist is refused', () => {
+    const d = diags('<html data-sn-path="/a/:slug"><body><input data-sn-model="$url.slug"><input data-sn-model="$url.a.b"></body></html>');
+    expect(d.map((x) => x.code)).toEqual(['SN203', 'SN203']);
+    expect(d[0]!.message).toMatch(/`\$url.slug` is a path parameter/);
+    const p = diags('<input data-sn-model="$url.q" data-sn-persist="q">');
+    expect(p.map((x) => [x.code, x.message])).toEqual([['SN102', '`data-sn-persist` on a `$url` model: the URL already keeps this value']]);
+    expect(diags('<input data-sn-model="$now">')[0]!.message).toBe('`data-sn-model` takes a state path or a URL parameter such as `q` or `$url.q`');
+  });
+  test('the typing module only for a text or number model on $url; handlers and choices need location alone', () => {
+    expect(parts('<input data-sn-model="$url.q">').features).toEqual(expect.arrayContaining(['location', 'typing']));
+    expect(parts('<input type="range" data-sn-model="$url.v">').features).toContain('typing');
+    const none = parts('<select data-sn-model="$url.s"><option>a</option></select><button data-sn-on-click="$url.t = 1">t</button><input data-sn-model="q">');
+    expect(none.features).toContain('location');
+    expect(none.features).not.toContain('typing');
+  });
+  test('a handler on `input` of a checkbox, radio or select is a choice (4); on a text field or higher up, the event decides', () => {
+    const p = parts('<input type="checkbox" data-sn-on-input="$url.a = $el.checked"><select data-sn-on-input="$url.b = $el.value"></select><input data-sn-on-input="$url.c = $el.value"><div data-sn-on-input="$url.d = 1"></div>');
+    expect(p.fns.filter((f) => f.includes('$u(')).map((f) => /\$u\("(\w)".*?(, \d)?\)\n/s.exec(f)!.slice(1).join(''))).toEqual(['a, 4', 'b, 4', 'c', 'd']);
+  });
+  test('a write to an array parameter goes through $l, decided at build time', () => {
+    const p = parts('<select multiple data-sn-model="$url.tag"></select><button data-sn-on-click="$url.tag = []; $url.q = 1">x</button>');
+    const code = p.fns.filter((f) => /\$[ul]\(/.test(f)).join('\n');
+    expect(code).toContain('$.$l("tag", $.$url.tag = $.$event, 4)');
+    expect(code).toContain('$.$l("tag", $.$url.tag = [])');
+    expect(code).toContain('$.$u("q", $.$url.q = 1)');
+    expect(code).not.toContain('$.$u("tag"');
+  });
+});
+
+describe('$url array parameters', () => {
+  const parts = (html: string) => compileParts(html, { file: '/p/page.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); } });
+  test('a <select multiple> or a checkbox with a value makes a list; the IR lists them', () => {
+    const p = parts('<select multiple data-sn-model="$url.tag"></select><input type="checkbox" value="a" data-sn-model="$url.f"><input type="checkbox" data-sn-model="$url.on"><template data-sn-if="$url.on"><p></p></template>');
+    expect(p.diagnostics).toEqual([]);
+    expect(p.ir.urlArrays).toEqual(['f', 'tag']);
+  });
+  test('bound as a list and as one value; a list literal written to one value (SN210)', () => {
+    const d = diags('<select multiple data-sn-model="$url.tag"></select><input data-sn-model="$url.tag"><button data-sn-on-click="$url.q = [1]; $url.tag = [\'a\']; $url.tag = \'b\'"></button>');
+    expect(d.map((x) => [x.code, x.message])).toEqual([
+      ['SN210', '`$url.tag` is a list elsewhere on the page (a `<select multiple>` or a checkbox with a `value`), and one value here; bind it as a list everywhere'],
+      ['SN210', '`$url.q` is one value (no `<select multiple>` or checkbox with a `value` binds it), and a list is written to it; write one value'],
+    ]);
+  });
+  test('a bare list in a condition (SN211)', () => {
+    const d = diags(`<select multiple data-sn-model="$url.tag"></select>
+      <template data-sn-if="$url.tag"><p></p></template><p data-sn-show="$url.tag.length"></p><p data-sn-text="$url.tag ? 1 : 2"></p><p data-sn-text="!$url.tag"></p><p data-sn-text="$url.tag && 1"></p><p data-sn-text="$url.tag || []"></p>
+      <sn-resource name="a" src="/a" when="$url.tag"></sn-resource><p data-sn-text="a"></p>`);
+    expect(d.map((x) => x.code)).toEqual(['SN211', 'SN211', 'SN211', 'SN211', 'SN211', 'SN211']);
+    expect(d[0]!.message).toBe('`$url.tag` is a list and always truthy; use `$url.tag.length`');
   });
 });
 

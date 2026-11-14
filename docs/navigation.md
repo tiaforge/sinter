@@ -11,6 +11,9 @@ instant, and none needs code in the pages:
 
 Where a browser lacks a feature, navigation is a normal page load.
 
+Within a page, [the URL and the history](#the-url-and-the-history) behave as in a single-page app:
+Back steps through the filters and pages the user chose.
+
 ## Next-page data
 
 Nothing to write. When a link to another page of the app is about to be followed, sinter requests
@@ -111,6 +114,50 @@ header. `<script type="speculationrules" src>` is not supported, and there is no
 `<meta http-equiv>` form. A `<link rel="prefetch">` hint is no substitute: Chromium reuses its
 response for the navigation only when the page is served cacheable (`max-age` above 0), which most
 hosts do not do for HTML.
+
+## The URL and the history
+
+`$url` is bindable: `data-sn-model="$url.q"` on a search field, `$url.sort` on a select,
+`page-model="$url.page"` on a list ([Page in the URL](pagination.md#page-in-the-url)). Back and
+Forward then restore what the user saw, reload and shared links show the same. The kind of entry is
+decided where the write happens:
+
+| Write | History |
+| --- | --- |
+| a handler run by the user's event (a click, a select's `change`), and what it causes (`emit`, an action it started and that action's `then`/`catch`) | new entry |
+| a select, radio or checkbox model; a component's model | new entry |
+| a number or range model | at its pause (250 ms): a burst of steps (spinner clicks, arrow keys) is one new entry, a later change another |
+| `page()` | new entry |
+| a text-field model: typing | at each pause (250 ms); the first commit of a typing run adds an entry, later ones replace it |
+| a handler on `input` (a keystroke) | replaces, at once; on a checkbox, radio or select itself it is a choice: a new entry |
+| a resource's or stream's `then`, `sn-error` handlers, anything no user event caused | replaces |
+| a list's reset to page 1 after its URL changed | replaces (with a typing commit waiting, it goes into that one) |
+| Back, Forward | writes nothing |
+
+A typing run ends at a new entry, at `change` on the field (Enter, or leaving it, which a click on a
+link does before navigating) and at Back or Forward. So typing "foo", Enter, then "bar" gives two
+entries; typing slowly, pausing between words, gives one. There is no attribute to change these
+rules, and no other pause.
+
+| You do | URL | Back |
+| --- | --- | --- |
+| type "sinter" | `?q=sinter` | before the search |
+| pick a tag | `?q=sinter&tag=go` | before the tag |
+| page › twice | `…&page=3` | page 2 |
+| change the tag on page 3 | `…&tag=js`, `page` removed | page 3 with the old tag |
+| open a result, Back | | the same results (usually from the bfcache) |
+
+- One flush writes the URL once, the strongest kind winning; a write that does not change the query
+  does nothing. The other parameters keep their order; path parameters (`data-sn-path`) stay in the
+  path and are read-only: changing one is a link to another page.
+- Values are written as a reload reads them: numbers as strings (`0` is `'0'`), `true` as `'1'`;
+  `false`, `null`, `undefined`, `''` and `[]` delete the parameter. A handler that reads its own write
+  sees the string; `+$url.page` gives a number. `'0'` is truthy, as in JavaScript.
+- A parameter bound to a `<select multiple>` or to checkboxes with a `value` is a list, decided at
+  build time: `?tag=go&tag=js` reads as `['go', 'js']`, no parameter as `[]`. A single value written to
+  it is wrapped. Test it with `$url.tag.length` (a bare list is always truthy: SN211); a parameter
+  bound as a list in one place and one value in another is SN210.
+- Browsers refuse history calls made too often (Safari throws): sinter keeps `$url` and warns in dev.
 
 ## Opting a page out
 

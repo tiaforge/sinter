@@ -130,8 +130,8 @@ test('cache: the cached first page shows at once, the early response revalidates
   }
 });
 
-test('start-page from the URL, offset mode with offset-param: the early file asks for that page as the items to skip; the runtime takes it and pages on from there', async () => {
-  const attrs = 'paginate="offset" page-size="2" size-param="n" offset-param="off" start-page="$url.page"';
+test('page-model, offset mode with offset-param: the early file asks for the URL\'s page as the items to skip; the runtime takes it and pages on from there', async () => {
+  const attrs = 'paginate="offset" page-size="2" size-param="n" offset-param="off" page-model="$url.page"';
   const p = await load(PAGE(attrs).replace('<span ', '<b data-sn-text="$meta.mail.page"></b><span '), { href: 'http://localhost/?page=2' });
   await p.settle();
   expect(p.early).toEqual(['/api/mail?box=inbox&off=2&n=2']);
@@ -151,17 +151,9 @@ test('start-page from the URL, offset mode with offset-param: the early file ask
   }
 });
 
-test('start-page, keyset with offset-param: from page 2 on the first load is a jump (the skip with the `first` direction); page 1 is the plain first page', async () => {
-  const p = await load(PAGE(`${KEYSET} start-page="$url.page"`), { href: 'http://localhost/?page=2' });
+test('keyset with offset-param starts at page 1, whatever the URL says (`page-model` is for offset lists)', async () => {
+  const p = await load(PAGE(KEYSET), { href: 'http://localhost/?page=2' });
   await p.settle();
-  expect(p.early).toEqual(['/api/mail?box=inbox&offset=2&limit=2&dir=forward']);
+  expect(p.early).toEqual(['/api/mail?box=inbox&limit=2&dir=forward']);
   expect(p.calls).toEqual([]);
-  expect(p.state()).toEqual(['3,4', '3,4,5,3,true,true']);
-  await p.go('next');
-  expect(p.calls.map((c) => c.url)).toEqual(['/api/mail?box=inbox&after=4&before=4&limit=2&dir=forward']);
-  for (const k of KEYS) delete (globalThis as any)[Symbol.for(k)];
-  const q = await load(PAGE(`${KEYSET} start-page="$url.page"`), { href: 'http://localhost/?page=1' });
-  await q.settle();
-  expect(q.early).toEqual(['/api/mail?box=inbox&limit=2&dir=forward']);
-  expect(q.calls).toEqual([]);
 });

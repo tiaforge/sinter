@@ -1,0 +1,13 @@
+<!-- A search field bound to the URL: one history entry per search, the request and the URL wait
+     for the typing pause; a reload or a shared link shows the same results. -->
+<sn-resource name="hits" src="/api/search?q={$url.q}&sort={$url.sort}" items="hits" key="id"
+  when="$url.q"></sn-resource>
+
+<input type="search" placeholder="Search" data-sn-model="$url.q">
+<select data-sn-model="$url.sort">
+  <option value="">Best match</option>
+  <option value="new">Newest</option>
+</select>
+<ul>
+  <template data-sn-for="h in hits"><li data-sn-text="h.title"></li></template>
+</ul>

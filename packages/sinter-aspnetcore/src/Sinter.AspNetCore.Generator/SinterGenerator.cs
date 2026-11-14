@@ -222,7 +222,7 @@ public sealed class SinterGenerator : IIncrementalGenerator
         }
         catch (Exception e) when (e is JsonException or InvalidCastException or KeyNotFoundException or NullReferenceException)
         {
-            spc.ReportDiagnostic(Diagnostic.Create(BadManifest, at, want, e is JsonException ? e.Message : "not a sinter-embed.json of version 1"));
+            spc.ReportDiagnostic(Diagnostic.Create(BadManifest, at, want, e is JsonException ? e.Message : "not a sinter-embed.json of version 2"));
             return;
         }
         var ok = true;
@@ -262,7 +262,7 @@ public sealed class SinterGenerator : IIncrementalGenerator
     private static List<Slot> Slots(object? m)
     {
         var root = (Dictionary<string, object?>)m!;
-        if (!root.TryGetValue("version", out var v) || v is not double d || d != 1) throw new InvalidCastException();
+        if (!root.TryGetValue("version", out var v) || v is not double d || d != 2) throw new InvalidCastException();
         var o = new List<Slot>();
         foreach (var p in Objs(root["pages"]!))
         {
@@ -271,7 +271,7 @@ public sealed class SinterGenerator : IIncrementalGenerator
             {
                 string? why = null;
                 if (!s.TryGetValue("src", out var src) || src is null)
-                    why = "the build could not describe its request (its `src` or `start-page` calls a helper, or reads something other than `$url`)";
+                    why = "the build could not describe its request (its `src` calls a helper, or reads something other than `$url`)";
                 else if (s.TryGetValue("when", out var w) && w is true)
                     why = "its `when` is a condition only the browser can evaluate";
                 o.Add(new Slot(page, (string)s["resource"]!, why));
@@ -323,7 +323,9 @@ public sealed class SinterGenerator : IIncrementalGenerator
         {
             b.Append("\n            new(").Append(Lit((string)p["file"]!)).Append(", ").Append(Strs((List<object?>)p["paths"]!)).Append(", new " + M + "ManifestSlot[] { ");
             foreach (var s in Objs(p["data"])) b.Append("\n                ").Append(SlotExpr(s)).Append(',');
-            b.Append(" }),");
+            b.Append(" }");
+            if (p.TryGetValue("arrays", out var arr) && arr is List<object?> al && al.Count > 0) b.Append(", ").Append(Strs(al));
+            b.Append("),");
         }
         b.AppendLine(" },");
         b.Append("        new " + M + "ManifestRoute[] { ");

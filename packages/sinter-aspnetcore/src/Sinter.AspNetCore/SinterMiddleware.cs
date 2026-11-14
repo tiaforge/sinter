@@ -91,7 +91,7 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
         res.ContentType = "text/html; charset=utf-8";
         res.Headers.CacheControl = o.CacheControl;
         if (head) return;
-        var p = SinterUrl.UrlParams(ctx.Request.Path.Value ?? "/", ctx.Request.QueryString.Value, page.Paths);
+        var p = SinterUrl.UrlParams(ctx.Request.Path.Value ?? "/", ctx.Request.QueryString.Value, page.Paths, page.Arrays);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
         using var deadline = new CancellationTokenSource(o.Timeout);
         using var both = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, deadline.Token);

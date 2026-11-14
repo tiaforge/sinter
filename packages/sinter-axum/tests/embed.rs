@@ -33,7 +33,7 @@ fn build(name: &str, manifest: &str, pages: &[(&str, &str)]) -> PathBuf {
 fn app_build() -> PathBuf {
     build(
         "app",
-        r#"{ "version": 1, "pages": [
+        r#"{ "version": 2, "pages": [
       { "file": "index.html", "paths": ["/", "/index.html"], "data": [
         { "id": 3, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }, "&limit=10"] },
         { "id": 4, "resource": "tags", "src": ["/api/tags"] },
@@ -145,7 +145,10 @@ async fn a_resolver_takes_precedence_and_gets_what_the_template_cannot_express()
             assert_eq!(r.page, "index.html");
             assert_eq!(r.url.as_deref(), Some("/api/feed"));
             let user = r.headers.get(header::COOKIE)?.to_str().ok()?.to_string();
-            Some(Bytes::from(format!(r#"{{"feed":"{user}","page":"{}"}}"#, r.params.get("page").map_or("1", |s| s))))
+            Some(Bytes::from(format!(
+                r#"{{"feed":"{user}","page":"{}"}}"#,
+                r.params.get("page").and_then(sinter_axum::Param::as_str).unwrap_or("1")
+            )))
         })
         .resolve("tags", |_| async { Some(Bytes::from_static(br#"{"tags":["mine"]}"#)) })
         .build()
@@ -203,7 +206,7 @@ async fn a_paginated_resource_is_requested_at_its_first_page() {
     // the build: `paginate="offset" page-size="10" size-param="limit"` over a tag from the path
     let dir = build(
         "paginated",
-        r#"{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/tag/:tag"], "data": [
+        r#"{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/tag/:tag"], "data": [
           { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }], "query": [["page", "1"], ["limit", "10"]] } ] } ] }"#,
         &[("index.html", r#"<head><script type="application/json" data-sn="0"></script></head>"#)],
     );
@@ -217,7 +220,7 @@ async fn the_static_headers_of_the_resources_api_go_with_its_request() {
     // `sinter({ apis: { main: { headers: { 'X-Api': '2' } } } })`: the manifest lists them per placeholder
     let dir = build(
         "headers",
-        r#"{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+        r#"{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
           { "id": 0, "resource": "v", "src": ["/api/version"], "headers": { "X-Api": "2" } } ] } ] }"#,
         &[("index.html", r#"<head><script type="application/json" data-sn="0"></script></head>"#)],
     );
@@ -227,6 +230,38 @@ async fn the_static_headers_of_the_resources_api_go_with_its_request() {
     );
     let (_, _, html) = text(Router::new().fallback(|| async { "static file" }).layer(Embed::from_dir(dir).api(api).build().unwrap()), get_("/")).await;
     assert!(html.contains(r#"{"x":"2"}"#), "{html}");
+}
+
+#[tokio::test]
+async fn an_array_parameter_is_a_list() {
+    let dir = build(
+        "arrays",
+        r#"{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "arrays": ["tag"], "data": [
+          { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }, "&limit=10"] },
+          { "id": 1, "resource": "seen", "src": ["/api/seen"] } ] } ] }"#,
+        &[(
+            "index.html",
+            r#"<head><script type="application/json" data-sn="0"></script><script type="application/json" data-sn="1"></script></head>"#,
+        )],
+    );
+    let embed = Embed::from_dir(dir)
+        .api(api())
+        .resolve("seen", |r| async move {
+            let tags = r.params.get("tag").map(|p| p.values().join("|")).unwrap_or_default();
+            Some(Bytes::from(format!(
+                r#"{{"tags":"{tags}","x":"{}"}}"#,
+                r.params.get("x").and_then(sinter_axum::Param::as_str).unwrap_or("-")
+            )))
+        })
+        .build()
+        .unwrap();
+    // repeated keys in the request, as the runtime writes them; a list in the resolver's params
+    let (_, _, html) = text(app(embed.clone()), get_("/?tag=a&tag=b%20c&x=1&x=2")).await;
+    assert!(html.contains(r#""q":"tag=a&tag=b%20c&limit=10""#), "{html}");
+    assert!(html.contains(r#"{"tags":"a|b c","x":"2"}"#), "{html}");
+    // none: the parameter is left out
+    let (_, _, html) = text(app(embed), get_("/")).await;
+    assert!(html.contains(r#""q":"limit=10""#), "{html}");
 }
 
 #[tokio::test]
@@ -294,7 +329,7 @@ async fn upstream_over_http_and_allowed_origins_only() {
     let dir = build(
         "upstream",
         &format!(
-            r#"{{ "version": 1, "pages": [ {{ "file": "index.html", "paths": ["/"], "data": [
+            r#"{{ "version": 2, "pages": [ {{ "file": "index.html", "paths": ["/"], "data": [
         {{ "id": 0, "resource": "a", "src": ["/api/articles?tag=", {{ "url": "tag" }}] }},
         {{ "id": 1, "resource": "b", "src": ["{base}/api/tags"] }},
         {{ "id": 2, "resource": "c", "src": ["{base}/api/articles"] }},
@@ -332,14 +367,14 @@ async fn upstream_over_http_and_allowed_origins_only() {
 fn a_page_from_another_build_is_refused() {
     let dir = build(
         "stale",
-        r#"{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 9, "resource": "a", "src": null } ] } ] }"#,
+        r#"{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 9, "resource": "a", "src": null } ] } ] }"#,
         &[("index.html", r#"<head><script type="application/json" data-sn="1"></script></head>"#)],
     );
     let err = Embed::from_dir(&dir).skip("a").build().err().unwrap().to_string();
     assert!(err.contains("no placeholder for `a`"), "{err}");
     let dir = build(
         "filled",
-        r#"{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 1, "resource": "a", "src": null } ] } ] }"#,
+        r#"{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 1, "resource": "a", "src": null } ] } ] }"#,
         &[("index.html", r#"<head><script type="application/json" data-sn="1">{}</script></head>"#)],
     );
     assert!(Embed::from_dir(&dir).skip("a").build().err().unwrap().to_string().contains("not empty"));
@@ -366,10 +401,10 @@ fn build_refuses_placeholders_without_a_source_and_names_that_are_not_placeholde
 }
 
 #[tokio::test]
-async fn when_and_start_page_are_evaluated_from_the_url() {
+async fn when_and_page_model_are_evaluated_from_the_url() {
     let dir = build(
         "when",
-        r#"{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+        r#"{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
           { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }], "when": { "url": "feed", "ne": "following" },
             "query": [["offset", "0"], ["limit", "10"]],
             "start": { "url": "page", "key": "offset", "size": 10, "skip": true, "query": [["offset", "10"], ["limit", "10"]] } } ] } ] }"#,
@@ -391,7 +426,7 @@ async fn when_and_start_page_are_evaluated_from_the_url() {
 async fn follows_the_sites_rules_301s_and_rewrites() {
     let dir = build(
         "routes",
-        r#"{ "version": 1, "pages": [
+        r#"{ "version": 2, "pages": [
       { "file": "article.html", "paths": ["/article/:slug"], "data": [
         { "id": 0, "resource": "article", "src": ["/api/articles/", { "url": "slug" }] } ] } ],
       "routes": [
@@ -423,7 +458,7 @@ async fn follows_the_sites_rules_301s_and_rewrites() {
 async fn sends_an_unprefixed_url_to_the_visitors_language() {
     let dir = build(
         "locales",
-        r#"{ "version": 1, "pages": [],
+        r#"{ "version": 2, "pages": [],
       "routes": [
         { "from": "/docs/about.html", "to": "/docs/about/", "status": 200, "file": "about.html", "choose": true },
         { "from": "/docs/about/", "to": "/docs/about/", "status": 200, "file": "about/index.html", "choose": true },

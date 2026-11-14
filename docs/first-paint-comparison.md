@@ -170,7 +170,7 @@ sit in the `<head>` (the runtime ignores them anywhere else).
 
 ### With `sinter({ embed: true })` and native pagination
 
-RealWorld's lists use native pagination (`start-page="$url.page"`), and the build places the
+RealWorld's lists use native pagination (`page-model="$url.page"`, `start-page` when this was measured), and the build places the
 placeholders itself. The example server needs one resolver, for the profile list's ternary. Slow 4G,
 cold, median of 9:
 
