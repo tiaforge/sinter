@@ -183,6 +183,8 @@ export interface App {
       set(name: string, value: string | null, kind: number): void;
       /** a same-page link was followed (query-links.ts): its entry is pushed, `$url` read again; the flush is as after Back */
       arrive(): void;
+      /** a new history entry (`Env.pushState`, else `history.pushState`) */
+      push(url: string): void;
     };
     /**
      * typing and a number field's steps on `$url` (typing.ts): `flush` takes a pass's typing or burst,

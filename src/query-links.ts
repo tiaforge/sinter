@@ -3,50 +3,46 @@
 // after Back or Forward, which is what loading the URL would show (a `page-model` list loads the
 // link's page). A `#hash` stays the browser's. Any other click is the browser's: another path or
 // origin, `download`, a `target`, `rel="external"`, a modifier key, a prevented default, or a
-// parameter the page does not read. Loaded only by pages with a link the build sees goes to the page.
+// parameter the page does not read. Loaded only by pages with a link the build sees goes to the page
+// (its list of read parameters is `IR.urlReads`).
 import type { App, Feature } from './runtime/app.js';
 import { readUrl } from './runtime/url.js';
 
 const feature: Feature = {
   name: 'query-links',
   install(app: App) {
-    const reads = new Set(app.ir.urlReads ?? []);
-    /** where a click on `a` goes in the page, and whether its query differs; null: the browser follows it */
-    const target = (a: Element): { to: URL; differs: boolean } | null => {
-      const l = a as HTMLAnchorElement;
-      if (l.hasAttribute('download') || (l.target && l.target != '_self') || /(^|\s)external(\s|$)/i.test(l.rel ?? '')) return null;
-      const here = new URL(app.env.href());
+    const reads = new Set(app.ir.urlReads);
+    /** where a click on `a` goes in the page, and whether its query differs; nothing: the browser follows it */
+    const where = (a: Element): [URL, boolean] | void => {
+      if (a.matches('[download],[target]:not([target=_self]),[rel~=external]')) return;
+      const here = new URL(app.env.href()), q = here.searchParams;
       let to: URL;
-      try { to = new URL(l.getAttribute('href')!, here); } catch { return null; }
-      if (to.origin != here.origin || to.pathname != here.pathname) return null;
+      try { to = new URL(a.getAttribute('href')!, here); } catch { return; }
+      if (to.origin != here.origin || to.pathname != here.pathname) return;
       // by name and values, not as a string: `?a=1&b=2` is `?b=2&a=1`
       let differs = false;
-      for (const n of new Set([...here.searchParams.keys(), ...to.searchParams.keys()])) {
-        const x = here.searchParams.getAll(n), y = to.searchParams.getAll(n);
-        if (x.length == y.length && x.every((v, i) => v == y[i])) continue;
-        if (!reads.has(n)) return null;
+      for (const n of new Set([...q.keys(), ...to.searchParams.keys()])) {
+        if (q.getAll(n).join('\0') == to.searchParams.getAll(n).join('\0')) continue;
+        if (!reads.has(n)) return;
         differs = true;
       }
-      return { to, differs };
+      return [to, differs];
     };
-    app.ext.sameLink = (a) => !!target(a)?.differs;
+    app.ext.sameLink = (a) => !!where(a)?.[1];
     const click = (e: Event) => {
-      const m = e as MouseEvent;
-      if (m.defaultPrevented || m.button != 0 || m.ctrlKey || m.metaKey || m.shiftKey || m.altKey) return;
-      const a = (e.target as Element | null)?.closest?.('a[href], area[href]'), t = a && target(a);
-      if (!t) return;
-      const { to, differs } = t;
+      const m = e as MouseEvent, a = (e.target as Element | null)?.closest?.('a[href],area[href]');
+      const w = !m.defaultPrevented && !(m.button || m.ctrlKey || m.metaKey || m.shiftKey || m.altKey) && a && where(a);
       // the same query: a `#hash` is the browser's; the current URL changes nothing
-      if (!differs && to.hash) return;
+      if (!w || (!w[1] && w[0].hash)) return;
       e.preventDefault();
-      if (!differs) return;
+      if (!w[1]) return;
+      const [to] = w, loc = app.ext.location!, u = app.page.$url;
       // what typing waits to commit goes into its own entry first
       app.ext.typing?.finish();
-      (app.env.pushState ?? ((x) => history.pushState(null, '', x)))(to.pathname + to.search);
-      const u = app.page.$url;
+      loc.push(to.pathname + to.search);
       for (const k in u) delete u[k];
       Object.assign(u, readUrl(app.env.href(), app.ir.path));
-      app.ext.location!.arrive();
+      loc.arrive();
       app.mark('$url');
       // a native fragment navigation in the new entry: `:target`, `scroll-margin` and focus as in any page
       if (to.hash) (app.env.fragment ?? ((h) => location.replace(h)))(to.hash);

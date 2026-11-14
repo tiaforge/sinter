@@ -28,6 +28,8 @@ const feature: Feature = {
       return v == null || v === false || v === '' ? null : v === true ? '1' : '' + v;
     };
 
+    /** a new history entry (the environment's, read at each call) */
+    const push = (x: string) => (app.env.pushState ? app.env.pushState(x) : history.pushState(null, '', x));
     /** The query with the changed parameters set or deleted, in their places; false when it equals the current one. */
     const write = (k: number): boolean => {
       const u = new URL(app.env.href()), q = new URLSearchParams(), done = new Set<string>(), $url = app.page.$url;
@@ -43,7 +45,7 @@ const feature: Feature = {
       u.search = '' + q;
       const to = u.pathname + u.search + u.hash;
       // browsers refuse history calls made too often (Safari throws): `$url` keeps the value
-      try { k == PUSH ? (app.env.pushState ?? ((x) => history.pushState(null, '', x)))(to) : app.env.replaceState(to); } catch (e) { app.warn(26, to, e); }
+      try { k == PUSH ? push(to) : app.env.replaceState(to); } catch (e) { app.warn(26, to, e); }
       return true;
     };
     /** The user's event (the testing module's simulated ones too), not a keystroke. */
@@ -76,6 +78,7 @@ const feature: Feature = {
         changed.add(name);
         if (k > kind) kind = k;
       },
+      push,
       arrive() {
         changed.clear();
         kind = 0;
