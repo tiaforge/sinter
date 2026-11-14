@@ -56,3 +56,28 @@ test('between two resources, as RealWorld\'s feed: the one the URL picks', async
   await firstPaint(page);
   expect(loading()).not.toBeNull();
 });
+
+test('the early function: the status written in field by field, text in strings left alone', async () => {
+  await firstPaint(PAGE('', "$meta.c.loading && 'reads $.$r.c and $.$meta.c.loading here'").replace('<p id="loading">Loading…</p>', '<p id="loading" data-sn-text="$meta.c.loading ? \'reads $.$r.c here\' : \'\'"></p>'));
+  expect(loading()!.textContent).toBe('reads $.$r.c here');
+});
+
+test('the whole status, as a helper reads it: every field as at mount', async () => {
+  const helpers = { idle: (m: { pending: number; total: unknown; live: unknown; loading: boolean }) => m.loading && m.pending === 0 && m.total === null && m.live === null };
+  await firstPaint(PAGE('', 'idle($meta.c)'), { helpers });
+  expect(loading()).not.toBeNull();
+  // paginated: its pager fields are not known early
+  await firstPaint(PAGE('paginate="offset" page-size="2"', 'idle($meta.c)'), { helpers });
+  expect(loading()).toBeNull();
+});
+
+test('with next-page data in the app, the early binding first checks this tab holds no prefetched or cached rows; the when is the early table\'s', async () => {
+  const { compile } = await import('../../src/compiler/index.js');
+  const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, observe: true };
+  const html = PAGE('when="$url.go"');
+  const plain = compile(html, opts).early!, ahead = compile(html, { ...opts, prefetch: '/prefetch.js' }).early!;
+  expect(plain).not.toContain('sessionStorage');
+  expect(ahead).toContain('/^sn:[cp]:/');
+  // `when` is called from the table, not written out again
+  expect(ahead).toMatch(/!!f\[\d+\]\(\$\)/);
+});

@@ -2,7 +2,7 @@
 // rewritten page plus its IR and function table.
 import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
-import { Layout, type Reserved, type StyleSheet } from './layout.js';
+import { Layout, PLACEHOLDER_BASE, type Reserved, type StyleSheet } from './layout.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -615,6 +615,7 @@ class Compiler {
   /** the placeholders' rules (`CompiledParts.paint`) */
   readonly paintRules: string[] = [];
   private spaceN = 0;
+  private readonly pendingSpace: Array<{ el: P5Element; node: NodeDef }> = [];
   /** origins of resources that could be requested early but are not listed in `origins` */
   readonly unlisted = new Set<string>();
   /** whether a resource's literal `src` may be requested before the page module: same-origin, or a listed origin */
@@ -817,6 +818,7 @@ class Compiler {
       if (r) r.data = id;
     }
     if (this.opts.embed) this.addPlaceholders(doc);
+    this.placeholders();
     for (const info of this.page.resources.values()) {
       if (!info.used) {
         const el = this.resourceEls.get(info.name)!;
@@ -4421,7 +4423,13 @@ class Compiler {
       if (r) { if (!embedded.size && !(status && pre.size)) return false; if (embedded.has(r[1]!)) usedEmb.add(r[1]!); return true; }
       // a status field, or the whole status (a `data-sn-let` of it); another resource's throws early
       const mt = /^\$meta\.([^.]+)(?:\.([^.]+))?$/.exec(d);
-      if (mt) return status && !!pre.size && (mt[2] === undefined || ['loading', 'error', 'loadedAt'].includes(mt[2]));
+      if (mt) {
+        if (!status || !pre.size) return false;
+        if (mt[2] !== undefined) return ['loading', 'error', 'loadedAt'].includes(mt[2]);
+        // the whole status: its pager and stream fields are not known before the page module mounts
+        const def = pre.get(mt[1]!);
+        return !def || (!def.paginate && !this.page.fed.has(def.name));
+      }
       const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
       const f = m ? fields.get(Number(m[1])) : undefined;
       if (!m || !f) return false;
@@ -4462,13 +4470,44 @@ class Compiler {
      * for the data, `{ loading, error: null, loadedAt: null }` for the status, loading when the `when` holds. A resource
      * with `cache` checks first that this tab has cached nothing (else it throws, and the page module renders the binding).
      */
-    const status = (code: string): string => code.replace(/\$\.\$(meta|r)\.([A-Za-z_$][\w$]*)\b/g, (all, kind: string, name: string) => {
-      const def = pre.get(name);
-      if (!def) return all;
-      const nc = def.cache != null ? `f[${fn('() => { for (let i = 0; i < sessionStorage.length; i++) if (sessionStorage.key(i).startsWith("sn:c:")) throw 0; }')}](), ` : '';
-      if (kind === 'r') return `(${nc}${def.key ? '[]' : 'null'})`;
-      return `(${nc}{ loading: ${def.when != null ? `!!(${this.fns[def.when]!})($)` : 'true'}, error: null, loadedAt: null })`;
-    });
+    const status = (code: string): string => {
+      let ast: acorn.Node;
+      try { ast = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }); } catch { return code; }
+      const edits: Array<[number, number, string]> = [];
+      let check = false;
+      const name = (m: any): string | null => (m.computed ? (m.property.type === 'Literal' && typeof m.property.value === 'string' ? m.property.value : null) : m.property.name);
+      // `$.$meta.<name>` or `$.$r.<name>`, with `$` the function's parameter
+      const at = (m: any, kind: string) => m?.type === 'MemberExpression' && m.object.type === 'MemberExpression' && !m.object.computed && m.object.object.type === 'Identifier'
+        && m.object.object.name === '$' && m.object.property.name === kind ? name(m) : null;
+      const visit = (n: any, parent: any) => {
+        if (!n || typeof n.type !== 'string') return;
+        const r = at(n, '$r'), mt = at(n, '$meta'), def = pre.get((r ?? mt)!);
+        if (def && (r !== null || mt !== null)) {
+          // cached or prefetched rows would be there at mount: checked once per binding (below)
+          if (def.cache != null || (this.opts.prefetch && !def.paginate && def.body == null)) check = true;
+          const when = def.when != null ? `!!f[${fn(this.fns[def.when]!)}]($)` : 'true';
+          if (r !== null) { edits.push([n.start, n.end, def.key ? '[]' : 'null']); return; }
+          const field = parent?.type === 'MemberExpression' && parent.object === n && !parent.computed ? parent.property.name : null;
+          if (field === 'loading') { edits.push([parent.start, parent.end, when]); return; }
+          if (field === 'error' || field === 'loadedAt') { edits.push([parent.start, parent.end, 'null']); return; }
+          // the whole status (a `data-sn-let`, a helper): every field as it is at mount (`predictable` leaves out paginated and fed resources' whole status)
+          edits.push([n.start, n.end, `({ loading: ${when}, error: null, loadedAt: null, pending: 0, total: null, live: null })`]);
+          return;
+        }
+        for (const k of Object.keys(n)) {
+          if (k === 'start' || k === 'end' || k === 'type') continue;
+          const v = n[k];
+          if (Array.isArray(v)) for (const c of v) visit(c, n);
+          else if (v && typeof v === 'object') visit(v, n);
+        }
+      };
+      visit(ast, null);
+      if (!edits.length) return code;
+      let out = code;
+      for (const [a, b, t] of edits.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + t + out.slice(b);
+      // a tab that has cached or prefetched data: the binding throws, and the page module renders it
+      return check ? `($) => (f[${fn('() => { if (Object.keys(sessionStorage).some((k) => /^sn:[cp]:/.test(k))) throw 0; }')}](), (${out})($))` : out;
+    };
     const templates: EarlyIR['templates'] = this.templates.map(() => null);
     // a binding over a resource without data is early only when it reads a status the early file knows (a loading branch):
     // anything else of it reads data that is not there yet
@@ -4588,7 +4627,7 @@ class Compiler {
   /**
    * The resources whose state when the page module mounts the early file can tell: no data, loading
    * if their `when` holds. Not embedded, `each` or `call`; a `when` only over what the early file
-   * knows (state without data, persisted values, `$url`, `$now`, helpers but the built-in formatters),
+   * knows (`$url`, `$now`, `$locale`, helpers but the built-in formatters; not state),
    * in a scope the early file has.
    */
   predictable(): Map<string, ResourceDef> {
@@ -4644,11 +4683,6 @@ class Compiler {
     return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces, ...(arrays.length ? { a: arrays } : {}) };
   }
 
-  /**
-   * `embed`: a placeholder at the end of the head for each resource without one whose `src`,
-   * `when` and `page-model` read only `$url`, constants and helpers (what a server knows at the
-   * page request; helpers make it a request only a resolver can make)
-   */
   /**
    * The lists outside templates (and dialogs): each one's placeholder for the rows its resource brings
    * after the first paint (`Layout.reserve`: a paginated resource's `page-size` rows, or
@@ -4707,18 +4741,36 @@ class Compiler {
     let hash = 0x811c9dc5;
     const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
     for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
-    const k = `${(hash >>> 0).toString(36).slice(0, 5)}-${this.spaceN++}`, id = this.nextId++;
-    const ph = parse5.parseFragment(`<${plan.space.tag} class="sn-reserve sn-reserve-${k}" aria-hidden="true" data-sn="${id}"></${plan.space.tag}>`).childNodes[0] as P5Element;
+    const k = `snr${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    const ph = parse5.parseFragment(`<${plan.space.tag} class="sn-reserve ${k}" aria-hidden="true"></${plan.space.tag}>`).childNodes[0] as P5Element;
     ph.parentNode = parent;
     parent.childNodes.splice(parent.childNodes.indexOf(el) + 1, 0, ph as never);
-    const r = JSON.stringify(name);
-    const code = `($) => { const l = $.$r[${r}], m = $.$meta[${r}]; if ((l && l.length) || m.loadedAt || m.error) $.$el.remove(); }`;
-    const pnode: NodeDef = { tag: plan.space.tag, p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(code, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${name}`, `$meta.${name}`], e: 1 })], id };
-    ctx.list.push(pnode);
-    const sel = `.sn-reserve.sn-reserve-${k}`;
+    const r = /^[A-Za-z_$][\w$]*$/.test(name) ? `.${name}` : `[${JSON.stringify(name)}]`;
+    // rows, or no load running: it ended (empty, failed) or never started (a `src` that cannot be built); the load starts at mount, before this runs
+    const code = `($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`;
+    // its node and id after the walk (`placeholders`): every other id and root is the same with or without the
+    // stylesheets, so the early file (compiled without them, in `buildStart`) matches the page
+    this.pendingSpace.push({ el: ph, node: { tag: plan.space.tag, p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(code, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${name}`, `$meta.${name}`], e: 1 })] } });
+    // `:not(#_)` counts as an id: the rules win over the author's, `!important` ones of an id and two classes or less included
+    if (!this.paintRules.length) this.paintRules.push(`.sn-reserve:not(#_) { ${PLACEHOLDER_BASE} }`);
+    const sel = `.sn-reserve.${k}:not(#_)`;
     for (const p of plan.space.pieces) this.paintRules.push(p.from ? `@media (min-width: ${Math.round(p.from * 100) / 100}px) { ${sel} { ${p.decls} } }` : `${sel} { ${p.decls} }`);
   }
 
+  /** the placeholders' root nodes, last, with the last ids */
+  placeholders() {
+    for (const { el, node } of this.pendingSpace) {
+      node.id = this.nextId++;
+      setAttr(el, 'data-sn', String(node.id));
+      this.roots.push(node);
+    }
+  }
+
+  /**
+   * `embed`: a placeholder at the end of the head for each resource without one whose `src`,
+   * `when` and `page-model` read only `$url`, constants and helpers (what a server knows at the
+   * page request; helpers make it a request only a resolver can make)
+   */
   addPlaceholders(doc: DefaultTreeAdapterMap['document']) {
     const html = doc.childNodes.find((n) => isElement(n) && n.tagName === 'html') as P5Element | undefined;
     const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;

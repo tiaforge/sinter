@@ -984,10 +984,12 @@ export class Layout {
     const shapeAt = (w: number) => { const sh = this.at(w).shape(parent, row); return sh && opts.sized && sh.mode !== 'block' && sh.mode !== 'column' ? null : sh; };
     const key = (s: Shape | null) => (s ? `${s.mode} ${s.columns}` : '');
     // ranges between breakpoints, split where the shape changes inside one (a column more in an auto-fill grid)
-    const ranges: Array<[number, number, Shape]> = [];
+    const ranges: Array<[number, number, Shape, Shape?]> = [];
     const split = (lo: number, hi: number, a: Shape | null, b: Shape | null): boolean => {
       if (!a || !b) return false;
-      if (key(a) === key(b) || hi - lo <= 1) { ranges.push([lo, hi, a]); return true; }
+      if (key(a) === key(b)) { ranges.push([lo, hi, a]); return true; }
+      // the change is within a pixel (a zoomed page's width can be anywhere in it): the lesser of both shapes
+      if (hi - lo <= 1) { ranges.push([lo, hi, a, b]); return true; }
       const mid = Math.floor((lo + hi) / 2), m = shapeAt(mid);
       return split(lo, mid, a, m) && split(mid, hi, m, b);
     };
@@ -998,11 +1000,13 @@ export class Layout {
     }
     const pieces: Reserved['pieces'] = [];
     let exact = true;
-    for (const [a, b, s] of ranges) {
+    for (const [a, b, s, alt] of ranges) {
       // a range's height is its least: at either end (a height that follows the viewport is smallest at one of them)
       const x = this.at(a).space(parent, row, count, s, !!opts.sized), y = this.at(Math.max(a, b - 0.5)).space(parent, row, count, s, !!opts.sized);
-      if (!x || !y) return null;
-      const sp = x.height <= y.height ? x : y;
+      const z = alt ? this.at(Math.max(a, b - 0.5)).space(parent, row, count, alt, !!opts.sized) : null;
+      if (!x || !y || (alt && !z)) return null;
+      let sp = x.height <= y.height ? x : y;
+      if (z && z.height < sp.height) sp = z;
       exact &&= x.exact && y.exact && Math.abs(x.height - y.height) < 0.01 && Math.abs((x.width ?? 0) - (y.width ?? 0)) < 0.01;
       // a width that follows the viewport: the narrower end
       if (x.width !== undefined && y.width !== undefined && y.width < x.width) sp.width = y.width;
@@ -1110,8 +1114,11 @@ export class Layout {
   /** how the rows are laid out in their parent at this viewport width, if the build follows it */
   private shape(parent: P5Element, row: P5Element): Shape | null {
     const pd = this.displayOf(parent), rd = this.displayOf(row);
-    if (pd === null || rd === null || this.declsOf(parent).has('\0dynamic')) return null;
+    if (pd === null || rd === null || rd === 'none' || this.declsOf(parent).has('\0dynamic')) return null;
     if (!this.inFlow(row)) return null;
+    // rows that skip their layout off screen are as tall as `contain-intrinsic-size` says, not as their content
+    const cv = this.cascaded(row, ['content-visibility']);
+    if (cv.ambiguous || (cv.value !== null && !/^\s*visible\s*$/i.test(cv.value))) return null;
     if (/^(block|list-item|flow-root)$/.test(pd)) return /^(block|list-item|flow-root|flex|grid|table)$/.test(rd) ? { mode: 'block', columns: 1 } : null;
     if (/^(inline-)?flex$/.test(pd)) {
       const dir = this.flexFlow(parent, 'direction'), wrap = this.flexFlow(parent, 'wrap');
@@ -1119,7 +1126,8 @@ export class Layout {
       if (dir && dir.startsWith('column')) return { mode: 'column', columns: 1 };
       if (dir && dir !== 'row') return null;
       // side by side: rows of a width of their own, nothing else in the row
-      if (parent.childNodes.some((c) => isEl(c) && c.tagName !== 'template') || !this.rowWidth(row)) return null;
+      // (a flex basis other than auto sets the width instead)
+      if (parent.childNodes.some((c) => isEl(c) && c.tagName !== 'template') || !this.rowWidth(row) || this.flexBasis(row) !== 'auto') return null;
       if (!wrap || wrap === 'nowrap') return { mode: 'line', columns: 1 };
       if (wrap !== 'wrap') return null;
       // rows per line, from the row's width and the container's
@@ -1302,8 +1310,18 @@ export class Layout {
       const raw = (w.prop === 'font' ? fontShorthand(this.subst(w.value, el) ?? '')?.size : this.subst(w.value, el)) ?? null;
       out = raw === null ? null : this.fontValue(el, raw.trim().toLowerCase(), up);
     } else if (el === this.root) out = 16;
+    // a font of only `monospace` gets the browsers' smaller default (13 px for 16): at its least, always
+    if (out !== null && this.onlyMonospace(el)) out = (out * 13) / 16;
     this.fonts.set(el, out);
     return out;
+  }
+
+  /** `font-family: monospace` alone on `el` itself (an inherited one was scaled on its parent already) */
+  private onlyMonospace(el: P5Element): boolean {
+    const own = this.cascaded(el, ['font-family', 'font']);
+    if (own.ambiguous || own.value === null) return false;
+    const f = this.fontFamilies(el), p = this.parentOf(el), pf = p ? this.fontFamilies(p) : null;
+    return !!f && f.length === 1 && f[0] === 'monospace' && !(pf && pf.length === 1 && pf[0] === 'monospace');
   }
 
   private fontValue(el: P5Element, v: string, up: number | null): number | null {
@@ -1349,8 +1367,9 @@ export class Layout {
    * shows only once it has loaded (`font-display: swap`) and a family a platform lacks falls through:
    * each family of the stack the build has the file of (`@font-face`), each system font of the table
    * (system-fonts.ts), up to the first generic family, which counts its default on every platform (none:
-   * the browser's default, serif). A family neither the page nor the table has is taken as absent. Less
-   * 1 px: engines round the ascent and the descent to whole pixels.
+   * the browser's default, serif). A family neither the page nor the table has metrics for (a web font from a
+   * stylesheet the build does not read, a font installed on the visitor's machine) counts as 1. Less 1 px:
+   * engines round the ascent and the descent to whole pixels.
    */
   private normalLine(el: P5Element): number | null {
     const f = this.fontSize(el);
@@ -1360,8 +1379,7 @@ export class Layout {
     for (const fam of fams ?? []) {
       const g = genericNormal(fam);
       if (g !== null) { r = Math.min(r, g); generic = true; break; }
-      const own = this.normal(fam) ?? SYSTEM_FONTS[fam];
-      if (own !== undefined && own !== null) r = Math.min(r, own);
+      r = Math.min(r, this.normal(fam) ?? SYSTEM_FONTS[fam] ?? 1);
     }
     if (fams && !generic) r = Math.min(r, genericNormal('serif')!);
     return Math.max(0, r * f - 1);
@@ -1450,12 +1468,7 @@ export class Layout {
         return { h: clamp(asBox(v)), exact: edgesExact && !mn.ambiguous && !mx.ambiguous && !bs.ambiguous };
       }
     }
-    if (el.tagName === 'img' || el.tagName === 'svg' || el.tagName === 'video' || el.tagName === 'canvas' || el.tagName === 'iframe') {
-      const b = el.tagName === 'img' ? this.box(el) : null;
-      const a = attrOf(el, 'height');
-      const own = b && b !== 'fluid' && b.height !== null ? b.height : a && /^\s*\d+(\.\d+)?\s*$/.test(a) ? Number(a) : 0;
-      return { h: clamp(own + (borderBox ? 0 : edges)), exact: false };
-    }
+    if (REPLACED.has(el.tagName)) return { h: clamp(this.replacedHeight(el) + (borderBox ? 0 : edges)), exact: false };
     let h = this.contentHeight(el, d, top.v > 0, bottom.v > 0) + edges;
     // a box with a ratio and a known width
     const ar = this.cascaded(el, ['aspect-ratio']);
@@ -1468,10 +1481,35 @@ export class Layout {
     return { h: clamp(h), exact: false };
   }
 
+  /**
+   * An image's (or SVG's, video's, canvas's) height at this viewport width, at its least: the box the
+   * stylesheets fix; else its `height` attribute, which a `max-width` (Tailwind's `img { max-width:
+   * 100%; height: auto }`) shrinks with the width it has, to `width / ratio` of the attributes; 0 when
+   * neither is known.
+   */
+  private replacedHeight(el: P5Element): number {
+    const b = el.tagName === 'img' ? this.box(el) : null;
+    if (b && b !== 'fluid' && b.height !== null) return b.height;
+    const num = (n: string) => { const a = attrOf(el, n); return a && /^\s*\d+(\.\d+)?\s*$/.test(a) ? Number(a) : null; };
+    const ah = num('height'), aw = num('width');
+    if (ah === null || b === 'fluid') return 0;
+    const wc = this.cascaded(el, SIZE.width), hc = this.cascaded(el, SIZE.height), mx = this.cascaded(el, SIZE['max-width']);
+    if (wc.ambiguous || hc.ambiguous || mx.ambiguous || (wc.value !== null && !/^\s*auto\s*$/i.test(wc.value))) return 0;
+    // `height: auto` follows the width; without a max-width the attributes hold
+    if (mx.value === null || /^\s*none\s*$/i.test(mx.value)) return hc.value === null ? ah : 0;
+    if (aw === null) return 0;
+    const parent = this.parentOf(el), v = this.viewport!;
+    const W = parent ? this.contentOf(parent, [v, v]) : null;
+    const cap = W ? (/%/.test(mx.value) ? this.length(el, mx.value, W.k * v + W.c) : this.length(el, mx.value, null)) : /%/.test(mx.value) ? null : this.length(el, mx.value, null);
+    return cap === null ? 0 : Math.min(ah, (Math.min(aw, cap) * ah) / aw);
+  }
+
   /** a lower bound of the content height of `el` (display `d`); `padTop`/`padBottom`: a margin of a child cannot collapse through that side */
   private contentHeight(el: P5Element, d: string, padTop: boolean, padBottom: boolean): number {
-    const kids = this.flow(el);
-    const outer = (c: P5Element) => this.height(c).h + Math.max(0, this.vMargin(c, 'top') ?? 0) + Math.max(0, this.vMargin(c, 'bottom') ?? 0);
+    // flex and grid items are blockified: each element is an item with its own line height, text runs the container's
+    const kids = /flex$|grid$/.test(d) ? this.items(el) : this.flow(el);
+    // margins as they are (negative ones too); a margin that cannot be read and may be negative: the box counts as nothing
+    const outer = (c: P5Element) => { const mt = this.vMargin(c, 'top'), mb = this.vMargin(c, 'bottom'); return mt === null || mb === null ? 0 : this.height(c).h + mt + mb; };
     if (/flex$/.test(d)) {
       const dir = this.flexFlow(el, 'direction');
       const items = kids.filter((k): k is P5Element => typeof k !== 'number');
@@ -1495,7 +1533,8 @@ export class Layout {
         pending = []; total += k; first = false;
         continue;
       }
-      const mt = this.vMargin(k, 'top') ?? 0, mb = this.vMargin(k, 'bottom') ?? 0;
+      const mt = this.vMargin(k, 'top'), mb = this.vMargin(k, 'bottom');
+      if (mt === null || mb === null) continue;
       pending.push(mt);
       const h = this.height(k).h;
       if (h > 0) {
@@ -1504,7 +1543,36 @@ export class Layout {
       } else pending.push(mb);
     }
     if (pending.length && !first && (padBottom || bfc)) total += collapse(pending);
-    return total;
+    return Math.max(0, total);
+  }
+
+  /** a flex or grid container's items: each in-flow element, and each run of text as its container's line (an anonymous item) */
+  private items(el: P5Element): Array<P5Element | number> {
+    if (attrOf(el, 'data-sn-text') !== undefined) { const lh = this.lineHeight(el) ?? 0; return lh > 0 ? [lh] : []; }
+    const out: Array<P5Element | number> = [];
+    let text = false;
+    const add = (n: P5Node) => {
+      if (!isEl(n)) {
+        if (n.nodeName === '#text' && /\S/.test((n as { value: string }).value) && !text) { text = true; out.push(this.lineHeight(el) ?? 0); }
+        return;
+      }
+      text = false;
+      if (SKIPPED.has(n.tagName) || attrOf(n, 'hidden') !== undefined || attrOf(n, 'data-sn-show') !== undefined) return;
+      const d = this.displayOf(n);
+      if (d === null || d === 'none') return;
+      if (d === 'contents') { for (const c of n.childNodes) add(c); return; }
+      const pos = this.cascaded(n, ['position']);
+      if (pos.ambiguous || (pos.value && /^\s*(absolute|fixed)\s*$/i.test(pos.value))) return;
+      out.push(n);
+    };
+    for (const c of this.children(el)) add(c);
+    return out;
+  }
+
+  /** the children that render: a closed `<details>` only its `<summary>` (one whose `open` a binding sets counts as closed: the least) */
+  private children(el: P5Element): P5Node[] {
+    if (el.tagName === 'details' && (attrOf(el, 'open') === undefined || /\bopen\b/.test(attrOf(el, 'data-sn-attr') ?? ''))) return el.childNodes.filter((c) => isEl(c) && c.tagName === 'summary');
+    return el.childNodes;
   }
 
   private establishesBfc(el: P5Element, d: string): boolean {
@@ -1544,7 +1612,7 @@ export class Layout {
       const h = this.inlineHeight(n, d);
       if (h > 0) run = Math.max(run ?? 0, h, strut());
     };
-    for (const c of el.childNodes) add(c);
+    for (const c of this.children(el)) add(c);
     if (run !== null) out.push(run);
     return out;
   }
@@ -1561,7 +1629,8 @@ export class Layout {
       }
       return h;
     }
-    return this.height(el).h + Math.max(0, this.vMargin(el, 'top') ?? 0) + Math.max(0, this.vMargin(el, 'bottom') ?? 0);
+    const mt = this.vMargin(el, 'top'), mb = this.vMargin(el, 'bottom');
+    return mt === null || mb === null ? 0 : Math.max(0, this.height(el).h + mt + mb);
   }
 
   // ---- selectors
@@ -1741,11 +1810,22 @@ const collapse = (ms: number[]) => Math.max(0, ...ms) + Math.min(0, ...ms);
 
 /** a placeholder valid where the rows are: an `<li>` in a list, else a `<div>` */
 function placeholderTag(parent: P5Element, _row: P5Element): string {
-  return /^(ul|ol|menu)$/.test(parent.tagName) ? 'li' : 'div';
+  if (/^(ul|ol|menu)$/.test(parent.tagName)) return 'li';
+  // where only phrasing content may go (a <div> would close a <p>): a <span>, made a block by the rule
+  return PHRASING.has(parent.tagName) ? 'span' : 'div';
 }
+const PHRASING = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a', 'label', 'em', 'strong', 'small', 'b', 'i', 'u', 's', 'q', 'cite', 'code', 'pre', 'button', 'summary', 'legend', 'dt', 'abbr', 'mark', 'sub', 'sup', 'time', 'data', 'output']);
 
+/**
+ * What every placeholder of a page shares (one rule, `.sn-reserve`): a block (no list marker), invisible,
+ * no box of its own around the height, which is all of it. The per-list rules have two classes, so they win.
+ */
+export const PLACEHOLDER_BASE = ['display:block', 'visibility:hidden', 'padding:0', 'border:0', 'margin:0', 'min-height:0', 'max-height:none', 'flex:none'].map((x) => `${x} !important`).join(';');
+
+/** a placeholder's own declarations at one width: its height, and what it has beyond the base rule */
 function spaceCss(s: Space, _rowTag: string): string {
-  const d = ['display:block', 'visibility:hidden', 'list-style:none', 'box-sizing:border-box', 'padding:0', 'border:0', 'margin:0', `height:${fmt(s.height)}px`, 'min-height:0', 'max-height:none', 'flex:none'];
+  // floored to 1/64 px, as engines lay boxes out: never a fraction above the rows
+  const d = [`height:${Math.floor(Math.floor(s.height * 64) / 64 * 100) / 100}px`];
   if (s.mt) d.push(`margin-top:${fmt(s.mt)}px`);
   if (s.mb) d.push(`margin-bottom:${fmt(s.mb)}px`);
   if (s.span) d.push('grid-column:1/-1', `grid-row:span ${s.span}`);
@@ -1774,7 +1854,8 @@ function fontShorthand(v: string): { size: string; lineHeight: string | null; fa
 const UA = `body { margin: 8px } ul, ol, menu { padding-inline-start: 40px } figure, blockquote { margin-inline: 40px } dd { margin-inline-start: 40px }
 fieldset { margin-inline: 2px; padding-inline: 0.75em; border: 2px groove }
 h1, h2 { font-size: 1.5em } h3 { font-size: 1.17em } h5 { font-size: 0.83em } h6 { font-size: 0.67em } small { font-size: smaller }
-button, input, select, textarea { font-size: 13.333px }
+button, input, select, textarea { font-size: 13.333px; line-height: normal; font-family: system-ui }
+code, kbd, samp, pre, tt { font-family: monospace }
 h1 { margin-block: 0.67em } h2 { margin-block: 0.83em } h3, p, blockquote, figure, dl, pre, ul, ol, menu { margin-block: 1em } h4 { margin-block: 1.33em }
 h5 { margin-block: 1.67em } h6 { margin-block: 2.33em } hr { margin-block: 0.5em }`;
 

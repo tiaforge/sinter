@@ -405,7 +405,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const r = resolveId;
     const modules = [p.config, p.early, p.helpersFile, p.actionsFile].filter((m): m is string => !!m);
     engines ??= detectEngines(root, resolved!.plugins.map((x) => x.name));
-    const remote = options.fonts?.inline === false ? undefined : (url: string) => (fontCss ??= fontDownloader(resolve(root, 'node_modules/.cache/sinter/fonts')))(url);
+    // Google Fonts' stylesheets only in builds, where their fonts' metrics are read
+    const remote = options.fonts?.inline === false || dev ? undefined : (url: string) => (fontCss ??= fontDownloader(resolve(root, 'node_modules/.cache/sinter/fonts')))(url);
     return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss, engines, warn: warnOnce, ...(remote ? { remote } : {}) });
   };
   const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {

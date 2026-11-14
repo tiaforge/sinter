@@ -55,6 +55,13 @@ body { margin: 0 } ul { margin: 0; padding: 0; list-style: none }
   <ul class="fb"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
 </app-layout>
 `,
+  'early.html': `<app-layout>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
+  <ul class="fixed"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
+  <p id="q" data-sn-text="'Query: ' + $url.q"></p>
+  <template data-sn-if="$meta.people.loading && !people.length"><p id="loading">Loading…</p></template>
+</app-layout>
+`,
   'fixed.html': `<app-layout>
   <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
   <ul class="fixed"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
@@ -66,7 +73,7 @@ beforeAll(async () => {
   for (const [p, text] of Object.entries(files)) { mkdirSync(dirname(join(root, p)), { recursive: true }); writeFileSync(join(root, p), text); }
   await build({
     root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()],
-    build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input: { index: join(root, 'index.html'), fixed: join(root, 'fixed.html'), fallback: join(root, 'fallback.html') } } },
+    build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input: { index: join(root, 'index.html'), fixed: join(root, 'fixed.html'), fallback: join(root, 'fallback.html'), early: join(root, 'early.html') } } },
   });
 }, 60_000);
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -75,14 +82,14 @@ const css = () => readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.cs
 
 test('the placeholder after the template, its height from the layout\'s stylesheet and the font\'s metrics', () => {
   const html = readFileSync(join(out, 'index.html'), 'utf8');
-  expect(html).toMatch(/<\/template><li class="sn-reserve sn-reserve-[\w]+-0" aria-hidden="true" data-sn="\d+"><\/li><\/ul>/);
+  expect(html).toMatch(/<\/template><li class="sn-reserve snr\w+0" aria-hidden="true" data-sn="\d+"><\/li><\/ul>/);
   // a row: one line of `normal` and 8 px of padding. Lined's ratio is 1.25, but until it has loaded the text is in the
   // fallback, sans-serif, whose least is Helvetica's 1.0: 20 px, less the pixel engines may round away
-  expect(css()).toMatch(/\.sn-reserve\.sn-reserve-[\w]+-0\s*\{[^}]*height:\s*135px\s*!important/);
+  expect(css()).toMatch(/\.sn-reserve\.snr\w+0:not\(#_\)\s*\{[^}]*height:\s*135px\s*!important/);
   // each face of the stack counts: Lined (1.25), its fallback face's overrides (1.25), and system-ui's least (Ubuntu, 1.121)
-  expect(css()).toMatch(/\.sn-reserve\.sn-reserve-[\w]+-0\s*\{[^}]*height:\s*147\.1px\s*!important/);
+  expect(css()).toMatch(/\.sn-reserve\.snr\w+0:not\(#_\)\s*\{[^}]*height:\s*147\.09px\s*!important/);
   // fixed rows: 5 × 48
-  expect(css()).toMatch(/\.sn-reserve\.sn-reserve-[\w]+-0\s*\{[^}]*height:\s*240px\s*!important/);
+  expect(css()).toMatch(/\.sn-reserve\.snr\w+0:not\(#_\)\s*\{[^}]*height:\s*240px\s*!important/);
 });
 
 test.runIf(!!chromium)('in Chromium: the rows arrive in the space held for them, the footer does not move', async () => {
@@ -115,5 +122,13 @@ test.runIf(!!chromium)('in Chromium: the rows arrive in the space held for them,
     expect(after).toBeCloseTo(before, 0);
     expect(await tab.evaluate(() => document.querySelector('.sn-reserve'))).toBeNull();
     expect(await tab.evaluate(() => (window as any).__cls)).toBeLessThan(0.001);
+
+    // the early file (compiled without the stylesheets) and the page (with them) agree on every element after a placeholder
+    // what the early file alone renders: the page module is not loaded
+    const early = await browser.newPage();
+    await early.route(/\/assets\/early-(?!head-)[\w-]+\.js$/, (r) => r.abort());
+    await early.goto(`http://127.0.0.1:${port}/early/?q=abc`, { waitUntil: 'load' });
+    expect(await early.evaluate(() => ({ q: document.getElementById('q')!.textContent, held: document.querySelector('.sn-reserve')!.textContent, loading: !!document.getElementById('loading') })))
+      .toEqual({ q: 'Query: abc', held: '', loading: true });
   } finally { await browser.close(); site.close(); }
 }, 60_000);

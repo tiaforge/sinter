@@ -6,7 +6,7 @@
 import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { Layout, type Reserved } from '../../src/compiler/layout.js';
+import { Layout, PLACEHOLDER_BASE, type Reserved } from '../../src/compiler/layout.js';
 import { chromium } from '../browser.js';
 import type { Page } from 'playwright';
 
@@ -37,6 +37,8 @@ const CASES: Array<[string, string, string, number, [number, number] | null, Fit
   ['line-height normal: system-ui on every platform', '.row { font: 20px system-ui }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, [2 * (20 * (932 + 189) / 1000 - 1), 2 * (20 * (932 + 189) / 1000 - 1)], 'bound'],
   // a named system font, then the generic family: either may render it
   ['line-height normal: a stack, each face counted', '.row { font: 20px Verdana, Tahoma, sans-serif }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, [2 * 19, 2 * 19], 'bound'],
+  // a family the build has no metrics for (a web font from a stylesheet it does not read, a locally installed font): 1
+  ['line-height normal: a family without metrics counts as 1', '.row { font: 20px "Brand Sans", system-ui }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, [2 * 19, 2 * 19], 'bound'],
   ['rows side by side, a width of their own', 'ul { display: flex; gap: 10px; padding: 0 } li { width: 40px; height: 40px; margin: 0 2px }', '<ul><template id="t"><li></li></template></ul>', 6, [40, 40], 'exact'],
   ['a wrapping row of chips: rows per line from the container', 'body { margin: 0 } .chips { display: flex; flex-wrap: wrap; gap: 8px; max-width: 600px } .chip { width: 92px; height: 30px }',
     '<div class="chips"><template id="t"><span class="chip"></span></template></div>', 12, [2 * 30 + 8, 4 * 30 + 3 * 8], 'exact'],
@@ -48,6 +50,19 @@ const CASES: Array<[string, string, string, number, [number, number] | null, Fit
   ['a grid with other items first: not followed', '.g { display: grid; grid-template-columns: 1fr 1fr } .g > * { height: 30px }', '<div class="g"><div>first</div><template id="t"><div></div></template></div>', 4, null, 'bound'],
   ['inline rows: not followed', 'span { line-height: 20px }', '<p><template id="t"><span data-sn-text="r.name"></span></template></p>', 4, null, 'bound'],
   ['two elements per row: not followed', '.a { height: 20px }', '<div><template id="t"><div class="a"></div><div class="a"></div></template></div>', 4, null, 'bound'],
+];
+
+/** [name, css, body, rows]: layouts where the space is a lower bound well below the rows; Chromium checks it is never above */
+const BELOW: Array<[string, string, string, number]> = [
+  ['a fluid image (Tailwind\'s reset), its attributes shrunk to the width it has', 'img { max-width: 100%; height: auto } ul { padding: 0 } li { list-style: none }', '<ul><template id="t"><li><img src="a.png" width="800" height="600" alt=""></li></template></ul>', 6],
+  ['a flex row with smaller text: the item\'s own line height', 'body { font: 16px/1.5 Arial } ul { padding: 0 } li { display: flex } .meta { font-size: 12px }', '<ul><template id="t"><li><span class="meta" data-sn-text="r.x"></span></li></template></ul>', 6],
+  ['a grid row with <small>', 'body { font: 16px/1.5 Arial } ul { padding: 0 } li { display: grid }', '<ul><template id="t"><li><small data-sn-text="r.x"></small></li></template></ul>', 6],
+  ['a button in a flex row: the control\'s own font and line height', 'body { font: 16px/1.6 Arial } ul { padding: 0 } li { display: flex; align-items: center }', '<ul><template id="t"><li><button>Delete</button></li></template></ul>', 6],
+  ['a select in a flex row', 'body { font: 16px/1.6 Arial } ul { padding: 0 } li { display: flex }', '<ul><template id="t"><li><select><option>One</option></select></li></template></ul>', 6],
+  ['a block <code>: the smaller monospace default', 'ul { padding: 0 } li { display: flex } code { display: block }', '<ul><template id="t"><li><code data-sn-text="r.x"></code></li></template></ul>', 6],
+  ['a closed <details>: its summary only', 'ul { padding: 0 } li { line-height: 20px }', '<ul><template id="t"><li><details><summary data-sn-text="r.x"></summary><p>one</p><p>two</p><p>three</p></details></li></template></ul>', 5],
+  ['a negative margin in a flex row', 'ul { padding: 0 } li { display: flex } .a { height: 50px; margin-bottom: -20px }', '<ul><template id="t"><li><div class="a"></div></li></template></ul>', 6],
+  ['a negative margin on an inline block', 'ul { padding: 0 } li { line-height: 20px } .a { display: inline-block; height: 60px; margin-bottom: -30px }', '<ul><template id="t"><li><span class="a"></span></li></template></ul>', 6],
 ];
 
 const page = (css: string, body: string) => `<!doctype html><html><head><style>${css}</style></head><body>${body}<div id="after">after</div></body></html>`;
@@ -111,6 +126,15 @@ describe('the space of a list\'s rows', () => {
     expect(ruleAt(r, 1280)).toContain('grid-column:1/-1');
   });
 
+  test('not followed: a wrapping row whose basis is not its width, rows that skip their layout', () => {
+    expect(reserve('ul { display: flex; flex-wrap: wrap } li { width: 300px; flex: 0 0 100px; height: 50px }', '<ul><template id="t"><li></li></template></ul>', 6)).toBeNull();
+    expect(reserve('li { height: 50px; content-visibility: auto }', '<ul><template id="t"><li></li></template></ul>', 6)).toBeNull();
+  });
+
+  test('in a <p>, a <span> (a <div> would close the paragraph)', () => {
+    expect(reserve('.r { display: block; height: 20px }', '<p><template id="t"><span class="r"></span></template></p>', 2)!.tag).toBe('span');
+  });
+
   test('a row whose height a binding may change is not exact', () => {
     expect(reserve('.row { height: 40px } .big { height: 80px }', '<div><template id="t"><div class="row" data-sn-class="{big: r.big}"></div></template></div>', 2)?.exact ?? false).toBe(false);
   });
@@ -152,7 +176,7 @@ describe.skipIf(!chromium)('the browser: the placeholder is never taller than th
     await tab.setContent(page(css, body.replace(/<template id="t">[\s\S]*<\/template>(?=<\/(ul|ol|div|section|p)>$)/, list)));
     return tab.evaluate(() => document.getElementById('after')!.getBoundingClientRect().top);
   };
-  for (const [name, css, body, rows, want, fit] of CASES) {
+  for (const [name, css, body, rows, want, fit] of [...CASES, ...BELOW.map(([n, c, b, r]) => [n, c, b, r, [0, 0], 'bound'] as const)]) {
     if (!want) continue;
     test(name, async () => {
       const r = reserve(css, body, rows)!;
@@ -160,7 +184,7 @@ describe.skipIf(!chromium)('the browser: the placeholder is never taller than th
         .replace(/<template data-sn-if[\s\S]*?<\/template>/g, '')
         .replace(/(<(\w+)[^>]*data-sn-text="[^"]*"[^>]*>)(<\/\2>)/g, '$1Word$3')
         .replaceAll('src="a.png"', `src="${IMG}"`);
-      const rules = r.pieces.map((p) => (p.from ? `@media (min-width: ${p.from}px) { .ph { ${p.decls} } }` : `.ph { ${p.decls} }`)).join('\n');
+      const rules = `.ph { ${PLACEHOLDER_BASE} }\n` + r.pieces.map((p) => (p.from ? `@media (min-width: ${p.from}px) { .ph.ph { ${p.decls} } }` : `.ph.ph { ${p.decls} }`)).join('\n');
       for (const width of [1280, 390]) {
         await tab.setViewportSize({ width, height: 900 });
         const real = await after(css, body, row.repeat(rows));

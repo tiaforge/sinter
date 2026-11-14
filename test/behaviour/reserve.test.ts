@@ -32,6 +32,11 @@ test('an empty list and a failed load remove it too', async () => {
   }
 });
 
+test('a list whose `src` cannot be built loads nothing: removed at mount', async () => {
+  const { root } = await render(PAGE('', 'paginate="offset" page-size="3"').replace('src="/api/people"', 'src="/api/people/{boom()}"'), { requests: mockRequests({}), css: CSS, helpers: { boom: () => { throw new Error('no'); } } });
+  expect(held(root)).toBeNull();
+});
+
 test('cached rows replace it when the page module mounts', async () => {
   // the previous page loaded them
   const session = memoryStorage(), page = PAGE('', 'paginate="offset" page-size="3" cache');
@@ -63,8 +68,9 @@ test('the build: the placeholder\'s rule in the page\'s first-paint stylesheet, 
     prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/@sinter/paint-css/index.html.css',
   });
   expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
-  expect(out.html).toMatch(/<\/template><li class="sn-reserve sn-reserve-[a-z0-9]+-0" aria-hidden="true" data-sn="\d+"><\/li><\/ul>/);
-  expect(out.paint).toMatch(/^\.sn-reserve\.sn-reserve-[a-z0-9]+-0 \{ display:block !important;.*height:60px !important;/);
+  expect(out.html).toMatch(/<\/template><li class="sn-reserve snr[a-z0-9]+0" aria-hidden="true" data-sn="\d+"><\/li><\/ul>/);
+  // one base rule per page, then each list's own height
+  expect(out.paint).toMatch(/^\.sn-reserve:not\(#_\) \{ display:block !important;[^}]*\}\n\.sn-reserve\.snr[a-z0-9]+0:not\(#_\) \{ height:60px !important \}\n$/);
   expect(out.module).toContain('import "/@sinter/paint-css/index.html.css";');
   // no rules: nothing imported
   const none = compile('<!doctype html><html><head></head><body><p>x</p></body></html>', { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/p.css' });
