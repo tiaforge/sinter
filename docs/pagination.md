@@ -71,9 +71,17 @@ written back on every move, so reload, Back and Forward and a shared link show t
 <sn-resource name="articles" src="/api/articles?tag={$url.tag}" items="articles" total="count"
   paginate="offset" page-size="10" offset-param="offset" page-model="$url.page"></sn-resource>
 
-<button data-sn-on-click="page('articles', 'next')" data-sn-attr="{disabled: !$meta.articles.hasNext}">›</button>
+<template data-sn-for="n in [1, 2, 3]">
+  <a data-sn-text="n" data-sn-attr="{ href: '?tag=' + encodeURIComponent($url.tag ?? '') + '&page=' + n,
+    'aria-current': n == $meta.articles.page ? 'page' : null }"></a>
+</template>
 <span data-sn-text="`${$meta.articles.from}–${$meta.articles.to} of ${$meta.articles.total}`"></span>
 ```
+
+Links are the recommended pager: crawlable, a new tab, copy link. A plain click stays on the page
+([same-page links](navigation.md#same-page-links)): a new history entry, and the list loads that
+page. Build the whole query: `href="?page=3"` alone drops `tag` (SN519). Buttons with
+`page('articles', 'next')` move the list the same way, for relative moves.
 
 - The URL is the single source. `page()` loads nothing itself: it writes the page it moves to
   (a new history entry; page 1 deletes the parameter), and the list follows the parameter. A handler

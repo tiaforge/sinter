@@ -1,7 +1,18 @@
 # Proposal: same-page links stay on the page
 
-Status: proposed (2026-11-13), reviewed for fit with sinter's design (2026-11-14). Follows
-[bindable URL parameters](url-bindings.md).
+Status: implemented (2026-11-14), steps 1 to 4 of the [Plan](#plan); the guide is
+[navigation.md](../navigation.md#same-page-links). Where the implementation departs from this text:
+- Next-page data leaves a same-page link alone (`ext.sameLink`) instead of handing its prefetch to
+  the click's load: the core's loader takes prefetched data only at a resource's first load, and
+  taking it later would add to the core. A click on such a link sends its request then.
+- The build warning is `SN519` (`main` had taken `SN517` and `SN518`), and it came with step 1.
+- The module is 0.8 KB gzip (765 B), not the 250–350 B estimated.
+- The Speculation Rules exclusion is `{ href_matches: '?*', relative_to: 'document' }` on pages with
+  same-page links, checked against Chromium's preload candidates (without it, the page's
+  `?page=2` is one; with it, only other pages). A rules file for a response header has it once any
+  page has same-page links.
+- The native `#hash` handling is verified in Chromium only (`:target` after the click); Firefox and
+  WebKit are not installed here.
 
 Decided with the user:
 - A plain click on a link to the same page that changes only query parameters the page reads is

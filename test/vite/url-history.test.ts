@@ -32,6 +32,8 @@ beforeAll(async () => {
   <ul id="list"><template data-sn-for="h in hits"><li data-sn-text="h.title"></li></template></ul>
   <button id="next" data-sn-on-click="page('hits', 'next')" data-sn-attr="{ disabled: !$meta.hits.hasNext }">next</button>
   <p id="page" data-sn-text="$meta.hits.page"></p>
+  <a id="p2" data-sn-attr="{ href: '?tag=' + ($url.tag ?? '') + '&page=' + 2 }">2</a>
+  <a id="p3" data-sn-attr="{ href: '?tag=' + ($url.tag ?? '') + '&page=' + 3 + '#page' }">3</a>
 </body>
 </html>
 `);
@@ -39,8 +41,8 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-test.skipIf(!chromium)('type, page, filter, Back, Forward, reload and a shared link', async () => {
-  const site = http((req, res) => {
+/** the built page and its API */
+const serve = () => http((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
     if (url.pathname === '/api/hits') {
       const q = url.searchParams, page = Number(q.get('page')), n = Number(q.get('limit'));
@@ -53,7 +55,10 @@ test.skipIf(!chromium)('type, page, filter, Back, Forward, reload and a shared l
       res.setHeader('Content-Type', url.pathname.endsWith('.js') ? 'text/javascript' : 'text/html');
       res.end(body);
     } catch { res.statusCode = 404; res.end(); }
-  });
+});
+
+test.skipIf(!chromium)('type, page, filter, Back, Forward, reload and a shared link', async () => {
+  const site = serve();
   const port = await listen(site), base = `http://127.0.0.1:${port}`;
   const browser = await chromium!.launch();
   try {
@@ -109,6 +114,42 @@ test.skipIf(!chromium)('type, page, filter, Back, Forward, reload and a shared l
     await other.waitForTimeout(400);
     expect(await other.evaluate(() => history.length)).toBe(first);
     expect(await shown()).toBe('go 5,go 6');
+  } finally {
+    await browser.close();
+    site.close();
+  }
+}, 120_000);
+
+test.skipIf(!chromium)('a pager of links: a plain click stays on the page, Back returns, Ctrl-click opens a new page, a #hash is the browser\'s', async () => {
+  const site = serve();
+  const port = await listen(site), base = `http://127.0.0.1:${port}`;
+  const browser = await chromium!.launch();
+  try {
+    const context = await browser.newContext(), tab = await context.newPage();
+    const shown = () => [...document.querySelectorAll('#list li')].map((x) => x.textContent).join(',');
+    await tab.goto(base + '/?tag=go');
+    await tab.waitForFunction((f) => new Function('return ' + f)()() === 'go 2,go 3', shown.toString());
+    // a mark on the document: a page load would lose it
+    await tab.evaluate(() => { (window as any).same = true; });
+    const start = await tab.evaluate(() => history.length);
+    await tab.click('#p2');
+    await tab.waitForFunction(() => location.search === '?tag=go&page=2' && document.querySelector('#page')!.textContent === '2');
+    expect(await tab.evaluate(() => (window as any).same)).toBe(true);
+    expect(await tab.evaluate(() => history.length)).toBe(start + 1);
+    // Back: page 1, still the same document
+    await tab.goBack();
+    await tab.waitForFunction(() => location.search === '?tag=go' && document.querySelector('#page')!.textContent === '1');
+    expect(await tab.evaluate(() => (window as any).same)).toBe(true);
+    // a #hash: the browser's fragment navigation in the new entry (:target)
+    await tab.click('#p3');
+    await tab.waitForFunction(() => location.search === '?tag=go&page=3' && location.hash === '#page' && document.querySelector('#page')!.textContent === '3');
+    expect(await tab.evaluate(() => document.querySelector(':target')?.id)).toBe('page');
+    expect(await tab.evaluate(() => (window as any).same)).toBe(true);
+    // Ctrl/Cmd-click: a new page, this one unchanged
+    const [opened] = await Promise.all([context.waitForEvent('page'), tab.click('#p2', { modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] })]);
+    await opened!.waitForLoadState();
+    expect(new URL(opened!.url()).search).toBe('?tag=go&page=2');
+    expect(new URL(tab.url()).search).toBe('?tag=go&page=3');
   } finally {
     await browser.close();
     site.close();
