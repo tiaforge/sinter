@@ -17,8 +17,11 @@ const feature: Feature = {
     const loc = () => app.ext.location!;
     const commit = () => { if (loc().commit(run ? REPLACE : PUSH)) run = true; };
     const stop = () => { pause.stop(); run = fin = false; };
+    /** what typing waits to commit is committed now, and the run ends */
+    const finish = () => { if (pause.on()) { pause.stop(); commit(); } run = false; };
     app.ext.typing = {
       stop,
+      finish,
       waits: () => pause.on(),
       flush(k) {
         // a number field's steps: one entry once they pause (it takes what typing waited to commit too)
@@ -34,8 +37,7 @@ const feature: Feature = {
       const m = (e.target as Tagged | null)?.[MODEL];
       if (m?.b.n != 'text' || !(m.b.w ?? []).some((p) => { let n = p as number; while (ps.p[n]! >= 0) n = ps.p[n]!; return n == ps.x.$url; })) return;
       if (loc().kind == TYPED) return void (fin = true);
-      if (pause.on()) { pause.stop(); commit(); }
-      run = false;
+      finish();
     };
     const ET = EventTarget.prototype;
     ET.addEventListener.call(app.root, 'change', change, true);

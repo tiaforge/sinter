@@ -76,6 +76,11 @@ const feature: Feature = {
         changed.add(name);
         if (k > kind) kind = k;
       },
+      arrive() {
+        changed.clear();
+        kind = 0;
+        back = true;
+      },
       set(name, value, k) {
         const $url = app.page.$url;
         value == null ? delete $url[name] : ($url[name] = value);

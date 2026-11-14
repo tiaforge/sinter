@@ -52,6 +52,7 @@
     "./select": "./dist/select.js",
     "./location": "./dist/location.js",
     "./typing": "./dist/typing.js",
+    "./query-links": "./dist/query-links.js",
     "./call": "./dist/call.js",
     "./lazy": "./dist/lazy.js",
     "./debounce": "./dist/debounce.js",

@@ -80,6 +80,8 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
 
       /** requests the data of the page `href` leads to, unless it is this page, another site, or not one of the app's pages */
       const go = (a: HTMLAnchorElement) => {
+        // a same-page link stays in the page (query-links.ts): nothing to hand over
+        if (app.ext.sameLink?.(a)) return;
         const here = new URL(env.href());
         let u: URL;
         try { u = new URL(a.getAttribute('href')!, here); } catch { return; }

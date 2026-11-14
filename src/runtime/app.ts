@@ -181,12 +181,16 @@ export interface App {
       readonly back: boolean;
       /** `page-model` (paginate.ts): sets a parameter (null deletes it) and writes it with `kind` */
       set(name: string, value: string | null, kind: number): void;
+      /** a same-page link was followed (query-links.ts): its entry is pushed, `$url` read again; the flush is as after Back */
+      arrive(): void;
     };
     /**
      * typing and a number field's steps on `$url` (typing.ts): `flush` takes a pass's typing or burst,
      * `waits` whether a commit waits for its pause, `stop` drops it and ends the run
      */
-    typing?: { flush(kind: number): void; waits(): boolean; stop(): void };
+    typing?: { flush(kind: number): void; waits(): boolean; stop(): void; finish(): void };
+    /** whether a plain click on this link stays in the page (query-links.ts); next-page data leaves it alone */
+    sameLink?: (a: Element) => boolean;
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
     form?: (el: Element, a: ActionDef, body: unknown) => unknown;
     /**

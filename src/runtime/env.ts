@@ -17,6 +17,8 @@ export interface Env {
   replaceState(url: string): void;
   /** a new history entry (a `$url` write a user's event caused); absent: `history.pushState` (location.ts) */
   pushState?(url: string): void;
+  /** a same-page link's `#hash` (query-links.ts): a fragment navigation in the current entry; absent: `location.replace` */
+  fragment?(hash: string): void;
   /** whether an event is the user's (its `$url` writes push a history entry); absent: `isTrusted`. The testing module counts its simulated events */
   trusted?(e: Event): boolean;
   random(): number;

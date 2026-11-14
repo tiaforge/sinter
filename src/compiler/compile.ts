@@ -646,6 +646,35 @@ class Compiler {
   readonly persisted = new Set<string>();
   /** models on `$url` parameters: whether each binds a list (`<select multiple>`, a checkbox with a `value`) */
   readonly urlBinds: Array<{ name: string; array: boolean; report: (msg: string) => void }> = [];
+  /** links and what the build can see of where they go (static `href`s, the literal starts of bound ones) */
+  readonly hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean }> = [];
+  /**
+   * Same-page links (query-links.ts): the query parameters the page reads by name, when a link the build
+   * can see goes to the page itself (`?page=3`, `/?feed=…` on `/`, `'/tag/' + t + '?page=' + n` on
+   * `/tag/:tag`); null otherwise, or when the page reads `$url` as a whole. Also SN519: a static
+   * query-only `href` that drops parameters the page reads.
+   */
+  sameLinks(ir: IR, patterns: string[]): string[] | null {
+    const json = JSON.stringify(ir);
+    const reads = new Set([...json.matchAll(/"\$url\.([A-Za-z_$][\w$]*)/g)].map((m) => m[1]!));
+    const fromPath = new Set(patterns.flatMap((p) => p.split('/').filter((x) => x[0] === ':').map((x) => x.slice(1))));
+    const query = [...reads].filter((n) => !fromPath.has(n));
+    for (const h of this.hrefs) {
+      const v = h.prefixes[0]?.s;
+      if (!h.literal || v?.[0] !== '?' || !query.length) continue;
+      const has = new Set(new URLSearchParams(v.slice(1).split('#')[0]).keys()), dropped = query.filter((n) => !has.has(n));
+      if (dropped.length) this.report(h.el, 'href', 'SN519', `\`${v}\` keeps only its own query: ${dropped.map((n) => `\`${n}\``).join(', ')}, which this page reads, ${dropped.length > 1 ? 'are' : 'is'} dropped when it is followed`, 0,
+        'build the whole query in `data-sn-attr` (`href: \'?page=\' + n + \'&tag=\' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose');
+    }
+    if (!query.length || /"\$url"[,\]]/.test(json)) return null;
+    const seen = this.hrefs.some((h) => h.prefixes.some((p) => samePage(p, patterns)));
+    return seen ? [...reads].sort() : null;
+  }
+  /** The page's own URL when it has no `data-sn-path`: a directory's index (`about.html` is `/about/`). */
+  fileUrl(): string {
+    const rel = this.opts.file.slice(this.opts.root.length).replace(/^\/+/, ''), base = (this.opts.base ?? '/').replace(/\/*$/, '/');
+    return base + rel.replace(/(^|\/)index\.html?$/, '$1').replace(/\.html?$/, '/');
+  }
   /** `page-model` parameters: one is never a list */
   readonly pageModels: Array<{ name: string; report: (msg: string) => void }> = [];
   /**
@@ -787,13 +816,16 @@ class Compiler {
     if (this.features.has('refresh') || this.features.has('sse')) this.features.add('versions');
     // a handler or model that writes `$url`: the query string follows (location.ts)
     if (this.page.writesUrl) this.features.add('location');
+    // same-page links: the module, and location.ts for the history, on pages with one the build can see
+    const reads = this.sameLinks(ir, paths.length ? paths : [this.fileUrl()]);
+    if (reads) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
     return {
       html: parse5.serialize(doc),
       runtime, ...(isStatic ? { static: true as const } : {}), ...(isStatic && this.canonicalLink ? { canonicalOnly: true } : {}),
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -2111,6 +2143,8 @@ class Compiler {
 
   element(el: P5Element, ctx: Ctx, index: number, prevIf: { node: NodeDef; binding: Binding } | null): { node: NodeDef; binding: Binding } | null {
     this.at = { el, attr: null, shift: 0 };
+    // a link the build can see: same-page links (query-links.ts) are decided once the page is read
+    if ((el.tagName === 'a' || el.tagName === 'area') && attr(el, 'href') != null) this.hrefs.push({ el, prefixes: [{ s: attr(el, 'href')!.trim(), whole: true }], literal: true });
     // slot content sees the scope of the caller that wrote it
     const slot = this.slotOf.get(el);
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
@@ -2974,6 +3008,7 @@ class Compiler {
         if (files) this.report(el, 'data-sn-attr', 'SN513', `\`src\` is bound to ${files.length > 1 ? 'local images' : 'a local image'} (${files.map((f) => `\`${f}\``).join(', ')}), which ${files.length > 1 ? 'are' : 'is'} not optimized`, e.offset,
           `write each image as a static \`<img src>\` (optimized at build time) and choose with \`data-sn-if\` or \`data-sn-show\`: \`<img src="${files[0]}" data-sn-show="…">\``);
       }
+      if (key === 'href' && (el.tagName === 'a' || el.tagName === 'area')) this.hrefs.push({ el, prefixes: hrefPrefixes(entryValue(r, e)), literal: false });
       const remote = key === 'src' ? this.remoteImage(el, e, r.entries.some((x) => x.key.toLowerCase() === 'srcset'), scope) : null;
       node.b.push(this.binding({ k: 'attr', n: e.key, f: this.fn(remote ? remote.src : e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
       if (remote) node.b.push(this.binding({ k: 'attr', n: 'srcset', f: this.fn(remote.srcset), d: e.deps, ...usesEl(r) }));
@@ -4667,6 +4702,41 @@ class Compiler {
 }
 
 // ---- helpers
+
+/** What the build can see of where a link goes: a literal start, and whether it is the whole `href`. */
+interface HrefPrefix { s: string; whole: boolean }
+/**
+ * The literal starts an `href` expression can have, followed through `+`, template literals, both
+ * branches of `?:` and both sides of `||`/`??`; a branch the build cannot see adds nothing.
+ */
+function hrefPrefixes(n: Node | undefined): HrefPrefix[] {
+  if (!n) return [];
+  const v = n as any;
+  if (v.type === 'Literal') return typeof v.value === 'string' ? [{ s: v.value, whole: true }] : [];
+  if (v.type === 'TemplateLiteral') return [{ s: v.quasis[0].value.cooked ?? '', whole: v.quasis.length === 1 }];
+  if (v.type === 'ConditionalExpression') return [...hrefPrefixes(v.consequent), ...hrefPrefixes(v.alternate)];
+  if (v.type === 'LogicalExpression') return [...hrefPrefixes(v.left), ...hrefPrefixes(v.right)];
+  if (v.type === 'BinaryExpression' && v.operator === '+') {
+    const right = hrefPrefixes(v.right);
+    return hrefPrefixes(v.left).flatMap((l) => (!l.whole ? [l] : right.length ? right.map((r) => ({ s: l.s + r.s, whole: r.whole })) : [{ s: l.s, whole: false }]));
+  }
+  return [];
+}
+/** Whether a link starting with `p` can go to a page served at one of `patterns` (`/tag/:tag`). */
+function samePage(p: HrefPrefix, patterns: string[]): boolean {
+  if (p.s[0] === '?') return true;
+  if (p.s[0] !== '/' || p.s[1] === '/') return false;
+  const cut = p.s.search(/[?#]/), path = cut < 0 ? p.s : p.s.slice(0, cut), known = cut >= 0 || p.whole;
+  const parts = path.split('/').slice(1);
+  return patterns.some((pattern) => {
+    const want = pattern.split('/').filter(Boolean), fits = (w: string | undefined, x: string) => w !== undefined && (w[0] === ':' || w === x);
+    if (known) { const segs = parts.filter(Boolean); return segs.length === want.length && segs.every((x, i) => fits(want[i], x)); }
+    // a path the build sees only the start of: its whole segments fit, and the last one starts one
+    const whole = parts.slice(0, -1), last = parts[parts.length - 1] ?? '';
+    if (!whole.every((x, i) => fits(want[i], x))) return false;
+    return last === '' || (want[whole.length] !== undefined && (want[whole.length]![0] === ':' || want[whole.length]!.startsWith(last)));
+  });
+}
 
 /** Flags for the runtime: `e` when the expression reads `$el`, `i` when it reads a loop index. */
 /** The AST of an object-literal entry's value (by its offset), for the selection pattern. */

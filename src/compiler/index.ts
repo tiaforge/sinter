@@ -163,9 +163,11 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
   lines.push(`import { ${core.join(', ')} } from '${PACKAGE}';`);
   // prefixed: a helper may be named as a feature (`keys`, `form`, …)
-  for (const f of parts.features) lines.push(`import sn$${f} from '${PACKAGE}/${f}';`);
+  // a feature's local name: `query-links` is `sn$query_links`
+  const local = (f: string) => `sn$${f.replace(/-/g, '_')}`;
+  for (const f of parts.features) lines.push(`import ${local(f)} from '${PACKAGE}/${f}';`);
   // next-page data: the app's pages, described in one module every page shares
-  const features = [...parts.features.map((f) => `sn$${f}`), ...(options.prefetch ? ['$prefetch'] : [])];
+  const features = [...parts.features.map(local),...(options.prefetch ? ['$prefetch'] : [])];
   if (options.prefetch) lines.push(`import $prefetch from ${JSON.stringify(options.prefetch)};`);
   if (parts.helpers.user.length && options.helpers.module) {
     lines.push(`import { ${parts.helpers.user.join(', ')} } from ${JSON.stringify(options.helpers.module)};`);
