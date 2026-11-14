@@ -276,10 +276,14 @@ smaller one, and so does the space).
 
 - A height the stylesheets fix (`height`, `block-size`, a grid's `grid-auto-rows`) is exact: the rows
   take exactly the space held.
-- Otherwise the space is a lower bound, never taller than the rows: a bound text counts as one
-  line, a `data-sn-if` or `data-sn-show` inside the row, a nested list, a float, the content of a
-  closed `<details>`, a negative margin it cannot read, or anything the cascade cannot decide counts as
-  nothing. A rule that may or may not apply (`:hover`, `@media (hover: none)`, `@supports`) counts at
+- Otherwise the space is a lower bound for the layouts the build follows, never taller than the rows
+  (a differential test lays random lists out in Chromium against it): a bound text counts as one
+  line, an empty one too (as with fewer rows than a page, the space is then taller than what arrives),
+  a `data-sn-if` or `data-sn-show` inside the row, a nested list, a float, the content of a
+  closed `<details>`, a negative margin it cannot read, an element a binding may hide, or anything the
+  cascade cannot decide counts as nothing. Lists it does not follow hold nothing: rows a component's
+  own `<style>` reaches, a grid with explicit `grid-template-rows`, `zoom`, rows side by side without
+  a width. A rule that may or may not apply (`:hover`, `@media (hover: none)`, `@supports`) counts at
   its least. An image with `width` and `height` counts as tall as the width it has at each screen width
   allows (`max-width: 100%`); form controls in their own font and line height; a link around a card's
   blocks as the blocks stacked; a branch and its `data-sn-else` as the lesser; `<br>` as a line. Text that

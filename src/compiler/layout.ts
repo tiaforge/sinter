@@ -1097,7 +1097,13 @@ export class Layout {
     if (!row || !parent) return no('a row is more than one element');
     const cuts = this.breakpoints().filter((b) => b > MIN_VIEWPORT && b < MAX_VIEWPORT);
     // in a box whose width follows its content, the placeholder needs the rows' width: rows of a width of their own, stacked
-    const shapeAt = (w: number) => { const v = this.at(w), sh = v.withRow(tpl, row, 1, count).shape(parent, row); return sh && opts.sized && sh.mode !== 'block' && sh.mode !== 'column' ? null : sh; };
+    const shapeOf = (L: Layout, w: number) => { const v = L.at(w), sh = v.withRow(tpl, row, 1, count).shape(parent, row); return sh && opts.sized && sh.mode !== 'block' && sh.mode !== 'column' ? null : sh; };
+    // a smaller default font size may fit more columns (a gap or a track in rem): the most of them, the fewest rows
+    const shapeAt = (w: number) => {
+      const all = [shapeOf(this, w), shapeOf(this.withBase(12), w), shapeOf(this.withBase(8), w)];
+      if (all.some((x) => !x) || new Set(all.map((x) => x!.mode)).size > 1) return null;
+      return all.reduce((a, b) => (b!.columns > a!.columns ? b : a))!;
+    };
     const key = (s: Shape | null) => (s ? `${s.mode} ${s.columns}` : '');
     // ranges between breakpoints, split where the shape changes inside one (a column more in an auto-fill grid)
     const ranges: Array<[number, number, Shape, Shape?]> = [];
@@ -1389,6 +1395,19 @@ export class Layout {
       // margins between rows collapse; the outer ones stay on the placeholder, to collapse as the rows' would
       let h = sum(hs);
       for (let i = 1; i < count; i++) h += collapse([mbs[i - 1]!, mts[i]!]);
+      // a row that may be empty (0 is its least) may let margins through: the ones around it collapse into one, and the
+      // chains before the first row and after the last are the placeholder's margins. The lesser of both ways
+      const chains: number[][] = [[]];
+      let inner = 0;
+      for (let i = 0; i < count; i++) {
+        chains[chains.length - 1]!.push(mts[i]!);
+        if (hs[i]! > 0) { inner += hs[i]!; chains.push([]); }
+        chains[chains.length - 1]!.push(mbs[i]!);
+      }
+      const through = chains.length === 1
+        ? { height: 0, mt: collapse(chains[0]!), mb: 0 }
+        : { height: inner + chains.slice(1, -1).reduce((a, c) => a + collapse(c), 0), mt: collapse(chains[0]!), mb: collapse(chains[chains.length - 1]!) };
+      if (hs.some((x) => x === 0) && through.height + through.mt + through.mb < h + mts[0]! + mbs[count - 1]!) return { ...through, span: 0, exact: false, ...width };
       return { height: h, mt: mts[0]!, mb: mbs[count - 1]!, span: 0, exact: exactH && (!own || own.exact), ...width };
     }
     if (s.mode === 'table') {
@@ -1558,7 +1577,8 @@ export class Layout {
   private fontValue(el: P5Element, v: string, up: number | null): number | null {
     // `-sn-control`: the UA's control font (13.333 px for a 16 px default), which follows the default font size
     const KEYWORDS: Record<string, number> = { '-sn-control': 13.333, 'xx-small': 9, 'x-small': 10, small: 13, medium: 16, large: 18, 'x-large': 24, 'xx-large': 32, 'xxx-large': 48 };
-    if (v in KEYWORDS) return (KEYWORDS[v]! * this.base) / 16;
+    // under `monospace` alone the keywords are of its smaller default (13 px for 16): at their least
+    if (v in KEYWORDS) { const f = this.fontFamilies(el); return (KEYWORDS[v]! * this.base) / 16 * (f && f.length === 1 && f[0] === 'monospace' ? 13 / 16 : 1); }
     if (up === null) return null;
     if (v === 'inherit' || v === 'unset') return up;
     if (v === 'smaller') return up / 1.2;

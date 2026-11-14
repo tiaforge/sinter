@@ -74,6 +74,8 @@ const CASES: Array<[string, string, string, number, [number, number] | null | 'f
   ['rows side by side: not followed', 'ul { display: flex } li { height: 30px }', '<ul><template id="t"><li></li></template></ul>', 4, null, 'bound'],
   ['a grid with explicit rows: not followed', '.g { display: grid; grid-template-rows: 200px 10px } .g > * { height: 30px }', '<div class="g"><template id="t"><div></div></template></div>', 4, null, 'bound'],
   ['a row an attribute binding may hide: nothing held', 'ul { padding: 0 } li { height: 40px }', '<ul><template id="t"><li data-sn-attr="{hidden: r.gone}"></li></template></ul>', 4, null, 'bound'],
+  ['empty rows: their margins collapse through them into one, nothing held', 'body { margin: 0 } .c { margin: 0; padding: 0 } .r { margin: 4px 0 2px } .r + .r { margin-top: 0.25rem }', '<section class="c"><template id="t"><article class="r"></article></template></section>', 8, null, 'bound'],
+  ['some empty rows between full ones: margins through the empty ones', 'body { margin: 0 } .c { margin: 0; padding: 0 } .r { margin: 10px 0 } .r:nth-child(3n) { height: 20px }', '<section class="c"><template id="t"><article class="r"></article></template></section>', 7, [50, 50], 'bound'],
   ['zoom on the container: not followed', 'ul { zoom: 0.5 } li { height: 30px }', '<ul><template id="t"><li></li></template></ul>', 4, null, 'bound'],
   ['absolute rows: not followed', 'li { position: absolute; height: 30px }', '<ul><template id="t"><li></li></template></ul>', 4, null, 'bound'],
   ['a grid with other items first: not followed', '.g { display: grid; grid-template-columns: 1fr 1fr } .g > * { height: 30px }', '<div class="g"><div>first</div><template id="t"><div></div></template></div>', 4, null, 'bound'],
@@ -83,6 +85,8 @@ const CASES: Array<[string, string, string, number, [number, number] | null | 'f
 
 /** [name, css, body, rows]: layouts where the space is a lower bound well below the rows; Chromium checks it is never above */
 const BELOW: Array<[string, string, string, number]> = [
+  ['a keyword font size under monospace: of its smaller default', 'body { margin: 0; font: 16px/1.2 monospace } .r { height: 3em; font-size: small }', '<div><template id="t"><div class="r"></div></template></div>', 6],
+  ['an auto-fill grid with a gap in rem: more columns with a smaller default font', 'body { margin: 0 } .c { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem } .r { display: flex; border-bottom: 1px solid }', '<ul class="c"><template id="t"><li class="r"></li></template></ul>', 5],
   ['a min-height in px over text in em: a kink between the default font sizes the build tries', 'ul { padding: 0 } li { min-height: 30px; line-height: 1.5em; padding: 0.25em 0; list-style: none }', '<ul><template id="t"><li data-sn-text="r.x"></li></template></ul>', 4],
   ['a column flex list of a limited height: rows shrink to their content', 'ul { display: flex; flex-direction: column; height: 100px; margin: 0; padding: 0 } li { height: 40px; line-height: 20px; overflow: hidden }', '<ul><template id="t"><li data-sn-text="r.x"></li></template></ul>', 5],
   ['a column flex list: the flex basis, not the height', 'ul { display: flex; flex-direction: column; margin: 0; padding: 0 } li { height: 40px; flex: 0 0 25px }', '<ul><template id="t"><li></li></template></ul>', 4],
