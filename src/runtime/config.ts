@@ -13,6 +13,8 @@ export interface Config {
   locale: { get(): string; set(locale: string): void } | null;
   urlSchemes: string[];
   origins: string[];
+  /** `sinter({ apis })`: each API's name, base and static request settings (the page module sets them, `$apis`) */
+  apis: ApiSettings[];
   /** the transport for a `<sn-sync>` stream URL; `undefined` (or no function) means EventSource */
   transport: ((url: string) => Transport | undefined) | null;
   /** `data-sn-confirm`: asks the question; the action runs on true (window.confirm by default) */
@@ -30,7 +32,7 @@ export interface Config {
 }
 
 export const config: Config = {
-  request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], transport: null, retry: null,
+  request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], apis: [], transport: null, retry: null,
   confirm: null, env: null,
 };
 
@@ -47,6 +49,33 @@ export function configure(options: Partial<Omit<Config, 'env'>> & { env?: Partia
  */
 export function $origins(list: string[]): void {
   config.origins = [...new Set([...config.origins, ...list])];
+}
+
+/** An API of `sinter({ apis })` at runtime: name, base (`''` the page's origin), credentials, static headers. */
+export interface ApiSettings { n: string; b: string; c?: RequestCredentials; h?: Record<string, string> }
+
+/** The page module: the build's APIs. */
+export function $apis(list: ApiSettings[]): void {
+  config.apis = list;
+}
+
+/** The API of `sinter({ apis })` a URL belongs to: the one with the longest base it starts with. */
+export function apiFor(url: string, href: string): ApiSettings | null {
+  let best: ApiSettings | null = null, len = -1;
+  for (const a of config.apis) {
+    const b = new URL(a.b || '/', href).href.replace(/\/$/, '');
+    const next = url[b.length];
+    if (url.startsWith(b) && (next == null || next == '/' || next == '?' || next == '#') && b.length > len) { best = a; len = b.length; }
+  }
+  return best;
+}
+
+/**
+ * The name of the API (`sinter({ apis })`) a request goes to, or null: for a middleware that treats
+ * APIs differently, `apiOf(request.url) == 'billing'`, instead of comparing URLs.
+ */
+export function apiOf(url: string): string | null {
+  return apiFor(new URL(url, location.href).href, location.href)?.n ?? null;
 }
 
 /** `$error`: a non-2xx response, a network error (status 0), a refused request, or a failed action call (status null). */

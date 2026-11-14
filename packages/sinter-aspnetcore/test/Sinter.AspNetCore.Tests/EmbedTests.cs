@@ -125,6 +125,18 @@ public sealed class EmbedTests
     }
 
     [Theory, MemberData(nameof(Apis))]
+    public async Task The_static_headers_of_the_resources_api_go_with_its_request(Api api)
+    {
+        // `sinter({ apis: { main: { headers: { 'X-Api': '2' } } } })`: the manifest lists them per placeholder
+        var dir = Build("headers", """
+            { "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+              { "id": 0, "resource": "v", "src": ["/api/version"], "headers": { "X-Api": "2" } } ] } ] }
+            """, ("index.html", """<head><script type="application/json" data-sn="0"></script></head>"""));
+        await using var a = await App(api, o => o.Dir = dir);
+        Assert.Contains("""data-sn="0">{"x":"2"}</script>""", await Html(a, "/"));
+    }
+
+    [Theory, MemberData(nameof(Apis))]
     public async Task An_array_parameter_is_a_list(Api api)
     {
         var dir = Build("arrays", """

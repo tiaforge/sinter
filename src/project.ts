@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
+import { resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
 import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
 import { componentNames, writeComponentTypes } from './components-build.js';
@@ -25,8 +26,16 @@ export interface ProjectOptions {
   messages?: string | false;
   /** module whose exported types `type="…"` on `<sn-resource>` may name (default `src/sinter.types.ts`, `.d.ts` or `.js`) */
   types?: string;
-  /** OpenAPI specs (JSON or YAML, inside the root) that resources without `type` are matched against */
+  /** OpenAPI specs (JSON or YAML, inside the root) that resources without `type` are matched against; deprecated: give each API its spec in `apis` */
   openapi?: string | string[];
+  /**
+   * The APIs the app calls (docs/apis.md): base URL, OpenAPI spec, request settings, and what each
+   * endpoint returns. A path on a page (`src="/contacts"`, `data-sn-delete="billing:/invoices/{i.id}"`)
+   * is relative to one of them, and must be an operation it declares.
+   */
+  apis?: Record<string, ApiOptions>;
+  /** the API a path without `api:` goes to; with one API configured it is that one */
+  defaultApi?: string;
   /** SN507: limits for expressions too complex for markup (`statements`, `sequences`, `guarded`, `ternaries`, `arrow`, `operations`) and `level`: `warn` (default), `error` or `off` */
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()`, in the build, `sinter check` and `sinter lsp` (default off; `sinter check --check-cycles` for one run) */
@@ -92,7 +101,9 @@ export interface Project {
   /** reads a file only if it resolves inside the root, symlinks included */
   readFile: (path: string) => string;
   openapi: OpenApiSpec[];
-  /** problems loading the specs (SN307) */
+  /** `apis`, resolved (their specs are in `openapi`), or null without `apis` */
+  apis: ApisDef | null;
+  /** problems loading the specs (SN307) and the APIs (SN329) */
   diagnostics: Diagnostic[];
   /** every component of the app (`src/components/<name>.html`): `ComponentName`, the candidates of `<sn-component use>` */
   componentNames: string[];
@@ -142,22 +153,34 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   const typesRel = find(options.types, 'src/sinter.types', ['.ts', '.d.ts', '.js']);
   const openapi: OpenApiSpec[] = [];
   const diagnostics: Diagnostic[] = [];
-  for (const rel of options.openapi == null ? [] : Array.isArray(options.openapi) ? options.openapi : [options.openapi]) {
+  const loadSpec = (rel: string): number | null => {
     const file = resolve(root, rel);
-    const fail = (why: string) => diagnostics.push({ severity: 'error', code: 'SN307', message: `OpenAPI spec \`${rel}\` ${why}`, file, line: 1, col: 1 });
+    const fail = (why: string) => { diagnostics.push({ severity: 'error', code: 'SN307', message: `OpenAPI spec \`${rel}\` ${why}`, file, line: 1, col: 1 }); return null; };
     let text: string;
-    try { text = readFile(file); } catch (e) { fail(`cannot be read: ${(e as Error).message}`); continue; }
+    try { text = readFile(file); } catch (e) { return fail(`cannot be read: ${(e as Error).message}`); }
     let doc: unknown;
     try { doc = /\.json$/i.test(file) ? JSON.parse(text) : (createRequire(import.meta.url)('yaml') as typeof import('yaml')).parse(text); } catch (e) {
-      fail(`is not valid ${/\.json$/i.test(file) ? 'JSON' : 'YAML'}: ${(e as Error).message.split('\n')[0]}`);
-      continue;
+      return fail(`is not valid ${/\.json$/i.test(file) ? 'JSON' : 'YAML'}: ${(e as Error).message.split('\n')[0]}`);
     }
     const d = doc as { openapi?: unknown; paths?: unknown } | null;
-    if (!d || typeof d.openapi !== 'string' || !/^3\./.test(d.openapi) || typeof d.paths !== 'object') {
-      fail('is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`)');
-      continue;
-    }
+    if (!d || typeof d.openapi !== 'string' || !/^3\./.test(d.openapi) || typeof d.paths !== 'object') return fail('is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`)');
     openapi.push({ file, doc });
+    return openapi.length - 1;
+  };
+  const listOf = (v: string | string[] | undefined) => (v == null ? [] : Array.isArray(v) ? v : [v]);
+  let apis: ApisDef | null = null;
+  if (options.apis != null) {
+    const configFile = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
+    const r = resolveApis(options, (rel) => (typeof rel === 'string' ? loadSpec(rel) : null), openapi, configFile);
+    diagnostics.push(...r.diagnostics);
+    apis = r.apis;
+  } else {
+    for (const rel of listOf(options.openapi)) loadSpec(rel);
+    if (options.openapi != null) {
+      const file = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
+      diagnostics.push({ severity: 'warning', code: 'SN329', file, line: 1, col: 1,
+        message: 'sinter({ openapi }) is deprecated: give the spec to an API, `sinter({ apis: { main: { openapi: … } } })`, and run `npx sinter migrate` (docs/apis.md)' });
+    }
   }
   // built-in messages: `m` is theirs, typed by a generated declaration file
   const messages = options.messages === false ? null : readMessages(root, options.messages ?? 'project.inlang');
@@ -175,7 +198,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     if (current !== text) { mkdirSync(dirname(messagesTypes), { recursive: true }); writeFileSync(messagesTypes, text); }
   }
   return {
-    root, helpers, helpersFile, actions, actionsFile, readFile, openapi, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
+    root, helpers, helpersFile, actions, actionsFile, readFile, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
     isStatic: staticPages(root, options.static).has,
     lazy: lazyOf(options.lazy),
     componentNames: componentNames(root),
@@ -230,3 +253,5 @@ export function lazyOf(list: unknown): string[] {
   }
   return [...new Set(list as string[])];
 }
+
+const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];

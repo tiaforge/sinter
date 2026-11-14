@@ -11,6 +11,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { HEAD_DECL } from '../components-build.js';
 import { offsetOf, slotCompletions, slotDefinition, tagCompletions, tagHover, type TagFile } from './markup.js';
 import { didYouMeanEdit } from './quickfix.js';
+import { pathCompletions, pathDefinition, pathFix, pathHover } from './paths.js';
 import { editFor, fixPlans, plans, type ExtractContext, type Plan } from './extract.js';
 import { TypeScriptBridge, typescriptMajor, type Target } from './typescript.js';
 import { Workspace, type ProjectState } from './workspace.js';
@@ -136,12 +137,15 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
   let resolveEdits = false;
   /** the client applies `CreateFile` in workspace edits */
   let canCreate = false;
+  /** the client inserts snippets (a path's parameters as placeholders) */
+  let snippets = false;
 
   conn.onRequest('initialize', (params: any) => {
     watchDynamic = !!params?.capabilities?.workspace?.didChangeWatchedFiles?.dynamicRegistration;
     resolveEdits = !!params?.capabilities?.textDocument?.codeAction?.resolveSupport?.properties?.includes('edit');
     const we = params?.capabilities?.workspace?.workspaceEdit;
     canCreate = !!we?.documentChanges && !!we?.resourceOperations?.includes('create');
+    snippets = !!params?.capabilities?.textDocument?.completion?.completionItem?.snippetSupport;
     const folders: string[] = (params?.workspaceFolders ?? []).map((f: { uri: string }) => uriToPath(f.uri));
     if (!folders.length && params?.rootUri) folders.push(uriToPath(params.rootUri));
     // load the projects of the open folders early, so the first open file is quick
@@ -151,7 +155,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
         // full text on every change
         textDocumentSync: { openClose: true, change: 1, save: { includeText: false } },
         hoverProvider: true,
-        completionProvider: { triggerCharacters: ['.', '"', '<'], resolveProvider: true },
+        completionProvider: { triggerCharacters: ['.', '"', '<', '/', '?', '&', ':'], resolveProvider: true },
         definitionProvider: true,
         codeActionProvider: { codeActionKinds: ['quickfix', 'refactor.extract'], resolveProvider: true },
       },
@@ -239,6 +243,10 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
       if (t) return { contents: { kind: 'markdown', value: tagHover(tag, t, relative(root, t.file).split('\\').join('/')) } };
     }
     const state = await workspace.projectFor(file);
+    // a path to an API: the URL it calls, the operation and what it returns
+    const page = workspace.read(file);
+    const path = pathHover(page, offsetOf(page, p.position.line, p.position.character), state.project, (f) => relative(state.root, f).split('\\').join('/'));
+    if (path) return { contents: { kind: 'markdown', value: path } };
     const mode = modeOf(state.root);
     if (!(mode instanceof TypeScriptBridge)) return null;
     // the shadows must reflect the latest edit
@@ -261,7 +269,10 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     // `slot="…"` and tags: sinter's own, from the components' and layouts' files
     const text = workspace.read(file);
     const offset = offsetOf(text, p.position.line, p.position.character);
-    const root = (await workspace.projectFor(file)).root;
+    const { root, project: proj } = await workspace.projectFor(file);
+    // a path to an API: its operations, ranked here (`isIncomplete`: asked again as you type), or its query parameters
+    const paths = pathCompletions(text, offset, proj, snippets);
+    if (paths) return { isIncomplete: true, items: paths.map((c) => ({ label: c.label, kind: 18, detail: c.detail, filterText: c.filterText, sortText: c.sortText, ...(c.documentation ? { documentation: { kind: 'markdown', value: c.documentation } } : {}), ...(c.snippet ? { insertTextFormat: 2 } : {}), textEdit: { range: rangeAt(text, c.from, c.to), newText: c.insert } })) };
     const slots = slotCompletions(text, offset, (t) => tagFile(root, t));
     if (slots) return { isIncomplete: false, items: slots.map((s) => ({ label: s.label, kind: 12, detail: s.detail, ...(s.documentation ? { documentation: { kind: 'markdown', value: s.documentation } } : {}), textEdit: { range: rangeAt(text, s.from, s.to), newText: s.label } })) };
     const tags = tagCompletions(text, offset, tagFiles(root));
@@ -297,6 +308,8 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
         if (existsSync(target)) return [{ uri: pathToUri(target), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } }];
       }
     }
+    const at = pathDefinition(text, offsetOf(text, p.position.line, p.position.character), (await workspace.projectFor(file)).project, (f) => workspace.read(f));
+    if (at) return [{ uri: pathToUri(at.file), range: { start: { line: at.line - 1, character: at.col - 1 }, end: { line: at.line - 1, character: at.col - 1 } } }];
     const slot = slotDefinition(text, offsetOf(text, p.position.line, p.position.character), (t) => tagFile(root, t));
     if (slot) return [{ uri: pathToUri(slot.file), range: { start: { line: slot.line - 1, character: slot.col - 1 }, end: { line: slot.line - 1, character: slot.col - 1 } } }];
     const b = await bridgeFor(file);
@@ -355,6 +368,12 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     for (const d of p.context?.diagnostics ?? []) {
       if (d.source !== 'sinter') continue;
       if (wants('quickfix') && EXTRACT_FIX_CODES.has(String(d.code).split(' ')[0])) actions.push(...await extractActions(p.textDocument.uri, d.range, d));
+      // a path or a configured shape: the attribute rewritten, or removed
+      const fix = wants('quickfix') ? pathFix(text, offsetOf(text, d.range.start.line, d.range.start.character), offsetOf(text, d.range.end.line, d.range.end.character), String(d.code).split(' ')[0]!, d.message.split('\nhint:')[0]) : null;
+      if (fix) {
+        actions.push({ title: fix.title, kind: 'quickfix', isPreferred: true, diagnostics: [d], edit: { changes: { [p.textDocument.uri]: [{ range: rangeAt(text, fix.from, fix.to), newText: fix.text }] } } });
+        continue;
+      }
       const edit = didYouMeanEdit(text, d.range, d.message);
       if (!edit || !wants('quickfix')) continue;
       actions.push({

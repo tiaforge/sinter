@@ -402,6 +402,56 @@ A page's bundle (its own chunk and the chunks it imports, or its early file) con
 
 **Fix:** Add the other package to `lazy` as well, or load it with `import()`. For the app's own split, import the module only with `import()` where the page reaches it, or not lazily at all.
 
+## SN326 unknown-operation
+
+Error, for example:
+
+> `GET /contacs` is no operation of the API `main`. Did you mean `/contacts`?
+
+With `sinter({ apis })`, a path in `src`, an action or `<sn-sync src>` is relative to an API, and the API accepts only the operations its spec or its `operations` declare, with the method the place implies (`GET` for a resource unless it has `method`, the attribute's for an action). Also reported: `api:` naming no API, and a path without `api:` when several APIs are configured and `defaultApi` names none.
+
+**Fix:** Use the suggested path (the editor completes them), add the endpoint to the spec, or declare it in the API's `operations`. A path written with the base in it (`/api/contacts` with `base: '/api'`) drops the base.
+
+## SN327 undeclared-query
+
+Error, for example:
+
+> `GET /articles` of the API `main` declares no query parameter `tagg`. Did you mean `tag`?
+
+A query parameter in a path to a configured API must be one its operation declares (in the spec, or in `query` of the API's `defaults` or `operations`), and every required one must be given. The parameters `paginate` adds count as given, and are checked too.
+
+**Fix:** Use the suggested name, give the required parameter, or declare it: in the spec, or with `query: ['name']` in the API's `defaults` for the operation.
+
+## SN328 absolute-url
+
+Error, for example:
+
+> `https://api.example.com/v1/contacts` names its API's origin: write `/contacts`
+
+With `sinter({ apis })`, a page writes paths relative to an API, and the origin is the API's `base`. An absolute URL would bypass the API's checks and settings.
+
+**Fix:** Write the path relative to the API that has this base (the quick fix does), with `api:` when it is not the default API; for an origin that is no API, add one to `apis`.
+
+## SN329 api-config
+
+Error, for example:
+
+> sinter({ apis }): `main.base` is `undefined` (an environment variable that is not set?); it does not fall back to the spec's server
+
+The `apis` option is invalid: an API setting that does not exist, a `base` that is not `''`, a same-origin path or an `https://` URL (or is `undefined`), `defaults` naming an operation the spec does not have, `operations` naming one it has, `defaultApi` naming no API, or a top-level `openapi` next to `apis`.
+
+**Fix:** Follow the message: set the environment variable, move the endpoint between `defaults` and `operations`, or move `openapi` into an API.
+
+## SN330 configured-shape
+
+Error, for example:
+
+> `items` of `GET /articles` is `articles` (`main.defaults`), not `posts`: every page reads one shape from an endpoint
+
+What an endpoint returns (`items`, `total`, `key`, `type`) is said once: when the API's `defaults` or `operations` give a value, a resource of that operation does not write a different one, because two pages would read different shapes from one endpoint. The same value is the warning `SN518`.
+
+**Fix:** Remove the attribute, or change the configured value if the page is right.
+
 ## SN401 parse-error
 
 Error, for example:
@@ -561,3 +611,23 @@ Warning, for example:
 `$meta.<resource>.live` is the state of the server-event stream that feeds the resource. A resource is fed when an `<sn-event>` in a `<sn-sync>` names it in `resource`; without one, `live` is `null` and a badge built on it never shows a state.
 
 **Fix:** Add an `<sn-event resource="…">` for the resource to the `<sn-sync>`, or read `live` of a resource that a stream feeds.
+
+## SN517 unkeyed-list
+
+Warning, for example:
+
+> `GET /api/contacts` returns a list at `contacts`: resource `contacts` has no `key`, so it is one object holding the list
+
+Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `patch` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.
+
+**Fix:** Add `key` with the field that identifies an item, such as `key="id"`. A list that is only read can stay as it is.
+
+## SN518 redundant-shape
+
+Warning, for example:
+
+> `items` of `GET /articles` is configured as `articles` (`main.defaults`): remove it here
+
+The API's `defaults` or `operations` already give this value for the endpoint, so the attribute says nothing. A different value is the error `SN330`.
+
+**Fix:** Remove the attribute.

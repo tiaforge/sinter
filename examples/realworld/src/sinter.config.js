@@ -24,7 +24,7 @@ async function auth(req, next) {
   return res;
 }
 
-// the API's origin is allowed by sinter({ origins }) in vite.config.js: every page adds it
+// the API's origin is allowed by sinter({ apis }) (apis.js): every page adds it
 configure({
   request: [auth],
   onError: () => {},

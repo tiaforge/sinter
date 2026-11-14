@@ -17,7 +17,8 @@ import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
-import { deref, matchOperation, matchResource, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
+import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
+import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { withParams } from '../runtime/url.js';
@@ -58,6 +59,8 @@ export interface CompileOptions {
   check?: boolean;
   /** parsed OpenAPI specs: resources without `type` are matched against them */
   openapi?: OpenApiSpec[];
+  /** `sinter({ apis })`, resolved: paths are relative to them and must be operations they declare (their specs are in `openapi`) */
+  apis?: ApisDef | null;
   /** the actions module (`data-sn-call`, `<sn-resource call>`), same shape as helpers */
   actions?: HelperManifest;
   /** `sinter({ lazy })`: the packages `data-sn-import` and `data-sn-preload` may name (`true`: any, for testing) */
@@ -264,6 +267,8 @@ export interface EmbedSlot {
   when?: true | EmbedCond;
   query?: Array<[string, string]>;
   start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> };
+  /** the static headers of the resource's API (`sinter({ apis })`): the server sends them with its request */
+  headers?: Record<string, string>;
 }
 
 /** Why a page needs the runtime: what runs in the browser, and where it was written. */
@@ -430,6 +435,25 @@ const SINTER_EVENTS = ['sn-error', 'dismiss'];
 /** a prop's value that is a build-time constant, and those of them that are falsy */
 const CONST_PROP = /^(true|false|null|undefined|-?\d+(\.\d+)?|'[^'\\]*'|"[^"\\]*")$/;
 const FALSY_PROP = ['false', 'null', 'undefined', '0', "''", '""'];
+
+/** The query parameters `paginate` adds to a request, by mode (`runtime/pages.ts`), and the cursor's fields. */
+function paginateParams(p: Paginate, cursor: string | undefined): string[] {
+  const out = [p.sizeParam];
+  if (p.mode === 'offset') out.push(p.offsetParam ?? p.pageParam);
+  else {
+    out.push(p.directionParam);
+    if (p.offsetParam) out.push(p.offsetParam);
+    if (cursor) {
+      try {
+        const ast = parseExpressionAt(cursor, 0, { ecmaVersion: 'latest' }) as acorn.Expression;
+        if (ast.type === 'ObjectExpression') for (const x of ast.properties) {
+          if (x.type === 'Property' && !x.computed) out.push(x.key.type === 'Identifier' ? x.key.name : String((x.key as acorn.Literal).value));
+        }
+      } catch { /* reported where the cursor is compiled */ }
+    }
+  }
+  return out;
+}
 
 /** The props a use gives as constants (`{ label: true }`), and the optional ones it leaves out (undefined), each as truthy or not. */
 function constantProps(src: string | undefined, props: Member[] | null): Map<string, boolean> {
@@ -1930,7 +1954,7 @@ class Compiler {
           this.report(child, 'name', 'SN209', `\`${name}\` is a store function (\`${name}()\`); a resource cannot take its name`, 0);
           continue;
         }
-        const key = attr(child, 'key');
+        const key = attr(child, 'key') ?? (attr(child, 'call') == null ? this.apiTarget(child, 'src', attr(child, 'method')?.trim() === 'POST' ? 'post' : 'get')?.shape?.key : undefined);
         const paginate = attr(child, 'paginate');
         const info: ResourceInfo = { name, key: key ? key.split(',').map((s) => s.trim()).filter(Boolean) : null, paginate: paginate ?? null, used: false };
         if (paginate === 'keyset' && attr(child, 'offset-param') != null) info.jumps = true;
@@ -3108,6 +3132,7 @@ class Compiler {
     if (method === 'call' && get('body') !== undefined) this.report(el, 'data-sn-body', 'SN102', '`data-sn-body` belongs to a method attribute; a call takes its arguments in `data-sn-call`', 0);
     const reads: Read[] = [];
     const url = method === 'call' ? [] : this.urlTemplate(el, `data-sn-${method}`, scope, {}, undefined, reads);
+    const urlPath = this.lastPath;
     const tag = this.hostUse.get(el)?.root.tagName ?? el.tagName;
     const isForm = tag === 'form';
     const trigger = get('trigger') ?? (isForm ? 'submit' : FORM_CONTROLS.has(tag) ? 'change' : 'click');
@@ -3127,7 +3152,9 @@ class Compiler {
       return { f: r.ok ? this.fn(r.code) : null, w: r.writes, r };
     };
     // with OpenAPI specs: the body must fit the request schema, `$result` gets the response's type, and write-through knows the response's entities
-    const op = method !== 'call' && this.opts.openapi?.length ? matchOperation(this.opts.openapi, url, method) : null;
+    // `sinter({ apis })`: the operation of the API the path calls (SN326, SN327); else matched by URL against the specs
+    const target = method !== 'call' && this.opts.apis ? this.apiCheck(el, `data-sn-${method}`, method as Method, urlPath) : null;
+    const op = target ? target.match : method !== 'call' && !this.opts.apis && this.opts.openapi?.length ? matchOperation(this.opts.openapi, url, method) : null;
     const typed = op && 'spec' in op ? op : null;
     const body = fnOf('body', { mode: 'value', magic: ['$event'] }, typed?.request != null ? { returns: { kind: 'openapi', spec: typed.spec, schema: typed.request } } : undefined);
     reads.push(...(body.r?.reads ?? []));
@@ -3350,7 +3377,23 @@ class Compiler {
   urlTemplate(el: P5Element, attrName: string, scope: Scope, exprOpts: Partial<ExprOptions> = {}, deps?: Set<string>, reads?: Read[]): UrlTemplate {
     const value = attr(el, attrName) ?? '';
     const parts: UrlTemplate = [];
-    let i = 0;
+    // `sinter({ apis })`: `[api:]/path`, relative to the API's base
+    const apis = this.opts.apis;
+    let api: ApiDef | null = null, i = 0;
+    if (apis) {
+      if (/^https?:\/\//i.test(value)) {
+        const own = apis.list.filter((a) => a.base && value.toLowerCase().startsWith(a.base.toLowerCase()) && /^([/?#]|$)/.test(value.slice(a.base.length)))
+          .sort((a, b) => b.base.length - a.base.length)[0];
+        const rel = own ? `${own.name === apis.defaultApi ? '' : own.name + ':'}${value.slice(own.base.length) || '/'}` : null;
+        this.report(el, attrName, 'SN328', `\`${value.replace(/\{[\s\S]*$/, '…')}\` names ${own ? `the origin of the API \`${own.name}\`` : 'an origin'}: ${rel ? `write \`${rel}\`` : 'with `sinter({ apis })`, a page writes paths relative to an API'}`, 0,
+          rel ? 'the origin and path prefix are the API\'s `base`' : 'add an API with this origin as its `base` to `sinter({ apis })`');
+      } else {
+        const r = apiOf(apis, value);
+        if ('error' in r) this.report(el, attrName, 'SN326', r.error, 0);
+        else api = r.api;
+        i = r.prefix;
+      }
+    }
     let lit = '';
     while (i < value.length) {
       const c = value[i]!;
@@ -3382,11 +3425,86 @@ class Compiler {
     const first = parts[0];
     // a literal origin followed by a value needs its `/`: `https://api.example.com{x}` lets `x` extend the host
     const origin = parts.length > 1 ? /^https?:\/\/[^/{}]+\//i : /^https?:\/\/[^/{}]+(\/|$)/i;
-    if (typeof first !== 'string' || !(/^\/[^/\\]/.test(first) || first === '/' || origin.test(first))) {
-      this.report(el, attrName, 'SN207', 'a URL template must start with a literal same-origin path (`/api/…`) or a literal `https://` origin (with a `/` after the host when a value follows)', 0,
+    if (typeof first !== 'string' || !(/^\/[^/\\]/.test(first) || first === '/' || (!api && origin.test(first)))) {
+      this.report(el, attrName, 'SN207', api ? 'a path to an API must start with a literal `/` (`/contacts/{c.id}`)' : 'a URL template must start with a literal same-origin path (`/api/…`) or a literal `https://` origin (with a `/` after the host when a value follows)', 0,
         'a leading interpolation or `//` lets a value choose the host');
     }
+    this.lastPath = parts.slice();
+    if (api && api.base && typeof parts[0] === 'string') parts[0] = api.base + parts[0];
     return parts;
+  }
+
+  /** the path (without the API's base) of the last `urlTemplate` */
+  lastPath: UrlTemplate = [];
+  /** the API each resource's `src` goes to (`sinter({ apis })`): its request settings for preloads, the early file and embedding */
+  readonly apiOfResource = new Map<string, ApiDef>();
+
+  /** a resource's API's credentials and static headers, as the early file sends them; null for the defaults */
+  settingsOf(name: string): { c?: RequestCredentials; h?: Record<string, string> } | null {
+    const a = this.apiOfResource.get(name);
+    return a && (a.credentials || a.headers) ? { ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) } : null;
+  }
+
+  /**
+   * `<link rel="preload" as="fetch">` for the resources whose URL is fixed at build time. A link cannot
+   * carry headers, so a resource of an API with static headers (or `credentials: 'omit'`) has none, and
+   * the early file's request is its first; `credentials: 'include'` is `crossorigin="use-credentials"`.
+   */
+  preloadLinks(): string[] {
+    const ok = this.resources.filter((r) => {
+      const a = this.apiOfResource.get(r.name);
+      return !this.noEarly.has(r.name) && fixedRequest(r) && this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit';
+    });
+    const include = (r: ResourceDef) => this.apiOfResource.get(r.name)?.credentials === 'include';
+    const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+    const link = (cross: string) => ({ url, lo }: { url: string; lo: boolean }) => `<link rel="preload" as="fetch" ${cross} href="${esc(url)}"${lo ? ' fetchpriority="low"' : ''}>`;
+    return [...preloads(ok.filter((r) => !include(r))).map(link('crossorigin')), ...preloads(ok.filter(include)).map(link('crossorigin="use-credentials"'))];
+  }
+
+  /** The operation of an API a path calls with this method, and its configured shape; null without `apis`. */
+  apiTarget(el: P5Element, attrName: string, method: Method): { api: ApiDef; match: OpenApiMatch | { closest: string | null }; shape: OperationShape | null } | null {
+    const apis = this.opts.apis;
+    const value = attr(el, attrName);
+    if (!apis || value == null || /^https?:\/\//i.test(value)) return null;
+    const r = apiOf(apis, value);
+    if ('error' in r) return null;
+    const match = matchOperation(this.opts.openapi ?? [], shapeTemplate(r.path), method, r.api.specs);
+    const shape = 'path' in match ? r.api.shapes[`${method.toUpperCase()} ${match.path}`] ?? null : null;
+    return { api: r.api, match, shape };
+  }
+
+  /**
+   * A path to a configured API: the operation it calls (SN326), and its query parameters (SN327).
+   * `extra`: the query parameters sinter adds itself (`paginate`'s), which count as given and must be declared too.
+   */
+  apiCheck(el: P5Element, attrName: string, method: Method, path: UrlTemplate, extra: string[] = []): { api: ApiDef; match: OpenApiMatch; shape: OperationShape | null } | null {
+    const t = this.apiTarget(el, attrName, method);
+    if (!t) return null;
+    const raw = attr(el, attrName) ?? '';
+    const label = (p: string) => `\`${method.toUpperCase()} ${p}\``;
+    if (!('path' in t.match)) {
+      const shown = shapeTemplate(raw.slice(raw.indexOf('/'))).map((p) => (typeof p === 'string' ? p : '{…}')).join('').split('?')[0]!;
+      this.report(el, attrName, 'SN326', `${label(shown)} is no operation of the API \`${t.api.name}\`.${t.match.closest ? ` Did you mean \`${t.match.closest}\`?` : ''}`, 0,
+        t.api.specs.length ? 'declare an endpoint the spec does not have in the API\'s `operations`' : `the API \`${t.api.name}\` declares its endpoints in \`operations\``);
+      return null;
+    }
+    const m = t.match;
+    const declared = [...m.query, ...(t.shape?.query ?? [])];
+    const given = new Set<string>();
+    const at = raw.indexOf('?');
+    const fromPath = queryNames(path);
+    for (const q of [...fromPath, ...extra.filter((x) => !fromPath.includes(x))]) {
+      const deep = /^([^[]+)\[/.exec(q)?.[1];
+      const name = deep && m.deep.includes(deep) ? deep : q;
+      given.add(name);
+      if (declared.includes(name)) continue;
+      const mine = !fromPath.includes(q);
+      this.report(el, mine ? 'paginate' : attrName, 'SN327', `${label(m.path)} of the API \`${t.api.name}\` declares no query parameter \`${q}\`${mine ? ' (sent by `paginate`)' : ''}.${didYouMean(q, declared)}`, mine ? 0 : Math.max(raw.indexOf(q + '=', at), 0),
+        declared.length ? `it declares ${declared.map((d) => `\`${d}\``).join(', ')}` : 'it declares no query parameters');
+    }
+    const missing = m.required.filter((r) => !given.has(r));
+    if (missing.length) this.report(el, attrName, 'SN327', `${label(m.path)} of the API \`${t.api.name}\` needs the query parameter${missing.length > 1 ? 's' : ''} ${missing.map((x) => `\`${x}\``).join(', ')}`, 0);
+    return { api: t.api, match: m, shape: t.shape };
   }
 
   // ---- declaration elements
@@ -3439,6 +3557,20 @@ class Compiler {
       }
     }
     const src = hasCall ? [] : this.urlTemplate(el, 'src', srcScope, {}, deps);
+    const srcPath = this.lastPath;
+    // `method="POST"`: an endpoint that loads data with a request body (search, reports); its body is a value, reloaded when it changes
+    const methodAttr = attr(el, 'method')?.trim();
+    const post = methodAttr === 'POST';
+    if (methodAttr != null && !post && methodAttr !== 'GET') this.report(el, 'method', 'SN401', '`method` is `POST` (or `GET`, the default)', 0);
+    if (attr(el, 'body') != null && !post) this.report(el, 'body', 'SN102', '`body` needs `method="POST"`: a GET request has no body', 0);
+    if (post) {
+      if (hasCall) this.report(el, 'method', 'SN102', '`method` is for a resource with `src`', 0);
+      for (const a of ['cache', 'paginate', 'each']) {
+        if (attr(el, a) != null) this.report(el, a, 'SN401', a === 'cache' ? '`cache` does not combine with `method="POST"`: a cached search or report would outlive the request that asked for it' : `\`${a}\` does not combine with \`method="POST"\``, 0);
+      }
+      // started by the page module only: not preloaded, requested early, prefetched or embedded
+      this.noEarly.add(name);
+    }
     const call = hasCall ? this.callExpr(el, 'call', ctx.scope, deps) : null;
     let when: number | null = null;
     if (attr(el, 'when') != null) {
@@ -3540,19 +3672,58 @@ class Compiler {
       if (r.ok) then = { f: this.fn(r.code), w: r.writes };
     }
     const order = attr(el, 'order');
-    const type = attr(el, 'type')?.trim() || null;
-    const openapi = type || hasCall ? null : this.openapi(el, src, attr(el, 'items') ?? null, attr(el, 'total') ?? null);
+    // `sinter({ apis })`: the operation the path calls, and what the config says it returns (said once)
+    const target = this.opts.apis && !hasCall ? this.apiCheck(el, 'src', post ? 'post' : 'get', srcPath, paginate ? paginateParams(paginate, attr(el, 'cursor')) : []) : null;
+    if (target) this.apiOfResource.set(name, target.api);
+    const shape = target?.shape ?? null;
+    const shaped = (a: 'items' | 'total' | 'key' | 'type'): string | null => {
+      const v = attr(el, a)?.trim(), c = shape?.[a];
+      if (c != null && v != null) {
+        const where = `\`${target!.api.name}.${target!.match.spec === target!.api.specs[target!.api.specs.length - 1] && this.opts.openapi![target!.match.spec]!.config ? 'operations' : 'defaults'}\``;
+        if (v === c) this.report(el, a, 'SN518', `\`${a}\` of \`GET ${target!.match.path}\` is configured as \`${c}\` (${where}): remove it here`, 0);
+        else this.report(el, a, 'SN330', `\`${a}\` of \`GET ${target!.match.path}\` is \`${c}\` (${where}), not \`${v}\`: every page reads one shape from an endpoint`, 0, 'remove the attribute, or change the configured value');
+      }
+      return c ?? v ?? null;
+    };
+    const items = shaped('items'), total = shaped('total');
+    shaped('key');
+    const type = shaped('type');
+    // an operation the config declares has no schema: its type is the config's
+    const generated = target ? !!this.opts.openapi![target.match.spec]!.config : false;
+    const openapi = type || hasCall || generated ? null : this.openapi(el, src, items, total, target?.match, post ? 'post' : 'get');
+    let body: number | null = null;
+    if (post && attr(el, 'body') != null) {
+      const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchOperation(this.opts.openapi, src, 'post') : null);
+      const r = this.expr(el, 'body', ctx.scope, { mode: 'value' });
+      if (m && 'request' in m && m.request != null) this.typeLast({ returns: { kind: 'openapi', spec: m.spec, schema: m.request } });
+      for (const d of r.deps) deps.add(d);
+      if (r.ok) body = this.fn(r.code);
+    }
     const sch = openapi && 'schema' in openapi ? namedSchema(this.opts.openapi![openapi.spec]!.doc, openapi.schema) : null;
     if (openapi && 'schema' in openapi) this.itemSchema.set(name, { spec: openapi.spec, schema: sch?.array ? (openapi.schema as { items: unknown }).items : openapi.schema });
+    // a list of objects without `key` is one object holding the array: nothing can change one of its items
+    if (openapi && 'schema' in openapi && !info.key && !each) {
+      const doc = this.opts.openapi![openapi.spec]!.doc;
+      const list = deref(doc, openapi.schema);
+      const item = list?.type === 'array' ? deref(doc, list.items) : null;
+      const fields = item ? propertyNames(doc, item) : [];
+      if (item && (item.type === 'object' || fields.length)) {
+        const at = items;
+        this.report(el, attr(el, 'items') != null ? 'items' : 'name', 'SN517', `\`${openapi.label}\` returns a list${at ? ` at \`${at}\`` : ''}: resource \`${name}\` has no \`key\`, so it is one object holding the list`, 0,
+          `add \`key\` with the field that identifies an item${fields.length ? ` (its items have ${fields.map((f) => `\`${f}\``).join(', ')})` : ''}; a list that is only read can stay as it is`);
+      }
+    }
     if (this.check) {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
-      if (call) r.call = { name: call.name, items: attr(el, 'items') ?? null };
+      if (call) r.call = { name: call.name, items };
       if (paginate?.mode === 'keyset' && !paginate.offsetParam) r.directions = true;
       this.check.resources.push(r);
       // a resource fed by an action is typed by the action's result
       if (!type && !r.openapi && !r.call) {
-        const hint = openapi && 'closest' in openapi
+        const hint = target
+          ? `\`GET ${target.match.path}\` has no JSON response type: add \`type\` for it in \`${target.api.name}.${generated ? 'operations' : 'defaults'}\``
+          : openapi && 'closest' in openapi
           ? `no OpenAPI GET operation matches \`src\`${openapi.closest ? ` (closest path: \`${openapi.closest}\`)` : ''}; add \`type="…"\`, or \`type="any"\` to leave it unchecked`
           : 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked';
         this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, hint);
@@ -3560,7 +3731,7 @@ class Compiler {
     }
     this.resources.push({
       ...(this.opts.dev && then ? this.devAtOf([then.f]) : {}),
-      name, src, key: info.key, items: attr(el, 'items') ?? null, total: attr(el, 'total') ?? null,
+      name, src, key: info.key, items, total,
       order: order ? order.trim() : null, when, paginate, deps: [...deps].sort(), scope: ctx.stateIdx, data: null,
       ...(cache !== undefined ? { cache } : {}),
       ...(refresh !== undefined ? { refresh } : {}),
@@ -3568,19 +3739,20 @@ class Compiler {
       ...(call ? { call: { args: call.args, run: call.run } } : {}),
       ...(then ? { then: then.f, ...(then.w.length ? { w: then.w } : {}) } : {}),
       ...(sch ? { sch: sch.name } : {}),
+      ...(body != null ? { body } : {}),
     });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
   /** Matches a resource against the OpenAPI specs; checks `items`, `total` and query parameter names. */
-  openapi(el: P5Element, src: UrlTemplate, items: string | null, total: string | null):
+  openapi(el: P5Element, src: UrlTemplate, items: string | null, total: string | null, matched?: OpenApiMatch, method: Method = 'get'):
     { spec: number; label: string; schema: unknown } | { closest: string | null } | null {
     const specs = this.opts.openapi;
     if (!specs?.length) return null;
-    const m = matchResource(specs, src);
+    const m = matched ?? (method === 'get' ? matchResource(specs, src) : matchOperation(specs, src, method));
     if ('closest' in m) return m;
     const doc = specs[m.spec]!.doc;
-    const label = `GET ${m.path}`;
+    const label = `${method.toUpperCase()} ${m.path}`;
     let schema = m.body;
     if (schema == null) return { closest: m.path };
     for (const [field, path] of [['items', items], ['total', total]] as const) {
@@ -3593,7 +3765,8 @@ class Compiler {
       } else if (field === 'items') schema = w.schema;
     }
     const raw = attr(el, 'src') ?? '';
-    for (const q of queryNames(src)) {
+    // a configured API checked the query (SN327)
+    if (!matched) for (const q of queryNames(src)) {
       if (m.query.includes(q)) continue;
       const at = raw.indexOf(q + '=', raw.indexOf('?'));
       this.report(el, 'src', 'SN505', `\`${label}\` declares no query parameter \`${q}\`.${didYouMean(q, m.query)}`, Math.max(at, 0));
@@ -3606,6 +3779,8 @@ class Compiler {
     if (ctx.tid >= 0) { this.report(el, null, 'SN102', '`<sn-sync>` cannot be inside a `<template>`', 0); return; }
     for (const a of el.attrs) if (a.name !== 'src') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-sync>\``, 0);
     const src = this.urlTemplate(el, 'src', ctx.scope);
+    // a stream of a configured API is an operation it declares (`operations`, as specs rarely describe streams)
+    if (this.opts.apis) this.apiCheck(el, 'src', 'get', this.lastPath);
     const events: EventDef[] = [];
     for (const c of el.childNodes) {
       if (!isElement(c)) {
@@ -4243,7 +4418,7 @@ class Compiler {
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
       reads.push(...strs(def.deps));
       url ||= codes.some((c) => c.includes('$url'));
-      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}) });
+      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(this.settingsOf(def.name) ? { a: this.settingsOf(def.name)! } : {}) });
     }
     if (!roots.some((n) => n.b.length) && !res.length) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
@@ -4306,7 +4481,7 @@ class Compiler {
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const res: PrefetchParts['res'] = [];
     for (const def of this.resources) {
-      if (def.call || def.each || def.data != null || def.paginate || !def.src.length) continue;
+      if (def.call || def.each || def.data != null || def.paginate || def.body != null || !def.src.length) continue;
       if (!strs(def.deps).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
       if (codes.some((c) => /\$\.\$(?!url\b)/.test(c) || builtin(c) || messages.some((m) => c.includes(`${m}$`)))) continue;
@@ -4366,6 +4541,7 @@ class Compiler {
       const described = parts && parts.length && parts.every((x) => x != null) && startUrl !== null;
       out.push({
         id: def.data, resource: def.name, src: described ? parts as EmbedSlot['src'] : null,
+        ...(this.apiOfResource.get(def.name)?.headers ? { headers: this.apiOfResource.get(def.name)!.headers } : {}),
         // a `when` that reads an array parameter is the browser's to evaluate
         ...(def.when != null ? { when: (!arrays.some((n) => readsParam(this.fns[def.when!]!, n)) && condOf(this.fns[def.when]!)) || true as const } : {}), ...(pg ? { query: Object.entries(firstParams(pg)) } : {}),
         ...(pg && startUrl ? { start: { url: startUrl, key: pg.offsetParam ?? pg.pageParam, size: pg.size, ...(pg.offsetParam ? { skip: true as const } : {}), query: Object.entries(pageParams(pg, 2)) } } : {}),
@@ -4461,7 +4637,7 @@ class Compiler {
     if (this.opts.early) {
       // another origin named in a `src`: its connection (DNS, TCP, TLS) is made while the page bundle downloads,
       // instead of when the first request leaves the runtime; anonymous, as the request layer and EventSource connect
-      const links = [...preconnects(this.resources, this.syncs).map((o) => `<link rel="preconnect" href="${esc(o)}" crossorigin>`), ...preloads(this.resources.filter((r) => !this.noEarly.has(r.name) && fixedRequest(r) && this.earlyOrigin(r.src))).map(({ url, lo }) => `<link rel="preload" as="fetch" crossorigin href="${esc(url)}"${lo ? ' fetchpriority="low"' : ''}>`)]
+      const links = [...preconnects(this.resources, this.syncs).map((o) => `<link rel="preconnect" href="${esc(o)}" crossorigin>`), ...this.preloadLinks()]
         .map((t) => parse5.parseFragment(t).childNodes[0] as P5Element);
       for (const l of links) l.parentNode = head;
       // after the leading <meta>s (charset first), before stylesheets and scripts

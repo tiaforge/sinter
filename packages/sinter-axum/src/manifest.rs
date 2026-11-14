@@ -75,6 +75,9 @@ pub(crate) struct SlotDesc {
     /// paginated, starting at the page a `$url` parameter names (`page-model`)
     #[serde(default)]
     pub start: Option<Start>,
+    /// the static headers of the resource's API (`sinter({ apis })`), sent with this crate's request
+    #[serde(default)]
+    pub headers: std::collections::BTreeMap<String, String>,
 }
 
 impl SlotDesc {

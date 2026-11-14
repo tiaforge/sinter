@@ -27,7 +27,9 @@ reload. See `docs/recipes/list-filter.html`.
 | Attribute | Meaning |
 | --- | --- |
 | `name` | Identifier used in expressions. Required, must be a valid JavaScript identifier. |
-| `src` | URL template, refetched when its interpolated values change. Required unless `call` is set. |
+| `src` | URL template, refetched when its interpolated values change. Required unless `call` is set. With [`sinter({ apis })`](apis.md) a path relative to an API (`/contacts`, `billing:/invoices`), checked against its spec. |
+| `method` | `POST` for an endpoint that loads data with a request body (search, reports). Default `GET`. Not with `cache`, `paginate` or `each` ([docs/apis.md](apis.md#resources-that-load-with-post)). |
+| `body` | With `method="POST"`: the request body, a value sent as JSON; the resource reloads when it changes. |
 | `call` | Instead of `src`: one call of a [local action](actions.md), `ns.fn(args)`. Reloads when the arguments' inputs change. |
 | `key` | Comma-separated item fields that form the identity. Required for collections; without it the resource is a single object. |
 | `items` | Path to the array in the response. Default: the response itself. |

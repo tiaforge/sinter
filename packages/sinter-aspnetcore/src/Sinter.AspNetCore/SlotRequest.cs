@@ -18,8 +18,9 @@ public sealed class SlotRequest : IAsyncDisposable
     private readonly IServiceScopeFactory _scopes;
     private AsyncServiceScope? _scope;
 
-    internal SlotRequest(HttpContext context, string page, string resource, string? url, IReadOnlyDictionary<string, UrlParam> @params, CancellationToken cancellation)
+    internal SlotRequest(HttpContext context, string page, string resource, string? url, IReadOnlyDictionary<string, UrlParam> @params, CancellationToken cancellation, KeyValuePair<string, string>[]? headers = null)
     {
+        StaticHeaders = headers ?? [];
         HttpContext = context;
         Page = page;
         Resource = resource;
@@ -31,6 +32,8 @@ public sealed class SlotRequest : IAsyncDisposable
 
     /// <summary>The page's file in the build (<c>index.html</c>).</summary>
     public string Page { get; }
+    /// <summary>The static headers of the resource's API (<c>sinter({ apis })</c>), sent with this layer's own request.</summary>
+    internal KeyValuePair<string, string>[] StaticHeaders { get; }
     /// <summary>The resource's name.</summary>
     public string Resource { get; }
     /// <summary>

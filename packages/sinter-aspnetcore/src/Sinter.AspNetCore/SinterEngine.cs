@@ -224,11 +224,11 @@ internal sealed partial class SinterEngine
             // a path of this origin; `//host` is another origin
             if (url.StartsWith('/') && !url.StartsWith("//"))
             {
-                if (o.Upstream is { } up) (body, why) = await GetAsync(up + url, r.HttpContext, forward: true, r.Cancellation).ConfigureAwait(false);
-                else if (o.InProcess && Api is { } api) (body, why) = await api.GetAsync(r.HttpContext, url, _forward, o.MaxBytes, r.Cancellation).ConfigureAwait(false);
+                if (o.Upstream is { } up) (body, why) = await GetAsync(up + url, r.HttpContext, forward: true, r.StaticHeaders, r.Cancellation).ConfigureAwait(false);
+                else if (o.InProcess && Api is { } api) (body, why) = await api.GetAsync(r.HttpContext, url, _forward, o.MaxBytes, r.Cancellation, r.StaticHeaders).ConfigureAwait(false);
                 else return Fill.Browser; // the startup check refuses a configuration without a source
             }
-            else if (Allowed(url)) (body, why) = await GetAsync(url, r.HttpContext, forward: false, r.Cancellation).ConfigureAwait(false);
+            else if (Allowed(url)) (body, why) = await GetAsync(url, r.HttpContext, forward: false, r.StaticHeaders, r.Cancellation).ConfigureAwait(false);
             else return Fill.Browser;
             if (body is { } b) return Fill.Of(b);
             Log.Failed(_log, r.Page, r.Resource, url, why ?? "no response");
@@ -246,12 +246,15 @@ internal sealed partial class SinterEngine
     }
 
     /// <summary>Over HTTP: the body of a 2xx JSON response within MaxBytes, else why not.</summary>
-    private async Task<(ReadOnlyMemory<byte>?, string?)> GetAsync(string url, HttpContext page, bool forward, CancellationToken ct)
+    private async Task<(ReadOnlyMemory<byte>?, string?)> GetAsync(string url, HttpContext page, bool forward, KeyValuePair<string, string>[] own, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         if (forward)
             foreach (var n in _forward)
                 if (page.Request.Headers.TryGetValue(n, out var v)) req.Headers.TryAddWithoutValidation(n, (IEnumerable<string?>)v);
+        // the API's static headers the request does not have already
+        foreach (var (k, v) in own)
+            if (!req.Headers.Contains(k)) req.Headers.TryAddWithoutValidation(k, v);
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         using var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode) return (null, $"status {(int)res.StatusCode}");

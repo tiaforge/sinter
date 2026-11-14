@@ -55,7 +55,11 @@ internal static class ManifestReader
         if (d.TryGetProperty("start", out var st) && st.ValueKind == JsonValueKind.Object)
             start = new ManifestStart(Str(st, "url"), Str(st, "key"), st.GetProperty("size").GetUInt64(),
                 st.TryGetProperty("skip", out var sk) && sk.ValueKind == JsonValueKind.True, Pairs(st, "query"));
-        return new ManifestSlot(d.GetProperty("id").GetInt32(), Str(d, "resource"), src, inBrowser, when, Pairs(d, "query"), start);
+        // `headers`: an object of the API's static headers (`sinter({ apis })`)
+        var headers = d.TryGetProperty("headers", out var h) && h.ValueKind == JsonValueKind.Object
+            ? h.EnumerateObject().Where(x => x.Value.ValueKind == JsonValueKind.String).Select(x => new KeyValuePair<string, string>(x.Name, x.Value.GetString()!)).ToArray()
+            : [];
+        return new ManifestSlot(d.GetProperty("id").GetInt32(), Str(d, "resource"), src, inBrowser, when, Pairs(d, "query"), start, headers);
     }
 
     private static UrlPart Part(JsonElement e) =>

@@ -53,6 +53,11 @@ export const CODES = {
   SN323: 'needs-site',
   SN324: 'lazy-package-use',
   SN325: 'lazy-package-bundled',
+  SN326: 'unknown-operation',
+  SN327: 'undeclared-query',
+  SN328: 'absolute-url',
+  SN329: 'api-config',
+  SN330: 'configured-shape',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',
@@ -69,6 +74,8 @@ export const CODES = {
   SN514: 'auto-fit-rows',
   SN515: 'redundant-path',
   SN516: 'unfed-live',
+  SN517: 'unkeyed-list',
+  SN518: 'redundant-shape',
 } as const;
 
 export type Code = keyof typeof CODES;

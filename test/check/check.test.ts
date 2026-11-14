@@ -513,23 +513,24 @@ export type { Kept } from './kept'; // export { Trailing }
 export type Also = '*/';`)).toEqual(['Also', 'H', 'Kept', 'Real']);
   });
 
-  test('the RealWorld example: untyped and typed from its OpenAPI spec, no false positives', () => {
+  test('the RealWorld example with its APIs (`examples/realworld/apis.js`): typed from its spec, no false positives', async () => {
     const root = join(import.meta.dirname, '../../examples/realworld');
     const pages = readdirSync(root).filter((f) => f.endsWith('.html'));
-    for (const openapi of [undefined, 'openapi.yml']) {
-      const p = projectOf(root, { openapi });
-      expect(p.diagnostics).toEqual([]);
-      const out = pages.map((f) => compile(p.readFile(join(root, f)), {
-        file: join(root, f), root, dev: false, helpers: p.helpers, readFile: p.readFile, check: true, openapi: p.openapi,
-      }));
-      expect(out.flatMap((o) => o.diagnostics).filter((d) => d.code !== 'SN504')).toEqual([]);
-      const units = out.map((o) => o.check!);
-      const r = check({ root, units, helpers: p.helpers, types: null, tsc, outDir: mkdtempSync(join(tmpdir(), 'sinter-check-rw-')), openapi: p.openapi });
-      expect(r.diagnostics).toEqual([]);
-      expect(units.reduce((n, u) => n + u.exprs.length, 0)).toBeGreaterThan(300);
-      expect([r.typed, r.openapi, r.resources]).toEqual(openapi ? [15, 15, 15] : [0, 0, 15]);
-    }
-  });
+    // the example's config module (its Vite config imports it; CI does not install the example's dependencies)
+    const config = '../../examples/realworld/apis.js';
+    const { apis } = (await import(config)) as { apis: NonNullable<Parameters<typeof projectOf>[1]>['apis'] };
+    const p = projectOf(root, { apis });
+    expect(p.diagnostics).toEqual([]);
+    const out = pages.map((f) => compile(p.readFile(join(root, f)), {
+      file: join(root, f), root, dev: false, helpers: p.helpers, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis,
+    }));
+    expect(out.flatMap((o) => o.diagnostics)).toEqual([]);
+    const units = out.map((o) => o.check!);
+    const r = check({ root, units, helpers: p.helpers, types: null, tsc, outDir: mkdtempSync(join(tmpdir(), 'sinter-check-rw-')), openapi: p.openapi });
+    expect(r.diagnostics).toEqual([]);
+    expect(units.reduce((n, u) => n + u.exprs.length, 0)).toBeGreaterThan(300);
+    expect([r.typed, r.openapi, r.resources]).toEqual([15, 15, 15]);
+  }, 30_000);
 });
 
 describe('OpenAPI types', () => {
@@ -617,7 +618,7 @@ components:`);
 
   test('SN307: a spec that is missing, not YAML, or not OpenAPI 3', () => {
     const root = project({ 'bad.yml': 'a: [', 'swagger.json': '{"swagger": "2.0", "paths": {}}' });
-    expect(projectOf(root, { openapi: ['missing.yml', 'bad.yml', 'swagger.json'] }).diagnostics.map((d) => [d.code, d.message.replace(/: .*$/s, '')])).toEqual([
+    expect(projectOf(root, { openapi: ['missing.yml', 'bad.yml', 'swagger.json'] }).diagnostics.filter((d) => d.code === 'SN307').map((d) => [d.code, d.message.replace(/: .*$/s, '')])).toEqual([
       ['SN307', 'OpenAPI spec `missing.yml` cannot be read'],
       ['SN307', 'OpenAPI spec `bad.yml` is not valid YAML'],
       ['SN307', 'OpenAPI spec `swagger.json` is not an OpenAPI 3 document (needs `openapi'],

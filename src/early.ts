@@ -268,7 +268,7 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
           if (r.sp) { const n = toPage(fns[r.sp.f]!(s)); if (n > 1) q = { ...r.sp.qn, [r.sp.k]: String(r.sp.o ? (n - 1) * r.sp.s : n) }; }
           const t = expand(r.src, s, fns), u = new URL(q ? params!(t, q) : t, here);
           // another origin only when the build found it in `sinter({ origins })` (`xo`)
-          if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env()))).add(u.href, r.lo);
+          if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env()))).add(u.href, r.lo, r.a);
         } catch { /* not known early: the page module requests it */ }
       }
     },
@@ -277,22 +277,24 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
 
 /**
  * The resource requests the early file started, by URL: each sent as the request layer sends a GET
- * with no middleware (Accept JSON, same-origin credentials), taken once by a request that is the
- * same at the end of the middleware chain.
+ * with no middleware (Accept JSON, its API's credentials and static headers, `a`), taken once by a
+ * request that is the same at the end of the middleware chain.
  */
 function pending(env: EarlyEnv): Prefetched {
-  const started = new Map<string, { res: Promise<Response>; c: AbortController }>();
+  const started = new Map<string, { res: Promise<Response>; c: AbortController; cr: RequestCredentials; h: Headers }>();
   return {
-    add(url: string, lo?: 1) {
+    add(url, lo, a) {
       if (started.has(url)) return;
-      const c = new AbortController(), res = env.fetch(new Request(url, { headers: { Accept: 'application/json' }, credentials: 'same-origin', signal: c.signal, ...(lo ? { priority: 'low' } : {}) } as RequestInit));
+      const h = new Headers(a?.h), cr = a?.c ?? 'same-origin';
+      h.has('Accept') || h.set('Accept', 'application/json');
+      const c = new AbortController(), res = env.fetch(new Request(url, { headers: h, credentials: cr, signal: c.signal, ...(lo ? { priority: 'low' } : {}) } as RequestInit));
       res.catch(() => {});
-      started.set(url, { res, c });
+      started.set(url, { res, c, cr, h });
     },
     take(req: Request, signal: AbortSignal) {
       const e = started.get(req.url), h = [...req.headers];
       // a middleware that changed the request (a header, credentials) gets a request of its own
-      if (!e || req.method != 'GET' || req.credentials != 'same-origin' || h.length != 1 || h[0]![0].toLowerCase() != 'accept' || h[0]![1] != 'application/json') return null;
+      if (!e || req.method != 'GET' || req.credentials != e.cr || h.length != [...e.h].length || h.some(([k, v]) => e.h.get(k) !== v)) return null;
       started.delete(req.url);
       const abort = () => e.c.abort(signal.reason);
       signal.aborted ? abort() : signal.addEventListener('abort', abort, { once: true });

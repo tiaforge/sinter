@@ -21,7 +21,9 @@ reported. Nothing else to write.
 ## Sending a request
 
 One method attribute per element: `data-sn-get`, `-post`, `-put`, `-patch` or `-delete`, with a URL
-template (`{c.id}` reads the row in scope). Add other attributes as needed:
+template (`{c.id}` reads the row in scope). With [`sinter({ apis })`](apis.md) it is a path relative to
+an API (`data-sn-delete="/contacts/{c.id}"`), and the operation must be one the API declares. Add other
+attributes as needed:
 
 | Attribute | Does |
 | --- | --- |
@@ -223,7 +225,7 @@ URL and body which resources and rows the action reads.
 | Update | a `PUT` or `PATCH` | the body patches the entity the URL named |
 | Delete | a `DELETE` of that list's URL plus one path segment, built from a row | the row is removed |
 
-- The first three need your OpenAPI spec (`sinter({ openapi })`). Without one you still get Delete,
+- The first three need your OpenAPI spec (`sinter({ apis })`, [docs/apis.md](apis.md)). Without one you still get Delete,
   and Update when every body key is a field the row already has.
 - Patches merge: fields the response omits stay.
 - Nothing is matched by type alone. A response `Article` does not replace the single resource

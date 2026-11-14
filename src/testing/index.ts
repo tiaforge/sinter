@@ -4,6 +4,8 @@
 import { compileParts } from '../compiler/compile.js';
 import { earlyPage } from '../compiler/index.js';
 import { formatDiagnostic } from '../compiler/diagnostics.js';
+import { apiOrigins, resolveApis, type ApiOptions, type ApisDef } from '../compiler/apis.js';
+import type { OpenApiSpec } from '../compiler/openapi.js';
 import { compactIR } from '../ir.js';
 import type { CompiledParts, HelperManifest } from '../compiler/compile.js';
 import * as earlyExports from '../early.js';
@@ -242,6 +244,12 @@ export interface RenderOptions {
   pages?: Record<string, string>;
   /** an OpenAPI 3 document (parsed), as `sinter({ openapi })` gives the compiler: types resources and actions, and write-through knows the entities */
   openapi?: unknown;
+  /**
+   * the app's APIs, as `sinter({ apis })` (docs/apis.md), each spec a parsed OpenAPI 3 document: paths
+   * on the page are relative to them, and requests carry their credentials and headers
+   */
+  apis?: Record<string, Omit<ApiOptions, 'openapi'> & { openapi?: unknown }>;
+  defaultApi?: string;
   /** images from the API, as `sinter({ images: { remote } })`: a bound `<img src>` gets the service's `srcset` */
   remoteImages?: RemoteImages;
   /** the page's stylesheets, for the boxes of its images (as the Vite plugin reads them from the page) */
@@ -349,7 +357,7 @@ function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () 
   runEarly(document, made);
 }
 
-function compilePage(html: string, options: RenderOptions): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown> } {
+function compilePage(html: string, options: RenderOptions): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown>; apis: ApisDef | null } {
   const helpers = options.helpers ?? {};
   const manifest: HelperManifest = { module: null, names: [], namespaces: {} };
   for (const [k, v] of Object.entries(helpers)) {
@@ -366,6 +374,7 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
   for (const [name, text] of Object.entries(options.components ?? {})) files[`src/components/${name}.html`] = text;
   for (const [name, text] of Object.entries(options.layouts ?? {})) files[`src/layouts/${name}.html`] = text;
   for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= 'export default class {}';
+  const apis = options.apis ? testApis(options) : null;
   const parts = compileParts(html, {
     file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank', componentNames: Object.keys(options.components ?? {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
@@ -378,14 +387,23 @@ function compilePage(html: string, options: RenderOptions): { parts: CompiledPar
     },
     // compiled as a build does (both passes: build-time constants, decided branches, unrolled loops); `firstPaint` runs the early chunk
     prerender: true, ...(options.firstPaint ? { early: { module: null } } : {}),
-    ...(options.openapi ? { openapi: [{ file: 'openapi.yml', doc: options.openapi }] } : {}),
+    ...(apis ? { openapi: apis.specs, apis: apis.apis } : options.openapi ? { openapi: [{ file: 'openapi.yml', doc: options.openapi }] } : {}),
     ...(options.remoteImages ? { remoteImages: resolveRemote(options.remoteImages) } : {}),
     // static images stay as written in tests (no files to encode); the stylesheets size bound ones
     ...(options.css ? { images: { info: () => null, url: () => '', styles: [{ file: 'test.css', css: options.css }] } } : {}),
   });
   const errors = parts.diagnostics.filter((d) => d.severity === 'error');
   if (errors.length) throw new Error(`sinter: build failed\n${errors.map(formatDiagnostic).join('\n')}`);
-  return { parts, manifest, actions };
+  return { parts, manifest, actions, apis: apis?.apis ?? null };
+}
+
+/** `apis` of the render options, resolved as the project resolves `sinter({ apis })`; an invalid one throws. */
+function testApis(options: RenderOptions): { specs: OpenApiSpec[]; apis: ApisDef | null } {
+  const specs: OpenApiSpec[] = [];
+  const r = resolveApis({ apis: options.apis as Record<string, ApiOptions>, ...(options.defaultApi ? { defaultApi: options.defaultApi } : {}) },
+    (doc) => { specs.push({ file: 'openapi.yml', doc }); return specs.length - 1; }, specs, 'vite.config.js');
+  if (r.diagnostics.length) throw new Error(`sinter: ${r.diagnostics.map(formatDiagnostic).join('\n')}`);
+  return { specs, apis: r.apis };
 }
 
 /** The compiled page into the test document; the `<html>` element's own attributes as the browser has them. */
@@ -407,7 +425,11 @@ export async function render(html: string, options: RenderOptions = {}): Promise
 
   // compile with the real compiler
   const helpers = withMessages(options);
-  const { parts, actions } = compilePage(html, { ...options, helpers });
+  const { parts, actions, apis } = compilePage(html, { ...options, helpers });
+  // the page module's `$apis`: each API's base, credentials and headers
+  config.apis = apis?.list.map((a) => ({ n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) })) ?? [];
+  // and their origins join the allowlist, as the page module's `$origins` does
+  if (apis) config.origins = [...new Set([...config.origins, ...apiOrigins(apis)])];
 
   // function table, with helpers and namespace members in scope
   const names: string[] = ['$k'];

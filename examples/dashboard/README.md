@@ -6,8 +6,10 @@ Four services with made-up metrics, live. One HTML page, no framework, no store:
 
 - **The backend describes itself.** `server/openapi.yml` is the API's OpenAPI file; `server/api.js`
   serves it at `/api/openapi.yml` and implements it. The frontend reads the same file at build
-  time (`sinter({ openapi })`), so `<sn-resource src="/api/services">` needs no `type`: it is
-  `listServices`.
+  time (`sinter({ apis: { dashboard: { openapi } } })`): pages write paths relative to its server,
+  `/api`, so `<sn-resource src="/services">` needs no `type` (it is `listServices`), and a path or
+  query parameter the spec does not have fails the build. The event stream is not in the spec, so
+  the config declares it.
 - **Samples are a resource, and each event is one new sample.** `samples` (`GET /api/samples`) is the last
   30 seconds, loaded once. Four times a second `server/api.js` makes up the next sample of each running
   service (a random step, now and then a slow, failing spell) and sends it as a `sample` event (about 150

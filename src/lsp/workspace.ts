@@ -200,7 +200,7 @@ export class Workspace {
       }
       try {
         const out = compile(html, {
-          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles, lazy: p.lazy,
+          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles, lazy: p.lazy,
           ...(!component && p.isStatic(page) ? { static: true, prerender: true } : {}),
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));
@@ -233,7 +233,7 @@ export class Workspace {
       let html: string;
       try { html = page === file ? text : this.read(page); } catch { continue; }
       try {
-        const r = compile(html, { file: page, root: state.root, dev: false, helpers, actions, config: p.config, readFile, check: true, openapi: p.openapi });
+        const r = compile(html, { file: page, root: state.root, dev: false, helpers, actions, config: p.config, readFile, check: true, openapi: p.openapi, apis: p.apis });
         out.push(...r.diagnostics.filter((d) => d.severity === 'error' && d.file === file));
       } catch (e) {
         out.push({ severity: 'error', code: 'SN401', message: (e as Error).message, file, line: 1, col: 1 });

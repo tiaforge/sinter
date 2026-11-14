@@ -9,6 +9,8 @@ export interface OpenApiSpec {
   file: string;
   /** the parsed document (OpenAPI 3.0 or 3.1) */
   doc: unknown;
+  /** a document generated from `sinter({ apis })`: the API whose `operations` it holds (`file` is the Vite config) */
+  config?: string;
 }
 
 export interface OpenApiMatch {
@@ -19,6 +21,10 @@ export interface OpenApiMatch {
   body: unknown;
   /** names of the query parameters the operation declares */
   query: string[];
+  /** the declared query parameters that are required */
+  required: string[];
+  /** query parameters declared with `style: deepObject` (`filter[name]=…`) */
+  deep: string[];
   /** schema of the JSON request body, or null */
   request: unknown;
 }
@@ -102,13 +108,17 @@ export function matchResource(specs: OpenApiSpec[], src: UrlTemplate): OpenApiMa
   return matchOperation(specs, src, 'get');
 }
 
-/** The operation a request with this method and URL template calls. */
-export function matchOperation(specs: OpenApiSpec[], src: UrlTemplate, method: Method): OpenApiMatch | { closest: string | null } {
+/**
+ * The operation a request with this method and URL template calls. `only`: the specs of one API
+ * (`sinter({ apis })`), whose paths the template is written relative to (no server prefix).
+ */
+export function matchOperation(specs: OpenApiSpec[], src: UrlTemplate, method: Method, only?: number[]): OpenApiMatch | { closest: string | null } {
   const { path } = flatten(src);
   let best: { spec: number; path: string; score: number } | null = null;
   specs.forEach((spec, i) => {
     if (!isObj(spec.doc) || !isObj(spec.doc.paths)) return;
-    for (const rest of relativePaths(spec.doc, path)) {
+    if (only && !only.includes(i)) return;
+    for (const rest of only ? [path] : relativePaths(spec.doc, path)) {
       const segs = segments(rest);
       for (const [key, item] of Object.entries(spec.doc.paths)) {
         if (!isObj(item) || !isObj(item[method])) continue;
@@ -119,7 +129,7 @@ export function matchOperation(specs: OpenApiSpec[], src: UrlTemplate, method: M
   });
   if (!best) {
     const want = path.replace(/^https?:\/\/[^/]+/i, '').split(INTERP).join('{}');
-    const keys = specs.flatMap((s) => (isObj(s.doc) && isObj(s.doc.paths) ? Object.keys(s.doc.paths) : []));
+    const keys = specs.flatMap((s, i) => (isObj(s.doc) && isObj(s.doc.paths) && (!only || only.includes(i)) ? Object.keys(s.doc.paths).filter((k) => !only || isObj((s.doc as Json & { paths: Json }).paths[k]) && isObj(((s.doc as Json & { paths: Json }).paths[k] as Json)[method])) : []));
     const norm = new Map(keys.map((k) => [k.replace(/\{[^}]+\}/g, '{}'), k]));
     // the request path still carries the server prefix; compare its tails too
     const tails = want.split('/').map((_, i, a) => '/' + a.slice(i).join('/'));
@@ -131,9 +141,14 @@ export function matchOperation(specs: OpenApiSpec[], src: UrlTemplate, method: M
   const doc = specs[spec]!.doc as Json;
   const item = deref(doc, (doc.paths as Json)[key])!;
   const op = deref(doc, item[method])!;
-  const params = [...(Array.isArray(item.parameters) ? item.parameters : []), ...(Array.isArray(op.parameters) ? op.parameters : [])]
-    .map((p) => deref(doc, p)).filter((p): p is Json => !!p && p.in === 'query').map((p) => String(p.name));
-  return { spec, path: key, body: responseSchema(doc, op), query: params, request: jsonSchema(doc, deref(doc, op.requestBody)) };
+  const declared = [...(Array.isArray(item.parameters) ? item.parameters : []), ...(Array.isArray(op.parameters) ? op.parameters : [])]
+    .map((p) => deref(doc, p)).filter((p): p is Json => !!p && p.in === 'query');
+  const params = declared.map((p) => String(p.name));
+  return {
+    spec, path: key, body: responseSchema(doc, op), query: params, request: jsonSchema(doc, deref(doc, op.requestBody)),
+    required: declared.filter((p) => p.required === true).map((p) => String(p.name)),
+    deep: declared.filter((p) => p.style === 'deepObject').map((p) => String(p.name)),
+  };
 }
 
 function responseSchema(doc: Json, op: Json): unknown {

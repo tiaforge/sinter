@@ -126,7 +126,7 @@ export interface Embed {
 
 type Part = string | { url: string };
 type Cond = { url: string; eq?: string; ne?: string } | { not: Cond } | { and: Cond[] } | { or: Cond[] };
-interface Slot { id: number; resource: string; src: Part[] | null; when?: true | Cond; query?: Array<[string, string]>; start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> } }
+interface Slot { id: number; resource: string; src: Part[] | null; when?: true | Cond; query?: Array<[string, string]>; start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> }; headers?: Record<string, string> }
 interface Route { from: string; to: string; status: number; file?: string; choose?: true }
 interface Manifest { version: number; pages: Array<{ file: string; paths: string[]; arrays?: string[]; data: Slot[] }>; routes?: Route[]; locales?: { base: string; list: string[]; at?: string } }
 interface Page { file: string; paths: string[]; arrays?: string[]; parts: Uint8Array[]; slots: Slot[] }
@@ -384,8 +384,9 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
     return h;
   }
 
-  /** the data for one placeholder; never rejects */
-  async function fill(req: SlotRequest, api: Handler, rest: any[]): Promise<Fill> {
+  /** the data for one placeholder; never rejects. `own`: the static headers of the resource's API (`sinter({ apis })`) */
+  async function fill(req: SlotRequest, api: Handler, rest: any[], own?: Record<string, string>): Promise<Fill> {
+    const withOwn = (h: Headers) => { for (const k in own) h.has(k) || h.set(k, own[k]!); return h; };
     const entry = data[`${req.page}:${req.resource}`] ?? data[req.resource];
     let got: Uint8Array | string | null;
     try {
@@ -393,9 +394,9 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
       if (entry) got = await value(await entry(req));
       else if (req.url == null) return null; // no request at this URL (its `when` does not hold)
       else if (sameOrigin(req.url)) {
-        const init = { headers: forwarded(req.request.headers), signal: req.signal };
+        const init = { headers: withOwn(forwarded(req.request.headers)), signal: req.signal };
         got = upstream != null ? await body(await fetchFn(upstream + req.url, init)) : await body(await api(new Request(originOf(req.request.url) + req.url, init), ...rest), true);
-      } else if (allowed(req.url)) got = await body(await fetchFn(req.url, { headers: { accept: 'application/json' }, signal: req.signal }));
+      } else if (allowed(req.url)) got = await body(await fetchFn(req.url, { headers: withOwn(new Headers({ accept: 'application/json' })), signal: req.signal }));
       else return null;
     } catch (e) {
       if (req.signal.aborted) return 504;
@@ -429,7 +430,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
     // each placeholder's fill, and whether it is in yet (a promise cannot be asked)
     const got: Fill[] = new Array(page.slots.length), has: boolean[] = new Array(page.slots.length).fill(false);
     const fills = page.slots.map((s, k) =>
-      Promise.race([fill({ page: page.file, resource: s.resource, url: describedUrl(s, params), params, request, signal }, api, rest).then((f) => { pending--; got[k] = f; has[k] = true; return f; }), late]));
+      Promise.race([fill({ page: page.file, resource: s.resource, url: describedUrl(s, params), params, request, signal }, api, rest, s.headers).then((f) => { pending--; got[k] = f; has[k] = true; return f; }), late]));
     // the page is out (or ended early): stop whatever is still fetching
     const done = () => {
       clearTimeout(timer);

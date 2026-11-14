@@ -8,17 +8,17 @@
     </div>
     <template data-sn-if="user && user.username == article.author.username">
       <a class="btn btn-outline-secondary btn-sm" data-sn-attr="{href: '/editor/' + encodeURIComponent(article.slug)}"><i class="ion-edit"></i> Edit Article</a>
-      <button class="btn btn-outline-danger btn-sm" data-sn-delete="https://api.realworld.show/api/articles/{article.slug}"
+      <button class="btn btn-outline-danger btn-sm" data-sn-delete="/articles/{article.slug}"
               data-sn-then="emit('navigate', '/')"><i class="ion-trash-a"></i> Delete Article</button>
     </template>
     <template data-sn-else>
       <template data-sn-if="article.author.following">
-        <button class="btn btn-sm btn-secondary" data-sn-delete="https://api.realworld.show/api/profiles/{article.author.username}/follow">
+        <button class="btn btn-sm btn-secondary" data-sn-delete="/profiles/{article.author.username}/follow">
           <i class="ion-plus-round"></i> <span data-sn-text="'Unfollow ' + article.author.username"></span>
         </button>
       </template>
       <template data-sn-else>
-        <button class="btn btn-sm btn-outline-secondary" data-sn-post="https://api.realworld.show/api/profiles/{article.author.username}/follow">
+        <button class="btn btn-sm btn-outline-secondary" data-sn-post="/profiles/{article.author.username}/follow">
           <i class="ion-plus-round"></i> <span data-sn-text="'Follow ' + article.author.username"></span>
         </button>
       </template>

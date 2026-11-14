@@ -25,7 +25,8 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `src/sinter.config.js` | JWT middleware (`localStorage.jwtToken`), current-user error handling | |
 | `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `window.__conduit_debug__` | |
 | `src/markdown.js` | `<conduit-markdown>` (marked + DOMPurify, requested when the module runs; `rendered` once the body is in, and `public/styles.css` keeps what follows it out of the layout until then: no shift), loaded by `article.html` only, through the layout's head slot | |
-| `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ openapi, origins })` (the API's origin: allowed on every page, its requests start before the stylesheets) | |
+| `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ apis })` | |
+| `apis.js` | the API (`sinter({ apis })`): its spec and what each endpoint returns; pages write paths (`src="/articles"`), its origin is allowed on every page and its requests start before the stylesheets | |
 | `openapi.yml` | the Conduit API spec ([realworld-apps/realworld](https://github.com/realworld-apps/realworld), MIT), which types every resource for `npx sinter check` | |
 
 Everything the pages' expressions cannot do (storage, navigation, HTML rendering) lives in the
@@ -89,8 +90,7 @@ API=http://localhost:8000/api CHROME=/path/to/chrome ./e2e-local.sh
 ```
 
 `e2e-local.sh` seeds the demo users the suite expects (`johndoe`, `janedoe`), builds a copy of the
-app pointing at `$API` (its `sinter({ origins })` in `vite.config.js` and its `openapi.yml`, whose
-operations are matched under the spec's `servers` URL), points the specs that hardcode
+app pointing at `$API` (the `servers` URL of its `openapi.yml`, which is the API's base in `apis.js`), points the specs that hardcode
 `https://api.realworld.show` for their route mocks (`error-handling`, `user-fetch-errors`,
 `health`) at `$API` in that copy, runs the suite and leaves `test-results/` behind.
 

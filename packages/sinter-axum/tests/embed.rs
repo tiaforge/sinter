@@ -216,6 +216,24 @@ async fn a_paginated_resource_is_requested_at_its_first_page() {
 }
 
 #[tokio::test]
+async fn the_static_headers_of_the_resources_api_go_with_its_request() {
+    // `sinter({ apis: { main: { headers: { 'X-Api': '2' } } } })`: the manifest lists them per placeholder
+    let dir = build(
+        "headers",
+        r#"{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+          { "id": 0, "resource": "v", "src": ["/api/version"], "headers": { "X-Api": "2" } } ] } ] }"#,
+        &[("index.html", r#"<head><script type="application/json" data-sn="0"></script></head>"#)],
+    );
+    let api = Router::new().route(
+        "/api/version",
+        get(|h: HeaderMap| async move { json(format!(r#"{{"x":"{}"}}"#, h.get("x-api").and_then(|v| v.to_str().ok()).unwrap_or("-"))) }),
+    );
+    let (_, _, html) =
+        text(Router::new().fallback(|| async { "static file" }).layer(Embed::from_dir(dir).api(api).build().unwrap()), get_("/")).await;
+    assert!(html.contains(r#"{"x":"2"}"#), "{html}");
+}
+
+#[tokio::test]
 async fn an_array_parameter_is_a_list() {
     let dir = build(
         "arrays",

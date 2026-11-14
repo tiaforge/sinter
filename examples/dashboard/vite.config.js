@@ -7,7 +7,9 @@ export default defineConfig({
   plugins: [
     // The backend describes itself in server/openapi.yml: every resource is typed from it, and the
     // build checks each expression in index.html against it (typecheck). A wrong field name fails it.
-    sinter({ openapi: 'server/openapi.yml', typecheck: true }),
+    // the API: paths on the page (`src="/services"`) are relative to its base, `/api` (the spec's server), and
+    // checked against the spec; the event stream is not in the spec, so it is declared here
+    sinter({ apis: { dashboard: { openapi: 'server/openapi.yml', operations: { 'GET /events': {} } } }, typecheck: true }),
     // Checks the markup's data-* attributes: a wrong value fails the build and warns in dev. `inspect` also audits the
     // rendered page in dev (overflow, contrast, clipped text) and prints findings in the terminal.
     temper({ inspect: true }),

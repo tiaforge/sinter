@@ -1,6 +1,6 @@
 export { mount, instance, type App, type CallContext, type Feature, type MountOptions, type Transport } from './runtime/app.js';
 export {
-  configure, $origins, credentials, header, onUnauthorized, loginRedirect, takeReturnUrl, clearPersisted, SinterError,
+  configure, $origins, $apis, apiOf, credentials, header, onUnauthorized, loginRedirect, takeReturnUrl, clearPersisted, SinterError,
   type Config, type Middleware, type LoginRedirectOptions,
 } from './runtime/config.js';
 export type { Resource, Change, Meta } from './runtime/store.js';

@@ -153,11 +153,11 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   return lines;
 }
 
-export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale'>): string {
+export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis'>): string {
   return pageLines(parts, options).text();
 }
 
-function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale'>): MappedLines {
+function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis'>): MappedLines {
   const lines = new MappedLines();
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
@@ -203,6 +203,11 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   if (options.config) lines.push(`import ${JSON.stringify(options.config)};`);
   // the build's origins join the runtime's allowlist, after the app's config module (imports run first): listed once
   if (options.origins?.length) lines.push(`import { $origins } from '${PACKAGE}';`, `$origins(${JSON.stringify(options.origins)});`);
+  // `sinter({ apis })`: the runtime sends each API's credentials and headers, and `apiOf(url)` names a request's API
+  if (options.apis?.list.length) {
+    const table = options.apis.list.map((a) => ({ n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) }));
+    lines.push(`import { $apis } from '${PACKAGE}';`, `$apis(${JSON.stringify(table)});`);
+  }
   // images from the API: the resizing service's URLs (docs/images.md, step 2)
   if (parts.remote) lines.push(`import { remote } from '${PACKAGE}/remote';`);
   lines.push('');

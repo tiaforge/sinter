@@ -74,7 +74,9 @@ sinter: 1 placeholder(s) have no source:
 ## Where the data comes from
 
 The build records each page's API requests, including the first page of a paginated list and simple
-`when` conditions on the URL. The layer makes them with the browser runtime's own URL code, so they are
+`when` conditions on the URL, and the static `headers` of each request's [API](apis.md), which the layer
+sends with its own request (as do sinter-axum and Sinter.AspNetCore). A `method="POST"`
+resource is left to the browser. The layer makes them with the browser runtime's own URL code, so they are
 exactly the requests the page would have made.
 
 | Your API | Configure |

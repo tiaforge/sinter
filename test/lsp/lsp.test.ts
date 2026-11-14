@@ -418,6 +418,69 @@ components:
     expect(d!.map((x) => [x.uri.split('/').pop(), x.range.start.line, x.range.start.character])).toEqual([['openapi.yml', 18, 8]]);
   });
 
+  describe('paths to an API', () => {
+    const spec = readFileSync(join(process.cwd(), 'test/fixtures/apis-openapi.yml'), 'utf8');
+    const config = `import sinter from ${JSON.stringify(join(process.cwd(), 'src/vite.ts'))};
+export default { plugins: [sinter({ apis: {
+  main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } } },
+  billing: { base: '/billing', operations: { 'GET /invoices': { type: 'any' } } },
+}, defaultApi: 'main' })] };
+`;
+    const open = async (page: string, capabilities?: object) => {
+      const root = project({ 'openapi.yml': spec, 'index.html': page, 'vite.config.js': config });
+      const e = await editor(root, capabilities ? { capabilities } : {});
+      e.open('index.html', page);
+      return e;
+    };
+    const SNIPPETS = { textDocument: { completion: { completionItem: { snippetSupport: true } } } };
+
+    test('completion: the operations, matched in the middle of the path and ranked; snippets for parameters', async () => {
+      const page = '<sn-resource name="x" src="tact"></sn-resource>\n';
+      const e = await open(page, SNIPPETS);
+      const r = (await e.completion('index.html', 0, 31)) as unknown as { isIncomplete: boolean; items: Array<{ label: string; textEdit: { newText: string }; insertTextFormat?: number; filterText: string }> };
+      expect(r.isIncomplete).toBe(true);
+      expect(r.items.map((i) => i.label)).toEqual(['/contacts', '/contacts/{id}']);
+      expect(r.items[1]!.textEdit.newText).toBe('/contacts/{${1:id}\\}');
+      expect([r.items[1]!.insertTextFormat, r.items[1]!.filterText]).toEqual([2, 'tact']);
+      // another API's, by its name; without snippets, empty braces
+      const e2 = await open('<sn-resource name="x" src="inv"></sn-resource>\n<button data-sn-delete="/con"></button>\n');
+      expect((await e2.completion('index.html', 0, 30))!.items.map((i) => i.label)).toEqual(['billing:/invoices']);
+      expect((await e2.completion('index.html', 1, 28))!.items.map((i) => [i.label, i.textEdit!.newText])).toEqual([['/contacts/{id}', '/contacts/{}']]);
+    });
+
+    test('completion after ? offers the declared query parameters; inside {…} it is TypeScript\'s', async () => {
+      const e = await open('<sn-resource name="x" src="/contacts?"></sn-resource>\n<sn-resource name="y" src="/contacts/{abc}"></sn-resource>\n');
+      expect((await e.completion('index.html', 0, 37))!.items.map((i) => [i.label, i.textEdit!.newText])).toEqual([['q', 'q='], ['limit', 'limit=']]);
+      const inside = await e.completion('index.html', 1, 41);
+      expect(inside?.items.some((i) => i.label.startsWith('/')) ?? false).toBe(false);
+    });
+
+    test('hover: the method and absolute URL with the page\'s values, the operation and its shape', async () => {
+      const e = await open('<sn-resource name="contacts" src="/contacts?q={1}"></sn-resource>\n');
+      const h = (await e.hover('index.html', 0, 36))!.contents.value;
+      expect(h).toContain('**GET** `https://api.example.com/v1/contacts?q={1}`');
+      expect(h).toContain('`/contacts` of the API `main`');
+      expect(h).toContain('All contacts');
+      expect(h).toContain('`items`: `contacts` (main.defaults) · `key`: `id` (main.defaults) · `type`: `Contact[]` (spec)');
+    });
+
+    test('go to definition: the path in the spec, the key in the config', async () => {
+      const e = await open('<sn-resource name="c" src="/contacts"></sn-resource>\n<sn-resource name="i" src="billing:/invoices"></sn-resource>\n');
+      expect((await e.definition('index.html', 0, 30))!.map((d) => [d.uri.split('/').pop(), d.range.start.line])).toEqual([['openapi.yml', 4]]);
+      expect((await e.definition('index.html', 1, 35))!.map((d) => [d.uri.split('/').pop(), d.range.start.line])).toEqual([['vite.config.js', 3]]);
+    });
+
+    test('quick fixes: the suggested path keeping the page\'s values, the API-relative path, removing a configured shape', async () => {
+      const e = await open('<sn-resource name="c" src="/contcts/{c.id}"></sn-resource><sn-resource name="a" src="https://api.example.com/v1/contacts"></sn-resource><sn-resource name="k" src="/contacts" key="id"></sn-resource><p data-sn-text="c.name + a.length + k.length"></p>\n');
+      const d = await e.diagnostics('index.html', (x) => x.length >= 3);
+      const fix = async (code: string) => (await e.codeActions('index.html', d.filter((x) => x.code.startsWith(code))))[0]!;
+      expect(Object.values((await fix('SN326')).edit.changes)[0]![0]!.newText).toBe('src="/contacts/{c.id}"');
+      expect(Object.values((await fix('SN328')).edit.changes)[0]![0]!.newText).toBe('src="/contacts"');
+      const remove = await fix('SN518');
+      expect([remove.title, Object.values(remove.edit.changes)[0]![0]!.newText]).toEqual(['Remove `key` (configured)', '']);
+    });
+  });
+
   test('go to definition on a component\'s tag opens the component', async () => {
     const page = '<x-row></x-row>\n';
     const root = project({ 'index.html': page, 'src/components/x-row.html': '<template data-sn-component=""><p>row</p></template>\n' });
