@@ -337,8 +337,19 @@ export function parseModule(source: string, file: string): acorn.Program {
   return tsParser.parse(source, options) as acorn.Program;
 }
 
+// the helpers and actions manifests are read for every page and hook: a module is parsed once per file and text
+const exportsCache = new Map<string, { source: string; exports: ModuleExports }>();
+
 /** Value exports only: type-only exports (`export type`, `export interface`, `export { type X }`) are skipped. */
 function exportsOf(source: string, file: string): ModuleExports {
+  const hit = exportsCache.get(file);
+  if (hit?.source === source) return hit.exports;
+  const exports = parseExports(source, file);
+  exportsCache.set(file, { source, exports });
+  return exports;
+}
+
+function parseExports(source: string, file: string): ModuleExports {
   const ast = parseModule(source, file);
   const names: string[] = [];
   const namespaces: Array<[string, string]> = [];
