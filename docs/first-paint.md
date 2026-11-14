@@ -12,7 +12,7 @@ What can be in the first frame depends on where the value comes from:
 | A literal `data-sn-state` field | yes, even without scripts | [Build-time constants](#build-time-constants) |
 | Messages, persisted values, helpers, `$locale`, the URL (`$url`) | yes | [The early script](#the-early-script) |
 | Your API, with the server layer | yes | [Embedded data](#embedded-data) |
-| Your API, without it | after one round trip, started before the page script runs | [Requests start early](#requests-start-early) |
+| Your API, without it | after one round trip, started before the page script runs | [Requests start early](#requests-start-early); its list's space and its loading branch are in the first frame: [reserved space](#reserved-space) |
 
 ## Build-time constants
 
@@ -57,6 +57,8 @@ the first paint:
 - state fields initialized by helpers or `$locale`
 - the URL: `$url`'s query and its `data-sn-path` parameters (the current nav item, a tab from `?feed=`)
 - `data-sn-if` branches over that state
+- a resource's status before its data: no rows yet, and loading when it will load (`$meta.<name>.loading`,
+  `.error`, `.loadedAt`), so a "Loading…" branch is in the first frame ([below](#loading-branches))
 - your own code in `src/sinter.early.ts`
 
 Each page gets two small classic scripts first in the head, before the stylesheets: one shared by
@@ -68,7 +70,7 @@ the element exists; its content once the parser has closed it.
 The runtime then takes over: on mount it computes the same values, writes nothing new, and nothing
 flashes or resets. Early code runs once and keeps no listeners.
 
-What waits for the page script: `$url`, `$now`, `$meta`, `$el`, loop variables, store functions and
+What waits for the page script: `$url`, `$now`, `$meta` (but a resource's status before its data, [below](#loading-branches)), `$el`, loop variables, store functions and
 the built-in formatters (`date()` and friends, which use the locale the runtime configures).
 
 ### Your own early code
@@ -237,6 +239,81 @@ first paint's path: `sinter({ lazy: ['openpgp'] })` loads it on first call. Per 
 `data-sn-import="openpgp"` loads it once the page has taken over, and `data-sn-preload="openpgp"`
 fetches it with the page, for pages whose first content needs it. See [lazy packages](lazy.md).
 
+## Reserved space
+
+Without embedded data, a list's rows arrive one round trip after the first paint, and everything
+below the list moves down to make room for them. For a list whose size the stylesheets give, the
+build holds that room from the first frame:
+
+```html
+<sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="12"></sn-resource>
+<ul><template data-sn-for="p in people"><li class="row" data-sn-text="p.name"></li></template></ul>
+```
+
+```css
+.row { height: 56px; border-bottom: 1px solid #ddd }
+```
+
+The built page has an empty, `aria-hidden` element after the template, 12 × 57 px tall (from a rule in the
+page's stylesheet: no inline style, nothing for a CSP to allow). The page module removes it in the same
+update that inserts the rows, or when the load ends empty or fails. Nothing moves when the rows arrive.
+
+How many rows: a paginated resource's `page-size`, or the number on the template
+(`data-sn-reserve="10"`), for a list without pages. `data-sn-reserve="off"` turns it off for one list.
+
+How tall: what the stylesheets say about the row, at each screen width the media queries split.
+
+- A height the stylesheets fix (`height`, `block-size`, a grid's `grid-auto-rows`) is exact: the rows
+  take exactly the space held.
+- Otherwise the space is a lower bound, never taller than the rows: a bound text counts as one
+  line, a `data-sn-if` or `data-sn-show` inside the row, a nested list, a float or anything the
+  cascade cannot decide counts as nothing. Lines follow `line-height`; `normal` is read from the
+  font's file when the build has it (a local `@font-face`, Fontsource, Google Fonts), else counts as
+  the font size. Text that wraps makes the rows taller than the space, and what follows moves by the
+  difference, not by the whole list.
+- Rows stacked in a block or a flex column, with their margins (collapsing) and gaps, and rows in a
+  grid: the placeholder spans the grid rows the items fill, over every column (`auto-fill` and
+  `auto-fit` columns are counted at each width).
+
+When fewer rows arrive than were held (the last page, an empty list), what follows moves up by
+what is missing. Measured with the API answering after 500 ms (Chromium, a list of 12 rows of 56 px
+with content below it):
+
+| Rows that arrive | Layout shift without | With reserved space |
+| --- | ---: | ---: |
+| 12 of 12 | 0.081 desktop, 0.183 phone | 0, 0 |
+| 7 of 12 | 0.073, 0.214 | 0.034, 0.076 |
+| none | 0, 0 | 0.081, 0.183 |
+
+Builds only (`vite dev` serves the rules with the page module, after the first paint). Not for a resource
+with embedded data (its rows are in the first frame), with `when` (it may not load), `each` or `call`, or a
+list that is not the resource itself (`people.filter(…)`: the build cannot count it), nor for rows laid
+out side by side, absolutely positioned, or a template with more than one element.
+
+### A box whose width follows the list
+
+A list inside a box whose width the stylesheets leave to its content (a flex item in a row with no
+`flex-basis` or `width`, or a float) has a different problem: empty, the box is narrow and what is
+beside it sits next to it; the rows widen it, and its neighbours move or wrap to the next line. No
+placeholder can hold that width, which the data decides. The build reports it, `SN520`: give the box a
+width of its own (`flex: 1 1 0`, or a basis of 100% where it takes the line, as grid systems do below
+their breakpoint), or add `data-sn-reserve="off"` to keep the layout as it is.
+
+### Loading branches
+
+The early script knows a resource's status when the page module mounts: no data, and loading if its
+`when` holds (or it has none). So a branch over it renders before the first paint, and the page module
+adopts it:
+
+```html
+<template data-sn-if="$meta.people.loading && !people.length"><p>Loading…</p></template>
+```
+
+That holds for a resource that is not embedded, `each` or `call`, whose `when` reads only what the early
+script knows (`$url`, `$now`, helpers; not state). With `cache`, only in a tab that has cached nothing:
+otherwise the cached rows are there at mount. `loading`, `error` and `loadedAt` are known; other status
+fields (a page number) are the page module's.
+
 ## Page chrome outside data templates
 
 Chrome renders before the page script only outside data templates. A `data-sn-if="user"` around
@@ -260,6 +337,7 @@ Put only what needs data inside the template. The complete version is in
 | --- | --- |
 | Turn off all first-paint work for the app | `sinter({ firstPaint: false })`: everything waits for the page script |
 | Keep one resource out of preload and early request | `<sn-resource early="off">` |
+| Hold no space for one list (and silence `SN520`) | `<template data-sn-for="…" data-sn-reserve="off">` |
 | Skip Google Fonts bundling | `sinter({ fonts: { inline: false } })` |
 | Leave out next-page data and Speculation Rules | `sinter({ prefetch: false })` or `<html data-sn-prefetch="off">`, see [navigation.md](navigation.md) |
 
