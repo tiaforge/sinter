@@ -1,10 +1,11 @@
 # Notes for coding agents
 
 - Data and behavior: sinter (`data-sn-*` attributes, `<sn-*>` elements). Read
-  `node_modules/@tiaforge-ui/sinter/llms.txt` once before editing pages. After that, look things up
-  instead of reading it again: `npx sinter docs <topic>` prints one section (`layouts`, `static-pages`),
-  an attribute or element (`data-sn-for`, `sn-event`) or a diagnostic (`SN318`); `npx sinter docs` lists
-  the topics.
+  `node_modules/@tiaforge-ui/sinter/llms.txt` once, before editing pages, and not again.
+- To look something up later, run `npx sinter docs <topic>`: one section (`layouts`, `static-pages`),
+  an attribute or element (`data-sn-for`, `sn-event`), a diagnostic (`SN318`), or the lines with some
+  words (`npx sinter docs optimistic rollback`); `npx sinter docs` lists the topics. It prints the
+  installed version's docs: don't fetch sinter's docs from the web, which describe another version.
 - Styling: temper (`data-variant`, `data-tone`, `data-layout`, … with fixed values; no classes for
   looks, no margins). Read `node_modules/@tiaforge-ui/temper/llms.txt` before editing markup, and
   `llms-full.txt` before building whole pages.
