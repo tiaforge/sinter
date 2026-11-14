@@ -2,7 +2,7 @@
 // shares one function in the page's table, and the error itself follows (its stack, through the
 // page module's source map, points at the expression).
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { mockRequests, render } from '../../src/testing/index.js';
+import { mockRequests, mockStream, render } from '../../src/testing/index.js';
 
 let warn: ReturnType<typeof vi.spyOn>, error: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
@@ -73,4 +73,29 @@ test('an action\'s `then` and a resource\'s `then` that throw name their attribu
     `sinter: handler at /test/page.html:2:${col(2, 'a.b = 1')}`,
     `sinter: handler at /test/page.html:3:${col(3, 'a.b = 2')}`,
   ]);
+});
+
+test('a stream event that cannot be applied and `page(…, \'last\')` without a total warn by code, with the same text', async () => {
+  const stream = mockStream();
+  const r = await render(`
+    <sn-resource name="rows" src="/api/rows" key="id" paginate="offset" page-size="2"></sn-resource>
+    <sn-sync src="/events">
+      <sn-event name="patched" resource="rows" op="patch" set="{name}"></sn-event>
+      <sn-event name="broken" resource="rows" op="upsert" item="a.b"></sn-event>
+    </sn-sync>
+    <template data-sn-for="x in rows"><li data-sn-text="x.id"></li></template>
+    <button data-sn-on-click="page('rows', 'last')">last</button>`, {
+    requests: mockRequests({ 'GET /api/rows?page=1&limit=2': [{ id: 1 }, { id: 2 }] }), streams: { '/events': stream },
+  });
+  await r.settle();
+  stream.emit('patched', { name: 'x' });
+  stream.emit('broken', {});
+  r.root.querySelector('button')!.click();
+  await r.settle();
+  const w = r.warnings().map((x) => [x.code, x.message.replace(/applied: .*/, 'applied: …')]);
+  expect(w).toContainEqual([29, 'sinter: event `patched` payload is missing key field(s) id for `rows`']);
+  expect(w).toContainEqual([28, 'sinter: event `broken` could not be applied: …']);
+  expect(w).toContainEqual([30, "sinter: page('rows', 'last') needs a known total"]);
+  // the payload follows the message, as before
+  expect(said(warn, 'missing key field(s)')[0]![1]).toEqual({ name: 'x' });
 });
