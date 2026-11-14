@@ -83,6 +83,7 @@ const CASES: Array<[string, string, string, number, [number, number] | null | 'f
 
 /** [name, css, body, rows]: layouts where the space is a lower bound well below the rows; Chromium checks it is never above */
 const BELOW: Array<[string, string, string, number]> = [
+  ['a min-height in px over text in em: a kink between the default font sizes the build tries', 'ul { padding: 0 } li { min-height: 30px; line-height: 1.5em; padding: 0.25em 0; list-style: none }', '<ul><template id="t"><li data-sn-text="r.x"></li></template></ul>', 4],
   ['a column flex list of a limited height: rows shrink to their content', 'ul { display: flex; flex-direction: column; height: 100px; margin: 0; padding: 0 } li { height: 40px; line-height: 20px; overflow: hidden }', '<ul><template id="t"><li data-sn-text="r.x"></li></template></ul>', 5],
   ['a column flex list: the flex basis, not the height', 'ul { display: flex; flex-direction: column; margin: 0; padding: 0 } li { height: 40px; flex: 0 0 25px }', '<ul><template id="t"><li></li></template></ul>', 4],
   ['a button with a height, padding and a border: border-box by default', 'ul { padding: 0 } li { display: flex } button { height: 30px; padding: 10px; border: 2px solid }', '<ul><template id="t"><li><button>Go</button></li></template></ul>', 4],
@@ -228,10 +229,10 @@ describe.skipIf(!chromium)('the browser: the placeholder is never taller than th
         .replace(/(<(\w+)[^>]*data-sn-text="[^"]*"[^>]*>)(<\/\2>)/g, '$1Word$3')
         .replaceAll('src="a.png"', `src="${IMG}"`);
       const rules = `.ph { ${PLACEHOLDER_BASE} }\n` + r.pieces.map((p) => (p.from ? `@media (min-width: ${p.from}px) { .ph.ph { ${p.decls} } }` : `.ph.ph { ${p.decls} }`)).join('\n');
-      for (const [width, font] of [[1280, 16], [390, 16], [1280, 12], [390, 12]] as const) {
+      for (const [width, font] of [[1280, 16], [390, 16], [1280, 12], [390, 12], [1280, 14], [1280, 10]] as const) {
         await tab.setViewportSize({ width, height: 900 });
         // a visitor whose browser's default font size is smaller: what is in rem, em or a keyword shrinks
-        await cdp.send('Page.setFontSizes', { fontSizes: { standard: font, fixed: font === 16 ? 13 : 10 } });
+        await cdp.send('Page.setFontSizes', { fontSizes: { standard: font, fixed: Math.round(font * 13 / 16) } });
         const real = await after(css, body, row.repeat(rows));
         const held = await after(css + rules, body, `<${r.tag} class="ph"></${r.tag}>`);
         expect(held, `${name} at ${width}px, default font ${font}px: not taller than the rows`).toBeLessThanOrEqual(real + 0.5);

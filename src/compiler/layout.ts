@@ -1545,7 +1545,8 @@ export class Layout {
   }
 
   private fontValue(el: P5Element, v: string, up: number | null): number | null {
-    const KEYWORDS: Record<string, number> = { 'xx-small': 9, 'x-small': 10, small: 13, medium: 16, large: 18, 'x-large': 24, 'xx-large': 32, 'xxx-large': 48 };
+    // `-sn-control`: the UA's control font (13.333 px for a 16 px default), which follows the default font size
+    const KEYWORDS: Record<string, number> = { '-sn-control': 13.333, 'xx-small': 9, 'x-small': 10, small: 13, medium: 16, large: 18, 'x-large': 24, 'xx-large': 32, 'xxx-large': 48 };
     if (v in KEYWORDS) return (KEYWORDS[v]! * this.base) / 16;
     if (up === null) return null;
     if (v === 'inherit' || v === 'unset') return up;
@@ -2194,15 +2195,22 @@ const floor = (v: number) => Math.floor((Math.floor(v * 64 + 1e-6) / 64) * 100) 
 
 /**
  * A length for every default font size: `v16` at 16 px (the browsers' default), `v12` and `v8` with a smaller
- * one. Equal: px. Else the line through them, at or below each, in rem (the page's root font is `rootRatio` of
- * the default), capped at the 16 px value: above it, the rows only grow.
+ * one. Equal: px. On one line (each term in em or rem, the common case): that line, in rem (the page's root
+ * font is `rootRatio` of the default), capped at the 16 px value: above it, the rows only grow. Not on one line
+ * (a kink between the samples: a `min-height` in px over text, a `max()`), the line could pass above the rows
+ * there; heights grow with the font, so each sample holds up to the next one: a step at 12 and at 16 (a
+ * ramp of 1/1000 px), and the line below 8 px.
  */
 function scaled(v16: number, v12: number | undefined, v8: number | undefined, rootRatio: number): string {
   if (v12 === undefined || v8 === undefined || (Math.abs(v16 - v12) < 0.01 && Math.abs(v16 - v8) < 0.01)) return `${floor(Math.min(v16, v12 ?? v16, v8 ?? v16))}px`;
   const slope = (v16 - v8) / 8;
-  if (!(slope > 0)) return `${floor(Math.min(v16, v12, v8))}px`;
+  if (!(slope > 0) || v12 < v8 - 0.01 || v16 < v12 - 0.01) return `${floor(Math.min(v16, v12, v8))}px`;
   const c = Math.min(v8 - 8 * slope, v12 - 12 * slope, v16 - 16 * slope);
-  return `min(${floor(v16)}px, calc(${floor(c)}px + ${Math.floor((slope * 16 / rootRatio) * 1e4) / 1e4 / 16}rem))`;
+  const rem = (k: number) => `${Math.floor((k / rootRatio) * 1e4) / 1e4}rem`;
+  const line = `calc(${floor(c)}px + ${rem(slope)})`;
+  if (Math.abs(v12 - (v8 + 4 * slope)) < 0.05) return `min(${floor(v16)}px, ${line})`;
+  const K = 1000, ramp = (from: number, to: number, at: number) => `min(${floor(to)}px, calc(${floor(from - at * K)}px + ${rem(K)}))`;
+  return `max(min(${floor(v8)}px, ${line}), ${ramp(v8, v12, 12)}, ${ramp(v12, v16, 16)})`;
 }
 
 /** adjoining margins: the largest positive plus the most negative */
@@ -2239,7 +2247,7 @@ function spaceCss(s: Space, _rowTag: string, s12?: Space, s8?: Space, rootRatio 
 /** the size, line height and family of a `font` shorthand (`italic 600 1.5rem/1.1 "Source Sans", sans-serif`); null for a system font keyword */
 function fontShorthand(v: string): { size: string; lineHeight: string | null; family: string } | null {
   const parts = splitTop(v.replace(/\s*\/\s*/g, '/'));
-  const SIZE_TOKEN = /^(-?\d*\.?\d+(px|rem|em|ex|ch|%|pt|pc|vw|vh|vmin|vmax)|calc\(.*\)|min\(.*\)|max\(.*\)|clamp\(.*\)|var\(.*\)|(xx?x?-)?(small|large)|medium|smaller|larger)(\/.+)?$/i;
+  const SIZE_TOKEN = /^(-?\d*\.?\d+(px|rem|em|ex|ch|%|pt|pc|vw|vh|vmin|vmax)|calc\(.*\)|min\(.*\)|max\(.*\)|clamp\(.*\)|var\(.*\)|(xx?x?-)?(small|large)|medium|smaller|larger|-sn-control)(\/.+)?$/i;
   const i = parts.findIndex((p) => SIZE_TOKEN.test(p));
   if (i < 0) return null;
   const [size, lh] = parts[i]!.split('/') as [string, string | undefined];
@@ -2255,7 +2263,7 @@ function fontShorthand(v: string): { size: string; lineHeight: string | null; fa
 const UA = `body { margin: 8px } ul, ol, menu { padding-inline-start: 40px } figure, blockquote { margin-inline: 40px } dd { margin-inline-start: 40px }
 fieldset { margin-inline: 2px; padding-inline: 0.75em; border: 2px groove }
 h1, h2 { font-size: 1.5em } h3 { font-size: 1.17em } h5 { font-size: 0.83em } h6 { font-size: 0.67em } small, sub, sup { font-size: smaller }
-button, input, select, textarea { font-size: 13.333px; line-height: normal; font-family: system-ui }
+button, input, select, textarea { font-size: -sn-control; line-height: normal; font-family: system-ui }
 code, kbd, samp, pre, tt { font-family: monospace }
 h1 { margin-block: 0.67em } h2 { margin-block: 0.83em } h3, p, blockquote, figure, dl, pre, ul, ol, menu { margin-block: 1em } h4 { margin-block: 1.33em }
 h5 { margin-block: 1.67em } h6 { margin-block: 2.33em } hr { margin-block: 0.5em }

@@ -176,3 +176,16 @@ test('the `if` form\'s template stays after the rows: a `:last-child` rule never
   expect(two).toContain('height:140px');
   expect(two).toContain('height:60px');
 });
+
+test('rows a component\'s own `<style>` reaches: no space (the build reads the page\'s stylesheets only)', () => {
+  const files: Record<string, string> = {
+    '/app/src/components/person-row.html': '<template data-sn-component="{ name: string }"><li class="pr" data-sn-text="name"></li></template>\n<style>.pr { height: 10px }</style>\n',
+    '/app/src/components/plain-row.html': '<template data-sn-component="{ name: string }"><li data-sn-text="name"></li></template>\n',
+  };
+  const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: (p: string) => { if (p in files) return files[p]!; throw new Error('missing'); }, moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/p.css' };
+  const page = (tag: string) => compile(`<!doctype html><html><head></head><body>${PAGE().replace('<li data-sn-text="p.name"></li>', `<${tag} data-sn-prop="{ name: p.name }"></${tag}>`)}</body></html>`, opts);
+  const styled = page('person-row');
+  expect(styled.html).not.toContain('sn-reserve');
+  expect(JSON.stringify(styled.unheld)).toContain('own `<style>`');
+  expect(page('plain-row').html).toContain('sn-reserve');
+});

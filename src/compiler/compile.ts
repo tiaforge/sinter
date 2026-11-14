@@ -4724,6 +4724,15 @@ class Compiler {
     };
     walk(doc, false);
     const words = (t: string) => new Set(t.match(/[A-Za-z_$][\w$]*/g) ?? []);
+    // the roots a component's own `<style>` reaches from (its root, slot content it passes on): the layout reads the page's
+    // stylesheets, not these
+    const styled = new Set(this.componentFiles.size ? [...this.uses].filter(([n]) => this.componentFiles.get(n)?.css).flatMap(([, us]) => us.map((u) => u.root)) : []);
+    for (const x of this.slotEls) if (this.componentFiles.get(x.caller)?.css) styled.add(x.el);
+    const inStyled = (tpl: P5Element) => {
+      for (let up = tpl.parentNode as P5Element | null; up && 'attrs' in up; up = up.parentNode as P5Element | null) if (styled.has(up)) return true;
+      const down = (p: P5Parent): boolean => p.childNodes.some((c) => isElement(c) && (styled.has(c) || down(c.tagName === 'template' ? (c as P5Template).content : c)));
+      return down((tpl as P5Template).content);
+    };
     for (const tpl of lists) {
       const sized = layout.contentSized(tpl);
       const m = /^\s*(?:\(\s*[A-Za-z_]\w*\s*,\s*[A-Za-z_]\w*\s*\)|[A-Za-z_]\w*)\s+in\s+([\s\S]+)$/.exec(attr(tpl, 'data-sn-for')!);
@@ -4761,7 +4770,8 @@ class Compiler {
         form = names.length === 1 && list === names[0] && attr(rs[0]!, 'when') === undefined ? 'static' : 'if';
         const n = ok ? Math.min(...rs.map((r) => Number(attr(r, 'page-size')))) : NaN;
         // in a box whose width follows its content, only rows of a width of their own (the placeholder takes it)
-        if (Number.isInteger(n) && n > 0) {
+        if (Number.isInteger(n) && n > 0 && styled.size && inStyled(tpl)) { if (why === '') why = 'a component\'s own `<style>` styles the rows or their container, and the build reads only the page\'s stylesheets'; }
+        else if (Number.isInteger(n) && n > 0) {
           // the `if` form's template stays after the rows: `:last-child` and the like count it
           space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized, trailing: form === 'if' });
           if (!space && why === '') why = sized && layout.unreserved?.startsWith('the box') ? `the box around it is as wide as its content (${sized.widths}), and the rows have no width of their own (SN529)` : layout.unreserved ?? 'unknown';
