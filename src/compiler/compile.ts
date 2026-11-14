@@ -80,8 +80,9 @@ export interface CompileOptions {
   /** write bindings whose value is a build-time constant (literal state, no helpers) into the HTML */
   prerender?: boolean;
   /**
-   * the app's config may change requests (middleware, `header()`, `credentials()`): no `<link rel="preload">`
-   * for resources (the browser would give its response to the changed request), the early file requests them
+   * the app's config may change requests (middleware, `header()`, `credentials()`): nothing is requested before the
+   * page module (an early request lacks what the middleware adds: refused, then sent again), unless the spec says the
+   * operation is public or answered with cookies
    */
   changesRequests?: boolean;
   /**
@@ -3630,19 +3631,27 @@ class Compiler {
   }
 
   /**
-   * A resource the HTML preloads: its URL is fixed at build time, and its request needs nothing a link
-   * cannot say (no static headers, no `credentials: 'omit'`, no middleware that may change it: a preloaded
-   * response goes to a later fetch of the URL whatever headers that adds). The early file requests the rest.
+   * A resource the HTML preloads: its URL is fixed at build time, it is requested early (\`late\`), and its
+   * request needs nothing a link cannot say (no static headers, no \`credentials: 'omit'\`).
    */
   preloaded(r: ResourceDef): boolean {
-    const a = this.apiOfResource.get(r.name), auth = this.authOf.get(r.name);
-    // the spec says the response does not depend on what a middleware adds (public, or cookies), else the config decides
-    const plain = auth === 'public' || auth === 'browser' || (auth !== 'token' && !this.opts.changesRequests);
-    return !this.late(r.name) && plain && fixedRequest(r) && !!this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit';
+    const a = this.apiOfResource.get(r.name);
+    return !this.late(r.name) && fixedRequest(r) && !!this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit';
   }
 
-  /** Not requested before the page module: \`early="off"\`, or the spec says the request needs a token the app adds (an early one would be refused). */
+  /**
+   * Not requested before the page module, by preload or the early file: \`early="off"\`; the spec says the request
+   * needs a token the app adds; or the config may change requests (middleware, \`header()\`, \`credentials()\`) and
+   * the spec does not say the operation is public or answered with cookies. A request sent before the middleware
+   * runs would only be refused (a 401, a console error) and sent again with what the middleware adds.
+   */
   private late(name: string): boolean {
+    const auth = this.authOf.get(name);
+    return this.unembedded(name) || (!!this.opts.changesRequests && auth !== 'public' && auth !== 'browser');
+  }
+
+  /** Not embedded by the server layers: \`early="off"\`, or the spec says the request needs a token the app adds (the server has none). */
+  private unembedded(name: string): boolean {
     return this.noEarly.has(name) || this.authOf.get(name) === 'token';
   }
 
@@ -5109,7 +5118,7 @@ class Compiler {
     const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
     if (!head) return;
     for (const def of this.resources) {
-      if (def.data != null || def.call || def.each || this.late(def.name) || !def.src.length) continue;
+      if (def.data != null || def.call || def.each || this.unembedded(def.name) || !def.src.length) continue;
       if (!strs(def.deps).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : []), ...(def.paginate?.start != null ? [def.paginate.start] : [])].map((i) => this.fns[i]!);
       if (codes.some((c) => /\$\.\$(?!url\b)/.test(c))) continue;

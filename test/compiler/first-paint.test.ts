@@ -240,9 +240,10 @@ test('OpenAPI `security` decides preloads and early requests: public and cookie 
   const preloaded = (o: CompileOptions) => [...compile(html, o).html.matchAll(/rel="preload" as="fetch" crossorigin="" href="\/api\/(\w+)"/g)].map((m) => m[1]).sort();
   const early = (o: CompileOptions) => ((compileParts(html, o).early?.ir as any)?.res ?? []).map((r: { name: string }) => r.name).sort();
   // with middleware: public (`[]`, or an alternative `{}`) and cookie operations keep their preload; an undeclared
-  // one follows the config (early file); a token one is requested by neither, nor is a token search
+  // one is not requested early (the middleware may add a token: an early request would only be sent again), nor
+  // is a token one or a token search
   expect(preloaded(opts(true))).toEqual(['cart', 'feed', 'tags']);
-  expect(early(opts(true))).toEqual(['plain']);
+  expect(early(opts(true))).toEqual([]);
   // without middleware: a token operation still has no early request (it would be refused)
   expect(preloaded(opts(false))).toEqual(['cart', 'feed', 'plain', 'tags']);
   expect(early(opts(false))).toEqual([]);
