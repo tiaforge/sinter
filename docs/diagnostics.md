@@ -1,6 +1,6 @@
 # sinter diagnostics
 
-Generated from `src/compiler/diagnostic-docs.ts` by `npm run docs`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build.
+Generated from `src/compiler/diagnostic-docs.ts` by `npm run docs`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build. `sinter check --strict` fails on warnings too, except the ones that depend on the machine or the network (SN524 to SN527) and SN507 ([docs/type-checking.md](type-checking.md#strict-mode)). Codes from SN519 up are reported by the build rather than by a page, without a file and line.
 
 ## SN101 unknown-attribute
 
@@ -631,3 +631,93 @@ Warning, for example:
 The API's `defaults` or `operations` already give this value for the endpoint, so the attribute says nothing. A different value is the error `SN330`.
 
 **Fix:** Remove the attribute.
+
+## SN519 unused-preload
+
+Warning, for example:
+
+> `index.html` preloads `chart.js` (data-sn-preload), but no module of the app imports it: there is nothing to preload
+
+A `data-sn-preload` names a module that no module of the app imports, so the build has no chunk to preload and the attribute does nothing. Reported by the build.
+
+**Fix:** Remove the name from `data-sn-preload`, or correct it to the module the page's scripts import.
+
+## SN520 redirected-link
+
+Warning, for example:
+
+> `list.html` builds a link to `item.html` at run time, which is served at `/item/` now: it arrives through a redirect
+
+An expression builds a URL to another page by its file name (`'/item.html?id=' + i.id`). The build rewrites such links in the markup, but not ones built at run time, so the link costs a redirect to the page's URL. Reported by the build.
+
+**Fix:** Write the page's URL in the expression, as the message shows: `'/item/?id=' + i.id`.
+
+## SN521 untranslated-messages
+
+Warning, for example:
+
+> 3 message(s) not translated to `de` (the en text is used): save, cancel, title
+
+The inlang project has messages without a text in one of its languages, so pages in that language show the base language's text. Reported by the build.
+
+**Fix:** Add the translations to the language's message file.
+
+## SN522 early-budget
+
+Warning, for example:
+
+> early script of index.html: assets/index-head.js 12.4 kB gzip, over the early budget of 10.0 kB
+
+The script that renders before the first paint is larger than the budget (`sinter({ earlyBudget })`, 10 kB gzip by default). It blocks the first frame, so its size is paid on every visit. The message names the largest modules. Reported by the build.
+
+**Fix:** Keep heavy imports out of `src/sinter.early.ts` and of the helpers that early bindings call, or raise the budget.
+
+## SN523 redirects-limit
+
+Warning, for example:
+
+> _redirects has 2400 fixed rules and 12 with patterns; Cloudflare Pages reads at most 2,000 and 100 (Netlify has no such limit)
+
+The `_redirects` file the build writes has more rules than Cloudflare Pages reads; the rest would be ignored there. Reported by the build.
+
+**Fix:** Move the rules beyond the limit to the host's bulk redirects, or turn the file off with `sinter({ redirects: false })`.
+
+## SN524 images-unoptimized
+
+Warning, for example:
+
+> images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this
+
+Image optimization needs the `sharp` package, which is not installed, so images are served as they are. This depends on the machine, so `--strict` leaves it a warning.
+
+**Fix:** Install it, `npm install -D sharp`, or turn optimization off with `sinter({ images: false })`.
+
+## SN525 font-download
+
+Warning, for example:
+
+> could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)
+
+The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font's host. This depends on the network, so `--strict` leaves it a warning.
+
+**Fix:** Build with network access, or turn self-hosting off with `sinter({ fonts: { inline: false } })`.
+
+## SN526 css-image-sizes
+
+Warning, for example:
+
+> image sizes from src/styles.scss are not read: Undefined variable $gap
+
+The build reads the page's CSS to size its images, and a stylesheet could not be compiled (by Vite's CSS pipeline, Sass, PostCSS, …). Those images get sizes without that stylesheet. This depends on the tools installed, so `--strict` leaves it a warning.
+
+**Fix:** Fix the error the message shows, or install the preprocessor the stylesheet needs.
+
+## SN527 remote-image
+
+Warning, for example:
+
+> images from the API: fetch failed
+
+In dev, `images.remote` optimizes images from the API, and one could not be fetched or converted. The request answers 502. This depends on the API being reachable, so `--strict` leaves it a warning.
+
+**Fix:** Check that the API is running and serves the image at that URL.

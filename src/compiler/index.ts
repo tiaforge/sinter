@@ -12,7 +12,7 @@ export type { CheckUnit } from './check-unit.js';
 export type { ImageFormat, ImageHost, ImageInfo, ImageKind, ImageResult, ImageVariant } from './images.js';
 export { FLUID_WIDTHS, TINY_BYTES } from './images.js';
 export { Layout, evaluate, type FixedBox, type FluidPiece, type FluidSizes, type StyleSheet } from './layout.js';
-export { formatDiagnostic, docsUrl, CODES } from './diagnostics.js';
+export { formatDiagnostic, formatWarning, applyStrict, strictPromotes, docsUrl, CODES, ENVIRONMENT_CODES, HEURISTIC_CODES } from './diagnostics.js';
 export { DIAGNOSTIC_DOCS, type DiagnosticDoc } from './diagnostic-docs.js';
 export { compileParts };
 export { COMPLEXITY_DEFAULTS, type ComplexityLimits, type ComplexityOptions } from './complexity.js';

@@ -66,6 +66,6 @@ export function remoteMiddleware(c: RemoteConfig, warn: (m: string) => void) {
       res.setHeader('Vary', 'Accept');
       res.setHeader('Cache-Control', 'no-cache');
       res.end(body);
-    }, (e: Error) => { warn(`sinter: images from the API: ${e.message}`); fail(502, e.message); });
+    }, (e: Error) => { warn(`images from the API: ${e.message}`); fail(502, e.message); });
   };
 }

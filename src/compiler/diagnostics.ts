@@ -76,6 +76,15 @@ export const CODES = {
   SN516: 'unfed-live',
   SN517: 'unkeyed-list',
   SN518: 'redundant-shape',
+  SN519: 'unused-preload',
+  SN520: 'redirected-link',
+  SN521: 'untranslated-messages',
+  SN522: 'early-budget',
+  SN523: 'redirects-limit',
+  SN524: 'images-unoptimized',
+  SN525: 'font-download',
+  SN526: 'css-image-sizes',
+  SN527: 'remote-image',
 } as const;
 
 export type Code = keyof typeof CODES;
@@ -90,6 +99,42 @@ export function docsUrl(code: string): string {
 
 export function severityOf(code: Code): Severity {
   return code >= 'SN500' ? 'warning' : 'error';
+}
+
+/**
+ * Warnings that depend on the machine or the network rather than on the project (a package not
+ * installed, a download that failed): `--strict` does not turn them into errors, since a build
+ * would then pass or fail with the network.
+ */
+export const ENVIRONMENT_CODES: ReadonlySet<string> = new Set(['SN524', 'SN525', 'SN526', 'SN527']);
+
+/**
+ * Warnings that are a measure, not a mistake: `--strict` leaves them warnings. `SN507` has its own
+ * switch, `sinter({ complexity: { level: 'error' } })`.
+ */
+export const HEURISTIC_CODES: ReadonlySet<string> = new Set(['SN507']);
+
+/** Whether `--strict` turns a warning with this code into an error (unless allowed). */
+export function strictPromotes(code: string): boolean {
+  return !ENVIRONMENT_CODES.has(code) && !HEURISTIC_CODES.has(code);
+}
+
+/**
+ * `--strict`: the warnings become errors, except those of `ENVIRONMENT_CODES` and
+ * `HEURISTIC_CODES` and the codes in `allow`. A promoted diagnostic keeps its code and says
+ * `(strict)` in its hint.
+ */
+export function applyStrict(diagnostics: readonly Diagnostic[], allow: ReadonlySet<string> = new Set()): Diagnostic[] {
+  return diagnostics.map((d) => {
+    if (d.severity !== 'warning' || allow.has(d.code) || !strictPromotes(d.code)) return d;
+    const note = `a warning, an error with --strict (\`--allow ${d.code}\` keeps it a warning)`;
+    return { ...d, severity: 'error', hint: d.hint ? `${d.hint}; ${note}` : note };
+  });
+}
+
+/** A build warning that has no place in a file (the build, a module, the config), as the Vite logger prints it. */
+export function formatWarning(code: Code, message: string): string {
+  return `sinter: warning ${code} ${CODES[code]}: ${message}\n  docs: ${docsUrl(code)}`;
 }
 
 /** Formats a diagnostic the way the terminal and the testing module print it. */

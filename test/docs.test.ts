@@ -138,6 +138,7 @@ Each recipe comes with its test; copy both.
 - \`$result\` in \`<sn-resource then>\` has the resource's type (\`type\`, OpenAPI, or a \`call\`'s result).
 - \`<sn-event … type="ContactEvent">\` types the payload; \`item\` must fit the resource's item, \`set\` part of it, and \`then\` is checked against it; \`cursor\` reads the item. No \`type\` on an event with payload expressions is warning SN506.
 - In the URL, body, call arguments and confirm of an element \`run('id')\` starts (not a form), \`$event\` is \`RunEvent<…>\` (no event when run): guard reads with \`$event && $event.shiftKey\`.
+- \`sinter check --strict\` (or \`SINTER_STRICT=1\`) fails on warnings too, exit code 1; run it after a change and fix what it reports rather than treating warnings as noise. \`--allow SN504,SN517\` keeps chosen codes warnings. SN524–SN527 (machine or network) and SN507 stay warnings.
 - SN509 (\`run-cycle\`) is opt-in: \`sinter check --check-cycles\`, or \`sinter({ checkCycles: true })\` for the build, \`sinter check\` and \`sinter lsp\`. It reports \`then\`/\`catch\` handlers that start each other again through \`run()\` (and \`refresh()\`), with every step.
 - Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: \`checkPage(html, { files, openapi })\` from \`@tiaforge-ui/sinter/check\`; \`render(html, { apis })\` takes the APIs with parsed specs.
 `);
@@ -206,7 +207,7 @@ Write a test next to the markup. \`@tiaforge-ui/sinter/testing\` compiles the pa
 function diagnostics(): string {
   const out = [`# sinter diagnostics
 
-Generated from \`src/compiler/diagnostic-docs.ts\` by \`npm run docs\`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build.
+Generated from \`src/compiler/diagnostic-docs.ts\` by \`npm run docs\`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build. \`sinter check --strict\` fails on warnings too, except the ones that depend on the machine or the network (SN524 to SN527) and SN507 ([docs/type-checking.md](type-checking.md#strict-mode)). Codes from SN519 up are reported by the build rather than by a page, without a file and line.
 `];
   for (const [code, name] of Object.entries(CODES)) {
     const d = DIAGNOSTIC_DOCS[code as Code];

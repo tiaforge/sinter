@@ -71,7 +71,7 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
     if (used.has(engine)) return;
     used.add(engine);
     markup ??= markupOf(html, file, ctx.root);
-    const out = await engine.css(id, code, markup).catch((e: Error) => { ctx.warn?.(`sinter: image sizes from ${engine.name} are not read: ${e.message.split('\n')[0]}`); return null; });
+    const out = await engine.css(id, code, markup).catch((e: Error) => { ctx.warn?.(`image sizes from ${engine.name} are not read: ${e.message.split('\n')[0]}`); return null; });
     if (out) sheets.push({ file: id, css: wrap(out.code, media) });
   };
 

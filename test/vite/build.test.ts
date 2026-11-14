@@ -317,7 +317,7 @@ test('first paint: a classic head script per page over one shared by every page,
   // the page module (async) mounts once the early script has rendered
   expect(readFileSync(join(dir, 'assets', page![1]!), 'utf8')).toMatch(/await rendered\(\);[\s\S]*mount\(document/);
   // the build reports the early scripts' size, and warns over the budget with the largest modules
-  expect(logs.find((l) => l.includes('early script of index.html'))).toMatch(/early script of index\.html: assets\/index-head-[\w-]+\.js [\d.]+ kB gzip \+ assets\/sinter-head-[\w-]+\.js [\d.]+ kB gzip \(shared\), over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
+  expect(logs.find((l) => l.includes('early script of index.html'))).toMatch(/^sinter: warning SN522 early-budget: early script of index\.html: assets\/index-head-[\w-]+\.js [\d.]+ kB gzip \+ assets\/sinter-head-[\w-]+\.js [\d.]+ kB gzip \(shared\), over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
   // `firstPaint: false`: everything waits for the page module
   await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: join(dir, 'off'), emptyOutDir: true, minify: false }, plugins: [sinter({ firstPaint: false })] });
   const off = readFileSync(join(dir, 'off', 'index.html'), 'utf8');

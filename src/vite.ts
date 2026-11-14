@@ -10,7 +10,7 @@ import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
-import { compile, formatDiagnostic, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
+import { compile, formatDiagnostic, formatWarning, type CheckUnit, type CompileResult, type SourceMap } from './compiler/index.js';
 import { lazyOf, project, staticPages, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, helperProblem, isComponentScript, LAZY, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
@@ -373,7 +373,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return { code: out.code, deps: [...(out.deps ?? [])] };
     } catch (e) {
       // e.g. a .scss file without sass installed: the build reports it; here its sizes are unknown
-      if (!failedCss.has(file)) { failedCss.add(file); resolved!.logger.warn(`sinter: image sizes from ${relOf(file)} are not read: ${(e as Error).message.split('\n')[0]}`); }
+      if (!failedCss.has(file)) { failedCss.add(file); resolved!.logger.warn(formatWarning('SN526', `image sizes from ${relOf(file)} are not read: ${(e as Error).message.split('\n')[0]}`)); }
       return null;
     }
   };
@@ -383,7 +383,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const r = resolveId;
     const modules = [p.config, p.early, p.helpersFile, p.actionsFile].filter((m): m is string => !!m);
     engines ??= detectEngines(root, resolved!.plugins.map((x) => x.name));
-    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss, engines, warn: warnOnce });
+    return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss, engines, warn: (m) => warnOnce(formatWarning('SN526', m)) });
   };
   const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {
     if (!images) return undefined;
@@ -649,14 +649,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       }
       if (options.images !== false) {
         images = await loadImages(resolve(root, 'node_modules/.cache/sinter/images'), dev);
-        if (!images) config.logger.warn('sinter: images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this');
+        if (!images) config.logger.warn(formatWarning('SN524', 'images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this'));
       }
     },
 
     configureServer(s) {
       server = s;
       // dev: an image variant is encoded the first time it is requested (and cached)
-      if (remoteConfig) s.middlewares.use(remoteMiddleware(remoteConfig, (m) => s.config.logger.warn(m)));
+      if (remoteConfig) s.middlewares.use(remoteMiddleware(remoteConfig, (m) => s.config.logger.warn(formatWarning('SN527', m))));
       s.middlewares.use((req, res, next) => {
         const url = req.url?.split('?')[0] ?? '';
         const at = url.indexOf(IMG);
@@ -709,7 +709,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         for (const l of messages.locales) {
           if (l === messages.base) continue;
           const missing = Object.keys(messages.keys).filter((k) => !(k in (messages!.dicts[l] ?? {})));
-          if (missing.length) this.warn(`sinter: ${missing.length} message(s) not translated to \`${l}\` (the ${messages.base} text is used): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}`);
+          if (missing.length) this.warn(formatWarning('SN521', `${missing.length} message(s) not translated to \`${l}\` (the ${messages.base} text is used): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}`));
         }
       }
       if (!firstPaint && !messages) return;
@@ -1150,7 +1150,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     for (const x of lazyScriptsOf.get(rel) ?? []) if (x.lazy.some((s) => specs.includes(s))) ids.push({ spec: x.module, id: resolve(root, '.' + x.module) });
     for (const { spec, id } of ids) {
       const c = id ? chunks.find((x) => x.type === 'chunk' && x.facadeModuleId === id) : undefined;
-      if (!c) { warnOnce(`sinter: ${rel} preloads ${spec} (data-sn-preload), but no module of the app imports it: there is nothing to preload`); continue; }
+      if (!c) { warnOnce(formatWarning('SN519', `${rel} preloads ${spec} (data-sn-preload), but no module of the app imports it: there is nothing to preload`)); continue; }
       const todo = [c.fileName];
       while (todo.length) {
         const f = todo.shift()!;
@@ -1260,7 +1260,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const top = Object.entries({ ...sharedHead?.modules, ...early.modules }).sort((a, b) => b[1].renderedLength - a[1].renderedLength).slice(0, 5)
       .map(([id, m]) => `${id.includes(PREFIX) ? `the early bindings of ${rel}` : relative(root, id.replace(/^\0/, '')).split(sep).join('/')} ${kb(m.renderedLength)}`);
     const msg = `${line}, over the early budget of ${kb(budget)}. It renders before the first paint: keep heavy imports out of src/sinter.early.ts and of the helpers early bindings call. Largest (before gzip): ${top.join(', ')}`;
-    if (logger) logger.warn(msg); else console.warn(msg);
+    const warning = formatWarning('SN522', msg.replace(/^sinter: /, ''));
+    if (logger) logger.warn(warning); else console.warn(warning);
   }
 
   // Google Fonts as the app's own CSS (`fonts`, on by default; see fonts-build.ts), and the faces to preload
@@ -1286,7 +1287,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (dev || options.fonts?.inline === false) return html;
         const out = await inlineFonts(html, download());
         for (const [id, url] of out.ids) fontSheets.set(id, url);
-        for (const url of out.failed) resolved?.logger.warn(`sinter: could not download ${url}; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)`);
+        for (const url of out.failed) resolved?.logger.warn(formatWarning('SN525', `could not download ${url}; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)`));
         return out.html;
       },
     },
@@ -1483,7 +1484,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           const code = modules.get(`${PREFIX}${other.rel}.js`) ?? '';
           const old = `/${page.rel}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           if (new RegExp(`['"\`]${(base().startsWith('/') ? base().replace(/\/$/, '') : '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}${old}(?![\\w/-])`).test(code)) {
-            resolved?.logger.warn(`sinter: ${other.rel} builds a link to ${page.rel} at run time, which is served at ${pageUrl(page.rel, base(), page.patterns)} now: it arrives through a redirect. Write the URL in the expression (\`'${pageUrl(page.rel, base(), page.patterns)}?…'\`)`);
+            resolved?.logger.warn(formatWarning('SN520', `${other.rel} builds a link to ${page.rel} at run time, which is served at ${pageUrl(page.rel, base(), page.patterns)} now: it arrives through a redirect. Write the URL in the expression (\`'${pageUrl(page.rel, base(), page.patterns)}?…'\`)`));
           }
         }
         // the old URL still arrives: a redirect to the page's URL (relative under a relative base)
@@ -1514,7 +1515,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       let own: string | null = null;
       try { own = pub ? readFileSync(pub, 'utf8') : null; } catch { /* the app has none */ }
       const fixed = routes.filter((r) => !/[:*]/.test(r.from)).length, patterns = routes.length - fixed;
-      if (fixed > 2000 || patterns > 100) resolved?.logger.warn(`sinter: _redirects has ${fixed} fixed rules and ${patterns} with patterns; Cloudflare Pages reads at most 2,000 and 100 (Netlify has no such limit). Move the rest to the host's bulk redirects, or turn the file off with sinter({ redirects: false })`);
+      if (fixed > 2000 || patterns > 100) resolved?.logger.warn(formatWarning('SN523', `_redirects has ${fixed} fixed rules and ${patterns} with patterns; Cloudflare Pages reads at most 2,000 and 100 (Netlify has no such limit). Move the rest to the host's bulk redirects, or turn the file off with sinter({ redirects: false })`));
       this.emitFile({ type: 'asset', fileName: '_redirects', source: redirectsFile(routes, own) });
     },
   };

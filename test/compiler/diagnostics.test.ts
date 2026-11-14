@@ -101,10 +101,12 @@ const STATIC_ONLY = ['SN322'];
 const LAZY_ONLY = ['SN324', 'SN325'];
 /** `sinter({ apis })`: the option itself (test/apis.test.ts) and paths relative to an API (test/compiler/apis.test.ts). */
 const APIS_ONLY = ['SN326', 'SN327', 'SN328', 'SN329', 'SN330', 'SN518'];
+/** Warnings of the Vite plugin, with no page position (`formatWarning`): SN520 in test/vite/page-urls.test.ts, SN522 in test/vite/build.test.ts. */
+const BUILD_ONLY = ['SN519', 'SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
-    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY])).toEqual(new Set(Object.keys(CODES)));
+    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY])).toEqual(new Set(Object.keys(CODES)));
   });
   for (const [code, html, message, check] of cases) {
     test(code, () => {

@@ -142,6 +142,30 @@ sinter check: 4 page(s), 0 error(s), 1 warning(s); 7 of 8 resources typed (3 via
 
 `--check-cycles` also reports `then`/`catch` handlers that start each other through `run()` (`SN509`).
 
+### Strict mode
+
+`--strict` fails the check on warnings too: they are printed as errors and the exit code is 1. It is
+meant for CI and for coding agents, which read a check that passes as "no mistakes" and do not look
+at warnings scrolled past. `SINTER_STRICT=1` turns it on without changing the command (`--no-strict`
+turns it off again).
+
+```sh
+npx sinter check --strict
+npx sinter check --strict --allow SN504,SN517   # these stay warnings
+```
+
+```text
+index.html:3:1 error SN501 unused-resource: resource `addressbooks` is declared but never read
+  hint: a warning, an error with --strict (`--allow SN501` keeps it a warning)
+sinter check --strict: 1 page(s), 1 error(s) (1 were warnings), 0 warning(s); …
+```
+
+Two kinds of warnings stay warnings. Those that depend on the machine or the network, not on the
+project (`SN524` sharp not installed, `SN525` a font that could not be downloaded, `SN526`, `SN527`),
+since a strict check would then pass or fail with the network. And `SN507` (`complex-expression`),
+which is a measure rather than a mistake: `sinter({ complexity: { level: 'error' } })` makes it an
+error when you want that.
+
 ## Editor support
 
 `sinter lsp` shows the same diagnostics as you type. With TypeScript 7 it adds type errors, hover types, completion inside expressions and go to definition, including from a resource type to its schema in the spec. A "did you mean" message offers a quick fix. Setup for VS Code, Neovim, Helix and Emacs is in [docs/editors.md](editors.md).
