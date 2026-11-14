@@ -1,0 +1,12 @@
+<!-- The page links of a paginated list (its `$meta`); `query`: what the links keep besides `page`. -->
+<template data-sn-component="{ meta: { pages?: number | null; page?: number | null }; query?: string }">
+  <nav>
+    <ul class="pagination">
+      <template data-sn-for="n in range(meta.pages)" data-sn-key="n">
+        <li class="page-item" data-sn-class="{active: n == meta.page}">
+          <a class="page-link" data-sn-text="n" data-sn-attr="{href: '?' + (query ?? '') + 'page=' + n}"></a>
+        </li>
+      </template>
+    </ul>
+  </nav>
+</template>

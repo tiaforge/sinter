@@ -22,8 +22,8 @@ export function errors(error) {
   return [error.message || 'Something went wrong'];
 }
 
-/** Page numbers 1…n for `count` items, `size` per page. */
-export const pages = (count, size) => Array.from({ length: Math.ceil((count || 0) / size) }, (_, i) => i + 1);
+/** The page numbers 1…n of a paginated list (its `$meta.<name>.pages`). */
+export const range = (n) => Array.from({ length: n ?? 0 }, (_, i) => i + 1);
 
 /** The tag list with `tag` added (trimmed), unless it is empty or already there. */
 export function withTag(list, tag) {

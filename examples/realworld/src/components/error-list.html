@@ -1,5 +1,5 @@
-<!-- `.error-messages` for an error: the page's `error` state (set by the buttons' catches: favorite,
-     follow, delete), or a form's last failed send (`$error`). -->
+<!-- `.error-messages` for an error: the page's `error` state (set by its `sn-error` handler when a
+     button's request fails: favorite, follow, delete), a comment's, or a form's last failed send (`$error`). -->
 <template data-sn-component="{ error: Err | null }">
   <div>
     <template data-sn-if="error">

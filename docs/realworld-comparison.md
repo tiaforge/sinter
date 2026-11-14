@@ -8,7 +8,7 @@ implementation is built from source and served under the same conditions, the be
 
 | implementation | source lines | JS, home + article (gz KB) | Lighthouse mobile perf, same conditions |
 | --- | ---: | ---: | ---: |
-| **sinter** | **704** | **35.7** | **100** |
+| **sinter** | **666** | **35.7** | **100** |
 | SvelteKit | 1153 | - | 93 |
 | Solid | 1281 | - | 90 |
 | Vue 3 | 1848 | 63.7 | 86 |
@@ -19,7 +19,7 @@ A dash means the number could not be measured (see the notes under each table be
 median of 5 runs on 2026-11-14 with every implementation built from its latest commit, served by one local
 server against the same local API, [below](#the-same-conditions); on their public demos the same day,
 sinter scored 98, SvelteKit 95, Solid 98 (an empty feed), Vue 3 86 and Angular 82. sinter's source lines
-are counted on 2026-11-14 (after the theme moved into `src/`); its download size is from before components;
+are counted on 2026-11-14 (after the theme moved into `src/`, and the `user` resource, the pager and the feed row were written once); its download size is from before components;
 [Components](#components) compares the two builds on one machine. Scripts:
 [`bench/realworld/loc.mjs`](../bench/realworld/loc.mjs) (source lines),
 [`bench/realworld/weight.mjs`](../bench/realworld/weight.mjs) (what the browser downloads),
@@ -47,7 +47,7 @@ deduplicate saves.
 
 | implementation | files | lines | by type |
 | --- | ---: | ---: | --- |
-| **sinter** | 23 | **704** | html 528, js 176 |
+| **sinter** | 23 | **666** | html 490, js 176 |
 | SvelteKit | 41 | 1153 | svelte 816, js 312, html 25 |
 | Solid | 27 | 1281 | js 1248, html 33 |
 | Vue 3 | 41 | 1848 | vue 1344, ts 488, html 16 |
