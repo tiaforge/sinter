@@ -86,7 +86,7 @@ In a component file in `src/components/`, and on a component's tag (`early`). De
 
 ## Pages and navigation
 
-Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [first paint](first-paint.md).
+Set on `<html>` or on shared elements; `wait` on a box around a list. Details: [navigation](navigation.md), [first paint](first-paint.md).
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
@@ -94,6 +94,7 @@ Set on `<html>` or on shared elements. Details: [navigation](navigation.md), [fi
 | `data-sn-prefetch` | off | on &lt;html&gt;: no other page prefetches this one's data or the page itself (Speculation Rules), and none prerenders it; for pages that do something when they load |
 | `data-sn-transition` | value expression (a name) | the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too) |
 | `data-sn-data` | resource name | on &lt;script type="application/json"&gt; in &lt;head&gt;: initial data for a resource |
+| `data-sn-wait` | off | on a box whose width follows its content (a flex item without a basis or width, a float) around a list over late data: by default what follows the box stays invisible while the list's first rows load, for at most 3 s, so nothing that is shown moves when they widen the box (builds; at the screen widths where it is so); off keeps it shown, and SN529 says it moves |
 
 ## Lazy packages
 

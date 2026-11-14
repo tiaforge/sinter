@@ -116,13 +116,71 @@ test('the build: the placeholder\'s rule in the page\'s first-paint stylesheet, 
   expect(none.module).not.toContain('/p.css');
 });
 
+test('what follows a box whose width follows its content stays hidden while the list\'s first rows load (builds)', () => {
+  const css = '.row { display: flex; flex-wrap: wrap }';
+  const page = (box = '') => `<sn-resource name="people" src="/api/people" items="people" key="id"></sn-resource>
+    <div class="row"><div class="feed"${box}><template data-sn-for="p in people"><p class="card" data-sn-text="p.name"></p></template></div><aside>tags</aside></div>`;
+  const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }], paintCss: '/p.css' };
+  const out = compile(page(), opts);
+  // instead of SN529: the build names the box
+  expect(out.diagnostics.filter((d) => d.code === 'SN529')).toEqual([]);
+  expect(out.waits).toEqual([expect.objectContaining({ what: 'div.feed', widths: 'at every width', line: 2 })]);
+  // the box gets a class, a hidden marker follows the template; the page module removes the marker for good once the
+  // resource has rows or no load is running
+  const k = /<div class="feed (snw[a-z0-9]+)">/.exec(out.html)![1]!;
+  expect(out.html).toMatch(new RegExp(`</template><i class="${k}m" hidden="" data-sn="\\d+"></i></div><aside>`));
+  expect(out.module).toMatch(/\$\.\$r\.people\?\.length \|\| !\$\.\$meta\.people\.loading\) && \$\.\$el\.remove\(\)/);
+  // its siblings after it are invisible (laid out, not shown) while the marker is there, for at most 3 s
+  expect(out.paint).toContain('@keyframes sn-wait { to { visibility: visible } }');
+  expect(out.paint).toContain(`.${k}:has(.${k}m) ~ :not(#_) { visibility: hidden; animation: sn-wait 0s 3s forwards }`);
+  // dev plans the same: no SN529, nothing added
+  const dev = compile(page(), { ...opts, paintCss: undefined });
+  expect(dev.diagnostics.filter((d) => d.code === 'SN529')).toEqual([]);
+  expect(dev.html).not.toContain('snw');
+  // a box with a width of its own: nothing moves, nothing is hidden
+  const sized = compile(page(), { ...opts, styles: [{ file: 'a.css', css: css + ' .feed { flex: 1 1 0 }' }] });
+  expect(sized.waits).toBeUndefined();
+  expect(sized.html).not.toContain('snw');
+});
+
+test('what follows the box is hidden only at the widths where its width follows its content', () => {
+  // a grid system: below 768 px the column is a flex item with no basis, from 768 px it has one
+  const css = '.row { display: flex; flex-wrap: wrap } @media (min-width: 768px) { .col-9 { flex: 0 0 75%; max-width: 75% } }';
+  const out = compile(`<sn-resource name="people" src="/api/people" items="people" key="id"></sn-resource>
+    <div class="row"><div class="col-9"><template data-sn-for="p in people"><p data-sn-text="p.name"></p></template></div><div class="col-3">tags</div></div>`, {
+    file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }], paintCss: '/p.css',
+  });
+  expect(out.waits?.[0]?.widths).toBe('below 768 px');
+  expect(out.paint).toMatch(/@media \(max-width: 767\.98px\) \{ \.snw[a-z0-9]+:has\(\.snw[a-z0-9]+m\) ~ :not\(#_\) \{ visibility: hidden;/);
+});
+
+test('a choice between resources: the marker shows on the first load of those the early file knows', () => {
+  // "Your Feed" waits for the user (its `when` reads another resource): the early file cannot tell whether it loads at
+  // mount, so it never shows the marker; the articles' first load does
+  const css = '.row { display: flex; flex-wrap: wrap }';
+  const out = compile(`<sn-resource name="user" src="/api/user"></sn-resource>
+    <sn-resource name="articles" src="/api/articles" items="articles" when="$url.feed != 'mine'"></sn-resource>
+    <sn-resource name="feed" src="/api/feed" items="articles" when="$url.feed == 'mine' && user"></sn-resource>
+    <div class="row"><div class="feed" data-sn-let="{ list: $url.feed == 'mine' ? feed : articles }"><template data-sn-for="a in list"><p data-sn-text="a.title"></p></template></div><aside>tags</aside></div>`, {
+    file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }], paintCss: '/p.css',
+  });
+  expect(out.waits).toHaveLength(1);
+  expect(out.module).toContain('$.$meta.articles.loading && !$.$meta.articles.loadedAt');
+  expect(out.module).not.toContain('$.$meta.feed.loading && !$.$meta.feed.loadedAt');
+});
+
 test('SN529: a list over late data in a flex item whose width follows its content', async () => {
   const css = '.row { display: flex; flex-wrap: wrap }';
+  // `data-sn-wait="off"`: what follows the box is not hidden while the rows load, and the build says why it moves
   const page = (resource = '') => `<sn-resource name="people" src="/api/people" items="people" key="id" ${resource}></sn-resource>
-    <div class="row"><div class="feed"><template data-sn-for="p in people"><p class="card" data-sn-text="p.name"></p></template></div><aside>tags</aside></div>`;
+    <div class="row"><div class="feed" data-sn-wait="off"><template data-sn-for="p in people"><p class="card" data-sn-text="p.name"></p></template></div><aside>tags</aside></div>`;
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }], paintCss: '/p.css' };
-  const warned = compile(page(), opts).diagnostics.filter((d) => d.code === 'SN529');
+  const off = compile(page(), opts);
+  const warned = off.diagnostics.filter((d) => d.code === 'SN529');
   expect(warned).toHaveLength(1);
+  expect(off.diagnostics.filter((d) => d.code === 'SN101')).toEqual([]);
+  expect(off.html).not.toContain('data-sn-wait');
+  expect(off.html).not.toContain('snw');
   expect(warned[0]!.message).toContain('`<div.feed>`');
   // with a basis of its own, nothing to say
   expect(compile(page(), { ...opts, styles: [{ file: 'a.css', css: css + ' .feed { flex: 1 1 0 }' }] }).diagnostics.filter((d) => d.code === 'SN529')).toEqual([]);

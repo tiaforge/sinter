@@ -1015,6 +1015,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // the page's early file from this compile (with the stylesheets), which wrote the page: its ids are the page's
         if (!dev && firstPaint) { if (out.early) earlyPages.set(rel, out.early); else earlyPages.delete(rel); }
         // the build says which paginated lists hold no space before their data, and why
+        if (!dev) for (const u of out.waits ?? []) resolved?.logger.info(`sinter: ${relOf(u.file)}:${u.line}: what follows <${u.what}> stays hidden while this list's first rows load: its width follows its content (${u.widths}), so they would move it; data-sn-wait="off" on it keeps it shown (docs/first-paint.md#a-box-whose-width-follows-the-list)`);
         if (!dev) for (const u of out.unheld ?? []) resolved?.logger.info(`sinter: ${relOf(u.file)}:${u.line}: no space held for this list's rows before its data: ${u.why} (docs/first-paint.md#reserved-space)`);
         if (out.paint !== undefined && paintCss.get(rel) !== out.paint) {
           paintCss.set(rel, out.paint);

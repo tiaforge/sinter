@@ -1222,7 +1222,7 @@ export class Layout {
    * a width. Its rows widen it when they arrive. `siblings`: other boxes move with it (a flex item
    * among others, a float).
    */
-  contentSized(tpl: P5Element): { el: P5Element; siblings: boolean; widths: string } | null {
+  contentSized(tpl: P5Element): { el: P5Element; siblings: boolean; widths: string; ranges: Array<[number, number | undefined]> } | null {
     if (this.empty || this.viewport !== undefined) return null;
     const cuts = this.breakpoints().filter((b) => b > MIN_VIEWPORT && b < MAX_VIEWPORT);
     const starts = [0, ...cuts];
@@ -1230,16 +1230,17 @@ export class Layout {
     const first = at.find((x) => x);
     if (!first) return null;
     // where: the viewport widths at which it is so
-    const ranges: string[] = [];
+    const ranges: string[] = [], at2: Array<[number, number | undefined]> = [];
     for (let i = 0; i < starts.length; i++) {
       if (!at[i]) continue;
       let j = i;
       while (j + 1 < starts.length && at[j + 1]) j++;
       const lo = starts[i]!, hi = starts[j + 1];
+      at2.push([lo, hi]);
       ranges.push(lo === 0 && hi === undefined ? 'at every width' : lo === 0 ? `below ${Math.round(hi!)} px` : hi === undefined ? `from ${Math.round(lo)} px` : `from ${Math.round(lo)} to ${Math.round(hi)} px`);
       i = j;
     }
-    return { ...first, widths: ranges.join(', ') };
+    return { ...first, widths: ranges.join(', '), ranges: at2 };
   }
 
   private sizedBy(tpl: P5Element): { el: P5Element; siblings: boolean } | null {

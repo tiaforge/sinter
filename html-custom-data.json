@@ -191,6 +191,10 @@
       "description": "loads packages of sinter({ lazy }) when the element is rendered (at takeover outside templates, when its branch or row first renders inside one), instead of on first call (lazy packages, comma-separated)"
     },
     {
+      "name": "data-sn-wait",
+      "description": "on a box whose width follows its content (a flex item without a basis or width, a float) around a list over late data: by default what follows the box stays invisible while the list's first rows load, for at most 3 s, so nothing that is shown moves when they widen the box (builds; at the screen widths where it is so); off keeps it shown, and SN529 says it moves (off)"
+    },
+    {
       "name": "data-sn-preload",
       "description": "the build preloads packages of sinter({ lazy }) with the page (<link rel=\"modulepreload\"> in its head): fetched in parallel with the page bundle, run on first call or by data-sn-import (lazy packages, comma-separated)"
     },
