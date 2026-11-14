@@ -165,8 +165,12 @@ export interface CompileOptions {
    * the space a list's rows take before its data arrives (docs/first-paint.md#reserved-space)
    */
   styles?: StyleSheet[];
-  /** builds: the module the page module imports for the page's generated first-paint rules (`CompiledParts.paint`), which the adapter serves */
-  paintCss?: string;
+  /**
+   * builds: the placeholders of lists whose data comes later (docs/first-paint.md#reserved-space), with their rules
+   * in `CompiledParts.paint`; a string is a module the page module imports for them, `true` leaves them to the adapter
+   * (sinter's Vite plugin links one stylesheet for the site)
+   */
+  paintCss?: string | true;
   /** a font family's `line-height: normal` as a multiple of its size, from the font files the build has (fonts-build.ts) */
   normalLineHeight?: (family: string) => number | null;
 }
@@ -4824,11 +4828,10 @@ class Compiler {
     else if (plan.space && !held) note(!names.every((n) => (plan.form === 'static' ? starts(n) : pre.has(n))) ? 'a resource\'s `src` or `when` reads more than the URL (state, another resource): its load may not start when the page module mounts' : 'the list reads more than its resources and the URL');
     if (!held || !plan.space || !this.opts.paintCss) return;
     const parent = el.parentNode as P5Element;
-    // unique across pages, should two pages' rules end up in one stylesheet
-    let hash = 0x811c9dc5;
+    // unique across pages, as every page's rules are in one stylesheet: two FNV-1a hashes of the page's path (52 bits)
     const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
-    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
-    const k = `snr${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    const fnv = (seed: number) => { let h = seed; for (const ch of rel) h = Math.imul(h ^ ch.charCodeAt(0), 0x01000193); return h >>> 0; };
+    const k = `snr${fnv(0x811c9dc5).toString(36).padStart(7, '0')}${(fnv(0x050c5d1f) >>> 12).toString(36).padStart(4, '0')}${this.spaceN++}`;
     const tag = plan.space.tag, markup = `<${tag} class="sn-reserve ${k}" aria-hidden="true"></${tag}>`;
     const at = parent.childNodes.indexOf(el) + 1;
     if (plan.form === 'static') {

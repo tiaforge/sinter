@@ -199,7 +199,6 @@ const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/s
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
 /** builds: a page's reserved-space rules (docs/first-paint.md#reserved-space), imported by its module */
-const PAINT_CSS = `${PREFIX}paint-css/`;
 /** a component's scoped styles, imported by the page modules of the pages that use it */
 const COMPONENT_CSS = `${PREFIX}component-css/`;
 /** the base class a component's script imports from its HTML (`import { TaskRingComponent } from './task-ring.html'`) */
@@ -374,6 +373,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const variants = new Map<string, ImageVariant>();
   const imageCss = new Map<string, string>();
   const paintCss = new Map<string, string>();
+  /** build: the one stylesheet with every page's placeholder rules, linked from the pages that have some */
+  let paintFile: string | null = null;
   const componentCss = new Map<string, string>();
   let resolveId: ((id: string, importer?: string) => Promise<string | undefined>) | null = null;
   let engines: StyleEngine[] | null = null;
@@ -609,7 +610,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(styles?.length ? { styles } : {}),
       ...(lineHeights?.size ? { normalLineHeight: (f: string) => lineHeights.get(f) ?? null } : {}),
-      ...(firstPaint && !dev ? { paintCss: `${PAINT_CSS}${rel}.css` } : {}),
+      // the rules come back with the page (`out.paint`); the build writes them into one stylesheet for the site
+      ...(firstPaint && !dev ? { paintCss: true as const } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
       ...((firstPaint || lang) && p.messages ? { baseMessages: lang ?? p.messages.dicts[p.messages.base] ?? {} } : {}),
@@ -761,6 +763,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       speculationHashes.clear();
       sharedHead = null;
       earlyPages.clear();
+      paintCss.clear();
       unlisted.clear();
       earlyFiles.clear();
       languageFiles.clear();
@@ -849,6 +852,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // runtime, the app's early module) and each page's own (the hold script: a morph pending, the first paint waits for
       // the page module, on pages that use data-sn-transition; the page's early bindings and requests)
       const hash = (x: string) => createHash('sha256').update(x).digest('base64url').slice(0, 8);
+      // the placeholders' rules of every page, in one stylesheet: cached once for the whole site (each page's classes are its own)
+      const paintLines = [...new Set([...paintCss.values()].flatMap((c) => c.split('\n')).filter(Boolean))];
+      paintFile = paintLines.length ? `${r.build.assetsDir}/sinter-paint-${hash(paintLines.join('\n'))}.css` : null;
+      if (paintFile) this.emitFile({ type: 'asset', fileName: paintFile, source: paintLines.join('\n') + '\n' });
       // an early file that bundled a lazy package (the early module, or a helper an early binding calls, reaches it)
       if (lazyPkgs.length) {
         const bad = [...earlyFiles].flatMap(([rel, f]) => Object.keys({ ...f.modules, ...sharedHead?.modules }).filter(isLazyModule).map((id) => `SN325 ${rel}: the early script contains ${lazyName(id)}, which \`sinter({ lazy })\` loads lazily: the early module or a helper an early binding calls imports it (${relOf(id.replace(/^\0/, ''))})`));
@@ -933,7 +940,6 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // a stylesheet a page links (one with nothing to run) comes with a query in dev (`?direct`)
       const css = id.replace(/\?.*$/, '');
       if (css.startsWith(`\0${IMG_CSS}`)) return imageCss.get(css.slice(IMG_CSS.length + 1, -4)) ?? '';
-      if (css.startsWith(`\0${PAINT_CSS}`)) return paintCss.get(css.slice(PAINT_CSS.length + 1, -4)) ?? '';
       if (css.startsWith(`\0${COMPONENT_CSS}`)) return componentCss.get(css.slice(COMPONENT_CSS.length + 1, -4)) ?? '';
       if (id.startsWith(`\0${COMPONENT_BASE}`)) return componentBase(id.slice(COMPONENT_BASE.length + 1, -3));
       // lazy packages: the loader (one `import()` of the package) and each importer's stubs
@@ -1015,10 +1021,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (!dev && firstPaint) { if (out.early) earlyPages.set(rel, out.early); else earlyPages.delete(rel); }
         // the build says which paginated lists hold no space before their data, and why
         if (!dev) for (const u of out.unheld ?? []) resolved?.logger.info(`sinter: ${relOf(u.file)}:${u.line}: no space held for this list's rows before its data: ${u.why} (docs/first-paint.md#reserved-space)`);
-        if (out.paint !== undefined && paintCss.get(rel) !== out.paint) {
-          paintCss.set(rel, out.paint);
-          invalidate(`${PAINT_CSS}${rel}.css`);
-        }
+        if (out.paint !== undefined) paintCss.set(rel, out.paint);
         if (out.images) {
           for (const v of out.images.variants) variants.set(images!.fileName(v), v);
           if (imageCss.get(rel) !== out.images.css) {
@@ -1168,6 +1171,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // `data-sn-preload`: the lazy packages' chunks, fetched with the page
         const pre = preloadOf.get(rel);
         if (pre && ctx.bundle) html = withPreloads(html, rel, pre, ctx.bundle, base);
+        // the placeholders' stylesheet, after the page's own (its rules win by weight, not order): render-blocking, as the
+        // placeholders are in the first frame
+        if (paintFile && paintCss.get(rel)) {
+          const link = `<link rel="stylesheet" href="${attr(base + paintFile)}">`;
+          const last = [...html.matchAll(/<link\b[^>]*\brel=["']?stylesheet[^>]*>/gi)].pop();
+          html = last ? html.slice(0, last.index! + last[0].length) + `\n  ${link}` + html.slice(last.index! + last[0].length) : html.replace('</head>', `  ${link}\n</head>`);
+        }
         const inline = pageMessages.get(rel);
         if (!early && !langs && !own && !inline) return html;
         // a page in one language: the messages its app modules call, before any script that reads them
