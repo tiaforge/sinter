@@ -6,7 +6,7 @@ import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Layout, evaluate } from '../../src/compiler/layout.js';
-import { chromium } from '../browser.js';
+import { chromium, engines } from '../browser.js';
 import type { Page } from 'playwright';
 
 type El = DefaultTreeAdapterMap['element'];
@@ -414,3 +414,54 @@ describe.skipIf(!chromium)('an unbounded auto-fill grid: exact while columns are
     }
   });
 });
+
+// The same checks in every engine installed (all three in CI): the widths the build computes are the ones
+// Firefox and WebKit render, and they read `sizes` (em, its media conditions, min()/max()) as Chromium does.
+// Firefox's default font size is a pref; WebKit, under Playwright, has none, so it is checked at 16 px.
+const ENGINE_CASES: Array<[string, string, string]> = [
+  ...FLUID.filter(([, , , want]) => want).map(([n, c, b]) => [n, c, b] as [string, string, string]),
+  ...BOUNDED.map(([n, c, b]) => [n, c, b] as [string, string, string]),
+  ['a padded rem container with a body margin (ends that mix px and em)', '.c { max-width: 60rem; padding: 0 1rem; margin: 0 auto } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>'],
+  ['an em breakpoint, a rem gap, a page root of 62.5%', 'html { font-size: 62.5% } body { margin: 0 } .g { display: grid; gap: 2rem } @media (min-width: 40em) { .g { grid-template-columns: 1fr 1fr } } img { width: 100% }', '<div class="g"><div><img id="t" src="a.png" alt=""></div><div></div></div>'],
+];
+for (const engine of (await engines()).filter((e) => e.name !== 'chromium')) {
+  describe(`${engine.name}: the widths the build computes, rendered and read from sizes`, () => {
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+    const STEPS = Array.from({ length: 3000 }, (_, i) => `https://x.test/w${i + 1}.png ${i + 1}w`).join(', ');
+    const fonts = engine.name === 'firefox' ? [12, 16, 20, 24] : [16];
+    for (const font of fonts) {
+      test(`default font ${font} px`, async () => {
+        const browser = await engine.type.launch({
+          ...(engine.executablePath ? { executablePath: engine.executablePath } : {}),
+          ...(engine.name === 'firefox' ? { firefoxUserPrefs: { 'font.size.variable.x-western': font, 'font.size.variable.x-unicode': font, 'font.size.monospace.x-western': Math.round((font * 13) / 16), 'font.minimum-size.x-western': 0 } } : {}),
+        });
+        const misses: string[] = [];
+        try {
+          const tab = await browser.newPage({ deviceScaleFactor: 1 });
+          let html = '';
+          await tab.route('https://x.test/**', (r) => (r.request().url().endsWith('/') ? r.fulfill({ contentType: 'text/html', body: html }) : r.fulfill({ contentType: 'image/png', body: PNG })));
+          for (const [name, css, body] of ENGINE_CASES) {
+            const doc = parse5.parse(page('', body));
+            const f = new Layout([{ file: 'test.css', css }], doc).fluidSizes(find(doc, 't'))!;
+            const bound = f.pieces.some((p) => p.bound);
+            for (const v of [320, 480, 700, 768, 1024, 1280, 1920]) {
+              await tab.setViewportSize({ width: v, height: 600 });
+              html = page(css, body.replaceAll('src="a.png"', 'src="https://x.test/img.png"') + `<img id="probe" style="position: absolute; width: 1px" sizes="${f.sizes}" srcset="${STEPS}" alt="">`);
+              await tab.goto('https://x.test/');
+              await tab.waitForFunction(() => !!(document.getElementById('probe') as HTMLImageElement).currentSrc);
+              const [w, said, fs] = await tab.evaluate(() => [document.getElementById('t')!.getBoundingClientRect().width, Number((document.getElementById('probe') as HTMLImageElement).currentSrc.replace(/.*\/w|\.png/g, '')), parseFloat(getComputedStyle(document.documentElement).fontSize)]);
+              if (fs !== font && !/62\.5%/.test(css)) misses.push(`${name}: the default font is ${fs}, not ${font}`);
+              // at 16 px, what the build computed for the 16 px page is what renders
+              if (font === 16) {
+                const p = f.pieces.find((x) => v >= x.from && v < x.to) ?? f.pieces[0]!;
+                if (p.bound ? w > p.k * v + p.c + 0.5 : Math.abs(w - (p.k * v + p.c)) > 0.5) misses.push(`${name} at ${v} px: renders ${w}, the build says ${p.k * v + p.c}${p.bound ? ' at most' : ''}`);
+              }
+              if (bound ? said < w - 1 : Math.abs(said - w) > 1) misses.push(`${name} at ${v} px: renders ${w}, reads ${said} from sizes ${f.sizes}`);
+            }
+          }
+        } finally { await browser.close(); }
+        expect(misses).toEqual([]);
+      }, 180_000);
+    }
+  });
+}
