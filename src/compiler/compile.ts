@@ -871,7 +871,7 @@ class Compiler {
     if (this.opts.static) {
       const root = this.opts.root.replace(/[\\/]+$/, '') + '/', file = this.opts.file.replace(/\\/g, '/');
       const page = file.startsWith(root.replace(/\\/g, '/')) ? file.slice(root.length) : basename(file);
-      for (const r of runtime) this.diagnostics.push({ severity: 'error', code: 'SN322', message: `${page} must ship no JavaScript (\`sinter({ static })\`), but ${r.what} runs in the browser`, file: r.file, line: r.line, col: r.col, hint: 'remove it, or take the page out of `static` in vite.config' });
+      for (const r of runtime) this.diagnostics.push({ severity: 'error', code: 'SN322', message: `${page} must ship no JavaScript (\`sinter({ static })\`), but ${r.what} runs in the browser`, file: r.file, line: r.line, col: r.col, hint: 'make it a constant (a literal, a prop given as one, state nothing writes: those are written into the HTML at build time), remove it, or take the page out of `static` in vite.config' });
     }
     if (isStatic && early !== undefined) early = null;
     if (isStatic) this.linkStyles(doc, images?.css ? this.opts.images?.stylesheet ?? null : null);
@@ -1247,7 +1247,12 @@ class Compiler {
     const lhead = lhtml.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'head')!;
     const decl = attr(lhtml, 'data-sn-layout');
     if (decl === undefined || !lhtml.sourceCodeLocation?.startTag) {
-      this.diagnostics.push({ severity: 'error', code: 'SN318', message: `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``, file: lf.file, line: 1, col: 1, hint: '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>`' });
+      // the page passes no props: the empty declaration is the whole fix (agents guessed it from a hint with props)
+      const props = attr(host, 'data-sn-prop') != null;
+      const hint = lhtml.sourceCodeLocation?.startTag
+        ? (props ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-layout="{ title?: string }">`' : 'it takes no props: `<html lang="en" data-sn-layout="{}">`')
+        : '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (`data-sn-layout="{}"` for a layout without props)';
+      this.diagnostics.push({ severity: 'error', code: 'SN318', message: `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``, file: lf.file, line: 1, col: 1, hint });
       detach(host);
       return null;
     }

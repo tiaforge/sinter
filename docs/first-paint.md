@@ -439,7 +439,7 @@ Put only what needs data inside the template. The complete version is in
 
 | To | Do |
 | --- | --- |
-| Turn off all first-paint work for the app | `sinter({ firstPaint: false })`: everything waits for the page script |
+| Turn off the early script and reserved space for the app | `sinter({ firstPaint: false })`: bindings that need no data wait for the page script; build-time constants are still written into the HTML, and pages with nothing to run still ship no JavaScript |
 | Keep one resource out of preload and early request | `<sn-resource early="off">` |
 | Skip Google Fonts bundling | `sinter({ fonts: { inline: false } })` |
 | Leave out next-page data and Speculation Rules | `sinter({ prefetch: false })` or `<html data-sn-prefetch="off">`, see [navigation.md](navigation.md) |

@@ -15,6 +15,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- `sinter({ firstPaint: false })` no longer turns off build-time constants and pages without JavaScript: with it, a `static` page's constant bindings (a layout's props given as literals) were SN322, and a page with nothing to run printed `no JavaScript` but still got a page module and its `<script>`. It now turns off only the early script and reserved space.
+- SN318 for a layout whose `<html>` has no `data-sn-layout` hints `data-sn-layout="{}"` when the page passes no props; SN322's hint says a binding over constants is written in at build time.
 - SN506 (`untyped-event`) names the payload type to write: `item="incident"` on a resource of `Incident[]` hints `type="{ incident: Incident }"`, also when the `<sn-sync>` comes before the resource. Agents in a benchmark needed several builds to find the shape.
 - `sinter check`: `$error` passes to a helper or action that takes a `SinterError` (`@param {import('@tiaforge-ui/sinter').SinterError} e`). The checker's type for `$error` lacked the `name` and `stack` a `SinterError` has as an `Error`, so the call was SN208 "Property 'name' is missing in type 'Err' but required in type 'SinterError'", and `$error.stack` was SN208 too.
 - A list the build cannot trace to one resource (a helper's result: `m in visible(messages, q)`), and `patch(item)`/`remove(item)` on a row that can come from several (`a in (mine ? tags : messages)`), no longer warn "item is missing key field" for each other keyed resource on the page: a resource whose key fields the item lacks is passed over. It was console noise since 0.12, but each one failed `render()` in strict mode.

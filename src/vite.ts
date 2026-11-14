@@ -37,10 +37,11 @@ export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
   typecheck?: boolean;
   /**
-   * first paint (default true): build-time constants (and the base language's messages) are written
-   * into the HTML, and each page gets an early script (the app's `src/sinter.early.ts`, then the
-   * bindings that need no data): classic scripts first in the head, which render each element as the
-   * parser inserts it (`observe` in early.ts). `false`: everything waits for the page module.
+   * first paint (default true): each page gets an early script (the app's `src/sinter.early.ts`, then
+   * the bindings that need no data): classic scripts first in the head, which render each element as
+   * the parser inserts it (`observe` in early.ts), and paginated lists hold their rows' space. `false`:
+   * those wait for the page module. Build-time constants (and the base language's messages) are written
+   * into the HTML either way, and a page with nothing to run ships no JavaScript either way.
    */
   firstPaint?: boolean;
   /** an early file above this many bytes gzip is a build warning (default 10000) */
@@ -611,8 +612,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(lineHeights?.size ? { normalLineHeight: (f: string) => lineHeights.get(f) ?? null } : {}),
       ...(firstPaint && !dev ? { paintCss: `${PAINT_CSS}${rel}.css` } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
-      ...(firstPaint ? { prerender: true, early: { module: p.early, src: earlySrc } } : {}),
-      ...((firstPaint || lang) && p.messages ? { baseMessages: lang ?? p.messages.dicts[p.messages.base] ?? {} } : {}),
+      // build-time constants and pages with nothing to run do not depend on the early script: `firstPaint: false` turns off only that
+      prerender: true,
+      ...(firstPaint ? { early: { module: p.early, src: earlySrc } } : {}),
+      ...(p.messages ? { baseMessages: lang ?? p.messages.dicts[p.messages.base] ?? {} } : {}),
       ...(v ? { locale: { name: v.locale, urls: localeUrls(src), base: resolved?.base ?? '/' } } : {}),
       ...(options.origins?.length || apiOrigins(p.apis).length ? { origins: [...(options.origins ?? []), ...apiOrigins(p.apis)] } : {}),
       ...(firstPaint ? { observe: true } : {}),
