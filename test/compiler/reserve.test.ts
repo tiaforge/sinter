@@ -41,6 +41,10 @@ const CASES: Array<[string, string, string, number, [number, number] | null | 'f
   ['line-height normal: a stack, each face counted', '.row { font: 20px Verdana, Tahoma, sans-serif }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, [2 * 19, 2 * 19], 'bound'],
   // a family the build has no metrics for (a web font from a stylesheet it does not read, a locally installed font): 1
   ['line-height normal: a family without metrics counts as 1', '.row { font: 20px "Brand Sans", system-ui }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, [2 * 19, 2 * 19], 'bound'],
+  // table rows: each as tall as its tallest cell, the table's vertical border spacing between them
+  ['table rows: cells with padding, the default spacing', 'td { padding: 8px; line-height: 20px }', '<table><thead><tr><th>Name</th><th>Role</th></tr></thead><tbody><template id="t"><tr><td data-sn-text="r.name"></td><td data-sn-text="r.role"></td></tr></template></tbody></table>', 5, [5 * 36 + 4 * 2, 5 * 36 + 4 * 2], 'tight'],
+  ['table rows: collapsed borders, a cell\'s border counts as nothing', 'table { border-collapse: collapse } td { padding: 6px 8px; line-height: 20px; border: 1px solid #ccc }', '<table><tbody><template id="t"><tr><td data-sn-text="r.name"></td></tr></template></tbody></table>', 5, [5 * 32, 5 * 32], 'bound'],
+  ['table rows: a height on the row', 'table { border-spacing: 0 4px } tr { height: 44px } td { padding: 0; line-height: 20px }', '<table><tbody><template id="t"><tr><td data-sn-text="r.name"></td></tr></template></tbody></table>', 4, [4 * 44 + 3 * 4, 4 * 44 + 3 * 4], 'tight'],
   // rows in their place: sibling combinators and structural pseudo-classes, decided per row
   ['a margin between rows: .row + .row', 'ul { padding: 0 } .row { height: 40px } .row + .row { margin-top: 10px }', '<ul><template id="t"><li class="row"></li></template></ul>', 6, [6 * 40 + 5 * 10, 6 * 40 + 5 * 10], 'exact'],
   ['Tailwind v3 space-y', 'ul { padding: 0; margin: 0 } li { height: 30px } .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 1rem }', '<ul class="space-y-4"><template id="t"><li></li></template></ul>', 5, [5 * 30 + 4 * 16, 5 * 30 + 4 * 16], 'exact'],
@@ -142,6 +146,7 @@ describe('the space of a list\'s rows', () => {
   test('in a list, an <li>; elsewhere a <div>', () => {
     expect(reserve('li { height: 10px }', '<ol><template id="t"><li></li></template></ol>', 2)!.tag).toBe('li');
     expect(reserve('p { height: 10px }', '<section><template id="t"><p></p></template></section>', 2)!.tag).toBe('div');
+    expect(reserve('tr { height: 10px }', '<table><tbody><template id="t"><tr><td></td></tr></template></tbody></table>', 2)!.tag).toBe('tr');
   });
 
   test('a grid placeholder spans the rows the items fill, over every column', () => {
@@ -199,7 +204,7 @@ describe.skipIf(!chromium)('the browser: the placeholder is never taller than th
   /** where `#after` is: below the rows (each bound text one word), or below the placeholder */
   const after = async (css: string, body: string, list: string) => {
     // the template stays before the rows (or the placeholder), as on the page: sibling and structural rules see it
-    await tab.setContent(page(css, body.replace(/<template id="t">[\s\S]*<\/template>(?=<\/(ul|ol|div|section|p)>$)/, `<template></template>${list}`)));
+    await tab.setContent(page(css, body.replace(/<template id="t">[\s\S]*<\/template>(?=(<\/[a-z]+>)+$)/, `<template></template>${list}`)));
     return tab.evaluate(() => document.getElementById('after')!.getBoundingClientRect().top);
   };
   for (const [name, css, body, rows, want, fit] of [...CASES, ...BELOW.map(([n, c, b, r]) => [n, c, b, r, [0, 0] as [number, number], 'bound'] as const)]) {

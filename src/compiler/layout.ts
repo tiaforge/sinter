@@ -41,6 +41,7 @@ interface Rule { selectors: Array<{ ast: csstree.Selector; spec: [number, number
 const SIZE = { width: ['width', 'inline-size'], height: ['height', 'block-size'], 'min-width': ['min-width', 'min-inline-size'], 'max-width': ['max-width', 'max-inline-size'], 'min-height': ['min-height', 'min-block-size'], 'max-height': ['max-height', 'max-block-size'] } as const;
 const GRID_TRACKS = /^(grid|grid-template(-columns|-areas)?|grid-auto-columns)$/;
 const TABLE = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption']);
+const TABLE_DISPLAY: Record<string, string> = { table: 'table', thead: 'table-header-group', tbody: 'table-row-group', tfoot: 'table-footer-group', tr: 'table-row', td: 'table-cell', th: 'table-cell', caption: 'table-caption' };
 const BLOCK = new Set(['html', 'body', 'div', 'p', 'section', 'article', 'header', 'footer', 'main', 'nav', 'aside', 'figure', 'figcaption', 'li', 'ul', 'ol', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'dl', 'dd', 'dt', 'fieldset', 'details', 'summary', 'dialog', 'address', 'hgroup', 'menu', 'search', 'pre', 'hr']);
 /** pseudo-classes that depend on state or on things not in the markup */
 const STRUCTURAL = new Set(['first-child', 'last-child', 'only-child', 'nth-child', 'nth-last-child', 'first-of-type', 'last-of-type', 'only-of-type', 'nth-of-type', 'nth-last-of-type']);
@@ -1246,8 +1247,15 @@ export class Layout {
   }
 
   /** a row's display; one of several that may win when all lay it out alike (all block-level, or all the same) */
+  /** `displayOf`, with each table element's own default (`table-row-group`, `table-row`, `table-cell`) */
+  private disp(el: P5Element): string | null {
+    const d = this.displayOf(el);
+    if (d !== 'table' || attrOf(el, 'style')?.includes('display') || this.cascaded(el, ['display']).value !== null) return d;
+    return TABLE_DISPLAY[el.tagName] ?? d;
+  }
+
   private rowDisplay(row: P5Element): string | null {
-    const d = this.displayOf(row);
+    const d = this.disp(row);
     if (d !== null) return d;
     const c = this.candidates(row, ['display']);
     if (!c) return null;
@@ -1258,7 +1266,7 @@ export class Layout {
 
   /** how the rows are laid out in their parent at this viewport width, if the build follows it */
   private shape(parent: P5Element, row: P5Element): Shape | null {
-    const pd = this.displayOf(parent), rd = this.rowDisplay(row);
+    const pd = this.disp(parent), rd = this.rowDisplay(row);
     const no = (why: string) => { this.notes.why ??= why; return null; };
     if (pd === null || rd === null || this.declsOf(parent).has('\0dynamic')) return no('a rule the build cannot decide (a state, a binding) sets how the rows or their parent are laid out');
     if (rd === 'none') return no('the rows are hidden');
@@ -1294,7 +1302,9 @@ export class Layout {
       const n = this.gridColumns(parent);
       return n ? { mode: 'grid', columns: n } : no('the grid\'s columns are ones the build cannot count');
     }
-    return no(/^table/.test(rd) || /^table/.test(pd) ? 'the rows are table rows' : `the rows are laid out as \`${rd}\` in a \`${pd}\` parent`);
+    // table rows in a row group: each as tall as its tallest cell, the table's vertical border spacing between them
+    if (/^table-(row|header|footer)-group$/.test(pd) || pd === 'table-row-group') return rd === 'table-row' ? { mode: 'table', columns: 1 } : no('the rows of a table body are not table rows');
+    return no(/^table/.test(rd) || /^table/.test(pd) ? 'the rows are table rows outside a `<tbody>`' : `the rows are laid out as \`${rd}\` in a \`${pd}\` parent`);
   }
 
   /** the number of columns of a grid at this viewport width: a track list, or auto-fill/auto-fit of one size */
@@ -1346,6 +1356,11 @@ export class Layout {
       let h = sum(hs);
       for (let i = 1; i < count; i++) h += collapse([mbs[i - 1]!, mts[i]!]);
       return { height: h, mt: mts[0]!, mb: mbs[count - 1]!, span: 0, exact: exactH && (!own || own.exact), ...width };
+    }
+    if (s.mode === 'table') {
+      const t = this.tableOf(parent), sp = t ? this.borderSpacing(t) : null;
+      if (sp === null) return null;
+      return { height: sum(hs) + (count - 1) * sp, mt: 0, mb: 0, span: 0, exact: false };
     }
     const gap = this.rowGap(parent);
     if (gap === null) return null;
@@ -1399,6 +1414,34 @@ export class Layout {
     const ml = this.vMargin(el, 'left'), mr = this.vMargin(el, 'right');
     if (ml === null || mr === null) return null;
     return { border, outer: border + ml + mr, exact };
+  }
+
+  /** the table around a row group or a cell */
+  private tableOf(el: P5Element): P5Element | null {
+    for (let x: P5Element | null = el; x; x = this.parentOf(x)) if (/^(inline-)?table$/.test(this.disp(x) ?? '')) return x;
+    return null;
+  }
+
+  /** whether a table's borders collapse (inherited; undecided: they do, which counts its cells' borders as nothing) */
+  private collapsed(table: P5Element): boolean {
+    for (let x: P5Element | null = table; x; x = this.parentOf(x)) {
+      const c = this.cascaded(x, ['border-collapse']);
+      if (c.ambiguous) return true;
+      if (c.value !== null) return /^\s*collapse\s*$/i.test(c.value);
+    }
+    return false;
+  }
+
+  /** a table's vertical border spacing in px (0 when its borders collapse; inherited; the UA's 2 px) */
+  private borderSpacing(table: P5Element): number | null {
+    if (this.collapsed(table)) return 0;
+    for (let x: P5Element | null = table; x; x = this.parentOf(x)) {
+      const c = this.candidates(x, ['border-spacing']);
+      if (!c) return 0;
+      const vs = c.filter((v): v is string => v !== null).map((v) => { const parts = splitTop(this.subst(v, x!) ?? ''); return this.length(x!, parts[1] ?? parts[0] ?? '', null); });
+      if (vs.length) return vs.some((v) => v === null) ? 0 : Math.min(...(vs as number[]), ...(c.includes(null) ? [2] : []));
+    }
+    return 0;
   }
 
   /** a fixed `grid-auto-rows` (one size), or null */
@@ -1566,14 +1609,14 @@ export class Layout {
   }
 
   /** padding and border on `side`, in px; what cannot be read counts as 0 (`exact` false) */
-  private vEdge(el: P5Element, side: 'top' | 'bottom' | 'left' | 'right'): { v: number; exact: boolean } {
+  private vEdge(el: P5Element, side: 'top' | 'bottom' | 'left' | 'right', noBorder = false): { v: number; exact: boolean } {
     let exact = true;
     const pad = this.sideValue(el, 'padding', side);
     let v = 0;
     if (pad === undefined) exact = false;
     else if (pad !== null) { const p = this.length(el, pad, null); if (p === null) exact = false; else v += Math.max(0, p); }
     const rem = this.rootFont() ?? 16;
-    const style = this.edge(el, 'border-style', side, rem);
+    const style = noBorder ? 'none' : this.edge(el, 'border-style', side, rem);
     if (style === null) exact = false;
     else if (!/^(none|hidden)$/.test(style as string)) {
       const raw = this.sideValue(el, 'border-width', side);
@@ -1600,11 +1643,13 @@ export class Layout {
   private computeHeight(el: P5Element): Height {
     const zero = { h: 0, exact: false };
     if (attrOf(el, 'hidden') !== undefined || attrOf(el, 'data-sn-show') !== undefined) return zero;
-    const d = this.displayOf(el);
+    const d = this.disp(el);
     if (d === null) return zero;
     if (d === 'none') return { h: 0, exact: true };
     if (d === 'contents') return zero;
-    const top = this.vEdge(el, 'top'), bottom = this.vEdge(el, 'bottom');
+    // a cell of a table whose borders collapse shares them with its neighbours: its padding only (the least)
+    const shared = d === 'table-cell' || d === 'table-row' ? (() => { const t = this.tableOf(el); return !!t && this.collapsed(t); })() : false;
+    const top = this.vEdge(el, 'top', shared), bottom = this.vEdge(el, 'bottom', shared);
     const edges = top.v + bottom.v, edgesExact = top.exact && bottom.exact;
     // what may or may not apply (a `:hover`, a media feature the build cannot decide) counts at its least
     const bs = this.cascaded(el, ['box-sizing']);
@@ -1685,7 +1730,7 @@ export class Layout {
       return Math.max(0, ...items.map(outer), ...lines);
     }
     if (/grid$/.test(d)) return Math.max(0, ...kids.map((k) => (typeof k === 'number' ? k : outer(k))));
-    if (d === 'table-row') return Math.max(0, ...kids.map((k) => (typeof k === 'number' ? k : this.height(k).h)));
+    if (d === 'table-row') return Math.max(0, ...this.items(el).map((k) => (typeof k === 'number' ? k : this.height(k).h)));
     if (/^(table|inline-table|table-row-group|table-header-group|table-footer-group)$/.test(d)) return 0;
     // block flow: block children stacked with their margins collapsing, each run of inline content a line box
     const bfc = this.establishesBfc(el, d);
@@ -1721,7 +1766,7 @@ export class Layout {
       }
       text = false;
       if (SKIPPED.has(n.tagName) || attrOf(n, 'hidden') !== undefined || attrOf(n, 'data-sn-show') !== undefined) return;
-      const d = this.displayOf(n);
+      const d = this.disp(n);
       if (d === null || d === 'none') return;
       if (d === 'contents') { for (const c of n.childNodes) add(c); return; }
       const pos = this.cascaded(n, ['position']);
@@ -1742,7 +1787,7 @@ export class Layout {
     if (/^(flow-root|inline-block|table-cell|table-caption)$/.test(d)) return true;
     const o = this.cascaded(el, ['overflow', 'overflow-y']);
     if (!o.ambiguous && o.value && /^(hidden|auto|scroll)/i.test(o.value.trim())) return true;
-    const p = this.parentOf(el), pd = p ? this.displayOf(p) : null;
+    const p = this.parentOf(el), pd = p ? this.disp(p) : null;
     return !!pd && /flex|grid/.test(pd);
   }
 
@@ -1769,20 +1814,20 @@ export class Layout {
         if (next && next.tagName === 'template' && attrOf(next, 'data-sn-else') !== undefined) {
           const h = Math.min(...[n, next].map((t) => this.branchHeight(t as P5Template)));
           // inline content joins the line; blocks stack
-          const blocks = [n, next].every((t) => ((t as P5Template).content?.childNodes ?? []).some((c) => isEl(c) && /^(block|list-item|flow-root|flex|grid|table)$/.test(this.displayOf(c) ?? '')));
+          const blocks = [n, next].every((t) => ((t as P5Template).content?.childNodes ?? []).some((c) => isEl(c) && /^(block|list-item|flow-root|flex|grid|table)$/.test(this.disp(c) ?? '')));
           if (h > 0 && blocks) { if (run !== null) { out.push(run); run = null; } out.push(h); }
           else if (h > 0) run = Math.max(run ?? 0, h, strut());
         }
         return;
       }
       if (SKIPPED.has(n.tagName) || attrOf(n, 'hidden') !== undefined || attrOf(n, 'data-sn-show') !== undefined) return;
-      const d = this.displayOf(n);
+      const d = this.disp(n);
       if (d === null || d === 'none') return;
       if (!this.inFlow(n)) return;
       if (d === 'contents') { for (const c of n.childNodes) add(c); return; }
       // an inline box with blocks in it (a link around a card's heading and text): the blocks break it into pieces, stacked
       if (d === 'inline' && !REPLACED.has(n.tagName) && !CONTROLS.has(n.tagName) && attrOf(n, 'data-sn-text') === undefined
-        && n.childNodes.some((c) => isEl(c) && /^(block|list-item|flow-root|flex|grid|table)$/.test(this.displayOf(c) ?? ''))) {
+        && n.childNodes.some((c) => isEl(c) && /^(block|list-item|flow-root|flex|grid|table)$/.test(this.disp(c) ?? ''))) {
         for (const c of n.childNodes) add(c);
         return;
       }
@@ -1805,7 +1850,7 @@ export class Layout {
     let h = 0;
     for (const c of t.content?.childNodes ?? []) {
       if (!isEl(c) || SKIPPED.has(c.tagName) || !this.inFlow(c)) continue;
-      const d = this.displayOf(c);
+      const d = this.disp(c);
       if (d === null || d === 'none') continue;
       h += /^(block|list-item|flow-root|flex|grid|table)$/.test(d) ? this.height(c).h : this.inlineHeight(c, d);
     }
@@ -1819,7 +1864,7 @@ export class Layout {
       if (attrOf(el, 'data-sn-text') !== undefined || el.childNodes.some((c) => c.nodeName === '#text' && /\S/.test((c as { value: string }).value))) h = this.lineHeight(el) ?? 0;
       if (attrOf(el, 'data-sn-text') === undefined) for (const c of el.childNodes) {
         if (!isEl(c) || SKIPPED.has(c.tagName) || attrOf(c, 'hidden') !== undefined || attrOf(c, 'data-sn-show') !== undefined || !this.inFlow(c)) continue;
-        const cd = this.displayOf(c);
+        const cd = this.disp(c);
         if (cd && cd !== 'none') h = Math.max(h, this.inlineHeight(c, cd === 'contents' ? 'inline' : cd));
       }
       return h;
@@ -2034,7 +2079,7 @@ export interface Reserved {
 /** `line`: side by side in a flex row; `wrap`: a wrapping flex row, `columns` rows per line */
 /** a list's row in a view for its position: `before`/`after` the rows, each element and whether it is surely there */
 interface RowCtx { el: P5Element; index: number; count: number; before: Array<{ el: P5Element; sure: boolean }>; after: Array<{ el: P5Element; sure: boolean }> }
-interface Shape { mode: 'block' | 'column' | 'grid' | 'line' | 'wrap'; columns: number }
+interface Shape { mode: 'block' | 'column' | 'grid' | 'line' | 'wrap' | 'table'; columns: number }
 /** `width`: the placeholder's own (rows side by side, or in a box as wide as its content); `line`: it takes a flex line of its own */
 interface Space { height: number; mt: number; mb: number; span: number; exact: boolean; width?: number; flex?: 'shrink' | 'line' }
 interface Height { h: number; exact: boolean }
@@ -2077,6 +2122,7 @@ const collapse = (ms: number[]) => Math.max(0, ...ms) + Math.min(0, ...ms);
 /** a placeholder valid where the rows are: an `<li>` in a list, else a `<div>` */
 function placeholderTag(parent: P5Element, _row: P5Element): string {
   if (/^(ul|ol|menu)$/.test(parent.tagName)) return 'li';
+  if (/^(tbody|thead|tfoot)$/.test(parent.tagName)) return 'tr';
   // where only phrasing content may go (a <div> would close a <p>): a <span>, made a block by the rule
   return PHRASING.has(parent.tagName) ? 'span' : 'div';
 }
@@ -2123,7 +2169,8 @@ h1, h2 { font-size: 1.5em } h3 { font-size: 1.17em } h5 { font-size: 0.83em } h6
 button, input, select, textarea { font-size: 13.333px; line-height: normal; font-family: system-ui }
 code, kbd, samp, pre, tt { font-family: monospace }
 h1 { margin-block: 0.67em } h2 { margin-block: 0.83em } h3, p, blockquote, figure, dl, pre, ul, ol, menu { margin-block: 1em } h4 { margin-block: 1.33em }
-h5 { margin-block: 1.67em } h6 { margin-block: 2.33em } hr { margin-block: 0.5em }`;
+h5 { margin-block: 1.67em } h6 { margin-block: 2.33em } hr { margin-block: 0.5em }
+table { border-spacing: 2px } td, th { padding: 1px }`;
 
 /** px = k × viewport width + c */
 interface Lin { k: number; c: number }

@@ -43,6 +43,7 @@ body { margin: 0 } ul { margin: 0; padding: 0; list-style: none }
 .text li { font: 20px Lined, sans-serif; padding: 4px 0 }
 .fb li { font: 20px Lined, 'Lined Fallback', system-ui; padding: 4px 0 }
 .fixed .ld { height: auto; margin: 6px 0; padding: 4px }
+.t { table-layout: fixed; width: 100% } .t td { padding: 8px; line-height: 20px }
 .fixed li { height: 48px; border-bottom: 1px solid #ccc; box-sizing: border-box }
 `,
   'src/fonts/lined.ttf': font(),
@@ -62,6 +63,12 @@ body { margin: 0 } ul { margin: 0; padding: 0; list-style: none }
     <template data-sn-if="$meta.people.loading && !people.length"><li class="ld">Loading…</li></template>
     <template data-sn-for="p in people"><li data-sn-text="p.name"></li></template>
   </ul>
+</app-layout>
+`,
+  'table.html': `<app-layout>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
+  <table class="t"><thead><tr><th>Name</th><th>Role</th></tr></thead>
+    <tbody><template data-sn-for="p in people"><tr><td data-sn-text="p.name"></td><td>engineer</td></tr></template></tbody></table>
 </app-layout>
 `,
   'when.html': `<app-layout>
@@ -87,7 +94,7 @@ beforeAll(async () => {
   for (const [p, text] of Object.entries(files)) { mkdirSync(dirname(join(root, p)), { recursive: true }); writeFileSync(join(root, p), text); }
   await build({
     root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()],
-    build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input: { index: join(root, 'index.html'), fixed: join(root, 'fixed.html'), fallback: join(root, 'fallback.html'), early: join(root, 'early.html'), loading: join(root, 'loading.html'), when: join(root, 'when.html') } } },
+    build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input: { index: join(root, 'index.html'), fixed: join(root, 'fixed.html'), fallback: join(root, 'fallback.html'), early: join(root, 'early.html'), loading: join(root, 'loading.html'), when: join(root, 'when.html'), table: join(root, 'table.html') } } },
   });
 }, 60_000);
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -140,7 +147,7 @@ test.runIf(!!chromium)('in Chromium: the rows arrive in the space held for them,
     // the early file (compiled without the stylesheets) and the page (with them) agree on every element after a placeholder
     // a loading branch before the list: it shows (as tall as the rows) instead of the placeholder; a resource with `when`:
     // the placeholder is the early file's branch. Either way the footer stays where it was when the rows arrive
-    for (const path of ['/loading/', '/when/?go=1']) {
+    for (const path of ['/loading/', '/when/?go=1', '/table/']) {
       const t2 = await browser.newPage();
       await t2.addInitScript(() => { (window as any).__cls = 0; (window as any).__w = []; new PerformanceObserver((l) => { for (const e of l.getEntries()) { (window as any).__cls += (e as any).value; (window as any).__w.push((e as any).sources.map((x: any) => `${x.node?.nodeName}.${x.node?.className} ${x.previousRect.y}→${x.currentRect.y} h${x.previousRect.height}→${x.currentRect.height}`).join(' | ')); } }).observe({ type: 'layout-shift', buffered: true }); });
       await t2.goto(`http://127.0.0.1:${port}${path}`);
@@ -149,7 +156,7 @@ test.runIf(!!chromium)('in Chromium: the rows arrive in the space held for them,
       expect(shown.ld || shown.held, path).toBe(true);
       expect(shown.ld && shown.held, `${path}: not both`).toBe(false);
       answer();
-      await t2.waitForFunction(() => document.querySelectorAll('ul li:not(.sn-reserve):not(.ld)').length === 5);
+      await t2.waitForFunction(() => document.querySelectorAll('ul li:not(.sn-reserve):not(.ld), tbody tr:not(.sn-reserve)').length === 5);
       await t2.waitForTimeout(200);
       expect(await t2.evaluate(() => document.getElementById('after')!.getBoundingClientRect().top), path).toBeCloseTo(shown.top, 0);
       expect(await t2.evaluate(() => (window as any).__cls), `${path} ${await t2.evaluate(() => (window as any).__w.join(' / '))}`).toBeLessThan(0.001);

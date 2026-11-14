@@ -300,6 +300,10 @@ smaller one, and so does the space).
   and `auto-fit` columns are counted at each width).
 - A height that follows the container's width (square cards in columns, a font size in `vw`) is held
   as a share of that width, exact at every width.
+- Table rows in a `<tbody>`: each as tall as its tallest cell, with the table's vertical `border-spacing`
+  between them (2 px by default; none with `border-collapse: collapse`, where the cells' borders count as
+  nothing). The placeholder is a `<tr>`. With `table-layout: auto` the columns may still widen when the
+  rows' text arrives: `table-layout: fixed` keeps them.
 
 When fewer rows arrive than were held (the last page, an empty list), what follows moves up by
 what is missing. Measured with the API answering after 500 ms (Chromium, a list of 12 rows of 56 px
@@ -315,8 +319,8 @@ Builds only (`vite dev` serves the rules with the page module, after the first p
 with embedded data (its rows are in the first frame), with a `when` over state or another resource (the
 build cannot tell whether it loads), `each` or `call`, or a list that is more than a choice between
 resources (`people.filter(…)`: the build cannot count it), nor for rows side by side without a width of
-their own (or with a `flex-basis`), absolutely positioned, with `content-visibility`, table rows, or a
-template with more than one element. The build prints each paginated list it holds no space for, and why
+their own (or with a `flex-basis`), absolutely positioned, with `content-visibility`, table rows outside
+a `<tbody>`, or a template with more than one element. The build prints each paginated list it holds no space for, and why
 (`sinter: index.html:43: no space held for this list's rows before its data: …`).
 `sinter({ firstPaint: false })` turns it off with the rest of the first-paint work.
 
