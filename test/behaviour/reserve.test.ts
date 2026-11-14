@@ -51,15 +51,53 @@ test('not for a list without pages: the build cannot count its rows', async () =
   expect(held(root)).toBeNull();
 });
 
-test('not for a resource that may not load, one the page embeds, nor a list that is not the resource itself', async () => {
+test('not for a list the build cannot count (a filter), nor one the page embeds', async () => {
   for (const page of [
-    PAGE('', 'paginate="offset" page-size="3" when="$url.go"'),
     PAGE().replace('p in people', 'p in people.filter((x) => x.id > 1)'),
     `<script type="application/json" data-sn-data="people">{"people":[]}</script>${PAGE()}`,
   ]) {
     const { root } = await render(page, { requests: mockRequests({ 'GET /api/people?page=1&limit=3': rows(1) }), css: CSS });
     expect(held(root)).toBeNull();
   }
+});
+
+test('a resource with `when`: held while it loads, as a branch the early file decides', async () => {
+  const page = PAGE('', 'paginate="offset" page-size="3" when="$url.go"');
+  const on = await render(page, { url: 'http://localhost/?go=1', requests: mockRequests({ 'GET /api/people?page=1&limit=3': rows(3) }), css: CSS });
+  expect(held(on.root)).not.toBeNull();
+  await on.settle();
+  expect(held(on.root)).toBeNull();
+  expect(on.root.querySelectorAll('ul > li').length).toBe(3);
+  const off = await render(page, { requests: mockRequests({}), css: CSS });
+  expect(held(off.root)).toBeNull();
+});
+
+test('a list chosen by the URL (a data-sn-let over two resources): held for the one that loads', async () => {
+  const page = `<sn-resource name="mine" src="/api/mine" items="people" key="id" paginate="offset" page-size="3" when="$url.feed"></sn-resource>
+    <sn-resource name="all" src="/api/all" items="people" key="id" paginate="offset" page-size="3" when="!$url.feed"></sn-resource>
+    <ul data-sn-let="{ list: $url.feed ? mine : all }"><template data-sn-for="p in list"><li data-sn-text="p.name"></li></template></ul>`;
+  const { root, settle } = await render(page, { requests: mockRequests({ 'GET /api/all?page=1&limit=3': rows(2) }), css: CSS });
+  expect(held(root)).not.toBeNull();
+  await settle();
+  expect(held(root)).toBeNull();
+  expect(root.querySelectorAll('ul > li').length).toBe(2);
+});
+
+test('a "Loading…" branch right before the list takes the placeholder\'s place; another one beside it leaves none', () => {
+  const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS + ' .ld { margin: 4px 0 }' }], paintCss: '/p.css' };
+  const list = '<sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="3"></sn-resource>';
+  const loading = '<template data-sn-if="$meta.people.loading && !people.length"><p class="ld">Loading…</p></template>';
+  const tpl = '<template data-sn-for="p in people"><li data-sn-text="p.name"></li></template>';
+  const out = compile(`<!doctype html><html><head></head><body>${list}<ul>${loading}${tpl}</ul></body></html>`, opts);
+  expect(out.html).toMatch(/<p class="ld snr\w+0b">Loading…<\/p>/);
+  expect(out.paint).toMatch(/\.snr\w+0b ~ \.sn-reserve\.snr\w+0:not\(#_\) \{ display:none !important \}/);
+  expect(out.paint).toMatch(/\.snr\w+0b:not\(#_\) \{ box-sizing:border-box !important;min-height:60px !important;margin-top:0px !important;margin-bottom:0px !important \}/);
+  // after the list: it would show with the placeholder
+  const after = compile(`<!doctype html><html><head></head><body>${list}<ul>${tpl}${loading}</ul></body></html>`, opts);
+  expect(after.html).not.toContain('sn-reserve');
+  // an empty state or an error over the same status never shows with the placeholder
+  const empty = compile(`<!doctype html><html><head></head><body>${list}<ul>${tpl}<template data-sn-if="!$meta.people.loading && !people.length"><p>None</p></template></ul></body></html>`, opts);
+  expect(empty.html).toContain('sn-reserve');
 });
 
 test('the build: the placeholder\'s rule in the page\'s first-paint stylesheet, imported by the page module', () => {

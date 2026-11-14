@@ -971,6 +971,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           ({ out, p } = build(html, file, earlySrc, styles, lineHeights));
         }
         for (const w of out.remoteWidths ?? []) remoteWidths.add(w);
+        // the page's early file from this compile (with the stylesheets), which wrote the page: its ids are the page's
+        if (!dev && firstPaint) { if (out.early) earlyPages.set(rel, out.early); else earlyPages.delete(rel); }
         if (out.paint !== undefined && paintCss.get(rel) !== out.paint) {
           paintCss.set(rel, out.paint);
           invalidate(`${PAINT_CSS}${rel}.css`);

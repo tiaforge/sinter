@@ -39,6 +39,26 @@ const CASES: Array<[string, string, string, number, [number, number] | null, Fit
   ['line-height normal: a stack, each face counted', '.row { font: 20px Verdana, Tahoma, sans-serif }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, [2 * 19, 2 * 19], 'bound'],
   // a family the build has no metrics for (a web font from a stylesheet it does not read, a locally installed font): 1
   ['line-height normal: a family without metrics counts as 1', '.row { font: 20px "Brand Sans", system-ui }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, [2 * 19, 2 * 19], 'bound'],
+  // rows in their place: sibling combinators and structural pseudo-classes, decided per row
+  ['a margin between rows: .row + .row', 'ul { padding: 0 } .row { height: 40px } .row + .row { margin-top: 10px }', '<ul><template id="t"><li class="row"></li></template></ul>', 6, [6 * 40 + 5 * 10, 6 * 40 + 5 * 10], 'exact'],
+  ['Tailwind v3 space-y', 'ul { padding: 0; margin: 0 } li { height: 30px } .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 1rem }', '<ul class="space-y-4"><template id="t"><li></li></template></ul>', 5, [5 * 30 + 4 * 16, 5 * 30 + 4 * 16], 'exact'],
+  ['Tailwind v4 space-y', 'ul { padding: 0; margin: 0 } li { height: 30px } .space-y-4 > :not(:last-child) { margin-bottom: 1rem }', '<ul class="space-y-4"><template id="t"><li></li></template></ul>', 5, [5 * 30 + 4 * 16, 5 * 30 + 4 * 16], 'exact'],
+  [':first-child loses its margin', 'ul { padding: 0; margin: 0 } li { height: 30px; margin-top: 12px } li:first-child { margin-top: 0 }', '<ul><template id="t"><li></li></template></ul>', 4, [4 * 30 + 3 * 12, 4 * 30 + 3 * 12], 'exact'],
+  [':nth-child(even) taller', 'ul { padding: 0 } li { height: 40px } li:nth-child(even) { height: 60px }', '<ul><template id="t"><li></li></template></ul>', 6, [3 * 40 + 3 * 60, 3 * 40 + 3 * 60], 'exact'],
+  ['a sibling rule over another template\'s content that cannot match the rows', 'ul { padding: 0 } li { height: 30px } .note ~ li { display: none }', '<ul><template data-sn-if="x"><p class="other">x</p></template><template id="t"><li></li></template></ul>', 4, [120, 120], 'exact'],
+  // rem: a smaller default font size shrinks the rows, and the placeholder with them
+  ['rem heights', 'ul { padding: 0 } .row { height: 3.5rem }', '<ul><template id="t"><li class="row"></li></template></ul>', 6, [336, 336], 'exact'],
+  ['rem text', 'ul { padding: 0 } .row { font-size: 1rem; line-height: 1.5; padding: 0.5rem 0 }', '<ul><template id="t"><li class="row" data-sn-text="r.x"></li></template></ul>', 6, [6 * 40, 6 * 40], 'tight'],
+  // tighter bounds from the markup
+  ['a link around a card\'s blocks: stacked', 'ul { padding: 0 } li { line-height: 20px } h3, p { margin: 0 }', '<ul><template id="t"><li><a href="#"><h3 data-sn-text="r.t"></h3><p data-sn-text="r.d"></p><span>Read more</span></a></li></template></ul>', 4, [4 * 60, 4 * 60], 'tight'],
+  ['a branch and its else: the lesser', 'ul { padding: 0 } li { line-height: 20px } .big { height: 80px } .small { height: 50px }', '<ul><template id="t"><li><template data-sn-if="r.x"><div class="big"></div></template><template data-sn-else><div class="small"></div></template></li></template></ul>', 3, [150, 150], 'bound'],
+  ['line breaks', 'ul { padding: 0 } li { line-height: 20px }', '<ul><template id="t"><li>one<br>two<br>three</li></template></ul>', 3, [180, 180], 'tight'],
+  // what may or may not apply counts at its least
+  ['a height on :hover: the smaller', 'ul { padding: 0 } .row { height: 56px } .row:hover { height: 60px }', '<ul><template id="t"><li class="row"></li></template></ul>', 4, [224, 224], 'tight'],
+  ['a max-height on touch screens (hover: none): the cap', 'ul { padding: 0 } .row { height: 56px } @media (hover: none) { .row { max-height: 20px } }', '<ul><template id="t"><li class="row"></li></template></ul>', 4, [80, 80], 'bound'],
+  ['a height with reduced motion: the smaller', 'ul { padding: 0 } .row { height: 40px } @media (prefers-reduced-motion: reduce) { .row { height: 30px } }', '<ul><template id="t"><li class="row"></li></template></ul>', 4, [120, 120], 'bound'],
+  ['a box-sizing that may change: border-box, the smaller', 'ul { padding: 0 } .row { height: 40px; padding: 10px } @media (hover: none) { .row { box-sizing: border-box } }', '<ul><template id="t"><li class="row"></li></template></ul>', 4, [160, 160], 'bound'],
+  ['a line height that may change: the smaller', 'ul { padding: 0 } .row { line-height: 30px } @supports (display: grid) { .row { line-height: 20px } }', '<ul><template id="t"><li class="row" data-sn-text="r.x"></li></template></ul>', 4, [80, 80], 'tight'],
   ['rows side by side, a width of their own', 'ul { display: flex; gap: 10px; padding: 0 } li { width: 40px; height: 40px; margin: 0 2px }', '<ul><template id="t"><li></li></template></ul>', 6, [40, 40], 'exact'],
   ['a wrapping row of chips: rows per line from the container', 'body { margin: 0 } .chips { display: flex; flex-wrap: wrap; gap: 8px; max-width: 600px } .chip { width: 92px; height: 30px }',
     '<div class="chips"><template id="t"><span class="chip"></span></template></div>', 12, [2 * 30 + 8, 4 * 30 + 3 * 8], 'exact'],
@@ -87,7 +107,8 @@ function reserve(css: string, body: string, rows: number): Reserved | null {
 
 /** the placeholder's rule at a viewport width */
 const ruleAt = (r: Reserved, width: number) => [...r.pieces].reverse().find((p) => p.from <= width)!.decls;
-const heightAt = (r: Reserved, width: number) => Number(/height:([\d.]+)px/.exec(ruleAt(r, width))![1]);
+/** the height at the browsers' default font size: a length, or the 16 px cap of `min(…, calc(…))` */
+const heightAt = (r: Reserved, width: number) => Number(/height:(?:min\()?([\d.]+)px/.exec(ruleAt(r, width))![1]);
 
 describe('the space of a list\'s rows', () => {
   for (const [name, css, body, rows, want, fit] of CASES) test(name, () => {
@@ -167,13 +188,15 @@ describe('the box whose width a list\'s rows decide', () => {
 describe.skipIf(!chromium)('the browser: the placeholder is never taller than the rows, and as tall where exact', () => {
   let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
   let tab: Page;
-  beforeAll(async () => { browser = await chromium!.launch(); tab = await browser.newPage(); }, 30_000);
+  let cdp: import('playwright').CDPSession;
+  beforeAll(async () => { browser = await chromium!.launch(); tab = await browser.newPage(); cdp = await tab.context().newCDPSession(tab); await cdp.send('Page.enable'); }, 30_000);
   afterAll(async () => { await browser?.close(); });
 
   const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
   /** where `#after` is: below the rows (each bound text one word), or below the placeholder */
   const after = async (css: string, body: string, list: string) => {
-    await tab.setContent(page(css, body.replace(/<template id="t">[\s\S]*<\/template>(?=<\/(ul|ol|div|section|p)>$)/, list)));
+    // the template stays before the rows (or the placeholder), as on the page: sibling and structural rules see it
+    await tab.setContent(page(css, body.replace(/<template id="t">[\s\S]*<\/template>(?=<\/(ul|ol|div|section|p)>$)/, `<template></template>${list}`)));
     return tab.evaluate(() => document.getElementById('after')!.getBoundingClientRect().top);
   };
   for (const [name, css, body, rows, want, fit] of [...CASES, ...BELOW.map(([n, c, b, r]) => [n, c, b, r, [0, 0], 'bound'] as const)]) {
@@ -181,16 +204,20 @@ describe.skipIf(!chromium)('the browser: the placeholder is never taller than th
     test(name, async () => {
       const r = reserve(css, body, rows)!;
       const row = /<template id="t">([\s\S]*)<\/template>/.exec(body)![1]!
+        // a branch and its else: the else (the cases put the smaller there); a branch alone: absent
+        .replace(/<template data-sn-if[^>]*>[\s\S]*?<\/template><template data-sn-else>([\s\S]*?)<\/template>/g, '$1')
         .replace(/<template data-sn-if[\s\S]*?<\/template>/g, '')
         .replace(/(<(\w+)[^>]*data-sn-text="[^"]*"[^>]*>)(<\/\2>)/g, '$1Word$3')
         .replaceAll('src="a.png"', `src="${IMG}"`);
       const rules = `.ph { ${PLACEHOLDER_BASE} }\n` + r.pieces.map((p) => (p.from ? `@media (min-width: ${p.from}px) { .ph.ph { ${p.decls} } }` : `.ph.ph { ${p.decls} }`)).join('\n');
-      for (const width of [1280, 390]) {
+      for (const [width, font] of [[1280, 16], [390, 16], [1280, 12], [390, 12]] as const) {
         await tab.setViewportSize({ width, height: 900 });
+        // a visitor whose browser's default font size is smaller: what is in rem, em or a keyword shrinks
+        await cdp.send('Page.setFontSizes', { fontSizes: { standard: font, fixed: font === 16 ? 13 : 10 } });
         const real = await after(css, body, row.repeat(rows));
         const held = await after(css + rules, body, `<${r.tag} class="ph"></${r.tag}>`);
-        expect(held, `${name} at ${width}px: not taller than the rows`).toBeLessThanOrEqual(real + 0.5);
-        if (fit !== 'bound') expect(held, `${name} at ${width}px: as tall`).toBeCloseTo(real, 0);
+        expect(held, `${name} at ${width}px, default font ${font}px: not taller than the rows`).toBeLessThanOrEqual(real + 0.5);
+        if (fit !== 'bound' && font === 16) expect(held, `${name} at ${width}px: as tall`).toBeCloseTo(real, 0);
       }
     });
   }

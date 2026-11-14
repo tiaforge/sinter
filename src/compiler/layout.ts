@@ -237,6 +237,14 @@ export class Layout {
   private readonly views = new Map<number, Layout>();
   /** why the last `fluidSizes()` gave up, when it is something the author can change (shared by `at()` views) */
   private readonly notes: { autoFitRows: P5Element | null } = { autoFitRows: null };
+  /** a row of a list, in a view for its position (`withRow`): its siblings are the other rows and what is around the template */
+  private row: RowCtx | null = null;
+  private readonly rowViews = new Map<string, Layout>();
+  /** whether a rule has a sibling combinator or a structural pseudo-class: only then does a row's position matter */
+  private positional = false;
+  /** the browser's default font size this layout is for (`withBase`) */
+  private base = 16;
+  private readonly bases = new Map<number, Layout>();
 
   /** a font family's `line-height: normal` as a multiple of its size (the smallest of its metrics), when the build has its file */
   private readonly normal: (family: string) => number | null;
@@ -250,6 +258,7 @@ export class Layout {
       // the order counts across sheets: later sheets win at equal layer and specificity
       this.rules.push({ selectors: r.selectors, decls: r.decls.map((d) => ({ ...d, order: order++ })) });
     }
+    this.positional = this.rules.some((r) => r.selectors.some((x) => csstree.find(x.ast, (n) => (n.type === 'Combinator' && /[+~]/.test(n.name)) || (n.type === 'PseudoClassSelector' && STRUCTURAL.has(n.name.toLowerCase()))) !== null));
     const walk = (p: P5Parent) => {
       for (const c of p.childNodes) {
         if (!isEl(c)) continue;
@@ -271,8 +280,34 @@ export class Layout {
     Object.assign(l, {
       rules: this.rules, hosts: this.hosts, root: this.root, viewport: width, views: this.views, notes: this.notes, normal: this.normal,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
+      row: null, rowViews: this.rowViews, positional: this.positional, base: this.base, bases: this.bases,
     });
     this.views.set(width, l);
+    return l;
+  }
+
+  /**
+   * This view for row `index` (1-based) of `count` of the list `tpl`, whose root is `row`: sibling
+   * combinators and structural pseudo-classes on the row decide against the rows before and after it,
+   * the template, and what is around it in its parent (what another template there may render is
+   * uncertain). The same view when no rule depends on a position.
+   */
+  private withRow(tpl: P5Element, row: P5Element, index: number, count: number): Layout {
+    if (!this.positional) return this;
+    const key = `${this.viewport}:${index}:${count}`;
+    let l = this.rowViews.get(key);
+    if (l) return l;
+    const parent = tpl.parentNode as P5Element;
+    const kids = parent.childNodes.filter(isEl), at = kids.indexOf(tpl);
+    // around the rows: each element for sure; another template's content roots may or may not be there
+    const around = (list: P5Element[]) => list.flatMap((e) => [{ el: e, sure: true }, ...(e !== tpl && e.tagName === 'template' ? ((e as P5Template).content?.childNodes ?? []).filter(isEl).map((c) => ({ el: c, sure: false })) : [])]);
+    l = Object.create(Layout.prototype) as Layout;
+    Object.assign(l, {
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: this.viewport, views: this.views, notes: this.notes, normal: this.normal,
+      cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
+      row: { el: row, index, count, before: around(kids.slice(0, at + 1)), after: around(kids.slice(at + 1)) }, rowViews: this.rowViews, positional: true, base: this.base, bases: this.bases,
+    });
+    this.rowViews.set(key, l);
     return l;
   }
 
@@ -457,6 +492,38 @@ export class Layout {
     return { value: d?.value ?? null, ambiguous, inline: !!d?.inline };
   }
 
+  /**
+   * Every value of `props` that may win: the declarations that may or may not apply above the first that
+   * surely does, and that one (null: none, the initial or inherited value). Null when a binding sets the
+   * element's style (anything may win).
+   */
+  private candidates(el: P5Element, props: readonly string[]): Array<string | null> | null {
+    return this.candidateDecls(el, props)?.map((d) => d?.value ?? null) ?? null;
+  }
+
+  /** `candidates` with the property each value is declared for (a shorthand's or a longhand's) */
+  private candidateDecls(el: P5Element, props: readonly string[]): Array<{ prop: string; value: string } | null> | null {
+    const m = this.declsOf(el);
+    if (m.has('\0dynamic')) return null;
+    const all = props.flatMap((p) => m.get(p) ?? []).sort((a, b) => cascadeCmp(b, a));
+    const out: Array<{ prop: string; value: string } | null> = [];
+    for (const d of all) {
+      if (/^(inherit|initial|unset|revert|revert-layer)$/i.test(d.value.trim())) return null;
+      out.push({ prop: d.prop, value: d.value });
+      if (!d.conditional) return out;
+    }
+    out.push(null);
+    return out;
+  }
+
+  /** the least of `f` over the values that may win (null: unknown) */
+  private least(el: P5Element, props: readonly string[], f: (d: { prop: string; value: string } | null) => number | null): number | null {
+    const c = this.candidateDecls(el, props);
+    if (!c) return null;
+    const vs = c.map(f);
+    return vs.some((v) => v === null) ? null : Math.min(...(vs as number[]));
+  }
+
   /** a custom property's computed value: undefined when ambiguous, null when not set */
   private variable(el: P5Element | null, name: string): string | null | undefined {
     if (!el) return null;
@@ -498,13 +565,29 @@ export class Layout {
   }
 
   private rootFont(): number | null {
-    if (!this.root) return 16;
+    const base = this.base;
+    if (!this.root) return base;
     const c = this.cascaded(this.root, ['font-size']);
     if (c.ambiguous) return null;
-    if (c.value === null) return 16;
+    if (c.value === null) return base;
     const v = this.subst(c.value, this.root);
-    const n = v === undefined ? null : evaluate(v, { rem: 16, percent: 16 });
+    const n = v === undefined ? null : evaluate(v, { rem: base, percent: base });
     return n ?? null;
+  }
+
+  /** The page for a visitor whose browser's default font size is `px` (16 unless they changed it): its rem and keywords follow. */
+  private withBase(px: number): Layout {
+    if (px === this.base) return this;
+    let l = this.bases.get(px);
+    if (l) return l;
+    l = Object.create(Layout.prototype) as Layout;
+    Object.assign(l, {
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: undefined, views: new Map(), notes: this.notes, normal: this.normal,
+      cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
+      row: null, rowViews: new Map(), positional: this.positional, base: px, bases: this.bases,
+    });
+    this.bases.set(px, l);
+    return l;
   }
 
   /** a fixed width or height of `el` in px, or null */
@@ -981,7 +1064,7 @@ export class Layout {
     if (!row || !parent) return null;
     const cuts = this.breakpoints().filter((b) => b > MIN_VIEWPORT && b < MAX_VIEWPORT);
     // in a box whose width follows its content, the placeholder needs the rows' width: rows of a width of their own, stacked
-    const shapeAt = (w: number) => { const sh = this.at(w).shape(parent, row); return sh && opts.sized && sh.mode !== 'block' && sh.mode !== 'column' ? null : sh; };
+    const shapeAt = (w: number) => { const v = this.at(w), sh = v.withRow(tpl, row, 1, count).shape(parent, row); return sh && opts.sized && sh.mode !== 'block' && sh.mode !== 'column' ? null : sh; };
     const key = (s: Shape | null) => (s ? `${s.mode} ${s.columns}` : '');
     // ranges between breakpoints, split where the shape changes inside one (a column more in an auto-fill grid)
     const ranges: Array<[number, number, Shape, Shape?]> = [];
@@ -1000,20 +1083,29 @@ export class Layout {
     }
     const pieces: Reserved['pieces'] = [];
     let exact = true;
-    for (const [a, b, s, alt] of ranges) {
+    // a visitor may have set a smaller default font size: what is in rem (or em, or a keyword) shrinks with it
+    const rootRatio = (this.rootFont() ?? NaN) / 16;
+    if (!(rootRatio > 0)) return null;
+    /** the space of a range for a default font size of `px` */
+    const spaceAt = (L: Layout, a: number, b: number, s: Shape, alt?: Shape) => {
       // a range's height is its least: at either end (a height that follows the viewport is smallest at one of them)
-      const x = this.at(a).space(parent, row, count, s, !!opts.sized), y = this.at(Math.max(a, b - 0.5)).space(parent, row, count, s, !!opts.sized);
-      const z = alt ? this.at(Math.max(a, b - 0.5)).space(parent, row, count, alt, !!opts.sized) : null;
+      const x = L.at(a).space(tpl, row, count, s, !!opts.sized), y = L.at(Math.max(a, b - 0.5)).space(tpl, row, count, s, !!opts.sized);
+      const z = alt ? L.at(Math.max(a, b - 0.5)).space(tpl, row, count, alt, !!opts.sized) : null;
       if (!x || !y || (alt && !z)) return null;
-      let sp = x.height <= y.height ? x : y;
-      if (z && z.height < sp.height) sp = z;
-      exact &&= x.exact && y.exact && Math.abs(x.height - y.height) < 0.01 && Math.abs((x.width ?? 0) - (y.width ?? 0)) < 0.01;
+      let sp = { ...(x.height <= y.height ? x : y) };
+      if (z && z.height < sp.height) sp = { ...z };
       // a width that follows the viewport: the narrower end
       if (x.width !== undefined && y.width !== undefined && y.width < x.width) sp.width = y.width;
-      const decls = spaceCss(sp, row.tagName);
+      return { sp, exact: x.exact && y.exact && Math.abs(x.height - y.height) < 0.01 && Math.abs((x.width ?? 0) - (y.width ?? 0)) < 0.01 };
+    };
+    for (const [a, b, s, alt] of ranges) {
+      const r16 = spaceAt(this, a, b, s, alt), r12 = spaceAt(this.withBase(12), a, b, s, alt), r8 = spaceAt(this.withBase(8), a, b, s, alt);
+      if (!r16 || !r12 || !r8) return null;
+      exact &&= r16.exact;
+      const decls = spaceCss(r16.sp, row.tagName, r12.sp, r8.sp, rootRatio);
       const last = pieces[pieces.length - 1];
       if (last && last.decls === decls) continue;
-      pieces.push({ from: pieces.length ? a : 0, decls });
+      pieces.push({ from: pieces.length ? a : 0, decls, height: scaled(r16.sp.height, r12.sp.height, r8.sp.height, rootRatio), mt: scaled(r16.sp.mt, r12.sp.mt, r8.sp.mt, rootRatio), mb: scaled(r16.sp.mb, r12.sp.mb, r8.sp.mb, rootRatio) });
     }
     if (!pieces.length || pieces.every((p) => /height:0px/.test(p.decls) && !/span/.test(p.decls))) return null;
     return { tag: placeholderTag(parent, row), pieces, exact };
@@ -1111,9 +1203,20 @@ export class Layout {
     return parts.find((x) => (prop === 'direction' ? /^(row|column)/.test(x) : /wrap/.test(x))) ?? null;
   }
 
+  /** a row's display; one of several that may win when all lay it out alike (all block-level, or all the same) */
+  private rowDisplay(row: P5Element): string | null {
+    const d = this.displayOf(row);
+    if (d !== null) return d;
+    const c = this.candidates(row, ['display']);
+    if (!c) return null;
+    const ds = [...new Set(c.map((v) => (v ?? (BLOCK.has(row.tagName) ? 'block' : 'inline')).trim().toLowerCase()))];
+    if (ds.length === 1) return ds[0]!;
+    return ds.every((x) => /^(block|list-item|flow-root)$/.test(x)) ? 'block' : null;
+  }
+
   /** how the rows are laid out in their parent at this viewport width, if the build follows it */
   private shape(parent: P5Element, row: P5Element): Shape | null {
-    const pd = this.displayOf(parent), rd = this.displayOf(row);
+    const pd = this.displayOf(parent), rd = this.rowDisplay(row);
     if (pd === null || rd === null || rd === 'none' || this.declsOf(parent).has('\0dynamic')) return null;
     if (!this.inFlow(row)) return null;
     // rows that skip their layout off screen are as tall as `contain-intrinsic-size` says, not as their content
@@ -1181,34 +1284,43 @@ export class Layout {
   }
 
   /** the placeholder's box for `count` rows in this shape, at this viewport width */
-  private space(parent: P5Element, row: P5Element, count: number, s: Shape, sized = false): Space | null {
-    const h = this.height(row);
-    const mt = this.vMargin(row, 'top'), mb = this.vMargin(row, 'bottom');
-    if (mt === null || mb === null) return null;
+  private space(tpl: P5Element, row: P5Element, count: number, s: Shape, sized = false): Space | null {
+    const parent = this.parentOf(tpl)!;
+    // each row in its place (sibling and structural rules), or one view for all when no rule depends on it
+    const views = Array.from({ length: count }, (_, i) => this.withRow(tpl, row, i + 1, count));
+    const rows = views.map((v) => ({ h: v.height(row), mt: v.vMargin(row, 'top'), mb: v.vMargin(row, 'bottom') }));
+    if (rows.some((r) => r.mt === null || r.mb === null)) return null;
+    const hs = rows.map((r) => r.h.h), mts = rows.map((r) => r.mt!), mbs = rows.map((r) => r.mb!);
+    const exactH = rows.every((r) => r.h.exact), outer = rows.map((r, i) => hs[i]! + mts[i]! + mbs[i]!);
     // in a box as wide as its content: the placeholder as wide as a row, so the box is as wide as with the rows
     const own = sized ? this.rowWidth(row) : null;
     if (sized && !own) return null;
     const width = own ? { width: own.outer } : {};
+    const sum = (xs: number[]) => xs.reduce((x, y) => x + y, 0);
     if (s.mode === 'block') {
       // margins between rows collapse; the outer ones stay on the placeholder, to collapse as the rows' would
-      return { height: count * h.h + (count - 1) * collapse([mb, mt]), mt, mb, span: 0, exact: h.exact && (!own || own.exact), ...width };
+      let h = sum(hs);
+      for (let i = 1; i < count; i++) h += collapse([mbs[i - 1]!, mts[i]!]);
+      return { height: h, mt: mts[0]!, mb: mbs[count - 1]!, span: 0, exact: exactH && (!own || own.exact), ...width };
     }
     const gap = this.rowGap(parent);
     if (gap === null) return null;
-    if (s.mode === 'column') return { height: count * (h.h + mt + mb) + (count - 1) * gap, mt: 0, mb: 0, span: 0, exact: h.exact && (!own || own.exact), ...width };
+    if (s.mode === 'column') return { height: sum(outer) + (count - 1) * gap, mt: 0, mb: 0, span: 0, exact: exactH && (!own || own.exact), ...width };
     if (s.mode === 'line' || s.mode === 'wrap') {
-      const w = this.rowWidth(row), cgap = this.columnGap(parent, lin(0), [this.viewport!, this.viewport!]);
-      if (!w || !cgap) return null;
-      const g = cgap.c;
-      if (s.mode === 'line') return { height: h.h + mt + mb, mt: 0, mb: 0, span: 0, exact: h.exact && w.exact, width: count * w.outer + (count - 1) * g, flex: 'shrink' };
-      const lines = Math.ceil(count / s.columns);
-      return { height: lines * (h.h + mt + mb) + (lines - 1) * gap, mt: 0, mb: 0, span: 0, exact: h.exact && w.exact, flex: 'line' };
+      const ws = views.map((v) => v.rowWidth(row)), cgap = this.columnGap(parent, lin(0), [this.viewport!, this.viewport!]);
+      if (ws.some((w) => !w) || !cgap || ws.some((w) => Math.abs(w!.outer - ws[0]!.outer) > 0.01)) return null;
+      const w = ws[0]!, g = cgap.c;
+      if (s.mode === 'line') return { height: Math.max(...outer), mt: 0, mb: 0, span: 0, exact: exactH && w.exact, width: count * w.outer + (count - 1) * g, flex: 'shrink' };
+      // a line is as tall as its tallest row
+      let h = 0, lines = 0;
+      for (let i = 0; i < count; i += s.columns, lines++) h += Math.max(...outer.slice(i, i + s.columns));
+      return { height: h + (lines - 1) * gap, mt: 0, mb: 0, span: 0, exact: exactH && w.exact, flex: 'line' };
     }
     // grid: one item over as many rows as the rows fill; a row is as tall as its track, or its tallest item
-    const rows = Math.ceil(count / s.columns);
     const track = this.autoRow(parent);
-    const one = Math.max(h.h + mt + mb, track ?? 0);
-    return { height: rows * one + (rows - 1) * gap, mt: 0, mb: 0, span: rows, exact: track !== null || h.exact };
+    let h = 0, lines = 0;
+    for (let i = 0; i < count; i += s.columns, lines++) h += Math.max(track ?? 0, ...outer.slice(i, i + s.columns));
+    return { height: h + (lines - 1) * gap, mt: 0, mb: 0, span: lines, exact: track !== null || exactH };
   }
 
   /**
@@ -1301,15 +1413,13 @@ export class Layout {
     if (this.fonts.has(el)) return this.fonts.get(el)!;
     this.fonts.set(el, null); // cycle guard
     const parent = this.parentOf(el);
-    const up = parent ? this.fontSize(parent) : 16;
-    let out: number | null = up;
-    const c = this.cascaded(el, ['font-size', 'font']);
-    if (c.ambiguous) out = null;
-    else if (c.value !== null) {
-      const w = this.winner(el, ['font-size', 'font'])!;
+    const up = parent ? this.fontSize(parent) : this.base;
+    // the least of what may win (an inherited size when none does)
+    let out = this.least(el, ['font-size', 'font'], (w) => {
+      if (!w) return el === this.root ? this.base : up;
       const raw = (w.prop === 'font' ? fontShorthand(this.subst(w.value, el) ?? '')?.size : this.subst(w.value, el)) ?? null;
-      out = raw === null ? null : this.fontValue(el, raw.trim().toLowerCase(), up);
-    } else if (el === this.root) out = 16;
+      return raw === null ? null : this.fontValue(el, raw.trim().toLowerCase(), up);
+    });
     // a font of only `monospace` gets the browsers' smaller default (13 px for 16): at its least, always
     if (out !== null && this.onlyMonospace(el)) out = (out * 13) / 16;
     this.fonts.set(el, out);
@@ -1326,7 +1436,7 @@ export class Layout {
 
   private fontValue(el: P5Element, v: string, up: number | null): number | null {
     const KEYWORDS: Record<string, number> = { 'xx-small': 9, 'x-small': 10, small: 13, medium: 16, large: 18, 'x-large': 24, 'xx-large': 32, 'xxx-large': 48 };
-    if (v in KEYWORDS) return KEYWORDS[v]!;
+    if (v in KEYWORDS) return (KEYWORDS[v]! * this.base) / 16;
     if (up === null) return null;
     if (v === 'inherit' || v === 'unset') return up;
     if (v === 'smaller') return up / 1.2;
@@ -1343,23 +1453,24 @@ export class Layout {
 
   /** the computed `line-height` of `el` in px; `normal` from its font's metrics; null when the cascade cannot tell */
   private lineHeight(el: P5Element): number | null {
-    for (let x: P5Element | null = el; x; x = this.parentOf(x)) {
-      const c = this.cascaded(x, ['line-height', 'font']);
-      if (c.ambiguous) return null;
-      if (c.value === null) continue;
-      const w = this.winner(x, ['line-height', 'font'])!;
-      const sub = this.subst(w.value, x);
-      if (sub === undefined) return null;
-      // the shorthand sets line-height too: to `normal` when it leaves it out
-      const v = (w.prop === 'font' ? fontShorthand(sub)?.lineHeight ?? 'normal' : sub).trim().toLowerCase();
-      if (v === 'inherit' || v === 'unset') continue;
-      if (v === 'normal' || v === 'initial') return this.normalLine(el);
-      if (/^\d*\.?\d+$/.test(v)) { const f = this.fontSize(el); return f === null ? null : Number(v) * f; }
-      // a length or percentage is computed where it is declared, and inherited as px
-      const f = this.fontSize(x);
-      return f === null ? null : this.length(x, v, f);
-    }
-    return this.normalLine(el);
+    // declared on `x` (or inherited from above it), for the text of `el`; of several that may win, the least
+    const at = (x: P5Element | null): number | null => {
+      if (!x) return this.normalLine(el);
+      return this.least(x, ['line-height', 'font'], (w) => {
+        if (!w) return at(this.parentOf(x));
+        const sub = this.subst(w.value, x);
+        if (sub === undefined) return null;
+        // the shorthand sets line-height too: to `normal` when it leaves it out
+        const v = (w.prop === 'font' ? fontShorthand(sub)?.lineHeight ?? 'normal' : sub).trim().toLowerCase();
+        if (v === 'inherit' || v === 'unset') return at(this.parentOf(x));
+        if (v === 'normal' || v === 'initial') return this.normalLine(el);
+        if (/^\d*\.?\d+$/.test(v)) { const f = this.fontSize(el); return f === null ? null : Number(v) * f; }
+        // a length or percentage is computed where it is declared, and inherited as px
+        const f = this.fontSize(x);
+        return f === null ? null : this.length(x, v, f);
+      });
+    };
+    return at(el);
   }
 
   /**
@@ -1451,25 +1562,33 @@ export class Layout {
     if (d === 'contents') return zero;
     const top = this.vEdge(el, 'top'), bottom = this.vEdge(el, 'bottom');
     const edges = top.v + bottom.v, edgesExact = top.exact && bottom.exact;
+    // what may or may not apply (a `:hover`, a media feature the build cannot decide) counts at its least
     const bs = this.cascaded(el, ['box-sizing']);
-    const borderBox = !bs.ambiguous && /^\s*border-box\s*$/i.test(bs.value ?? '');
-    const asBox = (v: number) => (borderBox ? Math.max(v, edges) : v + edges);
+    const sizing = bs.ambiguous ? 'either' : /^\s*border-box\s*$/i.test(bs.value ?? '') ? 'border' : 'content';
+    const borderBox = sizing === 'border';
+    const asBox = (v: number) => (sizing === 'content' ? v + edges : Math.max(v, edges));
+    const lengths = (props: readonly string[], skip: RegExp) => {
+      const c = this.candidates(el, props);
+      return c === null ? null : c.map((v) => (v === null || skip.test(v) ? null : this.length(el, v, null)));
+    };
     const clamp = (h: number): number => {
-      const mn = this.cascaded(el, SIZE['min-height']), mx = this.cascaded(el, SIZE['max-height']);
-      if (!mn.ambiguous && mn.value !== null && !/^\s*auto\s*$/i.test(mn.value)) { const v = this.length(el, mn.value, null); if (v !== null) h = Math.max(h, asBox(v)); }
-      if (!mx.ambiguous && mx.value !== null && !/^\s*none\s*$/i.test(mx.value)) { const v = this.length(el, mx.value, null); if (v !== null) h = Math.min(h, asBox(v)); }
+      // the least floor, the least cap: a `min-height` that may not apply is none, a `max-height` that may apply is one
+      const mn = lengths(SIZE['min-height'], /^\s*auto\s*$/i), mx = lengths(SIZE['max-height'], /^\s*none\s*$/i);
+      if (mn && mn.every((v) => v !== null)) h = Math.max(h, asBox(Math.min(...(mn as number[]))));
+      const caps = (mx ?? []).filter((v): v is number => v !== null);
+      if (caps.length) h = Math.min(h, asBox(Math.min(...caps)));
       return h;
     };
     const hc = this.cascaded(el, SIZE.height);
-    if (!hc.ambiguous && hc.value !== null && !/^\s*(auto|fit-content|max-content|min-content)\s*$/i.test(hc.value)) {
-      const v = this.length(el, hc.value, null);
-      if (v !== null) {
-        const mn = this.cascaded(el, SIZE['min-height']), mx = this.cascaded(el, SIZE['max-height']);
-        return { h: clamp(asBox(v)), exact: edgesExact && !mn.ambiguous && !mx.ambiguous && !bs.ambiguous };
-      }
+    const hs = lengths(SIZE.height, /^\s*(auto|fit-content|max-content|min-content)\s*$/i);
+    if (hs && hs.every((v) => v !== null)) {
+      return { h: clamp(asBox(Math.min(...(hs as number[])))), exact: edgesExact && !hc.ambiguous && sizing !== 'either' && !this.cascaded(el, SIZE['min-height']).ambiguous && !this.cascaded(el, SIZE['max-height']).ambiguous };
     }
+    // one that may be fixed or follow the content: the least of both (below)
+    const fixedLeast = hs ? hs.filter((v): v is number => v !== null) : [];
     if (REPLACED.has(el.tagName)) return { h: clamp(this.replacedHeight(el) + (borderBox ? 0 : edges)), exact: false };
     let h = this.contentHeight(el, d, top.v > 0, bottom.v > 0) + edges;
+    if (fixedLeast.length) h = Math.min(h, asBox(Math.min(...fixedLeast)));
     // a box with a ratio and a known width
     const ar = this.cascaded(el, ['aspect-ratio']);
     if (!ar.ambiguous && ar.value !== null && hc.value === null) {
@@ -1598,11 +1717,31 @@ export class Layout {
         if (n.nodeName === '#text' && /\S/.test((n as { value: string }).value)) run = Math.max(run ?? 0, strut());
         return;
       }
+      // a line break ends a line, an empty one too
+      if (n.tagName === 'br') { out.push(run ?? strut()); run = null; return; }
+      // a branch and its `data-sn-else`: the lesser of the two
+      if (n.tagName === 'template' && attrOf(n, 'data-sn-if') !== undefined) {
+        const next = (n.parentNode?.childNodes ?? []).slice((n.parentNode?.childNodes ?? []).indexOf(n) + 1).find(isEl);
+        if (next && next.tagName === 'template' && attrOf(next, 'data-sn-else') !== undefined) {
+          const h = Math.min(...[n, next].map((t) => this.branchHeight(t as P5Template)));
+          // inline content joins the line; blocks stack
+          const blocks = [n, next].every((t) => ((t as P5Template).content?.childNodes ?? []).some((c) => isEl(c) && /^(block|list-item|flow-root|flex|grid|table)$/.test(this.displayOf(c) ?? '')));
+          if (h > 0 && blocks) { if (run !== null) { out.push(run); run = null; } out.push(h); }
+          else if (h > 0) run = Math.max(run ?? 0, h, strut());
+        }
+        return;
+      }
       if (SKIPPED.has(n.tagName) || attrOf(n, 'hidden') !== undefined || attrOf(n, 'data-sn-show') !== undefined) return;
       const d = this.displayOf(n);
       if (d === null || d === 'none') return;
       if (!this.inFlow(n)) return;
       if (d === 'contents') { for (const c of n.childNodes) add(c); return; }
+      // an inline box with blocks in it (a link around a card's heading and text): the blocks break it into pieces, stacked
+      if (d === 'inline' && !REPLACED.has(n.tagName) && !CONTROLS.has(n.tagName) && attrOf(n, 'data-sn-text') === undefined
+        && n.childNodes.some((c) => isEl(c) && /^(block|list-item|flow-root|flex|grid|table)$/.test(this.displayOf(c) ?? ''))) {
+        for (const c of n.childNodes) add(c);
+        return;
+      }
       if (/^(block|list-item|flow-root|flex|grid|table)$/.test(d)) {
         if (run !== null) { out.push(run); run = null; }
         out.push(n);
@@ -1615,6 +1754,18 @@ export class Layout {
     for (const c of this.children(el)) add(c);
     if (run !== null) out.push(run);
     return out;
+  }
+
+  /** the least height of a template's content laid out where the template is (blocks stacked, margins left out) */
+  private branchHeight(t: P5Template): number {
+    let h = 0;
+    for (const c of t.content?.childNodes ?? []) {
+      if (!isEl(c) || SKIPPED.has(c.tagName) || !this.inFlow(c)) continue;
+      const d = this.displayOf(c);
+      if (d === null || d === 'none') continue;
+      h += /^(block|list-item|flow-root|flex|grid|table)$/.test(d) ? this.height(c).h : this.inlineHeight(c, d);
+    }
+    return h;
   }
 
   /** the least height an inline-level element adds to its line */
@@ -1648,7 +1799,8 @@ export class Layout {
     if (comb === '>') return combine(this.ancestorMatch(rest, el, true));
     if (comb === ' ') return combine(this.ancestorMatch(rest, el, false));
     // siblings
-    if (this.inTemplate(el)) return 'maybe';
+    if (this.row && el === this.row.el) return combine(this.rowSibling(rest, comb));
+    if (this.siblingsUnknown(el)) return 'maybe';
     const sibs = (el.parentNode?.childNodes ?? []).filter(isEl);
     const at = sibs.indexOf(el);
     const before = comb === '+' ? sibs.slice(Math.max(0, at - 1), at) : sibs.slice(0, at);
@@ -1725,7 +1877,7 @@ export class Layout {
           return any === 'yes' ? 'no' : any === 'no' ? 'yes' : 'maybe';
         }
         if (name === 'root') return el === this.root ? 'yes' : 'no';
-        if (STRUCTURAL.has(name)) return this.inTemplate(el) ? 'maybe' : this.structural(name, n, el);
+        if (STRUCTURAL.has(name)) return this.row && el === this.row.el ? this.rowStructural(name, n) : this.siblingsUnknown(el) ? 'maybe' : this.structural(name, n, el);
         if (name === 'defined') return 'yes';
         // these match only in a shadow tree, never in the page's own stylesheets (Tailwind's theme is on `:root, :host`)
         if (name === 'host' || name === 'host-context') return 'no';
@@ -1736,23 +1888,74 @@ export class Layout {
     }
   }
 
+  /**
+   * Whether `el`'s siblings are unknown at build time: a list's row (outside a row view), or an element next to a
+   * template (what it renders is not known). Inside a row, the row's own children are as written.
+   */
+  private siblingsUnknown(el: P5Element): boolean {
+    const p = el.parentNode as P5Parent | null;
+    if (!p) return false;
+    if (this.hosts.has(p)) return true;
+    return this.inTemplate(el) && p.childNodes.some((c) => isEl(c) && c.tagName === 'template');
+  }
+
+  /** a sibling combinator with the row of this view as its subject: the rows before it, the template, what precedes it */
+  private rowSibling(rest: csstree.CssNode[], comb: string): Match {
+    const r = this.row!;
+    // the element right before row 1 is the template itself (rows are inserted after it)
+    const prev: Array<{ el: P5Element; sure: boolean; index?: number }> = comb === '+'
+      ? (r.index > 1 ? [{ el: r.el, sure: true, index: r.index - 1 }] : [r.before[r.before.length - 1]!])
+      : [...r.before, ...Array.from({ length: r.index - 1 }, (_, k) => ({ el: r.el, sure: true, index: k + 1 }))];
+    let any: Match = 'no';
+    for (const c of prev) {
+      let x: Match;
+      if (c.index !== undefined) { const here = r.index; r.index = c.index; try { x = this.matches(rest, c.el); } finally { r.index = here; } }
+      else x = this.matches(rest, c.el);
+      if (x === 'yes' && c.sure) return 'yes';
+      if (x !== 'no') any = 'maybe';
+    }
+    return any;
+  }
+
+  /** a structural pseudo-class on the row of this view: its place among the template's parent's children */
+  private rowStructural(name: string, n: csstree.PseudoClassSelector): Match {
+    const r = this.row!, ofType = name.endsWith('of-type'), tag = r.el.tagName;
+    const count = (list: RowCtx['before']) => {
+      const sure = list.filter((x) => x.sure && (!ofType || x.el.tagName === tag)).length;
+      const unsure = list.some((x) => !x.sure && (!ofType || x.el.tagName === tag));
+      return { sure, unsure };
+    };
+    const b = count(r.before), a = count(r.after);
+    const i = b.sure + r.index - 1, last = a.sure + r.count - r.index;
+    const fromStart = !name.includes('last') || name.startsWith('only'), fromEnd = name.includes('last') || name.startsWith('only');
+    if ((fromStart && b.unsure) || (fromEnd && a.unsure)) return 'maybe';
+    if (name.startsWith('first')) return i === 0 ? 'yes' : 'no';
+    if (name.startsWith('last')) return last === 0 ? 'yes' : 'no';
+    if (name.startsWith('only')) return i === 0 && last === 0 ? 'yes' : 'no';
+    return nthMatch(n, (name.includes('last') ? last : i) + 1);
+  }
+
   private structural(name: string, n: csstree.PseudoClassSelector, el: P5Element): Match {
     const sibs = (el.parentNode?.childNodes ?? []).filter(isEl).filter((s) => !name.endsWith('of-type') || s.tagName === el.tagName);
     const i = sibs.indexOf(el), last = sibs.length - 1 - i;
     if (name.startsWith('first')) return i === 0 ? 'yes' : 'no';
     if (name.startsWith('last')) return last === 0 ? 'yes' : 'no';
     if (name.startsWith('only')) return sibs.length === 1 ? 'yes' : 'no';
-    const arg = n.children?.first;
-    if (!arg || arg.type !== 'Nth' || arg.selector) return 'maybe';
-    const nth = arg.nth;
-    const pos = (name.includes('last') ? last : i) + 1;
-    if (nth.type === 'Identifier') return (nth.name === 'odd' ? pos % 2 === 1 : nth.name === 'even' ? pos % 2 === 0 : false) ? 'yes' : 'no';
-    const a = nth.a === null ? 0 : Number(nth.a === '-' ? -1 : nth.a === '+' || nth.a === '' ? 1 : nth.a);
-    const b = nth.b === null ? 0 : Number(nth.b);
-    if (Number.isNaN(a) || Number.isNaN(b)) return 'maybe';
-    if (a === 0) return pos === b ? 'yes' : 'no';
-    return (pos - b) / a >= 0 && (pos - b) % a === 0 ? 'yes' : 'no';
+    return nthMatch(n, (name.includes('last') ? last : i) + 1);
   }
+}
+
+/** `:nth-child(an+b)` and the like at 1-based position `pos` */
+function nthMatch(n: csstree.PseudoClassSelector, pos: number): Match {
+  const arg = n.children?.first;
+  if (!arg || arg.type !== 'Nth' || arg.selector) return 'maybe';
+  const nth = arg.nth;
+  if (nth.type === 'Identifier') return (nth.name === 'odd' ? pos % 2 === 1 : nth.name === 'even' ? pos % 2 === 0 : false) ? 'yes' : 'no';
+  const a = nth.a === null ? 0 : Number(nth.a === '-' ? -1 : nth.a === '+' || nth.a === '' ? 1 : nth.a);
+  const b = nth.b === null ? 0 : Number(nth.b);
+  if (Number.isNaN(a) || Number.isNaN(b)) return 'maybe';
+  if (a === 0) return pos === b ? 'yes' : 'no';
+  return (pos - b) / a >= 0 && (pos - b) % a === 0 ? 'yes' : 'no';
 }
 
 /** A block's text split into declarations (`body` null) and rules (`head { body }`), at the top level. */
@@ -1779,11 +1982,14 @@ function segments(text: string): Array<{ head: string; body: string | null }> {
 /** The placeholder of a list's rows: its tag, and its rule per viewport range from `from` px up (mobile first). */
 export interface Reserved {
   tag: string;
-  pieces: Array<{ from: number; decls: string }>;
+  /** per viewport range from `from` px up: the rule's declarations, and its height and outer margins as CSS lengths */
+  pieces: Array<{ from: number; decls: string; height: string; mt: string; mb: string }>;
   /** the stylesheets fix the rows' height: the placeholder is as tall as the rows (when `count` arrive) */
   exact: boolean;
 }
 /** `line`: side by side in a flex row; `wrap`: a wrapping flex row, `columns` rows per line */
+/** a list's row in a view for its position: `before`/`after` the rows, each element and whether it is surely there */
+interface RowCtx { el: P5Element; index: number; count: number; before: Array<{ el: P5Element; sure: boolean }>; after: Array<{ el: P5Element; sure: boolean }> }
 interface Shape { mode: 'block' | 'column' | 'grid' | 'line' | 'wrap'; columns: number }
 /** `width`: the placeholder's own (rows side by side, or in a box as wide as its content); `line`: it takes a flex line of its own */
 interface Space { height: number; mt: number; mb: number; span: number; exact: boolean; width?: number; flex?: 'shrink' | 'line' }
@@ -1805,6 +2011,22 @@ function soleElement(tpl: P5Element): P5Element | null {
   return one;
 }
 
+/** floored to 1/64 px (engines lay boxes out in those) and to 0.01: never a fraction above the rows */
+const floor = (v: number) => Math.floor((Math.floor(v * 64 + 1e-6) / 64) * 100) / 100;
+
+/**
+ * A length for every default font size: `v16` at 16 px (the browsers' default), `v12` and `v8` with a smaller
+ * one. Equal: px. Else the line through them, at or below each, in rem (the page's root font is `rootRatio` of
+ * the default), capped at the 16 px value: above it, the rows only grow.
+ */
+function scaled(v16: number, v12: number | undefined, v8: number | undefined, rootRatio: number): string {
+  if (v12 === undefined || v8 === undefined || (Math.abs(v16 - v12) < 0.01 && Math.abs(v16 - v8) < 0.01)) return `${floor(Math.min(v16, v12 ?? v16, v8 ?? v16))}px`;
+  const slope = (v16 - v8) / 8;
+  if (!(slope > 0)) return `${floor(Math.min(v16, v12, v8))}px`;
+  const c = Math.min(v8 - 8 * slope, v12 - 12 * slope, v16 - 16 * slope);
+  return `min(${floor(v16)}px, calc(${floor(c)}px + ${Math.floor((slope * 16 / rootRatio) * 1e4) / 1e4 / 16}rem))`;
+}
+
 /** adjoining margins: the largest positive plus the most negative */
 const collapse = (ms: number[]) => Math.max(0, ...ms) + Math.min(0, ...ms);
 
@@ -1823,13 +2045,12 @@ const PHRASING = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a', 
 export const PLACEHOLDER_BASE = ['display:block', 'visibility:hidden', 'padding:0', 'border:0', 'margin:0', 'min-height:0', 'max-height:none', 'flex:none'].map((x) => `${x} !important`).join(';');
 
 /** a placeholder's own declarations at one width: its height, and what it has beyond the base rule */
-function spaceCss(s: Space, _rowTag: string): string {
-  // floored to 1/64 px, as engines lay boxes out: never a fraction above the rows
-  const d = [`height:${Math.floor(Math.floor(s.height * 64) / 64 * 100) / 100}px`];
-  if (s.mt) d.push(`margin-top:${fmt(s.mt)}px`);
-  if (s.mb) d.push(`margin-bottom:${fmt(s.mb)}px`);
+function spaceCss(s: Space, _rowTag: string, s12?: Space, s8?: Space, rootRatio = 1): string {
+  const d = [`height:${scaled(s.height, s12?.height, s8?.height, rootRatio)}`];
+  if (s.mt) d.push(`margin-top:${scaled(s.mt, s12?.mt, s8?.mt, rootRatio)}`);
+  if (s.mb) d.push(`margin-bottom:${scaled(s.mb, s12?.mb, s8?.mb, rootRatio)}`);
   if (s.span) d.push('grid-column:1/-1', `grid-row:span ${s.span}`);
-  if (s.width !== undefined) d.push(`width:${fmt(s.width)}px`, 'max-width:none', 'min-width:0');
+  if (s.width !== undefined) d.push(`width:${scaled(s.width, s12?.width, s8?.width, rootRatio)}`, 'max-width:none', 'min-width:0');
   if (s.flex === 'shrink') d.push('flex:0 1 auto');
   if (s.flex === 'line') d.push('flex:0 0 100%');
   return d.map((x) => `${x} !important`).join(';');
