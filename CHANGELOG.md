@@ -3,6 +3,12 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Fixed
+
+- A list the build cannot trace to one resource (a helper's result: `m in visible(messages, q)`), and `patch(item)`/`remove(item)` on a row that can come from several (`a in (mine ? tags : messages)`), no longer warn "item is missing key field" for each other keyed resource on the page: a resource whose key fields the item lacks is passed over. It was console noise since 0.12, but each one failed `render()` in strict mode.
+
 ## 0.18.0 (2026-11-14)
 
 ### Added

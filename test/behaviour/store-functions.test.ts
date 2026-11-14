@@ -87,6 +87,34 @@ describe('patch(item) and remove(item)', () => {
     await settle();
     expect(root.querySelector('i')!.textContent).toBe('false');
   });
+
+  // with a nested list on the page, `patch()` runs in the nested module, which tries its sources the same way
+  test.each([['', 'the core'], ['<template data-sn-for="f in folders"><template data-sn-for="x in f.subs" data-sn-key="x.id"><b data-sn-on-click="patch(x, { n: 1 })"></b></template></template>', 'the nested module']])(
+    'resources keyed by other fields are passed over without a warning (strict mode, $1)', async (nested) => {
+      const requests = mockRequests({ 'GET /api/m': MAIL, 'GET /api/f': [{ slug: 'inbox', subs: [] }], 'GET /api/t': [{ tag: 'x', n: 0 }] });
+      const { root, settle, flush, warnings } = await render(`
+        <sn-resource name="folders" src="/api/f" key="slug"></sn-resource>
+        <sn-resource name="messages" src="/api/m" key="id"></sn-resource>
+        <sn-resource name="tags" src="/api/t" key="tag"></sn-resource>
+        <div data-sn-state="{ q: '', mine: true }">
+          <ul><template data-sn-for="m in visible(messages, q)"><li data-sn-on-click="patch(m, { f: !m.f })" data-sn-text="m.s + (m.f ? '!' : '')"></li></template></ul>
+          <template data-sn-for="a in (mine ? tags : messages)"><i data-sn-on-click="patch(a, { n: 1 })"></i></template>
+          <button data-sn-on-click="mine = false" data-sn-text="folders.length"></button>
+          <output data-sn-text="tags[0]?.n + '/' + messages[0]?.n"></output>
+          ${nested}
+        </div>`, { requests, strict: true, helpers: { visible: (l: Array<{ s: string }>, q: string) => l.filter((x) => x.s.includes(q)) } });
+      await settle();
+      const first = root.querySelector('li');
+      first!.click(); await flush();
+      expect(texts(root, 'li')).toEqual(['one!', 'two']);
+      // the patched item keeps its row
+      expect(root.querySelector('li')).toBe(first);
+      (root.querySelector('i') as HTMLElement).click(); await flush();
+      (root.querySelector('button') as HTMLElement).click(); await flush();
+      (root.querySelector('i') as HTMLElement).click(); await flush();
+      expect(root.querySelector('output')!.textContent).toBe('1/1');
+      expect(warnings()).toEqual([]);
+    });
 });
 
 describe('SN317', () => {

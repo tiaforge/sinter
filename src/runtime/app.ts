@@ -445,6 +445,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (!r) throw Error(`sinter: no resource ${name}`);
     return r;
   };
+  /** The item has `r`'s key fields: a list or a `patch()` that may come from several resources tries only those it can be in (the others would warn 14). */
+  const keyed = (r: Resource, item: any) => item != null && r.key!.every((f) => item[f] !== undefined);
   /**
    * `patch(item, …)`, `remove(item)`: the compiler passes the resources the item can come from; it is
    * changed in the one that holds it, by key (a single resource is the item itself)
@@ -455,7 +457,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (app.ext.nested) return app.ext.nested.change(res, m, names, item, set);
     for (const n of names) {
       const r = res(n);
-      if (r.isCollection ? item != null && r.has(item) : true) return void (m == 'patch' ? r.patch(item, set) : r.remove(item));
+      if (r.isCollection ? keyed(r, item) && r.has(item) : true) return void (m == 'patch' ? r.patch(item, set) : r.remove(item));
     }
   };
   const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
@@ -1015,7 +1017,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (t.key != null) return 'k' + fns[t.key]!(s);
     if (t.keyFields && item) return 'r' + t.keyFields.map((f) => item[f]).join('\x1f');
     if (Object(item) === item) {
-      for (const r of resources.values()) if (r.isCollection && r.get(item) === item) return 'o' + r.name + '\x1f' + r.keyOf(item);
+      for (const r of resources.values()) if (r.isCollection && keyed(r, item) && r.get(item) === item) return 'o' + r.name + '\x1f' + r.keyOf(item);
       return item;
     }
     warn(10);
