@@ -29,6 +29,7 @@ beforeAll(async () => {
     paginate="offset" page-size="2" page-model="$url.page" type="any"></sn-resource>
   <input id="q" type="search" data-sn-model="$url.q">
   <select id="tag" data-sn-model="$url.tag"><option value="">all</option><option>go</option><option>js</option></select>
+  <select id="sort" data-sn-on-change="$url.sort = $event.target.value"><option value="">-</option><option>new</option><option>old</option></select>
   <ul id="list"><template data-sn-for="h in hits"><li data-sn-text="h.title"></li></template></ul>
   <button id="next" data-sn-on-click="page('hits', 'next')" data-sn-attr="{ disabled: !$meta.hits.hasNext }">next</button>
   <p id="page" data-sn-text="$meta.hits.page"></p>
@@ -120,6 +121,30 @@ test.skipIf(!chromium)('type, page, filter, Back, Forward, reload and a shared l
     site.close();
   }
 }, 120_000);
+
+test.skipIf(!chromium)('a handler on a select\'s change pushes, also for the untrusted events Playwright\'s selectOption() fires', async () => {
+  // a benchmark agent's handler on change replaced the entry under Playwright (Back left the page) while a real user's
+  // change pushed one; selectOption() dispatches its input and change events with isTrusted false
+  const site = serve();
+  const port = await listen(site), base = `http://127.0.0.1:${port}`;
+  const browser = await chromium!.launch();
+  try {
+    const tab = await browser.newPage();
+    await tab.goto(base + '/');
+    await tab.waitForFunction(() => document.querySelectorAll('#list li').length === 2);
+    const start = await tab.evaluate(() => history.length);
+    await tab.selectOption('#sort', 'new');
+    await tab.waitForFunction(() => location.search === '?sort=new');
+    await tab.selectOption('#sort', 'old');
+    await tab.waitForFunction(() => location.search === '?sort=old');
+    expect(await tab.evaluate(() => history.length)).toBe(start + 2);
+    await tab.goBack();
+    await tab.waitForFunction(() => location.search === '?sort=new');
+  } finally {
+    await browser.close();
+    site.close();
+  }
+}, 60_000);
 
 test.skipIf(!chromium)('a pager of links: a plain click stays on the page, Back returns, Ctrl-click opens a new page, a #hash is the browser\'s', async () => {
   const site = serve();

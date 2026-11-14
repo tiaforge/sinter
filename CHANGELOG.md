@@ -19,6 +19,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- A `$url` write from a handler on a `<select>`'s `change` adds a history entry also when the event is untrusted, as Playwright's `selectOption()` and testing libraries dispatch it. It replaced the entry there, so Back left the page in tests while it worked for users; a `data-sn-model` on a select was not affected.
 - `sinter({ firstPaint: false })` no longer turns off build-time constants and pages without JavaScript: with it, a `static` page's constant bindings (a layout's props given as literals) were SN322, and a page with nothing to run printed `no JavaScript` but still got a page module and its `<script>`. It now turns off only the early script and reserved space.
 - SN318 for a layout whose `<html>` has no `data-sn-layout` hints `data-sn-layout="{}"` when the page passes no props; SN322's hint says a binding over constants is written in at build time.
 - SN506 (`untyped-event`) names the payload type to write: `item="incident"` on a resource of `Incident[]` hints `type="{ incident: Incident }"`, also when the `<sn-sync>` comes before the resource. Agents in a benchmark needed several builds to find the shape.
