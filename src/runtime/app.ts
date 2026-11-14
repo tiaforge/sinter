@@ -169,13 +169,12 @@ export interface App {
     /** models of controls other than text fields (models.ts) */
     models?: (inner: ModelInner) => Models;
     /**
-     * `$url` written (location.ts): `write` records a changed parameter and the history entry it asks
-     * for (1 replace, 2 typing, 3 a number field's burst, 4 push; the strongest of a flush pass wins),
+     * `$url` written (location.ts): each write records the changed parameter and the history entry it
+     * asks for (1 replace, 2 typing, 3 a number field's burst, 4 push; the strongest of a flush pass wins),
      * `kind` the strongest so far, `commit` writes the history now (false: the query did not change);
      * `back`: the flush running follows Back or Forward (`popstate`), so nothing it causes writes the URL
      */
     location?: {
-      write(name: string, kind: number): void;
       commit(kind: number): boolean;
       readonly kind: number;
       readonly back: boolean;
