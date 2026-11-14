@@ -377,4 +377,14 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'In dev, `images.remote` optimizes images from the API, and one could not be fetched or converted. The request answers 502. This depends on the API being reachable, so `--strict` leaves it a warning.',
     fix: 'Check that the API is running and serves the image at that URL.',
   },
+  SN529: {
+    example: 'this list\'s rows arrive after the first paint inside `<div.col-md-9>`, whose width follows its content: the rows widen it and move what is beside it',
+    means: 'The rows of a `data-sn-for` over a resource come after the first paint (without embedded data). The list is inside a box whose width the stylesheets leave to its content: a flex item in a row with no `flex-basis` or `width`, or a float. Empty, that box is narrow and what is beside it sits next to it; once the rows arrive it widens, and its neighbours move or wrap to the next line, a layout shift as large as the boxes that move. The build cannot reserve that width, since it depends on the data. Reported where the stylesheets decide it, at any screen width.',
+    fix: 'Give the box a width that does not depend on its content: `flex: 1 1 0` or a `flex-basis` in a row, `width: 100%` (or a basis of 100%) where it should take the whole line, as most grid systems do below their breakpoint. With rows of a width of their own (`width` in px or rem) on a paginated list, the build holds the box\'s width from the first frame, and this is not reported.',
+  },
+  SN530: {
+    example: '`<img>` in a list whose rows arrive after the first paint has no height before its file loads: when it does, its row grows and what follows moves',
+    means: 'An image (or a video, an iframe, an embed) in the rows of a `data-sn-for` over data that comes after the first paint has neither `width` and `height` attributes nor a height or `aspect-ratio` from the stylesheets. Until its file has loaded it is 0 px tall (or its alt text), then it takes its own size, and the row, and everything after the list, moves. With images from an API this happens on every page view. Reported when the build reads the page\'s stylesheets.',
+    fix: 'Give it `width` and `height` attributes with its ratio (`<img width="400" height="300" data-sn-attr="{src: a.image}">`, with `height: auto` in CSS to keep it fluid), or an `aspect-ratio`, or a fixed height in the stylesheets.',
+  },
 };

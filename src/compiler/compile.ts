@@ -2,7 +2,8 @@
 // rewritten page plus its IR and function table.
 import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
-import { Layout } from './layout.js';
+import { Layout, PLACEHOLDER_BASE, type Reserved, type StyleSheet } from './layout.js';
+import { shows } from './status-eval.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -159,6 +160,15 @@ export interface CompileOptions {
   componentNames?: string[];
   /** the module the page module imports for a component's scoped styles (`CompiledParts.styles`), so the bundler puts them in the page's stylesheet */
   componentCss?: (name: string) => string;
+  /**
+   * the stylesheets the page loads, in order: the boxes they fix size images (as `images.styles`) and
+   * the space a list's rows take before its data arrives (docs/first-paint.md#reserved-space)
+   */
+  styles?: StyleSheet[];
+  /** builds: the module the page module imports for the page's generated first-paint rules (`CompiledParts.paint`), which the adapter serves */
+  paintCss?: string;
+  /** a font family's `line-height: normal` as a multiple of its size, from the font files the build has (fonts-build.ts) */
+  normalLineHeight?: (family: string) => number | null;
 }
 
 /** A place in the markup: `file`, 1-based line and column. */
@@ -203,6 +213,10 @@ export interface CompileResult {
   messages?: string[];
   /** with `images` */
   images?: ImageResult;
+  /** with `paintCss`: the rules of the page's reserved space (the placeholders of lists whose data comes later), empty when none */
+  paint?: string;
+  /** the paginated lists over late data that hold no space, and why (the Vite plugin prints them) */
+  unheld?: Array<{ file: string; line: number; col: number; why: string }>;
   /** every width the page asks the resizing service for (`remoteImages`) */
   remoteWidths?: number[];
   /** what another page needs to request this page's data ahead (null: nothing) */
@@ -311,6 +325,10 @@ export interface CompiledParts {
   early?: EarlyParts | null;
   /** with `images` */
   images?: ImageResult;
+  /** with `paintCss`: the rules of the page's reserved space, empty when none */
+  paint?: string;
+  /** the paginated lists over late data that hold no space, and why */
+  unheld?: Array<{ file: string; line: number; col: number; why: string }>;
   /** the resizing service's config, when a bound image uses it (the page module creates `$ri` from it) */
   remote?: RemoteConfig;
   /** every width the page asks the service for */
@@ -597,6 +615,17 @@ class Compiler {
   readonly resources: ResourceDef[] = [];
   /** resources with `early="off"`: no preload, no early request (one a request middleware answers or adds a header to) */
   private readonly noEarly = new Set<string>();
+  /** by `<template data-sn-for>` outside templates: its reserved space and the content-sized box around it (`planSpace`) */
+  private readonly spacePlan = new Map<P5Element, { sized: { el: P5Element; siblings: boolean; widths: string } | null; space: Reserved | null; resources: string[]; form: 'static' | 'if'; list: string; why: string | null; unsized: P5Element[] }>();
+  /** paginated lists over late data that hold no space, and why (the build prints them) */
+  readonly unheld: Array<{ file: string; line: number; col: number; why: string }> = [];
+  /** the placeholders' rules (`CompiledParts.paint`) */
+  readonly paintRules: string[] = [];
+  private spaceN = 0;
+  /** the static placeholders and their nodes, given ids after the walk (`placeholders`) */
+  private readonly pendingSpace: Array<{ el: P5Element; node: NodeDef }> = [];
+  /** the placeholders the walk inserted, settled after it (`settleSpace`) */
+  private readonly spaces: Array<{ list: P5Element; names: string[]; k: string; space: Reserved; note: (why: string) => void; ph?: P5Element; node?: NodeDef; tpl?: P5Element }> = [];
   /** origins of resources that could be requested early but are not listed in `origins` */
   readonly unlisted = new Set<string>();
   /** whether a resource's literal `src` may be requested before the page module: same-origin, or a listed origin */
@@ -772,7 +801,10 @@ class Compiler {
     if (this.opts.unrolled?.size) this.unrollLoops(doc);
     this.checkHead();
     this.componentIds();
-    const layout = this.layout = this.opts.images?.styles?.length ? new Layout(this.opts.images.styles, doc) : null;
+    const sheets = this.opts.styles ?? this.opts.images?.styles;
+    const layout = this.layout = sheets?.length ? new Layout(sheets, doc, this.opts.normalLineHeight ? { normalLineHeight: this.opts.normalLineHeight } : {}) : null;
+    // the lists whose rows arrive after the first paint: their space, before anything else reads the markup's bindings
+    if (layout) this.planSpace(doc, layout);
     const images = this.opts.images ? rewriteImages(doc, {
       host: this.opts.images, root: this.opts.root,
       ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows } : {}),
@@ -796,6 +828,7 @@ class Compiler {
       if (r) r.data = id;
     }
     if (this.opts.embed) this.addPlaceholders(doc);
+    this.placeholders();
     for (const info of this.page.resources.values()) {
       if (!info.used) {
         const el = this.resourceEls.get(info.name)!;
@@ -867,6 +900,8 @@ class Compiler {
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
       ...(images ? { images } : {}),
+      ...(this.opts.paintCss ? { paint: this.paintRules.join('\n') + (this.paintRules.length ? '\n' : '') } : {}),
+      ...(this.unheld.length ? { unheld: this.unheld } : {}),
       ...(this.remoteUsed ? { remote: this.opts.remoteImages!, remoteWidths: [...this.remoteWidths].sort((a, b) => a - b) } : {}),
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       embed: this.embedSlots(),
@@ -2400,6 +2435,7 @@ class Compiler {
       }
       if (this.opts.dev) (node as NodeDef & { src?: string }).src = this.position(el);
       ctx.list.push(node);
+      if (content && isTemplate && has('for')) this.spaceFor(el, node, ctx);
     }
     stripSn(el);
 
@@ -4384,14 +4420,25 @@ class Compiler {
     const embedded = new Map(this.resources.filter((r) => r.data != null).map((r) => [r.name, r]));
     const usedEmb = new Set<string>();
     let readsUrl = false;
-    const known = (deps: string[]) => deps.every((d) => {
+    // resources whose state at mount the early file knows: no data yet, and loading if their `when` holds (`$meta.<name>.loading`,
+    // `.error` and `.loadedAt`): not embedded, `each` or `call`, and a `when` the early file can evaluate. With `cache`, only in a tab
+    // that has cached nothing (the early file checks): cached rows would be there at mount
+    const pre = this.predictable();
+    const known = (deps: string[], status = true) => deps.every((d) => {
       if (d === '$locale') return true;
       // the URL: the browser knows it as the head is parsed
       if (d === '$url' || d.startsWith('$url.')) return (readsUrl = true);
-      // with embedded data, any resource: one without data throws when it is read, which leaves that
-      // binding to the page module (`($url.feed ? feed : articles)`)
+      // with embedded or predictable data, any resource: one the early file cannot tell throws when it is read, which leaves
+      // that binding to the page module (`($url.feed ? feed : articles)`)
       const r = /^\$r\.([^.]+)/.exec(d);
-      if (r) { if (!embedded.size) return false; if (embedded.has(r[1]!)) usedEmb.add(r[1]!); return true; }
+      if (r) { if (!embedded.size && !(status && pre.size)) return false; if (embedded.has(r[1]!)) usedEmb.add(r[1]!); return true; }
+      // a status field, or the whole status (a `data-sn-let` of it); another resource's throws early
+      const mt = /^\$meta\.([^.]+)(?:\.([^.]+))?$/.exec(d);
+      if (mt) {
+        if (!status || !pre.size) return false;
+        // a field the early file knows, or the whole status (its pager and stream fields throw early)
+        return mt[2] === undefined || ['loading', 'error', 'loadedAt'].includes(mt[2]);
+      }
       const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
       const f = m ? fields.get(Number(m[1])) : undefined;
       if (!m || !f) return false;
@@ -4401,7 +4448,8 @@ class Compiler {
     for (const st of [...this.stateInits].sort((a, b) => a.sid - b.sid)) {
       const f = new Map<string, string>();
       for (const x of st.fields) {
-        if (known(x.deps) && !builtin(x.code) && x.code.startsWith('($) => (')) f.set(x.key, x.code.slice('($) => ('.length, -1));
+        // (a field over a resource's status is not: one that throws early takes its state's other fields with it)
+        if (known(x.deps, false) && !builtin(x.code) && x.code.startsWith('($) => (')) f.set(x.key, x.code.slice('($) => ('.length, -1));
         else f.delete(x.key);
       }
       fields.set(st.sid, f);
@@ -4426,11 +4474,85 @@ class Compiler {
     }
     const fns: string[] = [], index = new Map<string, number>();
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
+    /**
+     * A binding over the resources the early file knows, with their state at mount written in: `[]` (null for one object)
+     * for the data, `{ loading, error: null, loadedAt: null }` for the status, loading when the `when` holds. A resource
+     * with `cache` checks first that this tab has cached nothing (else it throws, and the page module renders the binding).
+     */
+    const status = (code: string): string => {
+      let ast: acorn.Node;
+      try { ast = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }); } catch { return code; }
+      const edits: Array<[number, number, string]> = [];
+      const checks = new Set<number>();
+      const name = (m: any): string | null => (m.computed ? (m.property.type === 'Literal' && typeof m.property.value === 'string' ? m.property.value : null) : m.property.name);
+      // `$.$meta.<name>` or `$.$r.<name>`, with `$` the function's parameter
+      const at = (m: any, kind: string) => m?.type === 'MemberExpression' && m.object.type === 'MemberExpression' && !m.object.computed && m.object.object.type === 'Identifier'
+        && m.object.object.name === '$' && m.object.property.name === kind ? name(m) : null;
+      const visit = (n: any, parent: any) => {
+        if (!n || typeof n.type !== 'string') return;
+        const r = at(n, '$r'), mt = at(n, '$meta'), def = pre.get((r ?? mt)!);
+        if (def && (r !== null || mt !== null)) {
+          // cached or prefetched rows would be there at mount: this resource's entries (its URL's literal start, its items
+          // and total paths, as the cache and next-page data key them), checked once per binding (below)
+          if (def.cache != null || (this.opts.prefetch && !def.paginate && def.body == null)) {
+            const start = JSON.stringify(typeof def.src[0] === 'string' ? def.src[0] : '').slice(1, -1), end = `,${JSON.stringify(def.items ?? null)},${JSON.stringify(def.total ?? null)}]`;
+            checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (/^sn:[cp]:\\[/.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) throw 0; }`));
+          }
+          const when = def.when != null ? `!!f[${fn(this.fns[def.when]!)}]($)` : 'true';
+          if (r !== null) { edits.push([n.start, n.end, def.key ? '[]' : 'null']); return; }
+          const field = parent?.type === 'MemberExpression' && parent.object === n && !parent.computed ? parent.property.name : null;
+          if (field === 'loading') { edits.push([parent.start, parent.end, when]); return; }
+          if (field === 'error' || field === 'loadedAt') { edits.push([parent.start, parent.end, 'null']); return; }
+          // the whole status (a `data-sn-let`, a helper): every field as it is at mount; a pager's or a stream's fields are not known
+          // before then, and throw (the page module renders what reads them)
+          const open = def.paginate || this.page.fed.has(def.name);
+          const make = fn(open
+            ? '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, get total() { throw 0; }, get live() { throw 0; }, get page() { throw 0; }, get pages() { throw 0; }, get from() { throw 0; }, get to() { throw 0; }, get hasPrev() { throw 0; }, get hasNext() { throw 0; } })'
+            : '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, total: null, live: null })');
+          edits.push([n.start, n.end, `f[${make}](${when})`]);
+          return;
+        }
+        for (const k of Object.keys(n)) {
+          if (k === 'start' || k === 'end' || k === 'type') continue;
+          const v = n[k];
+          if (Array.isArray(v)) for (const c of v) visit(c, n);
+          else if (v && typeof v === 'object') visit(v, n);
+        }
+      };
+      visit(ast, null);
+      if (!edits.length) return code;
+      let out = code;
+      for (const [a, b, t] of edits.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + t + out.slice(b);
+      // a tab that has cached or prefetched rows of these: the binding throws, and the page module renders it
+      return checks.size ? `($) => (${[...checks].map((i) => `f[${i}](), `).join('')}(${out})($))` : out;
+    };
     const templates: EarlyIR['templates'] = this.templates.map(() => null);
-    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for'] : [])].includes(b.k) && !b.e && b.f !== undefined && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
+    // a binding over a resource without data is early only when it reads a status the early file knows (a loading branch):
+    // anything else of it reads data that is not there yet
+    // (with embedded data on the page, as before: a binding may name another resource, which throws only if it is read,
+    // `$url.feed ? feed : articles`)
+    const statusOnly = (deps: string[]) => embedded.size > 0 || !deps.some((d) => { const r = /^\$r\.([^.]+)/.exec(d); return r && !embedded.has(r[1]!); })
+      || deps.some((d) => { const m = /^\$meta\.([^.]+)/.exec(d); return !!m && pre.has(m[1]!); });
+    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for'] : [])].includes(b.k) && !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
+    /**
+     * A `data-sn-if` (without a `data-sn-else`) that the resources' state at mount closes, whether or not they load
+     * (no data, not loading or loading): what the HTML shows already, so nothing to render early. One that reads
+     * anything else (state, the URL) is evaluated as before.
+     */
+    const closedAtMount = (b: Binding) => {
+      if (b.k !== 'if' || b.y !== undefined) return false;
+      const names = [...new Set(strs(b.d).map((d) => /^\$(?:r|meta)\.([^.]+)/.exec(d)?.[1]).filter((n): n is string => !!n))];
+      // any resource without embedded data: whether it loads at mount does not matter (both are tried), and one with cached
+      // rows is the page module's either way
+      const defs = names.map((n) => this.resources.find((r) => r.name === n));
+      if (!names.length || defs.some((d) => !d || embedded.has(d.name) || d.each || d.call)) return false;
+      const data = Object.fromEntries(defs.map((d) => [d!.name, d!.key ? [] : null]));
+      const code = this.fns[b.f!]!;
+      return shows(code, names, { loading: true }, [], data) === false && shows(code, names, { loading: false }, [], data) === false;
+    };
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
-      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible)));
+      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible).filter((b) => !closedAtMount(b))));
       const elses = new Set(bs.flatMap((b) => b.filter((x) => x.k === 'if' && x.y !== undefined).map((x) => x.y!)));
       const keep = new Map<number, number>();
       defs.forEach((nd, i) => { if (nd.state !== undefined || bs[i]!.length || elses.has(i)) keep.set(i, keep.size); });
@@ -4447,7 +4569,7 @@ class Compiler {
         }
         for (const b of bs[i]!) {
           reads.push(...strs(b.d), ...strs(b.w));
-          const nb: Binding = { k: b.k, f: fn(this.fns[b.f!]!) };
+          const nb: Binding = { k: b.k, f: fn(status(this.fns[b.f!]!)) };
           if (b.n !== undefined) nb.n = b.n;
           if (b.k === 'model') { nb.a = fn(this.fns[b.a!]!); if (b.p !== undefined) nb.p = b.p; }
           if (b.k === 'if') { nb.x = tpl(b.x!); if (b.y !== undefined) nb.y = keep.get(b.y)!; }
@@ -4539,6 +4661,29 @@ class Compiler {
   }
 
   /**
+   * The resources whose state when the page module mounts the early file can tell: no data, loading
+   * if their `when` holds. Not embedded, `each` or `call`; a `when` only over what the early file
+   * knows (`$url`, `$now`, `$locale`, helpers but the built-in formatters; not state),
+   * in a scope the early file has.
+   */
+  predictable(): Map<string, ResourceDef> {
+    const out = new Map<string, ResourceDef>();
+    const userHelpers = new Set(this.opts.helpers.names);
+    const builtin = (code: string) => [...code.matchAll(/(?<![\w$.])(date|time|datetime|relative|number|bytes)\(/g)].some((m) => !userHelpers.has(m[1]!));
+    for (const def of this.resources) {
+      if (def.call || def.each || def.data != null || this.embedded.has(def.name)) continue;
+      // its URL and its `when` (and the page it starts at) over what the early file knows: then its load starts at mount
+      // exactly when the `when` holds. Not state (its fields at mount may differ from their first values), nor another
+      // resource (its data is not there at mount: the load waits for it)
+      const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : []), ...(def.paginate?.start != null ? [def.paginate.start] : [])].map((i) => this.fns[i]!);
+      if (codes.some((c) => builtin(c) || /\$(r|meta|el)\b/.test(c))) continue;
+      if (!strs(def.deps).every((d) => d === '$now' || d === '$locale' || d === '$url' || d.startsWith('$url.'))) continue;
+      out.set(def.name, def);
+    }
+    return out;
+  }
+
+  /**
    * The resources another page can request for this one before it is opened: a `src` and `when`
    * that read only `$url`, constants and the app's helpers (no state, resources, clock, formatters
    * or messages); not paginated, `each`, `call` or embedded data.
@@ -4572,6 +4717,213 @@ class Compiler {
     }
     const arrays = this.urlArrays();
     return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces, ...(arrays.length ? { a: arrays } : {}) };
+  }
+
+  /**
+   * The lists outside templates (and dialogs): each one's placeholder for the rows its resource brings
+   * after the first paint (`Layout.reserve`: a paginated resource's `page-size` rows, or
+   * `data-sn-reserve="n"`), and the box around it whose width follows its content
+   * (`Layout.contentSized`). Read before the walk, which removes the bindings the cascade looks at.
+   */
+  planSpace(doc: DefaultTreeAdapterMap['document'], layout: Layout) {
+    const resources = new Map<string, P5Element>(), lists: P5Element[] = [];
+    const walk = (p: P5Parent, dialog: boolean) => {
+      for (const c of p.childNodes) {
+        if (!isElement(c)) continue;
+        if (c.tagName === 'sn-resource' && attr(c, 'name')) resources.set(attr(c, 'name')!, c);
+        if (c.tagName === 'template') {
+          if (attr(c, 'data-sn-for') !== undefined && !dialog) lists.push(c);
+          continue;
+        }
+        walk(c, dialog || c.tagName === 'dialog');
+      }
+    };
+    walk(doc, false);
+    const words = (t: string) => new Set(t.match(/[A-Za-z_$][\w$]*/g) ?? []);
+    // the roots a component's own `<style>` reaches from (its root, slot content it passes on): the layout reads the page's
+    // stylesheets, not these
+    const styled = new Set(this.componentFiles.size ? [...this.uses].filter(([n]) => this.componentFiles.get(n)?.css).flatMap(([, us]) => us.map((u) => u.root)) : []);
+    for (const x of this.slotEls) if (this.componentFiles.get(x.caller)?.css) styled.add(x.el);
+    const inStyled = (tpl: P5Element) => {
+      for (let up = tpl.parentNode as P5Element | null; up && 'attrs' in up; up = up.parentNode as P5Element | null) if (styled.has(up)) return true;
+      const down = (p: P5Parent): boolean => p.childNodes.some((c) => isElement(c) && (styled.has(c) || down(c.tagName === 'template' ? (c as P5Template).content : c)));
+      return down((tpl as P5Template).content);
+    };
+    for (const tpl of lists) {
+      const sized = layout.contentSized(tpl);
+      const m = /^\s*(?:\(\s*[A-Za-z_]\w*\s*,\s*[A-Za-z_]\w*\s*\)|[A-Za-z_]\w*)\s+in\s+([\s\S]+)$/.exec(attr(tpl, 'data-sn-for')!);
+      let space: Reserved | null = null, names: string[] = [], form: 'static' | 'if' = 'static', why: string | null = null;
+      // planned in dev too (no placeholders there): what SN529 says follows the same plan as a build
+      if (m) {
+        const list = m[1]!.trim();
+        // the resources the list can be: named in its expression, or in a `data-sn-let` around it that the expression reads
+        // each `data-sn-let` entry around the list, innermost first, that the list's expression names
+        // (and, for the resources, the entries those name in turn)
+        const around: Array<{ k: string; v: string }> = [];
+        for (let up = tpl.parentNode as P5Element | null; up && 'attrs' in up; up = up.parentNode as P5Element | null) {
+          const l = attr(up, 'data-sn-let')?.trim().replace(/^\{|\}$/g, '');
+          if (l) for (const [, k, v] of l.matchAll(/([A-Za-z_$][\w$]*)\s*:\s*([^,]*(?:\([^)]*\)[^,]*)*)/g)) around.push({ k: k!, v: v! });
+        }
+        const used = words(list);
+        for (const { k, v } of around) if (used.has(k)) for (const w of words(v)) used.add(w);
+        names = [...used].filter((n) => resources.has(n));
+        // worth a note when it does not work out: a list over a paginated resource
+        if (names.some((n) => attr(resources.get(n)!, 'paginate') !== undefined)) why = '';
+        if (names.length && !names.every((n) => attr(resources.get(n)!, 'paginate') !== undefined)) { names = []; why &&= ''; if (why === '') why = 'it can be a resource without `paginate`, whose rows the build cannot count'; }
+        // only a choice between resources (`$url.feed ? feed : articles`, `a ?? b`): no call, member or index (a filter, a
+        // field), whose rows the build could not count
+        const chooses = (t: string) => {
+          const bare = t.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`$]*`/g, '0').replace(/\$url\.[A-Za-z_$][\w$]*/g, '0');
+          return !/[.[\]{}]|[\w$)\]]\s*\(|=>/.test(bare);
+        };
+        const lets = around.filter(({ k }) => words(list).has(k)).map(({ v }) => v);
+        if (![list, ...lets].every(chooses)) { if (why === '') why = 'the list is not a resource or a choice between resources (a filter, a field), whose rows the build could count'; names = []; }
+        const rs = names.map((n) => resources.get(n)!);
+        // paginated (their page-size, the least), loading by URL or always: not `each` or `call`, nor data the page has (embedded)
+        const ok = rs.length && rs.every((r) => attr(r, 'paginate') !== undefined && !['each', 'call'].some((x) => attr(r, x) !== undefined));
+        if (rs.length && !ok && why === '') why = 'a resource with `each` or `call`';
+        // the list is a resource that always loads: the placeholder is page markup; else it shows by its resources' status,
+        // which the early file decides (`if`)
+        form = names.length === 1 && list === names[0] && attr(rs[0]!, 'when') === undefined ? 'static' : 'if';
+        const n = ok ? Math.min(...rs.map((r) => Number(attr(r, 'page-size')))) : NaN;
+        // in a box whose width follows its content, only rows of a width of their own (the placeholder takes it)
+        if (Number.isInteger(n) && n > 0 && styled.size && inStyled(tpl)) { if (why === '') why = 'a component\'s own `<style>` styles the rows or their container, and the build reads only the page\'s stylesheets'; }
+        else if (Number.isInteger(n) && n > 0) {
+          // the `if` form's template stays after the rows: `:last-child` and the like count it
+          space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized, trailing: form === 'if' });
+          if (!space && why === '') why = sized && layout.unreserved?.startsWith('the box') ? `the box around it is as wide as its content (${sized.widths}), and the rows have no width of their own (SN529)` : layout.unreserved ?? 'unknown';
+        }
+      }
+      // images in the rows without a height before their file: each one grows its row when it loads
+      const unsized: P5Element[] = [];
+      const scan = (p: P5Parent) => { for (const c of p.childNodes) { if (!isElement(c)) continue; if (/^(img|video|iframe|embed|object)$/.test(c.tagName) && layout.sized(c) === false) unsized.push(c); scan(c.tagName === 'template' ? (c as P5Template).content : c); } };
+      scan((tpl as P5Template).content);
+      this.spacePlan.set(tpl, { sized, space, resources: space ? names : [], form, list: m?.[1]!.trim() ?? '', why: why || null, unsized });
+    }
+  }
+
+  /**
+   * After a list's template is compiled: SN529 for a list over late data in a box whose width its rows
+   * decide, and the planned placeholder after the template. `static` (the list is a resource that always
+   * loads): an element whose one binding removes it once the resource has rows or no load is running.
+   * `if` (a `when`, a `data-sn-let` or an expression over resources): a `data-sn-if` over the same, so
+   * the early file decides it from the resources' status at mount, and the page module removes it as any
+   * branch. A "Loading…" branch over the same status right before the list takes the placeholder's place.
+   */
+  spaceFor(el: P5Element, node: NodeDef, ctx: Ctx) {
+    const plan = this.spacePlan.get(el);
+    const b = node.b.find((x) => x.k === 'for');
+    if (!plan || !b || ctx.tid >= 0) return;
+    const late = strs(b.d).map((d) => /^\$r\.([^.]+)/.exec(d)?.[1]).filter((n): n is string => !!n && !this.embedded.has(n));
+    const names = plan.resources, deps = strs(b.d);
+    const reads = (d: string) => names.some((n) => d === `$r.${n}` || d.startsWith(`$r.${n}.`));
+    // the static form: the list's only dependency is its resource; the if form: the resources and what the early file knows
+    // every resource's load starts at mount: else the space would go at mount and come back. The static form needs no more
+    // (a `src` over state starts from its first values); the if form is the early file's, so its resources must be `predictable`
+    const pre = this.predictable();
+    const starts = (n: string) => { const def = this.resources.find((r) => r.name === n); return !!def && !def.src.some((x) => typeof x === 'number' && /\$(r|meta|el)\b/.test(this.fns[x]!)); };
+    const held = !!plan.space && names.length > 0 && !names.some((n) => this.embedded.has(n)) && names.every((n) => /^[A-Za-z_$][\w$]*$/.test(n))
+      && names.every((n) => (plan.form === 'static' ? starts(n) : pre.has(n)))
+      && (plan.form === 'static' ? deps.every(reads) : deps.every((d) => reads(d) || d === '$url' || d.startsWith('$url.') || d === '$locale'));
+    if (plan.sized?.siblings && late.length && !held) {
+      const what = plan.sized.el.tagName + (attr(plan.sized.el, 'class') ? `.${attr(plan.sized.el, 'class')!.trim().split(/\s+/).join('.')}` : '');
+      this.report(el, 'data-sn-for', 'SN529', `this list's rows arrive after the first paint inside \`<${what}>\`, whose width follows its content (${plan.sized.widths}): the rows widen it and move what is beside it`, 0,
+        'give that box a width or flex basis of its own (`flex: 1 1 0`, `width: 100%`), or give the rows a width');
+    }
+    if (late.length) for (const img of plan.unsized) this.report(img, null, 'SN530', `\`<${img.tagName}>\` in a list whose rows arrive after the first paint has no height before its file loads: when it does, its row grows and what follows moves`, 0,
+      'give it `width` and `height` attributes (its ratio), or an `aspect-ratio` or a height in the stylesheets');
+    const note = (why: string) => {
+      const o = this.origins.get(el), at = o && el.sourceCodeLocation ? this.lineCol(o.src, el.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
+      this.unheld.push({ file: o?.file ?? this.opts.file, line: at.line, col: at.col, why });
+    };
+    if (plan.why) note(plan.why);
+    else if (plan.space && !held) note(!names.every((n) => (plan.form === 'static' ? starts(n) : pre.has(n))) ? 'a resource\'s `src` or `when` reads more than the URL (state, another resource): its load may not start when the page module mounts' : 'the list reads more than its resources and the URL');
+    if (!held || !plan.space || !this.opts.paintCss) return;
+    const parent = el.parentNode as P5Element;
+    // unique across pages, should two pages' rules end up in one stylesheet
+    let hash = 0x811c9dc5;
+    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
+    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
+    const k = `snr${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    const tag = plan.space.tag, markup = `<${tag} class="sn-reserve ${k}" aria-hidden="true"></${tag}>`;
+    const at = parent.childNodes.indexOf(el) + 1;
+    if (plan.form === 'static') {
+      const ph = parse5.parseFragment(markup).childNodes[0] as P5Element;
+      ph.parentNode = parent;
+      parent.childNodes.splice(at, 0, ph as never);
+      const r = `.${names[0]!}`;
+      // rows, or no load running: it ended (empty, failed) or never started (a `src` that cannot be built); the load starts at mount, before this runs
+      const code = `($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`;
+      this.spaces.push({ list: el, names, k, space: plan.space, note, ph, node: { tag, p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(code, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${names[0]!}`, `$meta.${names[0]!}`], e: 1 })] } });
+    } else {
+      // no rows yet, and one of the resources loading: the walk compiles it next, as page markup
+      const cond = `!(${plan.list})?.length && (${names.map((n) => `$meta.${n}.loading`).join(' || ')})`;
+      const t = parse5.parseFragment(`<template data-sn-if="${cond.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${markup}</template>`).childNodes[0] as P5Element;
+      t.parentNode = parent;
+      parent.childNodes.splice(at, 0, t as never);
+      const origin = this.origins.get(el);
+      if (origin) this.tag(t, origin);
+      this.spaces.push({ list: el, names, k, space: plan.space, note, tpl: t });
+    }
+  }
+
+  /**
+   * After the walk, every binding compiled: each planned placeholder against the page's loading indicators,
+   * the `data-sn-if` and `data-sn-show` bindings over one of its resources' status (tried with `shows`: while
+   * loading with no rows, with rows, and loaded). One that does not show while loading with no rows never meets
+   * it. A branch right before the list (only templates between) with one element, which shows exactly then,
+   * takes the placeholder's place: the rows' box, and the placeholder hidden while it shows. Any other that may
+   * show then leaves the list without space, as the two would be taller than the rows.
+   */
+  settleSpace() {
+    const elOf = new Map<NodeDef, P5Element>([...this.paints.map((x) => [x.node, x.el] as const), ...this.tplEls]);
+    const bindings = [...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((nd) => nd.b.filter((b) => (b.k === 'if' || b.k === 'show') && b.f !== undefined).map((b) => ({ b, el: elOf.get(nd) })));
+    for (const sp of this.spaces) {
+      const reads = (b: Binding) => strs(b.d).some((d) => sp.names.some((n) => d === `$meta.${n}` || d.startsWith(`$meta.${n}.`)));
+      const kids = (sp.list.parentNode as P5Element).childNodes.filter(isElement), at = kids.indexOf(sp.list);
+      let branch: P5Element | null = null, clash = false;
+      for (const { b, el } of bindings) {
+        if (!reads(b) || (sp.tpl && el === sp.tpl)) continue;
+        const code = this.fns[b.f!]!, now = shows(code, sp.names, { loading: true }, []);
+        if (now === false) continue;
+        const i = el ? kids.indexOf(el) : -1;
+        const roots = b.k === 'if' && el ? ((el as P5Template).content?.childNodes ?? []).filter((c) => isElement(c) || (c.nodeName === '#text' && /\S/.test((c as DefaultTreeAdapterMap['textNode']).value))) : [];
+        if (now === true && !branch && b.k === 'if' && i >= 0 && i < at && kids.slice(i + 1, at).every((x) => x.tagName === 'template')
+          && shows(code, sp.names, { loading: true }, [{}]) === false && shows(code, sp.names, { loading: false }, []) === false && roots.length === 1 && isElement(roots[0]!)) branch = roots[0] as P5Element;
+        else clash = true;
+      }
+      // a resource the server embeds (a slot the walk added, `embed`): its rows are in the first frame
+      const served = sp.names.some((n) => this.resources.find((r) => r.name === n)?.data != null);
+      if (served || clash) {
+        sp.note(served ? 'its data is embedded by the server, in the first frame' : 'a loading indicator over the same status may show with the space, and the two would be taller than the rows (one "Loading…" branch right before the list, as one element, takes its place)');
+        if (sp.ph) detach(sp.ph);
+        // the inserted branch never shows
+        if (sp.tpl) { const nd = this.paints.find((x) => x.el === sp.tpl)?.node, ib = nd?.b.find((x) => x.k === 'if'); if (ib) ib.f = this.fn('($) => (false)'); }
+        continue;
+      }
+      if (sp.ph && sp.node) this.pendingSpace.push({ el: sp.ph, node: sp.node });
+      // `:not(#_)` counts as an id: the rules win over the author's, `!important` ones of an id and two classes or less included
+      if (!this.paintRules.length) this.paintRules.push(`.sn-reserve:not(#_) { ${PLACEHOLDER_BASE} }`);
+      const k = sp.k, sel = `.sn-reserve.${k}:not(#_)`, media = (from: number, rule: string) => (from ? `@media (min-width: ${Math.round(from * 100) / 100}px) { ${rule} }` : rule);
+      for (const p of sp.space.pieces) this.paintRules.push(media(p.from, `${sel} { ${p.decls} }`));
+      if (branch) {
+        // the branch takes the rows' box (their height, their outer margins, which collapse with what is around as the rows'
+        // will), and while it shows, the placeholder after it does not
+        setAttr(branch, 'class', [attr(branch, 'class'), `${k}b`].filter(Boolean).join(' '));
+        this.paintRules.push(`.${k}b ~ .sn-reserve.${k}:not(#_) { display:none !important }`);
+        for (const p of sp.space.pieces) this.paintRules.push(media(p.from, `.${k}b:not(#_) { box-sizing:border-box !important;min-height:${p.height} !important;margin-top:${p.mt} !important;margin-bottom:${p.mb} !important }`));
+      }
+    }
+  }
+
+  /** the placeholders' root nodes, last, with the last ids */
+  placeholders() {
+    this.settleSpace();
+    for (const { el, node } of this.pendingSpace) {
+      node.id = this.nextId++;
+      setAttr(el, 'data-sn', String(node.id));
+      this.roots.push(node);
+    }
   }
 
   /**

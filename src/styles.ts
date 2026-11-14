@@ -29,6 +29,8 @@ export interface StyleContext {
   engines?: StyleEngine[];
   /** an engine that failed, reported once by the adapter */
   warn?: (message: string) => void;
+  /** a remote stylesheet the build has (Google Fonts, downloaded: its `@font-face` rules give the fonts' metrics), or null */
+  remote?: (url: string) => Promise<string | null>;
 }
 
 const SCRIPT = /\.[cm]?[jt]sx?$/;
@@ -102,15 +104,18 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
     for (const m of body.matchAll(IMPORTS)) await scan(m[1]!, target!);
   };
 
-  const elements: P5Element[] = [];
-  const walk = (p: P5Parent) => {
+  const elements: Array<{ el: P5Element; from: string }> = [];
+  const walk = (p: P5Parent, from: string) => {
     for (const c of p.childNodes) {
       if (!('tagName' in c)) continue;
-      if (['link', 'style', 'script'].includes(c.tagName)) elements.push(c);
-      walk(c.tagName === 'template' ? (c as DefaultTreeAdapterMap['template']).content : c);
+      if (['link', 'style', 'script'].includes(c.tagName)) elements.push({ el: c, from });
+      walk(c.tagName === 'template' ? (c as DefaultTreeAdapterMap['template']).content : c, from);
     }
   };
-  walk(doc);
+  // a page that is a layout's tag (src/layouts/<tag>.html): the layout's stylesheets come first, as in its document
+  const layout = layoutOf(html, ctx.root);
+  if (layout) walk(parse5.parse(layout.text), layout.file);
+  walk(doc, file);
   const attr = (el: P5Element, n: string) => el.attrs.find((a) => a.name === n)?.value;
   const local = (href: string, from: string): string | null => {
     if (REMOTE.test(href) || href.startsWith('data:')) return null;
@@ -120,20 +125,26 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
     if (read(inRoot) !== null || !ctx.publicDir) return inRoot;
     return resolve(ctx.publicDir, '.' + path);
   };
-  for (const el of elements) {
+  for (const { el, from } of elements) {
     const media = attr(el, 'media')?.trim() || null;
     if (el.tagName === 'link' && /(^|\s)stylesheet(\s|$)/i.test(attr(el, 'rel') ?? '') && !/(^|\s)alternate(\s|$)/i.test(attr(el, 'rel') ?? '')) {
-      const path = local(attr(el, 'href') ?? '', file);
+      const href = (attr(el, 'href') ?? '').replace(/&amp;/g, '&');
+      const path = local(href, from);
       if (path && isStyle(path)) await addCss(path, media);
+      else if (ctx.remote && /^https:\/\/fonts\.googleapis\.com\/css2?\?/.test(href) && !seenCss.has(href)) {
+        seenCss.add(href);
+        const css = await ctx.remote(href).catch(() => null);
+        if (css) sheets.push({ file: href, css: wrap(css, media) });
+      }
     } else if (el.tagName === 'style') {
       const text = el.childNodes.map((c) => ('value' in c ? (c as { value: string }).value : '')).join('');
       // compiled as a stylesheet next to the page, so its imports resolve from there
-      const css = ctx.compile ? (await ctx.compile(text, `${file}.style.css`).catch(() => null))?.code ?? null : await inlineText(text, file, ctx, new Set());
-      if (css !== null) sheets.push({ file, css: wrap(css, media) });
+      const css = ctx.compile ? (await ctx.compile(text, `${from}.style.css`).catch(() => null))?.code ?? null : await inlineText(text, from, ctx, new Set());
+      if (css !== null) sheets.push({ file: from, css: wrap(css, media) });
     } else if (el.tagName === 'script' && attr(el, 'type') === 'module') {
       const src = attr(el, 'src');
-      if (src) { const path = local(src, file); if (path) await scan(path, file); }
-      else await scan('', file, el.childNodes.map((c) => ('value' in c ? (c as { value: string }).value : '')).join(''));
+      if (src) { const path = local(src, from); if (path) await scan(path, from); }
+      else await scan('', from, el.childNodes.map((c) => ('value' in c ? (c as { value: string }).value : '')).join(''));
     }
   }
   for (const m of ctx.modules) await scan(m, file);
@@ -151,9 +162,20 @@ async function compileFile(path: string, compile: NonNullable<StyleContext['comp
   return out?.code ?? null;
 }
 
+/** The layout a page is the tag of: the first element of its body with a file in `src/layouts/` */
+function layoutOf(html: string, root: string): { file: string; text: string } | null {
+  const body = /<body[^>]*>([\s\S]*)/i.exec(html)?.[1] ?? html;
+  const m = /<([a-z][a-z0-9]*(?:-[a-z0-9]+)+)[\s/>]/.exec(body.replace(/<!--[\s\S]*?-->/g, ''));
+  if (!m) return null;
+  const file = resolve(root, 'src/layouts', `${m[1]!}.html`), text = read(file);
+  return text === null ? null : { file, text };
+}
+
 /** The page's markup with its components (`src/components/<tag>.html`, recursively): where its class names are. */
 function markupOf(html: string, file: string, root: string, seen = new Set<string>()): string {
   let out = html;
+  const layout = seen.size ? null : layoutOf(html, root);
+  if (layout) { seen.add(layout.file); out += '\n' + markupOf(layout.text, layout.file, root, seen); }
   for (const m of html.matchAll(/<([a-z][a-z0-9]*(?:-[a-z0-9]+)+)[\s/>]/g)) {
     const path = resolve(root, 'src/components', `${m[1]!}.html`);
     if (seen.has(path)) continue;

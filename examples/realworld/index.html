@@ -68,7 +68,7 @@
       <div class="col-md-3">
         <div class="sidebar">
           <p>Popular Tags</p>
-          <template data-sn-if="$meta.tags.loading && !tags.length"><div>Loading tags...</div></template>
+          <template data-sn-if="$meta.tags.loading && !tags?.length"><div>Loading tags...</div></template>
           <template data-sn-if="$meta.tags.error"><div class="error-messages">Could not load tags.</div></template>
           <div class="tag-list">
             <template data-sn-for="t in tags ?? []" data-sn-key="t">

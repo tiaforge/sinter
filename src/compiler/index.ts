@@ -29,6 +29,7 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   // the images' rules: imported, so the bundler puts them in the page's stylesheet (no request, no inline style)
   // and the components' scoped styles, the same way
   const css = (parts.images?.css && options.images?.stylesheet ? `import ${JSON.stringify(options.images.stylesheet)};\n` : '')
+    + (parts.paint && options.paintCss ? `import ${JSON.stringify(options.paintCss)};\n` : '')
     + (options.componentCss ? parts.styles.map((x) => `import ${JSON.stringify(options.componentCss!(x.name))};\n`).join('') : '')
     // components with a script: their modules, which the `cmp` bindings hand to the components feature
     + parts.scripts.filter((x) => !x.lazy).map((x) => `import { ${x.export} as ${x.local} } from ${JSON.stringify(x.module)};\n`).join('')
@@ -45,6 +46,8 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   const map = options.sourcemap ? page.map(parts.sources, css.split('\n').length - 1) : null;
   if (map) out.map = map;
   if (parts.images) out.images = parts.images;
+  if (parts.paint !== undefined) out.paint = parts.paint;
+  if (parts.unheld) out.unheld = parts.unheld;
   if (parts.remoteWidths) out.remoteWidths = parts.remoteWidths;
   // a page with nothing to run gets no early script either, not even for the app's early module
   if (parts.static && parts.early !== undefined) out.early = null;

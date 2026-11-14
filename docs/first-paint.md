@@ -12,7 +12,7 @@ What can be in the first frame depends on where the value comes from:
 | A literal `data-sn-state` field | yes, even without scripts | [Build-time constants](#build-time-constants) |
 | Messages, persisted values, helpers, `$locale`, the URL (`$url`) | yes | [The early script](#the-early-script) |
 | Your API, with the server layer | yes | [Embedded data](#embedded-data) |
-| Your API, without it | after one round trip, started before the page script runs | [Requests start early](#requests-start-early) |
+| Your API, without it | after one round trip, started before the page script runs | [Requests start early](#requests-start-early); its list's space and its loading branch are in the first frame: [reserved space](#reserved-space) |
 
 ## Build-time constants
 
@@ -57,6 +57,8 @@ the first paint:
 - state fields initialized by helpers or `$locale`
 - the URL: `$url`'s query and its `data-sn-path` parameters (the current nav item, a tab from `?feed=`)
 - `data-sn-if` branches over that state
+- a resource's status before its data: no rows yet, and loading when it will load (`$meta.<name>.loading`,
+  `.error`, `.loadedAt`), so a "Loading…" branch is in the first frame ([below](#loading-branches))
 - your own code in `src/sinter.early.ts`
 
 Each page gets two small classic scripts first in the head, before the stylesheets: one shared by
@@ -68,7 +70,7 @@ the element exists; its content once the parser has closed it.
 The runtime then takes over: on mount it computes the same values, writes nothing new, and nothing
 flashes or resets. Early code runs once and keeps no listeners.
 
-What waits for the page script: `$url`, `$now`, `$meta`, `$el`, loop variables, store functions and
+What waits for the page script: `$url`, `$now`, `$meta` (but a resource's status before its data, [below](#loading-branches)), `$el`, loop variables, store functions and
 the built-in formatters (`date()` and friends, which use the locale the runtime configures).
 
 ### Your own early code
@@ -236,6 +238,158 @@ A package only some interactions need (crypto, charts, a PDF renderer) does not 
 first paint's path: `sinter({ lazy: ['openpgp'] })` loads it on first call. Per page, in the markup,
 `data-sn-import="openpgp"` loads it once the page has taken over, and `data-sn-preload="openpgp"`
 fetches it with the page, for pages whose first content needs it. See [lazy packages](lazy.md).
+
+## Reserved space
+
+Without embedded data, a list's rows arrive one round trip after the first paint, and everything
+below the list moves down to make room for them. For a list whose size the stylesheets give, the
+build holds that room from the first frame:
+
+```html
+<sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="12"></sn-resource>
+<ul><template data-sn-for="p in people"><li class="row" data-sn-text="p.name"></li></template></ul>
+```
+
+```css
+.row { height: 56px; border-bottom: 1px solid #ddd }
+```
+
+The built page has an empty, `aria-hidden` element after the template, 12 × 57 px tall (from a rule in the
+page's stylesheet: no inline style, nothing for a CSP to allow). The page module removes it in the same
+update that inserts the rows, or as soon as no load is running (it ended empty or failed, or it never
+started). Nothing moves when the rows arrive.
+
+How many rows: a paginated resource's `page-size`. A list without pages has no count the build can
+know, and gets no space. The list may be the resource itself (`p in people`) or a choice between
+resources (`a in list` with `data-sn-let="{ list: $url.feed ? feed : articles }"`, or a resource with a
+`when`): then the placeholder is a branch the early script shows while one of them loads with no rows,
+when it can tell (their `when` reads only the URL), so a resource that will not load holds nothing.
+That branch's `<template>` stays after the rows once they are in, so a `:last-child` rule (or
+`:nth-last-child()`, `:only-child`) never matches one of them; the space counts it the same way. Either
+form needs the load to start when the page module mounts: a `src` or `when` that reads state or another
+resource holds nothing.
+
+How large: what the stylesheets say about each row in its place (`.row + .row`, `:first-child`,
+Tailwind's `space-y-*` and `:nth-child()` rules are decided per row), at each screen width the media
+queries split, and for any default font size a visitor has set (sizes in `rem` and `em` shrink with a
+smaller one, and so does the space).
+
+- A height the stylesheets fix (`height`, `block-size`, a grid's `grid-auto-rows`) is exact: the rows
+  take exactly the space held.
+- Otherwise the space is a lower bound for the layouts the build follows, never taller than the rows
+  (a differential test lays random lists out in Chromium against it): a bound text counts as one
+  line, an empty one too (as with fewer rows than a page, the space is then taller than what arrives),
+  a `data-sn-if` or `data-sn-show` inside the row, a nested list, a float, the content of a
+  closed `<details>`, a negative margin it cannot read, an element a binding may hide, or anything the
+  cascade cannot decide counts as nothing. Lists it does not follow hold nothing: rows a component's
+  own `<style>` reaches, a grid with explicit `grid-template-rows`, `zoom`, rows side by side without
+  a width. A rule that may or may not apply (`:hover`, `@media (hover: none)`, `@supports`) counts at
+  its least. An image with `width` and `height` counts as tall as the width it has at each screen width
+  allows (`max-width: 100%`); form controls in their own font and line height; a link around a card's
+  blocks as the blocks stacked; a branch and its `data-sn-else` as the lesser; `<br>` as a line. Text that
+  wraps makes the rows taller than the space, and what follows moves by the difference, not by the whole
+  list.
+- Lines follow `line-height`. `normal` depends on the font, and the text may be in any face of its
+  stack: a web font shows only once it has loaded (`font-display: swap`), and a family a platform
+  lacks falls through to the next. So `normal` counts the least of them: each family the page
+  ships (from its file, a local `@font-face`, Fontsource or Google Fonts, or the overrides of a
+  fallback face: `ascent-override`, `descent-override`, `size-adjust`, `src: local(…)`), each
+  system font the build has metrics for (Arial, Helvetica, Segoe UI, Roboto, San Francisco, Times
+  New Roman, DejaVu, Noto and others), and the first generic family on every platform
+  (`system-ui` is Segoe UI, San Francisco, Roboto or a Linux desktop's font; without one, the
+  browser's default, serif). A family neither the page nor that table has metrics for (a web font
+  from a stylesheet the build does not read, a font on the visitor's machine) counts as 1 × the font
+  size. An explicit `line-height` avoids all of this: it is the same in every face.
+- Widths: rows stacked in a block or a flex column take the container's width, as the placeholder
+  does. Rows with a width of their own (`width` in px, rem, em) also work side by side in a flex row
+  (the placeholder as wide as the rows and their gaps), and wrapping in one (as many lines as the
+  container's width gives, at each screen width).
+- Rows in a grid: the placeholder spans the grid rows the items fill, over every column (`auto-fill`
+  and `auto-fit` columns are counted at each width).
+- A height that follows the container's width (square cards in columns, a font size in `vw`) is held
+  as a share of that width, exact at every width.
+- Table rows in a `<tbody>`: each as tall as its tallest cell, with the table's vertical `border-spacing`
+  between them (2 px by default; none with `border-collapse: collapse`, where the cells' borders count as
+  nothing). The placeholder is a `<tr>`. With `table-layout: auto` the columns may still widen when the
+  rows' text arrives: `table-layout: fixed` keeps them.
+
+When fewer rows arrive than were held (the last page, an empty list), what follows moves up by
+what is missing. Measured with the API answering after 500 ms (Chromium, 1280 px and 412 px wide,
+`page-size="12"` with content below; a list of 56 px rows, a three-column grid of 160 px cards, a table
+of one-line rows with collapsed borders; the median of 3 loads):
+
+| Rows that arrive | List, without / with | Grid, without / with | Table, without / with |
+| --- | ---: | ---: | ---: |
+| 12 of 12, desktop | 0.081 / 0 | 0.102 / 0 | 0.083 / 0.001 |
+| 12 of 12, phone | 0.183 / 0 | 0.227 / 0 | 0.242 / 0.003 |
+| 7 of 12, desktop | 0.073 / 0.034 | 0.096 / 0.024 | 0.048 / 0.030 |
+| 7 of 12, phone | 0.214 / 0.076 | 0.279 / 0.052 | 0.141 / 0.088 |
+| none, desktop | 0 / 0.081 | 0 / 0.102 | 0 / 0.081 |
+| none, phone | 0 / 0.183 | 0 / 0.227 | 0 / 0.235 |
+
+(The table's 0.001 is its collapsed borders, which count as nothing.)
+
+Builds only (`vite dev` serves the rules with the page module, after the first paint, so it writes no
+placeholders; it plans them the same way, so `SN529` says what a build says). Not for a resource
+with embedded data (its rows are in the first frame), with a `src` or `when` over state or another
+resource (the build cannot tell whether it loads at mount), `each` or `call`, rows a component's own
+`<style>` reaches, or a list that is more than a choice between
+resources (`people.filter(…)`: the build cannot count it), nor for rows side by side without a width of
+their own (or with a `flex-basis`), absolutely positioned, with `content-visibility`, table rows outside
+a `<tbody>`, or a template with more than one element. The build prints each paginated list it holds no space for, and why
+(`sinter: index.html:43: no space held for this list's rows before its data: …`).
+`sinter({ firstPaint: false })` turns it off with the rest of the first-paint work.
+
+A "Loading…" branch over the same status right before the list (`$meta.people.loading && !people.length`,
+one element) takes the placeholder's place: while it shows it has the rows' height and outer margins, and
+the placeholder does not show. Any other loading indicator over the same status, anywhere on the page (a
+branch after the list, a spinner in the header, a `data-sn-show`), leaves the list without one, as the two
+together would be taller than the rows. The build reads each condition over the status (it does not run
+it): an empty state, an error, or anything that cannot show while the resource loads with no rows never
+meets the placeholder; a condition it cannot read counts as one that may show.
+
+The runtime carries no code for it: the build writes the placeholder's removal as one of the page's own
+bindings (about 60 bytes gzip per list; a branch for a list with a `when`), and its rules (about 180 bytes
+gzip for a page with one list) in the page's stylesheet, which is one more stylesheet file for a page that
+had none of its own (Vite merges it into the page's stylesheet when it has one): one shared rule per page,
+then each list's height (and width, margins or grid span) per screen width, with the weight of an id, so
+the author's rules for the row's tag do not reach it.
+
+The build does the work: following the stylesheets for each list, at each screen width and default font
+size. RealWorld (7 pages, a Bootstrap-sized theme) builds in 2.09 s against 1.93 s without it.
+
+### A box whose width follows the list
+
+A list inside a box whose width the stylesheets leave to its content (a flex item in a row with no
+`flex-basis` or `width`, or a float) has a different problem: empty, the box is narrow and what is
+beside it sits next to it; the rows widen it, and its neighbours move or wrap to the next line. When
+the rows have a width of their own, the placeholder takes it, and the box is as wide from the first
+frame. Otherwise the data decides the width, and the build reports it, `SN529`, naming the screen widths
+where it is so: give the box a width of its own (`flex: 1 1 0`, or a basis of 100% where it takes the line,
+as grid systems do below their breakpoint), or give the rows one.
+
+An image without a height in rows that arrive late (no `width` and `height` attributes, no `aspect-ratio`
+or height in CSS) grows its row again when its file loads: `SN530`.
+
+### Loading branches
+
+The early script knows a resource's status when the page module mounts: no data, and loading if its
+`when` holds (or it has none). So a branch over it renders before the first paint, and the page module
+adopts it:
+
+```html
+<template data-sn-if="$meta.people.loading && !people.length"><p>Loading…</p></template>
+```
+
+That holds for a resource that is not embedded, `each` or `call`, whose `src` and `when` read only what the
+early script knows (`$url`, `$now`, `$locale`, your helpers; not state, another resource or the
+built-in formatters such as `date()`). With `cache`, or in an app with next-page data, only
+in a tab that holds no cached or prefetched rows of that resource: otherwise they are there at mount.
+A branch the status closes at mount whatever the load does (`data-sn-if="user"`, an error, "loaded and
+empty") is left out of the early script: the HTML shows it closed already.
+`loading`, `error` and `loadedAt` are known, also through a `data-sn-let` of the whole status; other status
+fields (a page number) are the page module's, and a binding that reads one renders when it mounts. The values are compiled into the page's early file: its
+runtime is the same.
 
 ## Page chrome outside data templates
 

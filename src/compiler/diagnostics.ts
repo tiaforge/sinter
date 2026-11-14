@@ -86,6 +86,8 @@ export const CODES = {
   SN526: 'font-download',
   SN527: 'css-image-sizes',
   SN528: 'remote-image',
+  SN529: 'content-sized-list',
+  SN530: 'unsized-late-image',
 } as const;
 
 export type Code = keyof typeof CODES;

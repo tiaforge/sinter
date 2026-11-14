@@ -121,12 +121,14 @@ test('SN514: an API image in the rows of an auto-fit grid; auto-fill gets exact 
     remoteImages: resolveRemote({ url: 'netlify', origins: ['self'] }),
     images: { info: () => null, url: () => '', styles: [{ file: 'a.css', css: `body { margin: 0 } .g { display: grid; grid-template-columns: repeat(${fit}, minmax(200px, 1fr)); gap: 16px } img { width: 100% }` }] },
   });
+  // (the images have no height before their files load either: SN530, which this test is not about)
+  const codes = (x: ReturnType<typeof grid>) => x.diagnostics.filter((d) => d.code !== 'SN530');
   const fit = grid('auto-fit');
-  expect(fit.diagnostics.map((d) => d.code)).toEqual(['SN514']);
-  expect(fit.diagnostics[0]!.hint).toMatch(/use `repeat\(auto-fill, …\)`/);
+  expect(codes(fit).map((d) => d.code)).toEqual(['SN514']);
+  expect(codes(fit)[0]!.hint).toMatch(/use `repeat\(auto-fill, …\)`/);
   const fill = grid('auto-fill');
-  expect(fill.diagnostics).toEqual([]);
+  expect(codes(fill)).toEqual([]);
   // 200 px columns and 16 px gaps: a second column from 416 px, a third from 632
   expect(fill.html).toMatch(/sizes="auto, \(max-width: 415\.98px\) 100vw, \(max-width: 631\.98px\) calc\(50vw - 8px\)/);
-  expect(grid('auto-fit', '<img alt="" sizes="300px" data-sn-attr="{src: c.photo}">').diagnostics).toEqual([]);
+  expect(codes(grid('auto-fit', '<img alt="" sizes="300px" data-sn-attr="{src: c.photo}">'))).toEqual([]);
 });
