@@ -6,6 +6,8 @@ Package: @tiaforge-ui/sinter. Every directive is a `data-sn-*` attribute or an `
 
 Work in strict mode, so warnings fail like errors instead of scrolling past: `sinter({ strict: true })` in the Vite config (or `SINTER_STRICT=1`), `npx sinter check --strict` after every change, `render(html, { strict: true })` in tests (`render()` reads `SINTER_STRICT` too), and read the dev server's terminal, where strict mode prints the browser's runtime warnings. A clean exit means no warnings, not only no errors. Fix what a warning reports; do not turn strict mode off. Keep a code a warning only when the user agrees, in `strict: { allow: { SN504: 'reason' } }`. Details: docs/strict.md and "Type checking" below.
 
+Paths under `docs/` are in the repository: https://github.com/tiaforge/sinter/tree/main/docs. `docs/diagnostics.md` also ships in this package.
+
 ## Attributes
 
 - `data-sn-state` (object literal): declares local reactive state for the element and its subtree
@@ -57,7 +59,7 @@ Work in strict mode, so warnings fail like errors instead of scrolling past: `si
 - `data-sn-on-keydown-<key>` (handler expression): runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()
 - `data-sn-debounce-<event>` (milliseconds): delays only that event's data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input
 
-Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modifiers `ctrl`, `alt`, `shift`, `meta`, `mod`, then one key: `a`–`z`, `0`–`9`, `escape`, `enter`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `arrowup`, `arrowdown`, `arrowleft`, `arrowright`, `contextmenu`, `f1`–`f12`, and characters by name: `slash` (`/`), `backslash` (`\`), `question` (`?`), `period` (`.`), `comma` (`,`), `semicolon` (`;`), `colon` (`:`), `quote` (`'`), `backquote` (``` ` ```), `minus` (`-`), `plus` (`+`), `equal` (`=`), `asterisk` (`*`), `bracketleft` (`[`), `bracketright` (`]`). Attribute names are lowercase, so N is `shift-n`; Shift is not checked for characters (`question` is ? however it is typed). Filters on an ancestor skip keys typed into fields (input, textarea, select, contenteditable) and Enter/Space on buttons and links; a filter on the field itself runs. A match calls `preventDefault()`; on one element, filters and a plain `data-sn-on-keydown` run in attribute order. The nearest element that handles an event wins: for clicks and other native events any handler or action that ran, for keys a matching filter, an action, a debounced handler, or a plain handler that called `$event.preventDefault()`; a key a plain handler does not prevent goes on to its ancestors, so a grid's arrow-key handler that prevents only the arrows leaves N to `<body data-sn-on-keydown-shift-n>`. Page-wide shortcuts go on `<body>`. Bubbling custom events (`emit()`, islands' `CustomEvent`s, `sn-error`, `dismiss`) are notifications: every element from the target up with a handler for one runs, inner first, until a handler calls `$event.preventDefault()` (the rest of that element's handlers and its action still run); `emit()` and `dismiss` are cancelable, and an island makes its events stoppable with `cancelable: true`. Debounced handlers and actions pass them on. A custom event that does not bubble, and a plain `Event`, go to the nearest element only. There is no `stop()`; `stopPropagation()` does not end the walk.
+Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modifiers `ctrl`, `alt`, `shift`, `meta`, `mod`, then one key: `a`–`z`, `0`–`9`, `escape`, `enter`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `arrowup`, `arrowdown`, `arrowleft`, `arrowright`, `contextmenu`, `f1`–`f12`, and characters by name: `slash` (`/`), `backslash` (`\`), `question` (`?`), `period` (`.`), `comma` (`,`), `semicolon` (`;`), `colon` (`:`), `quote` (`'`), `backquote` (``` ` ```), `minus` (`-`), `plus` (`+`), `equal` (`=`), `asterisk` (`*`), `bracketleft` (`[`), `bracketright` (`]`). Names are lowercase (N is `shift-n`). Filters on an ancestor skip keys typed into fields and Enter/Space on buttons and links; a match calls `preventDefault()`. The nearest element that handles an event wins; a key a plain handler does not `preventDefault()` goes on to its ancestors, so page-wide shortcuts go on `<body>`. Bubbling custom events (`emit()`, islands' events, `sn-error`, `dismiss`) run every handler from the target up until one calls `$event.preventDefault()`; `stopPropagation()` does not end the walk.
 
 ## Elements
 
@@ -70,12 +72,12 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 
 - Attribute values are JavaScript expressions, checked at build time. Value expressions (text, attr, class, show, for, if, key, body, state, URL interpolations) cannot assign, use `++`, `delete`, `await` or `import()`.
 - Handlers (`data-sn-on-*`, `then`, `catch`) are statements separated by `;`: assignments to state, `$url.<param>` and `$locale`, and calls. No declarations or loops.
-- `$url` is bindable: `data-sn-model="$url.q"` (a query parameter; path parameters are read-only), `page-model="$url.page"` on an offset list. History works as in a single-page app: a write a user's event caused (a click, a select, a checkbox, `page()`, an action's `then` it started) adds an entry; typing in a field bound to the URL commits at each 250 ms pause (the first commit of a run adds an entry, later ones replace it; Enter or leaving the field ends the run); other writes (a resource's `then`, a list's reset to page 1 after a filter change) replace; Back and Forward write nothing. Values are written as a reload reads them: numbers as strings, `true` as `'1'`, `false`/`null`/`''`/`[]` delete the parameter; use `+$url.page` for arithmetic. A parameter bound to a `<select multiple>` or checkboxes with a `value` is a list (repeated keys, `[]` when absent; test `$url.tag.length`, SN211). `page-model` makes the URL the list's single source: `page()` writes the page and the list follows; `$url.page` is the page asked for, `$meta.<name>.page` the page shown; a filter change starts at page 1. Guide: docs/navigation.md#the-url-and-the-history.
+- `$url` is bindable: `data-sn-model="$url.q"` (query parameters; path parameters are read-only), `page-model="$url.page"` on an offset list (the URL is then the list's single source: `page()` writes it, a filter change starts at page 1). History works as in a single-page app: user events add an entry, typing commits at each pause, other writes replace. Values are written as a reload reads them (strings; `true` as `'1'`; `false`/`null`/`''`/`[]` delete the parameter): use `+$url.page` for arithmetic. A parameter bound to a `<select multiple>` or checkboxes with a `value` is a list (`[]` when absent; SN211). Guide: docs/navigation.md#the-url-and-the-history.
 - A handler cannot call an action function (SN203). To start an action from a handler (a key filter, `data-sn-then`, `<sn-resource then>`), give the action element an `id` and call `run('id')`; the element's busy state, concurrency, optimistic layer and `then`/`catch` apply. A hidden carrier works: `<span hidden id="mark-read" data-sn-call="mail.markRead(open)"></span>`. See the recipe "Run an action from a handler".
 - `then` on `<sn-event>` is a handler run after the event's change is applied: payload fields are bare names, the state around the `<sn-sync>` is in scope and assignable, and so are its `data-sn-let` names (read-only; state and lets win over payload fields of the same name), store functions work (`close('id')` names its dialog: there is no element). With `then`, `resource` and `op` may be left out.
 - `then` on `<sn-resource>` is a handler run after each successful load (first load, `refresh()`, refetch events, `src` changes, every `page()`; per source for `each`), not for cached data shown at once, failed loads or optimistic/event changes. `$result` is what the load stored (what `items` selects; the page just loaded). The state around the resource is in scope and assignable; `close('id')` names its dialog. It runs on every refetch, so a once-only handler guards itself, one step per guard: `then="draft = $result ?? draft; $result && showModal('compose')"`.
 - Server errors on a form: a mutation without `data-sn-catch` on a form, or on a button or control inside one, that fails with a 4xx and a JSON body `{errors: {<name>: message | message[]}}` marks each control with that `name`: `aria-invalid="true"` and the message in the element its `aria-errormessage` names, else in a `<small data-sn-error data-tone="danger">` inserted after it; the first such field gets focus; editing a field clears its error, sending again clears all. Inside the form, `$error` is its last failed send (`{status, body, message, detail}`, or `null`; null again when sent again): show the rest with bindings, e.g. `<template data-sn-if="$error"><p data-sn-text="$error.detail"></p></template>`. Shown (no `sn-error`, no `onError`) when every message marked a field or the form reads `$error`. `data-sn-catch` opts out. Another response format: `configure({ fieldErrors: (error, {url, method}) => ({ name: messages }) })` reading `error.body` (`null`: mark no field; `undefined`: the default reading); codes instead of text: map them to `m.key()` there.
-- `refresh="30s"` on `<sn-resource>` reloads it in the background once its last load is that old, counted from every load (so a resource a stream keeps reloading rarely refreshes): `$meta.loading` stays false, nothing while the tab is hidden or `when` is falsy, failures back off up to 30 s and are reported once. A reload whose response has the `ETag` (else `Last-Modified`) of the data shown, unchanged since, is not stored or re-rendered, `then` still runs (on pages with `refresh` or `<sn-sync>`, which get the versions module); servers send `ETag` with `Cache-Control: no-cache` (and `Access-Control-Expose-Headers: ETag` cross-origin).
+- `refresh="30s"` on `<sn-resource>` reloads it in the background once its last load is that old (not while the tab is hidden or `when` is falsy; `$meta.loading` stays false). A reload with an unchanged `ETag` (else `Last-Modified`) is not re-rendered, `then` still runs; servers send `ETag` with `Cache-Control: no-cache`.
 - `data-sn-optimistic` may only call `patch`, `upsert`, `remove`. The change shows at once, stays when the request succeeds (committed under what `then` writes) and is rolled back when it fails.
 - A name resolves innermost first: loop variables, then the nearest `data-sn-state`, then resources, then magic names, helpers and store functions, then JavaScript globals. Browser APIs (`window`, `document`, `fetch`, timers, …) are refused: use a component's script.
 - Resources are read-only: copy an item with `structuredClone(c)` to edit it, write with `patch()`.
@@ -134,7 +136,7 @@ Nothing is sent again unless a retry policy says so. Policies are named in the c
 
 ## Recipes
 
-Each recipe comes with its test; copy both.
+Each recipe has a test beside it (`docs/recipes/<name>.test.ts`).
 
 ### List with filter
 
@@ -150,26 +152,6 @@ Each recipe comes with its test; copy both.
     </template>
   </ul>
 </section>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import page from './list-filter.html?raw';
-
-
-test('filters the list as you type', async () => {
-  const requests = mockRequests({ 'GET /api/people': { people: [{ id: 1, name: 'Bob' }, { id: 2, name: 'Ada' }] } });
-  const { root, flush, settle } = await render(page, { requests });
-  await settle();
-  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Ada', 'Bob']);
-
-  const input = root.querySelector('input')!;
-  input.value = 'ad';
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  await flush();
-  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Ada']);
-});
 ```
 
 ### Form dialog with repeatable fields
@@ -203,39 +185,6 @@ test('filters the list as you type', async () => {
 </section>
 ```
 
-```ts
-import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import page from './form-dialog.html?raw';
-
-
-test('saves the draft and upserts the result', async () => {
-  const requests = mockRequests({
-    'GET /api/people': [],
-    'POST /api/people': (call) => ({ id: 1, ...(call.body as object) }),
-  });
-  const { root, flush, settle } = await render(page, { requests });
-  await settle();
-  root.querySelector('button')!.click();               // New
-  const dialog = root.querySelector('dialog')!;
-  dialog.showModal();
-  dialog.dispatchEvent(new Event('toggle'));
-  await flush();
-
-  const [name, email] = root.querySelectorAll('dialog input');
-  (name as HTMLInputElement).value = 'Ada';
-  name!.dispatchEvent(new Event('input', { bubbles: true }));
-  (email as HTMLInputElement).value = 'ada@example.com';
-  email!.dispatchEvent(new Event('input', { bubbles: true }));
-  root.querySelector('form')!.requestSubmit();
-  await settle();
-
-  expect(requests.calls.at(-1)!.body).toEqual({ name: 'Ada', emails: [{ value: 'ada@example.com' }] });
-  expect(root.querySelector('li span')!.textContent).toBe('Ada');
-  expect(dialog.open).toBe(false);
-});
-```
-
 ### Server validation errors on the fields
 
 ```html
@@ -250,42 +199,6 @@ test('saves the draft and upserts the result', async () => {
   <small id="username-error" hidden></small>
   <button>Sign up</button>
 </form>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import page from './field-errors.html?raw';
-
-
-test('shows the server\'s field errors on the fields', async () => {
-  const requests = mockRequests({
-    'POST /api/signup': { status: 422, body: { errors: { email: 'is already taken', username: ['is too short'] } } },
-  });
-  const { root, settle } = await render(page, { requests });
-  const [email, username] = root.querySelectorAll('input');
-  email!.value = 'ada@example.com';
-  username!.value = 'a';
-  root.querySelector('form')!.requestSubmit();
-  await settle();
-
-  expect(email!.getAttribute('aria-invalid')).toBe('true');
-  expect(email!.nextElementSibling!.textContent).toBe('is already taken');
-  expect(username!.getAttribute('aria-invalid')).toBe('true');
-  expect(root.querySelector('#username-error')!.textContent).toBe('is too short');
-
-  email!.dispatchEvent(new Event('input', { bubbles: true }));   // editing clears that field's error
-  expect(email!.hasAttribute('aria-invalid')).toBe(false);
-});
-
-test('shows a failure that is not about a field through $error', async () => {
-  const requests = mockRequests({ 'POST /api/signup': { status: 503, body: { message: 'Sign-ups are paused.' } } });
-  const { root, settle } = await render(page, { requests });
-  for (const input of root.querySelectorAll('input')) input.value = 'ada@example.com';
-  root.querySelector('form')!.requestSubmit();
-  await settle();
-  expect(root.querySelector('p')!.textContent).toBe('Sign-ups are paused.');
-});
 ```
 
 ### SSE sync
@@ -310,43 +223,6 @@ test('shows a failure that is not about a field through $error', async () => {
 </main>
 ```
 
-```ts
-import { expect, test } from 'vitest';
-import { render, mockRequests, mockStream } from '@tiaforge-ui/sinter/testing';
-import page from './sse-sync.html?raw';
-
-
-test('applies server events to the list', async () => {
-  const requests = mockRequests({ 'GET /api/people': [{ id: 1, name: 'Bob' }] });
-  const stream = mockStream();
-  const { root, flush, settle } = await render(page, { requests, streams: { '/api/events': stream } });
-  await settle();
-
-  stream.emit('person_updated', { person: { id: 2, name: 'Ada' } });
-  stream.emit('person_removed', { id: 1 });
-  await flush();
-  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Ada']);
-});
-
-test('a removed person closes the dialog that shows them', async () => {
-  const requests = mockRequests({ 'GET /api/people': [{ id: 1, name: 'Bob' }, { id: 2, name: 'Ada' }] });
-  const stream = mockStream();
-  const { root, flush, settle } = await render(page, { requests, streams: { '/api/events': stream } });
-  await settle();
-  root.querySelector('button')!.click();   // Ada
-  await flush();
-  const dialog = root.querySelector('dialog')!;
-  expect(dialog.open).toBe(true);
-
-  stream.emit('person_removed', { id: 1 });
-  await flush();
-  expect(dialog.open).toBe(true);
-  stream.emit('person_removed', { id: 2 });
-  await flush();
-  expect(dialog.open).toBe(false);
-});
-```
-
 ### Optimistic toggle
 
 ```html
@@ -361,155 +237,6 @@ test('a removed person closes the dialog that shows them', async () => {
             data-sn-attr="{'aria-pressed': m.is_flagged ? 'true' : 'false'}">★</button>
   </article>
 </template>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import page from './optimistic-toggle.html?raw';
-
-
-test('flags at once and rolls back when the server refuses', async () => {
-  const requests = mockRequests({
-    'GET /api/messages': [{ id: 1, subject: 'Hi', is_flagged: false }],
-    'PATCH /api/messages/1': { status: 500 },
-  });
-  const { root, flush, settle } = await render(page, { requests });
-  await settle();
-  const star = root.querySelector('button')!;
-
-  star.click();
-  await flush();
-  expect(star.getAttribute('aria-pressed')).toBe('true');   // optimistic
-
-  await settle();
-  expect(star.getAttribute('aria-pressed')).toBe('false');  // rolled back
-});
-
-test('keeps the flag when the server accepts it', async () => {
-  const requests = mockRequests({
-    'GET /api/messages': [{ id: 1, subject: 'Hi', is_flagged: false }],
-    'PATCH /api/messages/1': null,
-  });
-  const { root, settle } = await render(page, { requests });
-  await settle();
-  const star = root.querySelector('button')!;
-
-  star.click();
-  await settle();
-  expect(star.getAttribute('aria-pressed')).toBe('true');   // committed: no flip back
-});
-```
-
-### Offline drafts: sent again once the connection is back
-
-```html
-<!-- src/sinter.config.js:
-  import { configure } from '@tiaforge-ui/sinter';
-  import { retry } from '@tiaforge-ui/sinter/retry';
-  configure({ sessionProbe: '/api/user', retry: retry({ policies: { drafts: { backoff: ['1s', '30s'] } } }) });
--->
-<sn-resource name="note" src="/api/notes/7"></sn-resource>
-
-<main data-sn-state="{ draft: { title: '', body: '' } }">
-  <!-- latest: after reconnecting only the newest draft is sent; the form stays editable -->
-  <form data-sn-put="/api/notes/7" data-sn-retry="drafts" data-sn-concurrency="latest"
-        data-sn-trigger="input" data-sn-debounce="500"
-        data-sn-optimistic="patch(note, draft)">
-    <input name="title" data-sn-model="draft.title">
-    <textarea name="body" data-sn-model="draft.body"></textarea>
-  </form>
-  <p class="unsaved">Not saved yet: it is sent again once the connection is back.</p>
-</main>
-
-<style>
-  .unsaved { display: none; }
-  body:has(form[aria-busy]) .unsaved { display: block; }
-</style>
-```
-
-```ts
-import { afterEach, expect, test } from 'vitest';
-import { configure } from '@tiaforge-ui/sinter';
-import { retry } from '@tiaforge-ui/sinter/retry';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import page from './offline-draft.html?raw';
-
-afterEach(() => configure({ sessionProbe: null, retry: null }));
-
-test('a draft typed while offline is sent once the connection is back, with one key', async () => {
-  configure({ sessionProbe: '/api/user', retry: retry({ policies: { drafts: { backoff: ['1s', '30s'] } } }) });
-  let online = false;
-  const requests = mockRequests({
-    'GET /api/notes/7': { id: 7, title: 'Plan', body: '' },
-    'GET /api/user': () => (online ? { name: 'me' } : { status: 503 }),
-    'PUT /api/notes/7': (c) => { if (!online) throw new TypeError('Failed to fetch'); return c.body; },
-  });
-  const { root, settle, advance } = await render(page, { requests });
-  await settle();
-  const form = root.querySelector('form')!, title = root.querySelector('input')!;
-
-  title.value = 'Plan for Monday';
-  title.dispatchEvent(new Event('input', { bubbles: true }));
-  await advance(500);    // the debounce
-  await settle();
-  expect(form.getAttribute('aria-busy')).toBe('true');   // waiting: "Not saved yet" shows
-
-  await advance(1000);   // the probe fails (offline): wait longer
-  await settle();
-  online = true;
-  await advance(2000);   // the probe answers: sent again
-  await settle();
-  const puts = requests.calls.filter((c) => c.method === 'PUT');
-  expect(puts).toHaveLength(2);
-  expect(puts[1]!.body).toEqual({ title: 'Plan for Monday', body: '' });
-  expect(puts[1]!.headers['idempotency-key']).toBe(puts[0]!.headers['idempotency-key']);
-  expect(form.hasAttribute('aria-busy')).toBe(false);
-});
-```
-
-### Pagination
-
-```html
-<sn-resource name="messages" src="/api/messages" items="messages" total="total" key="id"
-  paginate="keyset" page-size="2" cursor="{before: id}"></sn-resource>
-
-<ul>
-  <template data-sn-for="m in messages"><li data-sn-text="m.subject"></li></template>
-</ul>
-<nav>
-  <button data-sn-on-click="page('messages', 'prev')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">‹</button>
-  <span data-sn-text="`${$meta.messages.from}–${$meta.messages.to} of ${$meta.messages.total}`"></span>
-  <button data-sn-on-click="page('messages', 'next')" data-sn-attr="{disabled: !$meta.messages.hasNext}">›</button>
-</nav>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import page from './pagination.html?raw';
-
-const all = [5, 4, 3, 2, 1].map((id) => ({ id, subject: `m${id}` }));
-
-test('moves to the next page with a cursor', async () => {
-  const requests = mockRequests({
-    'GET /api/messages': (call) => {
-      const q = new URL(call.url, 'http://x').searchParams;
-      const before = Number(q.get('before') ?? Infinity);
-      const items = q.get('direction') === 'next' ? all.filter((m) => m.id < before) : all;
-      return { messages: items.slice(0, Number(q.get('limit'))), total: all.length };
-    },
-  });
-  const { root, settle } = await render(page, { requests });
-  await settle();
-  expect(root.querySelector('span')!.textContent).toBe('1–2 of 5');
-
-  root.querySelector<HTMLButtonElement>('nav button:last-of-type')!.click();
-  await settle();
-  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['m3', 'm2']);
-  expect(root.querySelector('span')!.textContent).toBe('3–4 of 5');
-  expect(requests.calls.at(-1)!.url).toBe('/api/messages?before=4&limit=2&direction=next');
-});
 ```
 
 ### Pagination in the URL: page-model, shared links and Back
@@ -531,245 +258,6 @@ test('moves to the next page with a cursor', async () => {
   <button data-sn-on-click="page('articles', 'next')" data-sn-attr="{disabled: !$meta.articles.hasNext}">›</button>
   <span data-sn-text="`${$meta.articles.from}–${$meta.articles.to} of ${$meta.articles.total}`"></span>
 </nav>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import page from './url-pagination.html?raw';
-
-const all = [1, 2, 3, 4, 5].map((n) => ({ slug: `a${n}`, title: `A${n}` }));
-const api = () => mockRequests({
-  'GET /api/articles': (call) => {
-    const q = new URL(call.url, 'http://x').searchParams, o = Number(q.get('offset')), n = Number(q.get('limit'));
-    return { articles: all.slice(o, o + n), count: all.length };
-  },
-});
-const titles = (root: HTMLElement) => [...root.querySelectorAll('li')].map((li) => li.textContent);
-
-test('a shared link opens its page; moving writes the URL; Back goes to the page before', async () => {
-  const { root, settle, url, back } = await render(page, { requests: api(), url: 'http://localhost/?page=2' });
-  await settle();
-  expect(titles(root)).toEqual(['A3', 'A4']);
-  root.querySelector<HTMLButtonElement>('nav > button:last-of-type')!.click();
-  await settle();
-  expect(url()).toBe('http://localhost/?page=3');
-  expect(titles(root)).toEqual(['A5']);
-  expect(root.querySelector('.active')!.textContent).toBe('3');
-  await back();
-  await settle();
-  expect(titles(root)).toEqual(['A3', 'A4']);
-});
-```
-
-### Search in the URL: a model on $url, one history entry per search
-
-```html
-<!-- A search field bound to the URL: one history entry per search, the request and the URL wait
-     for the typing pause; a reload or a shared link shows the same results. -->
-<sn-resource name="hits" src="/api/search?q={$url.q}&sort={$url.sort}" items="hits" key="id"
-  when="$url.q"></sn-resource>
-
-<input type="search" placeholder="Search" data-sn-model="$url.q">
-<select data-sn-model="$url.sort">
-  <option value="">Best match</option>
-  <option value="new">Newest</option>
-</select>
-<ul>
-  <template data-sn-for="h in hits"><li data-sn-text="h.title"></li></template>
-</ul>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import page from './url-search.html?raw';
-
-const api = () => mockRequests({
-  'GET /api/search': (call) => {
-    const q = new URL(call.url, 'http://x').searchParams;
-    return { hits: [{ id: 1, title: `${q.get('q')} (${q.get('sort') || 'best'})` }] };
-  },
-});
-const type = (el: HTMLInputElement, v: string) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
-
-test('typing writes the URL once per pause; a select is an entry of its own; a shared link restores both', async () => {
-  const requests = api();
-  const { root, settle, flush, history } = await render(page, { requests });
-  const field = root.querySelector('input')!;
-  for (const v of ['s', 'si', 'sinter']) { type(field, v); await flush(); }
-  await settle();
-  expect(history()).toEqual(['http://localhost/', 'http://localhost/?q=sinter']);
-  expect(requests.calls.map((c) => c.url)).toEqual(['/api/search?q=sinter']);
-  const sort = root.querySelector('select')!;
-  sort.value = 'new'; sort.dispatchEvent(new Event('change', { bubbles: true }));
-  await settle();
-  expect(history()).toEqual(['http://localhost/', 'http://localhost/?q=sinter', 'http://localhost/?q=sinter&sort=new']);
-
-  const shared = await render(page, { requests: api(), url: 'http://localhost/?q=sinter&sort=new' });
-  await shared.settle();
-  expect(shared.root.querySelector('input')!.value).toBe('sinter');
-  expect(shared.root.querySelector('li')!.textContent).toBe('sinter (new)');
-});
-```
-
-### A multi-select filter in the URL: an array parameter
-
-```html
-<!-- A multi-select filter in the URL: checkboxes with a `value` make `$url.tag` a list, written as
-     repeated keys (?tag=go&tag=rust) and sent the same way. -->
-<sn-resource name="posts" src="/api/posts?tag={$url.tag}" items="posts" key="id"></sn-resource>
-
-<fieldset>
-  <label><input type="checkbox" value="go" data-sn-model="$url.tag"> Go</label>
-  <label><input type="checkbox" value="rust" data-sn-model="$url.tag"> Rust</label>
-  <label><input type="checkbox" value="ts" data-sn-model="$url.tag"> TypeScript</label>
-  <!-- a list is always truthy: test its length -->
-  <button data-sn-on-click="$url.tag = []" data-sn-show="$url.tag.length">Clear</button>
-</fieldset>
-<ul>
-  <template data-sn-for="p in posts"><li data-sn-text="p.title"></li></template>
-</ul>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import page from './url-filter.html?raw';
-
-const api = () => mockRequests({
-  'GET /api/posts': (call) => ({ posts: new URL(call.url, 'http://x').searchParams.getAll('tag').map((t, i) => ({ id: i, title: t })) }),
-});
-
-test('each box is an entry; the tags go to the URL and the request as repeated keys; Clear removes them', async () => {
-  const requests = api();
-  const { root, settle, url, history } = await render(page, { requests, url: 'http://localhost/?tag=go' });
-  await settle();
-  const boxes = root.querySelectorAll<HTMLInputElement>('input');
-  expect([...boxes].map((b) => b.checked)).toEqual([true, false, false]);
-  boxes[1]!.click();
-  await settle();
-  expect(url()).toBe('http://localhost/?tag=go&tag=rust');
-  expect(requests.calls.at(-1)!.url).toBe('/api/posts?tag=go&tag=rust');
-  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['go', 'rust']);
-  root.querySelector('button')!.click();
-  await settle();
-  expect(url()).toBe('http://localhost/');
-  expect(root.querySelector('button')!.hidden).toBe(true);
-  expect(history()).toHaveLength(3);
-});
-```
-
-### SignalR (or another transport) for <sn-sync>
-
-```html
-<!-- The page is the same as with SSE: only the configured transport differs (signalr-transport.js). -->
-<sn-resource name="people" src="/api/people" key="id" order="name"></sn-resource>
-
-<sn-sync src="/hubs/people">
-  <sn-event name="person_updated" resource="people" op="upsert" item="person"></sn-event>
-  <sn-event name="person_removed" resource="people" op="remove"></sn-event>
-</sn-sync>
-
-<ul>
-  <template data-sn-for="p in people"><li data-sn-text="p.name"></li></template>
-</ul>
-```
-
-```js
-// SignalR transport for <sn-sync>, in your app (sinter does not depend on @microsoft/signalr).
-// In src/sinter.config.js:
-//
-//   import { HubConnectionBuilder } from '@microsoft/signalr';
-//   import { configure } from '@tiaforge-ui/sinter';
-//   import { signalRTransport } from './signalr-transport.js';
-//
-//   configure({
-//     transport: (url) => url.startsWith('/hubs/')
-//       ? signalRTransport(() => new HubConnectionBuilder().withUrl(url).build())
-//       : undefined,
-//   });
-//
-// Server: `await Clients.All.SendAsync("person_updated", new { person })`; the first argument is
-// the payload. Hub method names are case-insensitive in SignalR, so keep event names distinct in
-// more than case. Do not call withAutomaticReconnect(): sinter reconnects (session probe, backoff,
-// refetch of everything the stream feeds), and two reconnect loops would race. Auth is the hub's:
-// cookies, or withUrl(url, { accessTokenFactory }); request middleware does not apply.
-
-/** @param {() => import('@microsoft/signalr').HubConnection} build a new, unstarted connection */
-export function signalRTransport(build) {
-  let hub = null;
-  let deliver = null;
-  const names = new Set();
-  const add = (name) => {
-    if (!hub || names.has(name)) return;
-    names.add(name);
-    const h = hub;
-    h.on(name, (payload) => { if (hub === h) deliver(name, payload ?? null); });
-  };
-  return {
-    connect(url, onEvent, onState, initial) {
-      const h = hub = build();
-      deliver = onEvent;
-      names.clear();
-      for (const n of initial) add(n);
-      h.onclose(() => { if (hub === h) { hub = null; onState('error'); } });
-      h.start().then(() => { if (hub === h) onState('open'); }, () => { if (hub === h) { hub = null; onState('error'); } });
-    },
-    listen: add,
-    close() {
-      const h = hub;
-      hub = null; // nothing is reported after close()
-      h?.stop().catch(() => {});
-    },
-  };
-}
-```
-
-```ts
-import { afterEach, expect, test } from 'vitest';
-import { configure } from '@tiaforge-ui/sinter';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import { signalRTransport } from './signalr-transport.js';
-import page from './signalr.html?raw';
-
-// A stand-in for HubConnection: the test calls invoke() where the server would call SendAsync().
-function fakeHub() {
-  const handlers = new Map<string, (payload: unknown) => void>();
-  let onclose = () => {};
-  return {
-    started: false,
-    on(name: string, fn: (payload: unknown) => void) { handlers.set(name, fn); },
-    onclose(fn: () => void) { onclose = fn; },
-    async start() { this.started = true; },
-    async stop() { this.started = false; },
-    invoke(name: string, payload: unknown) { handlers.get(name)?.(payload); },
-    lose() { this.started = false; onclose(); },
-  };
-}
-
-afterEach(() => configure({ transport: null }));
-
-test('applies hub messages to the list', async () => {
-  const hubs: Array<ReturnType<typeof fakeHub>> = [];
-  configure({ transport: (url) => (url.startsWith('/hubs/') ? signalRTransport(() => { hubs.push(fakeHub()); return hubs.at(-1) as never; }) : undefined) });
-  const requests = mockRequests({ 'GET /api/people': [{ id: 1, name: 'Bob' }] });
-  const { root, flush, settle, advance } = await render(page, { requests });
-  await settle();
-  expect(hubs[0]!.started).toBe(true);
-
-  hubs[0]!.invoke('person_updated', { person: { id: 2, name: 'Ada' } });
-  hubs[0]!.invoke('person_removed', { id: 1 });
-  await flush();
-  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Ada']);
-
-  // a lost connection: sinter reconnects with a new hub and refetches what the stream feeds
-  hubs[0]!.lose();
-  await advance(2000); // the backoff (1 s ± jitter) before reconnecting
-  await settle();
-  expect(hubs).toHaveLength(2);
-  expect(requests.calls.filter((c) => c.path === '/api/people')).toHaveLength(2);
-});
 ```
 
 ### Typed resources, state and events
@@ -805,74 +293,6 @@ test('applies hub messages to the list', async () => {
 // src/sinter.types.ts
 export interface Contact { id: number; name: string; email: string | null }
 export interface ContactEvent { contact: Contact }
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { checkPage } from '@tiaforge-ui/sinter/check';
-import page from './typed.html?raw';
-import types from './typed.types.ts?raw';
-
-// In CI: `npx sinter check` (pages and options from the Vite config).
-const files = { 'src/sinter.types.ts': types };
-
-test('every expression type-checks', () => {
-  expect(checkPage(page, { files })).toEqual([]);
-});
-
-test('a typo in a field is an error at its position, with a suggestion', () => {
-  const [d] = checkPage(page.replace('c.email ??', 'c.emial ??'), { files });
-  expect(d).toMatchObject({ code: 'SN208', file: 'index.html', line: 12 });
-  expect(d!.message).toMatch(/Property 'emial' does not exist on type 'Contact'. Did you mean 'email'\?/);
-});
-
-test('an event payload that does not fit the resource is an error', () => {
-  const [d] = checkPage(page.replace('item="contact"', 'item="contact.name"'), { files });
-  expect(d!.message).toMatch(/Type 'string' is not assignable to type 'Contact'/);
-});
-```
-
-### Cached list across page loads
-
-```html
-<!-- `cache`: the next page load shows this list at once, then revalidates.
-     `$meta.inbox.loading` with data present means "updating"; `$meta.inbox.loadedAt`
-     stays null until the server has answered on this page. -->
-<sn-resource name="inbox" src="/api/messages?folder=inbox" key="id" order="-date" cache="1h"></sn-resource>
-
-<p data-sn-show="$meta.inbox.loading && inbox.length">Updating…</p>
-<ul>
-  <template data-sn-for="m in inbox">
-    <li data-sn-text="m.subject"></li>
-  </template>
-</ul>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { render, mockRequests, memoryStorage } from '@tiaforge-ui/sinter/testing';
-import page from './cached-list.html?raw';
-
-const subjects = (root: HTMLElement) => [...root.querySelectorAll('li')].map((li) => li.textContent);
-
-test('the next page load shows the cached list while it revalidates', async () => {
-  // one tab: the same sessionStorage for both page loads
-  const session = memoryStorage();
-  const first = await render(page, { session, requests: mockRequests({
-    'GET /api/messages': [{ id: 1, subject: 'Welcome', date: '2026-01-01' }],
-  }) });
-  await first.settle();
-
-  const { root, settle } = await render(page, { session, requests: mockRequests({
-    'GET /api/messages': [{ id: 2, subject: 'Lunch?', date: '2026-01-02' }, { id: 1, subject: 'Welcome', date: '2026-01-01' }],
-  }) });
-  expect(subjects(root)).toEqual(['Welcome']);                    // cached, before any response
-  expect(root.querySelector('p')!.hidden).toBe(false);            // "Updating…"
-
-  await settle();
-  expect(subjects(root)).toEqual(['Lunch?', 'Welcome']);
-  expect(root.querySelector('p')!.hidden).toBe(true);
-});
 ```
 
 ### Local actions: hash a file, then upload it
@@ -925,424 +345,19 @@ export async function upload(file, digest, ctx) {
 }
 ```
 
-```ts
-import { expect, test } from 'vitest';
-import { checkPage } from '@tiaforge-ui/sinter/check';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import * as actions from './local-actions.actions.js';
-import source from './local-actions.actions.js?raw';
-import page from './local-actions.html?raw';
+### More recipes
 
-const DIGEST = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'; // sha256('abc')
-
-function choose(input: HTMLInputElement, file: File) {
-  Object.defineProperty(input, 'files', { value: [file], configurable: true });
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-}
-
-test('hashes the chosen file, then uploads it with its digest', async () => {
-  const requests = mockRequests({ 'POST /api/uploads': { url: '/files/1' } });
-  const { root, settle } = await render(page, { actions, requests });
-  const button = root.querySelector('button')!;
-  expect(button.disabled).toBe(true);
-
-  choose(root.querySelector('input')!, new File(['abc'], 'abc.txt'));
-  await settle();
-  expect(root.querySelector('code')!.textContent).toBe(DIGEST);
-  expect(button.disabled).toBe(false);
-
-  button.click();
-  await settle();
-  expect((requests.calls[0]!.body as FormData).get('sha256')).toBe(DIGEST);
-  expect(root.querySelector('a')!.getAttribute('href')).toBe('/files/1');
-});
-
-test('a failed upload shows the server message', async () => {
-  const requests = mockRequests({ 'POST /api/uploads': { status: 413, body: { message: 'File too large' } } });
-  const { root, settle } = await render(page, { actions, requests });
-  choose(root.querySelector('input')!, new File(['abc'], 'abc.txt'));
-  await settle();
-  root.querySelector('button')!.click();
-  await settle();
-  expect(root.querySelector('[role=alert]')!.textContent).toBe('File too large');
-});
-
-test('sinter check: arguments are checked against the actions', () => {
-  const files = { 'src/sinter.actions.js': source };
-  expect(checkPage(page, { files })).toEqual([]);
-  const [d] = checkPage(page.replace('upload(file, digest)', 'upload(file)'), { files });
-  expect([d!.code, d!.message]).toEqual(['SN208', expect.stringContaining("is not assignable to type '[file: File, digest: string]'")]);
-});
-```
-
-### Keyboard shortcuts
-
-```html
-<!doctype html>
-<html>
-<body data-sn-state="{ cursor: 0, open: null, marked: [] }"
-      data-sn-on-keydown-j="cursor = Math.min(cursor + 1, messages.length - 1)"
-      data-sn-on-keydown-k="cursor = Math.max(cursor - 1, 0)"
-      data-sn-on-keydown-enter="open = messages[cursor]"
-      data-sn-on-keydown-escape="open = null"
-      data-sn-on-keydown-ctrl-space="marked = marked.includes(cursor) ? marked.filter(i => i !== cursor) : [...marked, cursor]"
-      data-sn-on-keydown-slash="$el.querySelector('input').focus()">
-  <sn-resource name="messages" src="/api/messages" items="messages" key="id"></sn-resource>
-  <!-- in the field, j, k and / are typed; its own Escape filter leaves it -->
-  <input type="search" placeholder="Search (/)" data-sn-on-keydown-escape="$el.blur()">
-  <ul>
-    <template data-sn-for="(m, i) in messages">
-      <li data-sn-class="{cursor: i === cursor, marked: marked.includes(i)}" data-sn-text="m.subject"></li>
-    </template>
-  </ul>
-  <article data-sn-show="open" data-sn-text="open && open.subject"></article>
-</body>
-</html>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import page from './keyboard-shortcuts.html?raw';
-
-const key = (el: Element, k: string, init: KeyboardEventInit = {}) =>
-  el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init }));
-
-test('j/k move the cursor, Ctrl+Space marks, Enter opens, Escape closes; keys typed in the search field stay there', async () => {
-  const requests = mockRequests({ 'GET /api/messages': { messages: [{ id: 1, subject: 'Hello' }, { id: 2, subject: 'Lunch?' }] } });
-  const { root, flush, settle } = await render(page, { requests });
-  await settle();
-  const body = root /* the <body> */, rows = () => [...root.querySelectorAll('li')];
-  key(body, 'j');
-  key(body, ' ', { ctrlKey: true });
-  key(body, 'Enter');
-  await flush();
-  expect(rows().map((li) => li.className)).toEqual(['', 'cursor marked']);
-  expect(root.querySelector('article')!.textContent).toBe('Lunch?');
-
-  key(root.querySelector('input')!, 'k');  // typing a k
-  key(body, 'Escape');
-  await flush();
-  expect(rows()[1]!.className).toBe('cursor marked');
-  expect(root.querySelector('article')!.hidden).toBe(true);
-
-  key(body, '/');
-  expect(root.ownerDocument.activeElement).toBe(root.querySelector('input'));
-});
-```
-
-### Row selection with Ctrl and Shift: logic in a helper, applied by the handler
-
-```html
-<sn-resource name="files" src="/api/files" items="files" key="id"></sn-resource>
-
-<!-- the logic is in rowClick() (row-select.helpers.js); the handler only applies its result -->
-<section data-sn-state="{ sel: noSelection() }" data-sn-let="{ ids: files.map(f => f.id) }">
-  <p data-sn-text="sel.keys.length + ' selected'"></p>
-  <ul role="listbox" aria-multiselectable="true">
-    <template data-sn-for="f in files">
-      <li role="option" data-sn-attr="{'aria-selected': sel.keys.includes(f.id) ? 'true' : 'false'}"
-          data-sn-on-click="sel = rowClick($event, sel, f.id, ids)" data-sn-text="f.name"></li>
-    </template>
-  </ul>
-  <button data-sn-show="sel.keys.length" data-sn-on-click="sel = noSelection()">Clear</button>
-</section>
-```
-
-```js
-// Helpers hold the logic; the page applies their result (`sel = rowClick(…)`).
-// They are pure: the same arguments give the same result, nothing else is read or changed,
-// so they are unit-tested without a page.
-
-/** No row selected. */
-export const noSelection = () => ({ keys: [], anchor: null });
-
-/**
- * The selection after a click on the row `key`, as a file manager does it. `sel` is
- * `{ keys, anchor }`, `keys` the rows' keys in the order they are shown.
- * - a click selects only that row;
- * - Ctrl (Cmd on a Mac) adds or removes that row;
- * - Shift selects the rows from the anchor (the last row clicked without Shift) to this one;
- *   with Ctrl too, it adds them to the selection.
- */
-export function rowClick(event, sel, key, keys) {
-  const add = event.ctrlKey || event.metaKey;
-  if (event.shiftKey && sel.anchor != null && keys.includes(sel.anchor)) {
-    const a = keys.indexOf(sel.anchor), b = keys.indexOf(key);
-    const range = keys.slice(Math.min(a, b), Math.max(a, b) + 1);
-    const chosen = new Set([...(add ? sel.keys : []), ...range]);
-    return { keys: keys.filter((k) => chosen.has(k)), anchor: sel.anchor };
-  }
-  if (add) {
-    const chosen = sel.keys.includes(key) ? sel.keys.filter((k) => k !== key) : [...sel.keys, key];
-    return { keys: keys.filter((k) => chosen.includes(k)), anchor: key };
-  }
-  return { keys: [key], anchor: key };
-}
-```
-
-```ts
-import { describe, expect, test } from 'vitest';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import * as helpers from './row-select.helpers.js';
-import page from './row-select.html?raw';
-
-const { rowClick, noSelection } = helpers;
-
-// the helper: pure, so tested with plain values
-describe('rowClick', () => {
-  const keys = ['a', 'b', 'c', 'd'];
-  const click = (init: Partial<MouseEvent> = {}) => ({ ctrlKey: false, metaKey: false, shiftKey: false, ...init }) as MouseEvent;
-  test('a click selects only that row and makes it the anchor', () => {
-    expect(rowClick(click(), { keys: ['a', 'c'], anchor: 'a' }, 'b', keys)).toEqual({ keys: ['b'], anchor: 'b' });
-  });
-  test('Ctrl or Cmd adds or removes the row, in display order', () => {
-    expect(rowClick(click({ ctrlKey: true }), { keys: ['c'], anchor: 'c' }, 'a', keys)).toEqual({ keys: ['a', 'c'], anchor: 'a' });
-    expect(rowClick(click({ metaKey: true }), { keys: ['a', 'c'], anchor: 'a' }, 'c', keys)).toEqual({ keys: ['a'], anchor: 'c' });
-  });
-  test('Shift selects from the anchor, in either direction; with Ctrl it adds', () => {
-    expect(rowClick(click({ shiftKey: true }), { keys: ['b'], anchor: 'b' }, 'd', keys)).toEqual({ keys: ['b', 'c', 'd'], anchor: 'b' });
-    expect(rowClick(click({ shiftKey: true }), { keys: ['c'], anchor: 'c' }, 'a', keys)).toEqual({ keys: ['a', 'b', 'c'], anchor: 'c' });
-    expect(rowClick(click({ shiftKey: true, ctrlKey: true }), { keys: ['a', 'd'], anchor: 'd' }, 'c', keys)).toEqual({ keys: ['a', 'c', 'd'], anchor: 'd' });
-  });
-  test('Shift without an anchor (or a removed one) is a plain click', () => {
-    expect(rowClick(click({ shiftKey: true }), noSelection(), 'c', keys)).toEqual({ keys: ['c'], anchor: 'c' });
-    expect(rowClick(click({ shiftKey: true }), { keys: ['x'], anchor: 'x' }, 'c', keys)).toEqual({ keys: ['c'], anchor: 'c' });
-  });
-});
-
-// the page: the handler applies the helper's result
-test('click, Ctrl+click and Shift+click select rows', async () => {
-  const requests = mockRequests({ 'GET /api/files': { files: ['a', 'b', 'c', 'd'].map((id) => ({ id, name: id.toUpperCase() })) } });
-  const { root, flush, settle } = await render(page, { requests, helpers });
-  await settle();
-  const rows = () => [...root.querySelectorAll('li')];
-  const click = (i: number, init: MouseEventInit = {}) => rows()[i]!.dispatchEvent(new MouseEvent('click', { bubbles: true, ...init }));
-  const selected = () => rows().filter((li) => li.getAttribute('aria-selected') === 'true').map((li) => li.textContent);
-
-  click(1);
-  click(3, { shiftKey: true });
-  await flush();
-  expect(selected()).toEqual(['B', 'C', 'D']);
-  click(0, { ctrlKey: true });
-  await flush();
-  expect(selected()).toEqual(['A', 'B', 'C', 'D']);
-  expect(root.querySelector('p')!.textContent).toBe('4 selected');
-  root.querySelector('button')!.click();
-  await flush();
-  expect(selected()).toEqual([]);
-});
-```
-
-### Run an action from a handler: mark a mail read once its body has loaded, and a shortcut
-
-```html
-<!doctype html>
-<html>
-<body data-sn-state="{ open: null, error: '' }" data-sn-on-keydown-e="run('archive')">
-  <sn-resource name="messages" src="/api/messages" items="messages" key="id"></sn-resource>
-  <!-- loads when a mail opens; once its body is there, an unread mail is marked read -->
-  <sn-resource name="body" src="/api/messages/{open.id}/body" when="open"
-               then="$result && !open.is_read && run('mark-read')"></sn-resource>
-
-  <ul>
-    <template data-sn-for="m in messages">
-      <li data-sn-class="{unread: !m.is_read}" data-sn-on-click="open = m" data-sn-text="m.subject"></li>
-    </template>
-  </ul>
-  <article data-sn-show="open" data-sn-text="body && body.text"></article>
-
-  <!-- no visible control: the element only carries the action (data-sn-call works the same) -->
-  <span hidden id="mark-read" data-sn-patch="/api/messages/{open.id}" data-sn-body="{is_read: true}"
-        data-sn-optimistic="patch(open, {is_read: true})"
-        data-sn-catch="error = $error.message"></span>
-  <!-- the button and E run one action; while it is disabled, E does nothing either -->
-  <button id="archive" data-sn-post="/api/messages/{open.id}/archive" data-sn-attr="{disabled: !open}"
-          data-sn-optimistic="remove(open)" data-sn-then="open = null">Archive (E)</button>
-  <p role="alert" data-sn-text="error"></p>
-</body>
-</html>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { checkPage } from '@tiaforge-ui/sinter/check';
-import { render, mockRequests } from '@tiaforge-ui/sinter/testing';
-import page from './run-action.html?raw';
-
-const MESSAGES = { messages: [{ id: 1, subject: 'Hello', is_read: false }, { id: 2, subject: 'Lunch?', is_read: true }] };
-const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
-
-test('opening an unread mail marks it read once its body has loaded; a read one sends nothing', async () => {
-  const requests = mockRequests({
-    'GET /api/messages': MESSAGES,
-    'GET /api/messages/1/body': { text: 'Hi there' },
-    'GET /api/messages/2/body': { text: 'At noon?' },
-    'PATCH /api/messages/1': null,
-  });
-  const { root, settle } = await render(page, { requests });
-  await settle();
-  const rows = () => [...root.querySelectorAll('li')];
-  expect(rows().map((li) => li.className)).toEqual(['unread', '']);
-
-  rows()[0]!.click();
-  await settle();
-  expect(root.querySelector('article')!.textContent).toBe('Hi there');
-  expect(requests.calls.at(-1)).toMatchObject({ method: 'PATCH', path: '/api/messages/1', body: { is_read: true } });
-  expect(rows()[0]!.className).toBe('');
-
-  rows()[1]!.click();
-  await settle();
-  expect(requests.calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
-});
-
-test('a failed mark-read rolls back and shows the error', async () => {
-  const requests = mockRequests({
-    'GET /api/messages': MESSAGES,
-    'GET /api/messages/1/body': { text: 'Hi there' },
-    'PATCH /api/messages/1': { status: 503, body: { message: 'Mail server unavailable' } },
-  });
-  const { root, settle } = await render(page, { requests });
-  await settle();
-  root.querySelector('li')!.click();
-  await settle();
-  expect(root.querySelector('li')!.className).toBe('unread');
-  expect(root.querySelector('[role=alert]')!.textContent).toBe('Mail server unavailable');
-});
-
-test('E archives the open mail through the button; with no mail open the button is disabled and E does nothing', async () => {
-  const requests = mockRequests({
-    'GET /api/messages': MESSAGES,
-    'GET /api/messages/2/body': { text: 'At noon?' },
-    'POST /api/messages/2/archive': null,
-  });
-  const { root, settle } = await render(page, { requests });
-  await settle();
-  key(root, 'e');
-  await settle();
-  expect(requests.calls.map((c) => c.method)).toEqual(['GET']);
-
-  root.querySelectorAll('li')[1]!.click();
-  await settle();
-  key(root, 'e');
-  await settle();
-  expect(requests.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/messages/2/archive' });
-  expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Hello']);
-  expect(root.querySelector('button')!.disabled).toBe(true);
-});
-
-test('sinter check: run() names an element with an action', () => {
-  expect(checkPage(page).filter((d) => d.severity === 'error')).toEqual([]);
-  const [d] = checkPage(page.replace("run('mark-read')", "run('mark-raed')")).filter((x) => x.severity === 'error');
-  expect([d!.code, d!.message]).toEqual(['SN311', 'no element `id="mark-raed"` on this page. Did you mean `mark-read`?']);
-});
-```
-
-### First paint: page chrome that renders before the script
-
-```html
-<!-- First paint: what renders before the page module has run. Chrome stays outside data templates (or in a
-     data-sn-if over state), so the early chunk renders it before the first paint: messages in the language
-     picked before the paint, the current page from literal state, the persisted collapse. Only what needs
-     data waits in a template for the page module. -->
-<body data-sn-state="{ here: '/mail/' }">
-  <sn-resource name="user" src="/api/user"></sn-resource>
-  <nav data-sn-attr="{'aria-label': m.nav()}" data-sn-state="{ collapsed: false }">
-    <input type="checkbox" data-sn-model="collapsed" data-sn-persist="nav-collapsed" data-sn-attr="{'aria-label': m.collapse()}">
-    <a href="/mail/" data-sn-attr="{'aria-current': here === '/mail/' ? 'page' : null}"><span data-sn-text="m.mail()"></span></a>
-    <a href="/calendar/" data-sn-attr="{'aria-current': here === '/calendar/' ? 'page' : null}"><span data-sn-text="m.calendar()"></span></a>
-    <!-- needs the user: renders when the page module has loaded it -->
-    <template data-sn-if="user"><span data-sn-text="user.name"></span></template>
-  </nav>
-</body>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { firstPaint, memoryStorage, mockRequests, render } from '@tiaforge-ui/sinter/testing';
-import page from './first-paint.html?raw';
-
-// the message files (see the Messages recipe)
-const messages = {
-  en: { nav: 'Main navigation', collapse: 'Collapse menu', mail: 'Mail', calendar: 'Calendar' },
-  de: { nav: 'Hauptnavigation', collapse: 'Menü einklappen', mail: 'E-Mail', calendar: 'Kalender' },
-};
-
-test('before the page module: messages in the visitor\'s language, the current page, the persisted collapse', async () => {
-  const storage = memoryStorage();
-  storage.setItem('locale', 'de');
-  storage.setItem('sn:nav-collapsed', 'true');
-  const { root } = await firstPaint(page, { messages, storage });
-  expect([...root.querySelectorAll('a')].map((a) => [a.textContent, a.getAttribute('aria-current')])).toEqual([['E-Mail', 'page'], ['Kalender', null]]);
-  expect(root.querySelector('input')!.checked).toBe(true);
-  expect(root.querySelector('nav > span')).toBeNull();  // the user's name waits for its data
-});
-
-test('the page module takes over without changing what was shown, then fills in data', async () => {
-  const storage = memoryStorage();
-  storage.setItem('sn:nav-collapsed', 'true');
-  let shown = '';
-  const requests = mockRequests({ 'GET /api/user': { name: 'Ada' } });
-  const { root, settle } = await render(page, {
-    messages, storage, requests,
-    firstPaint: { afterEarly: () => { shown = document.querySelector('nav')!.outerHTML; } },
-  });
-  expect(root.querySelector('nav')!.outerHTML).toBe(shown);
-  await settle();
-  expect(root.querySelector('nav')!.textContent).toContain('Ada');
-  expect(root.querySelector('input')!.checked).toBe(true);
-});
-```
-
-### Messages: m.key() from the inlang files, switching without a reload
-
-```html
-<!-- Messages: m.key() from the inlang files (project.inlang, messages/{locale}.json), with {param}s.
-     The build gives this page one small file per language with only the keys it calls; the language is
-     picked before the first paint. $locale = … switches without a reload. -->
-<body data-sn-state="{ lang: $locale }">
-  <sn-resource name="inbox" src="/api/inbox" type="any"></sn-resource>
-  <h1 data-sn-text="m.inbox_title()"></h1>
-  <p data-sn-text="m.inbox_count({ count: inbox ? inbox.unread : 0 })"></p>
-  <select data-sn-model="lang" data-sn-on-change="$locale = lang" data-sn-attr="{'aria-label': m.language()}">
-    <option value="en">English</option>
-    <option value="de">Deutsch</option>
-  </select>
-</body>
-```
-
-```ts
-import { expect, test } from 'vitest';
-import { memoryStorage, mockRequests, render } from '@tiaforge-ui/sinter/testing';
-import page from './messages.html?raw';
-
-// messages/en.json and messages/de.json (the base language first)
-const messages = {
-  en: { inbox_title: 'Inbox', inbox_count: '{count} unread', language: 'Language' },
-  de: { inbox_title: 'Posteingang', inbox_count: '{count} ungelesen', language: 'Sprache' },
-};
-
-test('the stored language, with parameters; switching re-renders without a reload', async () => {
-  const storage = memoryStorage();
-  storage.setItem('locale', 'de');
-  const requests = mockRequests({ 'GET /api/inbox': { unread: 3 } });
-  const { root, settle, flush, navigations } = await render(page, { messages, storage, requests });
-  await settle();
-  expect(root.querySelector('h1')!.textContent).toBe('Posteingang');
-  expect(root.querySelector('p')!.textContent).toBe('3 ungelesen');
-
-  const select = root.querySelector('select')!;
-  select.value = 'en';
-  select.dispatchEvent(new Event('change', { bubbles: true }));
-  await flush();
-  await new Promise((r) => setTimeout(r, 0));
-  await flush();
-  expect(root.querySelector('h1')!.textContent).toBe('Inbox');
-  expect(root.querySelector('p')!.textContent).toBe('3 unread');
-  expect(document.documentElement.lang).toBe('en');
-  expect(navigations).toEqual([]);
-});
-```
+- Offline drafts: sent again once the connection is back: https://github.com/tiaforge/sinter/blob/main/docs/recipes/offline-draft.html
+- Pagination: https://github.com/tiaforge/sinter/blob/main/docs/recipes/pagination.html
+- Search in the URL: a model on $url, one history entry per search: https://github.com/tiaforge/sinter/blob/main/docs/recipes/url-search.html
+- A multi-select filter in the URL: an array parameter: https://github.com/tiaforge/sinter/blob/main/docs/recipes/url-filter.html
+- SignalR (or another transport) for <sn-sync>: https://github.com/tiaforge/sinter/blob/main/docs/recipes/signalr.html, https://github.com/tiaforge/sinter/blob/main/docs/recipes/signalr-transport.js
+- Cached list across page loads: https://github.com/tiaforge/sinter/blob/main/docs/recipes/cached-list.html
+- Keyboard shortcuts: https://github.com/tiaforge/sinter/blob/main/docs/recipes/keyboard-shortcuts.html
+- Row selection with Ctrl and Shift: logic in a helper, applied by the handler: https://github.com/tiaforge/sinter/blob/main/docs/recipes/row-select.html, https://github.com/tiaforge/sinter/blob/main/docs/recipes/row-select.helpers.js
+- Run an action from a handler: mark a mail read once its body has loaded, and a shortcut: https://github.com/tiaforge/sinter/blob/main/docs/recipes/run-action.html
+- First paint: page chrome that renders before the script: https://github.com/tiaforge/sinter/blob/main/docs/recipes/first-paint.html
+- Messages: m.key() from the inlang files, switching without a reload: https://github.com/tiaforge/sinter/blob/main/docs/recipes/messages.html
 
 ## Type checking
 
@@ -1361,38 +376,32 @@ test('the stored language, with parameters; switching re-renders without a reloa
 
 ## First paint
 
-The built page shows its chrome before the page module has run; the page bundle is not render-blocking and is `async` (it does not wait for stylesheets), so it may run while the body is still being parsed: keep app code at module top level from reading the body, and don't read an island's children or later siblings in `connectedCallback`. The page module waits for the parse and for the early script's last pass before it mounts.
+The built page shows its chrome before the page module runs. The page bundle is `async` and may run while the body is still being parsed: app code at module top level must not read the body, and an island's `connectedCallback` must not read its children or later siblings. Guide: docs/first-paint.md.
 
-- Build-time constants are written into the HTML: bindings outside templates that read only literal `data-sn-state` fields and constants (`aria-current` from `here === '/mail/'`). No helpers. A `data-sn-for` over a constant list (a literal, a prop given as one, state nothing writes) whose rows read only the item, its index and constants is unrolled at build time.
-- A page with nothing left to run (no state anything writes, no data, `$url`, helpers, handlers, actions, models or component scripts) ships no JavaScript: no page module, no early script, its components' styles linked. The build prints `sinter: <page>: no JavaScript`, or what runs and where. `sinter({ static: ['about.html', 'docs/**'] | true })` lists pages that must stay that way: one that needs the runtime is SN322 where the cause was written. On such a page `src/sinter.config.ts` and `src/sinter.early.ts` do not run, and next-page data is not prefetched (Speculation Rules still are). Guide: docs/static-pages.md.
-- Page URLs: every page without `data-sn-path` (not `index.html`, `404.html`, `200.html`) is a directory's index: `about.html` is `about/index.html` at `/about/`; `/about` redirects there on any static server, and `about.html` remains as a redirect (query and fragment kept). Links in the markup to a page, by its file or its URL, are written as its URL; a moved page's relative URLs are rebased. Links built at run time are not: write `'/task/?id=' + t.id`, not `'/task.html?id='` (a build warning). A page with `data-sn-path` answers at exactly its paths (absolute; patterns such as `/article/:slug`, `/ /tag/:tag`, or a fixed `/login` without a trailing slash) and stays in its file; a pattern also matches with a trailing slash; only its own directory URL is SN515. The build writes `_redirects` (Netlify, Cloudflare Pages; after `public/_redirects`; `sinter({ redirects: false })` turns it off): 301 for old file URLs, 200 rewrites for declared paths. `vite dev`, `vite preview` and sinter-axum follow the same rules; other servers: docs/static-pages.md#page-urls.
-- Canonical URLs: `sinter({ site: 'https://example.com' })` (an origin; a path is Vite's `base`). `$site` is the origin and `base` (`https://example.com/docs`), `$canonical` the page's URL (`$site` and its path: `/guide/install/`); both are build-time constants on a page with a fixed path: `<meta property="og:url" data-sn-attr="{ content: $canonical }">`. Every such page gets `<link rel="canonical">`; a page's own canonical link must be absolute and is `$canonical`. On a pattern page `$canonical` and its canonical link are the origin and the browser's path, written by the early script (when the page ships JavaScript anyway). Without `site` either name is SN323.
-- Languages in the URL: `sinter({ localePrefix: true })` with the built-in messages (`baseLocale` required, among `locales`) builds each page once per language under its prefix (`/en/about/`, `/de/about/`; the base too), `<html lang>` set, its messages and `$locale` written into the HTML (attributes too): no JavaScript for a page with nothing else to run. `localeUrl('de')` is this page's URL in German (`<a hreflang="de" data-sn-attr="{ href: localeUrl('de') }">`); assigning `$locale` is SN203. Links to your pages stay in the language; `<a hreflang>` is left alone. `data-sn-path` is written without the prefix; `$url` excludes it. With `site`: `hreflang` links and `x-default`. Unprefixed URLs are language choosers (the base language without JavaScript; with JavaScript on the site, the `locale` cookie pages with a script set, else the browser's languages); sinter-axum answers them with a 302. Guide: docs/static-pages.md#languages.
-- Each page gets an early script: two classic scripts first in the head, before the stylesheets (one shared by every page with the early runtime and `src/sinter.early.ts`, then the page's own). Nothing holds the paint: a `MutationObserver` renders each binding as the parser inserts its element (an element's attributes at once, its content once the parser has closed it), before the browser can paint it, in every browser. It runs first `src/sinter.early.ts` (optional app code), then the bindings outside `data-sn-for` templates that need no data: they read state fields whose initial value needs no data, persisted values (read from `sn:<key>` in localStorage), `$locale` and helpers. A `data-sn-if` of that kind renders its branch; the page module adopts it. The compiler writes them as straight-line code calling only the writers they need; only the helpers and message members those bindings call are included. Other modules it shares with the page bundle are copies: state the early module sets must be set again by the page bundle (sinter's messages share theirs through a global).
-- Resources, `$url`, `$now`, `$meta`, `$el`, loops and the built-in formatters (`date()`, …) wait for the page module. The runtime then owns every binding; its first write changes nothing. Except a resource's status before its data: one that is not embedded, `each` or `call`, whose `when` reads only `$url`, `$now` and helpers (no state), has no rows at mount and is loading if its `when` holds, so `<template data-sn-if="$meta.people.loading && !people.length">` renders early (with `cache`, only in a tab that has cached nothing).
-- Reserved space (builds): a `data-sn-for` outside templates over a paginated resource (or a choice between them: `$url.feed ? feed : articles`, also through a `data-sn-let`; a `when` over the URL) holds its `page-size` rows' space until the data arrives. Sized from the stylesheets, each row in its place (`.row + .row`, `space-y-*`, `:nth-child`), for every default font size: exact where they fix the row's height, else a lower bound (a bound text one line; a rule that may apply at its least; `line-height: normal` the least face of the font stack, fallbacks and the generic family on every platform included, since a web font may not have loaded: an explicit `line-height` is exact). Rows in a block, a flex column, a grid or a `<tbody>`, or with a `width` of their own side by side or wrapping in a flex row; a height that follows the container's width as a share of it. Not for `each`, `call`, embedded data, a `when` over state or a filtered list; the build prints each paginated list without space and why. A "Loading…" branch right before the list (`$meta.x.loading && !x.length`) takes the placeholder's place; one after it leaves none. Fewer rows than held move what follows up. A list over late data in a box whose width follows its content (a flex item without a basis or width in a row, a float): what follows the box stays invisible while the list's first rows load (at the widths where it is so, for at most 3 s; `data-sn-wait="off"` on the box keeps it shown). SN529 when it cannot: give the box a width (`flex: 1 1 0`, a 100% basis), or give the rows one. SN530: an image without a height in such rows. Guide: docs/first-paint.md#reserved-space.
-- Every origin a literal `src` names (resources and streams) gets `<link rel="preconnect" crossorigin>`. Data requests start before the page module: a resource with a literal `src` and no `when` gets `<link rel="preload" as="fetch" crossorigin>`; one whose URL reads only state that needs no data, persisted values, `$now`, `$url` and helpers is requested by the early script as soon as it runs, before the stylesheets have loaded. Same-origin `src`, or an origin listed in `sinter({ origins: ['https://api.example.com'] })`, which every page also adds to the runtime's allowlist (list API origins there, not in `configure({ origins })`; cross-origin requests go without credentials); the build names the origins it left to the page module. `<sn-resource early="off">` keeps one resource out: one a request middleware answers itself or adds a header to (an `Authorization` token), whose early request would go unused. The runtime takes those responses at the end of its middleware chain when the request is unchanged (no header or credentials added), so response middleware still runs; changed requests are sent again. A paginated resource is requested at its first page, as the pager sends it (`size-param`=`page-size`, the `first` value of `direction-values` or `page-param`=1, no cursor), and `$meta` is as after any first load; with `cache` the cached page shows at once and the early response revalidates it. Not for `each`, `call` or embedded resources. A resource only elements inside `<dialog>`s read is requested with low priority (`fetchpriority="low"` on its preload, `priority: 'low'` on its fetch).
-- Next-page data: when the pointer rests on a same-origin link to another page of the app (65 ms), it has focus, a mouse press starts on it, or a touch stays 65 ms without becoming a scroll, that page's resources whose `src`/`when` read only `$url`, constants and helpers are requested (low priority, through the middleware; data this page loaded from the same request is handed over without one). The next page shows them at once and revalidates; `$meta.<name>.loadedAt` stays null until the server answers. Entries are taken once, kept 30 s, dropped after any mutation; a failed prefetch never triggers `onUnauthorized`. Nothing to write: give pages `data-sn-path` patterns so links like `/article/slug` match. `sinter({ prefetch: false })` turns it off; test with `render(html, { pages: { 'article.html': articleHtml } })`. In Chromium, pages also get Speculation Rules for those links (`sinter({ speculation: 'prefetch' | 'prerender' | false })`, default `'prefetch'`); they are an inline script: a CSP in a `<meta>` gets their hash from the build; a nonce CSP via Vite's `html.cspNonce` needs nothing (Vite nonces the rules script); any other CSP sent as a response header needs `'inline-speculation-rules'` in `script-src` (dev builds warn), or use `speculation: { mode: 'prefetch', delivery: 'header' }` (the server sends `Speculation-Rules: "/speculation-rules.json"` and serves that file as `application/speculationrules+json`). Guide: docs/navigation.md. A prerendered page connects streams once shown and refetches then. A page that does something when it loads (logout) gets `<html data-sn-prefetch="off">`: no page prefetches or prerenders it. Page transitions: with `@view-transition { navigation: auto; }` in the CSS (temper has it), `data-sn-transition="'article-' + a.slug"` on an element of a list row and `data-sn-transition="'article-' + $url.slug"` on the detail page morph one into the other when the row's link is followed (and back). Use one name per thing; the detail element must render with the page (not after a later load).
-- Same-page links: a plain click on a link to the page itself that changes only query parameters the page reads (`$url.<name>`) stays on the page: a new history entry, `$url` takes the link's query, and the page shows what loading the URL would (a `page-model` list loads the link's page; `?tag=js&page=3` shows page 3). Not for another path, `download`, a `target`, `rel="external"`, modifier keys, or a parameter the page does not read: those load. Loaded (`@tiaforge-ui/sinter/query-links`) only on pages with a link the build sees goes to the page (a static `href`, or a `data-sn-attr` `href` that starts with the page's path or `?`). Build the whole query: `href="?page=3"` drops the other parameters (SN519). Guide: docs/navigation.md#same-page-links.
-- Embedded data renders early too: a resource with `<script type="application/json" data-sn-data="name">` in the head (filled by a server or middleware) is read by the early script, which renders the bindings over it, `data-sn-for` rows included, as the parser goes; the page module adopts the rows. A middleware that fetches the API and writes the JSON in is enough for data in the first frame: no server rendering.
-- Server layer for JavaScript: `sinter({ embed: true })` writes `dist/sinter-embed.json` (and its types, `sinter-embed.d.ts`); `import { embed } from '@tiaforge-ui/sinter/server'`, then `const sinter = await embed<Build>({ dir: 'dist', data: { user: 'skip', 'profile.html:articles': (req) => … } })` and `export default { fetch: sinter.wrap(app.fetch) }` (Hono, Bun.serve, Deno.serve, Workers; on Node, through `@hono/node-server` or `srvx`). It streams each page head first and fills the slots from the wrapped app called in-process (cookies forwarded), `upstream`, `origins` or a resolver (returns a value, a JSON text, bytes or a `Response`; null leaves it to the browser). A slot whose request the build cannot describe needs an entry in `data`: a type error with `embed<Build>`, an error at startup without. docs/server.md
-- Google Fonts: a `<link rel="stylesheet" href="https://fonts.googleapis.com/…">` is downloaded at build time and bundled as one of the app's CSS files (no inline style: no CSP change), with a preconnect to the font files' origin; the fonts and the look stay the same, one render-blocking request to another origin less. Cached in `node_modules/.cache/sinter/fonts`; a build that cannot download it keeps the link and warns. `sinter({ fonts: { inline: false } })` turns it off.
-- Heavy packages: `sinter({ lazy: ['openpgp'] })` loads a package on first call. App code imports it as usual; the build points those imports at stubs sharing one `import()` (the package is a chunk of its own). Every call of its exports must be waited for (`await`, `return`, `.then`, `void`, `Promise.all`); `new`, `instanceof`, constants, settings, functions passed as values, side-effect imports and re-exports are SN324, and so is a helpers module that reaches it. A component script that imports it (directly or through app modules) loads with it when its component first renders; any use is fine there. `data-sn-import="openpgp"` on an element loads it when the element renders (never before takeover); `data-sn-preload="openpgp"` adds modulepreload links to the page's head. SN325: a page bundle that contains it through another package, or that imports statically a module it also loads with `import()`. A chunk a deploy removed gives `$error.stale = true` (`status: 0` is the network). docs/lazy.md.
-- The build prints each page's early file size (gzip) and warns over `sinter({ earlyBudget })` (default 10000 bytes), naming the largest modules: keep heavy imports out of early code.
+- Build-time constants are written into the HTML: bindings outside templates that read only literal `data-sn-state` fields nothing writes, and `data-sn-for` over a constant list.
+- An early script renders, before the first paint, the bindings outside `data-sn-for` templates that need no data (initial state, persisted values, `$locale`, helpers). Optional app code for it goes in `src/sinter.early.ts`; state it sets must be set again by the page bundle. Resources, `$url`, `$now`, `$meta`, loops and the formatters (`date()`, …) wait for the page module, except a resource's loading state: `<template data-sn-if="$meta.people.loading && !people.length">` renders early. Keep heavy imports out of early code (`sinter({ earlyBudget })`, default 10000 bytes gzip).
 - Keep page chrome outside data templates: `<template data-sn-if="user">` around the navigation hides it until the user has loaded.
+- A page with nothing left to run (no state anything writes, no data, `$url`, helpers, handlers, actions, models or component scripts) ships no JavaScript. `sinter({ static: ['about.html', 'docs/**'] | true })` makes that a rule: a listed page that needs the runtime is SN322. Guide: docs/static-pages.md.
+- Page URLs: a page without `data-sn-path` is a directory's index (`about.html` is `/about/`; not `index.html`, `404.html`, `200.html`). Links in the markup to a page, by file or URL, are rewritten to its URL; links built at run time are not: write `'/task/?id=' + t.id`, not `'/task.html?id='`. A page with `data-sn-path` answers at exactly its absolute paths or patterns (`/article/:slug`, `/ /tag/:tag`, `/login`); its own directory URL is SN515. The build writes `_redirects` (`sinter({ redirects: false })`); `vite dev`, `vite preview` and sinter-axum follow the same rules.
+- Canonical URLs: `sinter({ site: 'https://example.com' })`; `$site` is the origin with `base`, `$canonical` the page's URL (`<meta property="og:url" data-sn-attr="{ content: $canonical }">`); pages get `<link rel="canonical">`. Either name without `site` is SN323.
+- Languages in the URL: `sinter({ localePrefix: true })` with the built-in messages (`baseLocale` among `locales`) builds each page once per language (`/en/about/`, `/de/about/`). `localeUrl('de')` is this page in German (`<a hreflang="de" data-sn-attr="{ href: localeUrl('de') }">`); assigning `$locale` there is SN203. `data-sn-path` is written without the prefix; `$url` excludes it.
+- Reserved space: a `data-sn-for` outside templates over a paginated resource holds its `page-size` rows' space, sized from the stylesheets, until the data arrives; the build prints each paginated list without space and why. A list over late data in a box whose width follows its content keeps what follows hidden while its first rows load (3 s at most; `data-sn-wait="off"` on the box). SN529: give the box a width (`flex: 1 1 0`) or the rows one. SN530: an image without a height in such rows.
+- Data requests start before the page module (preload or the early script) for resources whose `src` is same-origin or in `sinter({ origins: ['https://api.example.com'] })`; list API origins there, not in `configure({ origins })`. `<sn-resource early="off">` for a resource whose request a middleware changes (an `Authorization` header).
+- Next-page data: a link to another page of the app that the pointer rests on, focuses or presses loads that page's resources ahead (whose `src`/`when` read only `$url`, constants and helpers); give pages `data-sn-path` patterns so links match. `sinter({ prefetch: false })` turns it off; `<html data-sn-prefetch="off">` on a page that does something when it loads (logout). Chromium also gets Speculation Rules (`sinter({ speculation })`), an inline script: a CSP sent as a header needs `'inline-speculation-rules'`. Page transitions: `@view-transition { navigation: auto; }` and the same `data-sn-transition="'article-' + a.slug"` name on a list row and on the detail page (`'article-' + $url.slug`). Guide: docs/navigation.md.
+- Same-page links: a plain click on a link to this page that changes only query parameters it reads stays on the page (a history entry; `$url` takes the link's query). Build the whole query: `href="?page=3"` drops the other parameters (SN519).
+- Embedded data: `<script type="application/json" data-sn-data="name">` in the head (filled by a server or middleware) renders in the first frame, rows included. `sinter({ embed: true })` with `import { embed } from '@tiaforge-ui/sinter/server'` does this for Hono, Bun, Deno and Workers: `export default { fetch: (await embed<Build>({ dir: 'dist', data: { … } })).wrap(app.fetch) }`. Guide: docs/server.md.
+- Google Fonts links are downloaded and bundled at build time (`sinter({ fonts: { inline: false } })` turns it off).
+- Heavy packages: `sinter({ lazy: ['openpgp'] })` loads a package on first call. Import it as usual; every call of its exports must be waited for (`await`, `return`, `.then`, `void`); `new`, `instanceof`, constants, functions passed as values, side-effect imports and re-exports are SN324, and so is a helpers module that reaches it. A component script may use it freely (it loads with the component). `data-sn-import="openpgp"` loads it when an element renders, `data-sn-preload="openpgp"` adds modulepreload links. SN325: the package reached through another one, or a module both imported and lazily loaded. A chunk a deploy removed gives `$error.stale = true`. Guide: docs/lazy.md.
 - `sinter({ firstPaint: false })` turns it off. Test with `firstPaint(html, { helpers, storage, early })` from the testing module (`early` stands for `src/sinter.early.ts`), and `render(html, { firstPaint: { early, afterEarly } })` for the takeover.
 
 ## Images
 
-Write plain `<img src="./photo.jpg" alt="…">` (a local JPEG, PNG, WebP or AVIF, relative to the page or component): the build makes it a `<picture>` with AVIF (photos) or lossless WebP (PNG graphics), widths for every screen, `width`/`height`, `decoding="async"` and `loading="lazy"` (not on the page's first image), and the image's dominant color as background until it loads. Needs sharp (an optional dependency); `sinter({ images: false })` turns it off. See docs/images.md.
+Write plain `<img src="./photo.jpg" alt="…">` (a local JPEG, PNG, WebP or AVIF, relative to the page or component): the build makes a `<picture>` with AVIF or WebP files for every screen, `width`/`height`, lazy loading after the first image and a placeholder color, sized from the stylesheets (write `sizes` yourself only where the CSS cannot be followed: `em`, `vh`, unequal grid tracks, `:hover`). Needs sharp; `sinter({ images: false })` turns it off. Guide: docs/images.md.
 
-- No `width`/`height`, or the source's own: fluid. `sizes` is the image's width at every viewport width, from the CSS: per breakpoint of its width media queries, linear in the viewport, through grids (equal tracks, gaps, `span`, `repeat(auto-fill, minmax(…, 1fr))`), flex rows (equal `flex: 1` columns, wrapped items with a basis), max-width containers, margins and padding. When the CSS cannot be followed (`em`, `vh`, unequal tracks, `:hover`), the narrowest container with a fixed or absolute max width bounds it; write `sizes` yourself only then.
-- `width`/`height` smaller than the source: a box of that size in CSS px, with 1x/2x(/3x) files of exactly that width. A source with too few pixels for 2x is SN511.
-- A fixed width from the page's stylesheets (CSS, Sass, Less or Stylus, after the project's PostCSS; Tailwind and UnoCSS utilities the page uses, such as `size-12`; px, rem, calc and custom properties, % of a fixed parent; not media queries or states) is a box too, cropped when they say `object-fit: cover`: an `<img>` in temper's `[data-avatar]` needs no attributes. When they set a width that is not fixed (`width: 100%`), the image is fluid whatever its attributes.
-- Images from the API: with `sinter({ images: { remote: { url: 'https://img.example.com/{w}/{url}', origins: ['self', 'https://uploads.example.com'] } } })` (or a preset: `cloudflare`, `vercel`, `netlify`, `imgproxy:<base>`), `<img data-sn-attr="{src: c.avatar}">` gets a `srcset` of the service's URLs, sized from the stylesheets like a static image. Write the binding as usual; only allowed origins go through the service. `cover` (a template with `{h}`) crops boxes with `object-fit: cover`. Tests: `render(html, { remoteImages, css })`.
-- CSS backgrounds: write `background: url(./hero.jpg) center / cover` as usual; the build adds `image-set()` with AVIF/WebP and 1x/2x files (the source counts as 2x when the rule sizes the background, else 1x only). Use a source twice the largest width the background is shown at.
-- Dev: the console warns when an image or a CSS background is shown with fewer pixels than the screen has (a small source, or a `sizes` smaller than the image is shown).
-- To crop: `width` and `height` of the box plus `style="object-fit: cover"` (and `object-position` for the part to keep); the build makes the cropped file and removes the inline style. Another ratio without `object-fit` is SN512 (stretched).
+- `width`/`height` smaller than the source: a fixed box with 1x/2x files; a source with too few pixels for 2x is SN511. A fixed width from the stylesheets (Tailwind's `size-12` too) is a box as well.
+- To crop: `width` and `height` of the box plus `style="object-fit: cover"` (and `object-position`). Another ratio without `object-fit` is SN512 (stretched).
+- Images from the API: `sinter({ images: { remote: { url: 'https://img.example.com/{w}/{url}', origins: ['self'] } } })` (or a preset: `cloudflare`, `vercel`, `netlify`, `imgproxy:<base>`) gives `<img data-sn-attr="{src: c.avatar}">` a `srcset`. Tests: `render(html, { remoteImages, css })`.
+- CSS backgrounds (`background: url(./hero.jpg) center / cover`) get `image-set()`; use a source twice the largest width shown.
 - Left as written: remote URLs, SVG, GIF, an `<img>` with `srcset`, inside your own `<picture>`, or with `data-sn-*` bindings.
 
 ## Messages

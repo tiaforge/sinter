@@ -1415,7 +1415,7 @@ Operations are calls, `new`, operators, assignments, updates, computed member ac
 The dev build adds checks that need real data: duplicate keys in a response, an item missing a key field, an `items` path that is not an array, a server event payload missing key fields. Warnings name the resource, the page and the offending value.
 
 ### LLM support
-- `llms.txt` in the package: the full attribute reference, the scope rules and copy-paste recipes with their tests (list with filter, form dialog, SSE sync, optimistic toggle, pagination, SignalR transport, typed resources, cached list, local actions, keyboard shortcuts, row selection with a helper).
+- `llms.txt` in the package: the full attribute reference, the scope rules and eight copy-paste recipes (list with filter, form dialog, field errors, SSE sync, optimistic toggle, pagination in the URL, typed resources, local actions); the other recipes are listed with links. Agents read all of it, so it stays short (about 55 KB): recipe tests stay beside the recipes in `docs/recipes/`, and build internals stay in the guides.
 - A generated VS Code custom-data file (`html-custom-data.json`) so editors and agents get attribute completion; the VS Code extension ships it.
 - Every diagnostic links to its section in `docs/diagnostics.md`, which is generated from the compiler's table of codes (example, meaning, fix).
 
@@ -1498,7 +1498,7 @@ The module has no test-runner imports. It works with Vitest, or anything else, o
 Rules: every bug fix adds a failing test first, and every code example in the docs and in `llms.txt` is executed as a test.
 
 ### Encouraging app tests
-- Every recipe in the docs and in `llms.txt` comes with its test, so copying a recipe means copying a test.
+- Every recipe in the docs and in `llms.txt` has its test in `docs/recipes/`, executed by the suite.
 - `llms.txt` has a testing section, so coding agents write a test next to the markup by default.
 - Failures are readable: an unmatched request prints the request and the routes; a failed render prints the build diagnostics.
 
