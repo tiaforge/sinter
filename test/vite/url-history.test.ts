@@ -185,7 +185,18 @@ test.skipIf(!chromium)('a pager of links: a plain click stays on the page, Back 
       (window as any).clicked = { id: (e.target as Element).closest?.('a')?.id ?? null, modified: e.ctrlKey || e.metaKey, prevented: e.defaultPrevented };
     }));
     const entries = await tab.evaluate(() => history.length);
-    const opened = context.waitForEvent('page');
+    // the new page as the browser reports it, not Playwright's 'page' event: Playwright reports a page once it sees its
+    // first navigation commit, and when Chromium commits the new tab's navigation before Playwright's session listens
+    // (its frame tree still the initial empty document), no commit event comes and the event never fires, though the tab
+    // opened and loaded (5 of 160 Ctrl-clicks under load)
+    const tabId = ((await (await context.newCDPSession(tab)).send('Target.getTargetInfo')) as { targetInfo: { targetId: string } }).targetInfo.targetId;
+    const cdp = await browser.newBrowserCDPSession();
+    const opened = new Promise<string>((resolve) => {
+      const seen = (e: { targetInfo: { type: string; targetId: string; url: string } }) => { const t = e.targetInfo; if (t.type === 'page' && t.targetId !== tabId && /^https?:/.test(t.url)) resolve(t.url); };
+      cdp.on('Target.targetCreated', seen);
+      cdp.on('Target.targetInfoChanged', seen);
+    });
+    await cdp.send('Target.setDiscoverTargets', { discover: true });
     for (let tries = 0; tries < 3; tries++) {
       await tab.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
       await tab.click('#p2', { modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
@@ -193,9 +204,8 @@ test.skipIf(!chromium)('a pager of links: a plain click stays on the page, Back 
       await tab.evaluate(() => { delete (window as any).clicked; });
     }
     expect(await tab.evaluate(() => (window as any).clicked)).toEqual({ id: 'p2', modified: true, prevented: false });
-    const page = await opened;
-    await page.waitForLoadState();
-    expect(new URL(page.url()).search).toBe('?tag=go&page=2');
+    // it starts as about:blank and then navigates: its URL once it has left that
+    expect(new URL(await opened).search).toBe('?tag=go&page=2');
     expect(new URL(tab.url()).search).toBe('?tag=go&page=3');
     expect(await tab.evaluate(() => history.length)).toBe(entries);
     expect(await tab.evaluate(() => (window as any).same)).toBe(true);

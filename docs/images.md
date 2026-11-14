@@ -70,11 +70,42 @@ into `sizes`. For a fluid image, it does this at every viewport width:
 ```
 
 It follows your width media queries (`min-width`, `max-width`, `width >= 48rem`), percentages,
-`vw`, px and rem, margins, padding, borders, `min()`, `max()`, `clamp()`, `max-width`, custom
-properties, and `aspect-ratio`. It resolves grids with equal tracks (`repeat(3, 1fr)`,
-`repeat(auto-fill, minmax(200px, 1fr))`, spans, `gap`) and flex rows with equal columns or wrapped
-items. An image with a fixed width at every viewport gets exactly 1x and 2x (3x for small ones);
-otherwise widths stop at 3x of the widest it can be.
+`vw`, px, rem and em, margins, padding, borders, `min()`, `max()`, `clamp()`, `max-width`, custom
+properties, and `aspect-ratio`. It resolves grids with fixed and `fr` tracks, equal or not
+(`repeat(3, 1fr)`, `240px 1fr`, `2fr 1fr`, `minmax(200px, 1fr) 300px`, `repeat(auto-fill, minmax(200px, 1fr))`, spans, lines
+such as `2 / -1`, `gap`; a column with a minimum is held at it where its share is smaller, as the
+browser does), named areas (`grid-template-areas` with `grid-area: main`), and flex rows
+whose items have a known size or grow from one: equal columns, a fixed sidebar beside a `flex: 1`
+main column, an avatar beside a growing body, wrapped items. When grid tracks differ, the column an
+auto-placed item lands in follows the items before it. An image with a fixed width at every
+viewport gets exactly 1x and 2x (3x for small ones); otherwise widths stop at 3x of the widest it
+can be.
+
+```css
+body { margin: 0 }
+.layout { display: grid; gap: 24px }
+@media (min-width: 768px) { .layout { grid-template-columns: 240px 1fr } }
+.layout img { width: 100% }
+/* an image in the second column: sizes="(max-width: 767.98px) 100vw, calc(100vw - 264px)" */
+```
+
+**At every default font size.** Visitors can change the browser's default font size (16 px unless
+they do; Chrome and Firefox offer 20 and 24 px as "large" and "very large"), and every `rem`, `em`
+and `em` breakpoint grows with it. `sizes` reads `em` the same way, as the default font size
+whatever the page's root size, so sinter solves each image at 16, 24 and 12 px and writes what
+depends on the font size in `em`:
+
+```html
+<!-- body { margin: 0 } .prose { font-size: 1.125rem; max-width: 40em; padding: 0 1em; margin: 0 auto } -->
+<img ... sizes="(max-width: 47.2475em) calc(100vw - 2.25em), 45em">
+```
+
+A range's end that mixes px and em (a `60rem` column inside the body's 8 px margins) is where two
+widths cross, written as `min()` or `max()` of them, followed by the same range in px for
+browsers that do not read math functions in `sizes`. Fixed boxes in rem (Tailwind's `size-12`) get
+`sizes` in em and one more file, the 2x of the box at a 24 px default. When the solutions do not line up
+(a `rem` width crossing a px breakpoint at some font sizes and not others), `sizes` is the 16 px
+one, as before. Checked in Chromium at 12, 16, 20 and 24 px.
 
 **Which CSS is read.** The page's `<link rel="stylesheet">` and `<style>` elements, and
 stylesheets imported by its module scripts. Remote stylesheets, CSS modules and `?inline`/`?url`
@@ -91,9 +122,13 @@ variants (`md:size-20`) are `@media` rules, so an image with one stays fluid.
 A wrong size makes an image blurry, while no size only costs bytes, so sinter stays fluid whenever
 a width depends on layout it cannot predict:
 
-- widths in `em`, `vh`, `fit-content`, `max-content` or `auto`, or a `%` of a fluid parent;
-- a parent that is inline or `display: contents`, a flex container with other children, or a
-  grid with unequal tracks or named areas;
+- widths in `vh`, `fit-content`, `max-content` or `auto`, or a `%` of a fluid parent; `ch` anywhere
+  but a box's own `width` or `max-width` (see below);
+- `em` where the font size is not fixed: in `vw`, changed by a state or a media feature other than
+  width, or under a lone `monospace` font (browsers scale its default size);
+- a parent that is inline or `display: contents`, a flex row with an item sized by its content (a
+  label without a width) or that overflows the row, or a grid with `auto`, `fit-content()` or `minmax()` tracks of two lengths (`minmax(200px, 1fr)` is followed);
+- unequal grid tracks with an item flowing by column (`grid-auto-flow: column`);
 - a rule that could win sits in `@supports` or `@container`, in `@media` with a feature other than
   width, or depends on state (`:hover`, `:has()`, `:checked`);
 - a structural selector inside a `<template>`, where rows repeat;
@@ -101,8 +136,29 @@ a width depends on layout it cannot predict:
   `data-sn-style`, which can change what the selectors read.
 
 When the stylesheets set `width: 100%`, the image is fluid even with smaller `width`/`height`
-attributes: CSS decides, not the attributes. If a fluid width cannot be fully resolved, `sizes`
-uses an upper bound such as `(max-width: 800px) 100vw, 800px`. Images in the rows of a
+attributes: CSS decides, not the attributes.
+
+**Only where it is needed.** The fallback applies per range of viewport widths: a layout that
+cannot be followed on phones (a label sized by its text beside the image) but can from a breakpoint
+up keeps exact widths there, and so does a fixed sidebar that leaves no room on the narrowest
+screens. In a range that cannot be followed, the width is bounded by the containers there (a
+`max-width: 500px` column), else by the viewport. Only when no range can be followed does `sizes`
+fall back to one upper bound such as `(max-width: 800px) 100vw, 800px`.
+
+**Measures in `ch`.** A column such as `.prose { max-width: 65ch }` bounds the images in it. How
+wide `1ch` is depends on the font that renders the text, which differs by platform, by the
+visitor's settings, and while a web font loads, so sinter counts it as at most `0.7em`, wider than
+any common text font's `0` (Arial 0.556, DejaVu 0.636). A web font whose `0` is wider raises that,
+read from its file (TTF, OTF, WOFF, WOFF2); one whose file cannot be read leaves the column
+unbounded. `ch` is followed only in a box's `width` and `max-width`, where a wider box can only
+make the image wider: in a margin, a padding, a sibling's width or a grid track, more could mean
+narrower, and it is not followed.
+
+**Rows in unequal tracks.** When an auto-placed item's column is not known, because it is a row of
+a `data-sn-for` (each row lands in the next column) or an item before it is placed by its row or
+reordered, it gets the widest column it can land in: in `grid-template-columns: 1fr 2fr` with a
+30 px gap, `calc(66.67vw - 20px)` for every row. The narrow column's rows fetch a larger file than
+they need, never a smaller one. Images in the rows of a
 `data-sn-for` inside a `repeat(auto-fit, ...)` grid get the upper bound too ([`SN514`](#warnings)).
 
 ## Images from the API
