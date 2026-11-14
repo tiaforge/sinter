@@ -201,3 +201,13 @@ test('SN529 in dev as in a build: the plan is the same, only the placeholder is 
   expect(dev.html).not.toContain('sn-reserve');
   expect(build.html).toContain('sn-reserve');
 });
+
+test('with `embed`: a list the server fills holds no space; one it cannot fill still does', () => {
+  const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/p.css', embed: true };
+  const served = compile(`<!doctype html><html><head></head><body>${PAGE()}</body></html>`, opts);
+  expect(served.html).not.toContain('sn-reserve');
+  expect(JSON.stringify(served.unheld)).toContain('embedded by the server');
+  // `early="off"`: not embedded, loaded by the page
+  const own = compile(`<!doctype html><html><head></head><body>${PAGE('', 'paginate="offset" page-size="3" early="off"')}</body></html>`, opts);
+  expect(own.html).toContain('sn-reserve');
+});

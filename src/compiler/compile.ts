@@ -4764,8 +4764,8 @@ class Compiler {
         if (![list, ...lets].every(chooses)) { if (why === '') why = 'the list is not a resource or a choice between resources (a filter, a field), whose rows the build could count'; names = []; }
         const rs = names.map((n) => resources.get(n)!);
         // paginated (their page-size, the least), loading by URL or always: not `each` or `call`, nor data the page has (embedded)
-        const ok = rs.length && rs.every((r) => attr(r, 'paginate') !== undefined && !['each', 'call'].some((x) => attr(r, x) !== undefined) && !(this.opts.embed && attr(r, 'early') !== 'off'));
-        if (rs.length && !ok && why === '') why = this.opts.embed ? 'its data is embedded by the server, in the first frame' : 'a resource with `each` or `call`';
+        const ok = rs.length && rs.every((r) => attr(r, 'paginate') !== undefined && !['each', 'call'].some((x) => attr(r, x) !== undefined));
+        if (rs.length && !ok && why === '') why = 'a resource with `each` or `call`';
         // the list is a resource that always loads: the placeholder is page markup; else it shows by its resources' status,
         // which the early file decides (`if`)
         form = names.length === 1 && list === names[0] && attr(rs[0]!, 'when') === undefined ? 'static' : 'if';
@@ -4876,8 +4876,10 @@ class Compiler {
           && shows(code, sp.names, { loading: true }, [{}]) === false && shows(code, sp.names, { loading: false }, []) === false && roots.length === 1 && isElement(roots[0]!)) branch = roots[0] as P5Element;
         else clash = true;
       }
-      if (clash) {
-        sp.note('a loading indicator over the same status may show with the space, and the two would be taller than the rows (one "Loading…" branch right before the list, as one element, takes its place)');
+      // a resource the server embeds (a slot the walk added, `embed`): its rows are in the first frame
+      const served = sp.names.some((n) => this.resources.find((r) => r.name === n)?.data != null);
+      if (served || clash) {
+        sp.note(served ? 'its data is embedded by the server, in the first frame' : 'a loading indicator over the same status may show with the space, and the two would be taller than the rows (one "Loading…" branch right before the list, as one element, takes its place)');
         if (sp.ph) detach(sp.ph);
         // the inserted branch never shows
         if (sp.tpl) { const nd = this.paints.find((x) => x.el === sp.tpl)?.node, ib = nd?.b.find((x) => x.k === 'if'); if (ib) ib.f = this.fn('($) => (false)'); }
