@@ -1159,7 +1159,7 @@ export class Layout {
       pieces.push({ from: pieces.length ? a : 0, decls, height: scaled(r16.sp.height, r12.sp.height, r8.sp.height, rootRatio), mt: scaled(r16.sp.mt, r12.sp.mt, r8.sp.mt, rootRatio), mb: scaled(r16.sp.mb, r12.sp.mb, r8.sp.mb, rootRatio) });
     }
     if (!pieces.length || pieces.every((p) => /height:0px/.test(p.decls) && !/span|padding-bottom/.test(p.decls))) return no('no height of the rows the build can tell');
-    return { tag: placeholderTag(parent, row), pieces, exact };
+    return { tag: placeholderTag(parent), pieces, exact };
   }
 
   /**
@@ -2269,7 +2269,7 @@ function scaled(v16: number, v12: number | undefined, v8: number | undefined, ro
 const collapse = (ms: number[]) => Math.max(0, ...ms) + Math.min(0, ...ms);
 
 /** a placeholder valid where the rows are: an `<li>` in a list, else a `<div>` */
-function placeholderTag(parent: P5Element, _row: P5Element): string {
+function placeholderTag(parent: P5Element): string {
   if (/^(ul|ol|menu)$/.test(parent.tagName)) return 'li';
   if (/^(tbody|thead|tfoot)$/.test(parent.tagName)) return 'tr';
   // where only phrasing content may go (a <div> would close a <p>): a <span>, made a block by the rule

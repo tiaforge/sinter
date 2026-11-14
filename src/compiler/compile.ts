@@ -4741,11 +4741,15 @@ class Compiler {
       if (m) {
         const list = m[1]!.trim();
         // the resources the list can be: named in its expression, or in a `data-sn-let` around it that the expression reads
-        const used = words(list);
+        // each `data-sn-let` entry around the list, innermost first, that the list's expression names
+        // (and, for the resources, the entries those name in turn)
+        const around: Array<{ k: string; v: string }> = [];
         for (let up = tpl.parentNode as P5Element | null; up && 'attrs' in up; up = up.parentNode as P5Element | null) {
-          const lets = attr(up, 'data-sn-let')?.trim().replace(/^\{|\}$/g, '');
-          if (lets) for (const [, k, v] of lets.matchAll(/([A-Za-z_$][\w$]*)\s*:\s*([^,]*(?:\([^)]*\)[^,]*)*)/g)) if (used.has(k!)) for (const w of words(v!)) used.add(w);
+          const l = attr(up, 'data-sn-let')?.trim().replace(/^\{|\}$/g, '');
+          if (l) for (const [, k, v] of l.matchAll(/([A-Za-z_$][\w$]*)\s*:\s*([^,]*(?:\([^)]*\)[^,]*)*)/g)) around.push({ k: k!, v: v! });
         }
+        const used = words(list);
+        for (const { k, v } of around) if (used.has(k)) for (const w of words(v)) used.add(w);
         names = [...used].filter((n) => resources.has(n));
         // worth a note when it does not work out: a list over a paginated resource
         if (names.some((n) => attr(resources.get(n)!, 'paginate') !== undefined)) why = '';
@@ -4756,11 +4760,7 @@ class Compiler {
           const bare = t.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`$]*`/g, '0').replace(/\$url\.[A-Za-z_$][\w$]*/g, '0');
           return !/[.[\]{}]|[\w$)\]]\s*\(|=>/.test(bare);
         };
-        const lets: string[] = [];
-        for (let up = tpl.parentNode as P5Element | null; up && 'attrs' in up; up = up.parentNode as P5Element | null) {
-          const l = attr(up, 'data-sn-let')?.trim().replace(/^\{|\}$/g, '');
-          if (l) for (const [, k, v] of l.matchAll(/([A-Za-z_$][\w$]*)\s*:\s*([^,]*(?:\([^)]*\)[^,]*)*)/g)) if (words(list).has(k!)) lets.push(v!);
-        }
+        const lets = around.filter(({ k }) => words(list).has(k)).map(({ v }) => v);
         if (![list, ...lets].every(chooses)) { if (why === '') why = 'the list is not a resource or a choice between resources (a filter, a field), whose rows the build could count'; names = []; }
         const rs = names.map((n) => resources.get(n)!);
         // paginated (their page-size, the least), loading by URL or always: not `each` or `call`, nor data the page has (embedded)
