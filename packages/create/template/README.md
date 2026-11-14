@@ -42,6 +42,10 @@ Both libraries check the markup at build time. Make these typos in `index.html` 
 | `visible(tasks, q, show)` → `visible(tasks, qq, show)` | ``SN201 `qq` is not defined here. Did you mean `q`?`` |
 | `data-variant="ghost"` → `data-variant="danger"` on the delete button | `TM101 data-variant="danger" is not valid. Did you mean data-tone="danger"?` |
 
+sinter runs in strict mode (`strict: true` in `vite.config.js`): its warnings fail the build and
+`npm run check` too, and the dev server prints the browser's runtime warnings in the terminal.
+`strict: { allow: { SN504: 'why' } }` keeps a code a warning (sinter's `docs/strict.md`).
+
 `npm run check` runs both checkers without building. Your editor can show the same errors as you
 type: see sinter's `docs/editors.md`.
 

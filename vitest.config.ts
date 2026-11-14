@@ -15,5 +15,10 @@ export default defineConfig({
       { find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` },
     ],
   },
-  test: { environment: 'happy-dom', include: ['test/**/*.test.ts', 'docs/recipes/*.test.ts'] },
+  test: {
+    environment: 'happy-dom', include: ['test/**/*.test.ts', 'docs/recipes/*.test.ts'],
+    // many tests are about warnings: a SINTER_STRICT set for an app's agent or CI must not fail this suite
+    // (the strict-mode tests set it themselves)
+    env: { SINTER_STRICT: '' },
+  },
 });

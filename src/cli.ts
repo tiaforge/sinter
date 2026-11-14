@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// `sinter check [--root <dir>] [--check-cycles] [page.html …]`: compiles the pages and type-checks
-// their expressions. Without pages, it reads them and the plugin options from the
+// `sinter check [--root <dir>] [--check-cycles] [--strict [--allow <codes>]] [page.html …]`: compiles the
+// pages and type-checks their expressions; `--strict` (or `SINTER_STRICT=1`) fails on warnings too. Without pages, it reads them and the plugin options from the
 // Vite config. `sinter lsp`: the language server for editors.
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { check } from './check/index.js';
-import { compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
-import { project, staticPages, viteProject, type ProjectOptions } from './project.js';
+import { applyStrict, compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
+import { project, staticPages, strictEnv, viteProject, type ProjectOptions } from './project.js';
 import { lazyDiagnostics, resolveFile } from './lazy-build.js';
 
-const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [page.html …]\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
+const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -22,10 +22,22 @@ async function main(argv: string[]): Promise<number> {
   let root = process.cwd();
   const pages: string[] = [];
   let cycles = false;
+  let strictFlag: boolean | null = null;
+  const allow = new Set<string>();
   for (let i = 0; i < rest.length; i++) {
-    if (rest[i] === '--root') root = resolve(rest[++i] ?? '.');
-    else if (rest[i] === '--check-cycles') cycles = true;
-    else pages.push(rest[i]!);
+    const a = rest[i]!;
+    if (a === '--root') root = resolve(rest[++i] ?? '.');
+    else if (a === '--check-cycles') cycles = true;
+    else if (a === '--strict') strictFlag = true;
+    else if (a === '--no-strict') strictFlag = false;
+    else if (a === '--allow' || a.startsWith('--allow=')) {
+      const list = a === '--allow' ? rest[++i] : a.slice('--allow='.length);
+      const codes = (list ?? '').split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
+      const bad = codes.filter((c) => !/^SN\d{3}$/.test(c));
+      if (!codes.length || bad.length) { console.error(`sinter check: --allow takes diagnostic codes, such as --allow SN501,SN518${bad.length ? ` (not a code: ${bad.join(', ')})` : ''}\n${USAGE}`); return 2; }
+      for (const c of codes) allow.add(c);
+    } else if (a.startsWith('--')) { console.error(`sinter check: unknown option ${a}\n${USAGE}`); return 2; }
+    else pages.push(a);
   }
   let options: ProjectOptions = {};
   let files = pages.map((p) => resolve(root, p));
@@ -36,7 +48,10 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const p = project(root, options);
-  const diagnostics: Diagnostic[] = [...p.diagnostics];
+  // the flag, else SINTER_STRICT, else sinter({ strict }); its `allow` joins --allow
+  const strict = strictFlag ?? strictEnv(process.env.SINTER_STRICT) ?? p.strict.on;
+  for (const c of p.strict.allow.keys()) allow.add(c);
+  let diagnostics: Diagnostic[] = [...p.diagnostics];
   const units: CheckUnit[] = [];
   for (const file of files) {
     const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles || cycles, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}) });
@@ -56,10 +71,13 @@ async function main(argv: string[]): Promise<number> {
   const r = check({ root, units, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes });
   diagnostics.push(...r.diagnostics);
 
+  const warned = diagnostics.filter((d) => d.severity === 'warning').length;
+  if (strict) diagnostics = applyStrict(diagnostics, allow);
   for (const d of diagnostics) console.log(formatDiagnostic({ ...d, file: relative(process.cwd(), d.file) || d.file }) + '\n');
   const errors = diagnostics.filter((d) => d.severity === 'error').length;
   const warnings = diagnostics.length - errors;
-  console.log(`sinter check: ${files.length} page(s), ${errors} error(s), ${warnings} warning(s); ${r.typed} of ${r.resources} resources typed${r.openapi ? ` (${r.openapi} via OpenAPI)` : ''}`);
+  const promoted = warned - warnings;
+  console.log(`sinter check${strict ? ' --strict' : ''}: ${files.length} page(s), ${errors} error(s)${promoted ? ` (${promoted} were warnings)` : ''}, ${warnings} warning(s); ${r.typed} of ${r.resources} resources typed${r.openapi ? ` (${r.openapi} via OpenAPI)` : ''}`);
   return errors ? 1 : 0;
 }
 

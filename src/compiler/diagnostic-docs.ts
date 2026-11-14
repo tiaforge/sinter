@@ -332,4 +332,49 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'A pager link whose `href` is only a query (`?page=3`, setting a `page-model` parameter) replaces the whole query of the current URL, as any URL resolves: on `/?tag=go` it goes to `/?page=3`, without the tag. The page reads the parameters named, so following the link loses them (in the page, with same-page links, or with a page load). A filter or tab link that drops the page is not reported: that is how a list starts at page 1. Nor is a static `href` kept as the fallback of a bound one.',
     fix: 'Build the whole query in `data-sn-attr` (`href: \'?page=\' + n + \'&tag=\' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose, for a link that resets it.',
   },
+  SN520: {
+    example: '`index.html` preloads `chart.js` (data-sn-preload), but no module of the app imports it: there is nothing to preload',
+    means: 'A `data-sn-preload` names a module that no module of the app imports, so the build has no chunk to preload and the attribute does nothing. Reported by the build.',
+    fix: 'Remove the name from `data-sn-preload`, or correct it to the module the page\'s scripts import.',
+  },
+  SN521: {
+    example: '`list.html` builds a link to `item.html` at run time, which is served at `/item/` now: it arrives through a redirect',
+    means: 'An expression builds a URL to another page by its file name (`\'/item.html?id=\' + i.id`). The build rewrites such links in the markup, but not ones built at run time, so the link costs a redirect to the page\'s URL. Reported by the build.',
+    fix: 'Write the page\'s URL in the expression, as the message shows: `\'/item/?id=\' + i.id`.',
+  },
+  SN522: {
+    example: '3 message(s) not translated to `de` (the en text is used): save, cancel, title',
+    means: 'The inlang project has messages without a text in one of its languages, so pages in that language show the base language\'s text. Reported by the build.',
+    fix: 'Add the translations to the language\'s message file.',
+  },
+  SN523: {
+    example: 'early script of index.html: assets/index-head.js 12.4 kB gzip, over the early budget of 10.0 kB',
+    means: 'The script that renders before the first paint is larger than the budget (`sinter({ earlyBudget })`, 10 kB gzip by default). It blocks the first frame, so its size is paid on every visit. The message names the largest modules. Reported by the build.',
+    fix: 'Keep heavy imports out of `src/sinter.early.ts` and of the helpers that early bindings call, or raise the budget.',
+  },
+  SN524: {
+    example: '_redirects has 2400 fixed rules and 12 with patterns; Cloudflare Pages reads at most 2,000 and 100 (Netlify has no such limit)',
+    means: 'The `_redirects` file the build writes has more rules than Cloudflare Pages reads; the rest would be ignored there. Reported by the build.',
+    fix: 'Move the rules beyond the limit to the host\'s bulk redirects, or turn the file off with `sinter({ redirects: false })`.',
+  },
+  SN525: {
+    example: 'images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this',
+    means: 'Image optimization needs the `sharp` package, which is not installed, so images are served as they are. This depends on the machine, so `--strict` leaves it a warning.',
+    fix: 'Install it, `npm install -D sharp`, or turn optimization off with `sinter({ images: false })`.',
+  },
+  SN526: {
+    example: 'could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)',
+    means: 'The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font\'s host. This depends on the network, so `--strict` leaves it a warning.',
+    fix: 'Build with network access, or turn self-hosting off with `sinter({ fonts: { inline: false } })`.',
+  },
+  SN527: {
+    example: 'image sizes from src/styles.scss are not read: Undefined variable $gap',
+    means: 'The build reads the page\'s CSS to size its images, and a stylesheet could not be compiled (by Vite\'s CSS pipeline, Sass, PostCSS, …). Those images get sizes without that stylesheet. This depends on the tools installed, so `--strict` leaves it a warning.',
+    fix: 'Fix the error the message shows, or install the preprocessor the stylesheet needs.',
+  },
+  SN528: {
+    example: 'images from the API: fetch failed',
+    means: 'In dev, `images.remote` optimizes images from the API, and one could not be fetched or converted. The request answers 502. This depends on the API being reachable, so `--strict` leaves it a warning.',
+    fix: 'Check that the API is running and serves the image at that URL.',
+  },
 };

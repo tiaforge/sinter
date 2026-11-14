@@ -43,6 +43,8 @@ function llms(): string {
 
 Package: @tiaforge-ui/sinter. Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element. Anything else is a build error with a suggestion.
 
+Work in strict mode, so warnings fail like errors instead of scrolling past: \`sinter({ strict: true })\` in the Vite config (or \`SINTER_STRICT=1\`), \`npx sinter check --strict\` after every change, \`render(html, { strict: true })\` in tests (\`render()\` reads \`SINTER_STRICT\` too), and read the dev server's terminal, where strict mode prints the browser's runtime warnings. A clean exit means no warnings, not only no errors. Fix what a warning reports; do not turn strict mode off. Keep a code a warning only when the user agrees, in \`strict: { allow: { SN504: 'reason' } }\`. Details: docs/strict.md and "Type checking" below.
+
 ## Attributes
 `);
   for (const a of [...ATTRIBUTES, ON_DOC, KEY_ON_DOC, DEBOUNCE_ON_DOC]) out.push(`- \`data-sn-${a.name}\`${a.value ? ` (${a.value})` : ''}: ${a.doc}`);
@@ -138,6 +140,7 @@ Each recipe comes with its test; copy both.
 - \`$result\` in \`<sn-resource then>\` has the resource's type (\`type\`, OpenAPI, or a \`call\`'s result).
 - \`<sn-event … type="ContactEvent">\` types the payload; \`item\` must fit the resource's item, \`set\` part of it, and \`then\` is checked against it; \`cursor\` reads the item. No \`type\` on an event with payload expressions is warning SN506.
 - In the URL, body, call arguments and confirm of an element \`run('id')\` starts (not a form), \`$event\` is \`RunEvent<…>\` (no event when run): guard reads with \`$event && $event.shiftKey\`.
+- Strict mode (\`sinter({ strict: true })\`, or \`SINTER_STRICT=1\`): warnings fail \`sinter check\`, \`vite build\`, pages in the dev server and \`render()\` in tests; runtime warnings are printed in the dev server's terminal and overlay. Run \`sinter check --strict\` after a change and fix what it reports rather than treating warnings as noise. \`sinter({ strict: { allow: { SN504: 'reason' } } })\` keeps a code a warning, with the reason. SN525–SN528 (machine or network), SN507 and runtime warnings that depend on the environment stay warnings. A test about a warning: \`render(html, { strict: false })\` and \`warnings()\`. docs/strict.md.
 - SN509 (\`run-cycle\`) is opt-in: \`sinter check --check-cycles\`, or \`sinter({ checkCycles: true })\` for the build, \`sinter check\` and \`sinter lsp\`. It reports \`then\`/\`catch\` handlers that start each other again through \`run()\` (and \`refresh()\`), with every step.
 - Errors are SN208 at the HTML position, with TypeScript's message. Null checks are off. In tests: \`checkPage(html, { files, openapi })\` from \`@tiaforge-ui/sinter/check\`; \`render(html, { apis })\` takes the APIs with parsed specs.
 `);
@@ -207,7 +210,7 @@ Write a test next to the markup. \`@tiaforge-ui/sinter/testing\` compiles the pa
 function diagnostics(): string {
   const out = [`# sinter diagnostics
 
-Generated from \`src/compiler/diagnostic-docs.ts\` by \`npm run docs\`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build.
+Generated from \`src/compiler/diagnostic-docs.ts\` by \`npm run docs\`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build. \`sinter check --strict\` fails on warnings too, except the ones that depend on the machine or the network (SN525 to SN528) and SN507 ([docs/strict.md](strict.md)). Codes from SN520 up are reported by the build rather than by a page, without a file and line.
 `];
   for (const [code, name] of Object.entries(CODES)) {
     const d = DIAGNOSTIC_DOCS[code as Code];

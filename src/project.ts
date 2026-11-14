@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { createRequire } from 'node:module';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
+import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
 import { resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
@@ -52,7 +53,16 @@ export interface ProjectOptions {
    * Only awaited calls of its exports work (SN324); component scripts that import it load with it.
    */
   lazy?: string[];
+  /**
+   * Strict mode (docs/strict.md): warnings fail `vite build`, `sinter check` and pages in the dev
+   * server, and runtime warnings show in the dev server's terminal and overlay. `allow` keeps codes
+   * warnings, each with the reason: `{ allow: { SN504: 'the legacy API has no types' } }`.
+   * `SINTER_STRICT=1` (or `0`) in the environment overrides it.
+   */
+  strict?: boolean | { allow?: Record<string, string> };
 }
+
+export { strictEnv, strictOf, type Strict } from './compiler/diagnostics.js';
 
 /** A path pattern of `static`: `**` any folders, `*` within one name, `?` one character. */
 export function staticPattern(pattern: string): RegExp {
@@ -114,6 +124,8 @@ export interface Project {
   isStatic: (file: string) => boolean;
   /** `lazy`: the packages loaded on first call (docs/lazy.md) */
   lazy: string[];
+  /** `strict`, checked, with `SINTER_STRICT` applied */
+  strict: Strict;
 }
 
 export function project(root: string, options: ProjectOptions = {}): Project {
@@ -200,7 +212,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   return {
     root, helpers, helpersFile, actions, actionsFile, readFile, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
     isStatic: staticPages(root, options.static).has,
-    lazy: lazyOf(options.lazy),
+    lazy: lazyOf(options.lazy), strict: strictOf(options.strict),
     componentNames: componentNames(root),
     messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile),
     config: configRel ? url(configRel) : null,

@@ -45,6 +45,7 @@ The module imports no test runner. Use Vitest or anything else, on jsdom or happ
 | `visibility('hidden' \| 'visible')` | hide or show the page like a background tab |
 | `window(type, props)` | dispatch `pagehide`, `pageshow`, `popstate`, `online`, `beforeunload`, `pageswap` or `pagereveal` |
 | `frame()` | with `frames`, run what waits for the next animation frame |
+| `warnings()` | the runtime's warnings and errors since `render()`: `{ code, message, error, environment }` |
 
 The events a test dispatches (`click()`, `dispatchEvent(new Event('input'))`) count as the user's, so
 their `$url` writes push a history entry; the custom events sinter dispatches itself (`emit`,
@@ -72,6 +73,7 @@ A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn
 | `apis`, `defaultApi` | the app's APIs as `sinter({ apis })` takes them, each `openapi` a parsed document: paths on the page are relative to them, requests carry their credentials and headers ([docs/apis.md](apis.md#in-tests)) |
 | `openapi` | a parsed OpenAPI document, as the older `sinter({ openapi })` gives the compiler |
 | `remoteImages`, `css` | `images.remote` and the page's CSS, for pages with bound images |
+| `strict` | `true` or `{ allow }`: the page's warnings throw and a runtime warning rejects the call that ran it; default `SINTER_STRICT`, which `false` overrides ([docs/strict.md](strict.md#in-tests)) |
 
 Pass your real helpers and actions rather than copies:
 

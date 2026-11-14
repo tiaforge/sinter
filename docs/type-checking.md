@@ -142,6 +142,8 @@ sinter check: 4 page(s), 0 error(s), 1 warning(s); 7 of 8 resources typed (3 via
 
 `--check-cycles` also reports `then`/`catch` handlers that start each other through `run()` (`SN509`).
 
+`--strict` fails the check on warnings too, `--allow SN504,SN517` keeps codes warnings for one run: [docs/strict.md](strict.md).
+
 ## Editor support
 
 `sinter lsp` shows the same diagnostics as you type. With TypeScript 7 it adds type errors, hover types, completion inside expressions and go to definition, including from a resource type to its schema in the spec. A "did you mean" message offers a quick fix. Setup for VS Code, Neovim, Helix and Emacs is in [docs/editors.md](editors.md).
