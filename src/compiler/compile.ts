@@ -4534,9 +4534,25 @@ class Compiler {
     const statusOnly = (deps: string[]) => embedded.size > 0 || !deps.some((d) => { const r = /^\$r\.([^.]+)/.exec(d); return r && !embedded.has(r[1]!); })
       || deps.some((d) => { const m = /^\$meta\.([^.]+)/.exec(d); return !!m && pre.has(m[1]!); });
     const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for'] : [])].includes(b.k) && !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
+    /**
+     * A `data-sn-if` (without a `data-sn-else`) that the resources' state at mount closes, whether or not they load
+     * (no data, not loading or loading): what the HTML shows already, so nothing to render early. One that reads
+     * anything else (state, the URL) is evaluated as before.
+     */
+    const closedAtMount = (b: Binding) => {
+      if (b.k !== 'if' || b.y !== undefined) return false;
+      const names = [...new Set(strs(b.d).map((d) => /^\$(?:r|meta)\.([^.]+)/.exec(d)?.[1]).filter((n): n is string => !!n))];
+      // any resource without embedded data: whether it loads at mount does not matter (both are tried), and one with cached
+      // rows is the page module's either way
+      const defs = names.map((n) => this.resources.find((r) => r.name === n));
+      if (!names.length || defs.some((d) => !d || embedded.has(d.name) || d.each || d.call)) return false;
+      const data = Object.fromEntries(defs.map((d) => [d!.name, d!.key ? [] : null]));
+      const code = this.fns[b.f!]!;
+      return shows(code, names, { loading: true }, [], data) === false && shows(code, names, { loading: false }, [], data) === false;
+    };
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
-      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible)));
+      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible).filter((b) => !closedAtMount(b))));
       const elses = new Set(bs.flatMap((b) => b.filter((x) => x.k === 'if' && x.y !== undefined).map((x) => x.y!)));
       const keep = new Map<number, number>();
       defs.forEach((nd, i) => { if (nd.state !== undefined || bs[i]!.length || elses.has(i)) keep.set(i, keep.size); });

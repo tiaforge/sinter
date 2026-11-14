@@ -385,6 +385,8 @@ That holds for a resource that is not embedded, `each` or `call`, whose `src` an
 early script knows (`$url`, `$now`, `$locale`, your helpers; not state, another resource or the
 built-in formatters such as `date()`). With `cache`, or in an app with next-page data, only
 in a tab that holds no cached or prefetched rows of that resource: otherwise they are there at mount.
+A branch the status closes at mount whatever the load does (`data-sn-if="user"`, an error, "loaded and
+empty") is left out of the early script: the HTML shows it closed already.
 `loading`, `error` and `loadedAt` are known, also through a `data-sn-let` of the whole status; other status
 fields (a page number) are the page module's, and a binding that reads one renders when it mounts. The values are compiled into the page's early file: its
 runtime is the same.

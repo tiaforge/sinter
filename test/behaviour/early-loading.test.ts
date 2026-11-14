@@ -99,3 +99,16 @@ test('embedded rows chosen by the URL between an embedded resource and one that 
   await firstPaint(page);
   expect([...document.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['Ada', 'Grace']);
 });
+
+test('a branch the status closes at mount (no data yet, loading or not) is not in the early file: the HTML shows it closed already', async () => {
+  const { compile } = await import('../../src/compiler/index.js');
+  const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, observe: true };
+  const page = (cond: string) => `<!doctype html><html><head></head><body><sn-resource name="user" src="/api/user" cache></sn-resource>
+    <template data-sn-if="${cond}"><p id="b">x</p></template></body></html>`;
+  // closed at mount whatever the load does: nothing early
+  for (const cond of ['user', 'user && user.name', '$meta.user.error']) expect(compile(page(cond), opts).early ?? '', cond).not.toContain('sessionStorage');
+  // open while loading: early
+  expect(compile(page('!user && $meta.user.loading'), opts).early).toContain('sessionStorage');
+  await firstPaint(page('user'));
+  expect(document.getElementById('b')).toBeNull();
+});
