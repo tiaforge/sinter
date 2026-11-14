@@ -45,7 +45,7 @@ const feature: Feature = {
     /** `patch(item, …)`/`remove(item)` from these sources: a nested one with the same object first, then a row by key, then a nested one by key */
     const byItem = (res: (n: string) => Resource, op: 'patch' | 'remove', names: string[], item: unknown, set?: Obj) => {
       const nested = (byId: boolean) => names.some((n) => { const [r, f] = n.split('>'); return f != null && apply(res(r!), f.split(','), op, item, set, byId); });
-      const row = () => names.some((n) => { const r = !n.includes('>') && res(n); return !!r && (r.isCollection ? item != null && r.has(item as Obj) : true) && (op == 'patch' ? r.patch(item as Obj, set!) : r.remove(item as Obj), true); });
+      const row = () => names.some((n) => { const r = !n.includes('>') && res(n); return !!r && (r.isCollection ? item != null && r.key!.every((f) => (item as Obj)[f] !== undefined) && r.has(item as Obj) : true) && (op == 'patch' ? r.patch(item as Obj, set!) : r.remove(item as Obj), true); });
       nested(true) || row() || nested(false);
     };
     // write-through to nested items (`ap.nt`): after the write-through module, the same rules

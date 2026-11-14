@@ -8,6 +8,8 @@
 // - create-sinter (packages/create, the starter): its template depends on ^0.3.0, the
 //   sinter about to be published, so publish sinter first, and on the latest @tiaforge-ui/temper
 //   and @tiaforge-ui/temper-inspect on npm (looked up with `npm view`).
+// - examples/dashboard, which StackBlitz installs from npm (the other examples use `file:../..`):
+//   the same versions as the starter, so the link in the README runs the sinter just released.
 // - sinter-axum and sinter-axum-macros (packages/sinter-axum, the middleware crates).
 // - Sinter.AspNetCore (packages/sinter-aspnetcore, the ASP.NET Core middleware, on NuGet).
 //
@@ -80,6 +82,11 @@ const edits = [
   // npm create sinter: released with sinter, and new apps get this version
   ['packages/create/package.json', (s) => s.replace(/("version": )"[^"]*"/, `$1"${version}"`)],
   ['packages/create/template/package.json', (s) => s.replace(/("@tiaforge-ui\/sinter": )"[^"]*"/, `$1"^${version}"`)
+    .replace(/("@tiaforge-ui\/temper": )"[^"]*"/, `$1"^${temper}"`)
+    .replace(/("@tiaforge-ui\/temper-inspect": )"[^"]*"/, `$1"^${inspect}"`)],
+  // The dashboard opens on StackBlitz, which installs from npm: on 0.x a caret range stays within its
+  // minor version, so without this it keeps running an older sinter than its pages are written for.
+  ['examples/dashboard/package.json', (s) => s.replace(/("@tiaforge-ui\/sinter": )"[^"]*"/, `$1"^${version}"`)
     .replace(/("@tiaforge-ui\/temper": )"[^"]*"/, `$1"^${temper}"`)
     .replace(/("@tiaforge-ui\/temper-inspect": )"[^"]*"/, `$1"^${inspect}"`)],
   ['bench/js-framework-benchmark/package.json', (s) => s.replace(/("frameworkVersion": )"[^"]*"/, `$1"${version}"`)],

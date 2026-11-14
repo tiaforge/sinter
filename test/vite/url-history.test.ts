@@ -152,11 +152,28 @@ test.skipIf(!chromium)('a pager of links: a plain click stays on the page, Back 
     await tab.waitForFunction(() => location.search === '?tag=go&page=3' && location.hash === '#page' && document.querySelector('#page')!.textContent === '3');
     expect(await tab.evaluate(() => document.querySelector(':target')?.id)).toBe('page');
     expect(await tab.evaluate(() => (window as any).same)).toBe(true);
-    // Ctrl/Cmd-click: a new page, this one unchanged
-    const [opened] = await Promise.all([context.waitForEvent('page'), tab.click('#p2', { modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] })]);
-    await opened!.waitForLoadState();
-    expect(new URL(opened!.url()).search).toBe('?tag=go&page=2');
+    // Ctrl/Cmd-click: left to the browser (not prevented, no entry here), which opens a new page; this one unchanged.
+    // The click as it reached the page, after the runtime's listener on the document: a click Playwright lands
+    // beside the link (the page still settling from the #hash's scroll) is tried again instead of waiting in vain
+    // for a page; one on the link is checked as it was.
+    await tab.evaluate(() => addEventListener('click', (e) => {
+      (window as any).clicked = { id: (e.target as Element).closest?.('a')?.id ?? null, modified: e.ctrlKey || e.metaKey, prevented: e.defaultPrevented };
+    }));
+    const entries = await tab.evaluate(() => history.length);
+    const opened = context.waitForEvent('page');
+    for (let tries = 0; tries < 3; tries++) {
+      await tab.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      await tab.click('#p2', { modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
+      if (await tab.evaluate(() => (window as any).clicked?.id != null)) break;
+      await tab.evaluate(() => { delete (window as any).clicked; });
+    }
+    expect(await tab.evaluate(() => (window as any).clicked)).toEqual({ id: 'p2', modified: true, prevented: false });
+    const page = await opened;
+    await page.waitForLoadState();
+    expect(new URL(page.url()).search).toBe('?tag=go&page=2');
     expect(new URL(tab.url()).search).toBe('?tag=go&page=3');
+    expect(await tab.evaluate(() => history.length)).toBe(entries);
+    expect(await tab.evaluate(() => (window as any).same)).toBe(true);
   } finally {
     await browser.close();
     site.close();

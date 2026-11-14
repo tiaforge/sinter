@@ -5,6 +5,16 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Changed
+
+- Faster builds: the OpenAPI specs and the helpers and actions modules are parsed once per file and content, no longer for each page and build step (RealWorld's `vite build` 1.98 s → 1.69 s; a 7-page app with 36 components 7.3 s → 6.3 s). The output is unchanged.
+
+### Fixed
+
+- A list the build cannot trace to one resource (a helper's result: `m in visible(messages, q)`), and `patch(item)`/`remove(item)` on a row that can come from several (`a in (mine ? tags : messages)`), no longer warn "item is missing key field" for each other keyed resource on the page: a resource whose key fields the item lacks is passed over. It was console noise since 0.12, but each one failed `render()` in strict mode.
+
+## 0.18.0 (2026-11-14)
+
 ### Added
 
 - Image sizes: more layouts give an image exact widths in `sizes` instead of an upper bound ([docs/images.md](docs/images.md#how-the-rendered-width-is-worked-out)), for static images and images from the API alike: grids whose tracks differ (`240px 1fr`, `2fr 1fr`, `minmax(0, 2fr) 25%`), with the column an auto-placed item lands in, lines (`grid-column: 2 / -1`) and named areas (`grid-template-areas`, `grid-area: main`); flex rows with fixed items beside ones that grow (a sidebar and a `flex: 1` main column, an avatar beside a body, unequal `flex` factors from a basis); and lengths in `em` wherever the font size is fixed by the stylesheets (a `.prose { max-width: 40em }` column, `padding: 0 2em`). Each is checked against Chromium at many viewport widths.
@@ -48,6 +58,7 @@ Attribute names, function names and diagnostic codes are public API. Before
   - The event types a page listens for are listed by the compiler (`IR.ev`, in the page module): the mount adds one listener per entry instead of walking every binding of the page and its templates, and a page without a dialog or a non-text model has no `toggle` listener. Core −75 B gzip (RealWorld pages −50 to −58 B).
   - The resources a server-event stream feeds are flagged by the compiler (`fed`): the mount read every stream's events once per resource and once more for the set that `pageshow` and `online` leave to the stream. Core −48 B gzip (RealWorld pages −46 to −55 B).
   - A row template's kind is decided by the compiler (`sm`: a simple template, whose rows keep no binding objects; `ri`: its rows read a loop index, nested templates included): the runtime reads a flag where it walked the template's bindings, and its nested templates', when a list first rendered. Core −110 B gzip (RealWorld pages −110 to −115 B). A component used inside itself whose inner copy alone reads the index is now always re-run when its row moves (it depended on which list rendered first).
+- `npm run release` bumps `examples/dashboard` too (sinter, temper and its inspector, as in the starter): StackBlitz installs it from npm, and on 0.x its caret range kept it on an older sinter than its pages were written for, so the StackBlitz link failed to build.
 - Dev-only text that shipped in production: the warnings for a stream event that could not be applied or whose payload lacks a key field, and for `page(name, 'last')` without a known total, are codes (28, 29, 30) whose text is in the dev module, as the core's warnings are. The messages are unchanged; `warnings()` in tests now gives their `code`. `sse` 1807 → 1751 B gzip, `paginate` 1794 → 1775 B (RealWorld index and profile −20 B).
 
 ### Breaking

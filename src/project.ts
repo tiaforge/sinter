@@ -128,6 +128,17 @@ export interface Project {
   strict: Strict;
 }
 
+// project() runs for every page and hook; a spec is parsed once per file and text, not each time (the docs are
+// only read, so callers share one, and openapi.ts's per-doc caches carry over)
+const specs = new Map<string, { text: string; doc: unknown }>();
+function parseSpec(file: string, text: string): unknown {
+  const hit = specs.get(file);
+  if (hit?.text === text) return hit.doc;
+  const doc = /\.json$/i.test(file) ? JSON.parse(text) : (createRequire(import.meta.url)('yaml') as typeof import('yaml')).parse(text);
+  specs.set(file, { text, doc });
+  return doc;
+}
+
 export function project(root: string, options: ProjectOptions = {}): Project {
   const find = (given: string | undefined, base: string, exts = ['.js', '.ts']): string | null => {
     const candidates = given ? [given] : exts.map((e) => base + e);
@@ -171,7 +182,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     let text: string;
     try { text = readFile(file); } catch (e) { return fail(`cannot be read: ${(e as Error).message}`); }
     let doc: unknown;
-    try { doc = /\.json$/i.test(file) ? JSON.parse(text) : (createRequire(import.meta.url)('yaml') as typeof import('yaml')).parse(text); } catch (e) {
+    try { doc = parseSpec(file, text); } catch (e) {
       return fail(`is not valid ${/\.json$/i.test(file) ? 'JSON' : 'YAML'}: ${(e as Error).message.split('\n')[0]}`);
     }
     const d = doc as { openapi?: unknown; paths?: unknown } | null;
