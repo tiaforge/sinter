@@ -114,24 +114,19 @@ the literature and from framework vendors' own evals:
 
 ### The docs each framework gets
 
-The rule is the same for every framework (`docs/fetch.mjs`, which rebuilds the files):
+Each framework gets only what it publishes itself (`docs/fetch.mjs`, which rebuilds the files):
 
 1. The framework's own documentation written for LLMs, as published, when it fits under the cap.
-2. Otherwise, that documentation is cut at the cap, at a page boundary, in its own order.
-
-The cap is a maximum, not a quota.
+2. A larger file is cut at the cap, at a page boundary, in its own order.
+3. A framework that publishes no such file gets none, and no prompt line.
 
 | framework | file | size |
 | --- | --- | ---: |
 | sinter | `llms.txt` from the published package, complete | 109 KB |
 | SvelteKit | `svelte.dev/llms-small.txt`, the Svelte team's condensed docs for Svelte and SvelteKit, complete. Its `llms-medium.txt` (886 KB) cut at the cap would hold only the Svelte runtime and no SvelteKit | 53 KB |
-| Astro | Astro's own abridged docs (`llms-small.txt`), rebuilt; see below | 155 KB |
+| Astro | none. Astro published `llms.txt`, `llms-small.txt` and `llms-full.txt` until 2026-04-20, when withastro/docs#13538 removed them in favour of its Docs MCP server. That server is Astro's entry in the `tools` condition | – |
 
-How Astro's file is rebuilt:
-- **Why rebuild.** Astro published `llms.txt`, `llms-small.txt` and `llms-full.txt` until 2026-04-20, when withastro/docs#13538 removed them in favour of its Docs MCP server.
-- **Settings.** `docs/fetch.mjs` applies that last configuration (its `promote` and `exclude` lists, and starlight-llms-txt's ordering and minify defaults) to the current docs source.
-- **Size.** That comes to 839 KB, cut at the cap after 15 of 60 pages, in Astro's own order: the promoted introduction pages, then the guides alphabetically, from Actions to Scripts.
-- **Effect.** Astro gets less of its documentation under the cap than the others do. That follows from its documentation's size and order, not from a choice made here. The `tools` condition, with Astro's MCP server, is the counterweight.
+So for Astro, `docs` is the same as `offline`.
 
 Recommended reporting:
 - **Headline:** pass rate under `docs`.

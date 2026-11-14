@@ -81,7 +81,7 @@ async function agent(job, slot) {
     .replaceAll('{{FRAMEWORK}}', FRAMEWORKS[job.framework].name).replaceAll('{{PORT}}', String(PORT)).replaceAll('{{API_PORT}}', String(API_PORT));
   let prompt2 = prompt;
   const extraTools = [], extraArgs = [];
-  if (cond.docs) {
+  if (cond.docs && existsSync(join(here, 'docs', `${job.framework}.txt`))) { // a framework that publishes no LLM docs gets none (Astro)
     mkdirSync(join(ws, 'framework-docs'), { recursive: true });
     cpSync(join(here, 'docs', `${job.framework}.txt`), join(ws, 'framework-docs', `${job.framework}.txt`));
     prompt2 += `\nThe ${FRAMEWORKS[job.framework].short} documentation is in \`framework-docs/${job.framework}.txt\`. Read what you need from it before you start.\n`;
