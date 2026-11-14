@@ -8,7 +8,7 @@ const PORT = Number(process.env.PREVIEW_PORT ?? 4400), API_PORT = process.env.AP
 const apiServer = join(fileURLToPath(new URL('.', import.meta.url)), '../workspace/api/server.mjs');
 const api = start('node', [apiServer], { env: { PORT: API_PORT, WRITE_DELAY_MS: '1500' } });
 await waitForUrl(`${API}/api/incidents`);
-const reset = () => fetch(`${API}/__reset`, { method: 'POST' });
+const reset = () => fetch(`${API}/__reset`, { method: 'POST', headers: { connection: 'close' } });
 
 const app = await buildAndServe(dir, PORT);
 const out = { build: app.build.code === 0, served: app.ok, checks: [], buildLog: app.ok ? undefined : (app.install.out + app.build.out).slice(-3000) };

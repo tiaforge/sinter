@@ -52,7 +52,8 @@ export async function runChecks(checks, { before, baseURL, javaScriptEnabled = t
   const browser = await chromium.launch();
   const results = [];
   for (const [name, fn] of Object.entries(checks)) {
-    if (before) await before();
+    // a reset between checks; retried, since a reused keep-alive socket can be closed under it
+    if (before) for (let i = 0; i < 3; i++) { try { await before(); break; } catch (e) { if (i === 2) throw e; await sleep(300); } }
     const context = await browser.newContext({ baseURL, javaScriptEnabled });
     const page = await context.newPage();
     page.setDefaultTimeout(5000);
