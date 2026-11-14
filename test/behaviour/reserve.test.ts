@@ -189,3 +189,15 @@ test('rows a component\'s own `<style>` reaches: no space (the build reads the p
   expect(JSON.stringify(styled.unheld)).toContain('own `<style>`');
   expect(page('plain-row').html).toContain('sn-reserve');
 });
+
+test('SN529 in dev as in a build: the plan is the same, only the placeholder is the build\'s', () => {
+  const css = '.row { display: flex; flex-wrap: wrap } .card { width: 280px; height: 40px; margin: 0 }';
+  const page = `<!doctype html><html><head></head><body><sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="4"></sn-resource>
+    <div class="row"><div class="feed"><template data-sn-for="p in people"><p class="card" data-sn-text="p.name"></p></template></div><aside>tags</aside></div></body></html>`;
+  const opts = { file: '/app/index.html', root: '/app', readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }] };
+  const dev = compile(page, { ...opts, dev: true }), build = compile(page, { ...opts, dev: false, paintCss: '/p.css' });
+  expect(dev.diagnostics.filter((d) => d.code === 'SN529')).toEqual([]);
+  expect(build.diagnostics.filter((d) => d.code === 'SN529')).toEqual([]);
+  expect(dev.html).not.toContain('sn-reserve');
+  expect(build.html).toContain('sn-reserve');
+});

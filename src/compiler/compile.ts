@@ -4737,7 +4737,8 @@ class Compiler {
       const sized = layout.contentSized(tpl);
       const m = /^\s*(?:\(\s*[A-Za-z_]\w*\s*,\s*[A-Za-z_]\w*\s*\)|[A-Za-z_]\w*)\s+in\s+([\s\S]+)$/.exec(attr(tpl, 'data-sn-for')!);
       let space: Reserved | null = null, names: string[] = [], form: 'static' | 'if' = 'static', why: string | null = null;
-      if (m && this.opts.paintCss) {
+      // planned in dev too (no placeholders there): what SN529 says follows the same plan as a build
+      if (m) {
         const list = m[1]!.trim();
         // the resources the list can be: named in its expression, or in a `data-sn-let` around it that the expression reads
         const used = words(list);
@@ -4821,7 +4822,7 @@ class Compiler {
     };
     if (plan.why) note(plan.why);
     else if (plan.space && !held) note(!names.every((n) => (plan.form === 'static' ? starts(n) : pre.has(n))) ? 'a resource\'s `src` or `when` reads more than the URL (state, another resource): its load may not start when the page module mounts' : 'the list reads more than its resources and the URL');
-    if (!held || !plan.space) return;
+    if (!held || !plan.space || !this.opts.paintCss) return;
     const parent = el.parentNode as P5Element;
     // unique across pages, should two pages' rules end up in one stylesheet
     let hash = 0x811c9dc5;
