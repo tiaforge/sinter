@@ -80,6 +80,11 @@ export interface CompileOptions {
   /** write bindings whose value is a build-time constant (literal state, no helpers) into the HTML */
   prerender?: boolean;
   /**
+   * the app's config may change requests (middleware, `header()`, `credentials()`): no `<link rel="preload">`
+   * for resources (the browser would give its response to the changed request), the early file requests them
+   */
+  changesRequests?: boolean;
+  /**
    * builds: the base language's messages. With `prerender`, a text binding
    * that calls `m` is written into the HTML in the base language and marked `data-sn-m`; it is still
    * rendered in the browser (early file, page module), which writes the visitor's language
@@ -3569,15 +3574,22 @@ class Compiler {
   }
 
   /**
+   * A resource the HTML preloads: its URL is fixed at build time, and its request needs nothing a link
+   * cannot say (no static headers, no `credentials: 'omit'`, no middleware that may change it: a preloaded
+   * response goes to a later fetch of the URL whatever headers that adds). The early file requests the rest.
+   */
+  preloaded(r: ResourceDef): boolean {
+    const a = this.apiOfResource.get(r.name);
+    return !this.noEarly.has(r.name) && !this.opts.changesRequests && fixedRequest(r) && !!this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit';
+  }
+
+  /**
    * `<link rel="preload" as="fetch">` for the resources whose URL is fixed at build time. A link cannot
    * carry headers, so a resource of an API with static headers (or `credentials: 'omit'`) has none, and
    * the early file's request is its first; `credentials: 'include'` is `crossorigin="use-credentials"`.
    */
   preloadLinks(): string[] {
-    const ok = this.resources.filter((r) => {
-      const a = this.apiOfResource.get(r.name);
-      return !this.noEarly.has(r.name) && fixedRequest(r) && this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit';
-    });
+    const ok = this.resources.filter((r) => this.preloaded(r));
     const include = (r: ResourceDef) => this.apiOfResource.get(r.name)?.credentials === 'include';
     const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
     const link = (cross: string) => ({ url, lo }: { url: string; lo: boolean }) => `<link rel="preload" as="fetch" ${cross} href="${esc(url)}"${lo ? ' fetchpriority="low"' : ''}>`;
@@ -4629,8 +4641,8 @@ class Compiler {
     let url = false;
     for (const def of this.resources) {
       if (def.call || def.each || def.data != null || !def.src.length || !knownReq(strs(def.deps))) continue;
-      // a URL fixed at build time is preloaded from the HTML (see injectScript), earlier than this file runs
-      if (fixedRequest(def) || this.noEarly.has(def.name)) continue;
+      // a URL the HTML preloads (see injectScript) leaves earlier than this file runs
+      if (this.preloaded(def) || this.noEarly.has(def.name)) continue;
       // another origin only when listed in `origins` (the runtime's allowlist, known at build time)
       const where = this.earlyOrigin(def.src);
       if (!where) continue;

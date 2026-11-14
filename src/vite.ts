@@ -614,6 +614,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       // build-time constants and pages with nothing to run do not depend on the early script: `firstPaint: false` turns off only that
       prerender: true,
+      ...(p.changesRequests ? { changesRequests: true } : {}),
       ...(firstPaint ? { early: { module: p.early, src: earlySrc } } : {}),
       ...(p.messages ? { baseMessages: lang ?? p.messages.dicts[p.messages.base] ?? {} } : {}),
       ...(v ? { locale: { name: v.locale, urls: localeUrls(src), base: resolved?.base ?? '/' } } : {}),

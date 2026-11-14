@@ -172,7 +172,10 @@ Without embedded data, a resource's request still leaves before the page script 
 The page's resource takes the response when it loads, so there is one request. It goes through your
 request middleware as always: the early response is used at the end of the chain if the request is
 exactly the one sent early (a plain GET with no extra headers), so response middleware such as
-`onUnauthorized` still runs. A request your middleware changes is sent again.
+`onUnauthorized` still runs. A request your middleware changes is sent again. A preload link cannot
+do that (the browser gives its response to a later fetch of the URL whatever headers it adds), so when
+the config module may change requests (`configure({ request })`, `header()`, `credentials()`) the build
+writes no preload links for resources and the early script requests them instead.
 
 ### Other origins
 

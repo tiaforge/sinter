@@ -98,6 +98,12 @@ export interface Project {
   actionsFile: string | null;
   /** root-relative URL of the config module (`/src/sinter.config.js`), or null */
   config: string | null;
+  /**
+   * the config module may change requests (request middleware, `header()`, `credentials()`): resources are then
+   * requested early by the early file, which hands a response over only for an unchanged request, never by a
+   * `<link rel="preload">`, whose response the browser gives a later fetch whatever headers it adds
+   */
+  changesRequests: boolean;
   /** root-relative URL of the early module (`/src/sinter.early.ts`), or null */
   early: string | null;
   /** the built-in messages, or null without an inlang project */
@@ -227,6 +233,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     componentNames: componentNames(root),
     messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile),
     config: configRel ? url(configRel) : null,
+    changesRequests: configRel ? changesRequests(readFile(resolve(root, configRel))) : false,
     early: earlyRel ? url(earlyRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,
   };
@@ -279,3 +286,8 @@ export function lazyOf(list: unknown): string[] {
 }
 
 const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
+
+/** Whether a config module's source may change requests: `configure({ request })`, `header()`, `credentials()`. Errs toward yes. */
+export function changesRequests(source: string): boolean {
+  return /\brequest\s*[:,}]|\bheader\s*\(|\bcredentials\s*\(/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''));
+}

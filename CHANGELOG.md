@@ -19,6 +19,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- Request middleware that adds a header (a token, `header()`) now reaches resources with a fixed `src`. Their `<link rel="preload" as="fetch">` handed its response to the page's request whatever headers the middleware added (Chromium reuses it in every `cache` mode), so the header never reached the server: a signed-in `/api/me` answered 401 and `onUnauthorized` redirected to the login. When the config module may change requests, the build writes no preload links for resources; the early script requests them, and its response is used only for an unchanged request.
 - A `$url` write from a handler on a `<select>`'s `change` adds a history entry also when the event is untrusted, as Playwright's `selectOption()` and testing libraries dispatch it. It replaced the entry there, so Back left the page in tests while it worked for users; a `data-sn-model` on a select was not affected.
 - `sinter({ firstPaint: false })` no longer turns off build-time constants and pages without JavaScript: with it, a `static` page's constant bindings (a layout's props given as literals) were SN322, and a page with nothing to run printed `no JavaScript` but still got a page module and its `<script>`. It now turns off only the early script and reserved space.
 - SN318 for a layout whose `<html>` has no `data-sn-layout` hints `data-sn-layout="{}"` when the page passes no props; SN322's hint says a binding over constants is written in at build time.
