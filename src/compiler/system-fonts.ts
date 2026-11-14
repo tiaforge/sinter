@@ -69,6 +69,7 @@ export const genericNormal = (name: string): number | null => {
  * through their metric clones 0.556 and 0.5, Courier New 0.6, Calibri 0.507, Cambria 0.517,
  * DejaVu Sans and Serif 0.636, DejaVu Sans Mono 0.602). A stack always ends in a generic family or
  * the browser's default, which differ by platform and by the visitor's settings, so no stack is
- * known more closely than this; a web font whose `0` is wider (read from its file) raises it.
+ * known more closely than this; a web font whose `0` is wider (read from its file) raises it. Where hinting
+ * rounds advances to whole pixels, `1ch` may be up to half a pixel wider: 0.031em at 16 px, inside the margin.
  */
 export const UNKNOWN_ZERO = 0.7;

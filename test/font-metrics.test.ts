@@ -189,9 +189,11 @@ describe.skipIf(!chromium || !ZERO_FILES.length)('Chromium draws 0 as wide as th
     const bytes = readFileSync(file), z = zeroWidth(new Uint8Array(bytes))!;
     expect(z).not.toBeNull();
     const tab = await browser.newPage();
-    await tab.setContent(`<style>@font-face{font-family:T;src:url(data:font/ttf;base64,${bytes.toString('base64')})} div{font:100px T;width:10ch}</style><div>0</div>`);
+    // at 2000 px: where hinting rounds advances to whole pixels (CI's Chromium does, at 100 px 0.636 draws as 0.64),
+    // that is under 0.00025 of a ch here
+    await tab.setContent(`<style>@font-face{font-family:T;src:url(data:font/ttf;base64,${bytes.toString('base64')})} div{font:2000px T;width:1ch}</style><div>0</div>`);
     await tab.evaluate(() => document.fonts.ready);
-    expect(await tab.evaluate(() => document.querySelector('div')!.getBoundingClientRect().width / 1000)).toBeCloseTo(z, 3);
+    expect(await tab.evaluate(() => document.querySelector('div')!.getBoundingClientRect().width / 2000)).toBeCloseTo(z, 3);
     await tab.close();
   });
 });
