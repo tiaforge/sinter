@@ -69,7 +69,7 @@ test('a build: <picture> with AVIF and lossless WebP, the variants in assets/, t
   expect(html).toMatch(/<img src="\/assets\/photo-120-[\w-]+\.jpg" width="120" height="120" alt="Card"[^>]* loading="lazy" decoding="async"/);
   expect(html).not.toContain('object-fit');
   // the stylesheets size the avatar (40 px, cropped square by their object-fit); the hero's CSS width wins over its attribute
-  expect(html).toMatch(/srcset="\/assets\/photo-40-[\w-]+\.avif 40w, \/assets\/photo-80-[\w-]+\.avif 80w, \/assets\/photo-120-[\w-]+\.avif 120w" sizes="\(max-width: 40px\) 100vw, 40px"/);
+  expect(html).toMatch(/srcset="\/assets\/photo-40-[\w-]+\.avif 40w, \/assets\/photo-80-[\w-]+\.avif 80w, \/assets\/photo-120-[\w-]+\.avif 120w" sizes="\(max-width: 2.5em\) 100vw, 2.5em"/);
   expect(html).toMatch(/<img src="\/assets\/photo-40-[\w-]+\.jpg" alt="Avatar"[^>]* width="40" height="40" decoding="async"/);
   expect(html).toMatch(/<img src="[^"]+" width="300" alt="Fluid by CSS"[^>]* sizes="auto, calc\(100vw - 16px\)"/);
   // every URL in the page is a file of the build, with the format and size it claims

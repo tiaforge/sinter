@@ -88,6 +88,24 @@ body { margin: 0 }
 /* an image in the second column: sizes="(max-width: 767.98px) 100vw, calc(100vw - 264px)" */
 ```
 
+**At every default font size.** Visitors can change the browser's default font size (16 px unless
+they do; Chrome and Firefox offer 20 and 24 px as "large" and "very large"), and every `rem`, `em`
+and `em` breakpoint grows with it. `sizes` reads `em` the same way, as the default font size
+whatever the page's root size, so sinter solves each image at 16, 24 and 12 px and writes what
+depends on the font size in `em`:
+
+```html
+<!-- body { margin: 0 } .prose { font-size: 1.125rem; max-width: 40em; padding: 0 1em; margin: 0 auto } -->
+<img ... sizes="(max-width: 47.2475em) calc(100vw - 2.25em), 45em">
+```
+
+A range's end that mixes px and em (a `60rem` column inside the body's 8 px margins) is where two
+widths cross, written as `min()` or `max()` of them, followed by the same range in px for
+browsers that do not read math functions in `sizes`. Fixed boxes in rem (Tailwind's `size-12`) get
+`sizes` in em and one more file, the 2x of the box at a 24 px default. When the solutions do not line up
+(a `rem` width crossing a px breakpoint at some font sizes and not others), `sizes` is the 16 px
+one, as before. Checked in Chromium at 12, 16, 20 and 24 px.
+
 **Which CSS is read.** The page's `<link rel="stylesheet">` and `<style>` elements, and
 stylesheets imported by its module scripts. Remote stylesheets, CSS modules and `?inline`/`?url`
 imports are left out. Stylesheets are compiled with your Vite config first (Sass, Less, Stylus,

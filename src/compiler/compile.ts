@@ -2,7 +2,7 @@
 // rewritten page plus its IR and function table.
 import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
-import { Layout, PLACEHOLDER_BASE, type Reserved, type StyleSheet } from './layout.js';
+import { boxSizesCss, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import type { RemoteConfig } from '../remote.js';
@@ -815,7 +815,7 @@ class Compiler {
     if (layout) this.planSpace(doc, layout);
     const images = this.opts.images ? rewriteImages(doc, {
       host: this.opts.images, root: this.opts.root,
-      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows } : {}),
+      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows, scaled: (el: P5Element, what: 'box' | 'bound') => this.scaledWidth(layout, el, what) } : {}),
       fileOf: (el) => this.origins.get(el)?.file ?? this.opts.file,
       warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
     }) : undefined;
@@ -3116,7 +3116,13 @@ class Compiler {
       widths = [w, 2 * w, ...(small ? [3 * w] : [])];
       at = w;
       if (box.height !== null && box.fit === 'cover' && this.opts.remoteImages.cover) r = Math.round(box.height) / w;
-      sizes = `(max-width: ${w}px) 100vw, ${w}px`;
+      const scaled = this.scaledWidth(this.layout!, el, 'box');
+      if (scaled && Math.abs(scaled.b) > 1e-6) {
+        // a box in rem or em grows with the default font size: its 2x at a 24 px default too, and `sizes` in em
+        const w24 = Math.round(2 * (scaled.a + 24 * scaled.b));
+        if (!widths.includes(w24)) widths = [...widths, w24].sort((a, b) => a - b);
+        sizes = boxSizesCss(scaled);
+      } else sizes = `(max-width: ${w}px) 100vw, ${w}px`;
       if (attr(el, 'width') === undefined) setAttr(el, 'width', String(w));
       if (box.height !== null && attr(el, 'height') === undefined) setAttr(el, 'height', String(Math.round(box.height)));
     } else {
@@ -3128,7 +3134,8 @@ class Compiler {
       widths = fluid?.constant ? [...new Set(fluid.constant.flatMap((w) => [w, 2 * w, 3 * w]))].sort((a, b) => a - b)
         : bound === null ? [...ladder] : [...ladder.filter((w) => w < 3 * bound * 0.9), 3 * bound];
       at = fluid?.constant ? Math.max(...fluid.constant) : bound === null ? 1280 : Math.min(1280, bound);
-      sizes = `auto, ${fluid ? fluid.sizes : bound === null ? '100vw' : `(max-width: ${bound}px) 100vw, ${bound}px`}`;
+      const scaled = !fluid && bound !== null ? this.scaledWidth(this.layout!, el, 'bound') : null;
+      sizes = `auto, ${fluid ? fluid.sizes : bound === null ? '100vw' : scaled && Math.abs(scaled.b) > 1e-6 ? boxSizesCss(scaled) : `(max-width: ${bound}px) 100vw, ${bound}px`}`;
     }
     if (attr(el, 'sizes') === undefined) setAttr(el, 'sizes', sizes);
     // rows load as they scroll in; an image outside a template may be the page's largest, so it is not deferred
@@ -3138,6 +3145,15 @@ class Compiler {
     for (const w of widths) this.remoteWidths.add(w);
     const value = e.code.slice('($) => '.length);
     return { src: `($) => $ri.src(${value}, ${at}, ${r})`, srcset: `($) => $ri.set(${value}, ${JSON.stringify(widths)}, ${r})` };
+  }
+
+  /** an image's box width (`box`) or fluid bound (`bound`) from the stylesheets at every default font size */
+  scaledWidth(layout: Layout, el: P5Element, what: 'box' | 'bound'): Affine | null {
+    return layout.scalable((l) => {
+      if (what === 'bound') return l.maxWidth(el);
+      const b = l.box(el);
+      return b && b !== 'fluid' ? b.width : null;
+    });
   }
 
   objectBinding(el: P5Element, node: NodeDef, scope: Scope, k: 'class' | 'style' | 'prop') {

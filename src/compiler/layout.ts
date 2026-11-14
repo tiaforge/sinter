@@ -294,7 +294,9 @@ export class Layout {
   private positional = false;
   /** the browser's default font size this layout is for (`withBase`) */
   private base = 16;
-  private readonly bases = new Map<number, Layout>();
+  /** the px of an em in media queries (the browser's default font size; `withBase` keeps 16 unless told) */
+  private mq = 16;
+  private readonly bases = new Map<string, Layout>();
 
   /** a font family's `line-height: normal` as a multiple of its size (the smallest of its metrics), when the build has its file */
   private readonly normal: (family: string) => number | null;
@@ -330,7 +332,7 @@ export class Layout {
     Object.assign(l, {
       rules: this.rules, hosts: this.hosts, root: this.root, viewport: width, views: this.views, notes: this.notes, normal: this.normal,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
-      row: null, rowViews: this.rowViews, positional: this.positional, base: this.base, bases: this.bases,
+      row: null, rowViews: this.rowViews, positional: this.positional, base: this.base, mq: this.mq, bases: this.bases,
     });
     this.views.set(width, l);
     return l;
@@ -357,7 +359,7 @@ export class Layout {
     Object.assign(l, {
       rules: this.rules, hosts: this.hosts, root: this.root, viewport: this.viewport, views: this.views, notes: this.notes, normal: this.normal,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
-      row: { el: row, index, count, before: around(kids.slice(0, at + 1)), after: [...(trail ? [{ el: TRAILER, sure: true }] : []), ...around(kids.slice(at + 1))] }, rowViews: this.rowViews, positional: true, base: this.base, bases: this.bases,
+      row: { el: row, index, count, before: around(kids.slice(0, at + 1)), after: [...(trail ? [{ el: TRAILER, sure: true }] : []), ...around(kids.slice(at + 1))] }, rowViews: this.rowViews, positional: true, base: this.base, mq: this.mq, bases: this.bases,
     });
     if (!fresh) this.rowViews.set(key, l);
     return l;
@@ -367,7 +369,7 @@ export class Layout {
   breakpoints(): number[] {
     const out = new Set<number>();
     for (const r of this.rules) for (const d of r.decls) {
-      const ranges = d.media ? mediaRanges(d.media) : null;
+      const ranges = d.media ? mediaRanges(d.media, this.mq) : null;
       if (ranges && ranges !== 'unknown') for (const [lo, hi] of ranges) { if (lo > 0) out.add(lo); if (Number.isFinite(hi)) out.add(hi); }
     }
     return [...out].sort((a, b) => a - b);
@@ -516,7 +518,7 @@ export class Layout {
         // a media query: decided for this layout's viewport, else it may or may not apply
         let media = !!d.media;
         if (d.media && this.viewport !== undefined) {
-          const ranges = mediaRanges(d.media);
+          const ranges = mediaRanges(d.media, this.mq);
           if (ranges !== 'unknown') {
             if (!ranges.some(([lo, hi]) => this.viewport! >= lo && this.viewport! < hi)) continue;
             media = false;
@@ -641,17 +643,18 @@ export class Layout {
   }
 
   /** The page for a visitor whose browser's default font size is `px` (16 unless they changed it): its rem and keywords follow. */
-  private withBase(px: number): Layout {
-    if (px === this.base) return this;
-    let l = this.bases.get(px);
+  private withBase(px: number, mq = 16): Layout {
+    if (px === this.base && mq === this.mq) return this;
+    const key = `${px}:${mq}`;
+    let l = this.bases.get(key);
     if (l) return l;
     l = Object.create(Layout.prototype) as Layout;
     Object.assign(l, {
       rules: this.rules, hosts: this.hosts, root: this.root, viewport: undefined, views: new Map(), notes: this.notes, normal: this.normal,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
-      row: null, rowViews: new Map(), positional: this.positional, base: px, bases: this.bases,
+      row: null, rowViews: new Map(), positional: this.positional, base: px, mq, bases: this.bases,
     });
-    this.bases.set(px, l);
+    this.bases.set(key, l);
     return l;
   }
 
@@ -778,9 +781,38 @@ export class Layout {
    * margins, padding and borders, and em of a font size the cascade fixes, resolve. A range where
    * anything else decides gets an upper bound (`bound: 'fallback'`: `maxWidth()` in that range, else the
    * viewport), an auto-placed item of unknown column the widest it may land in (`'widest'`); null when no
-   * range is followed (the caller falls back to `maxWidth()`). Checked against Chromium at many widths.
+   * range is followed (the caller falls back to `maxWidth()`). Solved again for 24 and 12 px default font
+   * sizes (`scaleSizes`): what follows the default size is written in em. Checked against Chromium at many
+   * widths and default font sizes.
    */
   fluidSizes(img: P5Element, intrinsic?: number): FluidSizes | null {
+    const at16 = this.fluidAt(img, intrinsic);
+    if (!at16 || this.viewport !== undefined || this.base !== 16) return at16;
+    // the same page for visitors whose default font size is larger or smaller: rem, em and em breakpoints follow it
+    const others = DEFAULTS.map((d) => this.withBase(d, d).fluidAt(img, intrinsic));
+    if (others.every((o) => o && o.sizes === at16.sizes)) return at16;
+    const scaled = others.every((o) => o) ? scaleSizes([at16, ...(others as FluidSizes[])]) : null;
+    if (!scaled) return at16;
+    const max = [at16, ...others].some((o) => o!.max === null) ? null : Math.max(...[at16, ...others].map((o) => o!.max!));
+    // fixed widths: files for 16 and 24 px defaults (a smaller default only fetches a little more)
+    const constant = at16.constant && others[0]!.constant ? [...new Set([...at16.constant, ...others[0]!.constant])].sort((a, b) => a - b) : null;
+    return { ...at16, sizes: scaled, max, constant };
+  }
+
+  /**
+   * A length of `el` at every default font size, as `a px + b em` (em: the browser's default font size, as
+   * `sizes` and media queries read it), from `f` on the page at 16, 24 and 12 px; null when `f` has no
+   * answer at one of them or the three are not on one line.
+   */
+  scalable(f: (l: Layout) => number | null): Affine | null {
+    const vs = [16, ...DEFAULTS].map((d) => f(d === 16 ? this : this.withBase(d, d)));
+    if (vs.some((v) => v === null)) return null;
+    const [v16, v24, v12] = vs as [number, number, number];
+    const b = (v24 - v16) / 8, a = v16 - 16 * b;
+    return Math.abs(a + 12 * b - v12) < 0.05 ? { a, b } : null;
+  }
+
+  private fluidAt(img: P5Element, intrinsic?: number): FluidSizes | null {
     this.notes.autoFitRows = null;
     if (this.empty || this.viewport !== undefined) return null;
     const cuts = this.breakpoints().filter((b) => b > MIN_VIEWPORT && b < MAX_VIEWPORT);
@@ -2635,6 +2667,117 @@ export interface FluidSizes {
   constant: number[] | null;
 }
 
+/** default font sizes the build solves for, besides 16: one larger and one smaller (fitting a line through 16 and 24, checked at 12) */
+const DEFAULTS = [24, 12];
+/** a length at a default font size D: `a + b × D` px */
+export interface Affine { a: number; b: number }
+/** `a px + b em` as CSS (`em`: the default font size, as in `sizes` and media queries) */
+export function affineCss(x: Affine): string {
+  const em = (n: number) => `${Math.round(n * 1e4) / 1e4}em`;
+  if (Math.abs(x.b) < 1e-6) return `${fmt(x.a)}px`;
+  if (Math.abs(x.a) < 0.01) return em(x.b);
+  return `calc(${fmt(x.a)}px ${x.b < 0 ? '-' : '+'} ${em(Math.abs(x.b))})`;
+}
+/** `sizes` for a box no wider than `w` and no wider than the viewport */
+export function boxSizesCss(w: Affine): string {
+  if (Math.abs(w.b) < 1e-6) return `(max-width: ${fmt(w.a)}px) 100vw, ${fmt(w.a)}px`;
+  if (Math.abs(w.a) < 0.01) return `(max-width: ${affineCss(w)}) 100vw, ${affineCss(w)}`;
+  return `min(100vw, ${affineCss(w).replace(/^calc\((.*)\)$/, '$1')})`;
+}
+
+/** a piece's width at every default font size: k × viewport + c + r × D px */
+interface Scaled { k: number; c: number; r: number; bound?: FluidPiece['bound'] }
+
+/**
+ * `sizes` for every default font size from the same image solved at 16, 24 and 12 px (`all`, in that order),
+ * or null when they do not line up: the same pieces, each width and each range's end a line in the default
+ * size. An end in px or em is a media condition; one that mixes both (`72rem + 16px`) is where two pieces
+ * cross, written as `min()`/`max()` of them (no `calc()` in media queries, which not every browser reads).
+ */
+function scaleSizes(all: FluidSizes[]): string | null {
+  const [p16, p24, p12] = all.map((f) => f.pieces) as [FluidPiece[], FluidPiece[], FluidPiece[]];
+  if (p24.length !== p16.length || p12.length !== p16.length) return null;
+  const fit = (v16: number, v24: number, v12: number): Affine | null => {
+    const b = (v24 - v16) / 8, a = v16 - 16 * b;
+    return Math.abs(a + 12 * b - v12) < 0.05 ? { a, b } : null;
+  };
+  const pieces: Scaled[] = [], ends: Array<Affine | null> = [];
+  for (let i = 0; i < p16.length; i++) {
+    const [x, y, z] = [p16[i]!, p24[i]!, p12[i]!];
+    if (x.bound !== y.bound || x.bound !== z.bound || Math.abs(x.k - y.k) > 1e-9 || Math.abs(x.k - z.k) > 1e-9) return null;
+    const c = fit(x.c, y.c, z.c);
+    if (!c) return null;
+    pieces.push({ k: x.k, c: c.a, r: c.b, ...(x.bound ? { bound: x.bound } : {}) });
+    if (i < p16.length - 1) ends.push(fit(x.to, y.to, z.to));
+  }
+  if (ends.some((e) => e === null)) return null;
+  const width = (p: Scaled, v: number, d: number) => p.k * v + p.c + p.r * d;
+  // groups of pieces between ends a media condition can say; inside one, pieces that meet where they cross
+  type Group = { pieces: Scaled[]; ends: Affine[]; to: Affine | null; at16: FluidPiece[] };
+  const groups: Group[] = [{ pieces: [pieces[0]!], ends: [], to: null, at16: [p16[0]!] }];
+  for (let i = 0; i < ends.length; i++) {
+    const e = ends[i]!, g = groups[groups.length - 1]!;
+    const pure = Math.abs(e.b) < 1e-6 || Math.abs(e.a) < 0.01;
+    if (pure) { g.to = e; groups.push({ pieces: [pieces[i + 1]!], ends: [], to: null, at16: [p16[i + 1]!] }); continue; }
+    // continuous at the end, at every default size: a crossing
+    for (const d of [16, 24, 12]) { const v = e.a + e.b * d; if (Math.abs(width(pieces[i]!, v, d) - width(pieces[i + 1]!, v, d)) > 0.5) return null; }
+    g.pieces.push(pieces[i + 1]!); g.ends.push(e); g.at16.push(p16[i + 1]!);
+  }
+  const term = (p: Scaled): string => {
+    const parts: string[] = [];
+    if (Math.abs(p.k) > 1e-9) parts.push(`${fmt(p.k * 100)}vw`);
+    if (Math.abs(p.c) >= 0.005) parts.push(`${fmt(Math.abs(p.c))}px`);
+    if (Math.abs(p.r) > 1e-6) parts.push(`${Math.round(Math.abs(p.r) * 1e4) / 1e4}em`);
+    const signs = [...(Math.abs(p.k) > 1e-9 ? [p.k] : []), ...(Math.abs(p.c) >= 0.005 ? [p.c] : []), ...(Math.abs(p.r) > 1e-6 ? [p.r] : [])];
+    if (!parts.length) return '0px';
+    return parts.map((t, i) => (i === 0 ? (signs[0]! < 0 ? `-${t}` : t) : `${signs[i]! < 0 ? '-' : '+'} ${t}`)).join(' ');
+  };
+  const single = (p: Scaled) => { const t = term(p); return /\s/.test(t) ? `calc(${t})` : t; };
+  const out: string[] = [];
+  for (let gi = 0; gi < groups.length; gi++) {
+    const g = groups[gi]!;
+    // fold the pieces into min()/max(): each crossing keeps the lesser or the greater on both sides
+    let expr = single(g.pieces[0]!), fn: Array<(v: number, d: number) => number> = [(v, d) => width(g.pieces[0]!, v, d)];
+    let value = fn[0]!;
+    for (let j = 1; j < g.pieces.length; j++) {
+      const p = g.pieces[j]!, e = g.ends[j - 1]!, prev = value;
+      const v = e.a + e.b * 16 - 1;
+      const min = prev(v, 16) <= width(p, v, 16);
+      expr = `${min ? 'min' : 'max'}(${expr.replace(/^calc\((.*)\)$/, '$1')}, ${term(p)})`;
+      value = min ? (x, d) => Math.min(prev(x, d), width(p, x, d)) : (x, d) => Math.max(prev(x, d), width(p, x, d));
+    }
+    // checked against the pieces over the group's range at every default size
+    for (const d of [16, 24, 12]) {
+      const lo = gi === 0 ? MIN_VIEWPORT : groups[gi - 1]!.to!.a + groups[gi - 1]!.to!.b * d;
+      const hi = g.to ? g.to.a + g.to.b * d : Math.max(lo, MAX_VIEWPORT);
+      const cuts = [lo, ...g.ends.map((e) => e.a + e.b * d), hi];
+      for (let j = 0; j < g.pieces.length; j++) for (const t of [0.1, 0.5, 0.9]) {
+        const v = cuts[j]! + (cuts[j + 1]! - cuts[j]!) * t;
+        if (!(cuts[j + 1]! > cuts[j]!) || Math.abs(value(v, d) - width(g.pieces[j]!, v, d)) > 0.5) return null;
+      }
+    }
+    const when = g.to ? `(max-width: ${maxEnd(g.to)})` : '';
+    out.push(when ? `${when} ${expr}` : expr);
+    // for a browser that does not read min()/max() in `sizes` (it skips the entry): the same range as at a 16 px default, in px
+    if (g.pieces.length > 1) g.at16.forEach((p, j) => {
+      const conds = [...(when ? [when] : []), ...(j < g.at16.length - 1 ? [`(max-width: ${maxWidthOf(p.to)}px)`] : [])];
+      out.push(conds.length ? `${conds.join(' and ')} ${linCss(p)}` : linCss(p));
+    });
+  }
+  return out.join(', ');
+}
+
+/**
+ * A range's end as a `max-width`: inclusive (a `max-width` query's, which ends a hair past it) as is,
+ * exclusive a hair before. Browsers compare media lengths to about 1/64 px (Chromium: `(max-width: 39.999em)`
+ * and `(min-width: 40.001em)` both hold at 480 px with a 12 px default), so the hair is 0.02 px at an 8 px default.
+ */
+function maxEnd(e: Affine): string {
+  if (Math.abs(e.b) < 1e-6) return `${maxWidthOf(e.a)}px`;
+  const inclusive = Math.abs(e.a - EPS) < EPS / 2;
+  return `${Math.round((inclusive ? e.b : e.b - 0.0025) * 1e4) / 1e4}em`;
+}
+
 /** the smaller (or larger) of two widths over a viewport range; Split where they cross inside it */
 function pick(a: Lin, b: Lin, seg: [number, number], which: 'min' | 'max'): Lin {
   const dk = a.k - b.k, dc = a.c - b.c;
@@ -2729,16 +2872,16 @@ const mediaCache = new Map<string, Array<[number, number]> | 'unknown'>();
 /**
  * The viewport widths (px, `[from, to)`) at which all of `queries` (the preludes of nested `@media`
  * rules) apply on a screen: `min-width`, `max-width` and the range syntax (`width >= 40rem`), in
- * px, em or rem (16 px: media queries do not read the page's font size). 'unknown' for any other
+ * px, em or rem (`em` px each: the browser's default font size, 16 unless the visitor changed it; media queries do not read the page's font size). 'unknown' for any other
  * feature (`hover`, `prefers-color-scheme`, `orientation`), whose value the build cannot know.
  */
-function mediaRanges(queries: string[]): Array<[number, number]> | 'unknown' {
-  const key = queries.join('\0');
+function mediaRanges(queries: string[], em = 16): Array<[number, number]> | 'unknown' {
+  const key = em + '\0' + queries.join('\0');
   const r = mediaCache.get(key);
   if (r) return r;
   let acc: Array<[number, number]> = [[0, Infinity]];
   for (const q of queries) {
-    const one = mediaList(q);
+    const one = mediaList(q, em);
     if (one === 'unknown') { mediaCache.set(key, 'unknown'); return 'unknown'; }
     const next: Array<[number, number]> = [];
     for (const [a, b] of acc) for (const [c, d] of one) { const lo = Math.max(a, c), hi = Math.min(b, d); if (lo < hi) next.push([lo, hi]); }
@@ -2748,7 +2891,7 @@ function mediaRanges(queries: string[]): Array<[number, number]> | 'unknown' {
   return acc;
 }
 
-function mediaList(prelude: string): Array<[number, number]> | 'unknown' {
+function mediaList(prelude: string, em: number): Array<[number, number]> | 'unknown' {
   const out: Array<[number, number]> = [];
   for (const raw of topCommas(prelude)) {
     let q = raw.trim().toLowerCase().replace(/^only\s+/, '');
@@ -2759,7 +2902,7 @@ function mediaList(prelude: string): Array<[number, number]> | 'unknown' {
     if (type === 'print' || type === 'speech' || (type !== 'all' && type !== 'screen')) continue;
     let lo = 0, hi = Infinity;
     for (const cond of q ? q.split(/\s+and\s+/) : []) {
-      const r = widthCondition(cond.trim());
+      const r = widthCondition(cond.trim(), em);
       if (r === null) return 'unknown';
       lo = Math.max(lo, r[0]); hi = Math.min(hi, r[1]);
     }
@@ -2770,11 +2913,11 @@ function mediaList(prelude: string): Array<[number, number]> | 'unknown' {
 
 const EPS = 1e-4;
 /** one `(…)` condition on the viewport width, as `[from, to)` px; null when it is about something else */
-function widthCondition(cond: string): [number, number] | null {
+function widthCondition(cond: string, em = 16): [number, number] | null {
   const m = /^\((.*)\)$/s.exec(cond);
   if (!m) return null;
   const inner = m[1]!.trim();
-  const len = (v: string): number | null => { const x = /^(-?\d*\.?\d+)(px|em|rem)?$/.exec(v.trim()); return x ? Number(x[1]) * (x[2] === 'em' || x[2] === 'rem' ? 16 : 1) : null; };
+  const len = (v: string): number | null => { const x = /^(-?\d*\.?\d+)(px|em|rem)?$/.exec(v.trim()); return x ? Number(x[1]) * (x[2] === 'em' || x[2] === 'rem' ? em : 1) : null; };
   const named = /^(min|max)-width\s*:\s*(.+)$/.exec(inner);
   if (named) { const v = len(named[2]!); if (v === null) return null; return named[1] === 'min' ? [v, Infinity] : [0, v + EPS]; }
   // range syntax: width >= 40rem, 30em < width <= 60em

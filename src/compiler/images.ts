@@ -4,7 +4,7 @@
 // from the adapter's `ImageHost`, which analyses files with sharp and encodes the variants this
 // returns. See docs/images.md.
 import type { DefaultTreeAdapterMap } from 'parse5';
-import type { FixedBox, FluidSizes, StyleSheet } from './layout.js';
+import { boxSizesCss, type Affine, type FixedBox, type FluidSizes, type StyleSheet } from './layout.js';
 
 type P5Element = DefaultTreeAdapterMap['element'];
 type P5Node = DefaultTreeAdapterMap['node'];
@@ -88,6 +88,8 @@ export interface RewriteContext {
   maxWidth?: (el: P5Element) => number | null;
   /** a fluid image's rendered width at every viewport width, as `sizes` (layout.ts); `intrinsic`: its source width */
   fluidSizes?: (el: P5Element, intrinsic?: number) => FluidSizes | null;
+  /** the stylesheets' box width (`box`) or a fluid image's bound (`bound`) at every default font size (layout.ts), when it follows it */
+  scaled?: (el: P5Element, what: 'box' | 'bound') => Affine | null;
   /** after `fluidSizes()` gave up: the `auto-fit` grid with template rows that was why, if it was */
   autoFitRows?: () => P5Element | null;
 }
@@ -291,8 +293,17 @@ function rewriteOne(el: P5Element, eager: boolean, ctx: RewriteContext): 'pendin
   }).join(', ');
 
   const lazy = (attrOf(el, 'loading') ?? (eager ? 'eager' : 'lazy')) === 'lazy';
-  const fluidSizes = fluid ? fluid.sizes : bound !== null ? `(max-width: ${bound}px) 100vw, ${bound}px` : '100vw';
-  const sizes = attrOf(el, 'sizes') ?? (display !== null ? `(max-width: ${display}px) 100vw, ${display}px` : lazy ? `auto, ${fluidSizes}` : fluidSizes);
+  // a width in rem or em grows with the visitor's default font size: `sizes` says so in em
+  const grows = (w: Affine | null | undefined): w is Affine => !!w && Math.abs(w.b) > 1e-6;
+  const boundScaled = !fluid && bound !== null ? ctx.scaled?.(el, 'bound') : null;
+  const fluidSizes = fluid ? fluid.sizes : grows(boundScaled) ? boxSizesCss(boundScaled) : bound !== null ? `(max-width: ${bound}px) 100vw, ${bound}px` : '100vw';
+  const boxScaled = display !== null && box && display === bw ? ctx.scaled?.(el, 'box') : null;
+  if (grows(boxScaled)) {
+    // the box at a 24 px default (Firefox's and Chrome's larger setting) on a 2x screen
+    const w24 = Math.min(w0, Math.round(2 * (boxScaled.a + 24 * boxScaled.b)));
+    if (!widths.includes(w24)) { widths.push(w24); widths.sort((a, b) => a - b); }
+  }
+  const sizes = attrOf(el, 'sizes') ?? (display !== null ? (grows(boxScaled) ? boxSizesCss(boxScaled) : `(max-width: ${display}px) 100vw, ${display}px`) : lazy ? `auto, ${fluidSizes}` : fluidSizes);
   // the fallback `src`: the 1x file of a box, else the largest up to 1280 px
   const at = display !== null ? Math.min(display, w0) : [...widths].reverse().find((w) => w <= 1280) ?? widths[0]!;
   const main = tiny ? variant('original', w0) : variant(fallback, at);

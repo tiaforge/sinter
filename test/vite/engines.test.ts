@@ -58,10 +58,10 @@ test('Tailwind (Vite plugin): utilities the page uses size its images, responsiv
 <img src="./photo.jpg" class="size-12 md:size-20" alt="Responsive">
 <img src="./photo.jpg" alt="Plain">`),
   }, [tailwindcss(), sinter()]);
-  expect(sizeOf(html, 'Avatar')).toEqual({ width: 48, height: 48, sizes: '(max-width: 48px) 100vw, 48px' });
+  expect(sizeOf(html, 'Avatar')).toEqual({ width: 48, height: 48, sizes: '(max-width: 3em) 100vw, 3em' });
   expect(sizeOf(html, 'Arbitrary')).toMatchObject({ width: 72, height: 72 });
   expect(sizeOf(html, 'Apply')).toMatchObject({ width: 96, height: 96 });
-  expect(sizeOf(html, 'Responsive').sizes).toBe('auto, (max-width: 767.98px) 48px, 80px');
+  expect(sizeOf(html, 'Responsive').sizes).toBe('auto, (max-width: 47.9975em) 3em, 5em');
   // Tailwind's reset: max-width: 100%, so min(source, viewport)
   expect(sizeOf(html, 'Plain').sizes).toBe('auto, (max-width: 599.98px) 100vw, 600px');
   if (!chromium) return;
@@ -83,7 +83,7 @@ test('UnoCSS: the generator with the project\'s config', async () => {
   }, [UnoCSS(), sinter()]);
   expect(sizeOf(html, 'Uno')).toMatchObject({ width: 64, height: 64 });
   expect(sizeOf(html, 'Shortcut')).toMatchObject({ width: 80, height: 80 });
-  expect(sizeOf(html, 'Responsive').sizes).toBe('auto, (max-width: 767.98px) 64px, 128px');
+  expect(sizeOf(html, 'Responsive').sizes).toBe('auto, (max-width: 767.98px) 4em, 8em');
   if (!chromium) return;
   const r = await renderedBuilt(out, html);
   expect(r['Uno']).toEqual([64, 64]);

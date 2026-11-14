@@ -209,10 +209,10 @@ const FLUID: Array<[string, string, string, string]> = [
   ['wrapped flex items with a basis, by breakpoint', 'body { margin: 0 } .r { display: flex; flex-wrap: wrap } .r > * { flex: 0 0 100% } @media (min-width: 640px) { .r > * { flex-basis: 50% } } img { width: 100% }', '<div class="r"><div><img id="t" src="a.png" alt=""></div></div>', '(max-width: 639.98px) 100vw, 50vw'],
   ['a fixed size per breakpoint', 'img.a { width: 40px } @media (min-width: 768px) { img.a { width: 64px } }', '<img id="t" class="a" src="a.png" alt="">', '(max-width: 767.98px) 40px, 64px'],
   ['negative margins (a full-bleed image in a padded column)', 'body { margin: 0 } main { padding: 0 20px } .bleed { margin: 0 -20px } img { width: 100% }', '<main><div class="bleed"><img id="t" src="a.png" alt=""></div></main>', '100vw'],
-  ['clamp() and min() in the container', 'body { margin: 0 } .c { width: min(90vw, 70rem); margin-inline: auto } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>', '(max-width: 1244.42px) 90vw, 1120px'],
+  ['clamp() and min() in the container', 'body { margin: 0 } .c { width: min(90vw, 70rem); margin-inline: auto } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>', '(max-width: 77.7753em) 90vw, 70em'],
   ['an image narrower than its column: min(source, column)', 'body { margin: 0 } img { max-width: 100% }', '<div><img id="t" src="a.png" width="600" alt=""></div>', '(max-width: 599.98px) 100vw, 600px'],
-  ['padding in em', 'main { padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>', 'calc(100vw - 80px)'],
-  ['a measure in em of its own font size', 'body { margin: 0 } .prose { font-size: 1.125rem; max-width: 40em; margin: 0 auto; padding: 0 1em } img { width: 100% }', '<article class="prose"><p><img id="t" src="a.png" alt=""></p></article>', '(max-width: 755.98px) calc(100vw - 36px), 720px'],
+  ['padding in em', 'main { padding: 0 2em } img { width: 100% }', '<main><img id="t" src="a.png" alt=""></main>', 'calc(100vw - 16px - 4em)'],
+  ['a measure in em of its own font size', 'body { margin: 0 } .prose { font-size: 1.125rem; max-width: 40em; margin: 0 auto; padding: 0 1em } img { width: 100% }', '<article class="prose"><p><img id="t" src="a.png" alt=""></p></article>', '(max-width: 47.2475em) calc(100vw - 2.25em), 45em'],
   ['a sidebar track and a fr track, from a breakpoint', 'body { margin: 0 } .l { display: grid; gap: 24px } @media (min-width: 768px) { .l { grid-template-columns: 240px 1fr } } img { width: 100% }', '<div class="l"><nav></nav><main><img id="t" src="a.png" alt=""></main></div>', '(max-width: 767.98px) 100vw, calc(100vw - 264px)'],
   ['unequal fr tracks, the second item auto-placed', 'body { margin: 0 } .g { display: grid; grid-template-columns: 2fr 1fr; gap: 30px } img { width: 100% }', '<div class="g"><div></div><div><img id="t" src="a.png" alt=""></div></div>', 'calc(33.33vw - 10px)'],
   ['unequal tracks, the cursor wraps to the next row', 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 3fr; gap: 20px } img { width: 100% }', '<div class="g"><div></div><div></div><div><img id="t" src="a.png" alt=""></div></div>', 'calc(25vw - 5px)'],
@@ -325,6 +325,59 @@ describe.skipIf(!chromium)('the browser never renders an image wider than a boun
         if (p.bound === 'widest') expect(Math.max(...ws), `${name} at ${v} px: the widest row`).toBeCloseTo(said, 0);
       }
     });
+  }
+});
+
+const PNG_URL = 'https://x.test/img.png';
+
+describe.skipIf(!chromium)('at every default font size, the width the browser reads from sizes is the width it renders', () => {
+  // the browser picks the smallest of 1 px steps at least as wide as `sizes` says (at 1x): that is how it reads `sizes`
+  let browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>;
+  let tab: Page;
+  let html = '';
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+  const STEPS = Array.from({ length: 3000 }, (_, i) => `https://x.test/w${i + 1}.png ${i + 1}w`).join(', ');
+  beforeAll(async () => {
+    browser = await chromium!.launch();
+    tab = await browser.newPage({ deviceScaleFactor: 1 });
+    await tab.route('https://x.test/**', (r) => (r.request().url().endsWith('/') ? r.fulfill({ contentType: 'text/html', body: html }) : r.fulfill({ contentType: 'image/png', body: PNG })));
+  }, 30_000);
+  afterAll(async () => { await browser?.close(); });
+  const cases: Array<[string, string, string]> = [
+    ...FLUID.filter(([, , , want]) => want).map(([n, c, b]) => [n, c, b] as [string, string, string]),
+    ...BOUNDED.map(([n, c, b]) => [n, c, b] as [string, string, string]),
+    ['a padded rem container with a body margin (ends that mix px and em)', '.c { max-width: 60rem; padding: 0 1rem; margin: 0 auto } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>'],
+    ['an em breakpoint, a rem gap, a page root of 62.5%', 'html { font-size: 62.5% } body { margin: 0 } .g { display: grid; gap: 2rem } @media (min-width: 40em) { .g { grid-template-columns: 1fr 1fr } } img { width: 100% }', '<div class="g"><div><img id="t" src="a.png" alt=""></div><div></div></div>'],
+  ];
+  for (const [name, css, body] of cases) {
+    test(name, async () => {
+      const doc = parse5.parse(page('', body));
+      const f = new Layout([{ file: 'test.css', css }], doc).fluidSizes(find(doc, 't'))!;
+      expect(f).not.toBeNull();
+      const cdp = await tab.context().newCDPSession(tab);
+      for (const font of [12, 16, 20, 24]) {
+        await cdp.send('Page.setFontSizes', { fontSizes: { standard: font, fixed: Math.round((font * 13) / 16) } });
+        for (const v of [320, 480, 700, 768, 1024, 1280, 1920]) {
+          await tab.setViewportSize({ width: v, height: 600 });
+          html = page(css, body.replaceAll('src="a.png"', `src="${PNG_URL}"`) + `<img id="probe" style="position: absolute; width: 1px" sizes="${f.sizes}" srcset="${STEPS}" alt="">`);
+          await tab.goto('https://x.test/');
+          const [w, said] = await tab.evaluate(() => [document.getElementById('t')!.getBoundingClientRect().width, Number((document.getElementById('probe') as HTMLImageElement).currentSrc.replace(/.*\/w|\.png/g, ''))]);
+          const bound = f.pieces.some((p) => p.bound);
+          const msg = `${name} at ${v} px, default font ${font} px (sizes ${f.sizes}): rendered ${w}, sizes ${said}`;
+          if (bound) expect(said, msg).toBeGreaterThanOrEqual(w - 1);
+          else expect(Math.abs(said - w), msg).toBeLessThanOrEqual(1);
+          // a browser that cannot read min()/max() in sizes skips those entries: what follows is the 16 px answer
+          if (font === 16 && /\b(min|max)\(/.test(f.sizes)) {
+            html = html.replace(`sizes="${f.sizes}"`, `sizes="${f.sizes.replace(/\b(min|max)\(/g, 'unknown-fn(')}"`);
+            await tab.goto('https://x.test/');
+            const old = await tab.evaluate(() => Number((document.getElementById('probe') as HTMLImageElement).currentSrc.replace(/.*\/w|\.png/g, '')));
+            if (bound) expect(old, `${msg}, without min()/max()`).toBeGreaterThanOrEqual(w - 1);
+            else expect(Math.abs(old - w), `${msg}, without min()/max(): ${old}`).toBeLessThanOrEqual(1);
+          }
+        }
+      }
+      await cdp.detach();
+    }, 60_000);
   }
 });
 
