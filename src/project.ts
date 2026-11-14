@@ -234,11 +234,12 @@ export async function viteProject(root: string): Promise<{ pages: string[]; opti
     return { pages: fallback(), options: {} };
   }
   const config = await vite.resolveConfig({ root, logLevel: 'silent' }, 'build', 'production');
-  const plugin = config.plugins.find((x) => x.name === 'sinter') as { api?: { options?: ProjectOptions } } | undefined;
+  const plugin = config.plugins.find((x) => x.name === 'sinter') as { api?: { options?: ProjectOptions; source?(file: string): string } } | undefined;
   const build = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
   const input = build.rolldownOptions?.input ?? build.rollupOptions?.input;
   const list = typeof input === 'string' ? [input] : Array.isArray(input) ? input : input && typeof input === 'object' ? Object.values(input) : [];
-  let pages = (list as string[]).filter((f) => typeof f === 'string' && f.endsWith('.html')).map((f) => resolve(config.root, f));
+  // with `localePrefix`, the input is each page once per language: its source, once
+  let pages = [...new Set((list as string[]).filter((f) => typeof f === 'string' && f.endsWith('.html')).map((f) => plugin?.api?.source?.(resolve(config.root, f)) ?? resolve(config.root, f)))];
   if (!pages.length) pages = fallback();
   return { pages, options: plugin?.api?.options ?? {} };
 }

@@ -137,7 +137,7 @@ export interface SinterOptions extends ProjectOptions {
   fonts?: { inline?: boolean; preload?: FontPreload[] };
 }
 
-type SinterPlugins = [Plugin & { api: { options: SinterOptions } }, Plugin, Plugin, Plugin, Plugin, Plugin];
+type SinterPlugins = [Plugin & { api: { options: SinterOptions; source(file: string): string } }, Plugin, Plugin, Plugin, Plugin, Plugin];
 
 /** dev: the pages under the root (not in node_modules, the output, `public/`, hidden folders, or the components' and layouts' folders) */
 function htmlPages(root: string, config: ResolvedConfig | null): string[] {
@@ -672,7 +672,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const main: SinterPlugins[0] = {
     name: 'sinter',
     enforce: 'pre',
-    api: { options },
+    // `localePrefix`: a page in a language is its source (`sinter check` checks the pages as written)
+    api: { options, source: (file: string) => virtual.get(file)?.source ?? file },
 
     /**
      * No modulepreload polyfill unless the app asks for one: every browser sinter's pages rely on

@@ -8,6 +8,7 @@ import { check } from './check/index.js';
 import { applyStrict, compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
 import { project, staticPages, strictEnv, viteProject, type ProjectOptions } from './project.js';
 import { lazyDiagnostics, resolveFile } from './lazy-build.js';
+import { readLocales } from './locales-build.js';
 
 const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
 
@@ -53,8 +54,11 @@ async function main(argv: string[]): Promise<number> {
   for (const c of p.strict.allow.keys()) allow.add(c);
   let diagnostics: Diagnostic[] = [...p.diagnostics];
   const units: CheckUnit[] = [];
+  // `localePrefix`: the build compiles each page in a language (`$locale` fixed, `localeUrl()`); checked in the base one
+  const vite = options as ProjectOptions & { localePrefix?: boolean };
+  const locale = vite.localePrefix && vite.messages !== false ? { name: readLocales(root, typeof vite.messages === 'string' ? vite.messages : 'project.inlang').base, urls: null, base: '/' } : null;
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles || cycles, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}) });
+    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles || cycles, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(locale ? { locale } : {}) });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }

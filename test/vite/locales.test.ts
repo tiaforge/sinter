@@ -7,6 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { build, createServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
+import { viteProject } from '../../src/project.js';
 
 const src = resolve(__dirname, '../../src');
 const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
@@ -120,5 +121,17 @@ test('the dev server: a page in a language at its URL, a chooser at an unprefixe
     expect(await (await fetch(`${base}/about/`)).text()).toContain('url=/en/about/');
   } finally {
     await server.close();
+  }
+}, 60_000);
+
+test('sinter check: the pages from the Vite config are the sources, once each, not each page per language', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sinter-locales-check-'));
+  try {
+    for (const f of ['project.inlang/settings.json', 'messages/en.json', 'messages/de.json', 'index.html', 'about.html']) { mkdirSync(dirname(join(dir, f)), { recursive: true }); writeFileSync(join(dir, f), files[f]!); }
+    writeFileSync(join(dir, 'vite.config.js'), `import sinter from ${JSON.stringify(join(src, 'vite.ts'))};\nexport default { plugins: [sinter({ localePrefix: true })], build: { rollupOptions: { input: ['index.html', 'about.html'] } } };\n`);
+    const { pages } = await viteProject(dir);
+    expect(pages.sort()).toEqual([join(dir, 'about.html'), join(dir, 'index.html')]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 }, 60_000);
