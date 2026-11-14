@@ -35,10 +35,14 @@ test('a `when` the early file can evaluate: not loading while it is false', asyn
   expect(loading()).toBeNull();
 });
 
-test('with `cache`: only in a tab that has cached nothing (cached rows would be there at mount)', async () => {
+test('with `cache`: only in a tab that has not cached this resource (its rows would be there at mount)', async () => {
   await firstPaint(PAGE('cache'));
   expect(loading()).not.toBeNull();
+  // another resource's entry: not this one's rows
   sessionStorage.setItem('sn:c:["/api/other","c",null]', JSON.stringify({ t: 0, v: [] }));
+  await firstPaint(PAGE('cache'));
+  expect(loading()).not.toBeNull();
+  sessionStorage.setItem('sn:c:["http://localhost/api/c","c",null]', JSON.stringify({ t: 0, v: [] }));
   await firstPaint(PAGE('cache'));
   expect(loading()).toBeNull();
 });
@@ -66,9 +70,12 @@ test('the whole status, as a helper reads it: every field as at mount', async ()
   const helpers = { idle: (m: { pending: number; total: unknown; live: unknown; loading: boolean }) => m.loading && m.pending === 0 && m.total === null && m.live === null };
   await firstPaint(PAGE('', 'idle($meta.c)'), { helpers });
   expect(loading()).not.toBeNull();
-  // paginated: its pager fields are not known early
+  // paginated: its pager fields are not known early, and a binding that reads one is the page module's
   await firstPaint(PAGE('paginate="offset" page-size="2"', 'idle($meta.c)'), { helpers });
   expect(loading()).toBeNull();
+  // one that reads only what is known renders early
+  await firstPaint(PAGE('paginate="offset" page-size="2"', '((m) => m.loading)($meta.c) && !c.length'.replace('((m) => m.loading)($meta.c)', 'first($meta.c)')), { helpers: { ...helpers, first: (m: { loading: boolean }) => m.loading } });
+  expect(loading()).not.toBeNull();
 });
 
 test('with next-page data in the app, the early binding first checks this tab holds no prefetched or cached rows; the when is the early table\'s', async () => {
@@ -77,7 +84,7 @@ test('with next-page data in the app, the early binding first checks this tab ho
   const html = PAGE('when="$url.go"');
   const plain = compile(html, opts).early!, ahead = compile(html, { ...opts, prefetch: '/prefetch.js' }).early!;
   expect(plain).not.toContain('sessionStorage');
-  expect(ahead).toContain('/^sn:[cp]:/');
+  expect(ahead).toContain('/^sn:[cp]:\\[/');
   // `when` is called from the table, not written out again
   expect(ahead).toMatch(/!!f\[\d+\]\(\$\)/);
 });

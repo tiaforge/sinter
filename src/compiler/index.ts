@@ -47,6 +47,7 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   if (map) out.map = map;
   if (parts.images) out.images = parts.images;
   if (parts.paint !== undefined) out.paint = parts.paint;
+  if (parts.unheld) out.unheld = parts.unheld;
   if (parts.remoteWidths) out.remoteWidths = parts.remoteWidths;
   // a page with nothing to run gets no early script either, not even for the app's early module
   if (parts.static && parts.early !== undefined) out.early = null;

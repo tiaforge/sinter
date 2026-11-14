@@ -214,6 +214,8 @@ export interface CompileResult {
   images?: ImageResult;
   /** with `paintCss`: the rules of the page's reserved space (the placeholders of lists whose data comes later), empty when none */
   paint?: string;
+  /** the paginated lists over late data that hold no space, and why (the Vite plugin prints them) */
+  unheld?: Array<{ file: string; line: number; col: number; why: string }>;
   /** every width the page asks the resizing service for (`remoteImages`) */
   remoteWidths?: number[];
   /** what another page needs to request this page's data ahead (null: nothing) */
@@ -324,6 +326,8 @@ export interface CompiledParts {
   images?: ImageResult;
   /** with `paintCss`: the rules of the page's reserved space, empty when none */
   paint?: string;
+  /** the paginated lists over late data that hold no space, and why */
+  unheld?: Array<{ file: string; line: number; col: number; why: string }>;
   /** the resizing service's config, when a bound image uses it (the page module creates `$ri` from it) */
   remote?: RemoteConfig;
   /** every width the page asks the service for */
@@ -611,7 +615,9 @@ class Compiler {
   /** resources with `early="off"`: no preload, no early request (one a request middleware answers or adds a header to) */
   private readonly noEarly = new Set<string>();
   /** by `<template data-sn-for>` outside templates: its reserved space and the content-sized box around it (`planSpace`) */
-  private readonly spacePlan = new Map<P5Element, { sized: { el: P5Element; siblings: boolean } | null; space: Reserved | null; resources: string[]; form: 'static' | 'if'; list: string }>();
+  private readonly spacePlan = new Map<P5Element, { sized: { el: P5Element; siblings: boolean; widths: string } | null; space: Reserved | null; resources: string[]; form: 'static' | 'if'; list: string; why: string | null; unsized: P5Element[] }>();
+  /** paginated lists over late data that hold no space, and why (the build prints them) */
+  readonly unheld: Array<{ file: string; line: number; col: number; why: string }> = [];
   /** the placeholders' rules (`CompiledParts.paint`) */
   readonly paintRules: string[] = [];
   private spaceN = 0;
@@ -893,6 +899,7 @@ class Compiler {
       ...(early !== undefined ? { early } : {}),
       ...(images ? { images } : {}),
       ...(this.opts.paintCss ? { paint: this.paintRules.join('\n') + (this.paintRules.length ? '\n' : '') } : {}),
+      ...(this.unheld.length ? { unheld: this.unheld } : {}),
       ...(this.remoteUsed ? { remote: this.opts.remoteImages!, remoteWidths: [...this.remoteWidths].sort((a, b) => a - b) } : {}),
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       embed: this.embedSlots(),
@@ -4427,10 +4434,8 @@ class Compiler {
       const mt = /^\$meta\.([^.]+)(?:\.([^.]+))?$/.exec(d);
       if (mt) {
         if (!status || !pre.size) return false;
-        if (mt[2] !== undefined) return ['loading', 'error', 'loadedAt'].includes(mt[2]);
-        // the whole status: its pager and stream fields are not known before the page module mounts
-        const def = pre.get(mt[1]!);
-        return !def || (!def.paginate && !this.page.fed.has(def.name));
+        // a field the early file knows, or the whole status (its pager and stream fields throw early)
+        return mt[2] === undefined || ['loading', 'error', 'loadedAt'].includes(mt[2]);
       }
       const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
       const f = m ? fields.get(Number(m[1])) : undefined;
@@ -4476,7 +4481,7 @@ class Compiler {
       let ast: acorn.Node;
       try { ast = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }); } catch { return code; }
       const edits: Array<[number, number, string]> = [];
-      let check = false;
+      const checks = new Set<number>();
       const name = (m: any): string | null => (m.computed ? (m.property.type === 'Literal' && typeof m.property.value === 'string' ? m.property.value : null) : m.property.name);
       // `$.$meta.<name>` or `$.$r.<name>`, with `$` the function's parameter
       const at = (m: any, kind: string) => m?.type === 'MemberExpression' && m.object.type === 'MemberExpression' && !m.object.computed && m.object.object.type === 'Identifier'
@@ -4485,15 +4490,24 @@ class Compiler {
         if (!n || typeof n.type !== 'string') return;
         const r = at(n, '$r'), mt = at(n, '$meta'), def = pre.get((r ?? mt)!);
         if (def && (r !== null || mt !== null)) {
-          // cached or prefetched rows would be there at mount: checked once per binding (below)
-          if (def.cache != null || (this.opts.prefetch && !def.paginate && def.body == null)) check = true;
+          // cached or prefetched rows would be there at mount: this resource's entries (its URL's literal start, its items
+          // and total paths, as the cache and next-page data key them), checked once per binding (below)
+          if (def.cache != null || (this.opts.prefetch && !def.paginate && def.body == null)) {
+            const start = JSON.stringify(typeof def.src[0] === 'string' ? def.src[0] : '').slice(1, -1), end = `,${JSON.stringify(def.items ?? null)},${JSON.stringify(def.total ?? null)}]`;
+            checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (/^sn:[cp]:\\[/.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) throw 0; }`));
+          }
           const when = def.when != null ? `!!f[${fn(this.fns[def.when]!)}]($)` : 'true';
           if (r !== null) { edits.push([n.start, n.end, def.key ? '[]' : 'null']); return; }
           const field = parent?.type === 'MemberExpression' && parent.object === n && !parent.computed ? parent.property.name : null;
           if (field === 'loading') { edits.push([parent.start, parent.end, when]); return; }
           if (field === 'error' || field === 'loadedAt') { edits.push([parent.start, parent.end, 'null']); return; }
-          // the whole status (a `data-sn-let`, a helper): every field as it is at mount (`predictable` leaves out paginated and fed resources' whole status)
-          edits.push([n.start, n.end, `({ loading: ${when}, error: null, loadedAt: null, pending: 0, total: null, live: null })`]);
+          // the whole status (a `data-sn-let`, a helper): every field as it is at mount; a pager's or a stream's fields are not known
+          // before then, and throw (the page module renders what reads them)
+          const open = def.paginate || this.page.fed.has(def.name);
+          const make = fn(open
+            ? '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, get total() { throw 0; }, get live() { throw 0; }, get page() { throw 0; }, get pages() { throw 0; }, get from() { throw 0; }, get to() { throw 0; }, get hasPrev() { throw 0; }, get hasNext() { throw 0; } })'
+            : '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, total: null, live: null })');
+          edits.push([n.start, n.end, `f[${make}](${when})`]);
           return;
         }
         for (const k of Object.keys(n)) {
@@ -4507,8 +4521,8 @@ class Compiler {
       if (!edits.length) return code;
       let out = code;
       for (const [a, b, t] of edits.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + t + out.slice(b);
-      // a tab that has cached or prefetched data: the binding throws, and the page module renders it
-      return check ? `($) => (f[${fn('() => { if (Object.keys(sessionStorage).some((k) => /^sn:[cp]:/.test(k))) throw 0; }')}](), (${out})($))` : out;
+      // a tab that has cached or prefetched rows of these: the binding throws, and the page module renders it
+      return checks.size ? `($) => (${[...checks].map((i) => `f[${i}](), `).join('')}(${out})($))` : out;
     };
     const templates: EarlyIR['templates'] = this.templates.map(() => null);
     // a binding over a resource without data is early only when it reads a status the early file knows (a loading branch):
@@ -4711,7 +4725,7 @@ class Compiler {
     for (const tpl of lists) {
       const sized = layout.contentSized(tpl);
       const m = /^\s*(?:\(\s*[A-Za-z_]\w*\s*,\s*[A-Za-z_]\w*\s*\)|[A-Za-z_]\w*)\s+in\s+([\s\S]+)$/.exec(attr(tpl, 'data-sn-for')!);
-      let space: Reserved | null = null, names: string[] = [], form: 'static' | 'if' = 'static';
+      let space: Reserved | null = null, names: string[] = [], form: 'static' | 'if' = 'static', why: string | null = null;
       if (m && this.opts.paintCss) {
         const list = m[1]!.trim();
         // the resources the list can be: named in its expression, or in a `data-sn-let` around it that the expression reads
@@ -4721,6 +4735,9 @@ class Compiler {
           if (lets) for (const [, k, v] of lets.matchAll(/([A-Za-z_$][\w$]*)\s*:\s*([^,]*(?:\([^)]*\)[^,]*)*)/g)) if (used.has(k!)) for (const w of words(v!)) used.add(w);
         }
         names = [...used].filter((n) => resources.has(n));
+        // worth a note when it does not work out: a list over a paginated resource
+        if (names.some((n) => attr(resources.get(n)!, 'paginate') !== undefined)) why = '';
+        if (names.length && !names.every((n) => attr(resources.get(n)!, 'paginate') !== undefined)) { names = []; why &&= ''; if (why === '') why = 'it can be a resource without `paginate`, whose rows the build cannot count'; }
         // only a choice between resources (`$url.feed ? feed : articles`, `a ?? b`): no call, member or index (a filter, a
         // field), whose rows the build could not count
         const chooses = (t: string) => {
@@ -4732,18 +4749,26 @@ class Compiler {
           const l = attr(up, 'data-sn-let')?.trim().replace(/^\{|\}$/g, '');
           if (l) for (const [, k, v] of l.matchAll(/([A-Za-z_$][\w$]*)\s*:\s*([^,]*(?:\([^)]*\)[^,]*)*)/g)) if (words(list).has(k!)) lets.push(v!);
         }
-        if (![list, ...lets].every(chooses)) names = [];
+        if (![list, ...lets].every(chooses)) { if (why === '') why = 'the list is not a resource or a choice between resources (a filter, a field), whose rows the build could count'; names = []; }
         const rs = names.map((n) => resources.get(n)!);
         // paginated (their page-size, the least), loading by URL or always: not `each` or `call`, nor data the page has (embedded)
         const ok = rs.length && rs.every((r) => attr(r, 'paginate') !== undefined && !['each', 'call'].some((x) => attr(r, x) !== undefined) && !(this.opts.embed && attr(r, 'early') !== 'off'));
+        if (rs.length && !ok && why === '') why = this.opts.embed ? 'its data is embedded by the server, in the first frame' : 'a resource with `each` or `call`';
         // the list is a resource that always loads: the placeholder is page markup; else it shows by its resources' status,
         // which the early file decides (`if`)
         form = names.length === 1 && list === names[0] && attr(rs[0]!, 'when') === undefined ? 'static' : 'if';
         const n = ok ? Math.min(...rs.map((r) => Number(attr(r, 'page-size')))) : NaN;
         // in a box whose width follows its content, only rows of a width of their own (the placeholder takes it)
-        if (Number.isInteger(n) && n > 0) space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized });
+        if (Number.isInteger(n) && n > 0) {
+          space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized });
+          if (!space && why === '') why = sized && layout.unreserved?.startsWith('the box') ? `the box around it is as wide as its content (${sized.widths}), and the rows have no width of their own (SN520)` : layout.unreserved ?? 'unknown';
+        }
       }
-      this.spacePlan.set(tpl, { sized, space, resources: space ? names : [], form, list: m?.[1]!.trim() ?? '' });
+      // images in the rows without a height before their file: each one grows its row when it loads
+      const unsized: P5Element[] = [];
+      const scan = (p: P5Parent) => { for (const c of p.childNodes) { if (!isElement(c)) continue; if (/^(img|video|iframe|embed|object)$/.test(c.tagName) && layout.sized(c) === false) unsized.push(c); scan(c.tagName === 'template' ? (c as P5Template).content : c); } };
+      scan((tpl as P5Template).content);
+      this.spacePlan.set(tpl, { sized, space, resources: space ? names : [], form, list: m?.[1]!.trim() ?? '', why: why || null, unsized });
     }
   }
 
@@ -4771,9 +4796,18 @@ class Compiler {
     const branch = held ? this.loadingBranch(el, names) : null;
     if (plan.sized?.siblings && late.length && !held) {
       const what = plan.sized.el.tagName + (attr(plan.sized.el, 'class') ? `.${attr(plan.sized.el, 'class')!.trim().split(/\s+/).join('.')}` : '');
-      this.report(el, 'data-sn-for', 'SN520', `this list's rows arrive after the first paint inside \`<${what}>\`, whose width follows its content: the rows widen it and move what is beside it`, 0,
+      this.report(el, 'data-sn-for', 'SN520', `this list's rows arrive after the first paint inside \`<${what}>\`, whose width follows its content (${plan.sized.widths}): the rows widen it and move what is beside it`, 0,
         'give that box a width or flex basis of its own (`flex: 1 1 0`, `width: 100%`), or give the rows a width');
     }
+    if (late.length) for (const img of plan.unsized) this.report(img, null, 'SN521', `\`<${img.tagName}>\` in a list whose rows arrive after the first paint has no height before its file loads: when it does, its row grows and what follows moves`, 0,
+      'give it `width` and `height` attributes (its ratio), or an `aspect-ratio` or a height in the stylesheets');
+    const note = (why: string) => {
+      const o = this.origins.get(el), at = o && el.sourceCodeLocation ? this.lineCol(o.src, el.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
+      this.unheld.push({ file: o?.file ?? this.opts.file, line: at.line, col: at.col, why });
+    };
+    if (plan.why) note(plan.why);
+    else if (plan.space && !held) note(plan.form === 'if' && !names.every((n) => pre!.has(n)) ? 'a resource\'s `when` reads more than the URL (state, another resource): the build cannot tell whether it loads at the first paint' : 'the list reads more than its resources and the URL');
+    else if (branch === false) note('a branch over the same status beside it would show with the space (a "Loading…" one is used when it comes right before the list, as one element)');
     if (!held || !plan.space || branch === false) return;
     const parent = el.parentNode as P5Element;
     // unique across pages, should two pages' rules end up in one stylesheet

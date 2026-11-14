@@ -103,7 +103,7 @@ const LAZY_ONLY = ['SN324', 'SN325'];
 /** `sinter({ apis })`: the option itself (test/apis.test.ts) and paths relative to an API (test/compiler/apis.test.ts). */
 const APIS_ONLY = ['SN326', 'SN327', 'SN328', 'SN329', 'SN330', 'SN518'];
 /** Codes that need the page's stylesheets (the adapter reads them). Fixtures in test/behaviour/reserve.test.ts. */
-const STYLES_ONLY = ['SN520'];
+const STYLES_ONLY = ['SN520', 'SN521'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {

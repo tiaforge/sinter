@@ -260,18 +260,27 @@ update that inserts the rows, or as soon as no load is running (it ended empty o
 started). Nothing moves when the rows arrive.
 
 How many rows: a paginated resource's `page-size`. A list without pages has no count the build can
-know, and gets no space.
+know, and gets no space. The list may be the resource itself (`p in people`) or a choice between
+resources (`a in list` with `data-sn-let="{ list: $url.feed ? feed : articles }"`, or a resource with a
+`when`): then the placeholder is a branch the early script shows while one of them loads with no rows,
+when it can tell (their `when` reads only the URL), so a resource that will not load holds nothing.
 
-How large: what the stylesheets say about the row, at each screen width the media queries split.
+How large: what the stylesheets say about each row in its place (`.row + .row`, `:first-child`,
+Tailwind's `space-y-*` and `:nth-child()` rules are decided per row), at each screen width the media
+queries split, and for any default font size a visitor has set (sizes in `rem` and `em` shrink with a
+smaller one, and so does the space).
 
 - A height the stylesheets fix (`height`, `block-size`, a grid's `grid-auto-rows`) is exact: the rows
   take exactly the space held.
 - Otherwise the space is a lower bound, never taller than the rows: a bound text counts as one
   line, a `data-sn-if` or `data-sn-show` inside the row, a nested list, a float, the content of a
   closed `<details>`, a negative margin it cannot read, or anything the cascade cannot decide counts as
-  nothing. An image with `width` and `height` counts as tall as the width it has at each screen width
-  allows (`max-width: 100%`); form controls in their own font and line height. Text that wraps makes the
-  rows taller than the space, and what follows moves by the difference, not by the whole list.
+  nothing. A rule that may or may not apply (`:hover`, `@media (hover: none)`, `@supports`) counts at
+  its least. An image with `width` and `height` counts as tall as the width it has at each screen width
+  allows (`max-width: 100%`); form controls in their own font and line height; a link around a card's
+  blocks as the blocks stacked; a branch and its `data-sn-else` as the lesser; `<br>` as a line. Text that
+  wraps makes the rows taller than the space, and what follows moves by the difference, not by the whole
+  list.
 - Lines follow `line-height`. `normal` depends on the font, and the text may be in any face of its
   stack: a web font shows only once it has loaded (`font-display: swap`), and a family a platform
   lacks falls through to the next. So `normal` counts the least of them: each family the page
@@ -289,6 +298,8 @@ How large: what the stylesheets say about the row, at each screen width the medi
   container's width gives, at each screen width).
 - Rows in a grid: the placeholder spans the grid rows the items fill, over every column (`auto-fill`
   and `auto-fit` columns are counted at each width).
+- A height that follows the container's width (square cards in columns, a font size in `vw`) is held
+  as a share of that width, exact at every width.
 
 When fewer rows arrive than were held (the last page, an empty list), what follows moves up by
 what is missing. Measured with the API answering after 500 ms (Chromium, a list of 12 rows of 56 px
@@ -301,14 +312,22 @@ with content below it):
 | none | 0, 0 | 0.081, 0.183 |
 
 Builds only (`vite dev` serves the rules with the page module, after the first paint). Not for a resource
-with embedded data (its rows are in the first frame), with `when` (it may not load), `each` or `call`, or a
-list that is not the resource itself (`people.filter(…)`: the build cannot count it), nor for rows side
-by side without a width of their own (or with a `flex-basis`), absolutely positioned, with
-`content-visibility`, or a template with more than one element.
+with embedded data (its rows are in the first frame), with a `when` over state or another resource (the
+build cannot tell whether it loads), `each` or `call`, or a list that is more than a choice between
+resources (`people.filter(…)`: the build cannot count it), nor for rows side by side without a width of
+their own (or with a `flex-basis`), absolutely positioned, with `content-visibility`, table rows, or a
+template with more than one element. The build prints each paginated list it holds no space for, and why
+(`sinter: index.html:43: no space held for this list's rows before its data: …`).
 `sinter({ firstPaint: false })` turns it off with the rest of the first-paint work.
 
+A "Loading…" branch over the same status right before the list (`$meta.people.loading && !people.length`,
+one element) takes the placeholder's place: while it shows it has the rows' height and outer margins, and
+the placeholder does not show. Another branch beside the list that would show with the placeholder (a
+loading line after it) leaves the list without one, as the two would be taller than the rows. An empty
+state or an error never shows with it.
+
 The runtime carries no code for it: the build writes the placeholder's removal as one of the page's own
-bindings (about 65 bytes gzip per list), and its rule in the page's stylesheet: one shared rule per page,
+bindings (about 65 bytes gzip per list; a branch for a list with a `when`), and its rule in the page's stylesheet: one shared rule per page,
 then each list's height (and width, margins or grid span) per screen width, with the weight of an id, so
 the author's rules for the row's tag do not reach it.
 
@@ -318,9 +337,12 @@ A list inside a box whose width the stylesheets leave to its content (a flex ite
 `flex-basis` or `width`, or a float) has a different problem: empty, the box is narrow and what is
 beside it sits next to it; the rows widen it, and its neighbours move or wrap to the next line. When
 the rows have a width of their own, the placeholder takes it, and the box is as wide from the first
-frame. Otherwise the data decides the width, and the build reports it, `SN520`: give the box a width
-of its own (`flex: 1 1 0`, or a basis of 100% where it takes the line, as grid systems do below their
-breakpoint), or give the rows one.
+frame. Otherwise the data decides the width, and the build reports it, `SN520`, naming the screen widths
+where it is so: give the box a width of its own (`flex: 1 1 0`, or a basis of 100% where it takes the line,
+as grid systems do below their breakpoint), or give the rows one.
+
+An image without a height in rows that arrive late (no `width` and `height` attributes, no `aspect-ratio`
+or height in CSS) grows its row again when its file loads: `SN521`.
 
 ### Loading branches
 
@@ -334,9 +356,9 @@ adopts it:
 
 That holds for a resource that is not embedded, `each` or `call`, whose `when` reads only what the early
 script knows (`$url`, `$now`, helpers; not state). With `cache`, or in an app with next-page data, only
-in a tab that holds no cached or prefetched rows: otherwise they are there at mount. `loading`, `error`
-and `loadedAt` are known (and the whole status of a resource without pages or a stream); other status
-fields (a page number) are the page module's. The values are compiled into the page's early file: its
+in a tab that holds no cached or prefetched rows of that resource: otherwise they are there at mount.
+`loading`, `error` and `loadedAt` are known, also through a `data-sn-let` of the whole status; other status
+fields (a page number) are the page module's, and a binding that reads one renders when it mounts. The values are compiled into the page's early file: its
 runtime is the same.
 
 ## Page chrome outside data templates

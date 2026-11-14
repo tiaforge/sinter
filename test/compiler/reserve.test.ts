@@ -18,7 +18,9 @@ type El = DefaultTreeAdapterMap['element'];
  * one-line rows are as tall, `bound` the rows may be taller]
  */
 type Fit = 'exact' | 'tight' | 'bound';
-const CASES: Array<[string, string, string, number, [number, number] | null, Fit]> = [
+const CASES: Array<[string, string, string, number, [number, number] | null | 'fluid', Fit]> = [
+  // a height that follows the container's width: in percent of it, as tall as the rows at every width
+  ['square cards in two columns: a share of the width', 'body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 1fr; gap: 10px } .card { aspect-ratio: 1 }', '<div class="g"><template id="t"><div class="card"></div></template></div>', 6, 'fluid', 'tight'],
   ['fixed height, a border', '.row { height: 56px; border-bottom: 1px solid }', '<ul><template id="t"><li class="row" data-sn-text="r.name"></li></template></ul>', 12, [684, 684], 'exact'],
   ['fixed height, border-box', '* { box-sizing: border-box } .row { height: 56px; padding: 8px; border-bottom: 1px solid }', '<ul><template id="t"><li class="row" data-sn-text="r.name"></li></template></ul>', 10, [560, 560], 'exact'],
   ['margins between rows collapse', 'ul { margin: 0; padding: 0 } .row { height: 40px; margin: 10px 0 }', '<ul><template id="t"><li class="row"></li></template></ul>', 5, [240, 240], 'exact'],
@@ -64,7 +66,7 @@ const CASES: Array<[string, string, string, number, [number, number] | null, Fit
     '<div class="chips"><template id="t"><span class="chip"></span></template></div>', 12, [2 * 30 + 8, 4 * 30 + 3 * 8], 'exact'],
   ['a branch inside the row counts as nothing', '.row { line-height: 20px }', '<div><template id="t"><div class="row"><span data-sn-text="r.name"></span><template data-sn-if="r.note"><p>note</p></template></div></template></div>', 3, [60, 60], 'bound'],
   ['a height per media query', '.row { height: 40px } @media (min-width: 600px) { .row { height: 60px } }', '<div><template id="t"><div class="row"></div></template></div>', 3, [180, 120], 'exact'],
-  ['a font size in vw: its least in each range', 'body { margin: 0 } .row { font-size: 4vw; line-height: 1 }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, [2 * 0.04 * 240, 2 * 0.04 * 240], 'bound'],
+  ['a font size in vw: a share of the width, exact at every width', 'body { margin: 0 } .row { font-size: 4vw; line-height: 1 }', '<div><template id="t"><div class="row" data-sn-text="r.name"></div></template></div>', 2, 'fluid', 'tight'],
   ['rows side by side: not followed', 'ul { display: flex } li { height: 30px }', '<ul><template id="t"><li></li></template></ul>', 4, null, 'bound'],
   ['absolute rows: not followed', 'li { position: absolute; height: 30px }', '<ul><template id="t"><li></li></template></ul>', 4, null, 'bound'],
   ['a grid with other items first: not followed', '.g { display: grid; grid-template-columns: 1fr 1fr } .g > * { height: 30px }', '<div class="g"><div>first</div><template id="t"><div></div></template></div>', 4, null, 'bound'],
@@ -115,6 +117,7 @@ describe('the space of a list\'s rows', () => {
     const r = reserve(css, body, rows);
     if (!want) return expect(r).toBeNull();
     expect(r).not.toBeNull();
+    if (want === 'fluid') return expect(ruleAt(r!, 1280)).toMatch(/height:0px !important;padding-bottom:calc\([\d.]+% \+ -?[\d.]+px\)/);
     expect(heightAt(r!, 1280)).toBeCloseTo(want[0], 1);
     expect(heightAt(r!, 390)).toBeCloseTo(want[1], 1);
     expect(r!.exact).toBe(fit === 'exact');
@@ -199,7 +202,7 @@ describe.skipIf(!chromium)('the browser: the placeholder is never taller than th
     await tab.setContent(page(css, body.replace(/<template id="t">[\s\S]*<\/template>(?=<\/(ul|ol|div|section|p)>$)/, `<template></template>${list}`)));
     return tab.evaluate(() => document.getElementById('after')!.getBoundingClientRect().top);
   };
-  for (const [name, css, body, rows, want, fit] of [...CASES, ...BELOW.map(([n, c, b, r]) => [n, c, b, r, [0, 0], 'bound'] as const)]) {
+  for (const [name, css, body, rows, want, fit] of [...CASES, ...BELOW.map(([n, c, b, r]) => [n, c, b, r, [0, 0] as [number, number], 'bound'] as const)]) {
     if (!want) continue;
     test(name, async () => {
       const r = reserve(css, body, rows)!;

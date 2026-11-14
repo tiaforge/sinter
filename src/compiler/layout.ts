@@ -236,7 +236,7 @@ export class Layout {
   private viewport: number | undefined;
   private readonly views = new Map<number, Layout>();
   /** why the last `fluidSizes()` gave up, when it is something the author can change (shared by `at()` views) */
-  private readonly notes: { autoFitRows: P5Element | null } = { autoFitRows: null };
+  private readonly notes: { autoFitRows: P5Element | null; why: string | null } = { autoFitRows: null, why: null };
   /** a row of a list, in a view for its position (`withRow`): its siblings are the other rows and what is around the template */
   private row: RowCtx | null = null;
   private readonly rowViews = new Map<string, Layout>();
@@ -753,6 +753,25 @@ export class Layout {
     return { sizes, pieces: merged, max: max === null ? null : Math.ceil(max), constant };
   }
 
+  /**
+   * Whether an image (or video, iframe, embed) has a height before its file arrives: one the stylesheets fix, an
+   * `aspect-ratio`, or `width` and `height` attributes; null when the cascade cannot tell.
+   */
+  sized(el: P5Element): boolean | null {
+    const a = attrOf(el, 'width'), h = attrOf(el, 'height');
+    if (a !== undefined && h !== undefined) return true;
+    if (this.empty) return false;
+    const b = el.tagName === 'img' ? this.box(el) : null;
+    if (b && b !== 'fluid' && b.height !== null) return true;
+    const ar = this.cascaded(el, ['aspect-ratio']), hc = this.cascaded(el, SIZE.height);
+    if (ar.ambiguous || hc.ambiguous) return null;
+    if (ar.value !== null && ratioOf(this.subst(ar.value, el)) && !/^\s*auto\s*$/i.test(ar.value)) return true;
+    return hc.value !== null && !/^\s*auto\s*$/i.test(hc.value) && !/%/.test(hc.value) && this.length(el, hc.value, null) !== null;
+  }
+
+  /** Why the last `reserve()` gave no space, for the build's note. */
+  get unreserved(): string | null { return this.notes.why; }
+
   /** The `auto-fit` grid whose rows from a template made the last `fluidSizes()` give up, if that was why. */
   get autoFitRows(): P5Element | null { return this.notes.autoFitRows; }
 
@@ -1059,9 +1078,11 @@ export class Layout {
    * null when the rows' layout is not one the build follows (see `shape`), at any width.
    */
   reserve(tpl: P5Element, count: number, opts: { sized?: boolean } = {}): Reserved | null {
-    if (this.empty || this.viewport !== undefined || count < 1) return null;
+    this.notes.why = null;
+    const no = (why: string) => { this.notes.why ??= why; return null; };
+    if (this.empty || this.viewport !== undefined || count < 1) return no('no stylesheet the build reads');
     const row = soleElement(tpl), parent = this.parentOf(tpl);
-    if (!row || !parent) return null;
+    if (!row || !parent) return no('a row is more than one element');
     const cuts = this.breakpoints().filter((b) => b > MIN_VIEWPORT && b < MAX_VIEWPORT);
     // in a box whose width follows its content, the placeholder needs the rows' width: rows of a width of their own, stacked
     const shapeAt = (w: number) => { const v = this.at(w), sh = v.withRow(tpl, row, 1, count).shape(parent, row); return sh && opts.sized && sh.mode !== 'block' && sh.mode !== 'column' ? null : sh; };
@@ -1078,14 +1099,14 @@ export class Layout {
     };
     let lo = MIN_VIEWPORT;
     for (const b of [...cuts, MAX_VIEWPORT]) {
-      if (!split(lo, b, shapeAt(lo), shapeAt(b - 0.5))) return null;
+      if (!split(lo, b, shapeAt(lo), shapeAt(b - 0.5))) return no(opts.sized ? 'the box around the list is as wide as its content, and the rows are not stacked with a width of their own' : 'the rows are laid out in a way the build does not follow');
       lo = b;
     }
     const pieces: Reserved['pieces'] = [];
     let exact = true;
     // a visitor may have set a smaller default font size: what is in rem (or em, or a keyword) shrinks with it
     const rootRatio = (this.rootFont() ?? NaN) / 16;
-    if (!(rootRatio > 0)) return null;
+    if (!(rootRatio > 0)) return no('the root font size is one the build cannot read');
     /** the space of a range for a default font size of `px` */
     const spaceAt = (L: Layout, a: number, b: number, s: Shape, alt?: Shape) => {
       // a range's height is its least: at either end (a height that follows the viewport is smallest at one of them)
@@ -1096,18 +1117,30 @@ export class Layout {
       if (z && z.height < sp.height) sp = { ...z };
       // a width that follows the viewport: the narrower end
       if (x.width !== undefined && y.width !== undefined && y.width < x.width) sp.width = y.width;
-      return { sp, exact: x.exact && y.exact && Math.abs(x.height - y.height) < 0.01 && Math.abs((x.width ?? 0) - (y.width ?? 0)) < 0.01 };
+      return { sp, x, y, exact: x.exact && y.exact && Math.abs(x.height - y.height) < 0.01 && Math.abs((x.width ?? 0) - (y.width ?? 0)) < 0.01 };
     };
+    /** the container's content width at viewport `v` */
+    const widthAt = (v: number) => { const W = this.at(v).contentOf(parent, [v, v]); return W ? W.k * v + W.c : null; };
     for (const [a, b, s, alt] of ranges) {
       const r16 = spaceAt(this, a, b, s, alt), r12 = spaceAt(this.withBase(12), a, b, s, alt), r8 = spaceAt(this.withBase(8), a, b, s, alt);
-      if (!r16 || !r12 || !r8) return null;
+      if (!r16 || !r12 || !r8) return no(opts.sized ? 'the box around the list is as wide as its content, and the rows have no width of their own' : 'a row\'s margins (or widths, side by side) are ones the build cannot read');
       exact &&= r16.exact;
-      const decls = spaceCss(r16.sp, row.tagName, r12.sp, r8.sp, rootRatio);
+      // a height that follows the container's width in a straight line (an aspect ratio, a share of a grid): in percent of
+      // that width, exact at every width of the range; at or below the line's middle, and the same for every default font size
+      let fluid: { k: number; c: number } | undefined;
+      const hi = Math.max(a, b - 0.5), wa = widthAt(a), wb = widthAt(hi);
+      if (!alt && !opts.sized && s.mode !== 'line' && wa !== null && wb !== null && wb - wa > 1 && Math.abs(r16.y.height - r16.x.height) > 0.5
+        && [r12, r8].every((r) => Math.abs(r.x.height - r16.x.height) < 0.01 && Math.abs(r.y.height - r16.y.height) < 0.01)) {
+        const k = (r16.y.height - r16.x.height) / (wb - wa), c = r16.x.height - k * wa;
+        const mid = (a + hi) / 2, wm = widthAt(mid), m = this.at(mid).space(tpl, row, count, s, false);
+        if (wm !== null && m && k * wm + c <= m.height + 0.01) fluid = { k, c };
+      }
+      const decls = spaceCss(r16.sp, row.tagName, r12.sp, r8.sp, rootRatio, fluid);
       const last = pieces[pieces.length - 1];
       if (last && last.decls === decls) continue;
       pieces.push({ from: pieces.length ? a : 0, decls, height: scaled(r16.sp.height, r12.sp.height, r8.sp.height, rootRatio), mt: scaled(r16.sp.mt, r12.sp.mt, r8.sp.mt, rootRatio), mb: scaled(r16.sp.mb, r12.sp.mb, r8.sp.mb, rootRatio) });
     }
-    if (!pieces.length || pieces.every((p) => /height:0px/.test(p.decls) && !/span/.test(p.decls))) return null;
+    if (!pieces.length || pieces.every((p) => /height:0px/.test(p.decls) && !/span|padding-bottom/.test(p.decls))) return no('no height of the rows the build can tell');
     return { tag: placeholderTag(parent, row), pieces, exact };
   }
 
@@ -1117,15 +1150,24 @@ export class Layout {
    * a width. Its rows widen it when they arrive. `siblings`: other boxes move with it (a flex item
    * among others, a float).
    */
-  contentSized(tpl: P5Element): { el: P5Element; siblings: boolean } | null {
+  contentSized(tpl: P5Element): { el: P5Element; siblings: boolean; widths: string } | null {
     if (this.empty || this.viewport !== undefined) return null;
     const cuts = this.breakpoints().filter((b) => b > MIN_VIEWPORT && b < MAX_VIEWPORT);
-    const widths = [MIN_VIEWPORT + 1, ...cuts.map((c) => c + 1)];
-    for (const w of widths) {
-      const r = this.at(w).sizedBy(tpl);
-      if (r) return r;
+    const starts = [0, ...cuts];
+    const at = starts.map((w) => this.at(Math.max(w, MIN_VIEWPORT) + 1).sizedBy(tpl));
+    const first = at.find((x) => x);
+    if (!first) return null;
+    // where: the viewport widths at which it is so
+    const ranges: string[] = [];
+    for (let i = 0; i < starts.length; i++) {
+      if (!at[i]) continue;
+      let j = i;
+      while (j + 1 < starts.length && at[j + 1]) j++;
+      const lo = starts[i]!, hi = starts[j + 1];
+      ranges.push(lo === 0 && hi === undefined ? 'at every width' : lo === 0 ? `below ${Math.round(hi!)} px` : hi === undefined ? `from ${Math.round(lo)} px` : `from ${Math.round(lo)} to ${Math.round(hi)} px`);
+      i = j;
     }
-    return null;
+    return { ...first, widths: ranges.join(', ') };
   }
 
   private sizedBy(tpl: P5Element): { el: P5Element; siblings: boolean } | null {
@@ -1217,11 +1259,13 @@ export class Layout {
   /** how the rows are laid out in their parent at this viewport width, if the build follows it */
   private shape(parent: P5Element, row: P5Element): Shape | null {
     const pd = this.displayOf(parent), rd = this.rowDisplay(row);
-    if (pd === null || rd === null || rd === 'none' || this.declsOf(parent).has('\0dynamic')) return null;
-    if (!this.inFlow(row)) return null;
+    const no = (why: string) => { this.notes.why ??= why; return null; };
+    if (pd === null || rd === null || this.declsOf(parent).has('\0dynamic')) return no('a rule the build cannot decide (a state, a binding) sets how the rows or their parent are laid out');
+    if (rd === 'none') return no('the rows are hidden');
+    if (!this.inFlow(row)) return no('the rows are positioned or floated');
     // rows that skip their layout off screen are as tall as `contain-intrinsic-size` says, not as their content
     const cv = this.cascaded(row, ['content-visibility']);
-    if (cv.ambiguous || (cv.value !== null && !/^\s*visible\s*$/i.test(cv.value))) return null;
+    if (cv.ambiguous || (cv.value !== null && !/^\s*visible\s*$/i.test(cv.value))) return no('the rows use `content-visibility`');
     if (/^(block|list-item|flow-root)$/.test(pd)) return /^(block|list-item|flow-root|flex|grid|table)$/.test(rd) ? { mode: 'block', columns: 1 } : null;
     if (/^(inline-)?flex$/.test(pd)) {
       const dir = this.flexFlow(parent, 'direction'), wrap = this.flexFlow(parent, 'wrap');
@@ -1230,7 +1274,7 @@ export class Layout {
       if (dir && dir !== 'row') return null;
       // side by side: rows of a width of their own, nothing else in the row
       // (a flex basis other than auto sets the width instead)
-      if (parent.childNodes.some((c) => isEl(c) && c.tagName !== 'template') || !this.rowWidth(row) || this.flexBasis(row) !== 'auto') return null;
+      if (parent.childNodes.some((c) => isEl(c) && c.tagName !== 'template') || !this.rowWidth(row) || this.flexBasis(row) !== 'auto') return no('the rows sit side by side with no width of their own (a `width`, no `flex-basis`), or among other items');
       if (!wrap || wrap === 'nowrap') return { mode: 'line', columns: 1 };
       if (wrap !== 'wrap') return null;
       // rows per line, from the row's width and the container's
@@ -1242,15 +1286,15 @@ export class Layout {
     }
     if (/^(inline-)?grid$/.test(pd)) {
       // auto-placed rows, and nothing else in the grid that would take a cell first
-      if (parent.childNodes.some((c) => isEl(c) && c.tagName !== 'template')) return null;
+      if (parent.childNodes.some((c) => isEl(c) && c.tagName !== 'template')) return no('the grid has other items before the rows could take their cells');
       const rm = this.declsOf(row);
-      if (['grid-column', 'grid-column-start', 'grid-column-end', 'grid-row', 'grid-row-start', 'grid-row-end', 'grid-area'].some((p) => rm.has(p))) return null;
+      if (['grid-column', 'grid-column-start', 'grid-column-end', 'grid-row', 'grid-row-start', 'grid-row-end', 'grid-area'].some((p) => rm.has(p))) return no('the rows place themselves in the grid');
       const flow = this.cascaded(parent, ['grid-auto-flow']);
-      if (flow.ambiguous || (flow.value !== null && !/^\s*row\s*$/i.test(flow.value))) return null;
+      if (flow.ambiguous || (flow.value !== null && !/^\s*row\s*$/i.test(flow.value))) return no('the grid places its items other than row by row');
       const n = this.gridColumns(parent);
-      return n ? { mode: 'grid', columns: n } : null;
+      return n ? { mode: 'grid', columns: n } : no('the grid\'s columns are ones the build cannot count');
     }
-    return null;
+    return no(/^table/.test(rd) || /^table/.test(pd) ? 'the rows are table rows' : `the rows are laid out as \`${rd}\` in a \`${pd}\` parent`);
   }
 
   /** the number of columns of a grid at this viewport width: a track list, or auto-fill/auto-fit of one size */
@@ -2045,8 +2089,9 @@ const PHRASING = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a', 
 export const PLACEHOLDER_BASE = ['display:block', 'visibility:hidden', 'padding:0', 'border:0', 'margin:0', 'min-height:0', 'max-height:none', 'flex:none'].map((x) => `${x} !important`).join(';');
 
 /** a placeholder's own declarations at one width: its height, and what it has beyond the base rule */
-function spaceCss(s: Space, _rowTag: string, s12?: Space, s8?: Space, rootRatio = 1): string {
-  const d = [`height:${scaled(s.height, s12?.height, s8?.height, rootRatio)}`];
+function spaceCss(s: Space, _rowTag: string, s12?: Space, s8?: Space, rootRatio = 1, fluid?: { k: number; c: number }): string {
+  // a height in percent of the container's width rides on padding (its percentages are of the width), floored
+  const d = fluid ? ['height:0px', `padding-bottom:calc(${Math.floor(fluid.k * 1e6) / 1e4}% + ${floor(fluid.c)}px)`] : [`height:${scaled(s.height, s12?.height, s8?.height, rootRatio)}`];
   if (s.mt) d.push(`margin-top:${scaled(s.mt, s12?.mt, s8?.mt, rootRatio)}`);
   if (s.mb) d.push(`margin-bottom:${scaled(s.mb, s12?.mb, s8?.mb, rootRatio)}`);
   if (s.span) d.push('grid-column:1/-1', `grid-row:span ${s.span}`);

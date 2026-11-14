@@ -132,3 +132,13 @@ test('SN520: a list over late data in a flex item whose width follows its conten
   expect(fixed.paint).toContain('width:280px');
   expect(fixed.paint).toContain('height:160px');
 });
+
+test('SN521: an image without a height in rows that arrive after the first paint', () => {
+  const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: 'img { max-width: 100% } .avatar { width: 32px; height: 32px } .cover { aspect-ratio: 16 / 9; width: 100% }' }], paintCss: '/p.css' };
+  const page = (img: string) => `<!doctype html><html><head></head><body><sn-resource name="people" src="/api/people" key="id"></sn-resource><ul><template data-sn-for="p in people"><li>${img}<span data-sn-text="p.name"></span></li></template></ul></body></html>`;
+  const codes = (img: string) => compile(page(img), opts).diagnostics.filter((d) => d.code === 'SN521').length;
+  expect(codes('<img data-sn-attr="{src: p.photo}" alt="">')).toBe(1);
+  expect(codes('<img data-sn-attr="{src: p.photo}" width="400" height="300" alt="">')).toBe(0);
+  expect(codes('<img class="avatar" data-sn-attr="{src: p.photo}" alt="">')).toBe(0);
+  expect(codes('<img class="cover" data-sn-attr="{src: p.photo}" alt="">')).toBe(0);
+});
