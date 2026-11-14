@@ -6,6 +6,7 @@ import { earlyPage } from '../compiler/index.js';
 import { applyStrict, formatDiagnostic, strictOf, type Strict } from '../compiler/diagnostics.js';
 import { apiOrigins, resolveApis, type ApiOptions, type ApisDef } from '../compiler/apis.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
+import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compactIR } from '../ir.js';
 import type { CompiledParts, HelperManifest } from '../compiler/compile.js';
 import * as earlyExports from '../early.js';
@@ -52,7 +53,7 @@ const FEATURES: Record<string, Feature> = { components, nested, defs, dev, sse, 
 // ---- requests
 
 export type RouteResponse =
-  | ((call: RecordedCall) => unknown)
+  | ((call: RecordedCall, request: Request) => unknown)
   | { status: number; body?: unknown; headers?: Record<string, string> }
   | object | string | number | boolean | null;
 
@@ -62,6 +63,15 @@ export interface RecordedCall {
   path: string;
   body: unknown;
   headers: Record<string, string>;
+  /** the response's status, once answered (unset while waiting, and when the request failed or was aborted) */
+  status?: number;
+  /** whether a route answered it (false: `fallback` did) */
+  matched?: boolean;
+}
+
+export interface MockRequestsOptions {
+  /** answers the requests no route matches, instead of failing them (`render()` would rethrow the error) */
+  fallback?: RouteResponse;
 }
 
 export interface MockRequests extends Middleware {
@@ -97,7 +107,7 @@ function toResponse(v: unknown): Response {
 }
 
 /** Request middleware answering `'METHOD /path'` routes. Responses are held until `settle()`. */
-export function mockRequests(routes: Record<string, RouteResponse>): MockRequests {
+export function mockRequests(routes: Record<string, RouteResponse>, options: MockRequestsOptions = {}): MockRequests {
   const calls: RecordedCall[] = [];
   const errors: Error[] = [];
   const queue: Array<() => void> = [];
@@ -120,7 +130,9 @@ export function mockRequests(routes: Record<string, RouteResponse>): MockRequest
     req.headers.forEach((v, k) => { headers[k.toLowerCase()] = v; });
     const call: RecordedCall = { method: req.method, url: url.pathname + url.search, path: url.pathname, body, headers };
     calls.push(call);
-    const route = table.find((r) => r.method === req.method && (r.path.includes('?') ? r.path === call.url : r.path === url.pathname));
+    const route = table.find((r) => r.method === req.method && (r.path.includes('?') ? r.path === call.url : r.path === url.pathname))
+      ?? (options.fallback !== undefined ? { method: req.method, path: url.pathname, value: options.fallback, key: '(fallback)' } : undefined);
+    call.matched = !!route && route.key !== '(fallback)';
     if (!route) {
       const err = new Error(`unmatched request: ${req.method} ${call.url}\nregistered routes:\n${table.map((r) => `  ${r.key}`).join('\n') || '  (none)'}`);
       errors.push(err);
@@ -134,8 +146,10 @@ export function mockRequests(routes: Record<string, RouteResponse>): MockRequest
         req.signal.removeEventListener('abort', onAbort);
         if (req.signal.aborted) return;
         try {
-          const v = typeof route.value === 'function' ? await (route.value as (c: RecordedCall) => unknown)(call) : route.value;
-          resolve(toResponse(structuredClone(v)));
+          const v = typeof route.value === 'function' ? await (route.value as (c: RecordedCall, r: Request) => unknown)(call, req) : route.value;
+          const res = toResponse(v instanceof Response ? v : structuredClone(v));
+          call.status = res.status;
+          resolve(res);
         } catch (e) { reject(e); }
       });
     });
@@ -263,6 +277,27 @@ export interface RenderOptions {
    * environment do not (`warnings()` has them)
    */
   strict?: boolean | { allow?: Record<string, string> };
+  /**
+   * @internal `sinter render`: the page is a file of a project, compiled with the project's files, components,
+   * layouts and APIs (as `sinter check` reads them) instead of `files`, `components`, `layouts` and `apis`
+   */
+  project?: RenderProject;
+}
+
+/** @internal a page of a project on disk, for `sinter render` */
+export interface RenderProject {
+  root: string;
+  file: string;
+  readFile: (path: string) => string;
+  componentNames: string[];
+  openapi: OpenApiSpec[];
+  apis: ApisDef | null;
+}
+
+/** One write to the page's history: `push` adds an entry, `replace` and `fragment` change the current one. */
+export interface HistoryWrite {
+  op: 'push' | 'replace' | 'fragment';
+  url: string;
 }
 
 export interface FirstPaintTestOptions {
@@ -295,6 +330,10 @@ export interface Rendered {
   url(): string;
   /** the page's history entries (pushed by `$url` writes; a navigation adds none), oldest first */
   history(): string[];
+  /** every history write since `render()`, in order: what `history()` does not show, a replace */
+  historyWrites(): HistoryWrite[];
+  /** the build's warnings for the page (errors make `render()` throw) */
+  diagnostics: Diagnostic[];
   /** Back and Forward: moves through `history()` and dispatches `popstate`; nothing past either end */
   back(): Promise<void>;
   forward(): Promise<void>;
@@ -368,7 +407,7 @@ function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () 
   runEarly(document, made);
 }
 
-function compilePage(html: string, options: RenderOptions, strict: Strict = { on: false, allow: new Map() }): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown>; apis: ApisDef | null } {
+function compilePage(html: string, options: RenderOptions, strict: Strict = { on: false, allow: new Map() }): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown>; apis: ApisDef | null; diagnostics: Diagnostic[] } {
   const helpers = options.helpers ?? {};
   const manifest: HelperManifest = { module: null, names: [], namespaces: {} };
   for (const [k, v] of Object.entries(helpers)) {
@@ -385,20 +424,21 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   for (const [name, text] of Object.entries(options.components ?? {})) files[`src/components/${name}.html`] = text;
   for (const [name, text] of Object.entries(options.layouts ?? {})) files[`src/layouts/${name}.html`] = text;
   for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= 'export default class {}';
-  const apis = options.apis ? testApis(options) : null;
+  const proj = options.project;
+  const apis = proj ? { specs: proj.openapi, apis: proj.apis } : options.apis ? testApis(options) : null;
   const parts = compileParts(html, {
-    file: PAGE, root: '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank', componentNames: Object.keys(options.components ?? {}),
+    file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
     lazy: true,
-    readFile: (p) => {
+    readFile: proj?.readFile ?? ((p) => {
       const rel = p.startsWith('/test/') ? p.slice('/test/'.length) : p;
       const hit = files[rel] ?? files[`./${rel}`] ?? files[p];
       if (hit === undefined) throw new Error(`no such file: ${p}`);
       return hit;
-    },
+    }),
     // compiled as a build does (both passes: build-time constants, decided branches, unrolled loops); `firstPaint` runs the early chunk
     prerender: true, ...(options.firstPaint ? { early: { module: null } } : {}),
-    ...(apis ? { openapi: apis.specs, apis: apis.apis } : options.openapi ? { openapi: [{ file: 'openapi.yml', doc: options.openapi }] } : {}),
+    ...(apis ? { openapi: apis.specs, ...(apis.apis ? { apis: apis.apis } : {}) } : options.openapi ? { openapi: [{ file: 'openapi.yml', doc: options.openapi }] } : {}),
     ...(options.remoteImages ? { remoteImages: resolveRemote(options.remoteImages) } : {}),
     // static images stay as written in tests (no files to encode); the stylesheets size bound ones
     ...(options.css ? { images: { info: () => null, url: () => '', styles: [{ file: 'test.css', css: options.css }] } } : {}),
@@ -408,7 +448,7 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   const diagnostics = strict.on ? applyStrict(parts.diagnostics, new Set(strict.allow.keys())) : parts.diagnostics;
   const errors = diagnostics.filter((d) => d.severity === 'error');
   if (errors.length) throw new Error(`sinter: build failed\n${errors.map(formatDiagnostic).join('\n')}`);
-  return { parts, manifest, actions, apis: apis?.apis ?? null };
+  return { parts, manifest, actions, apis: apis?.apis ?? null, diagnostics };
 }
 
 /** `apis` of the render options, resolved as the project resolves `sinter({ apis })`; an invalid one throws. */
@@ -441,7 +481,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   const helpers = withMessages(options);
   // `strict: false` on one test wins over SINTER_STRICT: that test expects its warnings
   const strict = options.strict === false ? { on: false, allow: new Map<string, string>() } : strictOf(options.strict);
-  const { parts, actions, apis } = compilePage(html, { ...options, helpers }, strict);
+  const { parts, actions, apis, diagnostics } = compilePage(html, { ...options, helpers }, strict);
   // the runtime's warnings: all of them for `warnings()`; in strict mode the next call rejects with the page's own
   const sink = warningSink(), seenWarnings: RuntimeWarning[] = [], failing: RuntimeWarning[] = [];
   sink.list.length = 0;
@@ -490,6 +530,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   let now = options.now instanceof Date ? options.now.getTime() : options.now ?? Date.parse('2026-01-01T09:00:00Z');
   let href = options.url ? new URL(options.url, 'http://localhost/').href : 'http://localhost/';
   const entries = [href];
+  const writes: HistoryWrite[] = [];
   let at = 0;
   const timers: Timer[] = [];
   let nextTimer = 1;
@@ -509,10 +550,10 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     storage: () => store,
     session: () => session,
     href: () => href,
-    replaceState: (url) => { href = entries[at] = new URL(url, href).href; },
+    replaceState: (url) => { href = entries[at] = new URL(url, href).href; writes.push({ op: 'replace', url: href }); },
     // a push drops the entries after the current one, as a browser's history does
-    pushState: (url) => { href = new URL(url, href).href; entries.splice(++at, Infinity, href); },
-    fragment: (hash) => { href = entries[at] = new URL(hash, href).href; },
+    pushState: (url) => { href = new URL(url, href).href; entries.splice(++at, Infinity, href); writes.push({ op: 'push', url: href }); },
+    fragment: (hash) => { href = entries[at] = new URL(hash, href).href; writes.push({ op: 'fragment', url: href }); },
     // the test's simulated events are the user's; the custom events sinter dispatches are not
     trusted: (e) => !(e instanceof CustomEvent),
     random: () => 0.5,
@@ -664,6 +705,8 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     warnings: () => [...seenWarnings],
     url: () => href,
     history: () => [...entries],
+    historyWrites: () => writes.map((w) => ({ ...w })),
+    diagnostics: diagnostics.filter((d) => d.severity !== 'error'),
     back: strictly(() => go(-1)),
     forward: strictly(() => go(1)),
     frame: strictly(async () => {
