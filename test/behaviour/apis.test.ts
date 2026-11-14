@@ -50,7 +50,7 @@ describe('request settings per API', () => {
   test('render: a page written with paths of an API', async () => {
     const requests = mockRequests({ 'GET /v1/contacts': { contacts: [{ id: 1, name: 'Ada' }] } });
     const { root, settle } = await render('<sn-resource name="contacts" src="/contacts"></sn-resource><p data-sn-text="contacts[0].name"></p>', {
-      requests, url: 'https://api.example.com/', apis: { main: { openapi: doc, headers: { 'X-Api': '2' }, defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } } } },
+      requests, apis: { main: { openapi: doc, headers: { 'X-Api': '2' }, defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } } } },
     });
     await settle();
     expect(root.querySelector('p')!.textContent).toBe('Ada');

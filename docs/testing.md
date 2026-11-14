@@ -63,7 +63,8 @@ A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn
 | `firstPaint` | `true` or `{ early, afterEarly }`: run the early script before mounting, [below](#firstpaint) |
 | `frames` | server-event changes wait for `frame()` instead of flushing in a microtask |
 | `pages` | your other pages by file name, so links to them prefetch their data as in a build |
-| `openapi` | a parsed OpenAPI document, as `sinter({ openapi })` gives the compiler |
+| `apis`, `defaultApi` | the app's APIs as `sinter({ apis })` takes them, each `openapi` a parsed document: paths on the page are relative to them, requests carry their credentials and headers ([docs/apis.md](apis.md#in-tests)) |
+| `openapi` | a parsed OpenAPI document, as the older `sinter({ openapi })` gives the compiler |
 | `remoteImages`, `css` | `images.remote` and the page's CSS, for pages with bound images |
 
 Pass your real helpers and actions rather than copies:

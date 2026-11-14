@@ -4,7 +4,7 @@
 import { compileParts } from '../compiler/compile.js';
 import { earlyPage } from '../compiler/index.js';
 import { formatDiagnostic } from '../compiler/diagnostics.js';
-import { resolveApis, type ApiOptions, type ApisDef } from '../compiler/apis.js';
+import { apiOrigins, resolveApis, type ApiOptions, type ApisDef } from '../compiler/apis.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import { compactIR } from '../ir.js';
 import type { CompiledParts, HelperManifest } from '../compiler/compile.js';
@@ -422,6 +422,8 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   const { parts, actions, apis } = compilePage(html, { ...options, helpers });
   // the page module's `$apis`: each API's base, credentials and headers
   config.apis = apis?.list.map((a) => ({ n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) })) ?? [];
+  // and their origins join the allowlist, as the page module's `$origins` does
+  if (apis) config.origins = [...new Set([...config.origins, ...apiOrigins(apis)])];
 
   // function table, with helpers and namespace members in scope
   const names: string[] = ['$k'];

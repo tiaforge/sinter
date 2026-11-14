@@ -36,7 +36,9 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | `early` | `src/sinter.early.js` | code that runs before the first paint ([docs/first-paint.md](first-paint.md)) |
 | `types` | `src/sinter.types.ts` (then `.d.ts`, `.js`) | the types `type="..."` may name ([docs/type-checking.md](type-checking.md)) |
 | `messages` | `project.inlang`, if it exists | the inlang project for [messages](#messages); `false` turns them off |
-| `openapi` | none | one OpenAPI file or a list of them ([docs/type-checking.md](type-checking.md#openapi)) |
+| `apis` | none | the APIs the app calls: base URL, OpenAPI spec, credentials, headers, and what each endpoint returns. Pages then write paths relative to them (`src="/contacts"`), checked against the spec ([docs/apis.md](apis.md)) |
+| `defaultApi` | the only API | the API a path without `api:` goes to |
+| `openapi` | none | deprecated: one OpenAPI file or a list of them; give each API its spec in `apis` instead ([docs/type-checking.md](type-checking.md#openapi)) |
 
 ### Checks
 
@@ -58,7 +60,7 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | `earlyBudget` | `10000` | an early script above this many gzipped bytes is a build warning |
 | `embed` | `false` | for a server that writes each page's data into the HTML: pages get placeholders instead of early requests, and the build writes `sinter-embed.json` listing them. `vite dev` is unaffected |
 | `lazy` | `[]` | packages loaded on first call instead of with the page (`['openpgp']`): your imports of one become stubs that share one `import()`, so it is a chunk of its own. Only awaited calls of its exports work (`SN324`); `data-sn-import` and `data-sn-preload` load it sooner ([docs/lazy.md](lazy.md)) |
-| `origins` | `[]` | other origins your resources, actions and streams may call. Added to every page's allowlist and preloaded like same-origin requests, without credentials. Put API origins here, not in `configure({ origins })` |
+| `origins` | `[]` | other origins your resources, actions and streams may call. Added to every page's allowlist and preloaded like same-origin requests, without credentials. The origins of `apis` are added for you; list here only origins that are no API (an image host). Put them here, not in `configure({ origins })` |
 | `prefetch` | `true` | request the next page's data when a link is about to be followed ([docs/navigation.md](navigation.md)) |
 | `speculation` | `'prefetch'` | Speculation Rules for links between pages (Chromium): `'prefetch'`, `'prerender'`, `false`, or `{ mode, delivery }` |
 

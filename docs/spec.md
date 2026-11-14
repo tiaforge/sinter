@@ -443,6 +443,17 @@ A query parameter whose whole value is one interpolation that evaluates to an ar
 
 A resource whose `src` interpolates state or `$url` refetches when those values change.
 
+#### Paths relative to an API (added 2026-11-14)
+With `sinter({ apis })` (`ApiOptions`, resolved by `resolveApis` in `compiler/apis.ts` into `ApisDef`: each API's `base`, its spec indexes into `openapi`, `credentials`, `headers` and `shapes`), the value of `src` on `<sn-resource>` and `<sn-sync>` and of an action's method attribute is `[api:]/path[?query]`. `api:` names an API (`site` is built in, base `''`); without it the path goes to `defaultApi` (the only API when one is configured; `SN326` when several are and none is named). The compiler parses the template from after the prefix, checks that it starts with a literal `/` (`SN207`), and puts the API's base in front of its first literal: the compiled template is the one the absolute URL gave before, so the runtime, the early file, preloads, prefetching and embedding see the same URLs. An absolute URL is `SN328` (its message names the API-relative path). The `operations` of an API are a generated OpenAPI document (`operationsDoc`, `OpenApiSpec.config` = the API's name), so they match like the spec's.
+
+The operation is `matchOperation` over the API's specs only, with the path relative to them (no server prefix) and the method of the place: `GET` for a resource (`POST` with `method="POST"`) and a stream, the attribute's for an action. No match is `SN326` with the closest path of that method. Query parameter names written literally, and those `paginate` sends (`sizeParam`, `offsetParam` or `pageParam` by mode, `directionParam`, the cursor's keys), must be declared by the operation or the shape's `query` (`SN327`); `name[field]` counts as `name` when that parameter is `style: deepObject`; a required one that is not given is `SN327`. Without `apis` nothing of this applies.
+
+A resource's `items`, `total`, `key` and `type` come from the operation's shape (`defaults`/`operations`, keyed `METHOD /path` as the spec writes the path), else the element; the declaration pass reads `key` that way, so a configured key makes a collection. An element restating a configured value is `SN518` (equal) or `SN330` (different). An operation of the generated document has no response schema: its type is the shape's `type`, else `SN504` in check mode.
+
+`method="POST"` on a resource (`ResourceDef.body`, the function of its `body` attribute) loads with a POST of the body's value; the loader's identity is `URL + "\0" + JSON(body)`, which `changed()` compares and the shared-request map keys by. Such a resource is in `noEarly` (no preload, early request or embedding), is left out of `prefetchParts`, and refuses `cache`, `paginate` and `each` (`SN401`).
+
+The page module calls `$apis([{ n, b, c?, h? }])` when an API has `credentials` or `headers`. The request layer finds a URL's API by the longest base it starts with (`apiFor`), sets its headers the request does not have and its credentials before the middleware chain; `apiOf(url)` names it. `EarlyIR.res[].a` gives the early file the same settings; its `take` compares the page module's request with what it sent (method, credentials, every header). A preload link is written for a resource whose API has no headers and no `credentials: 'omit'` (`crossorigin="use-credentials"` for `include`). `EmbedSlot.headers` carries the static headers to the server layers.
+
 ### Magic names
 
 | Name | Available in | Value |

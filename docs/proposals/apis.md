@@ -1,7 +1,22 @@
 # Proposal: APIs in the config
 
-Status: proposal, nothing implemented. It replaces the `operation` + `params` prototype on this branch
-([What happens to the prototype](#what-happens-to-the-prototype)).
+Status: implemented (2026-11-14), steps 1 to 6 of the [Plan](#plan); the guide is [apis.md](../apis.md).
+Where the implementation departs from this text:
+- `SN330` is the error for a different value; restating the configured value is its own warning,
+  `SN518` (`redundant-shape`), as a code's severity is fixed. `SN327` is named `undeclared-query`,
+  `SN329` `api-config`.
+- `SN328` is an error from the start: nothing shipped between the steps.
+- `sinter migrate` does not edit the Vite config (JavaScript it cannot rewrite safely): it prints the
+  `defaults` and `operations` to add, and leaves the attributes they replace, which `SN518` and its
+  quick fix then remove. A same-origin path under no base is reported, not rewritten, so that a
+  second run changes nothing.
+- The top-level `sinter({ openapi })` keeps its old behaviour (full URLs, warnings) with the
+  deprecation warning, instead of becoming an API with base `''`, which would have made every
+  existing app strict at once.
+- Sinter.AspNetCore does not send the static headers yet (no .NET toolchain where this was built);
+  the manifest field is additive and it ignores it.
+- The next-page prefetch descriptions are compiled with the APIs too (found when comparing
+  RealWorld's build before and after: byte for byte the same).
 
 Decided with the user:
 - The APIs an app calls are configured in JavaScript, in `sinter({ apis })`: base URL, OpenAPI spec,

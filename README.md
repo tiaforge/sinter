@@ -60,7 +60,9 @@ the pages.
   a server-rendering framework in the same benchmark saturates around 60-120.
   ([measurements](docs/first-paint-comparison.md))
 - **Type checking.** Point sinter at your TypeScript types or
-  your OpenAPI spec and `article.titel` is a build error with a "did you mean `title`?".
+  your OpenAPI spec and `article.titel` is a build error with a "did you mean `title`?". [Configure your
+  APIs](docs/apis.md) once and pages write paths (`src="/articles"`): a path or query parameter the API
+  does not have fails the build, and the editor completes them.
 - **Web performance by default.** Preloading, preconnecting, low-priority loading for data nobody
   needs yet, self-hosted fonts, optimized images and Speculation Rules are done by the build. You do
   not configure them. RealWorld scores **94 on mobile and 99 on desktop** in Lighthouse, with the

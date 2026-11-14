@@ -95,11 +95,13 @@ An event whose expressions read the payload and has no `type` is warning `SN506`
 
 ## OpenAPI
 
-Point sinter at your spec and resources are typed without writing any types:
+Give each API its spec in [`sinter({ apis })`](apis.md), and resources are typed without writing any types:
 
 ```js
-sinter({ openapi: 'openapi.yml' })                    // or a list, one per API
+sinter({ apis: { main: { openapi: 'openapi.yml' } } })
 ```
+
+Pages then write paths relative to the API (`src="/contacts"`), and every path, method and query parameter is checked against the spec: [docs/apis.md](apis.md). The rest of this section is how a resource is typed from its operation, and holds for the older `sinter({ openapi: 'openapi.yml' })` too (deprecated: it matches full URLs and only warns).
 
 Local JSON or YAML files, so builds stay deterministic. The spec must be an OpenAPI 3 document (`openapi: 3.x` and `paths`), else `SN307`.
 
@@ -118,7 +120,7 @@ SN308 unknown-schema-field: the response of `GET /articles` has no `articls`. Di
 SN505 unknown-query-param: `GET /articles` declares no query parameter `tagg`. Did you mean `tag`?
 ```
 
-`SN308` means `items` or `total` is not in the schema. `SN505` is a warning for a literal query parameter the operation does not declare.
+`SN308` means `items` or `total` is not in the schema. `SN505` is a warning for a literal query parameter the operation does not declare, with the older `openapi` option; with `apis` it is the error `SN327`.
 
 ## Examples of errors
 
