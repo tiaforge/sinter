@@ -99,3 +99,9 @@ describe('sinter({ apis })', () => {
     expect(['/', '/api/', '//evil.example', 'ftp://x', 'https://a.example/', '/a?x', 'api'].some(validBase)).toBe(false);
   });
 });
+
+test('sinter({ openapi }) still works, with a deprecation warning', () => {
+  const p = apiProject({ openapi: 'openapi.yml' });
+  expect(p.openapi).toHaveLength(1);
+  expect(p.diagnostics.map((d) => [d.severity, d.code, d.message.split(':')[0]])).toEqual([['warning', 'SN329', 'sinter({ openapi }) is deprecated']]);
+});

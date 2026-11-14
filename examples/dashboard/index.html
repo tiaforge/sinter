@@ -2,13 +2,13 @@
 <app-layout data-sn-prop="{ title: 'Overview' }">
 
   <!-- The data. Without `type`, a resource is typed from server/openapi.yml: GET /api/services is listServices. -->
-  <sn-resource name="services" src="/api/services" key="id"></sn-resource>
+  <sn-resource name="services" src="/services" key="id"></sn-resource>
   <!-- The last 30 seconds of samples, once. `slot` is the key: a new sample takes the slot of the oldest, so this
        stays the same size however long the page is open. Ordered by time, so a service's samples are in order. -->
-  <sn-resource name="samples" src="/api/samples" key="slot" order="at"></sn-resource>
+  <sn-resource name="samples" src="/samples" key="slot" order="at"></sn-resource>
 
   <!-- Live updates, pushed by the server: one new sample at a time, and a service when it is paused. -->
-  <sn-sync src="/api/events">
+  <sn-sync src="/events">
     <sn-event name="sample" resource="samples" op="upsert"></sn-event>
     <sn-event name="service_updated" resource="services" op="upsert" item="service" type="ServiceEvent"></sn-event>
   </sn-sync>
@@ -39,7 +39,7 @@
         <service-card data-sn-prop="{ service: s, samples: of(samples, s.id) }">
           <!-- Optimistic: shows paused at once, and is taken back if the PATCH fails. The 200 response replaces the service. -->
           <button slot="actions" data-variant="ghost" data-size="sm"
-                  data-sn-patch="/api/services/{s.id}" data-sn-body="{ paused: !s.paused }"
+                  data-sn-patch="/services/{s.id}" data-sn-body="{ paused: !s.paused }"
                   data-sn-optimistic="patch(s, { paused: !s.paused })"
                   data-sn-text="s.paused ? 'Resume' : 'Pause'"></button>
         </service-card>

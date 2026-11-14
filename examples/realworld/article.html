@@ -6,9 +6,9 @@
 <script slot="head" type="module" src="/src/markdown.js"></script>
 <!-- early="off": the auth middleware answers this request without a token, and adds one otherwise:
      a request sent before the page module would go unused -->
-<sn-resource cache name="user" src="https://api.realworld.show/api/user" items="user" then="guest = !$result" early="off"></sn-resource>
-<sn-resource cache name="article" src="https://api.realworld.show/api/articles/{$url.slug}" items="article"></sn-resource>
-<sn-resource cache name="comments" src="https://api.realworld.show/api/articles/{$url.slug}/comments" items="comments" key="id" order="-createdAt"></sn-resource>
+<sn-resource cache name="user" src="/user" then="guest = !$result" early="off"></sn-resource>
+<sn-resource cache name="article" src="/articles/{$url.slug}"></sn-resource>
+<sn-resource cache name="comments" src="/articles/{$url.slug}/comments" order="-createdAt"></sn-resource>
 
 <main class="article-page">
   <template data-sn-if="$meta.article.error">
@@ -43,7 +43,7 @@
           </template>
           <template data-sn-if="user">
             <form class="card comment-form" data-sn-state="{ body: '' }"
-                  data-sn-post="https://api.realworld.show/api/articles/{article.slug}/comments" data-sn-body="{comment: {body}}"
+                  data-sn-post="/articles/{article.slug}/comments" data-sn-body="{comment: {body}}"
                   data-sn-then="body = ''; commentError = null">
               <error-list data-sn-prop="{ error: $error }"></error-list>
               <div class="card-block"><textarea class="form-control" name="body" placeholder="Write a comment..." rows="3" data-sn-model="body"></textarea></div>
@@ -66,7 +66,7 @@
                 <span class="date-posted" data-sn-text="date(c.createdAt, 'long')"></span>
                 <template data-sn-if="user && user.username == c.author.username">
                   <span class="mod-options">
-                    <i class="ion-trash-a" data-sn-delete="https://api.realworld.show/api/articles/{article.slug}/comments/{c.id}"
+                    <i class="ion-trash-a" data-sn-delete="/articles/{article.slug}/comments/{c.id}"
                        data-sn-catch="commentError = $error"></i>
                   </span>
                 </template>

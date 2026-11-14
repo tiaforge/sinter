@@ -3,7 +3,7 @@
   data-sn-prop="{ nav, guest, title: 'Sign in', description: 'Sign in to Conduit.' }">
 <!-- early="off": the auth middleware answers this request without a token, and adds one otherwise:
      a request sent before the page module would go unused -->
-<sn-resource cache name="user" src="https://api.realworld.show/api/user" items="user" then="guest = !$result" early="off"></sn-resource>
+<sn-resource cache name="user" src="/user" then="guest = !$result" early="off"></sn-resource>
 
 <main class="auth-page">
   <div class="container page">
@@ -11,7 +11,7 @@
       <div class="col-md-6 offset-md-3 col-xs-12">
         <h1 class="text-xs-center">Sign in</h1>
         <p class="text-xs-center"><a href="/register">Need an account?</a></p>
-        <form data-sn-post="https://api.realworld.show/api/users/login" data-sn-body="{user: {email, password}}"
+        <form data-sn-post="/users/login" data-sn-body="{user: {email, password}}"
               data-sn-then="emit('signed-in', {user: $result.user, to: /^\/(?!\/)/.test($url.next || '') ? $url.next : null})">
           <error-list data-sn-prop="{ error: $error }"></error-list>
           <fieldset>

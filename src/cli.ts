@@ -2,18 +2,19 @@
 // `sinter check [--root <dir>] [--check-cycles] [page.html …]`: compiles the pages and type-checks
 // their expressions. Without pages, it reads them and the plugin options from the
 // Vite config. `sinter lsp`: the language server for editors.
-import { readFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import { check } from './check/index.js';
 import { compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
 import { project, staticPages, viteProject, type ProjectOptions } from './project.js';
 import { lazyDiagnostics, resolveFile } from './lazy-build.js';
 
-const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [page.html …]\n       sinter lsp [--stdio]';
+const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [page.html …]\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   if (command === 'lsp') return lsp();
+  if (command === 'migrate') return migrate(rest);
   if (command !== 'check') {
     console.error(USAGE);
     return 2;
@@ -60,6 +61,51 @@ async function main(argv: string[]): Promise<number> {
   const warnings = diagnostics.length - errors;
   console.log(`sinter check: ${files.length} page(s), ${errors} error(s), ${warnings} warning(s); ${r.typed} of ${r.resources} resources typed${r.openapi ? ` (${r.openapi} via OpenAPI)` : ''}`);
   return errors ? 1 : 0;
+}
+
+/**
+ * `sinter migrate [--root <dir>] [--write]`: the URLs of the pages, components and layouts become paths
+ * relative to the APIs of `sinter({ apis })` (printed; written with `--write`), and what to add to the
+ * config is printed: the shapes every page agrees on, and the endpoints no API declares.
+ */
+async function migrate(args: string[]): Promise<number> {
+  let root = process.cwd(), write = false;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--root') root = resolve(args[++i] ?? '.');
+    else if (args[i] === '--write') write = true;
+    else { console.error(USAGE); return 2; }
+  }
+  const { migrateMarkup, configReport, formatReport } = await import('./migrate.js');
+  const { pages, options } = await viteProject(root);
+  if (!options.apis) {
+    const specs = options.openapi == null ? [] : ([] as string[]).concat(options.openapi);
+    console.error('sinter migrate: configure the APIs first, in the Vite config (docs/apis.md), then run it again:\n');
+    console.error(`  sinter({ apis: { main: { ${specs.length ? `openapi: ${JSON.stringify(specs.length > 1 ? specs : specs[0])}` : "base: '/api'"} } } })\n`);
+    if (specs.length) console.error('  (the base is the spec\'s first server; set `base` for another; remove the top-level `openapi`' + ((options as { origins?: string[] }).origins?.length ? ', and the API origins from `origins`)' : ')'));
+    return 1;
+  }
+  const p = project(root, options);
+  const errors = p.diagnostics.filter((d) => d.severity === 'error');
+  if (errors.length || !p.apis) { for (const d of errors) console.error(formatDiagnostic(d)); return 1; }
+  const html = (dir: string) => { try { return readdirSync(join(root, dir)).filter((f) => f.endsWith('.html')).map((f) => join(root, dir, f)); } catch { return []; } };
+  const files = [...new Set([...pages, ...html('src/components'), ...html('src/layouts')])];
+  const uses = [];
+  let changed = 0;
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8');
+    const r = migrateMarkup(text, file, p.apis);
+    uses.push(...r.uses);
+    const rel = relative(root, file);
+    for (const w of r.rewrites) console.log(`${rel}:${w.line}  ${w.from}  →  ${w.to}`);
+    for (const w of r.unsure) console.log(`${rel}:${w.line}  ${w.from}  goes to the default API now; write ${w.to} if it is the page's own`);
+    if (r.rewrites.length) { changed++; if (write) writeFileSync(file, r.text); }
+  }
+  const report = configReport(uses, p.apis, p.openapi);
+  const text = formatReport(report);
+  console.log(`\nsinter migrate: ${changed} file(s) ${write ? 'rewritten' : 'to rewrite (run with --write)'}`);
+  if (text) console.log(`\nAdd to sinter({ apis }) (then remove these attributes from the pages: SN518 and its quick fix point at them):\n${text}`);
+  if (report.disagree.length) console.log(`\nPages disagree, so the attributes stay on them: ${report.disagree.join('; ')}`);
+  return 0;
 }
 
 /** Language server over stdio; stdout carries only protocol messages. */

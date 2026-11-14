@@ -176,6 +176,11 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     apis = r.apis;
   } else {
     for (const rel of listOf(options.openapi)) loadSpec(rel);
+    if (options.openapi != null) {
+      const file = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
+      diagnostics.push({ severity: 'warning', code: 'SN329', file, line: 1, col: 1,
+        message: 'sinter({ openapi }) is deprecated: give the spec to an API, `sinter({ apis: { main: { openapi: … } } })`, and run `npx sinter migrate` (docs/apis.md)' });
+    }
   }
   // built-in messages: `m` is theirs, typed by a generated declaration file
   const messages = options.messages === false ? null : readMessages(root, options.messages ?? 'project.inlang');

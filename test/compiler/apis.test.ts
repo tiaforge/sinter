@@ -9,7 +9,7 @@ const main = (extra: Record<string, unknown> = {}): ProjectOptions => ({
 
 function page(html: string, options: ProjectOptions = main(), check = false) {
   const p = apiProject(options);
-  expect(p.diagnostics).toEqual([]);
+  expect(p.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
   return compile(`<div data-sn-state="{ q: '', tab: 'a' }">${html}</div>`, {
     file: `${p.root}/page.html`, root: p.root, dev: false, readFile: p.readFile, check,
     helpers: { module: null, names: [], namespaces: {} }, openapi: p.openapi, apis: p.apis,

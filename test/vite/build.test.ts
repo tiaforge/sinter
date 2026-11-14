@@ -61,6 +61,19 @@ test('next-page data: every page shares one module describing the pages; `prefet
   expect(js(dir)).not.toContain('pointerover');
 });
 
+test('next-page data with `sinter({ apis })`: the request with its API\'s base and configured shape', async () => {
+  const js = (dir: string) => readdirSync(join(dir, 'assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n');
+  const dir = join(out, 'apis');
+  // the fixture writes `/api/people`: with the API's base `/api` and the shape in the config, the same request
+  const page = join(root, 'index.html'), original = readFileSync(page, 'utf8');
+  writeFileSync(page, original.replace('src="/api/people" key="id"', 'src="/people"'));
+  try {
+    await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false },
+      plugins: [sinter({ apis: { app: { base: '/api', operations: { 'GET /people': { key: 'id', type: 'any' } } } } })] });
+  } finally { writeFileSync(page, original); }
+  expect(js(dir).replace(/\s+/g, '')).toContain(`prefetch([{m:["/","/index.html"],r:[{"s":["/api/people"],"i":null,"t":null,"k":1}]`);
+});
+
 test('`<html data-sn-prefetch="off">`: the page is in neither the next-page module nor the rules', async () => {
   const page = join(root, 'index.html');
   const original = readFileSync(page, 'utf8');

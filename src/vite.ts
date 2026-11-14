@@ -399,6 +399,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** build: the pages with inline rules and no CSP <meta>, whose CSP (if any) comes from a response header */
   let unhashedPages = 0;
   const seen = new Set<string>();
+  /** option warnings already printed (`sinter({ openapi })` is deprecated) */
+  const warnedOptions = new Set<string>();
   /** `localePrefix`: the languages, and each page in a language (`<root>/<locale>/<page>`) with its source and language */
   let locales: Locales | null = null;
   const virtual = new Map<string, { source: string; locale: string }>();
@@ -472,7 +474,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!described.has(file)) {
       const p = project(root, options), v = virtual.get(file);
       try {
-        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile, lazy: p.lazy, ...(v ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
+        // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
+        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile, lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
       } catch { described.set(file, { parts: null, path: [], off: false }); }
     }
@@ -482,7 +485,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const describeSource = (source: string) => {
     if (!sourceDescribed.has(source)) {
       const p = project(root, options);
-      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile, lazy: p.lazy }).path); }
+      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile, lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
       catch { sourceDescribed.set(source, []); }
     }
     return { path: sourceDescribed.get(source)! };
@@ -539,7 +542,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
     const v = virtual.get(file), src = v?.source ?? file;
     const lang = v && p.messages ? { ...p.messages.dicts[p.messages.base], ...p.messages.dicts[v.locale] } : null;
-    if (p.diagnostics.length) throw new Error(`sinter: ${p.diagnostics.map(formatDiagnostic).join('\n')}`);
+    const fatal = p.diagnostics.filter((d) => d.severity === 'error');
+    if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
+    // a warning about the options (a deprecated one): once per build
+    for (const d of p.diagnostics) if (d.severity === 'warning' && !warnedOptions.has(d.message)) { warnedOptions.add(d.message); resolved?.logger.warn(formatDiagnostic(d)); }
     if (!seen.has(file)) { seen.add(file); pagesCache = null; }
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
