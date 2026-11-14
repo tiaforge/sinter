@@ -83,7 +83,7 @@ public sealed class GeneratorTests
 
     private const string Fixture = """
         { "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
-          { "id": 0, "resource": "tags", "src": ["/api/tags"] },
+          { "id": 0, "resource": "tags", "src": ["/api/tags"], "headers": { "X-Api": "2" } },
           { "id": 1, "resource": "articles", "src": null, "when": true },
           { "id": 2, "resource": "user", "src": ["/api/user"] },
           { "id": 3, "resource": "feed", "src": ["/api/feed?tag=", { "url": "tag" }], "when": { "and": [{ "url": "tag" }, { "not": { "url": "x", "eq": "y" } }] },
@@ -124,6 +124,8 @@ public sealed class GeneratorTests
         Assert.Empty(compiled);
         Assert.Contains("Cond.And(global::Sinter.AspNetCore.Manifest.Cond.Url(\"tag\", null, null), global::Sinter.AspNetCore.Manifest.Cond.Not(", source);
         Assert.Contains("o.Skip(\"user\");", source);
+        // the API's static headers, compiled in
+        Assert.Contains("new global::System.Collections.Generic.KeyValuePair<string, string>[] { new(\"X-Api\", \"2\") })", source);
         Assert.Contains("new global::Sinter.AspNetCore.Manifest.ManifestLocales(\"en\", new string[] { \"en\", \"de\" }, \"/\")", source);
     }
 

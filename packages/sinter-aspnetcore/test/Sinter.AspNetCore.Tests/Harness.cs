@@ -93,6 +93,8 @@ public static class Harness
     {
         app.MapGet("/api/articles", (HttpContext ctx) => Results.Text(ArticlesJson(ctx), "application/json"));
         app.MapGet("/api/tags", () => Results.Text("""{"tags":["a"]}""", "application/json"));
+        // echoes the static header of an API (`sinter({ apis: { … headers } })`)
+        app.MapGet("/api/version", (HttpContext ctx) => Results.Text($$"""{"x":"{{ctx.Request.Headers["X-Api"]}}"}""", "application/json"));
         app.MapGet("/api/articles/{slug}", (string slug) => Results.Text($$$"""{"article":{"slug":"{{{slug}}}"}}""", "application/json"));
         app.MapGet("/api/articles/{slug}/comments", () => Results.Text("no", statusCode: 500));
     }
@@ -125,6 +127,9 @@ public sealed class ArticlesController : ControllerBase
 
     [HttpGet("/api/tags")]
     public ContentResult Tags() => Content("""{"tags":["a"]}""", "application/json");
+
+    [HttpGet("/api/version")]
+    public ContentResult Version() => Content($$"""{"x":"{{HttpContext.Request.Headers["X-Api"]}}"}""", "application/json");
 
     [HttpGet("/api/articles/{slug}")]
     public ContentResult One(string slug) => Content($$$"""{"article":{"slug":"{{{slug}}}"}}""", "application/json");

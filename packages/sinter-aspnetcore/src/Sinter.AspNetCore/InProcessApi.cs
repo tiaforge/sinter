@@ -51,7 +51,7 @@ internal sealed class InProcessApi(IApplicationBuilder app, IReadOnlyList<Action
     }
 
     /// <summary>The body of a 2xx JSON response within <paramref name="max"/> bytes, else why not.</summary>
-    public async Task<(ReadOnlyMemory<byte>?, string?)> GetAsync(HttpContext page, string url, string[] forward, int max, CancellationToken ct)
+    public async Task<(ReadOnlyMemory<byte>?, string?)> GetAsync(HttpContext page, string url, string[] forward, int max, CancellationToken ct, KeyValuePair<string, string>[]? own = null)
     {
         var features = new FeatureCollection();
         var (path, query) = SplitUrl(url);
@@ -73,6 +73,9 @@ internal sealed class InProcessApi(IApplicationBuilder app, IReadOnlyList<Action
         headers.Host = page.Request.Headers.Host;
         foreach (var n in forward)
             if (page.Request.Headers.TryGetValue(n, out var v)) headers[n] = v;
+        // the API's static headers (`sinter({ apis })`) the request does not have already
+        foreach (var (k, v) in own ?? [])
+            if (!headers.ContainsKey(k)) headers[k] = v;
         headers.Accept = "application/json";
         features.Set<IHttpRequestFeature>(request);
         var response = new CapturedResponse(max);

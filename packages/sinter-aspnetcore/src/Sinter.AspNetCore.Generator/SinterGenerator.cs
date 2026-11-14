@@ -355,7 +355,11 @@ public sealed class SinterGenerator : IIncrementalGenerator
         var start = s.TryGetValue("start", out var st) && st is Dictionary<string, object?> sd
             ? $"new {M}ManifestStart({Lit((string)sd["url"]!)}, {Lit((string)sd["key"]!)}, {Convert.ToUInt64((double)sd["size"]!, CultureInfo.InvariantCulture)}UL, {(sd.TryGetValue("skip", out var sk) && sk is true ? "true" : "false")}, {Pairs(sd, "query")})"
             : "null";
-        return $"new({Convert.ToInt32((double)s["id"]!, CultureInfo.InvariantCulture)}, {Lit((string)s["resource"]!)}, {src}, {(inBrowser ? "true" : "false")}, {when}, {Pairs(s, "query")}, {start})";
+        // `headers`: the static headers of the resource's API (`sinter({ apis })`), an object
+        var headers = s.TryGetValue("headers", out var hv) && hv is Dictionary<string, object?> hd && hd.Count > 0
+            ? "new global::System.Collections.Generic.KeyValuePair<string, string>[] { " + string.Join(", ", hd.Where(x => x.Value is string).Select(x => $"new({Lit(x.Key)}, {Lit((string)x.Value!)})")) + " }"
+            : "null";
+        return $"new({Convert.ToInt32((double)s["id"]!, CultureInfo.InvariantCulture)}, {Lit((string)s["resource"]!)}, {src}, {(inBrowser ? "true" : "false")}, {when}, {Pairs(s, "query")}, {start}, {headers})";
     }
 
     private static string CondExpr(Dictionary<string, object?> c)

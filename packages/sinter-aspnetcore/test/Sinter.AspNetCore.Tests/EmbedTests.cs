@@ -125,6 +125,18 @@ public sealed class EmbedTests
     }
 
     [Theory, MemberData(nameof(Apis))]
+    public async Task The_static_headers_of_the_resources_api_go_with_its_request(Api api)
+    {
+        // `sinter({ apis: { main: { headers: { 'X-Api': '2' } } } })`: the manifest lists them per placeholder
+        var dir = Build("headers", """
+            { "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+              { "id": 0, "resource": "v", "src": ["/api/version"], "headers": { "X-Api": "2" } } ] } ] }
+            """, ("index.html", """<head><script type="application/json" data-sn="0"></script></head>"""));
+        await using var a = await App(api, o => o.Dir = dir);
+        Assert.Contains("""data-sn="0">{"x":"2"}</script>""", await Html(a, "/"));
+    }
+
+    [Theory, MemberData(nameof(Apis))]
     public async Task Unstreamed_the_page_is_one_piece_and_a_failure_is_its_status(Api api)
     {
         await using var a = await App(api, o => { o.Dir = AppBuild(); o.Skip("feed"); o.Stream = false; });

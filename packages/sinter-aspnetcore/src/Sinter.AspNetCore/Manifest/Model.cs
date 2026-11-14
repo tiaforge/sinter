@@ -31,7 +31,7 @@ public sealed class ManifestPage(string file, string[] paths, ManifestSlot[] dat
 
 /// <summary>One placeholder: <c>&lt;script type="application/json" data-sn="{id}"&gt;&lt;/script&gt;</c> in the page's head.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class ManifestSlot(int id, string resource, UrlPart[]? src, bool whenInBrowser, Cond? when, KeyValuePair<string, string>[] query, ManifestStart? start)
+public sealed class ManifestSlot(int id, string resource, UrlPart[]? src, bool whenInBrowser, Cond? when, KeyValuePair<string, string>[] query, ManifestStart? start, KeyValuePair<string, string>[]? headers = null)
 {
     /// <summary>Its <c>data-sn</c> id.</summary>
     public int Id { get; } = id;
@@ -47,6 +47,8 @@ public sealed class ManifestSlot(int id, string resource, UrlPart[]? src, bool w
     public KeyValuePair<string, string>[] Query { get; } = query;
     /// <summary>Paginated, starting at a page from <c>$url</c> (<c>start-page</c>).</summary>
     public ManifestStart? Start { get; } = start;
+    /// <summary>The static headers of the resource's API (<c>sinter({ apis })</c>): sent with this layer's request for it.</summary>
+    public KeyValuePair<string, string>[] Headers { get; } = headers ?? [];
 
     /// <summary>Whether the build describes the request completely: its URL, and its <c>when</c> if it has one.</summary>
     public bool Described => Src is not null && !WhenInBrowser;

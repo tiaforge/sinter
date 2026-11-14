@@ -13,8 +13,6 @@ Where the implementation departs from this text:
 - The top-level `sinter({ openapi })` keeps its old behaviour (full URLs, warnings) with the
   deprecation warning, instead of becoming an API with base `''`, which would have made every
   existing app strict at once.
-- Sinter.AspNetCore does not send the static headers yet (no .NET toolchain where this was built);
-  the manifest field is additive and it ignores it.
 - The next-page prefetch descriptions are compiled with the APIs too (found when comparing
   RealWorld's build before and after: byte for byte the same).
 

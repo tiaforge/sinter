@@ -109,8 +109,7 @@ token) still gets a request of its own.
   `headers` gets none, and the early file's request is its first. `credentials: 'include'` writes
   `crossorigin="use-credentials"`.
 - The server layers send the static headers with their own requests: the build's manifest lists
-  them per placeholder (`@tiaforge-ui/sinter/server` and sinter-axum; Sinter.AspNetCore does not
-  send them yet).
+  them per placeholder (`@tiaforge-ui/sinter/server`, sinter-axum and Sinter.AspNetCore).
 
 To treat APIs differently in a middleware, ask which one a request goes to:
 

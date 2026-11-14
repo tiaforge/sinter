@@ -102,7 +102,7 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
         for (var i = 0; i < slots.Length; i++)
         {
             var s = slots[i];
-            requests[i] = new SlotRequest(ctx, page.File, s.Resource, SinterEngine.DescribedUrl(s, p), p, both.Token);
+            requests[i] = new SlotRequest(ctx, page.File, s.Resource, SinterEngine.DescribedUrl(s, p), p, both.Token, s.Headers);
             fills[i] = engine.FillAsync(requests[i]);
         }
         try
