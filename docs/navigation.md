@@ -187,16 +187,22 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
   view transition (the list keeps its rows until the response, as with `page()`); no
   `<form method="get">` (bind the field instead: `data-sn-model="$url.q"`).
 - **Which pages:** the build loads it (`@tiaforge-ui/sinter/query-links`, about 0.7 KB gzip) on a
-  page that reads a query parameter and has a link it can see goes to the page: a static `href`
-  (`?page=3`, the page's own path), or a `data-sn-attr` `href` that starts with one (followed
-  through `+`, template literals, `?:`, `||` and `??`). A link it cannot see (an `href` from data,
-  a helper, a link an island renders) loads its URL, as before. The same link in a layout stays on
-  one page and loads from another: it depends on what each page reads.
+  page that reads a query parameter by name and has a link it can see goes to the page: a static
+  `href` (`?page=3`, the page's own URL or its file, `about.html?q=1`), or a `data-sn-attr` `href`
+  that starts with one (followed through `+`, template literals, `?:`, `||` and `??`). A link it
+  cannot see (an `href` from data, a helper, a link an island renders) loads its URL, as before. A
+  page that reads `$url` whole or by a computed name (`$url[k]`), or has a `<base href>`, does not
+  load it: every link loads. The same link in a layout stays on one page and loads from another: it
+  depends on what each page reads. A parameter that is a path parameter (`/tag/:tag`) is not a
+  query parameter the page reads, on any of its paths, as for `$url` writes.
 - **Building the query:** `href="?page=3"` keeps only `page`, as any URL resolves: on `?tag=go` it
-  drops the tag. Build the whole query; a static query-only `href` that drops parameters the page
-  reads is SN519.
-- Next-page data and Speculation Rules leave same-page links alone: nothing is fetched for a click
-  that stays on the page.
+  drops the tag. Build the whole query. A pager link (a static query-only `href` that sets a
+  `page-model` parameter) that drops other parameters the page reads is SN519; a filter or tab
+  link that drops the page is how the list starts at page 1, and needs nothing.
+- Next-page data leaves same-page links alone. Speculation Rules on such a page leave out its own
+  path with any other query, so a link there that changes a parameter the page does not read
+  (and loads) is not prefetched either.
+- A history call the browser refuses (Safari, called too often): the link loads.
 
 For a pager, links are the recommended form: crawlable, a new tab, copy link, and on the page with
 this. `page('next')` stays for relative moves and buttons. A pager link should carry

@@ -6,13 +6,20 @@ Status: implemented (2026-11-14), steps 1 to 4 of the [Plan](#plan); the guide i
   the click's load: the core's loader takes prefetched data only at a resource's first load, and
   taking it later would add to the core. A click on such a link sends its request then.
 - The build warning is `SN519` (`main` had taken `SN517` and `SN518`), and it came with step 1.
-- The module is 0.7 KB gzip (698 B), not the 250–350 B estimated: what is left is the click checks and reading `$url` again, which the core does on Back but does not share without growing every page.
+- The module is 0.7 KB gzip (737 B), not the 250–350 B estimated: what is left is the click checks and reading `$url` again, which the core does on Back but does not share without growing every page.
 - The Speculation Rules exclusion is `{ href_matches: '?*', relative_to: 'document' }` on pages with
   same-page links, checked against Chromium's preload candidates (without it, the page's
   `?page=2` is one; with it, only other pages). A rules file for a response header has it once any
   page has same-page links.
 - The native `#hash` handling is verified in Chromium only (`:target` after the click); Firefox and
   WebKit are not installed here.
+- After the code review: SN519 reports only pager links (a static query-only `href` that sets a
+  `page-model` parameter), since a filter or tab link that drops the page is the specified
+  behaviour; a page with `<base href>` does not load the module; a refused history call loads the
+  link; the same query with a `#hash` in the address bar is the browser's; the page's own URL comes
+  from `pagePaths` (and its file), the read parameters from the IR's dependencies.
+- 8 (Testing): a click the browser follows is not in `navigations` (those are sinter's own
+  navigations); the tests check that sinter left the click (its default not prevented).
 
 Decided with the user:
 - A plain click on a link to the same page that changes only query parameters the page reads is

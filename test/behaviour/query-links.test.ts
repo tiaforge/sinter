@@ -114,9 +114,14 @@ test('the build loads the module on a page with a link it sees goes to the page 
   expect(features('<p data-sn-text="JSON.stringify($url)"></p><a href="?q=a">a</a>')).not.toContain('query-links');
 });
 
-test('SN519: a static query-only href that drops parameters the page reads', () => {
-  const d = compileParts('<p data-sn-text="$url.tag + $url.page"></p><a href="?page=2">2</a><a href="?tag=go&amp;page=2">ok</a>', { file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '' }).diagnostics;
-  expect(d.map((x) => [x.code, x.message])).toEqual([['SN519', '`?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed']]);
+test('SN519: a pager link that drops parameters the page reads; not a filter or tab link, nor a fallback for a bound href', () => {
+  const diags = (links: string) => compileParts(`<sn-resource name="a" src="/api/a?tag={$url.tag}&feed={$url.feed}" items="a" key="id" paginate="offset" page-size="2" page-model="$url.page"></sn-resource>
+    <p data-sn-text="a.length"></p>${links}`, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '' }).diagnostics.map((x) => [x.code, x.message]);
+  expect(diags('<a href="?page=2">2</a>')).toEqual([['SN519', '`?page=2` keeps only its own query: `feed`, `tag`, which this page reads, are dropped when it is followed']]);
+  // the whole query; a filter or a tab (page 1 is how the list starts); a fallback next to a bound href
+  expect(diags('<a href="?tag=go&amp;feed=x&amp;page=2">2</a>')).toEqual([]);
+  expect(diags('<a href="?tag=go">go</a><a href="?feed=following">feed</a><a href="?">all</a>')).toEqual([]);
+  expect(diags(`<a href="?page=2" data-sn-attr="{ href: '?tag=' + ($url.tag ?? '') + '&page=2' }">2</a>`)).toEqual([]);
 });
 
 test('typing waits to commit, then a link: the typed query gets its own entry first', async () => {
@@ -147,4 +152,76 @@ test('hovering a same-page link prefetches nothing: the click stays in the page'
   await r.advance(HOVER);
   await r.settle();
   expect(requests.calls.length).toBe(before);
+});
+
+test('pending typing is committed before the link is compared: `?` clears the search, the typed URL is no duplicate', async () => {
+  const requests = mockRequests({ 'GET /api/s': { items: [] } });
+  const page = `<sn-resource name="s" src="/api/s?q={$url.q}" items="items"></sn-resource><input data-sn-model="$url.q"><a id="all" href="?">all</a><a id="sin" href="?q=sin">sin</a>`;
+  for (const [id, want] of [['all', ['http://localhost/', 'http://localhost/?q=sin', 'http://localhost/?']], ['sin', ['http://localhost/', 'http://localhost/?q=sin']]] as const) {
+    const r = await render(page, { requests });
+    await r.settle();
+    const field = r.root.querySelector('input')!;
+    field.value = 'sin'; field.dispatchEvent(new Event('input', { bubbles: true }));
+    await r.flush();
+    click(r.root.querySelector(`#${id}`)!);
+    await r.settle();
+    expect(r.history(), id).toEqual(want);
+    expect(field.value, id).toBe(id == 'all' ? '' : 'sin');
+  }
+});
+
+test('array parameters through a link; a handler that writes $url without preventing: the link\'s query wins', async () => {
+  const r = await render(`<select multiple data-sn-model="$url.t"><option>a</option><option>b</option></select>
+    <p data-sn-text="JSON.stringify($url.t)"></p><a id="ab" href="?t=a&amp;t=b">ab</a><a id="none" href="?" data-sn-on-click="$url.t = ['a']">none</a>`);
+  click(r.root.querySelector('#ab')!); await r.settle();
+  expect(r.root.querySelector('p')!.textContent).toBe('["a","b"]');
+  click(r.root.querySelector('#none')!); await r.settle();
+  expect(r.root.querySelector('p')!.textContent).toBe('[]');
+  expect(r.url()).toBe('http://localhost/?');
+});
+
+test('<area href>, target="_self" and a link in a row stay in the page; the address bar\'s #hash with the same query is the browser\'s', async () => {
+  const r = await render(`<p data-sn-text="$url.v ?? '-'"></p>
+    <map><area id="area" href="?v=1" alt="v"></map><a id="self" href="?v=2" target="_self">2</a>
+    <template data-sn-for="n in [3]" data-sn-key="n"><a class="row" data-sn-attr="{ href: '?v=' + n }">3</a></template>`, { url: 'http://localhost/#top' });
+  for (const [sel, v] of [['#area', '1'], ['#self', '2'], ['.row', '3']] as const) {
+    expect(click(r.root.querySelector(sel)!), sel).toBe(true);
+    await r.settle();
+    expect(r.root.querySelector('p')!.textContent).toBe(v);
+  }
+  // on `/?v=3#frag`, a link to `/?v=3`: the browser navigates (clearing the hash), as without sinter
+  const s = await render(`<p data-sn-text="$url.v"></p><a href="?v=3">3</a>`, { url: 'http://localhost/?v=3#frag' });
+  expect(click(s.root.querySelector('a')!)).toBe(false);
+});
+
+test('a history call the browser refuses: the link loads', async () => {
+  const r = await render(`<p data-sn-text="$url.v"></p><a href="?v=1">1</a>`);
+  (r.app.env as { pushState(u: string): void }).pushState = () => { throw new Error('SecurityError'); };
+  expect(click(r.root.querySelector('a')!)).toBe(true);
+  expect(r.navigations).toEqual(['http://localhost/?v=1']);
+});
+
+test('the read parameters come from the dependencies: names with a hyphen, no module for a computed read or with <base href>', () => {
+  const parts = (html: string, file = '/p/index.html') => compileParts(html, { file, root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); } });
+  expect(parts(`<p data-sn-text="$url['sort-by']"></p><a href="?sort-by=new">new</a>`).ir.urlReads).toEqual(['sort-by']);
+  // a URL in a resource's `src` that starts with `$url.` is no read
+  expect(parts(`<sn-resource name="r" src="/api/r?x=$url.zz" items="r"></sn-resource><p data-sn-text="r.length + $url.q"></p><a href="?q=1">1</a>`).ir.urlReads).toEqual(['q']);
+  expect(parts(`<p data-sn-state="{ k: 'q' }" data-sn-text="$url[k]"></p><a href="?q=1">1</a>`).features).not.toContain('query-links');
+  expect(parts(`<html><head><base href="/"></head><body><p data-sn-text="$url.q"></p><a href="?q=1">1</a></body></html>`).features).not.toContain('query-links');
+});
+
+test('the page\'s own URL in the forms a source links to: its file, `index.html`, a relative path; 404.html at its file', () => {
+  const features = (html: string, file: string) => compileParts(html, { file, root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); } }).features;
+  const page = (href: string) => `<p data-sn-text="$url.q"></p><a href="${href}">x</a>`;
+  for (const href of ['about.html?q=1', '/about.html?q=1', '/about/?q=1', '/about?q=1']) expect(features(page(href), '/p/about.html'), href).toContain('query-links');
+  expect(features(page('/index.html?q=1'), '/p/index.html')).toContain('query-links');
+  expect(features(page('/404.html?q=1'), '/p/404.html')).toContain('query-links');
+  expect(features(page('/other.html?q=1'), '/p/about.html')).not.toContain('query-links');
+});
+
+test('a component\'s link counts on the page that uses it, by what that page reads', () => {
+  const NAV = `<template data-sn-component=""><nav><a href="/?feed=x">x</a></nav></template>`;
+  const parts = (html: string) => compileParts(html, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, components: '/p/c', readFile: (f: string) => { if (f == '/p/c/site-nav.html') return NAV; throw new Error('missing'); } } as any);
+  expect(parts('<site-nav></site-nav><p data-sn-text="$url.feed"></p>').features).toContain('query-links');
+  expect(parts('<site-nav></site-nav><p data-sn-text="$url.q"></p>').ir.urlReads).toEqual(['q']);
 });

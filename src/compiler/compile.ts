@@ -23,6 +23,8 @@ import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Pagi
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
+import { eachPath } from '../paths.js';
+import { pagePaths } from '../page-paths.js';
 import { bytes, date, isCalendarDate, number } from '../runtime/helpers.js';
 import { config } from '../runtime/config.js';
 
@@ -173,6 +175,8 @@ export interface FnSources { fns: Array<FnSource | null>; content: Record<string
 
 export interface CompileResult {
   html: string;
+  /** the page loads query-links: its Speculation Rules leave out its own URLs with another query */
+  sameLinks?: true;
   /** the page module; with `static`, the HTML does not load it */
   module: string;
   /** why the page needs the runtime (empty: nothing runs in the browser) */
@@ -646,34 +650,64 @@ class Compiler {
   readonly persisted = new Set<string>();
   /** models on `$url` parameters: whether each binds a list (`<select multiple>`, a checkbox with a `value`) */
   readonly urlBinds: Array<{ name: string; array: boolean; report: (msg: string) => void }> = [];
-  /** links and what the build can see of where they go (static `href`s, the literal starts of bound ones) */
+  /** links and what the build can see of where they go (static `href`s, the literal starts of bound ones); elements whose `href` is bound */
   readonly hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean }> = [];
+  readonly boundHrefs = new Set<P5Element>();
   /**
-   * Same-page links (query-links.ts): the query parameters the page reads by name, when a link the build
-   * can see goes to the page itself (`?page=3`, `/?feed=…` on `/`, `'/tag/' + t + '?page=' + n` on
-   * `/tag/:tag`); null otherwise, or when the page reads `$url` as a whole. Also SN519: a static
-   * query-only `href` that drops parameters the page reads.
+   * Same-page links (query-links.ts): the query parameters the page reads, from the IR's dependencies
+   * (`$url.<name>`); null when it reads `$url` whole or by a computed name, or has none.
    */
-  sameLinks(ir: IR, patterns: string[]): string[] | null {
-    const json = JSON.stringify(ir);
-    const reads = new Set([...json.matchAll(/"\$url\.([A-Za-z_$][\w$]*)/g)].map((m) => m[1]!));
+  urlReads(ir: IR, patterns: string[]): string[] | null {
     const fromPath = new Set(patterns.flatMap((p) => p.split('/').filter((x) => x[0] === ':').map((x) => x.slice(1))));
-    const query = [...reads].filter((n) => !fromPath.has(n));
+    const names = new Set<string>();
+    let whole = false;
+    eachPath(ir, (p) => {
+      if (typeof p !== 'string' || (p !== '$url' && !p.startsWith('$url.'))) return;
+      const n = p.slice(5).split('.')[0] ?? '';
+      // `$url`, `$url[k]` (`*`) and the like: every parameter may be read
+      if (p === '$url' || /^[*#~{]/.test(n)) whole = true;
+      else names.add(n);
+    }, () => {});
+    const query = [...names].filter((n) => !fromPath.has(n));
+    return whole || !query.length ? null : [...names].sort();
+  }
+  /**
+   * The URLs the page is served at, and the forms of them the source may link to: `pagePaths`
+   * (`/about/`, `/about`, `/`, `/index.html`, `data-sn-path` patterns) and the page's file (`/about.html`).
+   */
+  ownPaths(patterns: string[]): string[] {
+    const rel = this.opts.file.slice(this.opts.root.length).replace(/^\/+/, ''), base = this.opts.base ?? '/';
+    return [...new Set([...pagePaths(rel, base, patterns), ...(patterns.length ? [] : [(base.replace(/\/*$/, '/')) + rel])])];
+  }
+  /** Whether a link the build can see goes to the page itself: a static `href` resolved against the page's file, or a bound one by its start. */
+  seesSameLink(paths: string[]): boolean {
+    const rel = this.opts.file.slice(this.opts.root.length).replace(/^\/+/, ''), here = 'http://x' + (this.opts.base ?? '/').replace(/\/*$/, '/') + rel;
+    return this.hrefs.some((h) => h.prefixes.some((p) => {
+      // a static relative `href` (`about.html?q=1`, `./?q=1`): resolved as the browser would, from the page's file
+      if (h.literal && p.s && !/^([a-z][a-z0-9+.-]*:|\/|\?|#)/i.test(p.s)) {
+        try { const u = new URL(p.s, here); return samePage({ s: u.pathname + (u.search || '?'), whole: true }, paths); } catch { return false; }
+      }
+      return samePage(p, paths);
+    }));
+  }
+  /**
+   * SN519: a pager link (a static query-only `href` that sets a `page-model` parameter) that drops
+   * query parameters the page reads. A filter or tab link that drops the page is how a list starts
+   * at page 1; a link whose `href` is also bound is its fallback.
+   */
+  checkDroppedQuery(reads: string[], patterns: string[]): void {
+    const models = new Set(this.pageModels.map((m) => m.name));
+    const fromPath = new Set(patterns.flatMap((p) => p.split('/').filter((x) => x[0] === ':').map((x) => x.slice(1))));
+    const query = reads.filter((n) => !fromPath.has(n) && !models.has(n));
     for (const h of this.hrefs) {
       const v = h.prefixes[0]?.s;
-      if (!h.literal || v?.[0] !== '?' || !query.length) continue;
-      const has = new Set(new URLSearchParams(v.slice(1).split('#')[0]).keys()), dropped = query.filter((n) => !has.has(n));
+      if (!h.literal || v?.[0] !== '?' || this.boundHrefs.has(h.el)) continue;
+      const has = new Set(new URLSearchParams(v.slice(1).split('#')[0]).keys());
+      if (![...has].some((n) => models.has(n))) continue;
+      const dropped = query.filter((n) => !has.has(n));
       if (dropped.length) this.report(h.el, 'href', 'SN519', `\`${v}\` keeps only its own query: ${dropped.map((n) => `\`${n}\``).join(', ')}, which this page reads, ${dropped.length > 1 ? 'are' : 'is'} dropped when it is followed`, 0,
         'build the whole query in `data-sn-attr` (`href: \'?page=\' + n + \'&tag=\' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose');
     }
-    if (!query.length || /"\$url"[,\]]/.test(json)) return null;
-    const seen = this.hrefs.some((h) => h.prefixes.some((p) => samePage(p, patterns)));
-    return seen ? [...reads].sort() : null;
-  }
-  /** The page's own URL when it has no `data-sn-path`: a directory's index (`about.html` is `/about/`). */
-  fileUrl(): string {
-    const rel = this.opts.file.slice(this.opts.root.length).replace(/^\/+/, ''), base = (this.opts.base ?? '/').replace(/\/*$/, '/');
-    return base + rel.replace(/(^|\/)index\.html?$/, '$1').replace(/\.html?$/, '/');
   }
   /** `page-model` parameters: one is never a list */
   readonly pageModels: Array<{ name: string; report: (msg: string) => void }> = [];
@@ -816,9 +850,11 @@ class Compiler {
     if (this.features.has('refresh') || this.features.has('sse')) this.features.add('versions');
     // a handler or model that writes `$url`: the query string follows (location.ts)
     if (this.page.writesUrl) this.features.add('location');
-    // same-page links: the module, and location.ts for the history, on pages with one the build can see
-    const reads = this.sameLinks(ir, paths.length ? paths : [this.fileUrl()]);
-    if (reads) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
+    // same-page links: the module, and location.ts for the history, on pages with one the build can see.
+    // Not with `<base href>`: links resolve against it, not the page's URL
+    const reads = this.urlReads(ir, paths), own = this.ownPaths(paths);
+    if (reads) this.checkDroppedQuery(reads, paths);
+    if (reads && !hasBase(doc) && this.seesSameLink(own)) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
     return {
       html: parse5.serialize(doc),
       runtime, ...(isStatic ? { static: true as const } : {}), ...(isStatic && this.canonicalLink ? { canonicalOnly: true } : {}),
@@ -3008,7 +3044,7 @@ class Compiler {
         if (files) this.report(el, 'data-sn-attr', 'SN513', `\`src\` is bound to ${files.length > 1 ? 'local images' : 'a local image'} (${files.map((f) => `\`${f}\``).join(', ')}), which ${files.length > 1 ? 'are' : 'is'} not optimized`, e.offset,
           `write each image as a static \`<img src>\` (optimized at build time) and choose with \`data-sn-if\` or \`data-sn-show\`: \`<img src="${files[0]}" data-sn-show="…">\``);
       }
-      if (key === 'href' && (el.tagName === 'a' || el.tagName === 'area')) this.hrefs.push({ el, prefixes: hrefPrefixes(entryValue(r, e)), literal: false });
+      if (key === 'href' && (el.tagName === 'a' || el.tagName === 'area')) { this.hrefs.push({ el, prefixes: hrefPrefixes(entryValue(r, e)), literal: false }); this.boundHrefs.add(el); }
       const remote = key === 'src' ? this.remoteImage(el, e, r.entries.some((x) => x.key.toLowerCase() === 'srcset'), scope) : null;
       node.b.push(this.binding({ k: 'attr', n: e.key, f: this.fn(remote ? remote.src : e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
       if (remote) node.b.push(this.binding({ k: 'attr', n: 'srcset', f: this.fn(remote.srcset), d: e.deps, ...usesEl(r) }));
@@ -4703,6 +4739,10 @@ class Compiler {
 
 // ---- helpers
 
+/** Whether the document has a `<base href>` (links then resolve against it). */
+function hasBase(n: P5Parent): boolean {
+  return n.childNodes.some((c) => isElement(c) && ((c.tagName === 'base' && attr(c, 'href') != null) || hasBase(c.tagName === 'template' ? (c as any).content : c)));
+}
 /** What the build can see of where a link goes: a literal start, and whether it is the whole `href`. */
 interface HrefPrefix { s: string; whole: boolean }
 /**

@@ -396,6 +396,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
   const described = new Map<string, { parts: PrefetchParts | null; path: string[]; off: boolean }>();
   let speculationHash: string | null = null, rulesWritten = false;
+  /** every inline rule set's hash (pages with same-page links have their own) */
+  const speculationHashes = new Set<string>();
   /** build: the pages with inline rules and no CSP <meta>, whose CSP (if any) comes from a response header */
   let unhashedPages = 0;
   const seen = new Set<string>();
@@ -510,8 +512,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const o = options.speculation ?? 'prefetch';
     return o === false ? null : typeof o === 'string' ? { mode: o, delivery: 'inline' as const } : { mode: o.mode, delivery: o.delivery ?? 'inline' };
   };
-  /** the rules' JSON for links to the app's pages, or null */
-  /** `samePage`: a page with same-page links (query-links.ts), whose own URLs are left out */
+  /** the rules' JSON for links to the app's pages, or null; `samePage`: a page with same-page links (query-links.ts), whose own URLs are left out */
   const rulesJson = (samePage = false) => { const s = spec(); return s ? speculationRules(s.mode, appPages().flatMap((x) => x.paths), samePage) : null; };
   /** pages that load query-links: a rules file for a response header leaves out each page's own URLs once one does */
   const sameLinkPages = new Set<string>();
@@ -523,6 +524,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const json = rulesJson(samePage);
     if (!json) return '';
     speculationHash = `sha256-${createHash('sha256').update(json).digest('base64')}`;
+    // pages with and without same-page links have different rules: a CSP header must allow each
+    speculationHashes.add(speculationHash);
     return `<script type="speculationrules">${json}</script>`;
   };
   /** dev and preview, `delivery: 'header'`: the header on pages and the rules file with its content type */
@@ -695,6 +698,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     /** build: the pages that have something to run early (bundled into one file each in generateBundle) */
     async buildStart(input) {
       unhashedPages = 0;
+      speculationHashes.clear();
       sharedHead = null;
       earlyPages.clear();
       unlisted.clear();
@@ -904,7 +908,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (dev) return;
       // inline rules: name what a CSP must allow; header: what the server must send. Once per build
       // pages with a CSP <meta> got the hash: nothing to say. The rest may have a CSP header the build cannot see
-      if (speculationHash && unhashedPages) resolved?.logger.info(`sinter: Speculation Rules are inline in the pages: nothing to do without a CSP; a CSP sent as a response header must allow them: add 'inline-speculation-rules' to its script-src (or '${speculationHash}', which changes with the pages). docs/navigation.md`);
+      if (speculationHash && unhashedPages) resolved?.logger.info(`sinter: Speculation Rules are inline in the pages: nothing to do without a CSP; a CSP sent as a response header must allow them: add 'inline-speculation-rules' to its script-src (or ${[...speculationHashes].map((h) => `'${h}'`).join(' and ')}, which change${speculationHashes.size > 1 ? '' : 's'} with the pages). docs/navigation.md`);
       if (rulesWritten) resolved?.logger.info(`sinter: Speculation Rules in ${RULES_FILE}: send \`Speculation-Rules: "${rulesUrl()}"\` with every page and serve the file as application/speculationrules+json (docs/navigation.md)`);
     },
 
@@ -963,8 +967,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // dev: the console warns about images shown with too few pixels
         const checked = dev && images ? out.html.replace('</body>', `<script type="module" src="${base}${PREFIX.slice(1)}img-check.js"></script></body>`) : out.html;
         // Speculation Rules for links to the app's pages: the browser fetches (or prerenders) the next page
-        // the page module imports query-links: the page has same-page links
-        const samePage = out.module.includes("/query-links';");
+        const samePage = !!out.sameLinks;
         samePage ? sameLinkPages.add(rel) : sameLinkPages.delete(rel);
         const rules = speculationTag(samePage), page = rules ? withRulesHash(checked.replace('</head>', `  ${rules}\n</head>`), speculationHash!) : checked;
         if (rules && !dev && !hasCspMeta(checked)) unhashedPages++;

@@ -32,6 +32,7 @@ beforeAll(async () => {
   <ul id="list"><template data-sn-for="h in hits"><li data-sn-text="h.title"></li></template></ul>
   <button id="next" data-sn-on-click="page('hits', 'next')" data-sn-attr="{ disabled: !$meta.hits.hasNext }">next</button>
   <p id="page" data-sn-text="$meta.hits.page"></p>
+  <div style="height: 3000px"></div>
   <a id="p2" data-sn-attr="{ href: '?tag=' + ($url.tag ?? '') + '&page=' + 2 }">2</a>
   <a id="p3" data-sn-attr="{ href: '?tag=' + ($url.tag ?? '') + '&page=' + 3 + '#page' }">3</a>
 </body>
@@ -129,17 +130,23 @@ test.skipIf(!chromium)('a pager of links: a plain click stays on the page, Back 
     const shown = () => [...document.querySelectorAll('#list li')].map((x) => x.textContent).join(',');
     await tab.goto(base + '/?tag=go');
     await tab.waitForFunction((f) => new Function('return ' + f)()() === 'go 2,go 3', shown.toString());
-    // a mark on the document: a page load would lose it
+    // a mark on the document: a page load would lose it; the pager is at the bottom, scrolled to
     await tab.evaluate(() => { (window as any).same = true; });
+    await tab.locator('#p2').scrollIntoViewIfNeeded();
+    const scrolled = await tab.evaluate(() => scrollY);
+    expect(scrolled).toBeGreaterThan(1000);
     const start = await tab.evaluate(() => history.length);
     await tab.click('#p2');
     await tab.waitForFunction(() => location.search === '?tag=go&page=2' && document.querySelector('#page')!.textContent === '2');
     expect(await tab.evaluate(() => (window as any).same)).toBe(true);
     expect(await tab.evaluate(() => history.length)).toBe(start + 1);
-    // Back: page 1, still the same document
+    // the scroll position stays
+    expect(await tab.evaluate(() => scrollY)).toBe(scrolled);
+    // Back: page 1, still the same document, the scroll position as it was
     await tab.goBack();
     await tab.waitForFunction(() => location.search === '?tag=go' && document.querySelector('#page')!.textContent === '1');
     expect(await tab.evaluate(() => (window as any).same)).toBe(true);
+    expect(await tab.evaluate(() => scrollY)).toBe(scrolled);
     // a #hash: the browser's fragment navigation in the new entry (:target)
     await tab.click('#p3');
     await tab.waitForFunction(() => location.search === '?tag=go&page=3' && location.hash === '#page' && document.querySelector('#page')!.textContent === '3');
