@@ -7,6 +7,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- OpenAPI `security` decides how a resource is requested before the page module. A public operation (`security: []`) or a cookie one is preloaded even when request middleware exists; one that needs a token the app adds (bearer, an API key in a header or the query, OAuth) is not requested early or embedded, since that request would be refused. Without `security` the config decides, as before ([docs/apis.md](docs/apis.md#requests)).
 - `sinter docs [topic]` prints one part of the docs that ship in the package: a section of `llms.txt` (`sinter docs layouts`), an attribute or element with the sections that use it (`sinter docs data-sn-for`), a diagnostic's explanation (`sinter docs SN318`), or the lines that have all of some words; `sinter docs` lists the topics. Coding agents read `llms.txt` several times per task, and every read stays in their context: the starter's `AGENTS.md`, `llms.txt` and every diagnostic's `docs:` line now point to it.
 
 ### Changed
