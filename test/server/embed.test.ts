@@ -341,3 +341,12 @@ test("a visitor who goes away aborts the page's requests (the body's cancel)", a
   await reader.cancel();
   expect(String(await seen)).toContain('the visitor went away');
 });
+
+test('the static headers of the resource\'s API (`sinter({ apis })`) go with its request', async () => {
+  const dir = build(`{ "version": 1, "pages": [ { "file": "index.html", "paths": ["/"], "data": [
+    { "id": 0, "resource": "v", "src": ["/api/version"], "headers": { "X-Api": "2" } } ] } ] }`, {
+    'index.html': `${HEAD}<script type="application/json" data-sn="0"></script></head><body></body></html>`,
+  });
+  const get = await app({ dir }, (req) => json(`{"x":"${req.headers.get('x-api') ?? '-'}"}`));
+  expect(await text(get('/'))).toContain('<script type="application/json" data-sn="0">{"x":"2"}</script>');
+});

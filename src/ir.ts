@@ -81,6 +81,8 @@ export interface ResourceDef {
   lo?: 1;
   /** the named OpenAPI schema of its items (`Article`): write-through matches response objects by it */
   sch?: string;
+  /** `method="POST"`: loaded with a POST whose JSON body is this function's value (the identity of a load is its URL and body) */
+  body?: number;
 }
 
 export interface EventDef {
@@ -189,6 +191,8 @@ export interface EarlyIR {
     /** `start-page`: from page 2 on, `qn` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`) */
     sp?: { f: number; k: string; s: number; o?: 1; qn: Record<string, string> };
     lo?: 1; xo?: 1;
+    /** the request settings of the resource's API (`sinter({ apis })`): credentials and static headers */
+    a?: { c?: RequestCredentials; h?: Record<string, string> };
   }>;
   /** `data-sn-path` patterns, when a request reads `$url` */
   path?: string[];

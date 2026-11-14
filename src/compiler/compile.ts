@@ -264,6 +264,8 @@ export interface EmbedSlot {
   when?: true | EmbedCond;
   query?: Array<[string, string]>;
   start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> };
+  /** the static headers of the resource's API (`sinter({ apis })`): the server sends them with its request */
+  headers?: Record<string, string>;
 }
 
 /** Why a page needs the runtime: what runs in the browser, and where it was written. */
@@ -1922,7 +1924,7 @@ class Compiler {
           this.report(child, 'name', 'SN209', `\`${name}\` is a store function (\`${name}()\`); a resource cannot take its name`, 0);
           continue;
         }
-        const key = attr(child, 'key') ?? (attr(child, 'call') == null ? this.apiTarget(child, 'src', 'get')?.shape?.key : undefined);
+        const key = attr(child, 'key') ?? (attr(child, 'call') == null ? this.apiTarget(child, 'src', attr(child, 'method')?.trim() === 'POST' ? 'post' : 'get')?.shape?.key : undefined);
         const paginate = attr(child, 'paginate');
         const info: ResourceInfo = { name, key: key ? key.split(',').map((s) => s.trim()).filter(Boolean) : null, paginate: paginate ?? null, used: false };
         if (paginate === 'keyset' && attr(child, 'offset-param') != null) info.jumps = true;
@@ -3382,6 +3384,30 @@ class Compiler {
 
   /** the path (without the API's base) of the last `urlTemplate` */
   lastPath: UrlTemplate = [];
+  /** the API each resource's `src` goes to (`sinter({ apis })`): its request settings for preloads, the early file and embedding */
+  readonly apiOfResource = new Map<string, ApiDef>();
+
+  /** a resource's API's credentials and static headers, as the early file sends them; null for the defaults */
+  settingsOf(name: string): { c?: RequestCredentials; h?: Record<string, string> } | null {
+    const a = this.apiOfResource.get(name);
+    return a && (a.credentials || a.headers) ? { ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) } : null;
+  }
+
+  /**
+   * `<link rel="preload" as="fetch">` for the resources whose URL is fixed at build time. A link cannot
+   * carry headers, so a resource of an API with static headers (or `credentials: 'omit'`) has none, and
+   * the early file's request is its first; `credentials: 'include'` is `crossorigin="use-credentials"`.
+   */
+  preloadLinks(): string[] {
+    const ok = this.resources.filter((r) => {
+      const a = this.apiOfResource.get(r.name);
+      return !this.noEarly.has(r.name) && fixedRequest(r) && this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit';
+    });
+    const include = (r: ResourceDef) => this.apiOfResource.get(r.name)?.credentials === 'include';
+    const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+    const link = (cross: string) => ({ url, lo }: { url: string; lo: boolean }) => `<link rel="preload" as="fetch" ${cross} href="${esc(url)}"${lo ? ' fetchpriority="low"' : ''}>`;
+    return [...preloads(ok.filter((r) => !include(r))).map(link('crossorigin')), ...preloads(ok.filter(include)).map(link('crossorigin="use-credentials"'))];
+  }
 
   /** The text of a URL attribute with its values as markers, for matching before it is compiled (the `key` of a resource). */
   static shapeTemplate(value: string): UrlTemplate {
@@ -3499,6 +3525,19 @@ class Compiler {
     }
     const src = hasCall ? [] : this.urlTemplate(el, 'src', srcScope, {}, deps);
     const srcPath = this.lastPath;
+    // `method="POST"`: an endpoint that loads data with a request body (search, reports); its body is a value, reloaded when it changes
+    const methodAttr = attr(el, 'method')?.trim();
+    const post = methodAttr === 'POST';
+    if (methodAttr != null && !post && methodAttr !== 'GET') this.report(el, 'method', 'SN401', '`method` is `POST` (or `GET`, the default)', 0);
+    if (attr(el, 'body') != null && !post) this.report(el, 'body', 'SN102', '`body` needs `method="POST"`: a GET request has no body', 0);
+    if (post) {
+      if (hasCall) this.report(el, 'method', 'SN102', '`method` is for a resource with `src`', 0);
+      for (const a of ['cache', 'paginate', 'each']) {
+        if (attr(el, a) != null) this.report(el, a, 'SN401', a === 'cache' ? '`cache` does not combine with `method="POST"`: a cached search or report would outlive the request that asked for it' : `\`${a}\` does not combine with \`method="POST"\``, 0);
+      }
+      // started by the page module only: not preloaded, requested early, prefetched or embedded
+      this.noEarly.add(name);
+    }
     const call = hasCall ? this.callExpr(el, 'call', ctx.scope, deps) : null;
     let when: number | null = null;
     if (attr(el, 'when') != null) {
@@ -3594,7 +3633,8 @@ class Compiler {
     }
     const order = attr(el, 'order');
     // `sinter({ apis })`: the operation the path calls, and what the config says it returns (said once)
-    const target = this.opts.apis && !hasCall ? this.apiCheck(el, 'src', 'get', srcPath, paginate ? paginateParams(paginate, attr(el, 'cursor')) : []) : null;
+    const target = this.opts.apis && !hasCall ? this.apiCheck(el, 'src', post ? 'post' : 'get', srcPath, paginate ? paginateParams(paginate, attr(el, 'cursor')) : []) : null;
+    if (target) this.apiOfResource.set(name, target.api);
     const shape = target?.shape ?? null;
     const shaped = (a: 'items' | 'total' | 'key' | 'type'): string | null => {
       const v = attr(el, a)?.trim(), c = shape?.[a];
@@ -3610,7 +3650,15 @@ class Compiler {
     const type = shaped('type');
     // an operation the config declares has no schema: its type is the config's
     const generated = target ? !!this.opts.openapi![target.match.spec]!.config : false;
-    const openapi = type || hasCall || generated ? null : this.openapi(el, src, items, total, target?.match);
+    const openapi = type || hasCall || generated ? null : this.openapi(el, src, items, total, target?.match, post ? 'post' : 'get');
+    let body: number | null = null;
+    if (post && attr(el, 'body') != null) {
+      const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchOperation(this.opts.openapi, src, 'post') : null);
+      const r = this.expr(el, 'body', ctx.scope, { mode: 'value' });
+      if (m && 'request' in m && m.request != null) this.typeLast({ returns: { kind: 'openapi', spec: m.spec, schema: m.request } });
+      for (const d of r.deps) deps.add(d);
+      if (r.ok) body = this.fn(r.code);
+    }
     const sch = openapi && 'schema' in openapi ? namedSchema(this.opts.openapi![openapi.spec]!.doc, openapi.schema) : null;
     if (openapi && 'schema' in openapi) this.itemSchema.set(name, { spec: openapi.spec, schema: sch?.array ? (openapi.schema as { items: unknown }).items : openapi.schema });
     // a list of objects without `key` is one object holding the array: nothing can change one of its items
@@ -3651,19 +3699,20 @@ class Compiler {
       ...(call ? { call: { args: call.args, run: call.run } } : {}),
       ...(then ? { then: then.f, ...(then.w.length ? { w: then.w } : {}) } : {}),
       ...(sch ? { sch: sch.name } : {}),
+      ...(body != null ? { body } : {}),
     });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
   /** Matches a resource against the OpenAPI specs; checks `items`, `total` and query parameter names. */
-  openapi(el: P5Element, src: UrlTemplate, items: string | null, total: string | null, matched?: OpenApiMatch):
+  openapi(el: P5Element, src: UrlTemplate, items: string | null, total: string | null, matched?: OpenApiMatch, method: Method = 'get'):
     { spec: number; label: string; schema: unknown } | { closest: string | null } | null {
     const specs = this.opts.openapi;
     if (!specs?.length) return null;
-    const m = matched ?? matchResource(specs, src);
+    const m = matched ?? (method === 'get' ? matchResource(specs, src) : matchOperation(specs, src, method));
     if ('closest' in m) return m;
     const doc = specs[m.spec]!.doc;
-    const label = `GET ${m.path}`;
+    const label = `${method.toUpperCase()} ${m.path}`;
     let schema = m.body;
     if (schema == null) return { closest: m.path };
     for (const [field, path] of [['items', items], ['total', total]] as const) {
@@ -4329,7 +4378,7 @@ class Compiler {
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
       reads.push(...strs(def.deps));
       url ||= codes.some((c) => c.includes('$url'));
-      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}) });
+      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(this.settingsOf(def.name) ? { a: this.settingsOf(def.name)! } : {}) });
     }
     if (!roots.some((n) => n.b.length) && !res.length) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
@@ -4390,7 +4439,7 @@ class Compiler {
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const res: PrefetchParts['res'] = [];
     for (const def of this.resources) {
-      if (def.call || def.each || def.data != null || def.paginate || !def.src.length) continue;
+      if (def.call || def.each || def.data != null || def.paginate || def.body != null || !def.src.length) continue;
       if (!strs(def.deps).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
       if (codes.some((c) => /\$\.\$(?!url\b)/.test(c) || builtin(c) || messages.some((m) => c.includes(`${m}$`)))) continue;
@@ -4449,6 +4498,7 @@ class Compiler {
       const described = parts && parts.length && parts.every((x) => x != null) && startUrl !== null;
       out.push({
         id: def.data, resource: def.name, src: described ? parts as EmbedSlot['src'] : null,
+        ...(this.apiOfResource.get(def.name)?.headers ? { headers: this.apiOfResource.get(def.name)!.headers } : {}),
         ...(def.when != null ? { when: condOf(this.fns[def.when]!) ?? true as const } : {}), ...(pg ? { query: Object.entries(firstParams(pg)) } : {}),
         ...(pg && startUrl ? { start: { url: startUrl, key: pg.offsetParam ?? pg.pageParam, size: pg.size, ...(pg.offsetParam ? { skip: true as const } : {}), query: Object.entries(pageParams(pg, 2)) } } : {}),
       });
@@ -4543,7 +4593,7 @@ class Compiler {
     if (this.opts.early) {
       // another origin named in a `src`: its connection (DNS, TCP, TLS) is made while the page bundle downloads,
       // instead of when the first request leaves the runtime; anonymous, as the request layer and EventSource connect
-      const links = [...preconnects(this.resources, this.syncs).map((o) => `<link rel="preconnect" href="${esc(o)}" crossorigin>`), ...preloads(this.resources.filter((r) => !this.noEarly.has(r.name) && fixedRequest(r) && this.earlyOrigin(r.src))).map(({ url, lo }) => `<link rel="preload" as="fetch" crossorigin href="${esc(url)}"${lo ? ' fetchpriority="low"' : ''}>`)]
+      const links = [...preconnects(this.resources, this.syncs).map((o) => `<link rel="preconnect" href="${esc(o)}" crossorigin>`), ...this.preloadLinks()]
         .map((t) => parse5.parseFragment(t).childNodes[0] as P5Element);
       for (const l of links) l.parentNode = head;
       // after the leading <meta>s (charset first), before stylesheets and scripts

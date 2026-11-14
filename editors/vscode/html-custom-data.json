@@ -12,6 +12,12 @@
           "name": "src"
         },
         {
+          "name": "method"
+        },
+        {
+          "name": "body"
+        },
+        {
           "name": "call"
         },
         {

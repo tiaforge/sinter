@@ -1373,7 +1373,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     app.page.$meta[def.name] = r.meta;
     // fed by a server-event stream: connecting until its first open (src/sse.ts keeps it current)
     if (app.ir.syncs?.some((s) => s.events.some((e) => e.resource == def.name))) r.meta.live = 'connecting';
-    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, typing: unknown = null, loud = false;
+    let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, typing: unknown = null, loud = false, posted: unknown;
 
     const scope = () => app.scopeOf(def.scope ?? -1);
     /** `call`: the arguments of the current load; the identity of a load is its arguments' JSON */
@@ -1387,7 +1387,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
           try { return 'call:' + JSON.stringify(args); } catch { return `call:#${++calls}`; }
         } catch (e) { warn(17, def.name, (e as Error).message); return null; }
       }
-      try { return def.when != null && !fns[def.when]!(s) ? null : app.url(def.src, s); } catch (e) { warn(17, def.name, (e as Error).message); return null; }
+      try {
+        if (def.when != null && !fns[def.when]!(s)) return null;
+        const u = app.url(def.src, s);
+        if (def.body == null) return u;
+        // `method="POST"`: a load is its URL and its body
+        posted = fns[def.body]!(s);
+        return u + '\0' + JSON.stringify(posted ?? null);
+      } catch (e) { warn(17, def.name, (e as Error).message); return null; }
     };
     const loading = (on: boolean) => { if (r.meta.loading != on) { r.meta.loading = on; r.onDirty('meta'); } };
     const pick = (path: string | null | undefined, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
@@ -1439,7 +1446,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (url == null) {
           // the data the previous page prefetched for this request, else the page-load cache: shown
           // now, and changed() revalidates
-          const ahead = app.ext.prefetch && !def.call && !def.each && !def.paginate;
+          const ahead = app.ext.prefetch && !def.call && !def.each && !def.paginate && def.body == null;
           const u = ahead || (def.cache != null && app.ext.cache) ? resolve() : null;
           if (u != null) {
             l.pager?.reset();
@@ -1486,6 +1493,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
           const req = withParams(url, m ? l.pager!.params(m) : null);
           const body = def.call
             ? await app.ext.call!.run(def.call.run, args, null, ctl.signal)
+            : def.body != null
+            ? await loadShared(url.slice(0, url.indexOf('\0')), ctl.signal, (def.lo ?? 0) | (quiet ? 2 : 0), { key: url, body: posted }).then((g) => g.body())
             : await l.get(req, ctl.signal, (def.lo ?? 0) | (quiet ? 2 : 0));
           if (n != seq) return;
           // UNCHANGED (the versions module): nothing to store; `then` still runs, with what that data's load stored
@@ -1523,10 +1532,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * priority (a resource only dialogs read). Each waiter sees the response and reads the body only
    * if it needs it (parsed once; a non-2xx status rejects there).
    */
-  function loadShared(url: string, signal: AbortSignal, lo = 0): Promise<Got> {
+  /** a GET shared by every load of one URL; `post`: a POST resource's load, shared by URL and body (`key`) */
+  function loadShared(target: string, signal: AbortSignal, lo = 0, post?: { key: string; body: unknown }): Promise<Got> {
+    const url = post?.key ?? target;
     let e = shared.get(url);
     if (!e) {
-      const c = new AbortController(), entry = { n: 0, c, p: req.raw(url, { signal: c.signal, ...(lo & 1 ? { priority: 'low' as const } : {}), ...(lo & 2 ? { retry: false as const } : {}) }).then(gotOf) };
+      const c = new AbortController(), entry = { n: 0, c, p: req.raw(target, { signal: c.signal, ...(post ? { method: 'POST', body: post.body } : {}), ...(lo & 1 ? { priority: 'low' as const } : {}), ...(lo & 2 ? { retry: false as const } : {}) }).then(gotOf) };
       entry.p.catch(() => {}).finally(() => shared.get(url) == entry && shared.delete(url));
       shared.set(url, (e = entry));
     }

@@ -1,7 +1,7 @@
 // The request layer: every request (resources, actions, the session probe,
 // islands) goes through one middleware chain, then fetch with a timeout. Nothing
 // is sent again unless a retry policy says so (`configure({ retry })`, the retry module).
-import { clearCached, clearPrefetched, config, PREFETCH_MARK, SinterError, type Middleware } from './config.js';
+import { apiFor, clearCached, clearPrefetched, config, PREFETCH_MARK, SinterError, type Middleware } from './config.js';
 import type { Env } from './env.js';
 import { prefetched } from './handoff.js';
 
@@ -100,6 +100,10 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
       headers.set('Content-Type', 'application/json');
     }
     headers.has('Accept') || headers.set('Accept', 'application/json');
+    // `sinter({ apis })`: the API's credentials and static headers, before the middleware sees the request
+    const api = config.apis.length ? apiFor(target.href, env.href()) : null;
+    if (api?.h) for (const k in api.h) headers.has(k) || headers.set(k, api.h[k]!);
+    const credentials = api?.c ?? 'same-origin';
     // mutations outlive the page: a navigation right after a click must not cancel the write
     // (keepalive bodies are limited to 64 KiB; larger ones and uploads go without it)
     const keepalive = method != 'GET' && method != 'HEAD' && (body == null || (typeof body == 'string' && bytes(body) < 60_000));
@@ -107,7 +111,7 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     // no retry module configured: sent once (dev builds warn about a `data-sn-retry` naming no policy)
     const retry = init.retry === false ? null : config.retry?.wrap(method, url, init, headers, layer, env);
     const once = async () => {
-      const res = await run(new Request(target, { method, headers, body: body ?? null, credentials: 'same-origin', signal: init.signal ?? null, keepalive, ...(init.priority ? { priority: init.priority } : {}) } as RequestInit));
+      const res = await run(new Request(target, { method, headers, body: body ?? null, credentials, signal: init.signal ?? null, keepalive, ...(init.priority ? { priority: init.priority } : {}) } as RequestInit));
       // also a 401 that middleware answered itself (fetch above clears before onUnauthorized runs)
       if (res.status == 401) clearCached(env);
       return res;

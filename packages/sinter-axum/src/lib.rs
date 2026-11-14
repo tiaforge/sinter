@@ -535,8 +535,9 @@ async fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bo
                 headers: headers.clone(),
             };
             let e = embed.clone();
+            let own = own_headers(s);
             async move {
-                match timeout_at(deadline, fill(&e, r)).await {
+                match timeout_at(deadline, fill(&e, r, own)).await {
                     Ok(Fill::Data(j)) => Fill::Data(escape(j)),
                     Ok(f) => f,
                     Err(_) => Fill::Failed(StatusCode::GATEWAY_TIMEOUT),
@@ -596,8 +597,29 @@ fn error_tail(i: &Inner) -> String {
     format!("{go}</head><body data-sn-failed><p>{}</p></body></html>", html(&i.error_text))
 }
 
-/// The data for one placeholder.
-async fn fill(e: &EmbedLayer, r: SlotRequest) -> Fill {
+/// The static headers of a resource's API (`sinter({ apis })`); a name or value that is not a valid header is left out.
+fn own_headers(s: &SlotDesc) -> HeaderMap {
+    let mut h = HeaderMap::new();
+    for (k, v) in &s.headers {
+        if let (Ok(k), Ok(v)) = (HeaderName::try_from(k.as_str()), HeaderValue::try_from(v.as_str())) {
+            h.insert(k, v);
+        }
+    }
+    h
+}
+
+/// Adds the static headers a request does not have already.
+fn with_own(mut h: HeaderMap, own: &HeaderMap) -> HeaderMap {
+    for (k, v) in own {
+        if !h.contains_key(k) {
+            h.insert(k.clone(), v.clone());
+        }
+    }
+    h
+}
+
+/// The data for one placeholder; `own`: the static headers of its API.
+async fn fill(e: &EmbedLayer, r: SlotRequest, own: HeaderMap) -> Fill {
     let i = &e.0;
     let page_key = format!("{}:{}", r.page, r.resource);
     if let Some(f) = i.resolvers.get(&page_key).or_else(|| i.resolvers.get(&r.resource)) {
@@ -612,28 +634,29 @@ async fn fill(e: &EmbedLayer, r: SlotRequest) -> Fill {
     // a path of this origin; `//host` is another origin
     if url.starts_with('/') && !url.starts_with("//") {
         if let Some(api) = &i.api {
-            return failed(call(i, api, url, &r.headers).await);
+            return failed(call(i, api, url, &r.headers, &own).await);
         }
         #[cfg(feature = "upstream")]
         if let Some(base) = &i.upstream {
             let mut h = HeaderMap::new();
             forward(&i.forward, &r.headers, &mut h);
-            return failed(get(i, &format!("{base}{url}"), h).await);
+            return failed(get(i, &format!("{base}{url}"), with_own(h, &own)).await);
         }
         // build() refuses a configuration without a source
         return Fill::Browser;
     }
     #[cfg(feature = "upstream")]
     if i.origins.iter().any(|o| url.strip_prefix(o.as_str()).is_some_and(|rest| rest.starts_with(['/', '?']) || rest.is_empty())) {
-        return failed(get(i, url, HeaderMap::new()).await);
+        return failed(get(i, url, with_own(HeaderMap::new(), &own)).await);
     }
     Fill::Browser
 }
 
 /// The app's router, in-process: the body of a 2xx JSON response within `max_bytes`, else None.
-async fn call(i: &Inner, api: &Api, url: &str, headers: &HeaderMap) -> Option<Bytes> {
+async fn call(i: &Inner, api: &Api, url: &str, headers: &HeaderMap, own: &HeaderMap) -> Option<Bytes> {
     let mut q = Request::get(url).body(Body::empty()).ok()?;
     forward(&i.forward, headers, q.headers_mut());
+    *q.headers_mut() = with_own(std::mem::take(q.headers_mut()), own);
     q.headers_mut().insert(header::ACCEPT, HeaderValue::from_static("application/json"));
     let res = api.clone().oneshot(q).await.ok()?;
     if !res.status().is_success() || !is_json(res.headers()) {
