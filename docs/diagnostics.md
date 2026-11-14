@@ -520,7 +520,7 @@ Warning, for example:
 
 An `<sn-event>` reads its payload but has no `type`, so those expressions are not checked. Reported by `sinter check` only.
 
-**Fix:** Add `type` with a payload type from `src/sinter.types.ts`, or `type="any"` to opt out.
+**Fix:** Add `type` with the payload's type: the object the server sends, so `item="contact"` on a resource of `Contact[]` is `type="{ contact: Contact }"` (the hint names it), or a type from `src/sinter.types.ts`. `type="any"` opts out.
 
 ## SN507 complex-expression
 

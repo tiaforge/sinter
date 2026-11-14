@@ -270,7 +270,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   SN506: {
     example: 'event `contact_updated` has no type: expressions reading its payload are not checked',
     means: 'An `<sn-event>` reads its payload but has no `type`, so those expressions are not checked. Reported by `sinter check` only.',
-    fix: 'Add `type` with a payload type from `src/sinter.types.ts`, or `type="any"` to opt out.',
+    fix: 'Add `type` with the payload\'s type: the object the server sends, so `item="contact"` on a resource of `Contact[]` is `type="{ contact: Contact }"` (the hint names it), or a type from `src/sinter.types.ts`. `type="any"` opts out.',
   },
   SN507: {
     example: '`data-sn-on-click` is too complex for markup: 5 statements in one handler (limit `statements`: 4). Move the logic into a helper (pure, `x = fn(…)`) or an action',

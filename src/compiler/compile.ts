@@ -3914,6 +3914,19 @@ class Compiler {
     this.features.add('sse');
   }
 
+  /**
+   * The payload type an untyped `<sn-event>` most likely has, for SN506's hint: \`item="incident"\` on a resource
+   * typed \`Incident[]\` is \`{ incident: Incident }\`; anything else gets the shape with a placeholder.
+   */
+  private payloadTypeHint(el: P5Element, resource: string | null): string {
+    const resEl = resource ? this.resourceEls.get(resource) : undefined;
+    const written = (resEl && attr(resEl, 'type')?.trim()) || null;
+    const itemType = written && written !== 'any' ? (/^(.+)\[\]$/.exec(written)?.[1] ?? /^(?:Readonly)?Array<(.+)>$/.exec(written)?.[1] ?? null) : null;
+    const item = attr(el, 'item')?.trim();
+    if (item && /^[A-Za-z_$][\w$]*$/.test(item)) return `{ ${item}: ${itemType ?? '…'} }`;
+    return '{ id: number; … }';
+  }
+
   event(el: P5Element, ctx: Ctx): EventDef | null {
     for (const a of el.attrs) {
       if (!EVENT_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-event>\`.${didYouMean(a.name, EVENT_ATTRS)}`, 0);
@@ -3937,7 +3950,7 @@ class Compiler {
     const payloadType: TypeRef | null = typeAttr && typeAttr !== 'any' ? { kind: 'ts', text: typeAttr, loc: this.locOf(el, 'type') } : null;
     if (this.check && !typeAttr && ['item', 'set', 'when', 'then'].some((n) => attr(el, n) != null)) {
       this.report(el, null, 'SN506', `event \`${name}\` has no type: expressions reading its payload are not checked`, 0,
-        'add `type="…"` with the payload type from the types module, or `type="any"` to leave it unchecked');
+        `add \`type="${this.payloadTypeHint(el, resource)}"\`, the payload's fields (a type from the types module may be named), or \`type="any"\` to leave it unchecked`);
     }
     let writes: string[] = [];
     const fnOf = (n: string, object = false) => {
