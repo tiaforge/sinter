@@ -300,12 +300,12 @@ export class Layout {
    * the template, and what is around it in its parent (what another template there may render is
    * uncertain). The same view when no rule depends on a position.
    */
-  private withRow(tpl: P5Element, row: P5Element, index: number, count: number): Layout {
+  private withRow(tpl: P5Element, row: P5Element, index: number, count: number, fresh = false): Layout {
     if (!this.positional) return this;
     let id = LIST_IDS.get(tpl);
     if (id === undefined) LIST_IDS.set(tpl, (id = LIST_IDS_N++));
     const trail = TRAILED.has(tpl), key = `${id}:${this.viewport}:${index}:${count}:${trail ? 't' : ''}`;
-    let l = this.rowViews.get(key);
+    let l = fresh ? undefined : this.rowViews.get(key);
     if (l) return l;
     const parent = tpl.parentNode as P5Element;
     const kids = parent.childNodes.filter(isEl), at = kids.indexOf(tpl);
@@ -317,7 +317,7 @@ export class Layout {
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
       row: { el: row, index, count, before: around(kids.slice(0, at + 1)), after: [...(trail ? [{ el: TRAILER, sure: true }] : []), ...around(kids.slice(at + 1))] }, rowViews: this.rowViews, positional: true, base: this.base, bases: this.bases,
     });
-    this.rowViews.set(key, l);
+    if (!fresh) this.rowViews.set(key, l);
     return l;
   }
 
@@ -1364,8 +1364,19 @@ export class Layout {
   private space(tpl: P5Element, row: P5Element, count: number, s: Shape, sized = false): Space | null {
     const parent = this.parentOf(tpl)!;
     // each row in its place (sibling and structural rules), or one view for all when no rule depends on it
-    const views = Array.from({ length: count }, (_, i) => this.withRow(tpl, row, i + 1, count));
-    const rows = views.map((v) => ({ h: v.height(row), mt: v.vMargin(row, 'top'), mb: v.vMargin(row, 'bottom') }));
+    // rows whose positional queries answer alike share a view: computed once, with what the queries asked logged
+    const sideBySide = s.mode === 'line' || s.mode === 'wrap';
+    const classes: Array<{ v: Layout; out: { h: Height; mt: number | null; mb: number | null; w: ReturnType<Layout['rowWidth']> | undefined } }> = [];
+    const rows = Array.from({ length: count }, (_, i) => {
+      if (!this.positional) { const c = classes[0]; if (c) return c.out; }
+      for (const c of classes) if (!c.v.row || c.v.replays(i + 1)) return c.out;
+      // a view of its own, with nothing cached: every query its row's height asks is logged
+      const v = this.withRow(tpl, row, i + 1, count, true);
+      if (v.row) v.row.log = [];
+      const out = { h: v.height(row), mt: v.vMargin(row, 'top'), mb: v.vMargin(row, 'bottom'), w: sideBySide ? v.rowWidth(row) : undefined };
+      classes.push({ v, out });
+      return out;
+    });
     if (rows.some((r) => r.mt === null || r.mb === null)) return null;
     const hs = rows.map((r) => r.h.h), mts = rows.map((r) => r.mt!), mbs = rows.map((r) => r.mb!);
     const exactH = rows.every((r) => r.h.exact), outer = rows.map((r, i) => hs[i]! + mts[i]! + mbs[i]!);
@@ -1389,7 +1400,7 @@ export class Layout {
     if (gap === null) return null;
     if (s.mode === 'column') return { height: sum(outer) + (count - 1) * gap, mt: 0, mb: 0, span: 0, exact: exactH && (!own || own.exact), ...width };
     if (s.mode === 'line' || s.mode === 'wrap') {
-      const ws = views.map((v) => v.rowWidth(row)), cgap = this.columnGap(parent, lin(0), [this.viewport!, this.viewport!]);
+      const ws = rows.map((r) => r.w), cgap = this.columnGap(parent, lin(0), [this.viewport!, this.viewport!]);
       if (ws.some((w) => !w) || !cgap || ws.some((w) => Math.abs(w!.outer - ws[0]!.outer) > 0.01)) return null;
       const w = ws[0]!, g = cgap.c;
       if (s.mode === 'line') return { height: Math.max(...outer), mt: 0, mb: 0, span: 0, exact: exactH && w.exact, width: count * w.outer + (count - 1) * g, flex: 'shrink' };
@@ -1978,7 +1989,7 @@ export class Layout {
     if (comb === '>') return combine(this.ancestorMatch(rest, el, true));
     if (comb === ' ') return combine(this.ancestorMatch(rest, el, false));
     // siblings
-    if (this.row && el === this.row.el) return combine(this.rowSibling(rest, comb));
+    if (this.row && el === this.row.el) return combine(this.logged({ k: 'b', rest, comb }));
     if (this.siblingsUnknown(el)) return 'maybe';
     const sibs = (el.parentNode?.childNodes ?? []).filter(isEl);
     const at = sibs.indexOf(el);
@@ -2056,7 +2067,7 @@ export class Layout {
           return any === 'yes' ? 'no' : any === 'no' ? 'yes' : 'maybe';
         }
         if (name === 'root') return el === this.root ? 'yes' : 'no';
-        if (STRUCTURAL.has(name)) return this.row && el === this.row.el ? this.rowStructural(name, n) : this.siblingsUnknown(el) ? 'maybe' : this.structural(name, n, el);
+        if (STRUCTURAL.has(name)) return this.row && el === this.row.el ? this.logged({ k: 's', name, n }) : this.siblingsUnknown(el) ? 'maybe' : this.structural(name, n, el);
         if (name === 'defined') return 'yes';
         // these match only in a shadow tree, never in the page's own stylesheets (Tailwind's theme is on `:root, :host`)
         if (name === 'host' || name === 'host-context') return 'no';
@@ -2076,6 +2087,26 @@ export class Layout {
     if (!p) return false;
     if (this.hosts.has(p)) return true;
     return this.inTemplate(el) && p.childNodes.some((c) => isEl(c) && c.tagName === 'template');
+  }
+
+  /**
+   * A positional query on the row, logged (outermost ones only) while the view's log is on: a row whose
+   * queries all answer the same has the same cascade, so `space` reuses a view for it (`replays`).
+   */
+  private logged(q: RowQuery): Match {
+    const r = this.row!;
+    r.depth = (r.depth ?? 0) + 1;
+    let m: Match;
+    try { m = q.k === 'b' ? this.rowSibling(q.rest, q.comb) : this.rowStructural(q.name, q.n); } finally { r.depth--; }
+    if (r.log && r.depth === 0) r.log.push({ q, m });
+    return m;
+  }
+
+  /** whether row `index` answers every query this view's log holds as its own row did */
+  private replays(index: number): boolean {
+    const r = this.row!, here = r.index, log = r.log!;
+    r.log = undefined; r.index = index;
+    try { return log.every(({ q, m }) => (q.k === 'b' ? this.rowSibling(q.rest, q.comb) : this.rowStructural(q.name, q.n)) === m); } finally { r.index = here; r.log = log; }
   }
 
   /** a sibling combinator with the row of this view as its subject: the rows before it, the template, what precedes it */
@@ -2168,7 +2199,8 @@ export interface Reserved {
 }
 /** `line`: side by side in a flex row; `wrap`: a wrapping flex row, `columns` rows per line */
 /** a list's row in a view for its position: `before`/`after` the rows, each element and whether it is surely there */
-interface RowCtx { el: P5Element; index: number; count: number; before: Array<{ el: P5Element; sure: boolean }>; after: Array<{ el: P5Element; sure: boolean }> }
+interface RowCtx { el: P5Element; index: number; count: number; before: Array<{ el: P5Element; sure: boolean }>; after: Array<{ el: P5Element; sure: boolean }>; log?: Array<{ q: RowQuery; m: Match }>; depth?: number }
+type RowQuery = { k: 'b'; rest: csstree.CssNode[]; comb: string } | { k: 's'; name: string; n: csstree.PseudoClassSelector };
 interface Shape { mode: 'block' | 'column' | 'grid' | 'line' | 'wrap' | 'table'; columns: number }
 /** `width`: the placeholder's own (rows side by side, or in a box as wide as its content); `line`: it takes a flex line of its own */
 interface Space { height: number; mt: number; mb: number; span: number; exact: boolean; width?: number; flex?: 'shrink' | 'line' }
