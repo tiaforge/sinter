@@ -63,14 +63,20 @@ export function pagePaths(rel: string, base: string, patterns: string[]): string
  * fragment. Links that download or open elsewhere are left out. Eagerness `moderate`: the pointer
  * rests on the link (200 ms) or a press starts. Null when the app has no paths.
  */
-export function speculationRules(mode: 'prefetch' | 'prerender', paths: string[]): string | null {
+export function speculationRules(mode: 'prefetch' | 'prerender', paths: string[], samePage = false): string | null {
   // a pattern matches with or without a trailing slash, as the runtime and the server match it
   const both = paths.flatMap((p) => (p.includes(':') ? [p.replace(/\/+$/, ''), p.replace(/\/*$/, '/')] : [p]));
   const patterns = [...new Set(both)].map((p) => p.split('/').map((s) => (s[0] === ':' && /^:\w+$/.test(s) ? s : s.replace(/[*?+(){}:\\]/g, '\\$&'))).join('/') + '\\?*#*');
   if (!patterns.length) return null;
   return JSON.stringify({
     [mode]: [{
-      where: { and: [{ href_matches: patterns }, { not: { selector_matches: '[download], [target]:not([target="_self"]), [rel~="nofollow"]' } }] },
+      where: { and: [
+        { href_matches: patterns },
+        { not: { selector_matches: '[download], [target]:not([target="_self"]), [rel~="nofollow"]' } },
+        // same-page links stay in the page (query-links.ts): not the page's own URL with another query.
+        // Relative to the document, `?*` is its own path with any query (and fragment)
+        ...(samePage ? [{ not: { href_matches: '?*', relative_to: 'document' } }] : []),
+      ] },
       eagerness: 'moderate',
     }],
   });

@@ -511,13 +511,16 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return o === false ? null : typeof o === 'string' ? { mode: o, delivery: 'inline' as const } : { mode: o.mode, delivery: o.delivery ?? 'inline' };
   };
   /** the rules' JSON for links to the app's pages, or null */
-  const rulesJson = () => { const s = spec(); return s ? speculationRules(s.mode, appPages().flatMap((x) => x.paths)) : null; };
+  /** `samePage`: a page with same-page links (query-links.ts), whose own URLs are left out */
+  const rulesJson = (samePage = false) => { const s = spec(); return s ? speculationRules(s.mode, appPages().flatMap((x) => x.paths), samePage) : null; };
+  /** pages that load query-links: a rules file for a response header leaves out each page's own URLs once one does */
+  const sameLinkPages = new Set<string>();
   /** where `delivery: 'header'` serves the rules: a fixed name, as the server's header names it */
   const rulesUrl = () => `${resolved?.base ?? '/'}${RULES_FILE}`;
   /** the Speculation Rules tag for links to the app's pages, or '' (none, or delivered by a header) */
-  const speculationTag = () => {
+  const speculationTag = (samePage: boolean) => {
     if (spec()?.delivery !== 'inline') return '';
-    const json = rulesJson();
+    const json = rulesJson(samePage);
     if (!json) return '';
     speculationHash = `sha256-${createHash('sha256').update(json).digest('base64')}`;
     return `<script type="speculationrules">${json}</script>`;
@@ -775,7 +778,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       }
       if (unlisted.size) resolved?.logger.info(`sinter: resources on ${[...unlisted].join(', ')} are requested when the page module runs; list ${unlisted.size > 1 ? 'these origins' : 'the origin'} in sinter({ origins: [...] }) (instead of configure({ origins }): every page adds them) to request them before it`);
       // Speculation Rules for a response header: one file at the site root, under a fixed name
-      const rules = spec()?.delivery === 'header' ? rulesJson() : null;
+      const rules = spec()?.delivery === 'header' ? rulesJson(sameLinkPages.size > 0) : null;
       rulesWritten = !!rules;
       if (rules) this.emitFile({ type: 'asset', fileName: RULES_FILE, source: rules });
       // the head scripts, once the language files are known (emitted at the end): the shared one (the picker, the early
@@ -960,7 +963,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // dev: the console warns about images shown with too few pixels
         const checked = dev && images ? out.html.replace('</body>', `<script type="module" src="${base}${PREFIX.slice(1)}img-check.js"></script></body>`) : out.html;
         // Speculation Rules for links to the app's pages: the browser fetches (or prerenders) the next page
-        const rules = speculationTag(), page = rules ? withRulesHash(checked.replace('</head>', `  ${rules}\n</head>`), speculationHash!) : checked;
+        // the page module imports query-links: the page has same-page links
+        const samePage = out.module.includes("/query-links';");
+        samePage ? sameLinkPages.add(rel) : sameLinkPages.delete(rel);
+        const rules = speculationTag(samePage), page = rules ? withRulesHash(checked.replace('</head>', `  ${rules}\n</head>`), speculationHash!) : checked;
         if (rules && !dev && !hasCspMeta(checked)) unhashedPages++;
         // dev, a page in one language: its messages compiled in; the app's modules may call any of that language's
         const one = virtual.get(file)?.locale;
