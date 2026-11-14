@@ -38,6 +38,10 @@ export async function weight(baseURL, paths, { setup } = {}) {
     const context = await browser.newContext({ baseURL });
     const page = await context.newPage();
     if (setup) await setup(page);
+    // the setup (signing in) has cached the scripts: measure a load from the network, as a first visit would be
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Network.clearBrowserCache');
+    await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
     const bodies = [];
     page.on('response', async (r) => {
       const type = r.request().resourceType();
