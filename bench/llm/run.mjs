@@ -15,7 +15,7 @@ const { values: a } = parseArgs({ options: {
   tasks: { type: 'string', default: 't1,t2,t3' }, frameworks: { type: 'string', default: 'sinter,astro,sveltekit' },
   models: { type: 'string', default: 'haiku,sonnet,opus' }, reps: { type: 'string', default: '1' }, slots: { type: 'string', default: '3' },
   condition: { type: 'string', default: 'cold' }, budget: { type: 'string', default: '15' }, timeout: { type: 'string', default: '45' },
-  out: { type: 'string' }, 'slot-base': { type: 'string', default: '0' }, bases: { type: 'string', default: '/tmp/llmbench/bases' }, 'grade-only': { type: 'boolean', default: false },
+  out: { type: 'string' }, registry: { type: 'string' }, note: { type: 'string' }, 'slot-base': { type: 'string', default: '0' }, bases: { type: 'string', default: '/tmp/llmbench/bases' }, 'grade-only': { type: 'boolean', default: false },
 } });
 
 const MODELS = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' };
@@ -54,6 +54,8 @@ const VENDOR = {
   sinter: { instructions: 'tools/sinter.md' },
 };
 
+// --registry: agents and graders install from there (registry.mjs serves an unpublished build); --note goes in each meta.json
+if (a.registry) process.env.NPM_CONFIG_REGISTRY = a.registry;
 const out = a.out ?? `/tmp/llmbench/runs/${new Date().toISOString().replace(/[:.]/g, '-')}`;
 mkdirSync(out, { recursive: true });
 const cond = CONDITIONS[a.condition];
@@ -118,7 +120,7 @@ async function agent(job, slot) {
   });
   writeFileSync(join(dir, 'transcript.jsonl'), res.stdout);
   await killPorts([PORT, API_PORT]); // anything the agent left on its ports (its process group is killed above)
-  const meta = { ...job, slot, PORT, API_PORT, condition: a.condition, exit: res.code, seconds: Math.round((Date.now() - t0) / 1000), stderr: res.stderr.slice(-2000), ...transcriptStats(res.stdout) };
+  const meta = { ...job, slot, PORT, API_PORT, condition: a.condition, registry: a.registry ?? null, note: a.note ?? null, exit: res.code, seconds: Math.round((Date.now() - t0) / 1000), stderr: res.stderr.slice(-2000), ...transcriptStats(res.stdout) };
   writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
   return { dir, ws, PORT, API_PORT, meta };
 }
