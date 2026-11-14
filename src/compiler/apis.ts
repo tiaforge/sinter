@@ -4,6 +4,7 @@
 // document, so matching, types and checks treat them as the spec's own. Pure; the project reads files.
 import type { OpenApiSpec } from './openapi.js';
 import type { Diagnostic } from './diagnostics.js';
+import type { UrlTemplate } from '../ir.js';
 
 /** What an endpoint returns, said once (`defaults` for the spec's operations, `operations` for others). */
 export interface OperationShape {
@@ -110,6 +111,26 @@ export function apiOf(apis: ApisDef, value: string): { api: ApiDef; path: string
   const api = apis.list.find((a) => a.name === name);
   if (!api) return { error: `no API \`${name}\`; the APIs are ${apis.list.map((a) => `\`${a.name}\``).join(', ')}`, prefix };
   return { api, path: value.slice(prefix), prefix };
+}
+
+/** The text of a URL attribute with its values as markers, for matching before it is compiled (the `key` of a resource). */
+export function shapeTemplate(value: string): UrlTemplate {
+  const out: UrlTemplate = [];
+  let lit = '', depth = 0, q: string | null = null;
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i]!;
+    if (depth) {
+      if (q) { if (c === '\\') i++; else if (c === q) q = null; continue; }
+      if (c === '"' || c === "'" || c === '`') q = c;
+      else if (c === '{') depth++;
+      else if (c === '}' && --depth === 0) out.push(0);
+      continue;
+    }
+    if (c === '{') { if (lit) out.push(lit); lit = ''; depth = 1; continue; }
+    lit += c;
+  }
+  if (lit) out.push(lit);
+  return out;
 }
 
 /** Specs whose index is in `api.specs`, with their indexes. */

@@ -50,7 +50,7 @@ export function propsOf(t: TagFile): string {
 }
 
 /** The element a 0-based offset is in (the deepest one whose source range holds it), and its parent element. */
-function elementAt(text: string, offset: number): { el: P5Element; parent: P5Element | null } | null {
+export function elementAt(text: string, offset: number): { el: P5Element; parent: P5Element | null } | null {
   const doc = parseDocument(text);
   let best: { el: P5Element; parent: P5Element | null } | null = null;
   const walk = (n: P5Parent, parent: P5Element | null) => {

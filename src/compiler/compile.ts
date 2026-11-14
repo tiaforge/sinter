@@ -17,7 +17,7 @@ import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
-import { apiOf, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
+import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
@@ -3409,26 +3409,6 @@ class Compiler {
     return [...preloads(ok.filter((r) => !include(r))).map(link('crossorigin')), ...preloads(ok.filter(include)).map(link('crossorigin="use-credentials"'))];
   }
 
-  /** The text of a URL attribute with its values as markers, for matching before it is compiled (the `key` of a resource). */
-  static shapeTemplate(value: string): UrlTemplate {
-    const out: UrlTemplate = [];
-    let lit = '', depth = 0, q: string | null = null;
-    for (let i = 0; i < value.length; i++) {
-      const c = value[i]!;
-      if (depth) {
-        if (q) { if (c === '\\') i++; else if (c === q) q = null; continue; }
-        if (c === '"' || c === "'" || c === '`') q = c;
-        else if (c === '{') depth++;
-        else if (c === '}' && --depth === 0) out.push(0);
-        continue;
-      }
-      if (c === '{') { if (lit) out.push(lit); lit = ''; depth = 1; continue; }
-      lit += c;
-    }
-    if (lit) out.push(lit);
-    return out;
-  }
-
   /** The operation of an API a path calls with this method, and its configured shape; null without `apis`. */
   apiTarget(el: P5Element, attrName: string, method: Method): { api: ApiDef; match: OpenApiMatch | { closest: string | null }; shape: OperationShape | null } | null {
     const apis = this.opts.apis;
@@ -3436,7 +3416,7 @@ class Compiler {
     if (!apis || value == null || /^https?:\/\//i.test(value)) return null;
     const r = apiOf(apis, value);
     if ('error' in r) return null;
-    const match = matchOperation(this.opts.openapi ?? [], Compiler.shapeTemplate(r.path), method, r.api.specs);
+    const match = matchOperation(this.opts.openapi ?? [], shapeTemplate(r.path), method, r.api.specs);
     const shape = 'path' in match ? r.api.shapes[`${method.toUpperCase()} ${match.path}`] ?? null : null;
     return { api: r.api, match, shape };
   }
@@ -3451,7 +3431,7 @@ class Compiler {
     const raw = attr(el, attrName) ?? '';
     const label = (p: string) => `\`${method.toUpperCase()} ${p}\``;
     if (!('path' in t.match)) {
-      const shown = Compiler.shapeTemplate(raw.slice(raw.indexOf('/'))).map((p) => (typeof p === 'string' ? p : '{…}')).join('').split('?')[0]!;
+      const shown = shapeTemplate(raw.slice(raw.indexOf('/'))).map((p) => (typeof p === 'string' ? p : '{…}')).join('').split('?')[0]!;
       this.report(el, attrName, 'SN326', `${label(shown)} is no operation of the API \`${t.api.name}\`.${t.match.closest ? ` Did you mean \`${t.match.closest}\`?` : ''}`, 0,
         t.api.specs.length ? 'declare an endpoint the spec does not have in the API\'s `operations`' : `the API \`${t.api.name}\` declares its endpoints in \`operations\``);
       return null;
