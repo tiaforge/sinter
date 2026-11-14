@@ -4409,16 +4409,23 @@ class Compiler {
     const fields = new Map<number, Map<string, string>>();
     // a resource with embedded data: its data is in the page, so bindings over it render early (rows too)
     const embedded = new Map(this.resources.filter((r) => r.data != null).map((r) => [r.name, r]));
-    const usedEmb = new Set<string>();
+    const usedEmb = new Set<string>(), usedPre = new Set<string>();
     let readsUrl = false;
+    // resources whose state at mount the early file knows: no data yet, and loading if their `when` holds (`$meta.<name>.loading`,
+    // `.error` and `.loadedAt`): not embedded, `each` or `call`, and a `when` the early file can evaluate. With `cache`, only in a tab
+    // that has cached nothing (the early file checks): cached rows would be there at mount
+    const pre = this.predictable();
     const known = (deps: string[]) => deps.every((d) => {
       if (d === '$locale') return true;
       // the URL: the browser knows it as the head is parsed
       if (d === '$url' || d.startsWith('$url.')) return (readsUrl = true);
-      // with embedded data, any resource: one without data throws when it is read, which leaves that
-      // binding to the page module (`($url.feed ? feed : articles)`)
+      // with embedded or predictable data, any resource: one the early file cannot tell throws when it is read, which leaves
+      // that binding to the page module (`($url.feed ? feed : articles)`)
       const r = /^\$r\.([^.]+)/.exec(d);
-      if (r) { if (!embedded.size) return false; if (embedded.has(r[1]!)) usedEmb.add(r[1]!); return true; }
+      if (r) { if (!embedded.size && !pre.size) return false; if (embedded.has(r[1]!)) usedEmb.add(r[1]!); else if (pre.has(r[1]!)) usedPre.add(r[1]!); return true; }
+      // a status field, or the whole status (a `data-sn-let` of it): another field throws early
+      const mt = /^\$meta\.([^.]+)(?:\.([^.]+))?$/.exec(d);
+      if (mt) { if (!pre.size || (mt[2] !== undefined && !['loading', 'error', 'loadedAt'].includes(mt[2]))) return false; if (pre.has(mt[1]!)) usedPre.add(mt[1]!); return true; }
       const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
       const f = m ? fields.get(Number(m[1])) : undefined;
       if (!m || !f) return false;
@@ -4454,7 +4461,11 @@ class Compiler {
     const fns: string[] = [], index = new Map<string, number>();
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const templates: EarlyIR['templates'] = this.templates.map(() => null);
-    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for'] : [])].includes(b.k) && !b.e && b.f !== undefined && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
+    // a binding over a resource without data is early only when it reads a status the early file knows (a loading branch):
+    // anything else of it reads data that is not there yet
+    const statusOnly = (deps: string[]) => !deps.some((d) => { const r = /^\$r\.([^.]+)/.exec(d); return r && !embedded.has(r[1]!); })
+      || deps.some((d) => { const m = /^\$meta\.([^.]+)/.exec(d); return !!m && pre.has(m[1]!); });
+    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for'] : [])].includes(b.k) && !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b);
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
       const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible)));
@@ -4558,11 +4569,38 @@ class Compiler {
     }
     const ir: EarlyIR = { roots, templates };
     if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, items: embedded.get(n)!.items ?? null }]));
+    if (usedPre.size) ir.pre = Object.fromEntries([...usedPre].sort().map((n) => {
+      const def = pre.get(n)!;
+      return [n, { ...(def.key ? { k: 1 as const } : {}), ...(def.cache != null ? { c: 1 as const } : {}), ...(def.when != null ? { w: fn(this.fns[def.when]!) } : {}) }];
+    }));
     if (res.length) ir.res = res;
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
     const arrays = this.urlArrays();
     if ((url || readsUrl) && arrays.length) ir.urlArrays = arrays;
     return { ir, fns, helpers, namespaces };
+  }
+
+  /**
+   * The resources whose state when the page module mounts the early file can tell: no data, loading
+   * if their `when` holds. Not embedded, `each` or `call`; a `when` only over what the early file
+   * knows (state without data, persisted values, `$url`, `$now`, helpers but the built-in formatters),
+   * in a scope the early file has.
+   */
+  predictable(): Map<string, ResourceDef> {
+    const out = new Map<string, ResourceDef>();
+    const userHelpers = new Set(this.opts.helpers.names);
+    const builtin = (code: string) => [...code.matchAll(/(?<![\w$.])(date|time|datetime|relative|number|bytes)\(/g)].some((m) => !userHelpers.has(m[1]!));
+    for (const def of this.resources) {
+      if (def.call || def.each || def.data != null || this.embedded.has(def.name)) continue;
+      if (def.when != null) {
+        const c = this.fns[def.when]!;
+        if (builtin(c) || /\$(r|meta|el)\b/.test(c) || !strs(def.deps).every((d) => d === '$now' || d === '$locale' || d === '$url' || d.startsWith('$url.') || /^\$s\d+/.test(d))) continue;
+        // not over state: its fields at mount may differ from their initial values
+        if (strs(def.deps).some((d) => /^\$s\d+/.test(d))) continue;
+      }
+      out.set(def.name, def);
+    }
+    return out;
   }
 
   /**
