@@ -29,7 +29,7 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   // the images' rules: imported, so the bundler puts them in the page's stylesheet (no request, no inline style)
   // and the components' scoped styles, the same way
   const css = (parts.images?.css && options.images?.stylesheet ? `import ${JSON.stringify(options.images.stylesheet)};\n` : '')
-    + (parts.paint && typeof options.paintCss === 'string' ? `import ${JSON.stringify(options.paintCss)};\n` : '')
+    + (parts.paint && options.paintCss ? `import ${JSON.stringify(options.paintCss)};\n` : '')
     + (options.componentCss ? parts.styles.map((x) => `import ${JSON.stringify(options.componentCss!(x.name))};\n`).join('') : '')
     // components with a script: their modules, which the `cmp` bindings hand to the components feature
     + parts.scripts.filter((x) => !x.lazy).map((x) => `import { ${x.export} as ${x.local} } from ${JSON.stringify(x.module)};\n`).join('')
