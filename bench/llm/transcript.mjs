@@ -14,7 +14,7 @@ export function analyze(dir) {
   const lines = readFileSync(join(dir, 'transcript.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
   const results = new Map();
   for (const l of lines) if (l.type === 'user') for (const c of l.message?.content ?? []) if (c.type === 'tool_result') results.set(c.tool_use_id, typeof c.content === 'string' ? c.content : (c.content ?? []).map((x) => x.text ?? '').join(''));
-  const out = { builds: { ok: 0, failed: 0 }, checks: { ok: 0, failed: 0 }, failedDiagnostics: {}, docReads: 0, docChars: 0, toolCalls: 0, failures: [] };
+  const out = { builds: { ok: 0, failed: 0 }, checks: { ok: 0, failed: 0 }, failedDiagnostics: {}, docReads: 0, docChars: 0, sinterDocs: 0, debugRounds: 0, toolCalls: 0, failures: [] };
   for (const l of lines) if (l.type === 'assistant') for (const u of l.message?.content ?? []) {
     if (u.type !== 'tool_use') continue;
     out.toolCalls++;
@@ -22,6 +22,9 @@ export function analyze(dir) {
     if (/llms(-full|-small)?\.txt|framework-docs\//.test(input)) { out.docReads++; out.docChars += r.length; }
     if (u.name !== 'Bash') continue;
     const cmd = u.input.command ?? '';
+    out.sinterDocs += (cmd.match(/\bsinter docs\b/g) ?? []).length;
+    // the agent's own checking of the running app: a browser script, curl or wget against it (not builds, not doc fetches)
+    if ((/playwright|chromium|\bcurl\b|\bwget\b/.test(cmd) || /\bnode\s+(?!api\/server)[^-\s]\S*\.m?js\b/.test(cmd)) && !/raw\.githubusercontent|npmjs|registry|\bnpm run build\b|vite build/.test(cmd)) out.debugRounds++;
     // Vite builds (sinter, Astro and SvelteKit all build with Vite): one verdict per build in the output
     const count = (re) => (r.match(re) ?? []).length;
     // a failed build prints "error during build:" and also "Build failed …": one verdict, whichever phrasing is there
@@ -48,7 +51,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const dir of args.filter((x) => x !== '--json')) {
     const a = analyze(dir);
     if (json) { console.log(JSON.stringify({ dir, ...a })); continue; }
-    console.log(`${dir.split('/').pop()}: turns ${a.turns}, input ${(a.inputTokens / 1e6).toFixed(1)}M, builds ${a.builds.ok} ok / ${a.builds.failed} failed, checks ${a.checks.ok} ok / ${a.checks.failed} failed, docs read ${a.docReads}× (${Math.round(a.docChars / 1000)} KB)${Object.keys(a.failedDiagnostics).length ? ', failing diagnostics ' + JSON.stringify(a.failedDiagnostics) : ''}`);
+    console.log(`${dir.split('/').pop()}: turns ${a.turns}, input ${(a.inputTokens / 1e6).toFixed(1)}M, builds ${a.builds.ok} ok / ${a.builds.failed} failed, checks ${a.checks.ok} ok / ${a.checks.failed} failed, docs read ${a.docReads}× (${Math.round(a.docChars / 1000)} KB), sinter docs ${a.sinterDocs}×, debugging rounds ${a.debugRounds}${Object.keys(a.failedDiagnostics).length ? ', failing diagnostics ' + JSON.stringify(a.failedDiagnostics) : ''}`);
     for (const f of a.failures) console.log(`  ✗ ${f.command}\n    ${f.diagnostics.length ? f.diagnostics.join('\n    ') : f.other ?? ''}`);
   }
 }
