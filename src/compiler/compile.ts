@@ -2549,9 +2549,10 @@ class Compiler {
         const names = use.emits.map((m) => m.name);
         this.report(el, a.name, 'SN315', `\`<${use.name}>\` does not emit \`${event}\`; ${names.length ? `it declares ${names.map((x) => `\`${x}\``).join(', ')}` : 'it declares no events'}.${didYouMean(event, names)}`, 0);
       }
-      // `$url` writes on `input`: a keystroke replaces (location.ts), but on a checkbox, radio or select it is a
-      // choice, a new history entry (4), decided here. A handler higher up hears both: there `input` replaces.
-      const choice = event === 'input' && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
+      // `$url` writes on `input` or `change`: a keystroke replaces (location.ts), but on a checkbox, radio or select it
+      // is a choice, a new history entry (4), decided here, so it holds for untrusted events too (Playwright's
+      // selectOption() dispatches them). A handler higher up hears both: there `input` replaces.
+      const choice = (event === 'input' || event === 'change') && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}) });
       const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
       if (ms > 0) this.features.add('debounce');

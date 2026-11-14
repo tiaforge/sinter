@@ -47,12 +47,8 @@ const feature: Feature = {
       try { k == PUSH ? push(to) : app.env.replaceState(to); } catch (e) { app.warn(26, to, e); }
       return true;
     };
-    /**
-     * The user's event (the testing module's simulated ones too), not a keystroke. A select's change counts
-     * untrusted too: Playwright's selectOption() and testing libraries dispatch it, and the history a test sees
-     * must be the one a user gets.
-     */
-    const user = (e: Event | null) => e && e.type != 'input' && ((app.env.trusted ? app.env.trusted(e) : e.isTrusted) || e.type == 'change' && (e.target as Element).localName == 'select');
+    /** The user's event (the testing module's simulated ones too), not a keystroke. */
+    const user = (e: Event | null) => e && (app.env.trusted ? app.env.trusted(e) : e.isTrusted) && e.type != 'input';
     /** A parameter was written: `k` from the compiler (a model's control, a choice) or the pager, else from the event that caused the write. */
     const note = (name: string, k: number) => {
       if (!segs.includes(':' + name)) changed.add(name);
