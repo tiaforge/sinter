@@ -390,7 +390,6 @@ export function scopeState(el: Element): [number, any] | null {
 }
 /** HANDLERS: one handler binding, or an array when the element has several */
 export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
-const indexReaders = new WeakMap<TemplateDef, boolean>();
 const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
 /** row templates: whether each holds one element (see oneElement()) */
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
@@ -398,7 +397,7 @@ const prepared = new WeakMap<HTMLTemplateElement, boolean>();
 const EARLY_ROWS = Symbol.for('sinter.early.rows');
 /** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
 const EARLY = Symbol.for('sinter.early');
-const simple = new WeakMap<TemplateDef, Simple | null>(), SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
+const simple = new WeakMap<TemplateDef, Simple | null>();
 /** ROW: on each node of a simple row with handlers, its instance */
 const ROW = Symbol('sinter.row');
 type RowNode = Node & { [ROW]?: Inst };
@@ -554,11 +553,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
    */
   const isMarked = (t: number, s: any) => marked.has(s[ir.templates[t]!.item!]);
   const level = (e: Reach, d: Dirty, s?: any) => (e.conds.length ? reachLevel(e, d.v, s, isMarked) : 2);
-
-  /** Whether a binding in a template's rows (nested templates included) reads a loop index. */
-  // (a component used inside itself makes a template its own descendant: the entry is set before it is computed)
-  const readsIndex = (t: TemplateDef): boolean => indexReaders.get(t) ?? (indexReaders.set(t, false), indexReaders.set(t, t.nodes.some((nd) => nd.b.some((b) =>
-    b.i || ((b.k == 'for' || b.k == 'if' || b.k == 'else') && readsIndex(ir.templates[b.x!]!))))), indexReaders.get(t)!);
 
   /** Dependencies of every binding in a template's rows, nested templates included. */
   const templateDeps = (t: TemplateDef): number[] => allDeps.get(t) ?? (allDeps.set(t, []), allDeps.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
@@ -1042,7 +1036,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       pre.end.remove();
     }
     const t = rb.t!, old = rb.rows!, end = (rb.end ??= after(rb.el)), tpl = rb.el as HTMLTemplateElement;
-    const n = items.length, m = old.length, rows: Inst[] = new Array(n), moved = readsIndex(t);
+    const n = items.length, m = old.length, rows: Inst[] = new Array(n), moved = t.ri;
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
     const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
@@ -1227,12 +1221,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return one;
   }
 
-  /** A row template with a lookup function whose elements only have value bindings and handlers (no state, model, nested template or dialog). */
+  /** A simple row template (the compiler's `sm`: a lookup function, only value bindings and handlers; no state, model, nested template or dialog): its value bindings and handlers. */
   function isSimple(t: TemplateDef): Simple | null {
     let v = simple.get(t);
     if (v === undefined) {
       const pick = (on: boolean) => t.nodes.flatMap((nd, k) => nd.b.filter((b) => (b.k == 'on') == on).map((b): [number, Binding] => [k, b]));
-      v = t.find != null && t.nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE.has(b.k))) ? { vals: pick(false), hs: pick(true) } : null;
+      v = t.sm ? { vals: pick(false), hs: pick(true) } : null;
       simple.set(t, v);
     }
     return v;

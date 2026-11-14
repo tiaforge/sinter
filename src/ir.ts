@@ -221,6 +221,13 @@ export interface TemplateDef {
    * binding whose element is missing. The generic path creates rows of templates without one.
    */
   make?: number;
+  /**
+   * page module only (`compactIR`): a row template with a lookup function whose elements only have value bindings
+   * and handlers (no state, model, nested template or dialog); its rows keep no binding objects
+   */
+  sm?: 1;
+  /** page module only (`compactIR`): a binding in its rows, nested templates included, reads a loop index, so a row that only moved re-runs those */
+  ri?: 1;
 }
 
 /** a local action call: `args` evaluates the arguments (an array), `run(args, ctx)` calls the function */
@@ -432,6 +439,12 @@ export function compactIR(full: IR): IR {
     ...(n.dl ? ['toggle'] : []),
     ...n.b.flatMap((b) => (b.k == 'on' ? [b.n!] : b.k == 'model' ? [...(b.n == 'text' ? [] : ['toggle']), 'input', 'change'] : [])),
   ]))];
+  // a template's kind, decided here: the runtime reads a flag where it walked the template's bindings
+  const SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
+  const simple = (t: TemplateDef) => t.find != null && t.nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE.has(b.k)));
+  // (a component used inside itself makes a template its own descendant: a template being visited adds nothing)
+  const reads = (t: TemplateDef, seen: Set<TemplateDef>): boolean => !seen.has(t) && (seen.add(t), t.nodes.some((nd) => nd.b.some((b) =>
+    !!b.i || ((b.k == 'for' || b.k == 'if' || b.k == 'else') && reads(ir.templates[b.x!]!, seen)))));
   return {
     ...rest,
     resources: ir.resources.map((r) => {
@@ -441,7 +454,7 @@ export function compactIR(full: IR): IR {
     ...(syncs?.length ? { syncs: syncs.map((s) => ({ ...s, events: s.events.map((e) => NULLS(e) as EventDef) })) } : {}),
     roots: ir.roots.map(compactNode),
     // a template's absent `index`, `key` and `keyFields` are null
-    templates: ir.templates.map((t) => ({ ...NULLS(t), nodes: t.nodes.map(compactNode) }) as TemplateDef),
+    templates: ir.templates.map((t) => ({ ...NULLS(t), nodes: t.nodes.map(compactNode), ...(simple(t) ? { sm: 1 } : {}), ...(reads(t, new Set()) ? { ri: 1 } : {}) }) as TemplateDef),
     ps,
     ...(ev.length ? { ev } : {}),
   };

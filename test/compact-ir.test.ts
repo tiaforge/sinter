@@ -41,3 +41,40 @@ describe('the event types the mount listens for', () => {
     } finally { EventTarget.prototype.addEventListener = add; }
   });
 });
+
+describe('a template\'s kind', () => {
+  const page = (rows: string) => compact(`<html><body data-sn-state="{ rows: [{ id: 1, kids: [1] }], on: true, q: '' }">
+    <template data-sn-for="(r, i) in rows">${rows}</template></body></html>`);
+
+  test('simple (`sm`): a row template with only value bindings and handlers', () => {
+    expect(page('<p data-sn-text="r.id" data-sn-on-click="q = r.id"></p>').templates[0]!.sm).toBe(1);
+    // a model, a state scope, a nested template, a dialog: binding objects
+    expect(page('<p><input data-sn-model="q"></p>').templates[0]!.sm).toBeUndefined();
+    expect(page('<p data-sn-state="{ open: false }" data-sn-text="r.id"></p>').templates[0]!.sm).toBeUndefined();
+    expect(page('<p><template data-sn-if="on"><b data-sn-text="r.id"></b></template></p>').templates[0]!.sm).toBeUndefined();
+    expect(page('<dialog><b data-sn-text="r.id"></b></dialog>').templates[0]!.sm).toBeUndefined();
+    // an if branch has no lookup function: never simple
+    const ir = compact('<html><body data-sn-state="{ on: true, q: 1 }"><template data-sn-if="on"><b data-sn-text="q"></b></template></body></html>');
+    expect(ir.templates[0]!.sm).toBeUndefined();
+  });
+
+  test('index readers (`ri`): a binding in the rows reads a loop index, nested templates included', () => {
+    expect(page('<p data-sn-text="r.id"></p>').templates[0]!.ri).toBeUndefined();
+    expect(page('<p data-sn-text="i + 1"></p>').templates[0]!.ri).toBe(1);
+    const nested = page('<p><template data-sn-if="on"><b data-sn-text="i"></b></template></p>');
+    expect(nested.templates.map((t) => t.ri)).toEqual([1, 1]);
+    const inner = page('<p><template data-sn-for="(k, j) in r.kids"><b data-sn-text="j"></b></template></p>');
+    expect(inner.templates.find((t) => t.item == 'r')!.ri).toBe(1);
+  });
+
+  test('rows that only moved re-run the bindings that read their index', async () => {
+    const { root, flush } = await render(`<div data-sn-state="{ rows: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }">
+      <ul><template data-sn-for="(r, i) in rows" data-sn-key="r.id"><li data-sn-text="i + ':' + r.id"></li></template></ul>
+      <button data-sn-on-click="rows.reverse()">r</button></div>`);
+    const li = () => [...root.querySelectorAll('li')].map((e) => e.textContent);
+    expect(li()).toEqual(['0:a', '1:b', '2:c']);
+    root.querySelector('button')!.click();
+    await flush();
+    expect(li()).toEqual(['0:c', '1:b', '2:a']);
+  });
+});
