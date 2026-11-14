@@ -122,7 +122,8 @@ variants (`md:size-20`) are `@media` rules, so an image with one stays fluid.
 A wrong size makes an image blurry, while no size only costs bytes, so sinter stays fluid whenever
 a width depends on layout it cannot predict:
 
-- widths in `vh`, `ch`, `fit-content`, `max-content` or `auto`, or a `%` of a fluid parent;
+- widths in `vh`, `fit-content`, `max-content` or `auto`, or a `%` of a fluid parent; `ch` anywhere
+  but a box's own `width` or `max-width` (see below);
 - `em` where the font size is not fixed: in `vw`, changed by a state or a media feature other than
   width, or under a lone `monospace` font (browsers scale its default size);
 - a parent that is inline or `display: contents`, a flex row with an item sized by its content (a
@@ -143,6 +144,15 @@ up keeps exact widths there, and so does a fixed sidebar that leaves no room on 
 screens. In a range that cannot be followed, the width is bounded by the containers there (a
 `max-width: 500px` column), else by the viewport. Only when no range can be followed does `sizes`
 fall back to one upper bound such as `(max-width: 800px) 100vw, 800px`.
+
+**Measures in `ch`.** A column such as `.prose { max-width: 65ch }` bounds the images in it. How
+wide `1ch` is depends on the font that renders the text, which differs by platform, by the
+visitor's settings, and while a web font loads, so sinter counts it as at most `0.7em`, wider than
+any common text font's `0` (Arial 0.556, DejaVu 0.636). A web font whose `0` is wider raises that,
+read from its file (TTF, OTF, WOFF, WOFF2); one whose file cannot be read leaves the column
+unbounded. `ch` is followed only in a box's `width` and `max-width`, where a wider box can only
+make the image wider: in a margin, a padding, a sibling's width or a grid track, more could mean
+narrower, and it is not followed.
 
 **Rows in unequal tracks.** When an auto-placed item's column is not known, because it is a row of
 a `data-sn-for` (each row lands in the next column) or an item before it is placed by its row or

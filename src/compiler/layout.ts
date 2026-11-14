@@ -6,7 +6,7 @@
 // stays fluid. A wrong size would make it blurry; no size only costs bytes. See docs/images.md.
 import * as csstree from 'css-tree';
 import type { DefaultTreeAdapterMap } from 'parse5';
-import { genericNormal, SYSTEM_FONTS } from './system-fonts.js';
+import { genericNormal, SYSTEM_FONTS, UNKNOWN_ZERO } from './system-fonts.js';
 
 /** each list's own per-row views (`withRow`), by template */
 const LIST_IDS = new WeakMap<object, number>();
@@ -286,7 +286,7 @@ export class Layout {
   private viewport: number | undefined;
   private readonly views = new Map<number, Layout>();
   /** why the last `fluidSizes()` gave up, when it is something the author can change (shared by `at()` views) */
-  private readonly notes: { autoFitRows: P5Element | null; why: string | null; bounded: boolean } = { autoFitRows: null, why: null, bounded: false };
+  private readonly notes: { autoFitRows: P5Element | null; why: string | null; bounded: null | 'widest' | 'font'; ch: boolean } = { autoFitRows: null, why: null, bounded: null, ch: false };
   /** a row of a list, in a view for its position (`withRow`): its siblings are the other rows and what is around the template */
   private row: RowCtx | null = null;
   private readonly rowViews = new Map<string, Layout>();
@@ -300,9 +300,15 @@ export class Layout {
 
   /** a font family's `line-height: normal` as a multiple of its size (the smallest of its metrics), when the build has its file */
   private readonly normal: (family: string) => number | null;
+  /** the width of `0` in a web font (a multiple of its size), when the build has read its files */
+  private readonly zero: (family: string) => number | null;
+  /** the families the stylesheets declare with `@font-face` (lower case): their `0` only from their files */
+  private readonly webFonts = new Set<string>();
 
-  constructor(sheets: StyleSheet[], doc: P5Parent, opts: { normalLineHeight?: (family: string) => number | null } = {}) {
+  constructor(sheets: StyleSheet[], doc: P5Parent, opts: { normalLineHeight?: (family: string) => number | null; zeroWidth?: (family: string) => number | null } = {}) {
     this.normal = opts.normalLineHeight ?? (() => null);
+    this.zero = opts.zeroWidth ?? (() => null);
+    for (const s of sheets) for (const m of s.css.matchAll(/@font-face\s*\{[^}]*?font-family\s*:\s*([^;}]+)/gi)) this.webFonts.add(m[1]!.trim().replace(/^(['"])(.*)\1$/, '$2').toLowerCase());
     let order = 0;
     // the browser's own defaults that move a box's edges: below every author rule, as the UA origin is
     for (const r of rulesOf(UA)) this.rules.push({ selectors: r.selectors, decls: r.decls.map((d) => ({ ...d, layer: [-1], order: order++ })) });
@@ -330,7 +336,7 @@ export class Layout {
     if (l) return l;
     l = Object.create(Layout.prototype) as Layout;
     Object.assign(l, {
-      rules: this.rules, hosts: this.hosts, root: this.root, viewport: width, views: this.views, notes: this.notes, normal: this.normal,
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: width, views: this.views, notes: this.notes, normal: this.normal, zero: this.zero, webFonts: this.webFonts,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
       row: null, rowViews: this.rowViews, positional: this.positional, base: this.base, mq: this.mq, bases: this.bases,
     });
@@ -357,7 +363,7 @@ export class Layout {
     const around = (list: P5Element[]) => list.flatMap((e) => [{ el: e, sure: true }, ...(e !== tpl && e.tagName === 'template' ? ((e as P5Template).content?.childNodes ?? []).filter(isEl).map((c) => ({ el: c, sure: false })) : [])]);
     l = Object.create(Layout.prototype) as Layout;
     Object.assign(l, {
-      rules: this.rules, hosts: this.hosts, root: this.root, viewport: this.viewport, views: this.views, notes: this.notes, normal: this.normal,
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: this.viewport, views: this.views, notes: this.notes, normal: this.normal, zero: this.zero, webFonts: this.webFonts,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
       row: { el: row, index, count, before: around(kids.slice(0, at + 1)), after: [...(trail ? [{ el: TRAILER, sure: true }] : []), ...around(kids.slice(at + 1))] }, rowViews: this.rowViews, positional: true, base: this.base, mq: this.mq, bases: this.bases,
     });
@@ -408,7 +414,9 @@ export class Layout {
    */
   maxWidth(img: P5Element): number | null {
     if (this.empty) return null;
-    return this.bound(img, true);
+    const was = this.notes.ch;
+    this.notes.ch = true;
+    try { return this.bound(img, true); } finally { this.notes.ch = was; }
   }
 
   private readonly bounds = new Map<P5Element, number | null>();
@@ -443,6 +451,12 @@ export class Layout {
       return v === undefined ? undefined : evaluate(v, { rem, percent: 0 });
     };
     let own = abs(SIZE['max-width']) ?? null;
+    // a width or max-width in ch: at most as wide as its widest `0` says (an upper bound, as this is)
+    for (const props of [SIZE.width, SIZE['max-width']]) {
+      const c = this.cascaded(el, props);
+      const b = !c.ambiguous && c.value !== null ? this.chBound(el, c.value) : undefined;
+      if (b) own = own === null ? b.c : Math.min(own, b.c);
+    }
     if (isImg) {
       // the `width` attribute, when no stylesheet sets the width
       const wc = this.cascaded(el, SIZE.width);
@@ -650,7 +664,7 @@ export class Layout {
     if (l) return l;
     l = Object.create(Layout.prototype) as Layout;
     Object.assign(l, {
-      rules: this.rules, hosts: this.hosts, root: this.root, viewport: undefined, views: new Map(), notes: this.notes, normal: this.normal,
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: undefined, views: new Map(), notes: this.notes, normal: this.normal, zero: this.zero, webFonts: this.webFonts,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
       row: null, rowViews: new Map(), positional: this.positional, base: px, mq, bases: this.bases,
     });
@@ -827,8 +841,9 @@ export class Layout {
       const seg = queue.shift()!;
       const mid = Number.isFinite(seg[1]) ? (seg[0] + seg[1]) / 2 : seg[0] + 1000;
       let w: Lin | null;
-      this.notes.bounded = false;
+      this.notes.bounded = null;
       try {
+        this.notes.ch = true;
         w = this.at(mid).imgWidth(img, seg, intrinsic);
       } catch (e) {
         if (!(e instanceof Split)) throw e;
@@ -837,12 +852,12 @@ export class Layout {
         if (!(at > seg[0] + 1e-6 && at < seg[1] - 1e-6)) return null;
         queue.unshift([seg[0], at], [at, seg[1]]);
         continue;
-      }
+      } finally { this.notes.ch = false; }
       // a negative width on a real screen is no size the browser can use (0 at a range's end is: a column the others leave no room for)
       const from = Math.max(seg[0], MIN_VIEWPORT), to = Number.isFinite(seg[1]) ? seg[1] : Infinity;
       const end = !w ? null : Number.isFinite(to) ? w.k * to + w.c : w.k > 1e-9 ? Infinity : w.k < -1e-9 ? -1 : w.c;
       if (w && w.k * from + w.c > -0.01 && end! > -0.01 && Math.max(w.k * from + w.c, end!) >= 1) {
-        pieces.push({ from: seg[0], to: seg[1], k: w.k, c: w.c, ...(this.notes.bounded ? { bound: 'widest' as const } : {}) });
+        pieces.push({ from: seg[0], to: seg[1], k: w.k, c: w.c, ...(this.notes.bounded ? { bound: this.notes.bounded } : {}) });
         continue;
       }
       // not followed in this range: there, no wider than its containers allow (else the viewport); the other ranges stay exact
@@ -981,7 +996,8 @@ export class Layout {
     if (wc.ambiguous) return null;
     let box: Lin;
     if (wc.value !== null && !/^\s*auto\s*$/i.test(wc.value)) {
-      const v = this.lin(el, wc.value, avail, seg);
+      const ch = this.chBound(el, wc.value);
+      const v = ch === undefined ? this.lin(el, wc.value, avail, seg) : ch;
       if (!v) return null;
       box = borderBox ? v : { k: v.k, c: v.c + e };
     } else {
@@ -995,7 +1011,7 @@ export class Layout {
     const asBox = (v: Lin) => (borderBox ? v : { k: v.k, c: v.c + e });
     const mx = this.cascaded(el, SIZE['max-width']);
     if (mx.ambiguous) return null;
-    if (mx.value !== null && !/^\s*none\s*$/i.test(mx.value)) { const v = this.lin(el, mx.value, avail, seg); if (!v) return null; box = pick(box, asBox(v), seg, 'min'); }
+    if (mx.value !== null && !/^\s*none\s*$/i.test(mx.value)) { const ch = this.chBound(el, mx.value); const v = ch === undefined ? this.lin(el, mx.value, avail, seg) : ch; if (!v) return null; box = pick(box, asBox(v), seg, 'min'); }
     const mn = this.cascaded(el, SIZE['min-width']);
     if (mn.ambiguous) return null;
     if (mn.value !== null && !/^\s*(auto|0[a-z%]*)\s*$/i.test(mn.value)) { const v = this.lin(el, mn.value, avail, seg); if (!v) return null; box = pick(box, asBox(v), seg, 'max'); }
@@ -1183,7 +1199,7 @@ export class Layout {
       widest = widest ? pick(widest, w, seg, 'max') : w;
     }
     // equal columns (`repeat(3, minmax(200px, 1fr))`): wherever it lands, that is its width
-    if (!same) this.notes.bounded = true;
+    if (!same) this.notes.bounded ??= 'widest';
     return widest;
   }
 
@@ -1875,6 +1891,39 @@ export class Layout {
       if (!fam || (fam.length === 1 && fam[0] === 'monospace')) return null;
     }
     return this.fontSize(el);
+  }
+
+  /**
+   * `1ch` of `el` in px at most: its exact font size times the widest `0` that may render it: `UNKNOWN_ZERO`
+   * for the fonts the browser has (the stack's fallbacks, shown until a web font loads), or a web font's, from
+   * its file, when wider. Null when the size is not exact or a web font in the stack was not read.
+   */
+  private chOf(el: P5Element): number | null {
+    const size = this.exactFont(el), fams = this.fontFamilies(el);
+    if (size === null || !fams) return null;
+    let widest = UNKNOWN_ZERO;
+    for (const f of fams) {
+      if (!this.webFonts.has(f)) continue;
+      const z = this.zero(f);
+      if (z === null) return null;
+      widest = Math.max(widest, z);
+    }
+    return widest * size;
+  }
+
+  /**
+   * A `width` or `max-width` of `ch` (`65ch`) as an upper bound of what it renders (`notes.bounded`): undefined
+   * when the value is not one, null when its `ch` is not known. Only where a wider box can only make the image
+   * wider; anywhere else (a sibling's width, a margin, a grid track) `ch` is not followed.
+   */
+  private chBound(el: P5Element, value: string): Lin | null | undefined {
+    // only while an image's width is solved: the reserved space wants lower bounds of what boxes are
+    const m = this.notes.ch ? /^\s*(\d*\.?\d+)ch\s*$/i.exec(this.subst(value, el) ?? '') : null;
+    if (!m) return undefined;
+    const ch = this.chOf(el);
+    if (ch === null) return null;
+    this.notes.bounded ??= 'font';
+    return lin(Number(m[1]) * ch);
   }
 
   /** `value` with its em lengths in px, of `el`'s exact font size; undefined when that is not known */
@@ -2687,8 +2736,8 @@ const lin = (c: number): Lin => ({ k: 0, c });
 class Split { constructor(readonly at: number) {} }
 const MIN_VIEWPORT = 240, MAX_VIEWPORT = 4096;
 
-/** `bound`: an upper bound there, not the width (`widest`: the widest column a list's row may land in; `fallback`: the range is not followed) */
-export interface FluidPiece { from: number; to: number; k: number; c: number; bound?: 'widest' | 'fallback' }
+/** `bound`: an upper bound there, not the width (`widest`: the widest column a list's row may land in; `font`: a width in `ch`, at the widest `0` of the fonts that may render; `fallback`: the range is not followed) */
+export interface FluidPiece { from: number; to: number; k: number; c: number; bound?: 'widest' | 'fallback' | 'font' }
 export interface FluidSizes {
   /** the `sizes` attribute */
   sizes: string;

@@ -62,3 +62,13 @@ export const genericNormal = (name: string): number | null => {
   const list = GENERIC_FONTS[name];
   return list ? Math.min(...list.map((x) => (x === 1 ? 1 : SYSTEM_FONTS[x]!))) : null;
 };
+
+/**
+ * `1ch` (the advance of `0`) at most, as a multiple of the font size, for any font the browser has
+ * without downloading it: above every text font measured in Chromium (Arial, Helvetica and Times
+ * through their metric clones 0.556 and 0.5, Courier New 0.6, Calibri 0.507, Cambria 0.517,
+ * DejaVu Sans and Serif 0.636, DejaVu Sans Mono 0.602). A stack always ends in a generic family or
+ * the browser's default, which differ by platform and by the visitor's settings, so no stack is
+ * known more closely than this; a web font whose `0` is wider (read from its file) raises it.
+ */
+export const UNKNOWN_ZERO = 0.7;

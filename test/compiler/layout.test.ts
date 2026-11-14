@@ -231,6 +231,7 @@ const FLUID: Array<[string, string, string, string]> = [
 const BOUNDED: Array<[string, string, string, string]> = [
   ['a fixed sidebar that overflows the narrowest screens', 'body { margin: 0 } .r { display: flex; gap: 16px } .side { width: 280px; flex-shrink: 0 } .main { flex: 1; min-width: 0 } img { width: 100% }', '<div class="r"><nav class="side"></nav><main class="main"><img id="t" src="a.png" alt=""></main></div>', '(max-width: 295.98px) 100vw, calc(100vw - 296px)'],
   ['a label sized by its text on phones, a grid from 640 px', 'body { margin: 0 } .r { display: flex } .b { flex: 1 } @media (min-width: 640px) { .r { display: grid; grid-template-columns: 200px 1fr } } img { width: 100% }', '<div class="r"><span>label</span><div class="b"><img id="t" src="a.png" alt=""></div></div>', '(max-width: 639.98px) 100vw, calc(100vw - 200px)'],
+  ['a measure in ch: at most 0.7em per ch, whatever font renders it', '.prose { max-width: 65ch; margin: 0 auto } img { width: 100% }', '<article class="prose"><p><img id="t" src="a.png" alt=""></p></article>', 'min(100vw - 16px, 45.5em), (max-width: 743.98px) calc(100vw - 16px), 728px'],
   ['a bound from a container where the range is not followed', 'body { margin: 0 } main { max-width: 500px } .r { display: flex } .b { flex: 1 } @media (min-width: 900px) { main { max-width: none } .r { display: block } } img { width: 100% }', '<main><div class="r"><span>label</span><div class="b"><img id="t" src="a.png" alt=""></div></div></main>', '(max-width: 499.98px) 100vw, (max-width: 899.98px) 500px, 100vw'],
 ];
 
@@ -268,6 +269,16 @@ describe('the width of a fluid image at every viewport width', () => {
     expect(g.pieces.some((p) => p.bound)).toBe(false);
     // a sibling placed by its row: the item lands in some column, the widest of which bounds it
     expect(sizes('body { margin: 0 } .g { display: grid; grid-template-columns: 1fr 3fr } .x { grid-row: 1 } img { width: 100% }', '<div class="g"><div class="x"></div><div><img id="t" src="a.png" alt=""></div></div>')).toBe('75vw');
+  });
+  test('ch: a web font wider than 0.7em raises the bound, one whose file was not read leaves it unknown, and ch is followed only in a box\'s width', () => {
+    const css = '@font-face { font-family: Wide; src: url(wide.woff2) } body { margin: 0 } .prose { font-family: Wide, sans-serif; max-width: 40ch } img { width: 100% }';
+    const body = '<div class="prose"><img id="t" src="a.png" alt=""></div>';
+    const at = (zero: number | null) => { const doc = parse5.parse(page('', body)); return new Layout([{ file: 'test.css', css }], doc, { zeroWidth: () => zero }).fluidSizes(find(doc, 't')); };
+    expect(at(0.9)!.sizes).toBe('(max-width: 35.9975em) 100vw, 36em');
+    expect(at(0.6)!.sizes).toBe('(max-width: 27.9975em) 100vw, 28em');
+    expect(at(null)).toBeNull();
+    expect(sizes('body { margin: 0 } .c { padding: 0 2ch } img { width: 100% }', '<div class="c"><img id="t" src="a.png" alt=""></div>')).toBeNull();
+    expect(sizes('body { margin: 0 } .r { display: flex } .a { width: 20ch } .b { flex: 1 } img { width: 100% }', '<div class="r"><div class="a"></div><div class="b"><img id="t" src="a.png" alt=""></div></div>')).toBeNull();
   });
   test('a range not followed gets a bound there; the others stay exact', () => {
     const doc = parse5.parse(page('', BOUNDED[0]![2]));
