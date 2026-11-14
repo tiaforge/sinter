@@ -35,6 +35,28 @@ CHROME=/path/to/chrome node fair/run.mjs --runs 5     # the tables: fair/work/re
 Scores still vary from run to run (Lighthouse simulates the network from what it observed, and the CPU is the
 machine's): compare runs from the same machine and session, and report the range.
 
+## Results (2026-11-14)
+
+Chrome for Testing 153.0.8010.12, Lighthouse 13.6.0, API delay 150 ms, one cloud VM; median of 5 interleaved runs
+(range of the 5), no failed request in any audit. sinter at 812eb90.
+
+| implementation | mobile | FCP | LCP | TBT | CLS | desktop | CLS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **sinter** | **93** (93–93) | 1.53 s | **1.53 s** | 0 ms | 0.151 | **100** (100–100) | 0 |
+| SvelteKit | 92 (91–92) | 1.81 s | 3.16 s | 0 ms | 0.002 | 100 (100–100) | 0 |
+| Solid | 90 (90–90) | 1.65 s | 2.55 s | 0 ms | 0.151 | 100 (100–100) | 0 |
+| Angular | 88 (87–89) | 1.51 s | 2.81 s | 177 ms | 0.138 | 76 (76–76) | 0.767 |
+| Vue 3 (mutoe) | 86 (85–86) | 1.44 s | 2.34 s | 0 ms | 0.227 | 76 (76–76) | 0.791 |
+| Vue 3 (official) | 79 (79–82) | 1.50 s | 3.76 s | 59 ms | 0.198 | 76 (76–76) | 0.794 |
+
+Reproduced from a fresh work directory (setup, check, then 3 runs): every median within one point (SvelteKit 93,
+Vue 3 (official) 80), the same CLS for every implementation; fixtures `77001a24496a0567`.
+
+- sinter's mobile CLS is the "Popular Tags" column (`.col-md-3`) moving down when the articles arrive in the narrow
+  layout; Solid's is the same shift. The public demos did not show it: the live API had 4 articles then.
+- SvelteKit renders the feed on its server: almost no shift, and its largest paint waits for the API (3.16 s).
+- Angular and both Vue apps on desktop: the page container moves when the feed arrives (CLS 0.77–0.79).
+
 ## What is still not the same
 
 - **What each app does is its own.** Its markup, scripts, fonts it asks for and how it bundles CSS are its code:
