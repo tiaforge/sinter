@@ -1985,14 +1985,11 @@ class Compiler {
       // the component's markup inside the caller's fill: a scope root of the component's own styles
       const styled = (k: P5Node): P5Node[] => (isElement(k) && k.tagName === 'template' ? (k as P5Template).content.childNodes : [k]);
       for (const k of kids.flatMap(styled)) if (isElement(k) && !this.slotOf.has(k)) this.slotEls.push({ el: k, caller: p.use.name, host: p.use.name });
+      // the `<slot>` is a top-level node of the fill itself: the children take its place in the fill
+      const j = nodes.indexOf(s.el);
+      if (j >= 0) { nodes.splice(j, 1, ...kids); return; }
       const parent = s.el.parentNode!;
       const at = parent.childNodes.indexOf(s.el as never);
-      if (at < 0) {
-        // the `<slot>` is a top-level node of the fill itself
-        const j = nodes.indexOf(s.el);
-        if (j >= 0) nodes.splice(j, 1, ...kids);
-        return;
-      }
       for (const k of kids) (k as { parentNode: P5Parent }).parentNode = parent;
       parent.childNodes.splice(at, 1, ...(kids as never[]));
       mergeText(parent);

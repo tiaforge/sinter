@@ -73,8 +73,10 @@ describe('the placement: data-sn-prop on a <slot>', () => {
   });
 
   test('shorthand', () => {
-    const out = run('<x-list data-sn-prop="{ items: [\'a\'] }"><li slot="row" data-sn-text="$slot.item"></li></x-list>', { 'x-list': comp('<slot name="row" data-sn-prop="{ item: x, i: k }"><li></li></slot>', '{ items: string[]; row: Slot<{ item: string; i: number }> }') });
+    const C = '<template data-sn-component="{ items: string[]; row: Slot<{ item: string; i: number }> }"><ul><template data-sn-for="(item, i) in items"><slot name="row" data-sn-prop="{ item, i }"><li></li></slot></template></ul></template>';
+    const out = run('<x-list data-sn-prop="{ items: [\'a\'] }"><li slot="row" data-sn-text="$slot.item + $slot.i"></li></x-list>', { 'x-list': C });
     expect(errors(out)).toEqual([]);
+    expect(out.module).toMatch(/\(\$\) => \(\$\.item\w* \+ \$\.i\w*\)/);
   });
 
   test('`data-sn-prop` on a slot that is not declared `Slot<T>`, and a `Slot<T>` placed without it: SN331', () => {
@@ -242,6 +244,13 @@ describe('a <slot> inside a fill', () => {
     const plain = run(`${NODE}<x-wrap data-sn-prop="{ node: n }"></x-wrap></div>`, { 'x-md': MD, 'x-wrap': WRAP });
     expect(errors(plain)).toEqual([]);
     expect(body(plain)).toContain('<a class="wrapped"><em data-sn="1"></em></a>');
+  });
+
+  test('a fill that is only an unnamed `<slot>`: the children without their element', () => {
+    const BARE = `<template data-sn-component="{ node: { url: string; depth: number; text: string } }"><div><x-md data-sn-prop="{ node }"><slot slot="link"></slot></x-md></div></template>`;
+    const out = run(`${NODE}<x-bare data-sn-prop="{ node: n }"></x-bare></div>`, { 'x-md': MD, 'x-bare': BARE });
+    expect(errors(out)).toEqual([]);
+    expect(body(out)).toMatch(/<div><div> <em data-sn="\d+"><\/em> <template/);
   });
 
   test('a `<slot>` that no component or fill encloses: on a page, in a page\'s slot content', () => {
