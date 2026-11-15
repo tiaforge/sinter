@@ -327,7 +327,7 @@ export function helperProblem(root: string, r: Reach, helpersFile: string): Diag
 
 /**
  * Helper modules that reach lazy packages (docs/lazy.md#helpers-that-wait). `reach`: for a module that
- * declares helpers (its specifier as the helpers manifest has it, `/src/lib/md.ts`), the lazy packages its
+ * declares helpers (its specifier as the helpers manifest has it, `/src/lib/parse.ts`), the lazy packages its
  * own code reaches, not what it only re-exports (the helpers module re-exports every namespace). `whole`:
  * those modules and the app's modules between them and the package, which load whole with it (no stubs:
  * once loaded, their functions are sync).

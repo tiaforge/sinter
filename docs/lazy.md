@@ -135,14 +135,14 @@ functions are as synchronous as in the package. A `data-sn-let` that calls one o
 
 ```ts
 // src/sinter.helpers.ts
-export * as md from './lib/md.ts';      // imports marked: loaded when a let first needs it
+export * as doc from './lib/doc.ts';    // imports a heavy parser: loaded when a let first needs it
 export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parser: an ordinary helper
 ```
 
 ```html
-<!-- vite.config.ts: sinter({ lazy: ['marked'] }) -->
-<article data-sn-let="{ doc: md.parse(post.body) }">
-  <template data-sn-if="doc"><md-doc data-sn-prop="{ doc }"></md-doc></template>
+<!-- vite.config.ts: sinter({ lazy: ['some-parser'] }) -->
+<article data-sn-let="{ tree: doc.parse(post.body) }">
+  <template data-sn-if="tree"><doc-view data-sn-prop="{ tree }"></doc-view></template>
   <template data-sn-else><p class="placeholder">…</p></template>
   <nav data-sn-text="toc.title(post)"></nav>
 </article>
@@ -151,7 +151,7 @@ export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parse
 - The let is `undefined` until the module has arrived, and `sinter check` types it `T | undefined`. The
   arrival renders what reads it. Show something else meanwhile with `data-sn-if` on the let, or `??`. A
   let has no `$meta`: an app that needs loading and error states uses `<sn-resource call>`.
-- A component prop is a let: `data-sn-prop="{ doc: md.parse(x) }"` waits the same way.
+- A component prop is a let: `data-sn-prop="{ tree: doc.parse(x) }"` waits the same way.
 - Anywhere else (a binding, a handler, a state initializer) calling a helper of such a module is `SN324`,
   with the hint to name it in a let. The rule is per module: keep the helpers that do not need the
   package (`toc.title`, a reading time) in a module that does not import it, and they stay ordinary
@@ -165,7 +165,7 @@ export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parse
   first frame.
 - Only the app's `lazy` option makes a package lazy. A helper module that reaches none is an ordinary
   helper: loaded with the page, early with embedded data, and in the early file too. For a parser, that is
-  usually a loss: measured with a markdown parser (mdast, 35 kB gzip) in the early file, the early file was
+  usually a loss: measured with a 35 kB gzip parser in the early file, the early file was
   four times the early budget and the first paint waited for the parse.
 - The modules between such a helper module and the package load whole with it too. One of them that a
   page also imports another way puts the package into that page's bundle, which is `SN325`.
@@ -229,8 +229,8 @@ a let that calls it is `undefined` until that function's promise resolves:
 
 ```ts
 let open!: (m: object) => void;
-const r = await render(page, { lazyHelpers: { md: { members: ['parse'], load: () => new Promise((ok) => { open = ok; }) } } });
+const r = await render(page, { lazyHelpers: { doc: { members: ['parse'], load: () => new Promise((ok) => { open = ok; }) } } });
 expect(r.root.querySelector('.placeholder')).not.toBeNull();
-open(await import('../src/lib/md.ts'));
+open(await import('../src/lib/doc.ts'));
 await r.settle();
 ```

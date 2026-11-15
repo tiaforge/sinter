@@ -121,10 +121,10 @@ describe('a let over a helper is cached', () => {
   });
 
   test('a namespace member is a helper too; a let without a helper call stays inlined', () => {
-    const helpers = { module: '/src/sinter.helpers.ts', names: ['fmt'], namespaces: { md: { module: '/src/md.ts', members: ['parse'] } } };
-    const out = compile(`<main data-sn-state="{ s: 'x' }" data-sn-let="{ a: md.parse(s), b: s.length, c: [s].map((v) => fmt(v)) }"><i data-sn-text="a"></i><i data-sn-text="b"></i><i data-sn-text="c"></i></main>`,
+    const helpers = { module: '/src/sinter.helpers.ts', names: ['fmt'], namespaces: { crunch: { module: '/src/crunch.ts', members: ['parse'] } } };
+    const out = compile(`<main data-sn-state="{ s: 'x' }" data-sn-let="{ a: crunch.parse(s), b: s.length, c: [s].map((v) => fmt(v)) }"><i data-sn-text="a"></i><i data-sn-text="b"></i><i data-sn-text="c"></i></main>`,
       { file: '/p/index.html', root: '/p', dev: false, helpers, readFile: () => { throw new Error('none'); } });
-    expect(out.module).toContain('$.$c($, 0, "$s0", ($) => ($.$h(0, md$parse, [$.$s0.s])))');
+    expect(out.module).toContain('$.$c($, 0, "$s0", ($) => ($.$h(0, crunch$parse, [$.$s0.s])))');
     // `b` reads no helper; `c` calls one only inside an arrow function: both inlined, as before
     expect(out.module).toContain('($) => ($.$s0.s.length)');
     expect(out.module).toContain('($) => (([$.$s0.s].map((v) => fmt(v))))');
@@ -182,20 +182,20 @@ describe('first paint and takeover', () => {
 });
 
 describe('a let may wait for a lazy helper module', () => {
-  const md = (load?: () => Promise<Record<string, unknown>>) => {
+  const lazyMod = (load?: () => Promise<Record<string, unknown>>) => {
     let open!: (m: Record<string, unknown>) => void, fail!: (e: unknown) => void;
     const calls: string[] = [];
     const mod = { parse: (s: string) => { calls.push(s); return { words: s.split(' ').map((w) => ({ w })) }; } };
     const arrived = new Promise<Record<string, unknown>>((ok, ko) => { open = ok; fail = ko; });
-    return { calls, mod, open: () => open(mod), fail, helpers: { md: { members: ['parse'], load: load ?? (() => arrived) } } };
+    return { calls, mod, open: () => open(mod), fail, helpers: { crunch: { members: ['parse'], load: load ?? (() => arrived) } } };
   };
-  const page = `<main data-sn-state="{ src: 'a b' }" data-sn-let="{ doc: md.parse(src) }">
+  const page = `<main data-sn-state="{ src: 'a b' }" data-sn-let="{ doc: crunch.parse(src) }">
     <template data-sn-if="doc"><ul><template data-sn-for="x in doc.words"><li data-sn-text="x.w"></li></template></ul></template>
     <template data-sn-else><p>Loading…</p></template><b data-sn-text="text.count(src)"></b>
     <button data-sn-on-click="src = 'c d e'"></button></main>`;
 
   test('undefined until the module arrives; its arrival renders what reads the let; a module without the package stays ordinary', async () => {
-    const m = md();
+    const m = lazyMod();
     const r = await render(page, { lazyHelpers: m.helpers, helpers: { text: { count: (s: string) => s.split(' ').length } } });
     expect(r.root.querySelector('p')?.textContent).toBe('Loading…');
     expect(r.root.querySelector('b')!.textContent).toBe('2');
@@ -210,7 +210,7 @@ describe('a let may wait for a lazy helper module', () => {
   });
 
   test('a failed load takes the unhandled-error path, once; the let stays undefined', async () => {
-    const m = md(() => Promise.reject(new Error('offline')));
+    const m = lazyMod(() => Promise.reject(new Error('offline')));
     const errors: string[] = [];
     const on = (e: Event) => { errors.push((e as CustomEvent).detail.error.message); e.preventDefault(); };
     document.addEventListener('sn-error', on);
@@ -225,35 +225,35 @@ describe('a let may wait for a lazy helper module', () => {
   });
 
   test('a waiting let is not early; the rest renders early', async () => {
-    const m = md();
-    await firstPaint(`<main data-sn-state="{ src: 'a b' }" data-sn-let="{ doc: md.parse(src) }"><h1 data-sn-text="src"></h1><p data-sn-text="doc ? doc.words.length : 'later'"></p></main>`, { lazyHelpers: m.helpers });
+    const m = lazyMod();
+    await firstPaint(`<main data-sn-state="{ src: 'a b' }" data-sn-let="{ doc: crunch.parse(src) }"><h1 data-sn-text="src"></h1><p data-sn-text="doc ? doc.words.length : 'later'"></p></main>`, { lazyHelpers: m.helpers });
     expect(document.querySelector('h1')!.textContent).toBe('a b');
     expect(document.querySelector('p')!.textContent).toBe('');
     expect(m.calls).toEqual([]);
   });
 
   test('SN324 per module: anywhere but a let or a prop, with the hint; the module is not imported by the page', async () => {
-    const m = md();
-    await expect(render('<main data-sn-state="{ src: \'a\' }"><p data-sn-text="md.parse(src).words.length"></p></main>', { lazyHelpers: m.helpers }))
-      .rejects.toThrow(/SN324.*`md\.parse` is declared in a module that reaches a lazy package/s);
-    await expect(render('<main data-sn-state="{ src: \'a\', n: 0 }"><button data-sn-on-click="n = md.parse(src).words.length"></button></main>', { lazyHelpers: m.helpers }))
+    const m = lazyMod();
+    await expect(render('<main data-sn-state="{ src: \'a\' }"><p data-sn-text="crunch.parse(src).words.length"></p></main>', { lazyHelpers: m.helpers }))
+      .rejects.toThrow(/SN324.*`crunch\.parse` is declared in a module that reaches a lazy package/s);
+    await expect(render('<main data-sn-state="{ src: \'a\', n: 0 }"><button data-sn-on-click="n = crunch.parse(src).words.length"></button></main>', { lazyHelpers: m.helpers }))
       .rejects.toThrow(/SN324/);
-    await expect(render('<main data-sn-state="{ n: md.parse(\'a\') }"></main>', { lazyHelpers: m.helpers })).rejects.toThrow(/SN324/);
+    await expect(render('<main data-sn-state="{ n: crunch.parse(\'a\') }"></main>', { lazyHelpers: m.helpers })).rejects.toThrow(/SN324/);
     // a prop waits like a let
-    const r = await render(`<main data-sn-state="{ src: 'a b c' }"><x-n data-sn-prop="{ doc: md.parse(src) }"></x-n></main>`,
+    const r = await render(`<main data-sn-state="{ src: 'a b c' }"><x-n data-sn-prop="{ doc: crunch.parse(src) }"></x-n></main>`,
       { lazyHelpers: m.helpers, components: { 'x-n': '<template data-sn-component="{ doc?: any }"><p data-sn-text="doc ? doc.words.length : \'…\'"></p></template>' } });
     expect(r.root.querySelector('p')!.textContent).toBe('…');
     m.open();
     await r.settle();
     expect(r.root.querySelector('p')!.textContent).toBe('3');
     // the compiled page: the module is loaded by a function of the table, never imported
-    const helpers = { module: '/src/sinter.helpers.ts', names: [], namespaces: { md: { module: '/src/lib/md.ts', members: ['parse', 'headings'] }, toc: { module: '/src/lib/toc.ts', members: ['list'] } } };
-    const out = compile('<main data-sn-state="{ s: \'x\' }" data-sn-let="{ doc: md.parse(s) }"><i data-sn-text="doc"></i><b data-sn-text="toc.list(s)"></b></main>',
-      { file: '/p/index.html', root: '/p', dev: false, helpers, readFile: () => { throw new Error('none'); }, lazyModule: (x) => (x === '/src/lib/md.ts' ? ['marked'] : []) });
+    const helpers = { module: '/src/sinter.helpers.ts', names: [], namespaces: { crunch: { module: '/src/lib/crunch.ts', members: ['parse', 'headings'] }, toc: { module: '/src/lib/toc.ts', members: ['list'] } } };
+    const out = compile('<main data-sn-state="{ s: \'x\' }" data-sn-let="{ doc: crunch.parse(s) }"><i data-sn-text="doc"></i><b data-sn-text="toc.list(s)"></b></main>',
+      { file: '/p/index.html', root: '/p', dev: false, helpers, readFile: () => { throw new Error('none'); }, lazyModule: (x) => (x === '/src/lib/crunch.ts' ? ['fakelib'] : []) });
     expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
-    expect(out.module).not.toMatch(/import \{[^}]*parse[^}]*\} from "\/src\/lib\/md\.ts"/);
+    expect(out.module).not.toMatch(/import \{[^}]*parse[^}]*\} from "\/src\/lib\/crunch\.ts"/);
     expect(out.module).toContain('import { list as toc$list } from "/src/lib/toc.ts";');
-    expect(out.module).toContain('const $lh$0 = $laterH(() => import("/src/lib/md.ts"), [$lp$0], "__SN_CHUNK__/p/src/lib/md.ts__", import.meta.url);');
+    expect(out.module).toContain('const $lh$0 = $laterH(() => import("/src/lib/crunch.ts"), [$lp$0], "__SN_CHUNK__/p/src/lib/crunch.ts__", import.meta.url);');
     expect(out.module).toContain('$.$z(0, "parse")');
   });
 });

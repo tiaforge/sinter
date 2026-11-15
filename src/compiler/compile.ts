@@ -3077,7 +3077,7 @@ class Compiler {
     };
     visit(ast, false);
     if (!calls.length && !waits.length) return null;
-    // `f(a, b)` → `$.$h(k, f, [a, b])`; a lazy helper `md$parse` → `$.$z(i, "parse")`
+    // `f(a, b)` → `$.$h(k, f, [a, b])`; a lazy helper `ns$parse` → `$.$z(i, "parse")`
     const edits: Array<[number, number, string]> = [];
     calls.forEach((c, k) => {
       const open = code.indexOf('(', c.callee.end);

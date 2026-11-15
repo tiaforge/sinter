@@ -121,7 +121,7 @@ export interface PageInfo {
   pathParams: Set<string>;
   /**
    * helpers declared in a module that reaches a lazy package (docs/lazy.md), by the name compiled code
-   * calls (`parse`, `md$parse`): the module's index among the page's lazy helper modules and the
+   * calls (`parse`, `ns$parse`): the module's index among the page's lazy helper modules and the
    * export's name in it. Only a `data-sn-let` or a prop may call one (SN324)
    */
   lazy?: Map<string, { i: number; name: string }>;

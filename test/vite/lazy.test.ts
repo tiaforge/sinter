@@ -73,14 +73,14 @@ export async function heavy() { const m = await import('../lib/heavy.ts'); retur
 <div data-sn-state="{ out: '' }"><button id="go" data-sn-call="pgp.seal('hi')" data-sn-then="out = $result" data-sn-preload="fakepgp">go</button><output id="out" data-sn-text="out"></output></div>
 </body></html>`);
   // a helper module that reaches the package: loaded whole, when a let first needs it; its calls are sync
-  put('src/sinter.helpers.ts', `export * as md from './lib/md.ts';\nexport * as toc from './lib/toc.ts';\n`);
-  put('src/lib/md.ts', `import { parse } from 'fakepgp';\nexport function render(s: string) { return parse(s); }\n`);
+  put('src/sinter.helpers.ts', `export * as crunch from './lib/crunch.ts';\nexport * as toc from './lib/toc.ts';\n`);
+  put('src/lib/crunch.ts', `import { parse } from 'fakepgp';\nexport function render(s: string) { return parse(s); }\n`);
   put('src/lib/toc.ts', `export function len(s: string) { return s.length; }\n`);
-  put('md.html', `<!doctype html><html><head><title>md</title></head><body>
-<main data-sn-state="{ src: 'hi' }" data-sn-let="{ out: md.render(src) }"><p id="md" data-sn-text="out ?? 'waiting'"></p><b id="toc" data-sn-text="toc.len(src)"></b>
+  put('crunch.html', `<!doctype html><html><head><title>crunch</title></head><body>
+<main data-sn-state="{ src: 'hi' }" data-sn-let="{ out: crunch.render(src) }"><p id="crunched" data-sn-text="out ?? 'waiting'"></p><b id="toc" data-sn-text="toc.len(src)"></b>
 <button id="more" data-sn-on-click="src = src + '!'">more</button></main>
 </body></html>`);
-  const input = { index: join(root, 'index.html'), import: join(root, 'import.html'), preload: join(root, 'preload.html'), comp: join(root, 'comp.html'), heavy: join(root, 'heavy.html'), md: join(root, 'md.html') };
+  const input = { index: join(root, 'index.html'), import: join(root, 'import.html'), preload: join(root, 'preload.html'), comp: join(root, 'comp.html'), heavy: join(root, 'heavy.html'), crunch: join(root, 'crunch.html') };
   await build({ root, logLevel: 'silent', plugins: [sinter({ lazy: ['fakepgp'] })], resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input } } });
 }, 60_000);
 
@@ -245,7 +245,7 @@ test.skipIf(!chromium)('the app\'s own import() in an action: a removed chunk is
 }, 60_000);
 
 test('a helper module that reaches the package: a chunk the page loads with import(), with the package; the page imports the others\' members from their modules', () => {
-  const html = readFileSync(join(out, 'md/index.html'), 'utf8');
+  const html = readFileSync(join(out, 'crunch/index.html'), 'utf8');
   const entry = /<script type="module" crossorigin src="\/assets\/([^"]+)"/.exec(html)![1]!;
   const statics = new Set<string>(), todo = [entry];
   while (todo.length) {
@@ -258,10 +258,10 @@ test('a helper module that reaches the package: a chunk the page loads with impo
   expect(page).not.toContain(MARK);
   expect(page).not.toContain('return parse(s)');
   // the module's chunk: its call of the package is the package's own function (no stub)
-  const md = assets().find((f) => read(f).includes('return parse(s)'))!;
-  expect(statics.has(md)).toBe(false);
-  expect(read(md)).not.toContain('/@sinter/lazy/');
-  expect(page).toMatch(/later\(\(\) => __vitePreload\(\(\) => import\("\.\/md-/);
+  const chunk = assets().find((f) => read(f).includes('return parse(s)'))!;
+  expect(statics.has(chunk)).toBe(false);
+  expect(read(chunk)).not.toContain('/@sinter/lazy/');
+  expect(page).toMatch(/later\(\(\) => __vitePreload\(\(\) => import\("\.\/crunch-/);
 });
 
 test.skipIf(!chromium)('a let that waits for a helper module: undefined until it arrives, then rendered, and computed again when its source changes', async () => {
@@ -271,16 +271,16 @@ test.skipIf(!chromium)('a let that waits for a helper module: undefined until it
     const tab = await browser.newPage();
     let release!: () => void;
     const held = new Promise<void>((r) => { release = r; });
-    const md = assets().find((f) => read(f).includes('return parse(s)'))!;
-    await tab.route(`**/assets/${md}`, async (route) => { await held; await route.continue(); });
-    await tab.goto(server.resolvedUrls!.local[0]! + 'md/');
+    const chunk = assets().find((f) => read(f).includes('return parse(s)'))!;
+    await tab.route(`**/assets/${chunk}`, async (route) => { await held; await route.continue(); });
+    await tab.goto(server.resolvedUrls!.local[0]! + 'crunch/');
     await tab.waitForFunction(() => document.querySelector('#toc')?.textContent === '2');
-    expect(await tab.textContent('#md')).toBe('waiting');
+    expect(await tab.textContent('#crunched')).toBe('waiting');
     release();
-    await tab.waitForFunction(() => document.querySelector('#md')?.textContent !== 'waiting');
-    expect(await tab.textContent('#md')).toBe(`parse(hi)${'FAKEPGP_BODY'.length * 200}`);
+    await tab.waitForFunction(() => document.querySelector('#crunched')?.textContent !== 'waiting');
+    expect(await tab.textContent('#crunched')).toBe(`parse(hi)${'FAKEPGP_BODY'.length * 200}`);
     await tab.click('#more');
-    await tab.waitForFunction(() => document.querySelector('#md')?.textContent?.startsWith('parse(hi!)'));
+    await tab.waitForFunction(() => document.querySelector('#crunched')?.textContent?.startsWith('parse(hi!)'));
   } finally {
     await browser.close();
     await new Promise((r) => server.httpServer.close(r));
