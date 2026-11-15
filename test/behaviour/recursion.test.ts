@@ -171,7 +171,7 @@ test('<sn-component use>: production builds carry no warning code', () => {
 });
 
 describe('components that reach each other through <sn-component use>', () => {
-  // a small markdown-like tree: a block holds inlines, an inline holds inlines (docs/proposals/component-libraries.md, step 1)
+  // a tree of nodes of two kinds: a block holds inlines, an inline holds inlines
   const C = {
     'x-p': `<template data-sn-component="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>`,
     'x-em': `<template data-sn-component="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></em></template>`,
