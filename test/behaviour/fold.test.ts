@@ -64,6 +64,17 @@ describe('a helper call over constants runs at build time', () => {
     expect(calls).toBe(4);
   });
 
+  test('a build (`foldLog`): each distinct call runs once in the page and is logged for the cross-check at the end of the build', () => {
+    let calls = 0;
+    const words = (s: string) => { calls++; return s.split(' '); };
+    const log: Array<[string, unknown[], string]> = [];
+    const out = build(`<main data-sn-state="{ s: 'a b' }"><b data-sn-text="words(s).length"></b><i data-sn-text="words(s)[0]"></i></main>`,
+      { words: [words, yes] }, { dev: false, foldLog: (k, a, j) => log.push([k, a, j]) });
+    expect(out.html).toContain('<b>2</b><i>a</i>');
+    expect(calls).toBe(1);
+    expect(log).toEqual([['words', ['a b'], '["a","b"]']]);
+  });
+
   test('not in a handler: a click runs it in the browser', async () => {
     let calls = 0;
     const out = build(`<main data-sn-state="{ n: '' }"><button data-sn-on-click="n = upper('x')"></button><p data-sn-text="n"></p></main>`, { upper: [(s: string) => { calls++; return s.toUpperCase(); }, yes] });

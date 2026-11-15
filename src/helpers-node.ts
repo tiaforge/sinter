@@ -38,6 +38,11 @@ export interface LoadOptions {
   alias?: unknown;
   /** the static check's per-module analyses, kept across loads (the language server) */
   cache?: FoldCache;
+  /**
+   * load packages through Vite too, not Node's own module cache, which every load in the process shares: an
+   * instance of the module and of everything it imports of its own (the build's cross-check)
+   */
+  fresh?: boolean;
 }
 
 /** Loads the helpers module in Node and checks what of it may fold. Never throws: a failure is `error`. */
@@ -51,7 +56,7 @@ export async function loadHelpers(o: LoadOptions): Promise<NodeHelpers> {
   if (!o.helpersFile) return { module: null, error: null, ...check() };
   // the app's aliases apply to the static check too, as they do to the module
   const aliasesOf = (s: ViteDevServer) => cache.setAliases((s.config.resolve.alias as Array<{ find: string | RegExp; replacement: string }>).filter((a) => typeof a.replacement === 'string'));
-  let server: ViteDevServer | null = o.server ?? null, own = false;
+  let server: ViteDevServer | null = o.fresh ? null : o.server ?? null, own = false;
   const g = globalThis as Record<symbol, number>;
   try {
     if (!server) {
@@ -64,6 +69,7 @@ export async function loadHelpers(o: LoadOptions): Promise<NodeHelpers> {
         logLevel: 'silent', clearScreen: false, appType: 'custom',
         server: { middlewareMode: true, hmr: false, ws: false, watch: null },
         optimizeDeps: { noDiscovery: true, include: [] },
+        ...(o.fresh ? { ssr: { noExternal: true } } : {}),
       });
     }
     aliasesOf(server);

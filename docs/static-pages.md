@@ -65,14 +65,16 @@ globals (`Math`, `JSON`, `Array`, `Map`, …) and `TextEncoder`, `TextDecoder`, 
 and `structuredClone`, not `Date`, `Intl`, `Math.random`, `fetch`, `window` or `process`; each exported function counts on its own. Handlers never run at build time.
 
 - A helper that throws at build time, or returns something that is not plain data (a `Date`, a
-  `Map`, a class), stays in the browser; a dev build warns at the call (`SN534`). Every build runs
-  each call twice and keeps a call whose results differ in the browser: a helper must be pure.
+  `Map`, a class), stays in the browser; a dev build warns at the call (`SN534`), and runs each call
+  twice to keep one whose results differ in the browser. A production build runs every page's calls
+  again at its end, in a fresh copy of the helpers module and in another page order, and fails
+  (`SN534`) on a result that differs: a helper that keeps state between calls (a table of ids, a
+  counter) would give each page what the build's page order made of it. A helper must be pure; a
+  cache that only remembers is fine.
 - Also refused: `import.meta` in any form (a URL built from it would be the build machine's path),
   `.constructor` and `__proto__`, `Math` or `Reflect` used as a value (`const M = Math`,
   `const { random } = Math`, `Reflect.get(Math, 'random')`; `Math.max(…)` and `Math.PI` are fine), an
-  error's `.stack`, and a function that assigns a module-level variable (`count++`) or changes a module-level `Map`,
-  `Set`, array or object entry (`ids.set(…)`, `table[k] = …`): the build runs every page's calls in
-  one module, each browser page in its own. A cache of that kind keeps the helper in the browser too.
+  error's `.stack`, and a function that assigns a module-level variable (`count++`).
 - **This is a guard against mistakes, not a sandbox.** It reads your code to tell whether a call
   gives the same result in the build as in the browser, and it catches the usual ways that fails.
   Code written to get around it can, and it runs in the build with the build machine's access, as
