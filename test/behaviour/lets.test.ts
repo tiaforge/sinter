@@ -53,6 +53,34 @@ describe('a let over a helper is cached', () => {
     });
   }
 
+  test('a handler whose writes do not reach a let keeps its value and its objects: rows compared by identity still match', async () => {
+    let calls = 0;
+    const decorate = (xs: Array<{ n: number }>) => { calls++; return xs.map((x) => ({ ...x })); };
+    const count = (v: unknown[]) => v.length;
+    const r = await render(`<main data-sn-state="{ xs: [{ n: 1 }, { n: 2 }, { n: 3 }], picked: null }" data-sn-let="{ view: decorate(xs), total: count(view) }">
+      <ul><template data-sn-for="r in view"><li data-sn-class="{ on: picked === r }" data-sn-text="r.n"></li></template></ul>
+      <b data-sn-text="total"></b><button data-sn-on-click="picked = view[1]"></button></main>`, { helpers: { decorate, count } });
+    expect(calls).toBe(1);
+    r.root.querySelector('button')!.click();
+    await r.flush();
+    expect([...r.root.querySelectorAll('li')].map((x) => (x.classList.contains('on') ? 'on' : '-')).join(',')).toBe('-,on,-');
+    expect(calls).toBe(1);
+  });
+
+  test('handlers that write nothing a let reads never compute it: 100 mousemoves reading it three times each', async () => {
+    let calls = 0;
+    const decorate = (xs: Array<{ n: number }>) => { calls++; return xs.map((x) => ({ ...x })); };
+    const count = (v: unknown[]) => v.length;
+    const r = await render(`<main data-sn-state="{ xs: [{ n: 1 }, { n: 2 }], hover: 0, seen: 0 }" data-sn-let="{ view: decorate(xs), total: count(view) }"
+      data-sn-on-mousemove="hover = $event.clientX; seen = total + view.length + total"><i data-sn-text="total"></i><b data-sn-text="seen"></b></main>`, { helpers: { decorate, count } });
+    calls = 0;
+    const main = r.root.querySelector('main')!;
+    for (let i = 0; i < 100; i++) main.dispatchEvent(new MouseEvent('mousemove', { clientX: i, bubbles: true }));
+    await r.flush();
+    expect(calls).toBe(0);
+    expect(r.root.querySelector('b')!.textContent).toBe('6');
+  });
+
   test('a dependency changes: computed again; equal primitive arguments return the last result', async () => {
     const { calls, parse } = counting();
     const r = await render(`<main data-sn-state="{ post: { body: 'a b', likes: 0 }, upper: false }" data-sn-let="{ doc: parse(post.body, { upper }) }">
