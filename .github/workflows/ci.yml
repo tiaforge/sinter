@@ -71,6 +71,32 @@ jobs:
       # the packed package in a NativeAOT app, its pages checked
       - run: test/AotSmoke/run.sh
 
+  # the markdown component library (packages/sinter-markdown), tested against the framework's own build:
+  # its fixture pages through `sinter check`, the parser, a static build and the browser under Trusted Types
+  sinter-markdown:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sinter-markdown
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            packages/sinter-markdown/package-lock.json
+      - run: npm ci
+        working-directory: .
+      - run: npm run build
+        working-directory: .
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck
+      - run: npx sinter check
+      - run: npm test
+
   # sinter across page loads in a real browser: next-page data, Speculation Rules, morphs
   # (e2e/navigation/README.md); the runner's Chrome
   e2e-navigation:

@@ -1,0 +1,2 @@
+# written by `sinter check` (the components' base classes); each app writes its own
+sinter/sinter.components.d.ts

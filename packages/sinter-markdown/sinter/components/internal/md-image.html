@@ -1,0 +1,9 @@
+<!--
+  An image: a plain <img>. Over a file: resource it is a constant, and sinter optimizes a local file
+  as any image in a page. From an API it stays as written: the bound `srcset: null` tells sinter not to
+  send it through the app's resizing service (`sinter({ images: { remote } })`), since user content may
+  name any image. An app that wants it resized fills the `image` slot with its own <img>.
+-->
+<template data-sn-component="{ node: Image }">
+  <slot name="image" data-sn-prop="{ node }"><img data-sn-attr="{ src: node.url, alt: node.alt, title: node.title, srcset: null }"></slot>
+</template>
