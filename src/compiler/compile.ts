@@ -6449,11 +6449,14 @@ class Compiler {
       if (!isElement(c)) continue;
       const row = this.rowOf.get(c);
       const pre = this.instAt.get(c) ?? row?.inst ?? prefix;
-      // a node that takes `c`'s place at the top of a row is the top of that row too
+      // a node that takes `c`'s place at the top of a row is the top of that row too, and at the top of an
+      // instance expanded at build time (a root chain's branch), in that instance
+      const at = this.instAt.get(c);
       const place = (nodes: P5Node[], count: number) => {
         for (const n of nodes) {
           (n as { parentNode: P5Parent }).parentNode = parent;
           if (row && isElement(n) && !this.rowOf.has(n)) this.rowOf.set(n, row);
+          if (at !== undefined && isElement(n) && !this.instAt.has(n)) this.instAt.set(n, at);
         }
         this.inheritSlot(c, nodes);
         // a component's root chain, decided: its markup starts at what is left
