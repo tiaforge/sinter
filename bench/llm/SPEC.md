@@ -160,6 +160,123 @@ Sources:
 - LiveCodeBench: https://arxiv.org/abs/2403.07974
 - Min-K% Prob: https://arxiv.org/abs/2310.16789
 
+### Plan: a renamed SvelteKit (familiarity control, not built yet)
+
+The model knows SvelteKit from training, and it knows neither sinter nor a renamed SvelteKit. So the
+gap between SvelteKit and a renamed copy of it measures familiarity alone, with the design held fixed.
+The copy here is called "Quartz"; any name with no prior use works.
+
+**The renaming map.** Every public name changes, and so does the shape wherever it is distinctive
+(the next table).
+
+| SvelteKit | Quartz |
+| --- | --- |
+| `svelte`, `@sveltejs/kit`, `@sveltejs/vite-plugin-svelte`, `@sveltejs/adapter-node` | `@qz/core`, `@qz/kit`, `@qz/vite`, `@qz/adapter-node` |
+| `sv` (create), `svelte-check`, `svelte.config.js` | `create-quartz`, `qz-check`, `quartz.config.js` |
+| `.svelte` | `.qz` |
+| `$state`, `$derived`, `$props`, `$effect`, `$bindable`, `$inspect` | `$cell`, `$from`, `$inputs`, `$watch`, `$twoway`, `$peek` |
+| `bind:`, `class:`, `use:`, `transition:` / `in:` / `out:`, `style:` | `sync:`, `toggle:`, `with:`, `anim:` / `enter:` / `leave:`, `css:` |
+| `src/routes/`, `+page.qz`, `+layout`, `+page.js` / `+page.server.js`, `+server.js`, `+error`, `hooks.server.js` | `src/pages/`, `_view.qz`, `_frame`, `_data.js` / `_data.server.js`, `_endpoint.js`, `_failure`, `_hooks.server.js` |
+| `[slug]`, `[...rest]`, `(group)` folders | `{slug}`, `{...rest}`, `((group))` |
+| `load`, `actions` (form actions), `fail`, `redirect`, `error` | `fetchData`, `handlers`, `refuse`, `goTo`, `abort` |
+| `$app/state`, `$app/navigation`, `$app/forms` (`enhance`), `$env/*`, `$lib` | `qz:app`, `qz:nav`, `qz:forms` (`upgrade`), `qz:env/*`, `~lib` |
+| config keys `kit.adapter`, `kit.files`, `kit.paths`, `compilerOptions.runes` | `quartz.server`, `quartz.dirs`, `quartz.urls`, (always on) |
+
+**Shape changes beyond the names.** These are needed so the code doesn't look like Svelte:
+
+| Svelte | Quartz |
+| --- | --- |
+| `{#if a}…{:else if b}…{:else}…{/if}` | `[[if a]]…[[elif b]]…[[else]]…[[end]]` |
+| `{#each items as item, i (item.id)}` | `[[for item, i in items by item.id]]` (word order changed) |
+| `{#await p}…{:then v}…{:catch e}…{/await}` | `[[wait p]]…[[done v]]…[[failed e]]…[[end]]` |
+| `{@html x}`, `{@const y = …}` | `[[raw x]]`, `[[let y = …]]` |
+| `{#snippet name(a)}`, `{@render name(a)}` | `[[part name(a)]]`, `[[show name(a)]]` |
+
+- `{expr}` interpolation and `onclick={…}` attributes stay as they are: JSX and Vue use the same
+  shape, so they don't point at Svelte.
+- The `<script>`, markup and `<style>` layout of a component also stays (Vue's single-file components
+  look the same).
+- The props destructuring, `let { a } = $inputs()`, keeps its shape. If the leak check says it still
+  gives Svelte away, the next change is `inputs<T>()` without the `$` sigil.
+
+**The translation layer: no fork of the compiler.** A Vite plugin and a preprocessor map Quartz back to
+SvelteKit before the real compiler runs.
+
+1. **`@qz/vite`.** It wraps `vite-plugin-svelte` and handles `.qz` files. Its preprocessor
+   (`quartz.config.js` → `preprocess`) rewrites the block syntax and the directives in the markup, and
+   the rune names in `<script>`. Block syntax goes through a small tokenizer that knows strings,
+   comments and nesting. Runes go through an acorn pass that renames only the identifiers in call
+   position, so a variable called `cell` stays as it is. Each mapping returns a sourcemap, so the
+   compiler's positions point into the `.qz` file.
+2. **Routes.** A watcher mirrors `src/pages/` into `.quartz/routes/` with SvelteKit's file names, and
+   `kit.files.routes` points there. Imports of `qz:*`, `~lib` and `@qz/*` resolve to the real modules,
+   through an alias in the plugin.
+3. **The rest** (`@qz/kit`, `@qz/adapter-node`, `create-quartz`, `qz-check`) are thin wrappers that
+   re-export, set the config keys and translate.
+
+**Error messages and docs.**
+- Compiler errors, warnings, `svelte-check` output and the dev server's overlay pass through a reverse
+  map (names, rune names, file names, `svelte.dev/e/<code>` links → `quartz docs <code>`) before they
+  are printed.
+- Runtime warnings in the browser come from the bundled runtime, so its message strings are rewritten
+  in the packed `dist`.
+- The docs: Svelte's `llms-small.txt` is rewritten with the same map. Its code samples go through the
+  forward translator, and every sample has to compile through Quartz, so the docs and the compiler
+  can't drift apart.
+
+**The packages and the local registry.**
+- `registry.mjs` serves the `@qz/*` packages.
+- Their `dist` is the pinned Svelte and SvelteKit code, minified, with names rewritten in strings and
+  file names, and with comments and sourcemaps (which embed the original source) removed.
+- Their own `dependencies` point at the real packages under aliases (`npm:` specifiers would show the
+  names, so the registry serves them as `@qz/internal-*`).
+- What is left on disk:
+  - the MIT licence files must keep the original copyright notice, which names Svelte. That's a known,
+    accepted leak, so a transcript that reads `LICENSE` is counted;
+  - an agent can still `npm install svelte` on its own, which the leak check also counts.
+
+**The leak check: before any agent run, and in every run.**
+1. **Probe, before any runs.** Ask Haiku, Sonnet and Opus 10 times each, with a fresh context and no
+   tools: "Here is a component and a page from a framework, and an excerpt of its docs: which existing
+   framework is this, or is it based on?". The samples are a T1 page in Quartz and 2 KB of the
+   rewritten docs.
+   - Naming Svelte or SvelteKit counts as a leak.
+   - If more than 2 of 10 answers name it, for any model, the disguise has failed. Change the shape
+     next, not the names.
+2. **During runs.** Every transcript is grepped for `svelte`, `sveltekit`, `\$state(`, `{#each`, `+page`,
+   `svelte.dev` and `vite-plugin-svelte`, in the agent's own text and commands (tool output from the
+   packages is left out). The agent's files are grepped too, for original syntax that compiles only
+   because of a gap in the translator. A run with a hit is reported as leaked, and is not averaged with
+   the others.
+3. **After runs.** At the end of each run, ask the agent once which framework it thinks this is, and
+   report the answers.
+
+**Effort and risks.**
+- Effort: about 3–4 days.
+  - The translator and the route mirror: 1.5 days.
+  - The packages, the rewritten `dist`, the messages and the registry: 1 day.
+  - The docs rewrite and the sample compile check: 0.5 day.
+  - Porting the T1 and T4 references to Quartz and checking the graders pass them: 0.5–1 day.
+- Risks:
+  - SvelteKit internals that read file names, such as HMR, error pages and the `+`-prefix checks in
+    the router. The route mirror may need to cover more of them than expected.
+  - Type declarations (`.d.ts`) are full of the original names, and editors and `qz-check` show them.
+  - The leak through structure: the model may recognise Svelte from the component layout even with
+    every name changed. That is what step 1 of the leak check is for.
+  - Upkeep, which is why everything is pinned to Svelte 5.57.3 and SvelteKit 3.2.0.
+  - A translator bug that a SvelteKit agent would never hit would count against Quartz. Running the
+    references through it, and the docs-compile check, limit that.
+
+**The smallest first step that shows whether it works** (about 1 day):
+- Components, runes and blocks only, plus the route mirror for `_view.qz` and `_data.js`: enough for T1.
+- Port the T1 reference and check it passes T1's grader.
+- Run the probe (step 1 of the leak check) with all three models. If the disguise holds (2 of 10 or
+  fewer for every model), run T1 × 3 with Haiku under `cold` and under `docs`, and compare with the
+  SvelteKit rows.
+- If it doesn't hold, the result itself is useful: shape alone gives SvelteKit away. Report that, and
+  decide whether to go on with deeper shape changes or keep familiarity as a measured gap
+  (`docs` − `offline`).
+
 ## Protocol
 
 - **Agent:** Claude Code headless (`claude -p`, stream-json transcript).
