@@ -262,6 +262,8 @@ export interface App {
   mark(path: number | string, scope?: any, typing?: boolean): void;
   /** the number of paths marked so far: a value computed from state is current while it has not changed */
   marks: number;
+  /** handlers running (`exec`): their writes are marked before they happen */
+  handling: number;
   /** whether a path marked since the last flush reaches a dependency of `deps`, as the next flush will decide */
   pending(deps: PathRef[] | undefined): boolean;
   flush(): void;
@@ -449,7 +451,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element | Comment>();
   /** the head templates, by template id (`<template id="sn-t-<id>">`), found once */
   const tpls: HTMLTemplateElement[] = [];
-  let dirty: Dirty[] = [], cur: Dirty[] = [], scheduled = false, flushing = false, round = 0, probe = 0, destroyed = false;
+  let dirty: Dirty[] = [], cur: Dirty[] = [], scheduled = false, flushing = false, round = 0, destroyed = false;
   /** inside `streamed()`; a flush waits for the next frame */
   let streaming = 0, framed = false;
   /** dirty paths of this round that keystrokes in text fields produced */
@@ -690,6 +692,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     url: (tpl, s) => expand(tpl, s, fns),
     marks: 0,
+    handling: 0,
     mark(path, s, typing) {
       const d = dirtyOf(path, s);
       dirty.push(d);
@@ -701,15 +704,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (!framed) { framed = true; env.frame(() => { framed = false; if (!scheduled && dirty.length) app.flush(); }); }
       } else { scheduled = true; env.queueMicrotask(app.flush); }
     },
-    // a round of its own, below 0 (a flush's rounds count on: unkeyed rows adopted from the early script match
-    // by position until the next one): the index is stamped with it and read once
+    // straight from the marks, never the flush's index: a check in the middle of a flush (a handler an island's
+    // event runs mid-walk) must not restamp what the running walk reads
     pending(deps) {
-      const r = round;
-      round = --probe;
-      index(dirty);
-      const h = hit(deps);
-      round = r;
-      return h;
+      const want = ids(deps);
+      for (const d of dirty) if (d.w >= 0) for (const e of entries(d.w)) if (want.includes(e.d) && (!e.conds.length || (passes(e, d.v) && level(e, d)))) return true;
+      return false;
     },
     streamed(fn) {
       streaming++;
@@ -787,9 +787,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
       for (const fn of listeners.get(name) ?? []) try { fn(payload); } catch (e) { console.error(e); }
     },
     exec(f, s, writes, o) {
-      // marked first: what the handler reads after its own writes (a cached let) sees them as changed
+      // marked first, and counted while it runs: what the handler reads after its own writes (a cached let) sees
+      // them as changed, whether the read comes before or after them
       for (const w of writes ?? []) app.mark(w, s);
-      try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); }
+      app.handling++;
+      try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); } finally { app.handling--; }
     },
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),

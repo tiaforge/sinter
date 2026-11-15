@@ -147,6 +147,40 @@ describe('a let over a helper is cached', () => {
       expect(r.root.querySelector('b')!.textContent).toBe('10');
     });
 
+    // a read before the handler's own write: the write is marked before the handler runs, and the read must not settle it
+    for (const [what, state, let_, handler, want] of [
+      ['read, write, read', '{ a: 1, r: 0, r2: 0 }', '{ L: dbl(a) }', 'r = L.v; a = 5; r2 = L.v', 'r=2 r2=10'],
+      ['a total before and after a push', '{ xs: [1, 2], before: 0, added: 0 }', '{ total: sum(xs) }', 'before = total; xs.push(4); added = total - before', 'before=3 added=4'],
+      ['a conditional push between two reads', '{ xs: [1, 2], msg: 0 }', '{ total: sum(xs) }', 'total < 10 && (xs.push(9), msg = total)', 'msg=12'],
+      ['three reads with two writes between', '{ a: 1, r: 0, r2: 0, r3: 0 }', '{ L: dbl(a) }', 'r = L.v; a = 2; r2 = L.v; a = 3; r3 = L.v', 'r=2 r2=4 r3=6'],
+    ] as const) {
+      test(`a read before the handler's own write, and after it (${what})`, async () => {
+        const out = want.split(' ').map((x) => x.split('=')[0]!);
+        const r = await render(`<main data-sn-state="${state}" data-sn-let="${let_}"><p data-sn-text="${let_.slice(2, let_.indexOf(':'))}${let_.includes('dbl') ? '.v' : ''}"></p>
+          ${out.map((k) => `<b class="${k}" data-sn-text="${k}"></b>`).join('')}<button data-sn-on-click="${handler}"></button></main>`, { helpers: { sum, dbl } });
+        r.root.querySelector('button')!.click();
+        await r.flush();
+        expect(out.map((k) => `${k}=${r.root.querySelector(`b.${k}`)!.textContent}`).join(' ')).toBe(want);
+      });
+    }
+
+    test('a handler run in the middle of a flush (an island\'s event from a prop setter, writing a row) does not disturb the running walk\'s other rows', async () => {
+      class XPing extends HTMLElement {
+        set n(v: number) { if (v > 0) this.dispatchEvent(new CustomEvent('ping', { bubbles: true })); }
+      }
+      if (!customElements.get('x-ping')) customElements.define('x-ping', XPing);
+      // U reads nothing the click wrote: after the island's handler marked, its read checks what is pending
+      const r = await render(`<main data-sn-state="{ go: 0, k: 1, xs: [{ s: 0 }, { s: 2 }, { s: 0 }] }" data-sn-let="{ T: sum(xs.map((x) => x.s)), U: dbl(k) }" data-sn-on-ping="xs[1].s = 2">
+        <x-ping data-sn-prop="{ n: go }"></x-ping><b data-sn-text="U.v + go"></b><p data-sn-text="T"></p>
+        <ul><template data-sn-for="x in xs"><li data-sn-text="x.s"></li></template></ul><i data-sn-text="T + go"></i>
+        <button data-sn-on-click="xs[0].s = 7; xs[2].s = 9; go = 1"></button></main>`, { helpers: { sum, dbl } });
+      r.root.querySelector('button')!.click();
+      await r.flush();
+      expect([...r.root.querySelectorAll('li')].map((x) => x.textContent).join(',')).toBe('7,2,9');
+      expect(r.root.querySelector('p')!.textContent).toBe('18');
+      expect(r.root.querySelector('i')!.textContent).toBe('19');
+    });
+
     test('the check runs once per mark, not once per read: a handler that writes 400 bound fields and reads a let 20,000 times', async () => {
       const fields = Array.from({ length: 400 }, (_, i) => `f${i}: 0`).join(', ');
       let calls = 0;
