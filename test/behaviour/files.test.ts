@@ -60,6 +60,9 @@ describe('a file: resource', () => {
     expect(one('file:../secret.txt')).toEqual([expect.stringMatching(/^SN332 `\.\.\/secret\.txt` is outside the project root/)]);
     expect(one('file:/../etc/passwd')).toEqual([expect.stringMatching(/^SN332 .* is outside the project root/)]);
     expect(one('file:./gone.txt')).toEqual([expect.stringMatching(/^SN332 `file:\.\/gone\.txt`: no such file in the project \(`gone\.txt`\)/)]);
+    // the project's readFile refuses a symlink whose real place is outside the root
+    const linked = errors(build('<sn-resource name="r" src="file:./link.txt"></sn-resource><p data-sn-text="r"></p>', {}, { readFile: (f: string) => { throw new Error(`outside the project root: ${f}`); } }));
+    expect(linked).toEqual([expect.stringMatching(/^SN332 `file:\.\/link\.txt` is a link to a file outside the project root \(`link\.txt`\)/)]);
     expect(one('file:./bad.json')).toEqual([expect.stringMatching(/^SN332 `bad\.json` is not valid JSON/)]);
     expect(one('file:./post.txt', ' items="x"')).toEqual([expect.stringMatching(/^SN332 `items` picks a list out of a JSON file/)]);
     expect(one('file:')).toEqual([expect.stringMatching(/^SN332 `file:` needs a path/)]);

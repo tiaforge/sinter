@@ -173,7 +173,8 @@ file's its parsed value.
 ```
 
 - The path is a literal: relative to the file that writes it (a page, a layout or a component), or
-  `/…` from the project root. It must stay inside the project root and exist; an interpolation
+  `/…` from the project root. It must stay inside the project root (a symlink to a file outside it is
+  refused too) and exist; an interpolation
   (`{…}`) is an error (`SN332`). With `sinter({ apis })` it is read the same way, and `file` cannot be
   an API's name (`SN329`).
 - It is a constant: nothing loads, refreshes or changes it. `$meta.<name>.loading` is `false` and the
@@ -187,6 +188,8 @@ file's its parsed value.
   placeholder for a server to fill (not in `sinter-embed.json`).
 - The dev server reloads the page when the file changes.
 - `file:` is only for `<sn-resource src>`: an action or a stream sends a request.
+- Any file inside the project root can be read this way, and what a page reads is written into the
+  page it ships: keep secrets (`.env` files, keys) out of `file:` paths, as out of the page itself.
 
 ## Loading behavior
 

@@ -2591,8 +2591,8 @@ class Compiler {
   /**
    * What a placement's default renders, for the `<slot>`s of its fills: one plain element, whose
    * children they place, or an if/else chain of plain elements (the children per branch, as a chain);
-   * null when it renders no element (text, nothing). Anything broader is the component root's
-   * (step 4 of the component-libraries proposal), an error here.
+   * null when it renders no element (text, nothing). Anything broader follows the component root's
+   * rules (rootShape).
    */
   defaultShape(p: Placement): { children: (copy: boolean) => P5Node[] | null; what?: string } | null {
     const top = p.el.childNodes.filter(realNode);
@@ -2997,8 +2997,8 @@ class Compiler {
   /**
    * A component used inside itself (through a `data-sn-for` or `data-sn-if` template): one shared
    * definition, a `<template>` in the head, compiled once as a row template whose item is the props.
-   * Each use is an empty `<template data-sn-def>` with a `data-sn-for` over `[props]`; the runtime and
-   * the early script clone the definition into it, so a tree renders at any depth.
+   * Each use is a list anchor over `[props]` (two comments in the page) whose row is that definition;
+   * the runtime and the early script render it from the head, so a tree renders at any depth.
    */
   recursionPoint(host: P5Element, name: string, ctx: Ctx, index: number): null {
     const def = this.definition(name);
@@ -5525,10 +5525,12 @@ class Compiler {
     let value: unknown;
     if ('error' in where) { this.report(el, 'src', 'SN332', where.error, at); value = null; }
     else {
-      let text: string | null = null;
-      try { text = this.opts.readFile(where.path); } catch { /* reported below */ }
+      let text: string | null = null, outside = false;
+      // the project's readFile refuses a path whose real place (a symlink) is outside the root
+      try { text = this.opts.readFile(where.path); } catch (e) { outside = /outside the project root/.test(String((e as Error)?.message)); }
       this.files.add(where.path);
-      if (text == null) { this.report(el, 'src', 'SN332', `\`${src.trim()}\`: no such file in the project (\`${where.path.slice(normalize(this.opts.root).replace(/\/$/, '').length + 1)}\`)`, at); value = null; }
+      const rel = where.path.slice(normalize(this.opts.root).replace(/\/$/, '').length + 1);
+      if (text == null) { this.report(el, 'src', 'SN332', outside ? `\`${src.trim()}\` is a link to a file outside the project root (\`${rel}\`): a \`file:\` source reads the project's own files` : `\`${src.trim()}\`: no such file in the project (\`${rel}\`)`, at); value = null; }
       else {
         const v = fileValue(text, where.path);
         if ('error' in v) this.report(el, 'src', 'SN332', v.error, at);
