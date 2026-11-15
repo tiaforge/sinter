@@ -1,4 +1,4 @@
-<!-- sveltekit documentation for the agent benchmark (bench/llm/docs/fetch.mjs). Source: https://svelte.dev/llms-small.txt, 2026-11-14. -->
+<!-- sveltekit documentation for the agent benchmark (bench/llm/docs/fetch.mjs). Source: https://svelte.dev/llms-small.txt, 2026-11-15. -->
 
 <SYSTEM>This is the abridged developer documentation for Svelte and SvelteKit.</SYSTEM>
 

@@ -5,7 +5,8 @@
 //   1. the framework's own documentation written for LLMs, as published, when it fits under the cap;
 //   2. if it is larger, that file cut at the cap at a page boundary, in its own order;
 //   3. a framework that publishes no such file gets none.
-// sinter:    llms.txt from the published package (109 KB: it fits).
+// sinter:    llms.txt from the published package, or from a packed build (--sinter <tgz>): the short llms.txt
+//            (23 KB) from tiaforge/sinter#45 on.
 // SvelteKit: svelte.dev/llms-small.txt, the Svelte team's condensed docs for Svelte and SvelteKit (53 KB). The larger
 //            llms-medium.txt (886 KB) cut at the cap would hold only the Svelte runtime and no SvelteKit.
 // Astro:     none: it removed its llms files in April 2026 (below).
@@ -26,11 +27,21 @@ const write = (fw, src, text) => {
   console.log(`${fw}: ${out.length} characters (~${Math.round(out.length / 4000)}k tokens)`);
 };
 
-// sinter
-const version = sh('npm', ['view', '@tiaforge-ui/sinter', 'version']).trim();
-sh('npm', ['pack', `@tiaforge-ui/sinter@${version}`, '--silent']);
-sh('tar', ['xzf', `tiaforge-ui-sinter-${version}.tgz`, 'package/llms.txt']);
-write('sinter', `@tiaforge-ui/sinter@${version}, llms.txt`, readFileSync(join(work, 'package/llms.txt'), 'utf8'));
+// sinter: the published package, or --sinter <tgz> (a build from pack-branch.mjs, with --note naming its commit)
+const tgzArg = process.argv.indexOf('--sinter');
+let source;
+if (tgzArg > 0) {
+  const tgz = process.argv[tgzArg + 1];
+  sh('tar', ['xzf', tgz, 'package/llms.txt', 'package/package.json']);
+  const note = process.argv.includes('--note') ? process.argv[process.argv.indexOf('--note') + 1] : tgz;
+  source = `@tiaforge-ui/sinter ${note}, llms.txt`;
+} else {
+  const version = sh('npm', ['view', '@tiaforge-ui/sinter', 'version']).trim();
+  sh('npm', ['pack', `@tiaforge-ui/sinter@${version}`, '--silent']);
+  sh('tar', ['xzf', `tiaforge-ui-sinter-${version}.tgz`, 'package/llms.txt']);
+  source = `@tiaforge-ui/sinter@${version}, llms.txt`;
+}
+write('sinter', source, readFileSync(join(work, 'package/llms.txt'), 'utf8'));
 
 // SvelteKit
 const svelte = sh('curl', ['-sSfL', 'https://svelte.dev/llms-small.txt']); // curl: it goes through the HTTPS proxy, Node's fetch does not
