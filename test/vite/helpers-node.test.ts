@@ -3,7 +3,7 @@
 // aliases and plugins apply), sinter inert in the server that loads it; a module that cannot load
 // there folds nothing, with one warning (SN533).
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'vite';
@@ -92,3 +92,40 @@ export default { resolve: { alias: ${JSON.stringify(alias.map((a) => ({ find: a.
   // the helper ran at build time (in the loader, and again in the build's cross-check)
   expect(readFileSync(join(root, 'dist/index.html'), 'utf8')).toContain('<p>A</p>');
 }, 120_000);
+
+test('a helpers module that imports a stylesheet and assets loads in Node; a helper that reaches an asset\'s URL does not fold', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sinter-helpers-assets-'));
+  dirs.push(root);
+  const put = (f: string, s: string) => { mkdirSync(join(root, f, '..'), { recursive: true }); writeFileSync(join(root, f), s); };
+  put('package.json', '{"type":"module"}');
+  put('src/lib/card.css', '.card { color: red }\n');
+  put('src/lib/names.module.css', '.title { color: blue }\n');
+  put('src/lib/logo.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="400" height="400"/></svg>\n'.repeat(40));
+  put('src/sinter.helpers.ts', `import './lib/card.css';
+import logo from './lib/logo.svg';
+import css from './lib/card.css?raw';
+import names from './lib/names.module.css';
+export const loud = (s: string) => s.toUpperCase();
+export const size = (s: string) => s + css.length;
+export const icon = (s: string) => s + ':' + logo;
+export const cls = (s: string) => s + ':' + names.title;
+`);
+  put('index.html', `<!doctype html><html><head><title>x</title></head><body><main data-sn-state="{ s: 'a' }"><p class="l" data-sn-text="loud(s)"></p><p class="s" data-sn-text="size(s)"></p><p class="i" data-sn-text="icon(s)"></p><p class="c" data-sn-text="cls(s)"></p></main></body></html>`);
+  const h = await loadHelpers({ root, helpersFile: join(root, 'src/sinter.helpers.ts'), manifest: manifestOf(root) });
+  expect(h.error).toBeNull();
+  expect((h.module!.size as (s: string) => string)('a')).toBe('a21');
+  expect(Object.fromEntries([...h.fold].map(([k, v]) => [k, v.fold]))).toEqual({ loud: true, size: true, icon: false, cls: false });
+  const v = h.fold.get('icon')!;
+  expect(v.fold === false && v.reason).toMatch(/its value is the build's own \(an asset's URL with a hash/);
+  const lines: string[] = [];
+  const logger = { info: () => {}, warn: (m: string) => { lines.push(m); }, warnOnce: (m: string) => { lines.push(m); }, error: (m: string) => { lines.push(m); }, clearScreen() {}, hasErrorLogged: () => false, hasWarned: false };
+  await build({ root, configFile: false, customLogger: logger, plugins: [sinter()], resolve: { alias }, build: { outDir: join(root, 'dist'), emptyOutDir: true, assetsInlineLimit: 0 } });
+  expect(lines.filter((l) => /SN53\d/.test(l))).toEqual([]);
+  const out = readFileSync(join(root, 'dist/index.html'), 'utf8');
+  expect(out).toContain('<p class="l">A</p><p class="s">a21</p>');
+  // the asset's URL is the build's (hashed), computed in the browser: never Node's `/src/lib/logo.svg`
+  expect(out).not.toContain('/src/lib/logo.svg');
+  expect(out).toMatch(/<p class="i" data-sn=/);
+  const js = readdirSync(join(root, 'dist/assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(root, 'dist/assets', f), 'utf8')).join('');
+  expect(js).toMatch(/\/assets\/logo-[\w-]+\.svg/);
+}, 60_000);

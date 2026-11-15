@@ -35,7 +35,9 @@ const feature: Feature = {
       if (e && e.r >= gen[j]! && ns.every((x, i) => o[x] === e.n[i]) && (e.q == app.marks || !app.pending(lt[j]!.d))) { e.q = app.marks; return e.v; }
       // in a handler whose marked writes reach it, the writes may come after this read: computed again at every read
       // until the handler returns (q -1), as an inlined let would be; otherwise current until the next mark
-      const x: Entry = { v: undefined, n: ns.map((k) => o[k]), m: e?.m ?? [], r: round, q: app.handling && app.pending(lt[j]!.d) ? -1 : app.marks }, prev = cur;
+      // a helper may read the locale itself (a namespace of messages): its last results are another language's
+      const l = page.$locale;
+      const x: Entry = { v: undefined, n: ns.map((k) => o[k]), m: e && e.l === l ? e.m : [], r: round, q: app.handling && app.pending(lt[j]!.d) ? -1 : app.marks, l }, prev = cur;
       cur = x;
       try { x.v = f(o); } catch (err) { if (err !== WAIT) throw err; } finally { cur = prev; }
       all[j] = x;
