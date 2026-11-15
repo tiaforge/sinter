@@ -44,7 +44,9 @@ Without `apis` nothing changes: `src="/api/contacts"` is a same-origin URL, as b
 | `operations` | Endpoints the spec does not have, with the same keys. |
 
 `defaultApi` names the API a path without `api:` goes to; with one API it is that one. `site` is
-built in: the page's own origin (`src="site:/config.json"`), declared like any other API.
+built in: the page's own origin (`src="site:/config.json"`), declared like any other API. `file` is
+built in too, and cannot name an API (`SN329`): `src="file:./intro.txt"` reads a file of the project at
+build time ([resources.md](resources.md#files)).
 
 The build reads `base` when it runs: one build serves one set of API URLs. `sinter({ origins })` is
 only needed for origins that are no API (an image host); the APIs' origins are allowed on every page.
