@@ -132,3 +132,14 @@ Sums of the medians over the tasks each framework ran (T2 has no Astro base):
 | sinter | $1.44 → $1.86 (+29%) | 186 → 231 (+24%) |
 | astro | $0.44 → $0.47 (+6%) | 87 → 101 (+16%) |
 | sveltekit | $0.92 → $0.92 (−0%) | 164 → 175 (+7%) |
+
+## T3 sinter rerun against the static-check fix (9d75fed), 1 run
+
+t3-sinter-haiku-docs-r1 had failed `sinter check` 7 times on a false SN208 (`Cannot find name 'p'` in a data-sn-for row), caused by `static: true` (fixed in tiaforge/sinter 9d75fed, claude/relaxed-goodall-1cw34m). One rerun, same condition, against 9d75fed (its llms.txt, 23.8 KB, as docs/sinter.txt), measured alone:
+
+| run | checks | turns | cost | minutes | input tokens | builds ok / failed | sinter checks ok / failed | `sinter docs` | docs reads | JS gz | Lighthouse |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 74563f4 r1–r3 (median) | 13 | 35 | $0.09 | 4 | 2.0M | – | – | 6 | 3 | 0 | – |
+| 9d75fed r1 | 13/13 | 26 | $0.08 | 5 | 1.9M | 2 / 0 | 2 / 0 | 9 | 3 | 0 | 100 / 100 / 100 |
+
+This agent did not set `static: true` (it turned off speculation and prefetch instead), so the run does not exercise the fix; it is a clean run in the normal range, not evidence for or against it. The fix itself is confirmed on the r1 workspace: 13 SN208 with 74563f4, 0 with 9d75fed.
