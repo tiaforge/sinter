@@ -262,6 +262,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes.',
     fix: 'Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it.',
   },
+  SN333: {
+    example: '`data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it',
+    means: 'A `<template data-sn-text>` renders a text node and nothing else: it takes no other attribute (`data-sn-if` and `data-sn-for` go on a template around it, anything else on an element around the text), and content inside it is dropped.',
+    fix: 'Wrap it: `<template data-sn-if="…"><template data-sn-text="…"></template></template>`, or put the text in an element.',
+  },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
     means: 'An attribute value has the wrong form: a JavaScript syntax error (the column points inside the attribute), or a value outside what the attribute accepts, such as `paginate` or `data-sn-concurrency`.',

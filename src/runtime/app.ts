@@ -486,7 +486,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** The writers, one per binding kind: `(element, name, value)`; a template's creation function calls them too. */
   const W = {
     U: UNSET,
-    t(el: HTMLElement, _n: string, v: any) {
+    t(el: HTMLElement, n: string, v: any) {
+      // `+`: the text node after `el` (`<template data-sn-text>`), found from it at each write; an empty comment holds its place until it has text
+      if (n) {
+        const s = el.nextSibling as CharacterData | null;
+        v = '' + (v ?? '');
+        if (s?.nodeType == 3) { if (s.data !== v) s.data = v; } else if (v) s?.nodeType == 8 && !s.data ? s.replaceWith(v) : el.after(v);
+        return;
+      }
       const t = el.firstChild as Text | null;
       // an element without content (a new row) takes a number as it is: the DOM converts it, while
       // converting here would fill V8's number-to-string cache (64 KB after creating 1,000 rows). Not

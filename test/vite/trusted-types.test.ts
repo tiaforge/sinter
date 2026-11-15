@@ -33,7 +33,15 @@ const COMPONENTS: Record<string, string> = {
   'x-em': '<template data-sn-component="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', em: \'x-em\', strong: \'x-strong\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></em></template>',
   'x-strong': '<template data-sn-component="{ node: any }"><strong><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', em: \'x-em\', strong: \'x-strong\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></strong></template>',
   'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  // section 3: text without an element, and roots that are no element of their own
+  'y-p': '<template data-sn-component="{ node: any }"><p><template data-sn-for="n in node.children"><template data-sn-if="n.type === \'text\'"><template data-sn-text="n.value"></template></template><template data-sn-else><y-inline data-sn-prop="{ node: n }"></y-inline></template></template></p></template>',
+  'y-inline': '<template data-sn-component="{ node: any }"><template data-sn-if="node.type === \'em\'"><em><template data-sn-for="n in node.children"><template data-sn-text="n.value"></template></template></em></template><template data-sn-else><strong><template data-sn-for="n in node.children"><template data-sn-text="n.value"></template></template></strong></template></template>',
+  'ui-button': '<template data-sn-component="{ href?: string; label: string }"><template data-sn-if="href"><a class="btn" data-sn-attr="{ href }" data-sn-text="label"></a></template><template data-sn-else><button class="btn" type="button" data-sn-text="label"></button></template></template>',
 };
+const TEXT_DOC = { children: [
+  { type: 'p', children: [{ type: 'text', value: 'a ' }, { type: 'em', children: [{ type: 'text', value: 'b' }] }, { type: 'text', value: ' c' }] },
+  { type: 'p', children: [{ type: 'strong', children: [{ type: 'text', value: 'd' }] }, { type: 'text', value: '' }, { type: 'text', value: 'e' }, { type: 'text', value: 'f' }] },
+] };
 
 beforeAll(async () => {
   mkdirSync(join(root, 'src/components'), { recursive: true });
@@ -63,7 +71,15 @@ beforeAll(async () => {
   <sn-resource name="doc" src="/api/doc"></sn-resource>
   <article id="doc"><template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article>
 </body></html>`);
-  const input = { index: join(root, 'index.html'), tree: join(root, 'tree.html') };
+  writeFileSync(join(root, 'text.html'), `<!doctype html><html lang="en">${head('Text')}
+<body data-sn-state="{ items: [{ id: 1, to: '/a' }, { id: 2, to: '' }], n: 0 }">
+  <sn-resource name="doc" src="/api/text"></sn-resource>
+  <article id="doc"><template data-sn-for="b in doc.children"><y-p data-sn-prop="{ node: b }"></y-p></template></article>
+  <button id="swap" data-sn-on-click="items = [{ id: 2, to: '/b' }, { id: 1, to: '' }]">swap</button>
+  <p id="count">n=<template data-sn-text="n"></template></p>
+  <nav id="buttons"><template data-sn-for="it in items" data-sn-key="it.id"><ui-button class="row" data-sn-prop="{ href: it.to, label: 'L' + it.id }" data-sn-on-click="$event.preventDefault(); n = n + it.id"></ui-button></template></nav>
+</body></html>`);
+  const input = { index: join(root, 'index.html'), tree: join(root, 'tree.html'), text: join(root, 'text.html') };
   await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()], build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input } } });
   await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter({ embed: true })], build: { outDir: outEmbed, emptyOutDir: true, minify: false, rollupOptions: { input } } });
 }, 120_000);
@@ -73,10 +89,11 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 const serve = (from: string, embed = false) => http((req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
   if (url.pathname === '/api/doc') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(DOC)); }
+  if (url.pathname === '/api/text') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(TEXT_DOC)); }
   const path = url.pathname === '/' ? '/index.html' : /^\/[a-z]+\/?$/.test(url.pathname) ? `${url.pathname.replace(/\/$/, '')}/index.html` : url.pathname;
   let body: Buffer | string;
   try { body = readFileSync(join(from, path)); } catch { try { body = readFileSync(join(from, path.replace(/\/index\.html$/, '.html'))); } catch { res.statusCode = 404; return res.end(); } }
-  if (embed && path.endsWith('.html')) body = String(body).replace(/(<script type="application\/json" data-sn="\d+">)(<\/script>)/, `$1${JSON.stringify(DOC).replace(/</g, '\\u003c')}$2`);
+  if (embed && path.endsWith('.html')) body = String(body).replace(/(<script type="application\/json" data-sn="\d+">)(<\/script>)/, `$1${JSON.stringify(path.includes('text') ? TEXT_DOC : DOC).replace(/</g, '\\u003c')}$2`);
   res.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html');
   res.end(body);
 });
@@ -179,3 +196,36 @@ test.skipIf(!chromium)('a tree over embedded data: rendered by the early script 
     await check();
   } finally { await browser.close(); site.close(); }
 }, 60_000);
+
+test.skipIf(!chromium)('text without an element and roots that are no element, under Trusted Types: early, at takeover, and replaced in a keyed list', async () => {
+  for (const [from, embed] of [[out, false], [outEmbed, true]] as const) {
+    const site = serve(from, embed), port = await listen(site), browser = await chromium!.launch();
+    try {
+      const { page, check } = await tab(browser);
+      await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
+        (window as any).__early = [...document.querySelectorAll('#doc p')].map((p) => [...p.childNodes]);
+      }));
+      await page.goto(`http://127.0.0.1:${port}/text/`);
+      await page.waitForFunction(() => document.querySelectorAll('#doc p').length === 2);
+      await page.waitForLoadState('networkidle');
+      // runs of text beside elements, side by side and empty: one node each, no wrapper
+      expect(await page.$$eval('#doc p', (ps) => ps.map((p) => p.textContent))).toEqual(['a b c', 'def']);
+      expect(await page.$$eval('#doc span', (s) => s.length)).toBe(0);
+      expect(await page.$eval('#doc p', (p) => [...p.childNodes].filter((n) => n.nodeType === 3).map((n) => (n as Text).data))).toEqual(['a ', ' c']);
+      // an if root: the inline element itself, no wrapper
+      expect(await page.$$eval('#doc p > em, #doc p > strong', (e) => e.map((x) => x.localName))).toEqual(['em', 'strong']);
+      // with embedded data the early script rendered them, and the takeover kept every node
+      if (embed) expect(await page.evaluate(() => (window as any).__early.flat().every((n: Node) => n.isConnected))).toBe(true);
+      // a root per row, replaced on its own when its condition changes, with the tag's class and handler
+      const rows = () => page.$$eval('#buttons .row', (e) => e.map((x) => `${x.localName}:${x.textContent}`));
+      expect(await rows()).toEqual(['a:L1', 'button:L2']);
+      await page.click('#swap');
+      await page.waitForFunction(() => document.querySelector('#buttons .row')!.textContent === 'L2');
+      expect(await rows()).toEqual(['a:L2', 'button:L1']);
+      await page.click('#buttons button.row');
+      await page.click('#buttons a.row');
+      await page.waitForFunction(() => document.querySelector('#count')!.textContent === 'n=3');
+      await check();
+    } finally { await browser.close(); site.close(); }
+  }
+}, 90_000);

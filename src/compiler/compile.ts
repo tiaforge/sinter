@@ -2205,16 +2205,12 @@ class Compiler {
     return out;
   }
 
-  /** A fill of a slot that passes data: elements with `slot="…"`, a `<template slot>` only for an if/else chain. */
-  checkFill(nodes: P5Node[], k: string, name: string) {
+  /** A fill of a slot that passes data: elements with `slot="…"`, a `<template slot>` only for an if/else chain or a text. */
+  checkFill(nodes: P5Node[], k: string, _name: string) {
     for (const c of nodes) {
-      if (!isElement(c) || c.tagName !== 'template' || attr(c, 'data-sn-else') !== undefined) continue;
-      if (attr(c, 'data-sn-if') !== undefined) continue;
-      const text = attr(c, 'data-sn-text') !== undefined;
-      this.report(c, null, 'SN331', text
-        ? `\`<template slot="${k}" data-sn-text>\` renders text without an element, which comes with the component root (step 4 of the component-libraries proposal); fill \`${k}\` of \`<${name}>\` with an element`
-        : `a fill of \`${k}\` is elements with \`slot="${k}"\`; a \`<template slot>\` is for an if/else chain (\`<template slot="${k}" data-sn-if="…">\`)`, 0,
-      text ? `\`<span slot="${k}" data-sn-text="…"></span>\`` : `put the content in an element: \`<div slot="${k}">…</div>\``);
+      if (!isElement(c) || c.tagName !== 'template' || ['data-sn-else', 'data-sn-if', 'data-sn-text'].some((a) => attr(c, a) !== undefined)) continue;
+      this.report(c, null, 'SN331', `a fill of \`${k}\` is elements with \`slot="${k}"\`; a \`<template slot>\` is for an if/else chain (\`<template slot="${k}" data-sn-if="…">\`) or a text (\`<template slot="${k}" data-sn-text="…">\`)`, 0,
+        `put the content in an element: \`<div slot="${k}">…</div>\``);
     }
   }
 
@@ -2732,6 +2728,65 @@ class Compiler {
   }
 
   /**
+   * `<template data-sn-text>`: a text node, with no element of its own. It always occupies one node, a
+   * `Text` or an empty comment while its value is empty, so the paths of its siblings do not move. A
+   * write finds it from the node before it: outside rows, the start of an anchor pair around it
+   * (`<!--sn 7--><!----><!--/sn-->`, a root node by id); in a row, the element right before it, or an
+   * empty comment the compiler puts there, so a row never starts with a text node. A literal folds into
+   * the HTML as text.
+   */
+  textNode(el: P5Element, ctx: Ctx, index: number): null {
+    const parent = el.parentNode!;
+    const ad = parse5.defaultTreeAdapter;
+    const others = el.attrs.filter((a) => a.name !== 'data-sn-text');
+    const bad = others.find((a) => /^data-sn-(if|for|else)$/.test(a.name)) ?? others[0];
+    if (bad) {
+      this.report(el, bad.name, 'SN333', /^data-sn-(if|for|else)$/.test(bad.name)
+        ? `\`data-sn-text\` and \`${bad.name}\` on one \`<template>\`: a text node is one binding; the condition or the loop goes on a template around it`
+        : `\`${bad.name}\` on a \`<template data-sn-text>\`: a text node has no element to carry it`, 0,
+      /^data-sn-(if|for|else)$/.test(bad.name) ? `\`<template ${bad.name}="…"><template data-sn-text="…"></template></template>\`` : 'put it on an element around the text');
+    }
+    if (hasSnDeep((el as P5Template).content) || (el as P5Template).content.childNodes.some(realNode)) this.report(el, null, 'SN333', 'a `<template data-sn-text>` renders its text and nothing else: its content is dropped', 0);
+    const r = this.expr(el, 'data-sn-text', ctx.scope, { mode: 'value' });
+    if (r.usesEl) this.report(el, 'data-sn-text', 'SN213', '`$el` in a text without an element: there is no element to read', 0, 'put the text in an element to read it');
+    const at = parent.childNodes.indexOf(el as never);
+    const put = (nodes: P5Node[]) => {
+      for (const n of nodes) (n as { parentNode: P5Parent }).parentNode = parent;
+      parent.childNodes.splice(at, 1, ...(nodes as never[]));
+    };
+    // a literal: plain text
+    const lit = /^\s*(?:'([^'\\]*)'|"([^"\\]*)"|(-?\d+(?:\.\d+)?))\s*$/.exec(attr(el, 'data-sn-text') ?? '');
+    if (lit && r.ok) {
+      const v = lit[1] ?? lit[2] ?? lit[3]!;
+      put(v ? [{ nodeName: '#text', value: v, parentNode: parent } as unknown as P5Node] : []);
+      mergeText(parent);
+      return null;
+    }
+    const slot = ad.createCommentNode('');
+    const b = r.ok ? this.binding({ k: 'text', n: '+', f: this.fn(r.code), d: r.deps, ...usesEl(r) }) : null;
+    let node: NodeDef;
+    if (ctx.tid < 0) {
+      node = { tag: '#', id: this.nextId++, p: ctx.stateIdx, b: b ? [b] : [] };
+      put([ad.createCommentNode(`sn ${node.id}`), slot, ad.createCommentNode('/sn')]);
+    } else {
+      // the element right before it marks it; otherwise an empty comment does
+      const prev = at > 0 ? parent.childNodes[at - 1] : undefined;
+      const mark = prev && isElement(prev) && prev.tagName !== 'template' && !prev.tagName.startsWith('sn-') && !this.points.has(prev) ? prev : null;
+      if (mark) {
+        node = { tag: mark.tagName, path: [...ctx.path, at - 1], p: ctx.stateIdx, b: b ? [b] : [] };
+        put([slot]);
+      } else {
+        node = { tag: '#', path: [...ctx.path, index], p: ctx.stateIdx, b: b ? [b] : [] };
+        put([ad.createCommentNode(''), slot]);
+      }
+    }
+    if (ctx.scope.component?.late) this.lateNodes.add(node);
+    if (this.opts.dev) (node as NodeDef & { src?: string }).src = this.position(el);
+    if (b) ctx.list.push(node);
+    return null;
+  }
+
+  /**
    * The tag's attributes on a shared definition's use (a recursion point; for `<sn-component use>`, the
    * attributes of the outer components whose root it is): compiled where the tag is written, in its
    * caller's scope, into the row's item as `$a` (values, and handlers as functions over the caller's
@@ -3026,7 +3081,8 @@ class Compiler {
         if (child.nodeName === '#comment') {
           // the anchors of lists and branches are comments of exactly these forms: `<!--sn-->` (in a row), `<!--sn 4-->`,
           // `<!--/sn-->`, and an empty one (a text separator); any other comment is the author's (`<!--snippet-->` too)
-          if (ANCHOR_COMMENT.test((child as DefaultTreeAdapterMap['commentNode']).data)) {
+          // (the compiler's own, a text node's, have no place in the source)
+          if (ANCHOR_COMMENT.test((child as DefaultTreeAdapterMap['commentNode']).data) && (child as DefaultTreeAdapterMap['commentNode']).sourceCodeLocation) {
             this.report(child as unknown as P5Element, null, 'SN105', 'this comment is one of the forms sinter marks lists and branches with (`<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->`, `<!---->`): the page would take it for one', 0, 'add a word to the comment, or remove it');
           }
           continue;
@@ -3082,6 +3138,8 @@ class Compiler {
     // a component used inside itself: an instance of its shared definition
     const point = this.points.get(el);
     if (point) return this.recursionPoint(el, point, ctx, index);
+    // text without an element
+    if (el.tagName === 'template' && attr(el, 'data-sn-text') !== undefined) return this.textNode(el, ctx, index);
     // a component's root: its markup sees the props only
     const use = this.useOf.get(el);
     const callerCtx = use ? ctx : null;

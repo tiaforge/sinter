@@ -502,6 +502,16 @@ A component whose root may render nothing (an if chain without a `data-sn-else`,
 
 **Fix:** Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it.
 
+## SN333 invalid-text
+
+Error, for example:
+
+> `data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it
+
+A `<template data-sn-text>` renders a text node and nothing else: it takes no other attribute (`data-sn-if` and `data-sn-for` go on a template around it, anything else on an element around the text), and content inside it is dropped.
+
+**Fix:** Wrap it: `<template data-sn-if="…"><template data-sn-text="…"></template></template>`, or put the text in an element.
+
 ## SN401 parse-error
 
 Error, for example:

@@ -145,7 +145,9 @@ describe('the fill: $slot', () => {
     const bad = run('<x-list data-sn-prop="{ items: [] }"><template slot="row"><li></li></template></x-list>', { 'x-list': LIST });
     expect(errors(bad)).toEqual([expect.stringMatching(/^SN331 a fill of `row` is elements with `slot="row"`; a `<template slot>` is for an if\/else chain/)]);
     const text = run('<x-list data-sn-prop="{ items: [] }"><template slot="row" data-sn-text="$slot.item.title"></template></x-list>', { 'x-list': LIST });
-    expect(errors(text)[0]).toMatch(/^SN331 `<template slot="row" data-sn-text>` renders text without an element, which comes with the component root \(step 4/);
+    // a text fill: a text node in the row, with no element
+    expect(errors(text)).toEqual([]);
+    expect(text.module).toContain('($) => ($.it.title)');
   });
 
   test('a fill for a slot the component does not have is SN314', () => {

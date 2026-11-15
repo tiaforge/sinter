@@ -236,7 +236,7 @@ let live: { pick: Map<number, Node>; all: boolean; waiting: Set<Node> } | null =
 const wrote = new WeakMap<Node, Set<string>>();
 let fnIds = new WeakMap<Fn, number>(), fnN = 0;
 /** a content binding (text, a control's value, an anchor) waits for the parser to close its element, or to parse the anchor's end */
-const content = (el: Node, wr: unknown) => el.nodeType == 8 || wr === text || wr === model;
+const content = (el: Node, wr: unknown) => el.nodeType == 8 || wr === text || wr === model || wr === slot;
 /** the bindings skipped for a missing dictionary, tried again when it arrives */
 const retries: Array<() => void> = [];
 
@@ -522,6 +522,12 @@ export function each(start: Comment, list: unknown, x: number, r: Branch | 0, it
 
 // the writers, as the runtime's first write
 export const text = (el: HTMLElement, v: any) => { el.textContent = '' + (v ?? ''); };
+/** `<template data-sn-text>`: the text node after `el` (the start of its anchor, or the node before it in a row), in place of its empty comment */
+export const slot = (el: ChildNode, v: any) => {
+  const s = el.nextSibling as CharacterData | null;
+  v = '' + (v ?? '');
+  if (s?.nodeType == 3) s.data = v; else if (v) s?.nodeType == 8 && !s.data ? s.replaceWith(v) : el.after(v);
+};
 export const show = (el: HTMLElement, v: any) => { el.hidden = !v; };
 export const cls = (el: HTMLElement, v: any, n: string) => { if (v || el.hasAttribute('class')) el.classList.toggle(n, !!v); };
 /** a class binding without a name: `[name, on]` */
