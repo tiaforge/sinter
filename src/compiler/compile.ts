@@ -3648,7 +3648,9 @@ class Compiler {
     if (placed) ctx = { ...ctx, scope: this.fillScopes.get(placed)?.at ?? ctx.scope };
     // an unfilled placement: its `data-sn-prop`, compiled for its diagnostics and types
     const dflt = this.defaultOf.get(el);
-    if (dflt) this.fillScope(dflt, ctx.scope, null);
+    // a default that is a component's root, placed in that component's own markup: in its scope, below
+    const own = dflt && this.useOf.get(el) && this.origins.get(dflt[0]!.el)?.file === this.origins.get(this.useOf.get(el)!.template)?.file;
+    if (dflt && !own) this.fillScope(dflt, ctx.scope, null);
     // a fill of a slot that passes data: its writer's scope and `$slot`, the values its placement passes here
     const fill = this.fillOf.get(el);
     if (fill) ctx = { ...ctx, scope: this.fillScope(fill, ctx.scope, slot ?? null) };
@@ -3673,6 +3675,7 @@ class Compiler {
     const use = this.useOf.get(el);
     const callerCtx = use ? ctx : null;
     if (use && !use.layout) ctx = { ...ctx, scope: use.head ? this.headMarkup(use, base) : this.componentScope(use, ctx.scope) };
+    if (dflt && own) this.fillScope(dflt, ctx.scope, null);
     switch (el.tagName) {
       case 'sn-resource': this.resource(el, ctx); return null;
       case 'sn-sync': this.sync(el, ctx); return null;
