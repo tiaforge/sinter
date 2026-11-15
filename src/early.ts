@@ -478,7 +478,7 @@ export function iff(start: Comment, v: unknown, x: number, z: number | null, a: 
   end.before(...nodes);
   (start as any)[EARLY] = { br, nodes, end } satisfies EarlyBranch;
   const r = br == 1 ? a : b;
-  if (r) r(nodes, Object.create(s));
+  if (r) { r(nodes, Object.create(s)); fix(nodes); }
 }
 type Branch = (nodes: Node[], s: any) => void;
 
@@ -495,7 +495,7 @@ export function ch(start: Comment, v: [number, unknown] | null, ts: number[], it
   end.before(...nodes);
   (start as any)[EARLY] = { br: k + 1, nodes, end } satisfies EarlyBranch;
   const r = rs[k];
-  if (r) { const sc = Object.create(s); sc[items[k]!] = v[1]; r(nodes, sc); }
+  if (r) { const sc = Object.create(s); sc[items[k]!] = v[1]; r(nodes, sc); fix(nodes); }
 }
 
 /** set on the start comment of a `data-sn-for` whose rows `each` rendered: each row's nodes and the end comment, for the page module to adopt */
@@ -517,10 +517,21 @@ export function each(start: Comment, list: unknown, x: number, r: Branch | 0, it
     const nodes = cloneOf(x);
     end.before(...nodes);
     rows.push(nodes);
-    if (r) { const sc = Object.create(s); sc[item] = v; if (index) sc[index] = i; r(nodes, sc); }
+    if (r) { const sc = Object.create(s); sc[item] = v; if (index) sc[index] = i; r(nodes, sc); fix(nodes); }
   });
   (start as any)[EARLY_ROWS] = { rows, end } satisfies EarlyRows;
 }
+
+/**
+ * The texts `slot` wrote: in place of a placeholder (`texts`), or after the node that is the placeholder itself (a
+ * row or case whose first node is the text). A rendered row's or branch's node list takes them, as what the page
+ * module removes or adopts.
+ */
+const texts = new WeakMap<Node, Node>(), made = new WeakSet<Node>();
+const fix = (nodes: Node[]) => {
+  const out = nodes.flatMap((n) => { const x = texts.get(n) ?? n, t = x.nextSibling; return t && made.has(t) && !nodes.includes(t) ? [x, t] : [x]; });
+  nodes.splice(0, nodes.length, ...out);
+};
 
 // the writers, as the runtime's first write
 export const text = (el: HTMLElement, v: any) => { el.textContent = '' + (v ?? ''); };
@@ -528,7 +539,8 @@ export const text = (el: HTMLElement, v: any) => { el.textContent = '' + (v ?? '
 export const slot = (el: ChildNode, v: any) => {
   const s = el.nextSibling as CharacterData | null;
   v = '' + (v ?? '');
-  if (s?.nodeType == 3) s.data = v; else if (v) s?.nodeType == 8 && !s.data ? s.replaceWith(v) : el.after(v);
+  if (s?.nodeType == 3) s.data = v;
+  else if (v) { const t = new Text(v); if (s?.nodeType == 8 && !s.data) { s.replaceWith(t); texts.set(s, t); } else { el.after(t); made.add(t); } }
 };
 export const show = (el: HTMLElement, v: any) => { el.hidden = !v; };
 export const cls = (el: HTMLElement, v: any, n: string) => { if (v || el.hasAttribute('class')) el.classList.toggle(n, !!v); };
