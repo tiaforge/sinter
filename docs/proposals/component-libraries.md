@@ -18,6 +18,7 @@ there and lands in `main` with the rest.
 | 4, component roots and text nodes | in progress (from the integration branch) | |
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | built, being merged with step 2 | see below |
+| 8, helpers over constants and `file:` | in progress (8a: loading, the static check, `file:`; 8b after step 7) | |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
