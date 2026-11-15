@@ -50,8 +50,8 @@ Step 10, as built:
 - A lazy helper module loads when a waiting let is first read, not when its scope is created. A
   call inside an arrow function in a let waits too.
 - `sinter check` types a waiting let `T | undefined`, but runs without `strictNullChecks`, so an
-  unguarded read is not an error. The editor does not yet report the per-module `SN324`; the build
-  and `sinter check` do.
+  unguarded read is not an error; the docs recommend guarding every read. The editor, the build,
+  `sinter check` and `sinter render` all report the per-module `SN324`.
 
 Step 6, as built:
 - The values come from the first of two passes, as section 5 now says, and only what the layout or
