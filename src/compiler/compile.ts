@@ -734,6 +734,10 @@ class Compiler {
   /** the head templates `anchors()` made, by template id, placed by `placeTemplates()` */
   private readonly headTemplates = new Map<number, P5Template>();
   private readonly defs = new Map<string, { tid: number; id: string; use: Use } | null>();
+  /** the elements a shared definition renders as its root, by element: its row's item name; given a node even without bindings */
+  private readonly defRoots = new Map<P5Element, { rt: string; node?: NodeDef }>();
+  /** per definition item (`$p<tid>`): the tag attributes its uses pass (`$a` of the item), as root bindings to add after the walk */
+  private readonly defAttrs = new Map<string, Map<string, Binding>>();
   /** the synthetic tag of a shared definition, whose props are the row's item `rt` */
   private readonly defHosts = new WeakMap<P5Element, { rt: string }>();
   /** the page's `<head>`, where shared definitions go */
@@ -1003,6 +1007,7 @@ class Compiler {
     const paths = this.pathPatterns(doc);
     this.pathList = paths;
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
+    this.defRootBindings();
     this.finishChoices();
     this.resolveSources();
     this.reportIncludes();
@@ -1690,6 +1695,9 @@ class Compiler {
     const group: ChoiceGroup = { node: null, cases: [], pick: null, warn: '', site: null };
     for (const c of cands) {
       const x: P5Element = { ...el, attrs: el.attrs.map((a) => ({ ...a })), childNodes: [], parentNode: parent };
+      if (this.passOn.has(el)) this.passOn.set(x, this.passOn.get(el)!);
+      // a choice that is a component's root: that component's markup starts at each candidate
+      if (this.scopeStart.has(el)) this.scopeStart.set(x, this.scopeStart.get(el)!);
       this.origins.set(x, this.origins.get(el)!);
       this.points.set(x, c.name);
       this.choices.set(x, { name: c.name, key: c.key, keySrc, names, first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
@@ -1819,7 +1827,7 @@ class Compiler {
       if (a.name.startsWith('data-sn-') && !callerAttribute(a.name)) this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a component's tag`, 0, TAG_ONLY_HINT);
     }
     const plain = host.attrs.filter((a) => !a.name.startsWith('data-sn-') && a.name !== 'slot');
-    for (const el of shape.kind === 'tag' || shape.kind === 'choice' ? [shape.el] : lands) {
+    for (const el of shape.kind === 'tag' ? [shape.el] : shape.kind === 'choice' ? [] : lands) {
       for (const a of plain) {
         if (a.name === 'class') {
           const cls = attr(el, 'class');
@@ -2659,12 +2667,13 @@ class Compiler {
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
     if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) this.check.exprs[this.lastExpr]!.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
     for (const l of lets) if (l.src?.length) this.addSources(`@def:${name}:${l.name}`, l.src);
-    const props = `[{ ${lets.map((l) => `${JSON.stringify(l.name)}: (${l.code})`).join(', ')} }]`;
+    const tagAttrs = this.pointAttrs(host, ctx, `$p${def.tid}`);
+    const props = `[{ ${[...lets.map((l) => `${JSON.stringify(l.name)}: (${l.code})`), ...(tagAttrs ? [`"$a": ${tagAttrs.code}`] : [])].join(', ')} }]`;
     // dev builds: a value outside the candidates, with no `data-sn-else` to show, is reported (once per value and place)
     const warn = pick && choice!.first && !choice!.hasElse && this.opts.dev
       ? `if (!${JSON.stringify(choice!.names)}.includes(v) && !(($.$f.$snw ??= new Set()).has(${JSON.stringify(this.position(host))} + v))) { $.$f.$snw.add(${JSON.stringify(this.position(host))} + v); console.warn(${JSON.stringify(`sinter: <sn-component use> at ${this.position(host)} is `)} + JSON.stringify(v) + ${JSON.stringify(`, not one of its components (${choice!.names.join(', ')}): nothing is rendered. Add the component, or a <template data-sn-else> after the element`)}); } `
       : '';
-    const deps = [...new Set([...lets.flatMap((l) => l.deps), ...(pick?.deps ?? [])])].sort();
+    const deps = [...new Set([...lets.flatMap((l) => l.deps), ...(pick?.deps ?? []), ...(tagAttrs?.deps ?? [])])].sort();
     if (choice) {
       if (choice.first && pick?.usesEl) this.report(host, 'use', 'SN213', '`$el` in `use`: a component chosen by data is marked by comments in the page, so there is no element to read', 0, 'choose with the data alone');
       // one choice anchor for the whole `<sn-component use>`: each candidate adds its case; the first makes the node
@@ -2698,6 +2707,78 @@ class Compiler {
     if (this.opts.dev) (node as NodeDef & { src?: string }).src = this.position(host);
     ctx.list.push(node);
     return null;
+  }
+
+  /**
+   * The tag's attributes on a shared definition's use (a recursion point; for `<sn-component use>`, the
+   * attributes of the outer components whose root it is): compiled where the tag is written, in its
+   * caller's scope, into the row's item as `$a` (values, and handlers as functions over the caller's
+   * scope). The definition's root reads them (`$.$p<tid>.$a`): the bindings for every key its uses
+   * pass are added after the walk (`defRootBindings`). Null when there are none.
+   */
+  pointAttrs(host: P5Element, ctx: Ctx, rt: string): { code: string; deps: string[] } | null {
+    const sources: Array<{ el: P5Element; scope: Scope }> = [];
+    if (!this.choices.has(host)) sources.push({ el: host, scope: ctx.scope });
+    for (const u of this.passOn.get(host) ?? []) if (u.caller) sources.push({ el: u.host, scope: u.caller });
+    const entries: string[] = [], deps: string[] = [];
+    const keys = this.defAttrs.get(rt) ?? new Map<string, Binding>();
+    this.defAttrs.set(rt, keys);
+    const read = (key: string) => this.fn(`($) => $.${rt}.$a?.[${JSON.stringify(key)}]`);
+    for (const { el, scope } of sources) {
+      // plain attributes: each a literal; classes one by one, joined with the root's own
+      for (const a of el.attrs) {
+        if (a.name.startsWith('data-sn-') || a.name === 'use' || a.name === 'slot') continue;
+        if (a.name === 'class') {
+          for (const c of a.value.split(/\s+/).filter(Boolean)) {
+            entries.push(`${JSON.stringify(`c:${c}`)}: true`);
+            if (!keys.has(`c:${c}`)) keys.set(`c:${c}`, this.binding({ k: 'class', n: c, f: read(`c:${c}`) }));
+          }
+          continue;
+        }
+        entries.push(`${JSON.stringify(`a:${a.name}`)}: ${JSON.stringify(a.value)}`);
+        if (!keys.has(`a:${a.name}`)) keys.set(`a:${a.name}`, this.binding({ k: 'attr', n: a.name, f: read(`a:${a.name}`) }));
+      }
+      // sinter's: compiled as on an element, then moved into the item
+      const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-') && !['data-sn-prop', 'data-sn-early'].includes(a.name));
+      if (!sn.length) continue;
+      const bad = sn.find((a) => !/^data-sn-(class|attr|style|show|on-.+)$/.test(a.name));
+      if (bad) {
+        this.report(el, bad.name, 'SN102', `\`${bad.name}\` cannot be on the tag of a component used inside itself or chosen by \`<sn-component>\`: its root is a shared definition, which takes plain attributes, \`data-sn-class\`, \`-attr\`, \`-style\`, \`-show\` and handlers`, 0,
+          'wrap the tag in an element that carries it, or move it inside the component');
+        continue;
+      }
+      const tmp: NodeDef = { tag: el.tagName, b: [] };
+      const copy: P5Element = { ...el, attrs: sn };
+      this.origins.set(copy, this.origins.get(el)!);
+      this.bindings(copy, tmp, scope, { ...ctx, scope });
+      for (const b of tmp.b) {
+        if (b.f === undefined) continue;
+        if (b.e) { this.report(el, null, 'SN102', '`$el` on the tag of a component used inside itself: the element is the definition\'s root, which the tag\'s scope cannot see', 0); continue; }
+        const kind = b.k === 'on' ? 'o' : b.k === 'class' ? 'c' : b.k === 'style' ? 's' : b.k === 'show' ? 'h' : 'a';
+        if (b.k !== 'on') for (const d of b.d ?? []) if (typeof d === 'string') deps.push(d);
+        const key = `${kind}:${b.n ?? ''}`;
+        const code = this.fns[b.f]!;
+        entries.push(b.k === 'on'
+          ? `${JSON.stringify(key)}: (($c) => ($r) => (${code})(Object.assign(Object.create($c), { $el: $r.$el, $event: $r.$event, $f: $r.$f })))($)`
+          : `${JSON.stringify(key)}: (${code})($)`);
+        const known = keys.get(key);
+        if (b.k === 'on') {
+          if (!known) keys.set(key, this.binding({ k: 'on', n: b.n!, f: this.fn(`($) => $.${rt}.$a?.[${JSON.stringify(key)}]?.($)`), ...(b.w?.length ? { w: [...b.w] } : {}) }));
+          else if (b.w?.length) known.w = [...new Set([...(known.w ?? []), ...b.w])];
+        } else if (!known) keys.set(key, this.binding({ k: b.k, ...(b.n !== undefined ? { n: b.n } : {}), f: read(key) }));
+      }
+    }
+    return entries.length ? { code: `{ ${entries.join(', ')} }`, deps } : null;
+  }
+
+  /** After the walk: each shared definition's root takes the bindings for the tag attributes its uses pass. */
+  defRootBindings() {
+    for (const [, r] of this.defRoots) {
+      const keys = this.defAttrs.get(r.rt);
+      if (!keys?.size || !r.node) continue;
+      r.node.b.push(...keys.values());
+      if ([...keys.values()].some((b) => b.k === 'class')) r.node.cl = 1;
+    }
   }
 
   /**
@@ -2743,6 +2824,8 @@ class Compiler {
     const entry = { tid, id: `sn-t-${tid}`, use };
     this.defs.set(name, entry);
     if (!use.props) this.report(use.template, 'data-sn-component', 'SN312', `\`<${name}>\` uses itself, so its props must be a type literal the compiler can list (\`{ comment: Comment }\`), not a named type`, 0);
+    // the elements it renders as its root: the tag attributes of its uses land there, through the row's item
+    for (const el of use.shape ? landingOf(use.shape).filter((e) => !this.slotOf.has(e)) : [use.root]) this.defRoots.set(el, { rt });
     // a head template like any other (`placeTemplates`): anchors instantiate it, the early script while the body arrives
     this.headTemplates.set(tid, tpl);
     if (this.opts.dev) setAttr(tpl, 'data-sn-name', name);
@@ -3170,7 +3253,9 @@ class Compiler {
       content = { tid, scope };
     }
 
-    const hasDirectives = node.b.length > 0 || node.state !== undefined;
+    const defRoot = this.defRoots.get(el);
+    if (defRoot) defRoot.node = node;
+    const hasDirectives = node.b.length > 0 || node.state !== undefined || !!defRoot;
     if (hasDirectives) {
       if (ctx.tid < 0) {
         node.id = this.nextId++;
@@ -5147,6 +5232,9 @@ class Compiler {
         const keep = [...(v ? (c as P5Template).content.childNodes : other ? (other as P5Template).content.childNodes : [])];
         for (const n of keep) (n as { parentNode: P5Parent }).parentNode = parent;
         this.inheritSlot(c, keep);
+        // a component's root chain, decided: its markup starts at what is left
+        const start = this.scopeStart.get(c);
+        if (start) for (const n of keep) if (isElement(n)) this.scopeStart.set(n, [...start, ...(this.scopeStart.get(n) ?? [])]);
         parent.childNodes.splice(i, (other ? j : i) - i + 1, ...(keep as never[]));
         mergeText(parent);
         i--;
@@ -5218,7 +5306,8 @@ class Compiler {
   /** A copy of markup that compiles as the original: its source locations, origins, slot content and component uses. */
   cloneTree(node: P5Node, parent: P5Parent, chains = new Map<FillChain, FillChain>()): P5Node {
     const copy = { ...node, parentNode: parent } as P5Node;
-    for (const map of [this.origins, this.slotOf, this.useOf, this.forwarded] as Array<WeakMap<object, unknown>>) if (map.has(node)) map.set(copy, map.get(node));
+    for (const map of [this.origins, this.slotOf, this.useOf, this.forwarded, this.scopeStart, this.landing, this.passOn] as Array<WeakMap<object, unknown>>) if (map.has(node)) map.set(copy, map.get(node));
+    if (this.defRoots.has(node as P5Element)) this.defRoots.set(copy as P5Element, { rt: this.defRoots.get(node as P5Element)!.rt });
     if (this.repeatedFills.has(node)) this.repeatedFills.add(copy);
     const empty = this.emptyDefaults.get(node);
     if (empty) this.emptyDefaults.set(copy, empty.map((c) => { if (!chains.has(c)) chains.set(c, [...c]); return chains.get(c)!; }));
