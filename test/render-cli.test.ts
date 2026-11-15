@@ -128,3 +128,31 @@ test('arguments', () => {
   expect(pathMatches(['/', '/index.html'], '/')).toBe(true);
   expect(lineDiff('a\nb\nc', 'a\nx\nc')).toEqual(['- b', '+ x']);
 });
+
+test('a let that waits for a helper module that reaches a lazy package: rendered once it has loaded', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'sinter-render-lazy-'));
+  const put = (f: string, s: string) => { mkdirSync(join(dir, f, '..'), { recursive: true }); writeFileSync(join(dir, f), s); };
+  try {
+    put('package.json', '{"type":"module"}');
+    put('vite.config.js', `import sinter from ${JSON.stringify(resolve(__dirname, '../src/vite.ts'))};\nexport default { plugins: [sinter({ lazy: ['fakelib'] })] };\n`);
+    put('node_modules/fakelib/package.json', '{"name":"fakelib","type":"module","main":"index.js"}');
+    put('node_modules/fakelib/index.js', 'export const twice = (s) => s + s;\n');
+    put('src/sinter.helpers.js', "export * as crunch from './lib/crunch.js';\n");
+    put('src/lib/crunch.js', "import { twice } from 'fakelib';\nexport function run(s) { return twice(s); }\n");
+    put('index.html', '<!doctype html><html><head><title>x</title></head><body><main data-sn-state="{ s: \'ab\' }" data-sn-let="{ out: crunch.run(s) }"><p data-sn-text="out ?? \'…\'"></p></main></body></html>');
+    const a = parseRenderArgs(['index.html'], dir);
+    if (typeof a === 'string') throw new Error(a);
+    const r = await renderPage(a as RenderArgs);
+    expect(r.rendered).toContain('<p>abab</p>');
+    // outside a let it is SN324: the helper module is known to reach the lazy package
+    put('bad.html', '<!doctype html><html><head><title>x</title></head><body><p data-sn-state="{ s: \'ab\' }" data-sn-text="crunch.run(s)"></p></body></html>');
+    const b = parseRenderArgs(['bad.html'], dir);
+    if (typeof b === 'string') throw new Error(b);
+    await expect(renderPage(b as RenderArgs)).rejects.toThrow(/SN324/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 30_000);

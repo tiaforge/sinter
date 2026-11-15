@@ -11,6 +11,7 @@ import { formatDiagnostic } from './compiler/index.js';
 import { componentBase } from './components-build.js';
 import { pagePaths } from './page-paths.js';
 import { project as readProject, viteProject } from './project.js';
+import { lazyHelpers } from './lazy-build.js';
 import type { HistoryWrite, MockStream, RecordedCall, Rendered, RouteResponse } from './testing/index.js';
 
 export const RENDER_USAGE = `usage: sinter render <page.html> [options] [steps]
@@ -641,7 +642,7 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
       ...(messages ? { messages } : {}),
       ...(a.now !== null ? { now: a.now } : {}),
       ...(a.locale ? { locale: a.locale } : {}),
-      project: { root: a.root, file: a.page, readFile: p.readFile, componentNames: p.componentNames, openapi: p.openapi, apis: p.apis },
+      project: { root: a.root, file: a.page, readFile: p.readFile, componentNames: p.componentNames, openapi: p.openapi, apis: p.apis, helpers: p.helpers, ...(p.lazy.length ? { lazyModule: lazyHelpers(a.root, p.lazy).reach } : {}) },
     });
     let error: string | undefined;
     try { await r.settle(); } catch (e) { error = (e as Error).message; }
