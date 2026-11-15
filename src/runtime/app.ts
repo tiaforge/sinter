@@ -1089,7 +1089,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (t.key == null && !t.keyFields) rb.ad = round;
         return;
       }
-      for (const n of pre.rows.flat()) (n as ChildNode).remove();
+      cut(rb.el, pre.end);
       rb.end = pre.end;
     }
     const t = rb.t!, old = rb.rows!, end = rb.end ?? endFor(rb), tpl = tplOf(t.id), start = rb.el as unknown as Comment;
@@ -1200,7 +1200,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         rb.rows = [instantiate(tplOf(tid), ir.templates[tid]!, Object.create(rb.s), '', null, 0, pre.nodes)];
         return;
       }
-      for (const n of pre.nodes) (n as ChildNode).remove();
+      cut(rb.el, pre.end);
     }
     if (br == rb.br) return;
     const end = rb.end ?? endFor(rb);
@@ -1232,7 +1232,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         rb.rows = [instantiate(tplOf(t.id), t, s, keyOf(t, v![1], s), v![1], 0, pre.nodes)];
         return;
       }
-      for (const n of pre.nodes) (n as ChildNode).remove();
+      cut(rb.el, pre.end);
     }
     if (k + 1 == rb.br) {
       const x = rb.rows![0];
@@ -1270,6 +1270,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (!end) { warn(31, start.data); start.after((end = new Comment('/sn'))); }
     else while (start.nextSibling != end) start.nextSibling!.remove();
     return (rb.end = end);
+  }
+
+  /** What the early script rendered between an anchor's comments, which the page module does not adopt: all of it, nested anchors' rows and texts too. */
+  function cut(start: Node, end: Node) {
+    while (start.nextSibling && start.nextSibling != end) start.nextSibling.remove();
   }
 
   /** A head template by template id (`<template id="sn-t-<id>">`), found once. */
