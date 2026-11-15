@@ -45,8 +45,9 @@ export function analyze(dir) {
   // done. Turns add up; the cost is a running total, so the last one holds.
   const ends = lines.filter((l) => l.type === 'result'), res = ends.at(-1) ?? {};
   out.turns = ends.length ? ends.reduce((n, r) => n + (r.num_turns ?? 0), 0) : null; out.costUSD = res.total_cost_usd ?? null;
-  out.inputTokens = (res.usage?.input_tokens ?? 0) + (res.usage?.cache_read_input_tokens ?? 0) + (res.usage?.cache_creation_input_tokens ?? 0);
-  out.outputTokens = res.usage?.output_tokens ?? null;
+  const sum = (f) => ends.reduce((n, r) => n + (f(r.usage ?? {}) ?? 0), 0); // usage is per result, like turns
+  out.inputTokens = sum((u) => (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0));
+  out.outputTokens = sum((u) => u.output_tokens);
   return out;
 }
 
