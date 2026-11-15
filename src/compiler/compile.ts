@@ -3343,6 +3343,7 @@ class Compiler {
     const typed = op && 'spec' in op ? op : null;
     const body = fnOf('body', { mode: 'value', magic: ['$event'] }, typed?.request != null ? { returns: { kind: 'openapi', spec: typed.spec, schema: typed.request } } : undefined);
     reads.push(...(body.r?.reads ?? []));
+    if (body.r) this.encodedBody(el, 'data-sn-body', body.r.ast);
     const optimistic = fnOf('optimistic', { mode: 'optimistic' });
     if (optimistic.f !== null) this.features.add('optimistic');
     const then = fnOf('then', { mode: 'handler', magic: ['$event', '$result'] },
@@ -3631,6 +3632,17 @@ class Compiler {
   }
 
   /**
+   * SN531: a body that is already JSON text (\`JSON.stringify(…)\`). sinter encodes the body itself, so the server
+   * gets a JSON string, which a JSON body parser reads as a string, not an object: its fields are missing.
+   */
+  private encodedBody(el: P5Element, attrName: string, ast: unknown) {
+    const n = ast as { type?: string; callee?: { type?: string; object?: { name?: string }; property?: { name?: string } } } | null;
+    if (n?.type !== 'CallExpression' || n.callee?.type !== 'MemberExpression' || n.callee.object?.name !== 'JSON' || n.callee.property?.name !== 'stringify') return;
+    this.report(el, attrName, 'SN531', `\`${attrName}\` is already JSON text (\`JSON.stringify(…)\`): sinter encodes the body, so the server would get a JSON string, not the object`, 0,
+      'pass the object itself: remove `JSON.stringify(…)`');
+  }
+
+  /**
    * A resource the HTML preloads: its URL is fixed at build time, it is requested early (\`late\`), and its
    * request needs nothing a link cannot say (no static headers, no \`credentials: 'omit'\`).
    */
@@ -3906,6 +3918,7 @@ class Compiler {
     if (post && attr(el, 'body') != null) {
       const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchOperation(this.opts.openapi, src, 'post') : null);
       const r = this.expr(el, 'body', ctx.scope, { mode: 'value' });
+      this.encodedBody(el, 'body', r.ast);
       if (m && 'request' in m && m.request != null) this.typeLast({ returns: { kind: 'openapi', spec: m.spec, schema: m.request } });
       for (const d of r.deps) deps.add(d);
       if (r.ok) body = this.fn(r.code);

@@ -81,6 +81,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN504', `${R}${use}`, /resource `contacts` has no type: expressions using it are not checked/, { check: true }],
   ['SN506', `${R}${use}<sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>`, /event `contact_updated` has no type: expressions reading its payload are not checked/, { check: true }],
   ['SN507', '<div data-sn-state="{ a: 0 }"><button data-sn-on-click="a = 1; a = 2; a = 3; a = 4; a = 5" data-sn-text="a"></button></div>', /`data-sn-on-click` is too complex for markup: 5 statements in one handler \(limit `statements`: 4\)\. Move the logic into a helper/],
+  ['SN531', '<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/login" data-sn-body="JSON.stringify({ username: u })"></button></div>', /`data-sn-body` is already JSON text \(`JSON\.stringify\(…\)`\): sinter encodes the body, so the server would get a JSON string, not the object/],
   ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/, { checkCycles: true }],
   ['SN513', '<div data-sn-state="{ dark: false }"><img alt="" data-sn-attr="{src: dark ? \'./logo-dark.png\' : \'./logo.png\'}"></div>', /`src` is bound to local images \(`\.\/logo-dark\.png`, `\.\/logo\.png`\), which are not optimized/],
   ['SN517', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
@@ -471,6 +472,12 @@ describe('expressions', () => {
     // an untyped resource, and an item that is not one payload field
     expect(hint(typed.replace(' type="Contact[]"', ''), '<sn-event name="u" resource="contacts" op="upsert" item="contact"></sn-event>')).toMatch(/^add `type="\{ contact: … \}"`/);
     expect(hint(typed, '<sn-event name="d" resource="contacts" op="remove" when="id > 0"></sn-event>')).toMatch(/^add `type="\{ id: number; … \}"`/);
+  });
+  test('SN531 only for a body that is a JSON.stringify call: objects and other strings pass; a POST resource\'s body too', () => {
+    const codes = (html: string) => diags(html).map((d) => d.code);
+    expect(codes('<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/login" data-sn-body="{ username: u }"></button></div>')).not.toContain('SN531');
+    expect(codes('<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/notes" data-sn-body="u + \'!\'"></button></div>')).not.toContain('SN531');
+    expect(codes('<div data-sn-state="{ q: \'a\' }"><sn-resource name="found" src="/api/find" method="POST" body="JSON.stringify({ q })"></sn-resource><p data-sn-text="found"></p></div>')).toContain('SN531');
   });
   test('resource mutators are SN205 with the patch() hint', () => {
     const d = diags(`${R}${use}<button data-sn-on-click="contacts.push(1)"></button>`);
