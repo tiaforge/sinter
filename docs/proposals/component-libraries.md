@@ -2,8 +2,8 @@
 
 Status: draft, fifth revision, after four reviews. Nothing here is implemented. It builds on what
 sinter has wherever it can; what is new is listed in [What is new](#what-is-new). Sections are
-numbered in the order of the [Plan](#plan). The fourth review settled most open choices; they are in
-[Decisions](#decisions), and one is left for the maintainer ([Open questions](#open-questions)).
+numbered in the order of the [Plan](#plan). Every design choice is recorded in
+[Decisions](#decisions); what is left depends on measurements ([Open questions](#open-questions)).
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
@@ -636,8 +636,13 @@ of this is useful on its own, for nested constant data in any page.
 
 The conditions on rows stay as they are, at every level: bindings of kind `text`, `attr`, `class`,
 `style` or `show` that read only the row and fixed state, no state of their own, and a page with no
-errors but `SN322`. Whether a node with a handler (a copy button on a code block) may stay in an
-unrolled tree is the one question left for the maintainer ([Open questions](#open-questions)).
+errors but `SN322`, with one exception:
+
+6. **Nodes with a handler.** A node whose only run-time need is a handler that reads constants and
+   its own `$el` (a copy button on a code block) does not stop unrolling. It stays in the unrolled
+   HTML as an element with its handler, which the page module adopts as it adopts any root element
+   with a handler; the rest of the tree is plain HTML. A node with state, a model, a nested template
+   or a handler that reads anything else still keeps its tree for the runtime.
 
 The expansion limit is per page, reported at the use that crosses it, beside the 1,000 items per
 list: what it bounds (the layout and images) runs over the whole document. Its value comes from
@@ -929,8 +934,8 @@ warnings, not errors: a literal `id` in repeated markup.
 
 ## Limits
 
-- A constant tree with a subtree that needs run time is unrolled only as far as the open question on
-  handlers allows.
+- A constant tree with a node that needs more at run time than a handler over constants (state, a
+  model, a handler that reads data) is not unrolled in the first version.
 - Markdown from an API as a string is in the first frame only when the parser is not lazy; then the
   parser is in the early file and the page module, and parses twice, once in each. Reserved space
   covers only paginated lists, so a body that renders late shifts the layout. An API that sends the
@@ -1104,8 +1109,9 @@ library gets its own page and a recipe.
 8. **Helpers over constants and `file:`** (sections 6 and 7): the module runner with the app's
    config, in the build, `sinter check` and the LSP; the allowlist check per function, run against
    the markdown parser's real module graph under dev and build.
-9. **Constant trees** (section 5, item 5), fill templates included: a docs page from a `.md` file
-   ships no JavaScript, with its images optimized. A test in `test/` and the `static-site` example.
+9. **Constant trees** (section 5, items 5 and 6), fill templates included: a docs page from a `.md`
+   file ships no JavaScript, with its images optimized, and one whose code blocks have a copy button
+   ships only that handler. A test in `test/` and the `static-site` example.
    Sets the expansion limit. Needs 5, 6, 7 and 8.
 10. **Lets over helpers** (section 8): cached by dependencies with equal primitive arguments, and
     waiting for a lazy helper module, with members imported from their declaring modules in the
@@ -1120,15 +1126,9 @@ Steps 2, 3, 6 and 10 do not depend on each other.
 
 ## Open questions
 
-- **For the maintainer: handlers in unrolled trees.** Today a row with a handler is never unrolled,
-  so a docs page whose code blocks have a copy button would ship its whole tree to the runtime, which
-  goes against the first goal. The options:
-  - (a) keep the rule in the first version, and decide later;
-  - (b) in step 9, allow nodes whose only run-time need is a handler that reads constants and the
-    node's own `$el` (a copy button): they stay in the unrolled HTML as elements with a handler,
-    adopted by the page module, and the rest of the tree is plain HTML.
-  The reviewer recommends (b).
-- **Measured, then decided:** handing cached lets from the early script to the page module, if the
+None is left for the maintainer. Measured, then decided:
+
+- Handing cached lets from the early script to the page module, if the
   parser fits the early file at all (step 1); the expansion limit's value (step 9); the cost of fills
   read through the scope chain (step 5).
 
@@ -1141,6 +1141,7 @@ Decided with the user while drafting:
 | Children inside a fill | A `<slot>` inside the fill, by the rule that a `<slot>` is filled by the nearest markup given content for it | [2](#a-slot-inside-a-fill) |
 | The component root | Renders at most one element: a plain element, an `if` chain, a component tag, `<sn-component use>` or a slot; plain for scripts and root state; text through `<template data-sn-text>` | [3](#3-the-component-root) |
 | Anchors | Comments in place and templates in the head, for every `if`, `for`, recursion point and choice | [1](#1-anchors-as-comments) |
+| Handlers in unrolled trees | A node whose only run-time need is a handler over constants and its own `$el` stays in the unrolled HTML; the rest is plain HTML | [5](#5-constant-trees-are-unrolled) |
 
 Settled in the fourth review, from the code and the reasoning recorded there:
 
