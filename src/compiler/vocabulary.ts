@@ -5,7 +5,7 @@ export interface AttrDoc { name: string; value: string; doc: string }
 
 export const ATTRIBUTES: AttrDoc[] = [
   { name: 'state', value: 'object literal', doc: 'declares local reactive state for the element and its subtree' },
-  { name: 'let', value: 'object literal {name: expression}', doc: 'derived names for the element and its subtree, computed where they are read; later names may use earlier ones' },
+  { name: 'let', value: 'object literal {name: expression}', doc: 'derived names for the element and its subtree; later names may use earlier ones. A name is inlined where it is read, unless its expression calls a helper: then it is computed once per scope instance and again when what it reads changes (a call whose arguments are equal primitives returns its last result)' },
   { name: 'text', value: 'value expression', doc: 'sets textContent; never HTML' },
   { name: 'attr', value: 'object literal {href: …}', doc: 'literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property' },
   { name: 'class', value: 'object literal {unread: …}', doc: 'toggles each class' },

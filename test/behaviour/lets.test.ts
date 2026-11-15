@@ -4,7 +4,7 @@
 // module that reaches a lazy package; and the takeover of an early render changes nothing.
 import { describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
-import { firstPaint, mockRequests, render } from '../../src/testing/index.js';
+import { firstPaint, mockRequests, mockStream, render } from '../../src/testing/index.js';
 
 /** a helper that counts its calls and returns new objects each time, as a parser does */
 const counting = () => {
@@ -92,6 +92,21 @@ describe('a let over a helper is cached', () => {
     r.root.querySelector<HTMLElement>('#like')!.click();
     await r.flush();
     expect(calls).toEqual(['a', 'b c', 'd e f']);
+  });
+
+  test('an <sn-sync> mapping reads the cached value', async () => {
+    const { calls, parse } = counting();
+    const stream = mockStream();
+    const r = await render(`<main data-sn-state="{ src: 'a b', got: '' }" data-sn-let="{ doc: parse(src) }">
+      <sn-sync src="/s"><sn-event name="ping" when="doc.words.length > 1" then="got = got + doc.words[0].w + n"></sn-event></sn-sync>
+      <p data-sn-text="got + doc.words.length"></p></main>`, { helpers: { parse }, streams: { '/s': stream } });
+    await r.settle();
+    stream.emit('ping', { n: 1 });
+    await r.settle();
+    stream.emit('ping', { n: 2 });
+    await r.settle();
+    expect(r.root.querySelector('p')!.textContent).toBe('a1a22');
+    expect(calls).toEqual(['a b']);
   });
 
   test('a prop is a let: a prop over a helper is computed once for the component', async () => {
