@@ -12,7 +12,7 @@ import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from
 import { componentNames, writeComponentTypes } from './components-build.js';
 import { typeExports } from './check/index.js';
 import { componentsOf, libraries as findLibraries, libraryOf, ownLibrary, type Library } from './libraries.js';
-import { resolveImport } from './fold-check.js';
+import { isSelfReference, resolveImport } from './fold-check.js';
 
 export interface ProjectOptions {
   /** helpers module, relative to the root (default `src/sinter.helpers.js`, or `.ts`) */
@@ -186,7 +186,8 @@ export function project(root: string, options: ProjectOptions = {}): Project {
       moduleOf: (f) => (libraryOf(libs.libraries, f) ? (f.startsWith(resolve(root) + sep) ? url(relative(root, f)) : f) : null),
       resolve: (spec, from) => {
         // a re-export of a configured library is followed like a relative one
-        if (libs.libraries.some((l) => spec === l.name || spec.startsWith(l.name + '/'))) return resolveImport(spec, from, root);
+        // and so is a package's import of itself by its name (a library's own repository)
+        if (libs.libraries.some((l) => spec === l.name || spec.startsWith(l.name + '/')) || isSelfReference(spec, from)) return resolveImport(spec, from, root);
         if (!spec.startsWith('.')) return null;
         const b = resolve(dirname(from), spec);
         for (const q of [b, b.replace(/\.js$/, '.ts'), `${b}.js`, `${b}.ts`]) if (existsSync(q)) return q;

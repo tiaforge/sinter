@@ -7,7 +7,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { libraryOf, type Library } from './libraries.js';
-import { resolveImport } from './fold-check.js';
+import { isSelfReference, resolveImport } from './fold-check.js';
 import { parseModule } from './compiler/index.js';
 import type { Diagnostic } from './compiler/diagnostics.js';
 
@@ -299,7 +299,7 @@ export function isComponentScript(root: string, file: string, libs: readonly Lib
 
 /** a module of a component library an import names (`@acme/ui`, `@acme/ui/x`), resolved as the build resolves it */
 function libraryFile(spec: string, from: string, root: string, libs: readonly Library[]): string | null {
-  return libs.some((l) => spec === l.name || spec.startsWith(l.name + '/')) ? resolveImport(spec, from, root) : null;
+  return libs.some((l) => spec === l.name || spec.startsWith(l.name + '/')) || isSelfReference(spec, from) ? resolveImport(spec, from, root) : null;
 }
 
 /**

@@ -266,6 +266,28 @@ describe('types', () => {
   });
 });
 
+test('a package imports itself by its name through its own `exports` (Node\'s self-reference), in the resolver that the manifest, the fold check and the lazy walk share', async () => {
+  const { resolveImport, foldVerdicts } = await import('../src/fold-check.js');
+  const lib = join(tmp, `self-${n++}`);
+  cpSync(UI, lib, { recursive: true });
+  const from = join(lib, 'src/sinter.helpers.ts');
+  expect(resolveImport('@fixture/ui', from, lib)).toBe(join(lib, 'sinter/index.ts'));
+  // a subpath its `exports` does not give is not resolved
+  expect(resolveImport('@fixture/ui/sinter/outline.ts', from, lib)).toBe(null);
+  // without `exports`, a package cannot import itself: node_modules as before
+  const bare = join(tmp, `bare-${n++}`);
+  mkdirSync(join(bare, 'src'), { recursive: true });
+  writeFileSync(join(bare, 'package.json'), JSON.stringify({ name: 'bare-pkg', main: 'index.js' }));
+  writeFileSync(join(bare, 'index.js'), 'export const x = 1;\n');
+  expect(resolveImport('bare-pkg', join(bare, 'src/a.ts'), bare)).toBe(null);
+  const p = project(lib, (await viteProject(lib)).options);
+  const v = foldVerdicts(p.helpers, lib, p.helpersFile);
+  expect(v.get('ui$outline')).toMatchObject({ fold: true });
+  const lh = lazyHelpers(lib, ['@fixture/heavy'], undefined, p.libraries);
+  expect(lh.reach('/sinter/parse.ts')).toEqual(['@fixture/heavy']);
+  expect(lh.reach('@fixture/ui')).toEqual([]);
+});
+
 describe('the library author\'s check', () => {
   const cli = (root: string) => spawnSync(process.execPath, [resolve(__dirname, '../node_modules/jiti/lib/jiti-cli.mjs'), resolve(__dirname, '../src/cli.ts'), 'check', '--root', root], { encoding: 'utf8', env: { ...process.env, SINTER_STRICT: '' } });
 
@@ -273,14 +295,18 @@ describe('the library author\'s check', () => {
     const lib = join(tmp, `repo-${n++}`);
     cpSync(UI, lib, { recursive: true });
     const v = await viteProject(lib);
-    expect(v.pages).toEqual([join(lib, 'fixtures/index.html')]);
+    expect(v.pages).toEqual([join(lib, 'fixtures/helpers.html'), join(lib, 'fixtures/index.html')]);
     expect(v.options.components).toEqual(['@fixture/ui']);
     const p = project(lib, v.options);
     expect(p.libraries.map((l) => [l.name, l.dir])).toEqual([['@fixture/ui', lib]]);
     // its script's base class is declared in its own folder
     expect(p.componentsTypes).toBe(join(lib, 'sinter/sinter.components.d.ts'));
+    // its fixtures' helpers module re-exports the package by its own name: followed through its own `exports`
+    expect(p.diagnostics).toEqual([]);
+    expect(p.helpers.namespaces.ui!.members).toEqual(['count', 'initials', 'outline', 'words']);
+    expect(p.helpers.namespaces.ui!.from!.outline).toEqual({ module: '/sinter/outline.ts', name: 'outline' });
     const r = cli(lib);
-    expect(r.stdout + r.stderr).toContain('sinter check: 1 page(s), 0 error(s), 0 warning(s)');
+    expect(r.stdout + r.stderr).toContain('sinter check: 2 page(s), 0 error(s), 0 warning(s)');
     expect(r.status).toBe(0);
   }, 120_000);
 

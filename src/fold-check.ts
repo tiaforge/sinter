@@ -99,6 +99,12 @@ function resolveUncached(spec: string, from: string, root: string): string | nul
   const m = /^((?:@[^/]+\/)?[^/]+)(\/.*)?$/.exec(bare);
   if (!m) return null;
   const [, pkg, sub] = m as unknown as [string, string, string | undefined];
+  // a package importing itself by its name (Node's self-reference): through its own `exports`, before node_modules
+  const self = selfPackage(from);
+  if (self && self.json.name === pkg && self.json.exports != null) {
+    const target = exportsTarget(self.json, sub ? '.' + sub : '.');
+    return target ? fileFor(join(self.dir, target)) : null;
+  }
   for (let dir = dirname(from); ; dir = dirname(dir)) {
     const base = join(dir, 'node_modules', pkg);
     if (existsSync(join(base, 'package.json'))) {
@@ -111,6 +117,22 @@ function resolveUncached(spec: string, from: string, root: string): string | nul
     }
     if (dirname(dir) === dir) return null;
   }
+}
+
+/** The package a file is in: the nearest package.json above it, read (null when there is none or it does not parse). */
+export function selfPackage(from: string): { dir: string; json: any } | null {
+  for (let dir = dirname(from); ; dir = dirname(dir)) {
+    const f = join(dir, 'package.json');
+    if (existsSync(f)) { try { return { dir, json: JSON.parse(readFileSync(f, 'utf8')) }; } catch { return null; } }
+    if (dirname(dir) === dir) return null;
+  }
+}
+
+/** Whether a bare specifier names the package `from` is in, which has `exports` (Node's self-reference). */
+export function isSelfReference(spec: string, from: string): boolean {
+  const m = /^((?:@[^/]+\/)?[^/]+)(\/.*)?$/.exec(spec.replace(/[?#].*$/, ''));
+  const self = m && !spec.startsWith('.') && !spec.startsWith('/') ? selfPackage(from) : null;
+  return !!self && self.json.name === m![1] && self.json.exports != null;
 }
 
 /** The file a package's `exports` gives a subpath under production conditions; null without `exports`. */
