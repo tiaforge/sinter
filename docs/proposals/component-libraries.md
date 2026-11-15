@@ -13,7 +13,7 @@ there and lands in `main` with the rest.
 | Step | State | Where it departs from this text |
 | --- | --- | --- |
 | 1, the spike | done (`examples/markdown/` on `ccr-ec5fd4e0-bp4vko`) | see the numbers in the sections |
-| 2, anchors as comments | in progress | a `data-sn-else` after `<sn-component use>` stays an `if` anchor of its own |
+| 2, anchors as comments | merged here | see below |
 | 3, slots that pass data | merged here | see below |
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | in progress (from the integration branch) | the worklist runs in the first compile; a page still compiles at most twice |
@@ -67,6 +67,28 @@ Step 6, as built:
   extra pass. Step 7's worklist removes the second compile.
 - With `typecheck: true`, the build checks the second pass, so expressions folded early are not
   type-checked there, as for a decided `if` today; `sinter check` is unaffected.
+
+Step 2, as built (2a to 2d landed together; the history was kept):
+- Measured on step 1's article: no `<template>` left in the body (25,150 before), 8,218 comments
+  (2.8 per node, 24,774 before), about 6,240 bindings (27,285), and every prose-CSS selector
+  measured matches as in plain HTML. LCP 424 → 316 ms fetched, 264 → 160 ms for the tree, with
+  steps 3, 6 and 10 not yet merged. The js-framework-benchmark and the live grid are level;
+  the minimal runtime is 14,979 of 15,360 B gzip.
+- A `data-sn-else` after `<sn-component use>` stays an `if` anchor of its own over the names not
+  chosen; it exists only where an author writes one.
+- Head templates are last in the head, after every stylesheet, preload, script and data slot, so
+  nothing the browser fetches is discovered later. The bytes before `<body>` grow by the templates
+  the early script renders, which were in the body before; the bytes before the LCP element are
+  lower on most pages (embedded article −2,669 B) and higher on three: the plain index (+879, an
+  LCP that renders after the API anyway), the plain profile (+322) and the embedded editor
+  (+1,024), whose static LCP now comes after head templates.
+- An anchor in the head comes before its template, so the early writers wait for it and retry.
+- An element next to an anchor at page level has unknown siblings in the layout model, which is
+  more cautious than before.
+- Foreign templates crashed every walker, not only the compiler: styles, images, components,
+  the LSP and `migrate` are fixed too.
+- New codes: `SN105` (a reserved comment), `SN106` (an anchor in raw text), `SN213` (`$el` of an
+  anchor), and dev warning 31 (an anchor without its end).
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
