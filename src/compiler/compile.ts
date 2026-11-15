@@ -20,6 +20,8 @@ import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
+import type { FoldVerdict } from '../fold-check.js';
+import { FILE_ATTRS, fileAttrProblem, filePath, fileValue, isFileSource, scriptJson } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
@@ -79,6 +81,13 @@ export interface CompileOptions {
    * the manifest has it), or none: its helpers wait for it, in a `data-sn-let` (docs/lazy.md#helpers-that-wait)
    */
   lazyModule?: (module: string) => string[];
+  /**
+   * the helpers module as loaded in Node (helpers-node.ts), for helper calls over build-time constants; null when it
+   * could not be loaded (nothing folds). Absent: not loaded (the testing module, a compile without a project)
+   */
+  helperValues?: Record<string, unknown> | null;
+  /** per helper (`fmt`, `ns$member`), whether its calls may run at build time, and why not (fold-check.ts): for SN322 */
+  helperFold?: ReadonlyMap<string, FoldVerdict>;
   /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
@@ -974,6 +983,7 @@ class Compiler {
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
     this.finishChoices();
     this.resolveSources();
+    this.fileUses();
     this.reportIncludes();
     // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
     // which start at the roots and stop at other components' roots and at slot content (`data-sn-s`)
@@ -985,6 +995,7 @@ class Compiler {
       const r = this.resources.find((x) => x.name === name);
       if (r) r.data = id;
     }
+    this.fileScripts(doc);
     if (this.opts.embed) this.addPlaceholders(doc);
     this.placeholders();
     for (const info of this.page.resources.values()) {
@@ -3526,6 +3537,7 @@ class Compiler {
         continue;
       }
       for (const n of names) { const info = this.page.resources.get(n); if (info) info.used = true; }
+      this.fileUses({ el: c.el, attr: c.attr, at: c.shift + c.offset, fn: c.fn, names });
       resolved.set(JSON.stringify(c.src), names);
     }
     // write-through: nested targets in a list of their own (`nt`), which the nested module applies
@@ -4213,6 +4225,11 @@ class Compiler {
   urlTemplate(el: P5Element, attrName: string, scope: Scope, exprOpts: Partial<ExprOptions> = {}, deps?: Set<string>, reads?: Read[]): UrlTemplate {
     const value = attr(el, attrName) ?? '';
     const parts: UrlTemplate = [];
+    // `file:` reads a file at build time: a resource's source, never a request
+    if (isFileSource(value)) {
+      this.report(el, attrName, 'SN332', `\`file:\` is a source for \`<sn-resource src>\`: a file of the project, read at build time. ${el.tagName === 'sn-sync' ? 'A stream' : 'An action'} sends a request; give it a URL`, value.indexOf('file:'));
+      return [''];
+    }
     // `sinter({ apis })`: `[api:]/path`, relative to the API's base
     const apis = this.opts.apis;
     let api: ApiDef | null = null, i = 0;
@@ -4383,6 +4400,7 @@ class Compiler {
     const name = attr(el, 'name');
     if (!name || !this.page.resources.has(name) || this.resourceEls.get(name) !== el) return;
     if (ctx.tid >= 0) return;
+    if (isFileSource(attr(el, 'src'))) return this.fileResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
       if (a.name === 'start-page') this.report(el, a.name, 'SN401', '`start-page` is renamed to `page-model` (offset lists, a query parameter), which also writes the page back', 0);
       else if (!RESOURCE_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
@@ -4616,6 +4634,68 @@ class Compiler {
       ...(body != null ? { body } : {}),
     });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
+  }
+
+  /** `file:` resources by name: their value is in the head (`data-sn` id), written there by `run()` */
+  readonly fileData = new Map<string, { id: number; json: string }>();
+
+  /**
+   * `<sn-resource src="file:./post.txt">` (files.ts): the file read at build time, its value embedded in the
+   * head, a resource that never loads (`fx`). Only `name`, `type`, `items` and `key` apply (SN332).
+   */
+  fileResource(el: P5Element, name: string, scope: number) {
+    const info = this.page.resources.get(name)!;
+    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, a.name === 'start-page' || RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', fileAttrProblem(a.name), 0);
+    const src = attr(el, 'src')!, at = src.indexOf('file:');
+    const where = filePath(src, this.origins.get(el)?.file ?? this.opts.file, this.opts.root);
+    let value: unknown;
+    if ('error' in where) { this.report(el, 'src', 'SN332', where.error, at); value = null; }
+    else {
+      let text: string | null = null;
+      try { text = this.opts.readFile(where.path); } catch { /* reported below */ }
+      this.files.add(where.path);
+      if (text == null) { this.report(el, 'src', 'SN332', `\`${src.trim()}\`: no such file in the project (\`${where.path.slice(normalize(this.opts.root).replace(/\/$/, '').length + 1)}\`)`, at); value = null; }
+      else {
+        const v = fileValue(text, where.path);
+        if ('error' in v) this.report(el, 'src', 'SN332', v.error, at);
+        value = 'error' in v ? null : v.value;
+      }
+    }
+    const items = attr(el, 'items')?.trim() || null;
+    if (items && typeof value === 'string') this.report(el, 'items', 'SN332', '`items` picks a list out of a JSON file; this file is text', 0);
+    const id = this.nextId++;
+    this.fileData.set(name, { id, json: scriptJson(value) });
+    this.embedded.set(name, id);
+    if (this.check) {
+      const type = attr(el, 'type')?.trim() || null;
+      this.check.resources.push({ name, type: type ?? (typeof value === 'string' ? 'string' : null), loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') });
+      if (!type && typeof value !== 'string') this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked');
+    }
+    this.resources.push({ name, src: [], key: info.key, items, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    this.declAt.set(this.resources[this.resources.length - 1]!, el);
+  }
+
+  /**
+   * What would load or write a `file:` resource (SN332), once the page is compiled: a store function that names it
+   * (`refresh`, `upsert`, `page`), a change through one of its items (`patch`, `remove`: `names`), write-through, a
+   * stream event.
+   */
+  fileUses(names?: { el: P5Element; attr: string; at: number; fn: string; names: string[] }) {
+    const file = (n: string) => this.fileData.has(n.split('>')[0]!);
+    if (names) {
+      const f = names.names.find(file);
+      if (f) this.report(names.el, names.attr, 'SN332', `\`${names.fn}()\` changes \`${f}\`, a \`file:\` resource: it is a constant, read at build time`, names.at);
+      return;
+    }
+    for (const n of this.fileData.keys()) {
+      const el = this.resourceEls.get(n)!;
+      const q = n.replace(/[$]/g, '\\$');
+      const store = new RegExp(`\\$\\.\\$f\\.(refresh|upsert|page|patch|remove)\\([^)]*["']${q}["']`);
+      const m = this.fns.map((c) => store.exec(c)).find(Boolean);
+      if (m) this.report(el, 'name', 'SN332', `\`${m[1]}()\` would load or change \`${n}\`, a \`file:\` resource: it is a constant, read at build time`, 0);
+      if (this.actions.some((a) => a.ap?.tg.some((t) => t.r === n) || a.ap?.nt?.some((t) => t.r === n))) this.report(el, 'name', 'SN332', `an action's response would be written through to \`${n}\`, a \`file:\` resource, which is a constant: add \`data-sn-apply="off"\` to the action`, 0);
+      for (const s of this.syncs) if (s.events.some((e) => e.resource === n)) this.report(el, 'name', 'SN332', `an \`<sn-event>\` changes \`${n}\`, a \`file:\` resource, which is a constant`, 0);
+    }
   }
 
   /** Matches a resource against the OpenAPI specs; checks `items`, `total` and query parameter names. */
@@ -6196,6 +6276,19 @@ class Compiler {
    * `when` and `page-model` read only `$url`, constants and helpers (what a server knows at the
    * page request; helpers make it a request only a resolver can make)
    */
+  /** the values of the `file:` resources, as embedded data in the head (not placeholders: nothing for a server to fill) */
+  fileScripts(doc: DefaultTreeAdapterMap['document']) {
+    if (!this.fileData.size) return;
+    const html = doc.childNodes.find((n) => isElement(n) && n.tagName === 'html') as P5Element | undefined;
+    const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
+    if (!head) return;
+    for (const { id, json } of this.fileData.values()) {
+      const el = parse5.parseFragment(`<script type="application/json" data-sn="${id}">${json}</script>`).childNodes[0] as P5Element;
+      el.parentNode = head;
+      head.childNodes.push(el as never);
+    }
+  }
+
   addPlaceholders(doc: DefaultTreeAdapterMap['document']) {
     const html = doc.childNodes.find((n) => isElement(n) && n.tagName === 'html') as P5Element | undefined;
     const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
@@ -6218,7 +6311,7 @@ class Compiler {
   embedSlots(): EmbedSlot[] {
     const out: EmbedSlot[] = [], arrays = this.urlArrays();
     for (const def of this.resources) {
-      if (def.data == null) continue;
+      if (def.data == null || def.fx) continue;
       const parts = def.call || def.each ? null : def.src.map((x) => {
         if (typeof x === 'string') return x;
         const m = URL_READ.exec(this.fns[x]!);
