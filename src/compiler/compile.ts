@@ -821,6 +821,8 @@ class Compiler {
   /** per fill: the scope at its placement (what its children see) and what the fill sees, computed at its first node */
   // (per instance too: the copies of an unrolled row share a component tag's fill, found through its use's host)
   private readonly fillScopes = new WeakMap<FillChain, Map<string, { at: Scope; fill: Scope }>>();
+  /** a fill that took the place of slot content it was written in (a row, a branch): the slot of that content */
+  private readonly writtenIn = new WeakMap<P5Node, Use>();
   /** the elements of a tree placement's case template: an instance of their own for `instOf` (first pass) */
   private readonly caseInst = new WeakMap<P5Element, string>();
   /** a fill chain `cloneTree` copied, and the chain it was copied from */
@@ -3806,9 +3808,15 @@ class Compiler {
     const starts = this.scopeStart.get(el) ?? [];
     const inSlot = !!slot && starts.length > 0 && !starts.includes(slot) && !this.fillOf.has(el);
     if (inSlot && slot.caller) ctx = { ...ctx, scope: slot.caller };
-    if (inSlot && row && !ownLoop && !placedRow) ctx = rowLets(ctx);
+    // the same for a fill that is the root of a component whose tag was itself written in slot content (a slot
+    // root with a named fill, in a row or a branch of another component's slot content): that writer's scope and rows
+    // (not a component tag that is itself a fill: its caller is its placement's, `tagFill`)
+    const outerSlot = !inSlot && starts.length > 0 && !!slot && starts.includes(slot) && !this.fillOf.has(starts[0]!.host) ? starts[0]!.hostSlot ?? this.writtenIn.get(el) : undefined;
+    if (outerSlot?.caller) ctx = { ...ctx, scope: outerSlot.caller };
+    const early = inSlot || !!outerSlot?.caller;
+    if (early && row && !ownLoop && !placedRow) ctx = rowLets(ctx);
     // (switched to the writer's scope here: each component's caller is the scope the walk has, not its tag's slot)
-    for (const u of starts) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instOf(el), inSlot) };
+    for (const u of starts) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instOf(el), early) };
     // slot content sees the scope of the caller that wrote it
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
     // an unfilled placement: its `data-sn-prop`, compiled for its diagnostics and types
@@ -3821,7 +3829,7 @@ class Compiler {
     const fill = this.fillOf.get(el) ?? (this.useOf.has(el) ? this.fillOf.get(this.useOf.get(el)!.host) : undefined);
     if (fill) ctx = { ...ctx, scope: this.fillScope(fill, ctx.scope, slot ?? null, this.instOf(el)) };
     else if (slot?.caller && !inSlot) ctx = { ...ctx, scope: slot.caller };
-    if (row && !ownLoop && !placedRow && !inSlot) ctx = rowLets(ctx);
+    if (row && !ownLoop && !placedRow && !early) ctx = rowLets(ctx);
     // a fill's case template, or the children it places (tree slots): the scope they are compiled in
     const caseScope = this.caseScopes.get(el);
     if (caseScope) ctx = { ...ctx, scope: caseScope };
@@ -6776,9 +6784,12 @@ class Compiler {
   inheritSlot(from: P5Element, nodes: P5Node[]) {
     const use = this.slotOf.get(from);
     if (!use) return;
+    const w = this.writtenIn.get(from);
+    if (w) for (const n of nodes) if (!this.writtenIn.has(n)) this.writtenIn.set(n, w);
     const el = this.slotEls.find((x) => x.el === from);
     for (const n of nodes) {
-      if (this.slotOf.has(n)) continue;
+      // a fill of a component written in this slot content: its own slot's, and written in this one (`writtenIn`)
+      if (this.slotOf.has(n)) { if (this.slotOf.get(n) !== use && !this.writtenIn.has(n)) this.writtenIn.set(n, use); continue; }
       this.slotOf.set(n, use);
       if (el && isElement(n)) this.slotEls.push({ ...el, el: n });
     }

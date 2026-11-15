@@ -100,6 +100,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- A component whose root is its slot, with a named fill (an element, a chain or a component tag), in a loop or a branch of another component's slot content failed the build over constants (`SN201`): its scope now starts in the slot content's writer's scope and rows.
 - A component whose root is an if/else chain or another component's tag, used inside a component with a plain root, resolved its names in that outer component: over the outer's constant props its branch was decided by them and its text was theirs (`<button>OUTER</button>` for a link), at run time too.
 - Slot content holding a `data-sn-for` or `data-sn-if` template whose content is a component with an if/else, component-tag or choice root failed the build over constants (`SN201`), and so did `<sn-component use>` directly in slot content: each now compiles in the scope of the markup that wrote it.
 - A slot-root component filled by a component-tag-root component (`<x-slot><x-var slot="item" …>`) failed to build: the components whose markup starts at one node were ordered nearest first, three levels deep.

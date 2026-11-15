@@ -1519,6 +1519,18 @@ To discuss after this lands:
   whether to keep it as it is, narrow it, or fold it into another concept; and whether
   docs/components.md should give the rule outright (data down through props, the caller acting
   through fills when it renders the item, `emit` when the component renders the control).
+- **Should a tree placement say what it is?** The contract is declared: the root lists the slot in
+  its props (`link: Slot<{ node: Link }>`), typed and visible to `sinter check` and the language
+  server. The placement is not. `<slot name="link" data-sn-prop>` in `md-link` is a tree placement
+  only because `md-link` does not declare `link`, so an author infers it from an absence. A
+  misspelling of a component's own slot then becomes a tree placement, which `SN535` only guesses
+  at from a close name. This affects library authors only, since placements are filled within their
+  package. The smallest explicit form is a marker on the placement (for example
+  `<slot name="link" data-sn-tree data-sn-prop="{ node }">`): the placement then reads as what it is,
+  and an undeclared `<slot data-sn-prop>` without the marker is an exact error instead of `SN535`'s
+  guess. It costs one more attribute and an update of the markdown package's placements. Making it
+  the inner component's own `Slot<T>` instead would mean forwarding at every level, which tree slots
+  exist to avoid. Raised by an external review of PR #51.
 
 ## Decisions
 
