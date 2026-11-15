@@ -68,6 +68,19 @@ export interface Scope {
   lets?: LetEntry[];
   /** inside a component's markup (not its slot content): the component, its declared events and props */
   component?: ComponentScope;
+  /** in a fill of a slot that passes data (`Slot<T>`): `$slot`, the values its placement passes */
+  slot?: SlotScope;
+}
+
+/** `$slot` in a fill: the placement's `data-sn-prop`, each value inlined where it is read, as props are. */
+export interface SlotScope {
+  /** the slot's name and its component, for messages */
+  name: string;
+  component: string;
+  /** `$slot` as a whole: the object the placement passes */
+  whole: LetEntry;
+  /** `$slot.<key>`: each value, with its sources, so `patch($slot.row, …)` acts on the caller's resource */
+  members: Map<string, LetEntry>;
 }
 
 /** What expressions in a component's markup see of the component. */
@@ -402,6 +415,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       // a page whose path is a pattern: the origin and the browser's path, without a trailing slash (the early script renders it)
       return { kind: 'const', code: u.canonical !== null ? JSON.stringify(u.canonical) : `(${JSON.stringify(u.origin)} + location.pathname.replace(/\\/+$/, ''))` };
     }
+    if (name === '$slot') {
+      if (scope.slot) return { kind: 'let', entry: scope.slot.whole };
+      report('SN201', '`$slot` is not available here: it is the values a placement passes, in a fill of a slot declared `Slot<T>` (`<span slot="cell" data-sn-text="$slot.row.name">`)', offset);
+      return null;
+    }
     if (name.startsWith('$')) {
       if (ALL_MAGIC.includes(name)) {
         // outside `catch`, `$error` is the form's: a state field the compiler gives a form that reads it
@@ -420,7 +438,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         if (name === '$now') page.usesNow = true;
         return { kind: 'magic' };
       }
-      report('SN201', `\`${name}\` is not defined.${didYouMean(name, ALL_MAGIC)}`, offset);
+      report('SN201', `\`${name}\` is not defined.${didYouMean(name, [...ALL_MAGIC, '$slot'])}`, offset);
       return null;
     }
     if (opts.payload && opts.payloadState) {
@@ -524,11 +542,20 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
   }
 
+  /** `$slot.<key>` in a fill: the value the placement passes for `key`, or null for anything else. */
+  function slotMember(n: Node, locals: Locals): LetEntry | null {
+    if (n.type !== 'MemberExpression' || !scope.slot) return null;
+    const m = n as acorn.MemberExpression & Node;
+    if (m.object.type !== 'Identifier' || m.object.name !== '$slot' || locals.has('$slot')) return null;
+    const key = !m.computed && m.property.type === 'Identifier' ? m.property.name : m.computed && m.property.type === 'Literal' ? String((m.property as acorn.Literal).value) : null;
+    return key === null ? null : scope.slot.members.get(key) ?? null;
+  }
+
   /** Static path of an Identifier/MemberExpression chain; null if the leftmost object is not an identifier. */
   function chainPath(n: Node, locals: Locals): ChainPath | null {
     const props: Array<string> = [];
     let cur: Node = n;
-    while (cur.type === 'MemberExpression') {
+    while (cur.type === 'MemberExpression' && !slotMember(cur, locals)) {
       const m = cur as acorn.MemberExpression & Node;
       if (!m.computed && m.property.type === 'Identifier') props.unshift(m.property.name);
       else if (m.computed && m.property.type === 'Literal') props.unshift(String((m.property as acorn.Literal).value));
@@ -540,6 +567,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       cur = m.object as Node;
     }
     if (cur.type === 'ChainExpression') return chainPath((cur as acorn.ChainExpression).expression as Node, locals);
+    const member = slotMember(cur, locals);
+    if (member) return { root: '$slot', res: { kind: 'let', entry: member }, segs: null, resource: member.resource, props };
     if (cur.type !== 'Identifier') return null;
     const name = (cur as acorn.Identifier).name;
     const res = resolveQuiet(name, locals);
@@ -706,6 +735,23 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
 
   function visitMemberParts(n: Node, locals: Locals) {
     if (n.type === 'Identifier') return ident(n as acorn.Identifier & Node, locals);
+    const member = slotMember(n, locals);
+    if (member) {
+      // `$slot.row`: the placement's value for `row`, inlined as a let is
+      for (const d of member.deps) deps.add(d);
+      if (member.usesEl) usesEl = true;
+      if (member.usesIndex) usesIndex = true;
+      edits.push({ start: n.start, end: n.end, text: emitName('$slot', { kind: 'let', entry: member }) });
+      return;
+    }
+    if (n.type === 'MemberExpression' && scope.slot && !locals.has('$slot')) {
+      const m = n as acorn.MemberExpression & Node;
+      if (m.object.type === 'Identifier' && m.object.name === '$slot' && !m.computed && m.property.type === 'Identifier') {
+        const keys = [...scope.slot.members.keys()];
+        report('SN201', `\`$slot.${m.property.name}\` is not passed: the placement of \`${scope.slot.name}\` in \`<${scope.slot.component}>\` passes ${keys.length ? keys.map((k) => `\`${k}\``).join(', ') : 'nothing'}.${didYouMean(m.property.name, keys)}`, m.property.start);
+        return;
+      }
+    }
     if (n.type === 'ChainExpression') return visitMemberParts((n as acorn.ChainExpression).expression as Node, locals);
     if (n.type !== 'MemberExpression') return visit(n, locals);
     const m = n as acorn.MemberExpression & Node;
@@ -802,6 +848,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     const cp = chainPath(target, locals);
     if (!cp) { report('SN203', 'only state variables and their properties can be assigned', at); return; }
+    if (cp.res.kind === 'let' && cp.root === '$slot') {
+      report('SN203', '`$slot` is what the placement passes, and cannot be assigned; change it with `patch()` on its item, or in the component', at);
+      return;
+    }
     if (cp.res.kind === 'let') {
       report('SN203', `\`${cp.root}\` is derived (\`data-sn-let\`) and cannot be assigned; assign the state it is computed from`, at);
       return;
@@ -1048,6 +1098,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       case 'ArrayExpression': return (n as acorn.ArrayExpression).elements.length ? null : [];
       // a nested list of an item with a source: `comment.replies`, its items found under that item at any depth
       case 'MemberExpression': {
+        const member = slotMember(n, locals);
+        if (member) return member.list ?? null;
         const m = n as acorn.MemberExpression & Node;
         if (m.computed || m.property.type !== 'Identifier') return null;
         const owner = itemSource(m.object as Node, locals);
@@ -1088,6 +1140,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         return null;
       }
       case 'MemberExpression': {
+        const member = slotMember(n, locals);
+        if (member) return member.src ?? null;
         const m = n as acorn.MemberExpression & Node;
         if (m.computed) { const l = listSource(m.object as Node, locals); if (l?.length) return l; }
         if (!m.computed && m.object.type === 'Identifier' && m.object.name === '$event' && m.property.type === 'Identifier' && m.property.name === 'detail' && opts.detailSource) return [opts.detailSource];

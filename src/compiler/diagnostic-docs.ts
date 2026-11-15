@@ -237,6 +237,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'What an endpoint returns (`items`, `total`, `key`, `type`) is said once: when the API\'s `defaults` or `operations` give a value, a resource of that operation does not write a different one, because two pages would read different shapes from one endpoint. The same value is the warning `SN518`.',
     fix: 'Remove the attribute, or change the configured value if the page is right.',
   },
+  SN331: {
+    example: 'the slot `cell` is written with `?`; every slot may be left unfilled, and its placement shows its default',
+    means: 'A slot that passes data is declared, placed or filled wrongly. It is a `Slot<T>` member of the props type literal in `data-sn-component` (not in a type alias, not with `?`, not in `data-sn-head` or `data-sn-layout`; the app\'s types module may not export a type named `Slot`), placed with `<slot name="…" data-sn-prop="{ … }">`, whose default is one plain element or a `data-sn-if`/`data-sn-else` chain of them (anything broader comes with the component root, step 4 of the component-libraries proposal). A fill is elements with `slot="…"`; a `<template slot>` only starts an if/else chain. An unnamed `<slot>` in a fill places the children of the element the default renders: an error when it renders none, and the default\'s element may not declare names (`data-sn-let`, `data-sn-state`) its children read, since they move into the fill without it. Also reported: a `<slot>` that no component or fill encloses (on a page, or in a page\'s slot content).',
+    fix: 'Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-prop`, give the placement one element as default, and move names the children read onto the `<slot>`\'s `data-sn-prop` or inside the element. Remove a `<slot>` from a page.',
+  },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
     means: 'An attribute value has the wrong form: a JavaScript syntax error (the column points inside the attribute), or a value outside what the attribute accepts, such as `paginate` or `data-sn-concurrency`.',
@@ -391,5 +396,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: '`data-sn-body` is already JSON text (`JSON.stringify(…)`): sinter encodes the body, so the server would get a JSON string, not the object',
     means: 'A `data-sn-body` (or a POST `<sn-resource>`\'s `body`) calls `JSON.stringify`. sinter encodes the body as JSON itself, so the request carries the JSON text of a string (`"{\\"username\\":\\"alice\\"}"`), which a server\'s JSON parser reads as one string: the fields it expects are missing. A benchmark agent\'s login with a wrong password went through this way, against an API that compared the missing fields.',
     fix: 'Pass the object: `data-sn-body="{ username, password }"`. For another format, set `data-sn-encoding="form"` or send it from an action (`data-sn-call`). The same holds in an actions module or a component script, where the build cannot see it: `ctx.request(url, { body: { username, password } })`, not `body: JSON.stringify(…)`.',
+  },  SN532: {
+    example: '`id="total"` is in markup that renders more than once (a `data-sn-for` row): the page would have that id more than once',
+    means: 'A literal `id` in markup that renders more than once, in a page or a component: a `data-sn-for` row, or a fill of a slot placed more than once. Ids are unique in a page; `getElementById`, `<label for>`, `aria-*` references and `run(\'id\')` find only the first.',
+    fix: 'Compute the id from the row: `data-sn-attr="{ id: \'total-\' + row.id }"`, or move the element out of the repeated markup.',
   },
 };
