@@ -2,7 +2,7 @@
 // rewritten page plus its IR and function table.
 import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
-import { boxSizesCss, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
+import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import type { RemoteConfig } from '../remote.js';
@@ -893,7 +893,7 @@ class Compiler {
    * The first pass: a copy of the markup the layout reads (before the layout), the layout's answers for its images
    * and lists then, and the styled roots in the copy, for the dry run of constant classes and styles (`dryRun`)
    */
-  private dry: { doc: DefaultTreeAdapterMap['document']; styled: Set<P5Element>; imgs: string; space: string } | null = null;
+  private dry: { doc: DefaultTreeAdapterMap['document']; styled: Set<P5Element>; imgs: string; space: string; twin: Map<P5Element, P5Element>; traces: Map<P5Element, ReserveTrace> } | null = null;
   /** the second pass: images whose `src` or `srcset` `prefold` wrote, which resolve against the page as in the browser */
   private readonly foldedUrl = new WeakSet<P5Element>();
   /** the page's stylesheets as a cascade (images: boxes of static and bound images) */
@@ -5221,18 +5221,18 @@ class Compiler {
     scan(doc);
     if (!bound || !feeds) return;
     const copy = this.cloneTree(doc as unknown as P5Node, null as unknown as P5Parent) as unknown as DefaultTreeAdapterMap['document'];
-    const styled = this.styledRoots(), mapped = new Set<P5Element>();
-    if (styled.size) {
-      const pair = (a: P5Parent, b: P5Parent) => a.childNodes.forEach((x, i) => {
-        const y = b.childNodes[i]!;
-        if (!isElement(x)) return;
-        if (styled.has(x)) mapped.add(y as P5Element);
-        pair(x, y as P5Parent);
-        if (x.tagName === 'template') pair((x as P5Template).content, (y as P5Template).content);
-      });
-      pair(doc, copy);
-    }
-    this.dry = { doc: copy, styled: mapped, imgs: '', space: '' };
+    // each element's twin in the copy: the styled roots, and what a traced `reserve()` read (`planSpace`)
+    const styled = this.styledRoots(), mapped = new Set<P5Element>(), twin = new Map<P5Element, P5Element>();
+    const pair = (a: P5Parent, b: P5Parent) => a.childNodes.forEach((x, i) => {
+      const y = b.childNodes[i]!;
+      if (!isElement(x)) return;
+      twin.set(x, y as P5Element);
+      if (styled.has(x)) mapped.add(y as P5Element);
+      pair(x, y as P5Parent);
+      if (x.tagName === 'template') pair((x as P5Template).content, (y as P5Template).content);
+    });
+    pair(doc, copy);
+    this.dry = { doc: copy, styled: mapped, imgs: '', space: '', twin, traces: new Map() };
   }
 
   /**
@@ -6181,7 +6181,16 @@ class Compiler {
         if (Number.isInteger(n) && n > 0 && styled.size && inStyled(tpl)) { if (why === '') why = 'a component\'s own `<style>` styles the rows or their container, and the build reads only the page\'s stylesheets'; }
         else if (Number.isInteger(n) && n > 0) {
           // (the `if` form's anchor after the rows is comments: `:last-child` and the like see the rows as the last elements)
-          space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized });
+          // the dry run (`styledIn`: the copy): the first pass's result, when what it read is the same in the copy
+          const dry = this.dry, count = Math.min(n, 1000);
+          const trace = styledIn && dry ? dry.traces.get(tpl) : undefined;
+          const reused = trace ? layout.reuse(trace, (el) => dry!.twin.get(el)) : undefined;
+          if (reused !== undefined) space = reused;
+          else if (dry && !styledIn && dry.twin.has(tpl)) {
+            const tr = layout.reserveTraced(tpl, count, { sized: !!sized });
+            dry.traces.set(dry.twin.get(tpl)!, tr);
+            space = tr.result;
+          } else space = layout.reserve(tpl, count, { sized: !!sized });
           if (!space && why === '') why = sized && layout.unreserved?.startsWith('the box') ? `the box around it is as wide as its content (${sized.widths}), and the rows have no width of their own (SN529)` : layout.unreserved ?? 'unknown';
         }
       }

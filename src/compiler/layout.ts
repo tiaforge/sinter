@@ -15,7 +15,9 @@ let LIST_IDS_N = 0;
  * An anchor in the page: a `data-sn-if`, `data-sn-for` or `data-sn-else` template, or a `<sn-component>` (a choice).
  * In the browser it is two comments, no element: what it renders is between them, and may or may not be there.
  */
-const isAnchor = (e: P5Element) => e.tagName === 'sn-component' || (e.tagName === 'template' && e.attrs.some((a) => a.name === 'data-sn-for' || a.name === 'data-sn-if' || a.name === 'data-sn-else'));
+/** while a traced call runs (`Layout.reserveTraced`): every element whose attributes the layout read */
+let reading: Set<P5Element> | null = null;
+const isAnchor = (e: P5Element) => e.tagName === 'sn-component' || (e.tagName === 'template' && (reading?.add(e), true) && e.attrs.some((a) => a.name === 'data-sn-for' || a.name === 'data-sn-if' || a.name === 'data-sn-else'));
 /** the elements of a parent as the browser has them: anchors are comments, not elements */
 const elementsOf = (p: P5Parent | null | undefined) => (p?.childNodes ?? []).filter((c): c is P5Element => isEl(c) && !isAnchor(c));
 
@@ -232,13 +234,14 @@ function cascadeCmp(x: Decl, y: Decl): number {
 }
 
 const isEl = (n: P5Node | null | undefined): n is P5Element => !!n && 'tagName' in n;
-const attrOf = (el: P5Element, name: string) => el.attrs.find((a) => a.name === name)?.value;
-const dynamic = (el: P5Element, kind: 'class' | 'style') => el.attrs.some((a) => a.name === `data-sn-${kind}`);
+const attrOf = (el: P5Element, name: string) => { reading?.add(el); return el.attrs.find((a) => a.name === name)?.value; };
+const dynamic = (el: P5Element, kind: 'class' | 'style') => { reading?.add(el); return el.attrs.some((a) => a.name === `data-sn-${kind}`); };
 /**
  * Attributes a binding may change on `el`: `data-sn-attr`'s keys (literal, the compiler requires
  * it), `value`/`checked` for a model; 'all' when the keys cannot be read here.
  */
 function boundAttrs(el: P5Element): Set<string> | 'all' {
+  reading?.add(el);
   // per element, while its attributes stay as they are (the compiler adds some after the layout ran)
   const got = BOUND.get(el);
   if (got && got.attrs === el.attrs && got.n === el.attrs.length) return got.v;
@@ -277,6 +280,9 @@ function readBound(el: P5Element): Set<string> | 'all' {
 const mayChange = (el: P5Element, name: string) => { const b = boundAttrs(el); return b === 'all' || b.has(name); };
 
 interface Cascaded { value: string | null; ambiguous: boolean; inline: boolean }
+
+/** what a traced `reserve()` read and gave (`Layout.reserveTraced`) */
+export interface ReserveTrace { result: Reserved | null; why: string | null; read: Array<{ el: P5Element; attrs: string; decls: string }> }
 
 export class Layout {
   private readonly rules: Rule[] = [];
@@ -1418,6 +1424,38 @@ export class Layout {
    * per viewport range from the narrowest screen up (`from`: the range's start, 0 for the first), or
    * null when the rows' layout is not one the build follows (see `shape`), at any width.
    */
+  /**
+   * `reserve()`, with what it read: each element whose attributes it read, and, for each, its attributes and the
+   * declarations the stylesheets give it, as they were. Another layout over a document of the same shape (the
+   * compiler's dry run, with constant classes written in) takes the result over when all of them are the same
+   * there (`reuse`): the rest (the tree, the text, the stylesheets) is the same by construction.
+   */
+  reserveTraced(tpl: P5Element, count: number, opts: { sized?: boolean } = {}): ReserveTrace {
+    // in a view with nothing cached: every answer it builds on is read during the call
+    const cold = Object.create(Layout.prototype) as Layout;
+    Object.assign(cold, {
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: this.viewport, views: new Map(), notes: this.notes, normal: this.normal, zero: this.zero, webFonts: this.webFonts,
+      cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
+      row: null, rowViews: new Map(), positional: this.positional, base: this.base, mq: this.mq, bases: new Map(),
+    });
+    const was = reading, read = new Set<P5Element>();
+    reading = read;
+    let result: Reserved | null;
+    try { result = cold.reserve(tpl, count, opts); } finally { reading = was; }
+    const why = this.notes.why;
+    return { result, why, read: [...read].map((el) => ({ el, attrs: JSON.stringify(el.attrs), decls: JSON.stringify([...this.declsOf(el)]) })) };
+  }
+
+  /** The result of a traced `reserve()` in another layout, when what it read is the same here (`twin`: its element here); else undefined. */
+  reuse(trace: ReserveTrace, twin: (el: P5Element) => P5Element | undefined): Reserved | null | undefined {
+    for (const r of trace.read) {
+      const el = twin(r.el);
+      if (!el || JSON.stringify(el.attrs) !== r.attrs || JSON.stringify([...this.declsOf(el)]) !== r.decls) return undefined;
+    }
+    this.notes.why = trace.why;
+    return trace.result;
+  }
+
   reserve(tpl: P5Element, count: number, opts: { sized?: boolean } = {}): Reserved | null {
     this.notes.why = null;
     const no = (why: string) => { this.notes.why ??= why; return null; };

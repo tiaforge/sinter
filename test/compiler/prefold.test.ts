@@ -80,6 +80,38 @@ describe('a constant image is optimized', () => {
   });
 });
 
+describe('the dry run and reserved space', () => {
+  // a paginated list holds its rows' space; the dry run takes `planSpace`'s result over when nothing it read changed
+  const page = (around: string, cls: string) => `<sn-resource name="items" src="/api/items" key="id" paginate="offset" page-size="10"></sn-resource>
+<section data-sn-state="{ dense: true, n: 0 }"><p${around}>x</p><ul${cls}><template data-sn-for="r in items" data-sn-key="r.id"><li class="row" data-sn-text="r.name"></li></template></ul><button data-sn-on-click="n++" data-sn-text="n"></button></section>`;
+  const css = '.row { height: 56px } .dense .row { height: 30px } p.dense { color: red }';
+  const paint = (body: string) => {
+    const out = compile(`<!doctype html><html><head></head><body>${body}</body></html>`, {
+      file: '/app/index.html', root: '/app', dev: false, prerender: true, paintCss: '/@sinter/paint.css',
+      helpers: { module: '/h.js', names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); },
+      styles: [{ file: '/app/style.css', css }],
+    });
+    expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+    return { paint: out.paint ?? '', html: bodyOf(out.html) };
+  };
+
+  test('a class that does not change the list: its space as before, and no second compile', () => {
+    const folded = paint(page(' data-sn-class="{ dense }"', ''));
+    expect(folded.paint).toBe(paint(page(' class="dense"', '')).paint);
+    expect(folded.paint).toContain('height:560px');
+    // (its node had an id, so the ids after it stay: the anchor 2, the button 3)
+    expect(folded.html).toMatch(/<button data-sn="3">/);
+  });
+
+  test('a class on the list\'s container that changes its rows: the space of the page written by hand', () => {
+    const folded = paint(page('', ' data-sn-class="{ dense }"'));
+    expect(folded.paint).toBe(paint(page('', ' class="dense"')).paint);
+    expect(folded.paint).toContain('height:300px');
+    // compiled again with the class in place: the list's container has no node, the button is 2
+    expect(folded.html).toMatch(/<button data-sn="2">/);
+  });
+});
+
 describe('a folded image is checked like one written in the page', () => {
   test('SN513 is for an image whose `src` changes: a choice over constants folds, and is optimized', () => {
     const folded = build('<main data-sn-state="{ dark: false }"><img alt="" data-sn-attr="{ src: dark ? \'img/dark.jpg\' : \'img/photo.jpg\' }"></main>');
