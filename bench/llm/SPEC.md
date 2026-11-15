@@ -123,7 +123,7 @@ Each framework gets only what it publishes itself (`docs/fetch.mjs`, which rebui
 
 | framework | file | size |
 | --- | --- | ---: |
-| sinter | `llms.txt` from the published package, complete | 109 KB |
+| sinter | `llms.txt` from the published package, complete. From the release with tiaforge/sinter#45 on, that is the short `llms.txt`: the opening rules, the core reference and an index of `npx sinter docs <topic>` commands. Like Svelte's `llms-small.txt`, it is the LLM file the framework recommends; `llms-full.txt` (59 KB) ships beside it, and `sinter docs` reads from it. Rebuild `docs/sinter.txt` with `docs/fetch.mjs` after that release | 109 KB (0.18.0); 23 KB from #45 |
 | SvelteKit | `svelte.dev/llms-small.txt`, the Svelte team's condensed docs for Svelte and SvelteKit, complete. Its `llms-medium.txt` (886 KB) cut at the cap would hold only the Svelte runtime and no SvelteKit | 53 KB |
 | Astro | none. Astro published `llms.txt`, `llms-small.txt` and `llms-full.txt` until 2026-04-20, when withastro/docs#13538 removed them in favour of its Docs MCP server. That server is Astro's entry in the `tools` condition | – |
 
