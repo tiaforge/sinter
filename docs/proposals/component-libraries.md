@@ -222,6 +222,25 @@ The DOM is not identical: `childNodes` also holds the comments and any text sepa
   template.
 - An author's comment that starts with `sn` is an error at compile time.
 
+#### Shared definitions are head templates
+
+Today a shared definition (a component used inside itself, a candidate of `<sn-component use>`) is
+the one template that already lives in the head (`<template id="sn-def-<name>">`). Each place that
+uses it is an empty `<template data-sn-def>` in the body, which `defs.ts`, and the same code in
+`early.ts`, fill with a copy of the definition before it is first cloned.
+
+With every template in the head, a definition is a head template like any other, which several
+anchors point to:
+
+- the empty `<template data-sn-def>` in the body, the `data-sn-def` attribute, the `defs` feature
+  (`src/defs.ts`) and its copy in the early script go away;
+- an anchor of a recursion point, or a choice among candidates, instantiates the definition's head
+  template directly, as a `for` instantiates its row template;
+- `sn-def-<name>` and `sn-t-<id>` become one way to name a template in the head: by template id,
+  with the component's name kept in dev builds for reading.
+
+The definition stays as a concept: one template, compiled once, that the whole tree reuses.
+
 #### Finding anchors
 
 - **The page module** finds root nodes with a walk over the mount root that visits elements and
@@ -1086,7 +1105,8 @@ library gets its own page and a recipe.
    It cannot try fills, which need the compiler.
 2. **Anchors as comments** (section 1): the three kinds of anchor, the choice among them; templates
    in the head (or at the end of the body when nothing early uses them); ids and the IR change for
-   `else`; finding anchors at mount and early; the handoff on the start comment; keyed lists; the
+   `else`; shared definitions as head templates, with `data-sn-def` and `defs.ts` removed; finding
+   anchors at mount and early; the handoff on the start comment; keyed lists; the
    layout model and reserved space; foreign content; the dev warnings; spec.md, the goldens and the
    examples. Useful on its own: prose CSS over any list, and the SVG crash fixed. The
    js-framework-benchmark, the live grids and the bytes before the body in `bench/first-paint` must
