@@ -257,15 +257,15 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'A slot that passes data is declared, placed or filled wrongly. It is a `Slot<T>` member of the props type literal in `data-sn-component` (not in a type alias, not with `?`, not in `data-sn-head` or `data-sn-layout`; the app\'s types module may not export a type named `Slot`), placed with `<slot name="…" data-sn-prop="{ … }">`, whose default is one plain element or a `data-sn-if`/`data-sn-else` chain of them (anything broader comes with the component root, step 4 of the component-libraries proposal). A fill is elements with `slot="…"`; a `<template slot>` only starts an if/else chain. An unnamed `<slot>` in a fill places the children of the element the default renders: an error when it renders none, and the default\'s element may not declare names (`data-sn-let`, `data-sn-state`) its children read, since they move into the fill without it. Also reported: a `<slot>` that no component or fill encloses (on a page, or in a page\'s slot content).',
     fix: 'Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-prop`, give the placement one element as default, and move names the children read onto the `<slot>`\'s `data-sn-prop` or inside the element. Remove a `<slot>` from a page.',
   },
-  SN332: {
-    example: '`<ui-panel>`\'s root may render nothing, so `id` on its tag would point at an element that may not exist',
-    means: 'A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes.',
-    fix: 'Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it.',
-  },
   SN333: {
     example: '`data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it',
     means: 'A `<template data-sn-text>` renders a text node and nothing else: it takes no other attribute (`data-sn-if` and `data-sn-for` go on a template around it, anything else on an element around the text), and content inside it is dropped.',
     fix: 'Wrap it: `<template data-sn-if="…"><template data-sn-text="…"></template></template>`, or put the text in an element.',
+  },
+  SN334: {
+    example: '`<ui-panel>`\'s root may render nothing, so `id` on its tag would point at an element that may not exist',
+    means: 'A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes.',
+    fix: 'Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it.',
   },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',

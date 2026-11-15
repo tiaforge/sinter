@@ -96,7 +96,7 @@ most one element**:
   those with `??` in the expressions instead). Anything else is `SN312`.
 - A root that may render nothing (a chain without an `else`, `<sn-component use>`, a component tag
   whose own root may) takes no `id`, `data-sn-model`, action or `data-sn-transition` on its tag
-  (`SN332`): each points at an element that may not exist.
+  (`SN334`): each points at an element that may not exist.
 - More than one element, or text, at the root is `SN312`.
 
 ## Props

@@ -73,12 +73,12 @@ describe('the tag\'s attributes', () => {
     expect(errors(run('<x-c><em></em><em></em></x-c>', { 'x-c': C }))).toEqual([expect.stringMatching(/^SN312 a component's root renders at most one element; `<x-c>` has 2 elements/)]);
   });
 
-  test('a root that may render nothing takes no id, model, action or transition on its tag: SN332, also through a component tag', () => {
+  test('a root that may render nothing takes no id, model, action or transition on its tag: SN334, also through a component tag', () => {
     const MAYBE = '<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>';
     const OUTER = '<template data-sn-component="{ on?: boolean }"><x-maybe data-sn-prop="{ on }"></x-maybe></template>';
     const page = (a: string) => `<div data-sn-state="{ v: true }"><x-outer ${a} data-sn-prop="{ on: v }"></x-outer></div>`;
     for (const a of ['id="o"', 'data-sn-post="/x"', 'data-sn-transition="fade"']) {
-      expect(errors(run(page(a), { 'x-maybe': MAYBE, 'x-outer': OUTER }))).toContainEqual(expect.stringMatching(/^SN332 `<x-outer>`'s root may render nothing \(through `<x-maybe>`\)/));
+      expect(errors(run(page(a), { 'x-maybe': MAYBE, 'x-outer': OUTER }))).toContainEqual(expect.stringMatching(/^SN334 `<x-outer>`'s root may render nothing \(through `<x-maybe>`\)/));
     }
     expect(errors(run(page('class="c"'), { 'x-maybe': MAYBE, 'x-outer': OUTER }))).toEqual([]);
     // decided to render nothing for this use: nothing is left

@@ -1924,11 +1924,11 @@ class Compiler {
     return this.rootShape((t as P5Template).content.childNodes, name);
   }
 
-  /** `id`, `data-sn-model`, an action or `data-sn-transition` on the tag of a component whose root may render nothing: SN332. */
+  /** `id`, `data-sn-model`, an action or `data-sn-transition` on the tag of a component whose root may render nothing: SN334. */
   emptyRootAttrs(u: Use, name: string) {
     for (const a of u.host.attrs) {
       const bad = a.name === 'id' || a.name === 'data-sn-model' || a.name === 'data-sn-transition' || /^data-sn-(get|post|put|patch|delete|call)$/.test(a.name);
-      if (bad) this.report(u.host, a.name, 'SN332', `\`<${u.name}>\`'s root may render nothing${u.name !== name ? ` (through \`<${name}>\`)` : ''}, so \`${a.name}\` on its tag would point at an element that may not exist`, 0,
+      if (bad) this.report(u.host, a.name, 'SN334', `\`<${u.name}>\`'s root may render nothing${u.name !== name ? ` (through \`<${name}>\`)` : ''}, so \`${a.name}\` on its tag would point at an element that may not exist`, 0,
         'put it inside the component, on an element that is always there, or wrap the tag in an element that carries it');
     }
   }
