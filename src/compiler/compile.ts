@@ -88,6 +88,12 @@ export interface CompileOptions {
   helperValues?: Record<string, unknown> | null;
   /** per helper (`fmt`, `ns$member`), whether its calls may run at build time, and why not (fold-check.ts): for SN322 */
   helperFold?: ReadonlyMap<string, FoldVerdict>;
+  /**
+   * a build: each distinct call that ran at build time and gave plain data (once per page), its arguments and its
+   * result as JSON, which the build runs again in a fresh copy of the helpers module at its end. Without it, each
+   * call runs twice in the page instead
+   */
+  foldLog?: (key: string, args: unknown[], json: string) => void;
   /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
@@ -419,8 +425,19 @@ interface Origin { file: string; src: string; chain: string[]; use?: string; use
  * (a let over `parse()` is evaluated in each pass and by the worklist), the next page starts again.
  */
 const FOLD_MEMO = new WeakMap<object, { file: string; calls: Map<string, { v: unknown } | { what: string }> }>();
-/** JSON that tells apart what plain-data arguments JSON would merge: `undefined`, `NaN`, `-0`, the infinities */
-const exactJson = (_k: string, v: unknown) => (v === undefined ? '\0u' : typeof v === 'number' && (!Number.isFinite(v) || Object.is(v, -0)) ? `\0n${Object.is(v, -0) ? '-0' : v}` : v);
+/**
+ * Plain data as a key, one to one: every value tagged by its kind and strings by their length, so `undefined`,
+ * `NaN`, `-0` and the infinities stay apart and no string can pass for another value
+ */
+export function dataKey(v: unknown): string {
+  if (v === undefined) return 'u';
+  if (v === null) return 'z';
+  if (typeof v === 'boolean') return v ? 't' : 'f';
+  if (typeof v === 'number') return `n${Object.is(v, -0) ? '-0' : String(v)};`;
+  if (typeof v === 'string') return `s${v.length}:${v}`;
+  if (Array.isArray(v)) return `[${v.map(dataKey).join('')}]`;
+  return `{${Object.entries(v as object).map(([k, x]) => `${k.length}:${k}${dataKey(x)}`).join('')}}`;
+}
 
 /** the stylesheet `componentCss` serves for the libraries' layer (`@layer sinter-lib;`): a name no component can have */
 export const LAYERS_SHEET = 'sn-layers';
@@ -6029,7 +6046,7 @@ class Compiler {
         return (...a: unknown[]) => {
           if (!may) { const w = code && !this.foldWhy.has(code) ? why(key) : null; if (w) this.foldWhy.set(code!, w); throw NOT; }
           if (!a.every((x) => plainData(x))) throw NOT;
-          const mk = key + '\0' + JSON.stringify(a, exactJson);
+          const mk = key + '\0' + dataKey(a);
           const hit = memo?.get(mk);
           if (hit) {
             if ('what' in hit) { problem(key, hit.what); throw NOT; }
@@ -6043,9 +6060,10 @@ class Compiler {
             refuse(`threw at build time (${(e as Error)?.message ?? String(e)})`);
           }
           if (!plainData(v)) refuse('returned something that is not plain data (JSON values)');
-          // every build runs it twice: a second result that differs (a counter, the clock through a path the
+          // a build cross-checks each distinct call in a fresh copy of the helpers module, at its end (`foldLog`);
+          // anything else runs it twice here: a second result that differs (a counter, the clock through a path the
           // static check missed) keeps the call in the browser
-          {
+          if (!this.opts.foldLog) {
             let again: unknown;
             try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
             if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) refuse('returned another result when called again with the same arguments: a helper must be pure');
@@ -6053,6 +6071,7 @@ class Compiler {
           api.called = true;
           const out = v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
           memo?.set(mk, { v: out });
+          this.opts.foldLog?.(key, structuredClone(a), JSON.stringify(v));
           return out;
         };
       },

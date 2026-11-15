@@ -238,8 +238,7 @@ function analyze(file: string, code: string): ModuleInfo {
       void at;
       return false;
     }, (spec) => edge({ spec, name: '*' }), name === '<top>' ? undefined : (w, at, how) => {
-      // a function that changes the module's own state (a counter, a table of ids) gives results that depend on the
-      // calls before it: the build shares one module across its pages, each browser page has its own
+      // a function that assigns the module's own binding (a counter) gives results that depend on the calls before it
       if (!isLocal(w) && topNames.get(w) === '<top>') fail(`${how} the module's \`${w}\``, at);
     });
     return u;
@@ -309,18 +308,11 @@ function walkScoped(nodes: N[], scopes: Array<Set<string>>, ref: (n: string, at:
       case 'ImportExpression': bad('`import()`', n.start); break;
       case 'WithStatement': bad('`with`', n.start); break;
       case 'AssignmentExpression': case 'UpdateExpression': {
-        // a binding it assigns (`n++`, `n = …`); not a member (`re.lastIndex = 0` before a scan is how a parser
-        // reuses a regex, and a counter in a member gives another result the second time, which every build checks)
+        // a binding it assigns (`n++`, `n = …`). What it changes inside an object (a table of ids, a counter in a
+        // member, `re.lastIndex = 0` before a scan) is not read here: the build runs its calls again in a fresh copy
+        // of the module, in another order (`crossCheck`), which finds the results that depend on the calls before
         const t: N = n.type === 'AssignmentExpression' ? n.left : n.argument;
         if (t.type === 'Identifier' && write) write(t.name, n.start, 'writing');
-        // an entry of a table it keeps (`ids[s] = …`): what a later call returns depends on earlier calls, even another page's
-        if (t.type === 'MemberExpression' && t.computed && t.object.type === 'Identifier' && write) write(t.object.name, n.start, 'adding to');
-        break;
-      }
-      case 'CallExpression': {
-        // `ids.set(…)`, `seen.add(…)`, `list.push(…)`: the same, through a container's own methods
-        const c = n.callee;
-        if (write && c.type === 'MemberExpression' && !c.computed && c.object.type === 'Identifier' && MUTATORS.has(c.property.name)) write(c.object.name, n.start, 'changing');
         break;
       }
       case 'MemberExpression': {
@@ -429,9 +421,6 @@ function walkScoped(nodes: N[], scopes: Array<Set<string>>, ref: (n: string, at:
 /** globals that may only be the object of a member access (`Math.max`), never a value: through a value, a
  * member the check refuses by name (`random`) can be reached by another name */
 const RESTRICTED = new Set(['Math', 'Reflect']);
-
-/** methods that change a Map, Set or array in place */
-const MUTATORS = new Set(['set', 'add', 'delete', 'clear', 'push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin']);
 
 /** `new Error(…)`, `TypeError(…)`: an expression that constructs an error */
 function isErrorMade(n: N | null | undefined): boolean {
