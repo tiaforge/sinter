@@ -1282,7 +1282,7 @@ Configuration comes only from `configure()` in JavaScript, never from the DOM, s
 - Injection tests: server-rendered markup containing `data-sn-*` attributes, forged `data-sn` ids and forged `data-sn-data` scripts must stay inert.
 - A DOM clobbering corpus (named `form`, `img` and `a` elements shadowing `document` and `window` properties) must not change runtime behaviour.
 - URL tests: absolute and protocol-relative values, `.`/`..` segments and disallowed origins in every URL template position.
-- The whole browser suite also runs with Trusted Types enforced and a strict CSP, and fails on any violation report.
+- The e2e navigation pages run under `script-src 'self'` and fail on any violation report. No test enforces Trusted Types yet.
 
 ### Supply chain and build
 - The runtime has zero dependencies; the compiler's are few, pinned, and reviewed on update.

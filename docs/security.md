@@ -109,8 +109,9 @@ on logout. The page-load cache and next-page data entries (in `sessionStorage`) 
 ## CSP and Trusted Types
 
 Expressions are compiled at build time, so a policy needs no `unsafe-eval`. The core writes no
-HTML, so `require-trusted-types-for 'script'` works without a policy of your own. The browser test
-suite runs with Trusted Types enforced and a strict CSP, and fails on any violation report.
+HTML, so `require-trusted-types-for 'script'` works without a policy of your own. The e2e
+navigation pages run under `script-src 'self'` and fail on any violation report. No test enforces
+Trusted Types yet.
 
 What the build adds to the page and how it fits a strict policy:
 
