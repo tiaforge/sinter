@@ -7,7 +7,7 @@
 // fails to load in Node folds nothing, with one warning (SN533). Beside the module, each helper's
 // verdict from the static check (fold-check.ts): whether its calls may run at build time at all.
 import { relative, sep } from 'node:path';
-import type { ViteDevServer } from 'vite';
+import type { Plugin, ViteDevServer } from 'vite';
 import type { HelperManifest } from './compiler/compile.js';
 import { FoldCache, foldVerdicts, type FoldVerdict } from './fold-check.js';
 
@@ -68,7 +68,7 @@ export async function loadHelpers(o: LoadOptions): Promise<NodeHelpers> {
   }
   // a module runner of its own, with no dev server: the app's `configureServer` hooks never run
   const g = globalThis as Record<symbol, number>;
-  let env: { close(): Promise<void> } | null = null;
+  let env: { close(): Promise<void> } | null = null, css: Plugin | null = null;
   g[LOADING] = (g[LOADING] ?? 0) + 1;
   try {
     const { resolveConfig, createRunnableDevEnvironment } = await import('vite');
@@ -83,6 +83,10 @@ export async function loadHelpers(o: LoadOptions): Promise<NodeHelpers> {
     aliasesOf(config.resolve.alias);
     const e = createRunnableDevEnvironment('ssr', config, { runnerOptions: { hmr: { logger: false } }, hot: false });
     env = e;
+    // Vite's CSS plugin sets itself up at the client's start in a dev server, which there is none of here: a
+    // helper that imports a stylesheet (a component's, a library's) loads as in the app, its CSS an empty module
+    css = config.plugins.find((p) => p.name === 'vite:css') ?? null;
+    await hook(css, 'buildStart');
     await e.init();
     const module = await e.runner.import(o.helpersFile);
     return { module: module as Record<string, unknown>, error: null, ...check() };
@@ -91,7 +95,15 @@ export async function loadHelpers(o: LoadOptions): Promise<NodeHelpers> {
   } finally {
     g[LOADING]!--;
     await env?.close().catch(() => {});
+    await hook(css, 'buildEnd').catch(() => {});
   }
+}
+
+/** a plugin's hook, called on its own (Vite's built-in ones that read nothing of `this` there) */
+async function hook(p: Plugin | null, name: 'buildStart' | 'buildEnd'): Promise<void> {
+  const h = p?.[name] as unknown;
+  const f = (typeof h == 'function' ? h : (h as { handler?: unknown } | undefined)?.handler) as ((...a: unknown[]) => unknown) | undefined;
+  await f?.call({}, {});
 }
 
 /** SN533's message: the helpers module could not be loaded in Node, so nothing folds */

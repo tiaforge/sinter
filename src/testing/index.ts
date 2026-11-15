@@ -378,7 +378,7 @@ export async function firstPaint(html: string, options: Pick<RenderOptions, 'hel
   if (current) { current.destroy(); current = null; }
   const { files, components } = options;
   const helpers = withMessages(options);
-  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), ...(options.lazyHelpers ? { lazyHelpers: options.lazyHelpers } : {}), firstPaint: true });
+  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), ...(options.lazyHelpers ? { lazyHelpers: options.lazyHelpers } : {}), ...(options.messages ? { messages: options.messages } : {}), firstPaint: true });
   writePage(parts.html, options.messages);
   const env = config.env;
   config.env = { ...env, storage: () => options.storage ?? null };
@@ -427,6 +427,8 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
     else if (v && typeof v === 'object') manifest.namespaces[k] = { module: k, members: Object.keys(v) };
   }
   for (const [k, v] of Object.entries(options.lazyHelpers ?? {})) manifest.namespaces[k] = { module: `lazy:${k}`, members: v.members };
+  // the built-in messages are sinter's module, as in a build: not a namespace of the app's (a let never memoizes them)
+  if (options.messages && manifest.namespaces.m) manifest.namespaces.m.module = '@tiaforge-ui/sinter/messages';
   // `sinter render`: where each helper is declared, so the helper modules that reach a lazy package are known (not the built-in messages)
   const real = options.project?.helpers;
   if (real) {
