@@ -238,4 +238,4 @@ test('random handlers over cached lets: every read and the page agree with the l
   } finally { configure({ locale: null }); loc = 'en'; }
   if (process.env.SN_FUZZ_OUT) (await import('node:fs')).writeFileSync(process.env.SN_FUZZ_OUT, failures.join('\n\n'));
   expect(failures).toEqual([]);
-}, 600_000);
+}, Math.max(600_000, SEEDS * DEPTH * 600));
