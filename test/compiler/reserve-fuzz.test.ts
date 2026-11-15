@@ -94,7 +94,7 @@ describe.skipIf(!chromium)('random lists in Chromium: the placeholder is never t
   afterAll(async () => { await browser?.close(); });
 
   const after = async (css: string, body: string, list: string) => {
-    await tab.setContent(page(css, body.replace(/<template id="t">[\s\S]*<\/template>/, `<template></template>${list}`)));
+    await tab.setContent(page(css, body.replace(/<template id="t">[\s\S]*<\/template>/, `<!--sn 1-->${list}<!--/sn-->`)));
     return tab.evaluate(() => document.getElementById('after')!.getBoundingClientRect().top);
   };
 

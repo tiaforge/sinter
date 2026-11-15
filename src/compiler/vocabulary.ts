@@ -27,7 +27,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'for', value: 'item in list | (item, i) in list', doc: 'repeats a <template> per item' },
   { name: 'key', value: 'value expression', doc: 'row identity; defaults to the resource key or object identity' },
   { name: 'if', value: 'value expression', doc: 'renders a <template> while truthy. Same id, same control: when a change swaps the branch the focused element is in, the element with its id in the new branch takes focus (a toggle\'s two buttons: <button id="follow" data-sn-delete=…> and <button id="follow" data-sn-post=…>)' },
-  { name: 'else', value: '', doc: 'on a <template> directly after an if template' },
+  { name: 'else', value: '', doc: 'on a <template> directly after an if template. In the page, a list, a branch and a chosen component render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`), their templates in the head: CSS sees plain children (`li:first-child` is the first row, `ul:empty` an empty list). A comment of yours that is exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` is SN105; `$el` in an if, for or use expression is SN213; keep HTML comments (a minifier that strips them breaks lists)' },
   { name: 'listbox', value: 'id of the suggestion list, or empty', doc: 'on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox] around the input), Enter or Tab clicks it, Escape fires `dismiss`' },
   { name: 'persist', value: 'storage key', doc: 'persists the model or state in localStorage under sn:' },
   { name: 'get', value: 'URL template', doc: 'GET action; latest wins' },

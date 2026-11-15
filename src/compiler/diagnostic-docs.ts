@@ -32,6 +32,16 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'Two-way binding has no meaningful value for this input type.',
     fix: 'Submit the form with a method attribute (`data-sn-post`, …) on it; a form with a file input is sent as `FormData`.',
   },
+  SN105: {
+    example: 'this comment is one of the forms sinter marks lists and branches with (`<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->`, `<!---->`): the page would take it for one',
+    means: 'Every `data-sn-if`, `data-sn-for` and component chosen by data is marked in the page by a pair of comments, `<!--sn 4-->` (`<!--sn-->` in a row) and `<!--/sn-->`, and an empty comment separates text; the runtime and the early script find them by their exact text. An author\'s comment with exactly one of those texts would be taken for one. Any other comment, `<!--snippet-->` or `<!-- sn notes -->` included, is the author\'s.',
+    fix: 'Add a word to the comment, or remove it.',
+  },
+  SN106: {
+    example: 'a `<template data-sn-for>` inside `<textarea>` is text to the HTML parser: it renders nothing',
+    means: 'The content of `<textarea>` and `<title>` is raw text: the browser\'s parser reads no elements or comments there, so a list or branch inside one cannot be marked or rendered.',
+    fix: 'Bind the whole text instead: `data-sn-model` (or `data-sn-attr="{ value: … }"`) on the `<textarea>`, `data-sn-text` on the `<title>`.',
+  },
   SN201: {
     example: '`contcts` is not defined here. Did you mean `contacts`?',
     means: 'An expression uses a name that is not a loop variable, state field, resource, magic name, helper or JavaScript global in this scope.',
@@ -91,6 +101,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: '`$url.filter` holds a string (or a list of strings); an object cannot be written to it. Write the field you mean, such as `$url.filter = x.id`',
     means: 'The URL holds strings: an object, a function or an instance (`{…}`, `() => …`, `new Date()`) written to a `$url` parameter has no form a reload could read back. At run time such a value removes the parameter, with a dev warning.',
     fix: 'Write the string or number you mean (`$url.from = d.toISOString().slice(0, 10)`), or keep the object in state.',
+  },
+  SN213: {
+    example: '`$el` in a `data-sn-if`: the condition is marked by comments in the page, so there is no element to read',
+    means: 'A `data-sn-if`, a `data-sn-for` and the `use` of `<sn-component>` render a variable number of nodes between two comments; they have no element of their own for `$el` to name.',
+    fix: 'Read the element in a binding inside the template (each rendered element has its own `$el`), or decide with state instead of the element.',
   },
   SN301: {
     example: 'resource `mesages` is not declared on this page',

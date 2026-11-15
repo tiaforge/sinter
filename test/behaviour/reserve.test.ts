@@ -12,12 +12,14 @@ const PAGE = (attrs = '', resource = 'paginate="offset" page-size="3"') => `
 const rows = (n: number) => ({ people: Array.from({ length: n }, (_, i) => ({ id: i + 1, name: `P${i + 1}` })) });
 const held = (root: ParentNode) => root.querySelector('ul > .sn-reserve');
 
-test('the placeholder stands after the template until the rows arrive, then the rows are the list\'s only children', async () => {
+test('the placeholder stands after the list\'s anchor until the rows arrive, then the rows are the list\'s only children', async () => {
   const requests = mockRequests({ 'GET /api/people?page=1&limit=3': rows(3) });
   const { root, settle } = await render(PAGE(), { requests, css: CSS });
   expect(held(root)).not.toBeNull();
   expect(held(root)!.getAttribute('aria-hidden')).toBe('true');
-  expect(held(root)!.previousElementSibling!.localName).toBe('template');
+  // the list's anchor is two comments, so the placeholder is the list's only element
+  expect((held(root)!.previousSibling as Comment).data).toBe('/sn');
+  expect(held(root)!.previousElementSibling).toBeNull();
   await settle();
   expect(held(root)).toBeNull();
   expect([...root.querySelectorAll('ul > li')].map((l) => l.textContent)).toEqual(['P1', 'P2', 'P3']);
@@ -106,7 +108,7 @@ test('the build: the placeholder\'s rule in the page\'s first-paint stylesheet, 
     prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/@sinter/paint-css/index.html.css',
   });
   expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
-  expect(out.html).toMatch(/<\/template><li class="sn-reserve snr[a-z0-9]+0" aria-hidden="true" data-sn="\d+"><\/li><\/ul>/);
+  expect(out.html).toMatch(/<!--\/sn--><li class="sn-reserve snr[a-z0-9]+0" aria-hidden="true" data-sn="\d+"><\/li><\/ul>/);
   // one base rule per page, then each list's own height
   expect(out.paint).toMatch(/^\.sn-reserve:not\(#_\) \{ display:block !important;[^}]*\}\n\.sn-reserve\.snr[a-z0-9]+0:not\(#_\) \{ height:60px !important \}\n$/);
   expect(out.module).toContain('import "/@sinter/paint-css/index.html.css";');
@@ -125,10 +127,10 @@ test('what follows a box whose width follows its content stays hidden while the 
   // instead of SN529: the build names the box
   expect(out.diagnostics.filter((d) => d.code === 'SN529')).toEqual([]);
   expect(out.waits).toEqual([expect.objectContaining({ what: 'div.feed', widths: 'at every width', line: 2 })]);
-  // the box gets a class, a hidden marker follows the template; the page module removes the marker for good once the
+  // the box gets a class, a hidden marker follows the list's anchor; the page module removes the marker for good once the
   // resource has rows or no load is running
   const k = /<div class="feed (snw[a-z0-9]+)">/.exec(out.html)![1]!;
-  expect(out.html).toMatch(new RegExp(`</template><i class="${k}m" hidden="" data-sn="\\d+"></i></div><aside>`));
+  expect(out.html).toMatch(new RegExp(`<!--/sn--><i class="${k}m" hidden="" data-sn="\\d+"></i></div><aside>`));
   expect(out.module).toMatch(/\$\.\$r\.people\?\.length \|\| !\$\.\$meta\.people\.loading\) && \$\.\$el\.remove\(\)/);
   // its siblings after it are invisible (laid out, not shown) while the marker is there, for at most 3 s
   expect(out.paint).toContain('@keyframes sn-wait { to { visibility: visible } }');
@@ -240,15 +242,14 @@ test('a `src` that reads another resource: its load may not start at mount, no s
   expect(JSON.stringify(out.unheld ?? out.diagnostics)).toContain('may not start when the page module mounts');
 });
 
-test('the `if` form\'s template stays after the rows: a `:last-child` rule never matches a row; per-row views are each list\'s own', () => {
+test('the `if` form\'s anchor after the rows is comments: a `:last-child` rule matches the last row in both forms; per-row views are each list\'s own', () => {
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS + ' li:last-child { height: 100px }' }], paintCss: '/p.css' };
   const page = (when: string) => compile(`<!doctype html><html><head></head><body>${PAGE('', `paginate="offset" page-size="3" ${when}`)}</body></html>`, opts).paint;
   expect(page('')).toContain('height:140px');
-  expect(page('when="$url.go"')).toContain('height:60px');
-  // two lists, one of each form, on one page
+  expect(page('when="$url.go"')).toContain('height:140px');
+  // two lists, one of each form, on one page: the same rows, the same height
   const two = compile(`<!doctype html><html><head></head><body>${PAGE()}${PAGE('', 'paginate="offset" page-size="3" when="$url.go"').replace(/people/g, 'others')}</body></html>`, opts).paint;
-  expect(two).toContain('height:140px');
-  expect(two).toContain('height:60px');
+  expect(two?.match(/height:140px/g)).toHaveLength(2);
 });
 
 test('rows a component\'s own `<style>` reaches: no space (the build reads the page\'s stylesheets only)', () => {

@@ -474,6 +474,16 @@ interface IncludeRec { el: P5Element; src: string; names: Set<string>; site: Set
  */
 interface Site { el: P5Element; attr: string | null; shift: number; parts?: Array<{ code: string; site: Site | null }> }
 
+/** `<sn-component use>`: its one choice node, and each candidate's case (its definition and props), in order */
+interface ChoiceGroup {
+  node: NodeDef | null;
+  cases: Array<{ name: string; tid: number; props: string; deps: string[] }>;
+  /** `use`, compiled once, and its dev warning for a value outside the candidates */
+  pick: string | null;
+  warn: string;
+  site: Site | null;
+}
+
 interface Ctx {
   scope: Scope;
   list: NodeDef[];
@@ -675,7 +685,15 @@ class Compiler {
   /** components used inside themselves: their tags (recursion points), and the definition each compiles to */
   private readonly points = new WeakMap<P5Element, string>();
   /** `<sn-component use>`: one point per candidate, rendered when `use` is its name; `key`: the value of the data that names it, for narrowing */
-  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; first: boolean; keys?: string[]; hasElse?: boolean }>();
+  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup }>();
+  /** `<sn-component use>`: one choice anchor per use, its candidates gathered as the walk reaches them (`finishChoices`) */
+  private readonly choiceGroups: ChoiceGroup[] = [];
+  /** the `<template>` of each `if`, `for`, `else` and recursion point node, which `anchors()` turns into a pair of comments */
+  private readonly anchorEls = new Map<NodeDef, P5Element>();
+  /** each anchor node's start comment, once `anchors()` placed it */
+  private readonly anchorStart = new Map<NodeDef, P5Node>();
+  /** the head templates `anchors()` made, by template id, placed by `placeTemplates()` */
+  private readonly headTemplates = new Map<number, P5Template>();
   private readonly defs = new Map<string, { tid: number; id: string; use: Use } | null>();
   /** the synthetic tag of a shared definition, whose props are the row's item `rt` */
   private readonly defHosts = new WeakMap<P5Element, { rt: string }>();
@@ -946,6 +964,7 @@ class Compiler {
     const paths = this.pathPatterns(doc);
     this.pathList = paths;
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
+    this.finishChoices();
     this.resolveSources();
     this.reportIncludes();
     // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
@@ -971,7 +990,9 @@ class Compiler {
     for (const el of this.remove) detach(el);
     this.markLowPriority();
     if (this.opts.prerender) { this.prerender(); this.dropConstants(); if (this.collecting()) this.collectConstants(); }
+    this.anchors();
     let early = this.opts.early ? this.earlyParts() : undefined;
+    this.placeTemplates(doc, early);
     if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
     // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
     // toggle and use the generic path walk, which costs no code per template
@@ -1039,7 +1060,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'defs', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -1065,6 +1086,16 @@ class Compiler {
 
   tag(node: P5Node | P5Parent, origin: Origin) {
     this.origins.set(node, origin);
+    // a `<template data-sn-…>` inside `<svg>` or `<math>`: parse5 gives a foreign template its children and no
+    // content; it gets a content fragment, as an HTML template has, and `anchors()` wraps its head template
+    if ((node as P5Element).nodeName === 'template' && !(node as P5Template).content) {
+      const el = node as P5Template, frag = parse5.defaultTreeAdapter.createDocumentFragment();
+      if (el.attrs.some((a) => a.name === 'data-sn-for' || a.name === 'data-sn-if' || a.name === 'data-sn-else')) {
+        for (const c of el.childNodes) { c.parentNode = frag as never; frag.childNodes.push(c as never); }
+        el.childNodes = [];
+      }
+      el.content = frag;
+    }
     if ('childNodes' in node) for (const c of node.childNodes) this.tag(c, origin);
     if ((node as P5Element).nodeName === 'template') this.tag((node as P5Template).content, origin);
   }
@@ -1196,7 +1227,8 @@ class Compiler {
     const loc = el?.sourceCodeLocation;
     if (loc && !inExpr && offset === 0) {
       const a = attr ? loc.attrs?.[attr] : null;
-      const [from, to] = a ? [a.startOffset, a.endOffset] : [loc.startOffset + 1, loc.startOffset + 1 + el!.tagName.length];
+      // an element's tag name; a comment (SN105), the whole comment
+      const [from, to] = a ? [a.startOffset, a.endOffset] : el!.tagName ? [loc.startOffset + 1, loc.startOffset + 1 + el!.tagName.length] : [loc.startOffset, loc.endOffset];
       const start = this.lineCol(origin.src, from);
       const end = this.lineCol(origin.src, to);
       d.span = { line: start.line, col: start.col, endLine: end.line, endCol: end.col };
@@ -1608,11 +1640,12 @@ class Compiler {
     const parent = el.parentNode!;
     const at = parent.childNodes.indexOf(el as never);
     const clones: P5Element[] = [];
+    const group: ChoiceGroup = { node: null, cases: [], pick: null, warn: '', site: null };
     for (const c of cands) {
       const x: P5Element = { ...el, attrs: el.attrs.map((a) => ({ ...a })), childNodes: [], parentNode: parent };
       this.origins.set(x, this.origins.get(el)!);
       this.points.set(x, c.name);
-      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, first: !clones.length, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
       clones.push(x);
     }
     if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);
@@ -2487,19 +2520,33 @@ class Compiler {
     const warn = pick && choice!.first && !choice!.hasElse && this.opts.dev
       ? `if (!${JSON.stringify(choice!.names)}.includes(v) && !(($.$f.$snw ??= new Set()).has(${JSON.stringify(this.position(host))} + v))) { $.$f.$snw.add(${JSON.stringify(this.position(host))} + v); console.warn(${JSON.stringify(`sinter: <sn-component use> at ${this.position(host)} is `)} + JSON.stringify(v) + ${JSON.stringify(`, not one of its components (${choice!.names.join(', ')}): nothing is rendered. Add the component, or a <template data-sn-else> after the element`)}); } `
       : '';
-    const code = pick
-      ? (warn ? `($) => { const v = (${pick.ok ? pick.inner : 'undefined'}); ${warn}return v === ${JSON.stringify(choice!.name)} ? ${props} : []; }`
-        : `($) => ((${pick.ok ? pick.inner : 'undefined'}) === ${JSON.stringify(choice!.name)} ? ${props} : [])`)
-      : `($) => ${props}`;
     const deps = [...new Set([...lets.flatMap((l) => l.deps), ...(pick?.deps ?? [])])].sort();
-    const node: NodeDef = { tag: 'template', p: ctx.stateIdx, b: [this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-prop', shift: 0 }), d: deps, x: def.tid })] };
+    if (choice) {
+      if (choice.first && pick?.usesEl) this.report(host, 'use', 'SN213', '`$el` in `use`: a component chosen by data is marked by comments in the page, so there is no element to read', 0, 'choose with the data alone');
+      // one choice anchor for the whole `<sn-component use>`: each candidate adds its case; the first makes the node
+      const g = choice.group;
+      g.cases.push({ name: choice.name, tid: def.tid, props: props.slice(1, -1), deps });
+      // (removed after the walk: detaching it now would make the walk skip the node after it)
+      if (g.node) { this.remove.push(host); return null; }
+      g.pick = pick!.ok ? pick!.inner : 'undefined';
+      g.warn = warn;
+      g.site = { el: host, attr: 'data-sn-prop', shift: 0 };
+      this.choiceGroups.push(g);
+    }
+    const code = `($) => ${props}`;
+    const node: NodeDef = { tag: 'template', p: ctx.stateIdx, b: [choice
+      ? this.binding({ k: 'ch', d: deps, c: [] })
+      : this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-prop', shift: 0 }), d: deps, x: def.tid })] };
+    if (choice) choice.group.node = node;
     if (ctx.scope.component?.late || this.lateTag(host)) this.lateNodes.add(node);
-    // the tag becomes the empty template the definition is cloned into
+    // the tag becomes an empty template in place, which `anchors()` turns into the anchor's comments:
+    // the anchor instantiates the definition's head template
     const t = host as unknown as P5Template;
     host.tagName = host.nodeName = 'template';
-    host.attrs = [{ name: 'data-sn-def', value: def.id }];
+    host.attrs = [];
     t.content = parse5.defaultTreeAdapter.createDocumentFragment();
     host.childNodes = [];
+    this.anchorEls.set(node, host);
     if (ctx.tid < 0) {
       node.id = this.nextId++;
       setAttr(host, 'data-sn', String(node.id));
@@ -2507,6 +2554,23 @@ class Compiler {
     if (this.opts.dev) (node as NodeDef & { src?: string }).src = this.position(host);
     ctx.list.push(node);
     return null;
+  }
+
+  /**
+   * `<sn-component use>`: each choice node's function, once the walk reached all its candidates. It
+   * evaluates `use` once and returns the case it names with that candidate's props (`[i, props]`), or
+   * null for a value outside the candidates; the anchor instantiates case `i`'s definition.
+   */
+  finishChoices() {
+    for (const g of this.choiceGroups) {
+      const b = g.node!.b[0]!;
+      const cases = g.cases.map((c, i) => `v === ${JSON.stringify(c.name)} ? [${i}, ${c.props}]`).join(' : ');
+      b.f = this.fn(`($) => { const v = (${g.pick}); ${g.warn}return ${cases} : null; }`, g.site);
+      b.c = g.cases.map((c) => c.tid);
+      const d = [...new Set(g.cases.flatMap((c) => c.deps))].sort();
+      if (d.length) b.d = d;
+      if (this.opts.dev) this.devAt(b, [b.f]);
+    }
   }
 
   /** The shared definition of a component used inside itself, compiled on its first such use. */
@@ -2522,7 +2586,7 @@ class Compiler {
     t.key = this.fn('() => 0');
     t.keyFields = null;
     const ad = parse5.defaultTreeAdapter;
-    const tpl = ad.createElement('template', parse5.html.NS.HTML, [{ name: 'id', value: `sn-def-${name}` }]) as P5Template;
+    const tpl = ad.createElement('template', parse5.html.NS.HTML, [{ name: 'id', value: `sn-t-${tid}` }]) as P5Template;
     tpl.content = ad.createDocumentFragment();
     const host = ad.createElement(name, parse5.html.NS.HTML, []);
     ad.appendChild(tpl.content, host);
@@ -2532,13 +2596,12 @@ class Compiler {
     const root = tpl.content.childNodes.find(isElement);
     const use = root ? this.useOf.get(root) : undefined;
     if (!root || !use) { this.defs.set(name, null); return null; }
-    const entry = { tid, id: `sn-def-${name}`, use };
+    const entry = { tid, id: `sn-t-${tid}`, use };
     this.defs.set(name, entry);
-    this.features.add('defs');
     if (!use.props) this.report(use.template, 'data-sn-component', 'SN312', `\`<${name}>\` uses itself, so its props must be a type literal the compiler can list (\`{ comment: Comment }\`), not a named type`, 0);
-    // in the head, so the parser has it before the body: the early script clones it while the body arrives
-    const head = this.head;
-    if (head) ad.appendChild(head, tpl);
+    // a head template like any other (`placeTemplates`): anchors instantiate it, the early script while the body arrives
+    this.headTemplates.set(tid, tpl);
+    if (this.opts.dev) setAttr(tpl, 'data-sn-name', name);
     this.templateAt.set(tid, { el: root, attr: null, shift: 0 });
     this.walkChildren(tpl.content, { scope: { loops: [], states: [] }, list: t.nodes, tid, path: [], stateIdx: -1 });
     return entry;
@@ -2711,7 +2774,14 @@ class Compiler {
       const child = kids[i]!;
       if (!isElement(child)) {
         if (child.nodeName === '#text' && (child as DefaultTreeAdapterMap['textNode']).value.trim() === '') continue;
-        if (child.nodeName === '#comment') continue;
+        if (child.nodeName === '#comment') {
+          // the anchors of lists and branches are comments of exactly these forms: `<!--sn-->` (in a row), `<!--sn 4-->`,
+          // `<!--/sn-->`, and an empty one (a text separator); any other comment is the author's (`<!--snippet-->` too)
+          if (ANCHOR_COMMENT.test((child as DefaultTreeAdapterMap['commentNode']).data)) {
+            this.report(child as unknown as P5Element, null, 'SN105', 'this comment is one of the forms sinter marks lists and branches with (`<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->`, `<!---->`): the page would take it for one', 0, 'add a word to the comment, or remove it');
+          }
+          continue;
+        }
         lastIf = null;
         continue;
       }
@@ -2890,6 +2960,12 @@ class Compiler {
     }
 
     const isTemplate = el.tagName === 'template';
+    // raw text: the parser reads no elements or comments in `<textarea>` and `<title>`, so no anchor can mark a list there
+    if (el.tagName === 'textarea' || el.tagName === 'title') {
+      const text = el.childNodes.map((c) => (c as DefaultTreeAdapterMap['textNode']).value ?? '').join('');
+      const m = /<template\b[^>]*\bdata-sn-(for|if|else|text)\b|<sn-component\b/.exec(text);
+      if (m) this.report(el, null, 'SN106', `${m[1] ? `a \`<template data-sn-${m[1]}>\`` : '`<sn-component>`'} inside \`<${el.tagName}>\` is text to the HTML parser: it renders nothing`, 0, el.tagName === 'title' ? 'bind the whole title: `data-sn-text` on the `<title>`' : 'bind the whole value: `data-sn-model` or `data-sn-attr="{ value: … }"` on the `<textarea>`');
+    }
 
     for (const n of ['for', 'if', 'else'] as const) {
       if (has(n) && !isTemplate) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` must be on a \`<template>\``, 0);
@@ -2932,6 +3008,7 @@ class Compiler {
       const r = this.expr(el, 'data-sn-if', scope, { mode: 'value', cond: true });
       const tid = this.newTemplate();
       const b = this.binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
+      if (r.usesEl) this.report(el, 'data-sn-if', 'SN213', '`$el` in a `data-sn-if`: the condition is marked by comments in the page, so there is no element to read', 0, 'read the element in a binding inside the template, or move the condition onto an element with `data-sn-show`');
       node.b.push(b);
       result = { node, binding: b };
       content = { tid, scope };
@@ -2956,6 +3033,7 @@ class Compiler {
       }
       if (this.opts.dev) (node as NodeDef & { src?: string }).src = this.position(el);
       ctx.list.push(node);
+      if (content) this.anchorEls.set(node, el);
       if (content && isTemplate && has('for')) this.spaceFor(el, node, ctx);
     }
     stripSn(el);
@@ -4107,6 +4185,7 @@ class Compiler {
     }
     // a plain list path changes the rows only through its structure or replaced elements (`#`), not element fields
     const deps = alias && list.deps.length == 1 && list.deps[0] == list.path!.join('.') ? [list.deps[0] + '.#'] : list.deps;
+    if (list.usesEl) this.report(el, 'data-sn-for', 'SN213', '`$el` in a `data-sn-for`: the list is marked by comments in the page, so there is no element to read', 0, 'read the element in a binding inside a row');
     node.b.push(this.binding({ k: 'for', f: this.fn(list.code), d: deps, x: tid, ...usesEl(list) }));
     return { tid, scope: inner };
   }
@@ -5022,6 +5101,120 @@ class Compiler {
   }
 
   /**
+   * Anchors as comments (docs/proposals/component-libraries.md, section 1). Each `if`, `for`, choice and
+   * recursion point's `<template>` becomes a pair of comments in place, `<!--sn 4-->` and `<!--/sn-->` (in
+   * a row, `<!--sn-->`: it is found by its path), and its content a head template `<template id="sn-t-<id>">`
+   * (a shared definition's is already one). An `if`'s `data-sn-else` becomes its `z`, and the else's node
+   * goes. Then each template's markup is normalized as the browser will parse it, and the paths in rows
+   * are counted again from it: an anchor is its start comment.
+   */
+  anchors() {
+    const ad = parse5.defaultTreeAdapter;
+    const listOf = new Map<NodeDef, NodeDef[]>();
+    for (const l of [this.roots, ...this.templates.map((t) => t.nodes)]) for (const n of l) listOf.set(n, l);
+    const gone = new Set<NodeDef>();
+    const head = (tid: number, el: P5Template) => {
+      if (this.headTemplates.has(tid)) return;
+      const tpl = ad.createElement('template', parse5.html.NS.HTML, [{ name: 'id', value: `sn-t-${tid}` }]) as P5Template;
+      const frag = el.content ?? ad.createDocumentFragment(), ns = el.namespaceURI;
+      // foreign content: a template's content is parsed as HTML, so a row inside `<svg>` is written inside an `<svg>`
+      // and made of that element's children (`w`)
+      if (ns === parse5.html.NS.SVG || ns === parse5.html.NS.MATHML) {
+        const wrap = ad.createElement(ns === parse5.html.NS.SVG ? 'svg' : 'math', ns, []);
+        wrap.childNodes = frag.childNodes;
+        for (const c of wrap.childNodes) c.parentNode = wrap;
+        frag.childNodes = [wrap as never];
+        wrap.parentNode = frag as never;
+        this.templates[tid]!.w = 1;
+      }
+      tpl.content = frag;
+      this.headTemplates.set(tid, tpl);
+    };
+    for (const [node, el] of this.anchorEls) {
+      const b = node.b.find((x) => x.k === 'for' || x.k === 'if' || x.k === 'ch');
+      // an else goes with its if; an element that is gone (an error) needs nothing
+      if (!b || !el.parentNode) continue;
+      if (b.k !== 'ch') head(b.x!, el as P5Template);
+      if (b.k === 'if' && b.y !== undefined) {
+        const en = listOf.get(node)![b.y]!, ee = this.anchorEls.get(en), eb = en.b.find((x) => x.k === 'else');
+        if (ee && eb) { head(eb.x!, ee as P5Template); b.z = eb.x!; detach(ee); gone.add(en); }
+        delete b.y;
+      }
+      const parent = el.parentNode as P5Parent, at = parent.childNodes.indexOf(el as never);
+      const start = ad.createCommentNode(node.id !== undefined ? `sn ${node.id}` : 'sn'), end = ad.createCommentNode('/sn');
+      start.parentNode = end.parentNode = parent as never;
+      parent.childNodes.splice(at, 1, start as never, end as never);
+      node.tag = '#';
+      this.anchorStart.set(node, start);
+    }
+    if (gone.size) this.dropNodes(gone);
+    // as the browser parses the markup: adjacent text is one node, empty text none
+    const norm = (p: P5Parent) => {
+      const out: P5Node[] = [];
+      for (const c of p.childNodes as P5Node[]) {
+        if (c.nodeName === '#text') {
+          const t = c as DefaultTreeAdapterMap['textNode'];
+          if (!t.value) continue;
+          const last = out[out.length - 1];
+          if (last?.nodeName === '#text') { (last as DefaultTreeAdapterMap['textNode']).value += t.value; continue; }
+        }
+        out.push(c);
+        if (isElement(c)) norm(c.tagName === 'template' && (c as P5Template).content ? (c as P5Template).content : c);
+      }
+      p.childNodes = out as never;
+    };
+    for (const tpl of this.headTemplates.values()) norm(tpl.content);
+    for (const t of this.templates) {
+      const tpl = this.headTemplates.get(t.id);
+      if (!tpl) continue;
+      const root: P5Parent = t.w ? (tpl.content.childNodes[0] as P5Element) : tpl.content;
+      for (const nd of t.nodes) {
+        const target = (this.anchorStart.get(nd) ?? this.tplEls.get(nd)) as P5Node | undefined;
+        if (!target) continue;
+        const path: number[] = [];
+        for (let n = target as { parentNode: P5Parent | null }; n.parentNode && n !== (root as unknown); n = n.parentNode as unknown as { parentNode: P5Parent | null }) path.unshift(n.parentNode.childNodes.indexOf(n as never));
+        nd.path = path;
+      }
+    }
+  }
+
+  /** Nodes out of their lists (`roots`, a template's), the indexes after them renumbered: `p`, and the roots' resource and stream scopes. */
+  dropNodes(gone: Set<NodeDef>) {
+    const lists = [this.roots, ...this.templates.map((t) => t.nodes)];
+    for (const list of lists) {
+      if (!list.some((n) => gone.has(n))) continue;
+      const at = new Map<number, number>();
+      list.forEach((n, i) => { if (!gone.has(n)) at.set(i, at.size); });
+      const re = (i: number | undefined) => (i === undefined || i < 0 ? i : at.get(i) ?? -1);
+      const kept = list.filter((n) => !gone.has(n));
+      for (const n of kept) if (n.p !== undefined) n.p = re(n.p);
+      if (list === this.roots) {
+        for (const r of this.resources) if (r.scope !== undefined) r.scope = re(r.scope);
+        for (const x of this.syncs) if (x.scope !== undefined) x.scope = re(x.scope);
+      }
+      list.splice(0, list.length, ...kept);
+    }
+  }
+
+  /**
+   * Where each head template goes: those the early file renders last in the `<head>` (after what the browser
+   * fetches and the embedded data: the Vite plugin moves them after the tags it adds, `headTemplatesLast`),
+   * the rest at the end of the `<body>`, where nothing waits for them. In id order.
+   */
+  placeTemplates(doc: P5Parent, early: EarlyParts | null | undefined) {
+    if (!this.headTemplates.size) return;
+    const used = new Set<number>();
+    early?.ir.templates.forEach((t, i) => { if (t) used.add(i); });
+    const head = this.head ?? findHead(doc), body = findBody(doc);
+    for (const [tid, tpl] of [...this.headTemplates].sort(([a], [b]) => a - b)) {
+      const into = used.has(tid) || !body ? head : body;
+      if (!into) continue;
+      tpl.parentNode = into as never;
+      into.childNodes.push(tpl as never);
+    }
+  }
+
+  /**
    * A binding `prerender()` wrote into the HTML that reads nothing (no data, URL or language) but
    * state nothing writes can never change: the page module leaves it out, with its function when
    * nothing else uses it, and its node when nothing else is bound there (`data-sn` too). The roots
@@ -5348,7 +5541,7 @@ class Compiler {
     // `$url.feed ? feed : articles`)
     const statusOnly = (deps: string[]) => embedded.size > 0 || !deps.some((d) => { const r = /^\$r\.([^.]+)/.exec(d); return r && !embedded.has(r[1]!); })
       || deps.some((d) => { const m = /^\$meta\.([^.]+)/.exec(d); return !!m && pre.has(m[1]!); });
-    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for'] : [])].includes(b.k) && !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b)
+    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for', 'ch'] : [])].includes(b.k) && !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b)
       // a let that waits for a lazy helper module is not early
       && !this.fns[b.f]!.includes('$.$z(');
     /**
@@ -5357,7 +5550,7 @@ class Compiler {
      * anything else (state, the URL) is evaluated as before.
      */
     const closedAtMount = (b: Binding) => {
-      if (b.k !== 'if' || b.y !== undefined) return false;
+      if (b.k !== 'if' || b.z !== undefined) return false;
       const names = [...new Set(strs(b.d).map((d) => /^\$(?:r|meta)\.([^.]+)/.exec(d)?.[1]).filter((n): n is string => !!n))];
       // any resource without embedded data: whether it loads at mount does not matter (both are tried), and one with cached
       // rows is the page module's either way
@@ -5370,9 +5563,8 @@ class Compiler {
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
       const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible).filter((b) => !closedAtMount(b))));
-      const elses = new Set(bs.flatMap((b) => b.filter((x) => x.k === 'if' && x.y !== undefined).map((x) => x.y!)));
       const keep = new Map<number, number>();
-      defs.forEach((nd, i) => { if (nd.state !== undefined || bs[i]!.length || elses.has(i)) keep.set(i, keep.size); });
+      defs.forEach((nd, i) => { if (nd.state !== undefined || bs[i]!.length) keep.set(i, keep.size); });
       if (defs === this.roots) rootKeep = keep;
       const out: NodeDef[] = [];
       for (const [i, j] of keep) {
@@ -5389,11 +5581,11 @@ class Compiler {
           const nb: Binding = { k: b.k, f: fn(status(this.fns[b.f!]!)) };
           if (b.n !== undefined) nb.n = b.n;
           if (b.k === 'model') { nb.a = fn(this.fns[b.a!]!); if (b.p !== undefined) nb.p = b.p; }
-          if (b.k === 'if') { nb.x = tpl(b.x!); if (b.y !== undefined) nb.y = keep.get(b.y)!; }
+          if (b.k === 'if') { nb.x = tpl(b.x!); if (b.z !== undefined) nb.z = tpl(b.z); }
           if (b.k === 'for') nb.x = tpl(b.x!);
+          if (b.k === 'ch') nb.c = b.c!.map(tpl);
           o.b.push(nb);
         }
-        if (elses.has(i)) { const e = nd.b.find((x) => x.k === 'else')!; o.b.push({ k: 'else', x: tpl(e.x!) }); }
         out[j] = o;
       }
       return out;
@@ -5401,7 +5593,7 @@ class Compiler {
     const tpl = (x: number) => {
       if (!templates[x]) {
         const t = this.templates[x]!;
-        templates[x] = { nodes: [], ...(t.item ? { item: t.item, index: t.index ?? null } : {}) };
+        templates[x] = { nodes: [], ...(t.item ? { item: t.item, index: t.index ?? null } : {}), ...(t.w ? { w: 1 as const } : {}) };
         templates[x]!.nodes = list(t.nodes);
       }
       return x;
@@ -5614,8 +5806,8 @@ class Compiler {
         // in a box whose width follows its content, only rows of a width of their own (the placeholder takes it)
         if (Number.isInteger(n) && n > 0 && styled.size && inStyled(tpl)) { if (why === '') why = 'a component\'s own `<style>` styles the rows or their container, and the build reads only the page\'s stylesheets'; }
         else if (Number.isInteger(n) && n > 0) {
-          // the `if` form's template stays after the rows: `:last-child` and the like count it
-          space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized, trailing: form === 'if' });
+          // (the `if` form's anchor after the rows is comments: `:last-child` and the like see the rows as the last elements)
+          space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized });
           if (!space && why === '') why = sized && layout.unreserved?.startsWith('the box') ? `the box around it is as wide as its content (${sized.widths}), and the rows have no width of their own (SN529)` : layout.unreserved ?? 'unknown';
         }
       }
@@ -6064,7 +6256,7 @@ const usesEl = (r: ExprResult): Pick<Binding, 'e' | 'i'> => ({ ...(r.usesEl ? { 
 
 function binding(b: Binding): Binding {
   const out: Binding = { k: b.k };
-  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'w', 'p', 'e', 'i', 'ms', 's'] as const) {
+  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'z', 'c', 'w', 'p', 'e', 'i', 'ms', 's'] as const) {
     const v = b[key];
     if (v === undefined || (Array.isArray(v) && v.length === 0 && key !== 'd')) continue;
     (out as unknown as Record<string, unknown>)[key] = v;
@@ -6093,6 +6285,19 @@ function findHead(doc: P5Parent): P5Element | null {
   }
   return null;
 }
+
+function findBody(doc: P5Parent): P5Element | null {
+  for (const c of doc.childNodes) {
+    if (!isElement(c)) continue;
+    if (c.tagName === 'body') return c;
+    const b = findBody(c);
+    if (b) return b;
+  }
+  return null;
+}
+
+/** sinter's anchor comments, exactly: `sn` (in a row), `sn <id>`, `/sn`, and empty (a text separator) */
+const ANCHOR_COMMENT = /^(?:sn(?: \d+)?|\/sn)?$/;
 
 /** `task-ring` → `TaskRing`: the class a component's script exports */
 const pascalName = (name: string) => name.split('-').map((p) => p[0]!.toUpperCase() + p.slice(1)).join('');
@@ -6257,7 +6462,7 @@ function lookup(nodes: NodeDef[]): { decls: string[]; els: string[] } {
   };
   const els = nodes.map((nd) => {
     const x = node(nd.path!);
-    return `${x}?.localName == ${JSON.stringify(nd.tag)} ? ${x} : null`;
+    return nd.tag === '#' ? `${x}?.nodeType == 8 ? ${x} : null` : `${x}?.localName == ${JSON.stringify(nd.tag)} ? ${x} : null`;
   });
   return { decls, els };
 }

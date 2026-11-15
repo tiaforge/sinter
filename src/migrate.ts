@@ -62,7 +62,9 @@ function* urlAttrs(text: string): Generator<{ el: P5Element; name: string; from:
         yield { el, name, from, to: close < 0 ? loc.endOffset : from + close, method };
       }
       stack.push(el);
-      if (el.tagName === 'template') stack.push((el as unknown as { content: P5Parent }).content);
+      // (a `<template>` inside `<svg>` or `<math>` has its children, no content: it is walked as an element)
+      const content = (el as unknown as { content?: P5Parent }).content;
+      if (el.tagName === 'template' && content) stack.push(content);
     }
   }
 }

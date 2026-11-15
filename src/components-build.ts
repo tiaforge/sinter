@@ -61,7 +61,7 @@ export function contractOf(html: string): Contract | null {
       }
       if (c.tagName === 'slot') continue;
       walk(c, cond);
-      if (c.tagName === 'template') walk((c as DefaultTreeAdapterMap['template']).content, cond || attr(c, 'data-sn-for') !== undefined || attr(c, 'data-sn-if') !== undefined || attr(c, 'data-sn-else') !== undefined);
+      if (c.tagName === 'template') walk((c as DefaultTreeAdapterMap['template']).content ?? c, cond || attr(c, 'data-sn-for') !== undefined || attr(c, 'data-sn-if') !== undefined || attr(c, 'data-sn-else') !== undefined);
     }
   };
   if (root) walk({ childNodes: [root] } as unknown as Parent, false);

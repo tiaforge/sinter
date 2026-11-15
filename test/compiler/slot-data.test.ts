@@ -190,8 +190,9 @@ describe('a <slot> inside a fill', () => {
     expect(errors(out)).toEqual([]);
     // each branch of the fill places the default's children, by the default's own chain
     expect((out.html.match(/<h1 class="title">/g) ?? []).length).toBe(1);
-    expect(out.html).toMatch(/<h1 class="title"><template><b><\/b><\/template><template><i><\/i><\/template><\/h1>/);
-    expect(out.html).toMatch(/<h2 class="title"><template><b><\/b><\/template><template><i><\/i><\/template><\/h2>/);
+    // (comment anchors: each branch's inner chain is an anchor pair, its templates beside the others)
+    expect(out.html).toMatch(/<template id="sn-t-\d+"><h1 class="title"><!--sn--><!--\/sn--><\/h1><\/template><template id="sn-t-\d+"><b><\/b><\/template><template id="sn-t-\d+"><i><\/i><\/template>/);
+    expect(out.html).toMatch(/<template id="sn-t-\d+"><h2 class="title"><!--sn--><!--\/sn--><\/h2><\/template><template id="sn-t-\d+"><b><\/b><\/template><template id="sn-t-\d+"><i><\/i><\/template>/);
     expect(out.module).toContain('($) => ($.$s0.n.depth === 1)');
     expect(out.module).toContain('($) => ($.$s0.n.text)');
     // the fill's chain and, in each branch, the default's chain
@@ -250,7 +251,7 @@ describe('a <slot> inside a fill', () => {
     const BARE = `<template data-sn-component="{ node: { url: string; depth: number; text: string } }"><div><x-node data-sn-prop="{ node }"><slot slot="link"></slot></x-node></div></template>`;
     const out = run(`${NODE}<x-bare data-sn-prop="{ node: n }"></x-bare></div>`, { 'x-node': NODE_C, 'x-bare': BARE });
     expect(errors(out)).toEqual([]);
-    expect(body(out)).toMatch(/<div><div> <em data-sn="\d+"><\/em> <template/);
+    expect(body(out)).toMatch(/<div><div> <em data-sn="\d+"><\/em> <!--sn \d+--><!--\/sn--> <\/div>/);
   });
 
   test('a `<slot>` that no component or fill encloses: on a page, in a page\'s slot content', () => {

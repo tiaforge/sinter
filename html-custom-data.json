@@ -232,7 +232,7 @@
     },
     {
       "name": "data-sn-else",
-      "description": "on a <template> directly after an if template"
+      "description": "on a <template> directly after an if template. In the page, a list, a branch and a chosen component render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`), their templates in the head: CSS sees plain children (`li:first-child` is the first row, `ul:empty` an empty list). A comment of yours that is exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` is SN105; `$el` in an if, for or use expression is SN213; keep HTML comments (a minifier that strips them breaks lists)"
     },
     {
       "name": "data-sn-listbox",
