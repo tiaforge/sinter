@@ -117,10 +117,14 @@ Both are pure: over a file they run at build time.
 | | Renders | Root |
 | --- | --- | --- |
 | `<md-doc data-sn-prop="{ doc }">` | the blocks of a document | `<div class="md">` |
-| `<md-inline data-sn-prop="{ doc }">` | one line: each paragraph's content without its `<p>` (a title, a label); other blocks as `<md-doc>` renders them | `<div class="md">` |
+| `<md-inline data-sn-prop="{ doc }">` | one line: the content of the paragraphs and headings, without their elements, separated by a space (a title, a label); other blocks are left out | `<span class="md">` |
 
 - `doc` is optional: with none, the root is empty. Its root is always there, so the tag may carry a
   `class`, attributes and handlers.
+- `<md-inline>` is phrasing content, a `<span>` with only phrasing content inside, so it is valid in
+  a heading, a label, a link or a paragraph: `<h1><md-inline data-sn-prop="{ doc: md.parse(post.title)
+  }"></md-inline></h1>`. Parse a title with the options that fit a line; a list or a code block in it
+  is not rendered.
 - The HTML is what a markdown renderer writes, with no wrapper of its own but one: `<h2 id="md-…">`,
   `<p>`, `<em>`, `<a href title>`, `<pre><code class="language-ts">`, `<ul>`/`<ol start>`, a task's
   `<input type="checkbox" disabled>` in an `<li class="task-list-item">`, `<blockquote>`, `<hr>`, and a
@@ -136,9 +140,10 @@ Both are pure: over a file they run at build time.
 
 ## Slots
 
-Both components declare one slot per kind of node an app is likely to change. A fill changes that
-kind of node wherever it is in the tree, in a list item, a quote or a table cell. Each passes the node
-as `$slot.node`, and a `<slot>` inside the fill is the default element's children:
+`<md-doc>` declares one slot per kind of node an app is likely to change; `<md-inline>` declares the
+ones it can render, `link`, `image` and `inlineCode`. A fill changes that kind of node wherever it is
+in the tree, in a list item, a quote or a table cell. Each passes the node as `$slot.node`, and a
+`<slot>` inside the fill is the default element's children:
 
 | Slot | `$slot.node` | Default |
 | --- | --- | --- |

@@ -46,6 +46,7 @@
   },
   "devDependencies": {
     "@tiaforge-ui/sinter": "file:../..",
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.6",
     "jsdom": "30.1.3",
     "mdast-util-from-markdown": "2.1.0",

@@ -214,8 +214,6 @@ export interface App {
       /** `upsert(c.replies, x)`: `owner` (from `names`) gets its list `field` with `item` in it */
       upsert(res: (n: string) => Resource, names: string[], owner: any, field: string, item: unknown): void;
     };
-    /** shared definitions (defs.ts): an empty `<template data-sn-def>` gets its definition before it is first cloned */
-    defs?: (tpl: HTMLTemplateElement) => void;
     /** cached lets (lets.ts): once per flush round, with what reaches a list of dependencies */
     lets?: (hit: (deps: PathRef[] | undefined) => boolean, round: number) => void;
     /** components with a script (components.ts): a root's `cmp` binding, `v` its class module, props and class name */
@@ -262,6 +260,8 @@ export interface App {
    * in a text field, so a resource URL it changes waits for a pause
    */
   mark(path: number | string, scope?: any, typing?: boolean): void;
+  /** whether writing `writes` in `scope` would reach a dependency of `deps`, as a flush would decide (nothing is marked) */
+  reaches(writes: PathRef[], scope: any, deps: PathRef[] | undefined): boolean;
   flush(): void;
   /**
    * Runs `fn`, a server event's changes: what it marks is rendered before the next frame is painted
@@ -447,7 +447,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element | Comment>();
   /** the head templates, by template id (`<template id="sn-t-<id>">`), found once */
   const tpls: HTMLTemplateElement[] = [];
-  let dirty: Dirty[] = [], cur: Dirty[] = [], scheduled = false, flushing = false, round = 0, destroyed = false;
+  let dirty: Dirty[] = [], cur: Dirty[] = [], scheduled = false, flushing = false, round = 0, probe = 0, destroyed = false;
   /** inside `streamed()`; a flush waits for the next frame */
   let streaming = 0, framed = false;
   /** dirty paths of this round that keystrokes in text fields produced */
@@ -605,6 +605,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     ...templatesOf(b).flatMap((x) => templateDeps(ir.templates[x]!)),
   ]))), others.get(t)!);
 
+  /** a written path, with its `{name}` segments as the writer's scope has them */
+  const dirtyOf = (path: PathRef, s: any): Dirty => {
+    const w = typeof path == 'number' ? path : ps.x[path] ?? -1;
+    return { w, v: w < 0 ? [] : slots(w).map((n) => (s ? '' + s[n] : '{' + n + '}')) };
+  };
   /** Whether a dirty path of the current flush reaches one of `deps`. */
   const hit = (deps: PathRef[] | undefined, s?: any) => {
     for (const n of ids(deps)) if (tR[n] == round && ((!tE[n]!.conds.length && !tC[n]) || each(n, (d, e) => level(e, d, s)))) return true;
@@ -683,9 +688,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     url: (tpl, s) => expand(tpl, s, fns),
     mark(path, s, typing) {
-      const w = typeof path == 'number' ? path : ps.x[path] ?? -1;
-      // the written path's `{name}` segments, as the writer's scope has them
-      const d: Dirty = { w, v: w < 0 ? [] : slots(w).map((n) => (s ? '' + s[n] : '{' + n + '}')) };
+      const d = dirtyOf(path, s);
       dirty.push(d);
       if (typing) typed.add(d);
       if (scheduled || flushing) return;
@@ -693,6 +696,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
         // a frame flush only runs when no microtask flush took these changes first
         if (!framed) { framed = true; env.frame(() => { framed = false; if (!scheduled && dirty.length) app.flush(); }); }
       } else { scheduled = true; env.queueMicrotask(app.flush); }
+    },
+    // a round of its own, below 0 (a flush's rounds count on: unkeyed rows adopted from the early script match
+    // by position until the next one): the index is stamped with it and read once
+    reaches(ws, s, deps) {
+      const r = round;
+      round = --probe;
+      index(ws.map((w) => dirtyOf(w, s)));
+      const h = hit(deps);
+      round = r;
+      return h;
     },
     streamed(fn) {
       streaming++;
@@ -1089,7 +1102,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (t.key == null && !t.keyFields) rb.ad = round;
         return;
       }
-      for (const n of pre.rows.flat()) (n as ChildNode).remove();
+      cut(rb.el, pre.end);
       rb.end = pre.end;
     }
     const t = rb.t!, old = rb.rows!, end = rb.end ?? endFor(rb), tpl = tplOf(t.id), start = rb.el as unknown as Comment;
@@ -1200,7 +1213,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         rb.rows = [instantiate(tplOf(tid), ir.templates[tid]!, Object.create(rb.s), '', null, 0, pre.nodes)];
         return;
       }
-      for (const n of pre.nodes) (n as ChildNode).remove();
+      cut(rb.el, pre.end);
     }
     if (br == rb.br) return;
     const end = rb.end ?? endFor(rb);
@@ -1232,7 +1245,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         rb.rows = [instantiate(tplOf(t.id), t, s, keyOf(t, v![1], s), v![1], 0, pre.nodes)];
         return;
       }
-      for (const n of pre.nodes) (n as ChildNode).remove();
+      cut(rb.el, pre.end);
     }
     if (k + 1 == rb.br) {
       const x = rb.rows![0];
@@ -1272,6 +1285,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return (rb.end = end);
   }
 
+  /** What the early script rendered between an anchor's comments, which the page module does not adopt: all of it, nested anchors' rows and texts too. */
+  function cut(start: Node, end: Node) {
+    while (start.nextSibling && start.nextSibling != end) start.nextSibling.remove();
+  }
+
   /** A head template by template id (`<template id="sn-t-<id>">`), found once. */
   function tplOf(tid: number): HTMLTemplateElement {
     return tpls[tid] ??= doc.getElementById('sn-t-' + tid) as HTMLTemplateElement;
@@ -1286,6 +1304,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const defs = t.nodes, rbs: RB[] = [];
     // A node and what the early script rendered after it: a nested anchor's branch or rows, up to its end comment.
     const extent = (n: Node): Node => ((n as any)[EARLY] ?? (n as any)[EARLY_ROWS])?.end ?? (isStart(n) ? endOf(n) ?? n : n);
+    // one path step: an anchor's start and end are a node each (as the compiler counts them), what is rendered between them none
+    const step = (n: Node): Node | null => { const e = extent(n); return e != n ? e : n.nextSibling; };
     const find = (): Array<Element | null> => {
       // an adopted early row may hold the branches and rows the early script rendered for its nested templates:
       // the compiled lookup counts siblings and would land on those, so it walks the paths and steps over them
@@ -1295,10 +1315,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
       for (let k = 0; k < defs.length; k++) {
         const path = defs[k]!.path!;
         let node: Node | null = first;
-        for (let c = path[0]!; c-- && node;) node = extent(node).nextSibling;
+        for (let c = path[0]!; c-- && node;) node = step(node);
         for (let x = 1; x < path.length && node; x++) {
           node = node.firstChild;
-          for (let c = path[x]!; c-- && node;) node = extent(node).nextSibling;
+          for (let c = path[x]!; c-- && node;) node = step(node);
         }
         els[k] = node && (defs[k]!.tag == '#' ? node.nodeType == 8 : (node as Element).localName == defs[k]!.tag) ? (node as Element) : null;
       }

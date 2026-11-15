@@ -66,7 +66,9 @@ and `structuredClone`, not `Date`, `Intl`, `Math.random`, `fetch`, `window` or `
 - Also refused: `import.meta` in any form (a URL built from it would be the build machine's path),
   `.constructor` and `__proto__`, `Math` or `Reflect` used as a value (`const M = Math`,
   `const { random } = Math`, `Reflect.get(Math, 'random')`; `Math.max(…)` and `Math.PI` are fine), an
-  error's `.stack`, and a function that assigns a module-level variable (`count++`).
+  error's `.stack`, and a function that assigns a module-level variable (`count++`) or changes a module-level `Map`,
+  `Set`, array or object entry (`ids.set(…)`, `table[k] = …`): the build runs every page's calls in
+  one module, each browser page in its own. A cache of that kind keeps the helper in the browser too.
 - **This is a guard against mistakes, not a sandbox.** It reads your code to tell whether a call
   gives the same result in the build as in the browser, and it catches the usual ways that fails.
   Code written to get around it can, and it runs in the build with the build machine's access, as

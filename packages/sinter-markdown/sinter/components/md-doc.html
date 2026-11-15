@@ -6,5 +6,5 @@
   wherever it is in the tree.
 -->
 <template data-sn-component="{ doc?: Root | null; heading: Slot<{ node: Heading }>; link: Slot<{ node: Link }>; image: Slot<{ node: Image }>; code: Slot<{ node: Code }>; inlineCode: Slot<{ node: InlineCode }>; blockquote: Slot<{ node: Blockquote }>; table: Slot<{ node: Table }> }">
-  <div class="md"><template data-sn-for="b in doc ? doc.children : []"><sn-component use="{ paragraph: 'md-paragraph', heading: 'md-heading', thematicBreak: 'md-thematic-break', blockquote: 'md-blockquote', list: 'md-list', code: 'md-code', table: 'md-table', details: 'md-details' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div>
+  <div class="md"><template data-sn-for="b in doc ? doc.children : []"><md-block data-sn-prop="{ node: b }"></md-block></template></div>
 </template>

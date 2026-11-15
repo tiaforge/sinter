@@ -97,7 +97,11 @@ most one element**:
 - A root that may render nothing (a chain without an `else`, `<sn-component use>`, a component tag
   whose own root may) takes no `id`, `data-sn-model`, action or `data-sn-transition` on its tag
   (`SN334`): each points at an element that may not exist.
-- More than one element, or text, at the root is `SN312`.
+- More than one element, or text, at the root is `SN312`. One exception: a `<slot>` at the root
+  given a text fill (`<template slot="link" data-sn-text="…">`, a link rendered as plain text). The
+  root is then one text node and no element: any attribute on the tag other than `data-sn-prop` and
+  `data-sn-early` is `SN334`, since it has nowhere to land. A component's own `<template data-sn-text>`
+  at its root stays `SN312`.
 
 ## Props
 
@@ -406,7 +410,8 @@ around it.
   place. Outside rows it is marked like a branch (`<!--sn 7-->…<!--/sn-->`); in a row, the element
   before it marks it, or an empty comment does.
 - A build-time constant (a literal, state nothing writes, a constant prop, the item of a row unrolled at build time) folds into the HTML as plain text, its marks and binding gone; a text that stays a binding keeps its marks, so the two never merge. A page whose text is all constant ships no JavaScript for it.
-- A fill may be a text: `<template slot="label" data-sn-text="$slot.v"></template>`.
+- A fill may be a text: `<template slot="label" data-sn-text="$slot.v"></template>`, also for a `<slot>` at the component's root (the root is then that text node).
+- A fill may be a component's tag: `<x-pill slot="item" data-sn-prop="{ t: $slot.x.t }">`. Its props and its attributes are compiled in the fill's scope, so they read `$slot`.
 
 ## A component inside itself
 

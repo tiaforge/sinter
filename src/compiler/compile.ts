@@ -414,6 +414,14 @@ const SECRET_AUTOCOMPLETE = /^(cc-|one-time-code$|current-password$|new-password
 /** `use`: the uses this markup is in, by their tags' places (`file:offset<…`): two uses on one line differ; `usedAt`: in a library's file, where the app uses it */
 interface Origin { file: string; src: string; chain: string[]; use?: string; usedAt?: string }
 
+/**
+ * Build-time helper calls of the page being compiled, by the helpers module's values: a page's passes share them
+ * (a let over `parse()` is evaluated in each pass and by the worklist), the next page starts again.
+ */
+const FOLD_MEMO = new WeakMap<object, { file: string; calls: Map<string, { v: unknown } | { what: string }> }>();
+/** JSON that tells apart what plain-data arguments JSON would merge: `undefined`, `NaN`, `-0`, the infinities */
+const exactJson = (_k: string, v: unknown) => (v === undefined ? '\0u' : typeof v === 'number' && (!Number.isFinite(v) || Object.is(v, -0)) ? `\0n${Object.is(v, -0) ? '-0' : v}` : v);
+
 /** the stylesheet `componentCss` serves for the libraries' layer (`@layer sinter-lib;`): a name no component can have */
 export const LAYERS_SHEET = 'sn-layers';
 
@@ -516,7 +524,9 @@ interface Placement {
 type RootShape =
   | { kind: 'el'; el: P5Element; empty: false }
   | { kind: 'chain'; templates: P5Element[]; branches: RootShape[]; empty: boolean }
-  | { kind: 'tag' | 'choice'; el: P5Element; empty: boolean };
+  | { kind: 'tag' | 'choice'; el: P5Element; empty: boolean }
+  /** a text fill (`<template slot data-sn-text>`) of the root `<slot>`: one text node, no element */
+  | { kind: 'text'; el: P5Element; empty: false };
 
 /** The elements a root renders as: each branch's, down to the elements (a component tag is not one). */
 function landingOf(s: RootShape): P5Element[] {
@@ -2043,6 +2053,12 @@ class Compiler {
     const all = [use, ...outer];
     // a root that may render nothing takes no attribute that points at, or depends on, its element
     if (mayBeEmpty(shape)) for (const u of all) this.emptyRootAttrs(u, name);
+    // a text root has no element: an attribute of the tag (or of an outer one passing on to it) has nowhere to land
+    if (shape.kind === 'text') for (const u of all) for (const a of u.host.attrs) {
+      if (a.name === 'slot' || a.name === 'data-sn-prop' || a.name === 'data-sn-early') continue;
+      this.report(u.host, a.name, 'SN334', `\`<${u.name}>\`'s root is a text here (a text fill of the \`<slot>\` at the root${u.name !== name ? ` of \`<${name}>\`` : ''}), so \`${a.name}\` on its tag has no element to land on`, 0,
+        'wrap the tag in an element that carries it, or give a fill that is an element');
+    }
     // the tag's attributes: plain ones move onto the root (onto each branch, onto a component tag that is
     // the root, onto a fill), sinter's are compiled on it in the caller's scope
     for (const a of host.attrs) {
@@ -2124,6 +2140,8 @@ class Compiler {
         const x = this.branchShape(a!, name);
         return typeof x === 'string' ? x : { kind: 'chain', templates: [a!], branches: [x], empty: true };
       }
+      // a caller's text fill of the root `<slot>`: the root renders one text node
+      if (attr(a!, 'data-sn-text') !== undefined && this.slotOf.has(a!)) return { kind: 'text', el: a!, empty: false };
       return `a component's root renders at most one element: a \`<template${attr(a!, 'data-sn-for') !== undefined ? ' data-sn-for' : attr(a!, 'data-sn-text') !== undefined ? ' data-sn-text' : ''}>\` cannot be the root of \`<${name}>\``;
     }
     if (a!.tagName === 'sn-component') return { kind: 'choice', el: a!, empty: true };
@@ -2581,8 +2599,8 @@ class Compiler {
   /**
    * What a placement's default renders, for the `<slot>`s of its fills: one plain element, whose
    * children they place, or an if/else chain of plain elements (the children per branch, as a chain);
-   * null when it renders no element (text, nothing). Anything broader is the component root's
-   * (step 4 of the component-libraries proposal), an error here.
+   * null when it renders no element (text, nothing). Anything broader follows the component root's
+   * rules (rootShape).
    */
   defaultShape(p: Placement): { children: (copy: boolean) => P5Node[] | null; what?: string } | null {
     const top = p.el.childNodes.filter(realNode);
@@ -2881,13 +2899,24 @@ class Compiler {
   }
 
   /** What a component's markup sees when its root is not one plain element: computed once, at the first of its top nodes. */
+  /** The instance path `el` is in: its own, or that of the nearest row of an unrolled loop or instance expanded at build time around it. */
+  instOf(el: P5Node): string {
+    for (let x: P5Node | null = el; x; x = (x as { parentNode: P5Node | null }).parentNode) {
+      const at = isElement(x) ? this.instAt.get(x) ?? this.rowOf.get(x)?.inst : undefined;
+      if (at !== undefined) return at;
+    }
+    return '';
+  }
+
   markupOf(u: Use, at: Scope, inst = ''): Scope {
     // (per instance: the copies of an unrolled row, or of an expanded instance, share the use)
-    if (!inst) return u.markup ??= this.componentScope(u, u.hostSlot?.caller ?? at);
+    // the caller's scope: the slot content's writer's, with `$slot` when the tag is a fill (`at`: where it is placed)
+    const caller = () => (this.fillOf.has(u.host) ? this.tagFill(u, at) : u.hostSlot?.caller ?? at);
+    if (!inst) return u.markup ??= this.componentScope(u, caller());
     let byInst = this.markups.get(u);
     if (!byInst) this.markups.set(u, byInst = new Map());
     let s = byInst.get(inst);
-    if (!s) byInst.set(inst, s = this.componentScope(u, u.hostSlot?.caller ?? at));
+    if (!s) byInst.set(inst, s = this.componentScope(u, caller()));
     return s;
   }
 
@@ -2976,8 +3005,8 @@ class Compiler {
   /**
    * A component used inside itself (through a `data-sn-for` or `data-sn-if` template): one shared
    * definition, a `<template>` in the head, compiled once as a row template whose item is the props.
-   * Each use is an empty `<template data-sn-def>` with a `data-sn-for` over `[props]`; the runtime and
-   * the early script clone the definition into it, so a tree renders at any depth.
+   * Each use is a list anchor over `[props]` (two comments in the page) whose row is that definition;
+   * the runtime and the early script render it from the head, so a tree renders at any depth.
    */
   recursionPoint(host: P5Element, name: string, ctx: Ctx, index: number): null {
     const def = this.definition(name);
@@ -3657,7 +3686,8 @@ class Compiler {
     if (row && ownLoop) ctx = rowLets(ctx);
     // a component whose root is not one plain element: its markup starts here (a chain's template, a
     // fill), or an outer component's whose root this is: their scopes, outer first, each in its caller's
-    for (const u of this.scopeStart.get(el) ?? []) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instAt.get(el) ?? this.rowOf.get(el)?.inst ?? '') };
+    // (its instance: the nearest row or expanded instance it is in, for a chain's branch below a row's top too)
+    for (const u of this.scopeStart.get(el) ?? []) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instOf(el)) };
     // slot content sees the scope of the caller that wrote it
     const slot = this.slotOf.get(el);
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
@@ -3670,7 +3700,8 @@ class Compiler {
     const own = dflt && this.useOf.get(el) && this.origins.get(dflt[0]!.el)?.file === this.origins.get(this.useOf.get(el)!.template)?.file;
     if (dflt && !own) this.fillScope(dflt, ctx.scope, null);
     // a fill of a slot that passes data: its writer's scope and `$slot`, the values its placement passes here
-    const fill = this.fillOf.get(el);
+    // (a component tag that is the fill: its root, whose props and the tag's attributes read `$slot`)
+    const fill = this.fillOf.get(el) ?? (this.useOf.has(el) ? this.fillOf.get(this.useOf.get(el)!.host) : undefined);
     if (fill) ctx = { ...ctx, scope: this.fillScope(fill, ctx.scope, slot ?? null) };
     else if (slot?.caller) ctx = { ...ctx, scope: slot.caller };
     if (row && !ownLoop) ctx = rowLets(ctx);
@@ -4521,6 +4552,12 @@ class Compiler {
     const origin = this.origins.get(el) ?? { file: this.opts.file, src: '', chain: [] };
     const { line, col } = el.sourceCodeLocation ? this.lineCol(origin.src, this.valueOffset(el, attrName) + shift) : { line: 1, col: 1 };
     return { file: origin.file, line, col, chain: origin.chain };
+  }
+
+  /** The caller's scope of a component tag that is a fill of a slot that passes data: with its `$slot` (its props read it). */
+  tagFill(u: Use, scope: Scope): Scope {
+    const f = this.fillOf.get(u.host);
+    return f ? this.fillScope(f, scope, this.slotOf.get(u.host) ?? null) : scope;
   }
 
   /** `sinter check`: the scope of a branch, whose expressions are checked where `cond` holds */
@@ -5496,10 +5533,12 @@ class Compiler {
     let value: unknown;
     if ('error' in where) { this.report(el, 'src', 'SN332', where.error, at); value = null; }
     else {
-      let text: string | null = null;
-      try { text = this.opts.readFile(where.path); } catch { /* reported below */ }
+      let text: string | null = null, outside = false;
+      // the project's readFile refuses a path whose real place (a symlink) is outside the root
+      try { text = this.opts.readFile(where.path); } catch (e) { outside = /outside the project root/.test(String((e as Error)?.message)); }
       this.files.add(where.path);
-      if (text == null) { this.report(el, 'src', 'SN332', `\`${src.trim()}\`: no such file in the project (\`${where.path.slice(normalize(this.opts.root).replace(/\/$/, '').length + 1)}\`)`, at); value = null; }
+      const rel = where.path.slice(normalize(this.opts.root).replace(/\/$/, '').length + 1);
+      if (text == null) { this.report(el, 'src', 'SN332', outside ? `\`${src.trim()}\` is a link to a file outside the project root (\`${rel}\`): a \`file:\` source reads the project's own files` : `\`${src.trim()}\`: no such file in the project (\`${rel}\`)`, at); value = null; }
       else {
         const v = fileValue(text, where.path);
         if ('error' in v) this.report(el, 'src', 'SN332', v.error, at);
@@ -5862,6 +5901,14 @@ class Compiler {
    */
   helperCalls(NOT: Error) {
     const values = this.opts.helperValues, verdicts = this.opts.helperFold;
+    // a page's build-time calls, by helper and arguments: its passes and the worklist evaluate a let again and again
+    let memo: Map<string, { v: unknown } | { what: string }> | null = null;
+    if (values) {
+      const m = FOLD_MEMO.get(values);
+      // (the editor compiles one file again at every edit: what it no longer calls is dropped now and then)
+      if (m?.file === this.opts.file && m.calls.size < 512) memo = m.calls;
+      else FOLD_MEMO.set(values, { file: this.opts.file, calls: (memo = new Map()) });
+    }
     let code: string | null = null;
     const warned = new Set<string>();
     const why = (key: string) => {
@@ -5904,22 +5951,31 @@ class Compiler {
         return (...a: unknown[]) => {
           if (!may) { const w = code && !this.foldWhy.has(code) ? why(key) : null; if (w) this.foldWhy.set(code!, w); throw NOT; }
           if (!a.every((x) => plainData(x))) throw NOT;
+          const mk = key + '\0' + JSON.stringify(a, exactJson);
+          const hit = memo?.get(mk);
+          if (hit) {
+            if ('what' in hit) { problem(key, hit.what); throw NOT; }
+            api.called = true;
+            return hit.v;
+          }
+          const refuse = (what: string): never => { memo?.set(mk, { what }); problem(key, what); throw NOT; };
           let v: unknown;
           try { v = (f as (...x: unknown[]) => unknown)(...a); } catch (e) {
             if (e === NOT) throw NOT;
-            problem(key, `threw at build time (${(e as Error)?.message ?? String(e)})`);
-            throw NOT;
+            refuse(`threw at build time (${(e as Error)?.message ?? String(e)})`);
           }
-          if (!plainData(v)) { problem(key, 'returned something that is not plain data (JSON values)'); throw NOT; }
+          if (!plainData(v)) refuse('returned something that is not plain data (JSON values)');
           // every build runs it twice: a second result that differs (a counter, the clock through a path the
           // static check missed) keeps the call in the browser
           {
             let again: unknown;
             try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
-            if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) { problem(key, 'returned another result when called again with the same arguments: a helper must be pure'); throw NOT; }
+            if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) refuse('returned another result when called again with the same arguments: a helper must be pure');
           }
           api.called = true;
-          return v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
+          const out = v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
+          memo?.set(mk, { v: out });
+          return out;
         };
       },
     };
@@ -6477,6 +6533,8 @@ class Compiler {
           (n as { parentNode: P5Parent }).parentNode = parent;
           if (row && isElement(n) && !this.rowOf.has(n)) this.rowOf.set(n, row);
           if (at !== undefined && isElement(n) && !this.instAt.has(n)) this.instAt.set(n, at);
+          // a fill that was a chain (`<template slot data-sn-if>`): its kept branch is that fill, and reads its `$slot`
+          for (const map of [this.fillOf, this.defaultOf, this.childrenOf]) if (isElement(n) && map.has(c) && !map.has(n)) map.set(n, map.get(c)!);
         }
         this.inheritSlot(c, nodes);
         // a component's root chain, decided: its markup starts at what is left
