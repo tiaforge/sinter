@@ -88,6 +88,7 @@ export const CODES = {
   SN528: 'remote-image',
   SN529: 'content-sized-list',
   SN530: 'unsized-late-image',
+  SN531: 'encoded-body',
 } as const;
 
 export type Code = keyof typeof CODES;
