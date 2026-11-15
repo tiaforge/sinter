@@ -284,3 +284,30 @@ The island moved by 11 % between the runs: read the rows against it. Prose CSS (
 plain HTML: `li:first-child` 63/63, `h2 + p` 25/25, `p + p` 53/53, `tr:nth-child(even)` 18/18,
 `li:nth-child(odd)` 113/113. Left: `.md > * + *` 334/327 (the 7 raw-HTML `<pre>`s) and `:is(p, li) > :first-child`
 368/338 (the text `<span>`s), the spike's own extra elements.
+
+## Again on the integration branch: steps 2, 3, 6 and 10 together
+
+`results/2026-11-15-integration.json`: built against `ccr-ad93e367-x7ugq8` at `945ebb6` (step 2 merged with
+steps 3, 6 and 10 at `7e5db15`), same machine and method. `adopt.mjs` counts the elements the early script
+rendered from embedded data that the page module keeps at takeover (each marked at `DOMContentLoaded`).
+
+| | step 1 | step 2 | integration |
+| --- | ---: | ---: | ---: |
+| LCP, article fetched | 424 ms | 316 ms | 280 ms |
+| after the API, article | 346 ms | 255 ms | 210 ms |
+| `md.parse` calls, article fetched (and their ms) | 4 (182) | 4 (186) | 2 (131) |
+| LCP, article embedded | 1,164 ms | 736 ms | 280 ms |
+| `md.parse` calls, embedded: early + page | 2 + 4 | 2 + 4 | 1 + 1 |
+| elements kept at takeover, embedded article | 1 of 2,831 | 1 of 2,831 | 2,831 of 2,831 |
+| LCP, tree from the API / embedded | 264 / 252 ms | 160 / 136 ms | 168 / 160 ms |
+| LCP, 50 comments fetched / embedded | 200 / 188 ms | 152 / 144 ms | 160 / 132 ms |
+| `md.parse` calls, 50 comments | 100 | 100 | 50 |
+| re-render with the same source | 296 ms, 2 parses | 179 ms, 2 parses | 12 ms, 0 parses, nodes kept |
+| stream: per chunk median / last, parses per chunk | 157 / 336 ms, 2 | 100 / 179 ms, 2 | 76 / 114 ms, 1 |
+| `<template>`s / comments in the article | 25,150 / 24,774 | 0 / 8,218 | 0 / 8,218 |
+| LCP, RealWorld island (the bar) | 188 ms | 168 ms | 172 ms |
+
+Against the island: the fetched article is at 1.6× its LCP (2.3× in step 1), the tree page level with it. The
+prose-CSS selectors are as in step 2 (all as plain HTML but the two spike-made gaps); the rendered HTML still
+equals to-hast's. Takeover keeps the embedded tree, article and comments whole (2,831, 2,831, 646). The early file
+with the parser is 37.9 + 3.6 kB gzip, still over `earlyBudget`.

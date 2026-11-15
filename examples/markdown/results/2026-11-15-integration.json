@@ -1,0 +1,598 @@
+{
+  "bytes": {
+    "plain": {
+      "article.js": {
+        "raw": 17929,
+        "gzip": 2944
+      },
+      "comments.js": {
+        "raw": 18049,
+        "gzip": 2882
+      },
+      "island.js": {
+        "raw": 60229,
+        "gzip": 20472
+      },
+      "lets.js": {
+        "raw": 2129,
+        "gzip": 1116
+      },
+      "md.js": {
+        "raw": 112014,
+        "gzip": 35076
+      },
+      "prefetch.js": {
+        "raw": 38658,
+        "gzip": 15951
+      },
+      "stream.js": {
+        "raw": 17937,
+        "gzip": 2943
+      },
+      "tree.js": {
+        "raw": 17475,
+        "gzip": 2734
+      }
+    },
+    "embed": {
+      "article.js": {
+        "raw": 17936,
+        "gzip": 2949
+      },
+      "article-head.js": {
+        "raw": 130901,
+        "gzip": 37856
+      },
+      "comments.js": {
+        "raw": 18056,
+        "gzip": 2888
+      },
+      "comments-head.js": {
+        "raw": 131009,
+        "gzip": 37868
+      },
+      "island.js": {
+        "raw": 60236,
+        "gzip": 20476
+      },
+      "island-head.js": {
+        "raw": 265,
+        "gzip": 218
+      },
+      "lets.js": {
+        "raw": 2129,
+        "gzip": 1115
+      },
+      "md.js": {
+        "raw": 112014,
+        "gzip": 35076
+      },
+      "prefetch.js": {
+        "raw": 39062,
+        "gzip": 16114
+      },
+      "sinter-head.js": {
+        "raw": 7769,
+        "gzip": 3580
+      },
+      "stream.js": {
+        "raw": 17944,
+        "gzip": 2949
+      },
+      "stream-head.js": {
+        "raw": 130913,
+        "gzip": 37856
+      },
+      "tree.js": {
+        "raw": 17482,
+        "gzip": 2741
+      },
+      "tree-head.js": {
+        "raw": 18867,
+        "gzip": 2792
+      }
+    }
+  },
+  "article": {
+    "markdownBytes": 47542,
+    "treeJsonBytes": 143066,
+    "mdastNodes": 2963,
+    "byType": {
+      "root": 1,
+      "heading": 51,
+      "text": 1461,
+      "paragraph": 368,
+      "delete": 110,
+      "link": 98,
+      "inlineCode": 105,
+      "strong": 114,
+      "list": 63,
+      "listItem": 201,
+      "emphasis": 98,
+      "code": 25,
+      "blockquote": 25,
+      "table": 9,
+      "tableRow": 45,
+      "tableCell": 135,
+      "image": 13,
+      "thematicBreak": 13,
+      "html": 21,
+      "break": 7
+    },
+    "parseNodeMs": 77.8
+  },
+  "comments": {
+    "count": 50,
+    "markdownBytes": 9076
+  },
+  "pages": {
+    "article": {
+      "url": "http://127.0.0.1:4390/article/",
+      "lcp": 280,
+      "fcp": 36,
+      "apiEnd": 19.9,
+      "rendered": 229.6,
+      "renderAfterApi": 209.9,
+      "parseMs": 131.2,
+      "parses": 2,
+      "parsedBytes": 47542,
+      "parsesBy": [
+        {
+          "early": false,
+          "parses": 2,
+          "ms": 125.8
+        }
+      ],
+      "scriptMs": 178.1,
+      "styleLayoutMs": 40.5,
+      "heapMB": 5.9,
+      "dom": {
+        "elements": 2831,
+        "templates": 0,
+        "defsFilled": 0,
+        "defsEmpty": 0,
+        "comments": 8218,
+        "texts": 1612,
+        "emptyTexts": 2,
+        "nodesInsideTemplates": 0,
+        "bindings": 2135
+      },
+      "errors": []
+    },
+    "articleEmbedded": {
+      "url": "http://127.0.0.1:4391/article/",
+      "lcp": 280,
+      "fcp": 280,
+      "apiEnd": null,
+      "rendered": 428.8,
+      "renderAfterApi": null,
+      "parseMs": 258.1,
+      "parses": 2,
+      "parsedBytes": 95084,
+      "parsesBy": [
+        {
+          "early": true,
+          "parses": 1,
+          "ms": 128.4
+        },
+        {
+          "early": false,
+          "parses": 1,
+          "ms": 129.9
+        }
+      ],
+      "scriptMs": 192.3,
+      "styleLayoutMs": 35.6,
+      "heapMB": 6.1,
+      "dom": {
+        "elements": 2831,
+        "templates": 0,
+        "defsFilled": 0,
+        "defsEmpty": 0,
+        "comments": 8218,
+        "texts": 1612,
+        "emptyTexts": 2,
+        "nodesInsideTemplates": 0,
+        "bindings": 2135
+      },
+      "errors": []
+    },
+    "articleEmbeddedEarlyOnly": {
+      "url": "http://127.0.0.1:4391/article/",
+      "lcp": 324,
+      "fcp": 324,
+      "apiEnd": null,
+      "rendered": 241.8,
+      "renderAfterApi": null,
+      "parseMs": 142.1,
+      "parses": 1,
+      "parsedBytes": 47542,
+      "parsesBy": [
+        {
+          "early": true,
+          "parses": 1,
+          "ms": 134
+        }
+      ],
+      "scriptMs": 206.7,
+      "styleLayoutMs": 39.4,
+      "heapMB": 2.7,
+      "dom": {
+        "elements": 2831,
+        "templates": 0,
+        "defsFilled": 0,
+        "defsEmpty": 0,
+        "comments": 8218,
+        "texts": 1612,
+        "emptyTexts": 2,
+        "nodesInsideTemplates": 0,
+        "bindings": 2135
+      },
+      "errors": []
+    },
+    "tree": {
+      "url": "http://127.0.0.1:4390/tree/",
+      "lcp": 168,
+      "fcp": 168,
+      "apiEnd": 18.5,
+      "rendered": 102.9,
+      "renderAfterApi": 82.8,
+      "parseMs": 0,
+      "parses": 0,
+      "parsedBytes": 0,
+      "parsesBy": [
+        {
+          "early": false,
+          "parses": 0,
+          "ms": 0
+        }
+      ],
+      "scriptMs": 54.8,
+      "styleLayoutMs": 34,
+      "heapMB": 4.7,
+      "dom": {
+        "elements": 2831,
+        "templates": 0,
+        "defsFilled": 0,
+        "defsEmpty": 0,
+        "comments": 8218,
+        "texts": 1612,
+        "emptyTexts": 2,
+        "nodesInsideTemplates": 0,
+        "bindings": 2135
+      },
+      "errors": []
+    },
+    "islandMarkedDompurify": {
+      "url": "http://127.0.0.1:4390/island/",
+      "lcp": 172,
+      "fcp": 172,
+      "apiEnd": 18.9,
+      "rendered": 123.7,
+      "renderAfterApi": 104.8,
+      "parseMs": 0,
+      "parses": 0,
+      "parsedBytes": 0,
+      "parsesBy": [],
+      "scriptMs": 8.8,
+      "styleLayoutMs": 26.6,
+      "heapMB": 2.2,
+      "dom": {
+        "elements": 1370,
+        "templates": 0,
+        "defsFilled": 0,
+        "defsEmpty": 0,
+        "comments": 2,
+        "texts": 1605,
+        "emptyTexts": 903,
+        "nodesInsideTemplates": 0,
+        "bindings": 653
+      },
+      "errors": []
+    },
+    "treeEmbedded": {
+      "url": "http://127.0.0.1:4391/tree/",
+      "lcp": 160,
+      "fcp": 160,
+      "apiEnd": null,
+      "rendered": 189.9,
+      "renderAfterApi": null,
+      "parseMs": 0,
+      "parses": 0,
+      "parsedBytes": 0,
+      "parsesBy": [
+        {
+          "early": true,
+          "parses": 0,
+          "ms": 0
+        },
+        {
+          "early": false,
+          "parses": 0,
+          "ms": 0
+        }
+      ],
+      "scriptMs": 71.8,
+      "styleLayoutMs": 34.2,
+      "heapMB": 4.9,
+      "dom": {
+        "elements": 2831,
+        "templates": 0,
+        "defsFilled": 0,
+        "defsEmpty": 0,
+        "comments": 8218,
+        "texts": 1612,
+        "emptyTexts": 2,
+        "nodesInsideTemplates": 0,
+        "bindings": 2135
+      },
+      "errors": []
+    },
+    "comments": {
+      "url": "http://127.0.0.1:4390/comments/",
+      "lcp": 160,
+      "fcp": 160,
+      "apiEnd": 17.8,
+      "rendered": 127.3,
+      "renderAfterApi": 109.5,
+      "parseMs": 52.4,
+      "parses": 50,
+      "parsedBytes": 9076,
+      "parsesBy": [
+        {
+          "early": false,
+          "parses": 50,
+          "ms": 56.7
+        }
+      ],
+      "scriptMs": 75.5,
+      "styleLayoutMs": 15.9,
+      "heapMB": 3.1,
+      "dom": {
+        "elements": 646,
+        "templates": 0,
+        "defsFilled": 0,
+        "defsEmpty": 0,
+        "comments": 1592,
+        "texts": 350,
+        "emptyTexts": 259,
+        "nodesInsideTemplates": 0,
+        "bindings": 412
+      },
+      "errors": []
+    },
+    "commentsEmbedded": {
+      "url": "http://127.0.0.1:4391/comments/",
+      "lcp": 132,
+      "fcp": 132,
+      "apiEnd": null,
+      "rendered": 178.2,
+      "renderAfterApi": null,
+      "parseMs": 87.2,
+      "parses": 100,
+      "parsedBytes": 18152,
+      "parsesBy": [
+        {
+          "early": true,
+          "parses": 50,
+          "ms": 50.4
+        },
+        {
+          "early": false,
+          "parses": 50,
+          "ms": 40.9
+        }
+      ],
+      "scriptMs": 64.2,
+      "styleLayoutMs": 13.2,
+      "heapMB": 3.2,
+      "dom": {
+        "elements": 646,
+        "templates": 0,
+        "defsFilled": 0,
+        "defsEmpty": 0,
+        "comments": 1592,
+        "texts": 350,
+        "emptyTexts": 259,
+        "nodesInsideTemplates": 0,
+        "bindings": 412
+      },
+      "errors": []
+    }
+  },
+  "rerender": {
+    "medianMs": 12.4,
+    "parsesPerRender": 0,
+    "runs": [
+      {
+        "ms": 1.3,
+        "parses": 0,
+        "elements": 2831,
+        "firstParagraphKept": true
+      },
+      {
+        "ms": 2.4,
+        "parses": 0,
+        "elements": 2831,
+        "firstParagraphKept": true
+      },
+      {
+        "ms": 13,
+        "parses": 0,
+        "elements": 2831,
+        "firstParagraphKept": true
+      },
+      {
+        "ms": 12.7,
+        "parses": 0,
+        "elements": 2831,
+        "firstParagraphKept": true
+      },
+      {
+        "ms": 12.4,
+        "parses": 0,
+        "elements": 2831,
+        "firstParagraphKept": true
+      }
+    ]
+  },
+  "stream": {
+    "chunkChars": 2000,
+    "perChunk": [
+      {
+        "ms": 32.7,
+        "parses": 1,
+        "elements": 154,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 25.4,
+        "parses": 1,
+        "elements": 258,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 25.1,
+        "parses": 1,
+        "elements": 363,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 33.8,
+        "parses": 1,
+        "elements": 498,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 35.3,
+        "parses": 1,
+        "elements": 615,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 37,
+        "parses": 1,
+        "elements": 708,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 40.9,
+        "parses": 1,
+        "elements": 866,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 65.1,
+        "parses": 1,
+        "elements": 965,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 57.4,
+        "parses": 1,
+        "elements": 1086,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 59.6,
+        "parses": 1,
+        "elements": 1223,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 56.9,
+        "parses": 1,
+        "elements": 1324,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 90,
+        "parses": 1,
+        "elements": 1422,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 77.3,
+        "parses": 1,
+        "elements": 1581,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 72,
+        "parses": 1,
+        "elements": 1681,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 76.1,
+        "parses": 1,
+        "elements": 1819,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 109.8,
+        "parses": 1,
+        "elements": 1930,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 78,
+        "parses": 1,
+        "elements": 2020,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 84.7,
+        "parses": 1,
+        "elements": 2151,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 109.9,
+        "parses": 1,
+        "elements": 2253,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 94.9,
+        "parses": 1,
+        "elements": 2366,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 106.7,
+        "parses": 1,
+        "elements": 2497,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 123.2,
+        "parses": 1,
+        "elements": 2607,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 106.6,
+        "parses": 1,
+        "elements": 2704,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 113.9,
+        "parses": 1,
+        "elements": 2831,
+        "firstParagraphKept": false
+      }
+    ],
+    "medianMs": 76.1,
+    "lastMs": 113.9,
+    "parsesPerChunk": 1
+  },
+  "walk20k": {
+    "nodes": 20001,
+    "querySelectorAll": 0.2,
+    "treeWalkerElementsAndComments": 0.5,
+    "treeWalkerCommentsOnly": 0.2,
+    "walkCheckingData": 1.3
+  }
+}
