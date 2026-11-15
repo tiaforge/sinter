@@ -166,3 +166,35 @@ test('<sn-component use>: production builds carry no warning code', () => {
   expect(out(true)).toContain('console.warn');
   expect(out(false)).not.toContain('console.warn');
 });
+
+describe('components that reach each other through <sn-component use>', () => {
+  // a small markdown-like tree: a block holds inlines, an inline holds inlines (docs/proposals/component-libraries.md, step 1)
+  const C = {
+    'x-p': `<template data-sn-component="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>`,
+    'x-em': `<template data-sn-component="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></em></template>`,
+    'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  };
+  const DOC = "{ children: [{ type: 'p', children: [{ type: 'text', value: 'a' }, { type: 'em', children: [{ type: 'em', children: [{ type: 'text', value: 'b' }] }] }] }] }";
+  const page = `<div data-sn-state="{ doc: ${DOC} }"><template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div>`;
+  const shape = (root: HTMLElement) => {
+    const p = root.querySelector('p')!.cloneNode(true) as Element;
+    p.querySelectorAll('template').forEach((t) => t.remove());
+    const w = document.createTreeWalker(p, NodeFilter.SHOW_COMMENT), cs: Node[] = [];
+    while (w.nextNode()) cs.push(w.currentNode);
+    cs.forEach((c) => c.parentNode!.removeChild(c));
+    return p.outerHTML.replace(/ data-sn-c="[^"]*"/g, '');
+  };
+
+  test('render at any depth', async () => {
+    const { root } = await render(page, { components: C });
+    expect(shape(root)).toBe('<p><span>a</span><em><em><span>b</span></em></em></p>');
+  });
+
+  test('first paint over embedded data: each definition is written once into the early file, and the tree renders at any depth', async () => {
+    const data = JSON.stringify([{ id: 1, type: 'p', children: [{ type: 'text', value: 'a' }, { type: 'em', children: [{ type: 'em', children: [{ type: 'text', value: 'b' }] }] }] }]);
+    const { root } = await firstPaint(`<!doctype html><html><head><script type="application/json" data-sn-data="blocks">${data}</script></head><body>
+      <sn-resource name="blocks" src="/api/blocks"></sn-resource>
+      <div><template data-sn-for="b in blocks"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div></body></html>`, { components: C });
+    expect(shape(root)).toBe('<p><span>a</span><em><em><span>b</span></em></em></p>');
+  });
+});
