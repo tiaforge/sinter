@@ -97,13 +97,26 @@ export function earlyRender(ir: EarlyIR, fns: string[] = []): EarlyRender {
     return out;
   };
 
-  /** the renderer of a template's branch: `(ns, b) => …` over its cloned nodes and the branch's base scope */
+  /**
+   * the renderer of a template's branch: `(ns, b) => …` over its cloned nodes and the branch's base
+   * scope. A template that reaches itself (shared definitions used inside one another, as
+   * `<sn-component use>` candidates are) is written once into the table `B` and referenced from
+   * there, so it is not inlined without end.
+   */
+  const table = new Map<number, string>(), building = new Set<number>(), cyclic = new Set<number>();
   const branch = (x: number): string => {
     const def = ir.templates[x];
     if (!def || !def.nodes.length) return '0';
+    if (table.has(x)) return `B[${x}]`;
+    if (building.has(x)) return (cyclic.add(x), `B[${x}]`);
+    building.add(x);
     const els = def.nodes.map((nd) => `${use('at')}(ns, ${str(nd.path)}, ${str(nd.tag)})`);
     const sc = scopeOf(def.nodes, 'b');
-    return `(ns, b) => { const n = [${els.join(', ')}]; ${[...sc.lines, ...writeLines(def.nodes, sc.expr)].join(' ')} }`;
+    const code = `(ns, b) => { const n = [${els.join(', ')}]; ${[...sc.lines, ...writeLines(def.nodes, sc.expr)].join(' ')} }`;
+    building.delete(x);
+    if (!cyclic.has(x)) return code;
+    table.set(x, code);
+    return `B[${x}]`;
   };
   const elseOf = (defs: NodeDef[], b: Binding): string => {
     if (b.y == null) return '0';
@@ -116,6 +129,7 @@ export function earlyRender(ir: EarlyIR, fns: string[] = []): EarlyRender {
   const scopes = root.lines.length ? `($) => { ${root.lines.join(' ')} return s; }` : '() => []';
   const ids = ir.roots.map((nd) => nd.id);
   const writes = writeLines(ir.roots, root.expr);
-  const render = writes.length ? `(d, s, $) => { const n = ${use('byId')}(d, ${str(ids)}); ${writes.join(' ')} }` : '() => {}';
+  const B = table.size ? `const B = []; ${[...table].map(([x, f]) => `B[${x}] = ${f};`).join(' ')} ` : '';
+  const render = writes.length ? `(d, s, $) => { ${B}const n = ${use('byId')}(d, ${str(ids)}); ${writes.join(' ')} }` : '() => {}';
   return { scopes, render, uses: [...uses].sort(), owner: root.owner };
 }
