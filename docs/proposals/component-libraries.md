@@ -1203,14 +1203,11 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
   headings get ids from their text, so `md.headings` and the anchors agree; a code block's fill can
   highlight at build time with a helper over the constant code.
 - It is always a package of its own, with its own `package.json`, dependencies, tests and docs,
-  depending on sinter as a peer, never part of the framework's code. Which repository holds it
-  (`packages/` in this one, beside `create`, or its own) is decided at
-  the last step.
-
-## Breaking changes
-
-All of them go into the CHANGELOG under the pre-1.0 policy.
-
+  depending on sinter as a peer, never part of the framework's code. It lives in this repository as
+  `packages/sinter-markdown/`, beside `create` and the server layers (decided with the user), so its
+  CI runs with the framework's and its fixture pages run against the current sinter. It is also the
+  template for building a component library: its layout, its README, its fixture pages and its tests
+  show how a library is written, so they are kept as plain and complete as an example should be.
 - **The DOM shape of every list and branch.** `<template>` elements leave the body: an `if`, a `for`,
   a recursion point and a choice are marked by comments, and their templates are in the head. So:
   - `:first-child`, `:only-child` and `:last-child` now match the first or only row, and
@@ -1471,6 +1468,7 @@ Decided with the user while drafting:
 | Anchors | Comments in place and templates in the head, for every `if`, `for`, recursion point and choice | [1](#1-anchors-as-comments) |
 | Handlers in unrolled trees | A node whose only run-time need is a handler over constants and its own `$el` stays in the unrolled HTML; the rest is plain HTML | [5](#5-constant-trees-are-unrolled) |
 | Where markdown lives | Only in its own package; the framework gains no markdown code, dependency or type, and every step's diff is checked for it | [Goals](#goals) |
+| Where the markdown package lives | `packages/sinter-markdown/` in this repository, as the template for component libraries | [11](#11-the-library) |
 | Web utilities in folded helpers | `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams` and `structuredClone` may fold | [6](#6-helpers-over-constants-run-at-build-time) |
 | The expansion limit | 10,000 copies per page, configurable, `SN536` past it | [5](#5-constant-trees-are-unrolled) |
 
