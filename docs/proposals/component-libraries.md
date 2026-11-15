@@ -18,7 +18,7 @@ there and lands in `main` with the rest.
 | 4, component roots and text nodes | in progress (from the integration branch) | |
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | merged here | see below |
-| 8, helpers over constants and `file:` | in progress (8a: loading, the static check, `file:`; 8b after step 7) | |
+| 8, helpers over constants and `file:` | 8a merged here; 8b (folding) in progress | see below |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -126,6 +126,22 @@ Step 7, as built:
   (its `active` nav class reaches neither), so step 6's extra build time is gone. A class that
   changes a flex or grid sibling's width, and through it an image's `sizes`, does not trigger it,
   as before step 6.
+
+Step 8a, as built (loading, the check, `file:`; nothing folds yet):
+- The helpers module is loaded before the synchronous compile: through the dev server in dev, and
+  through a short-lived Vite server over the app's config (aliases and plugins apply, sinter's own
+  plugin inert) in the build, `sinter check` and the LSP, which reloads the project when a file the
+  check read changes. A build with a helpers module starts that extra server, a few hundred ms.
+  New code `SN533` (a warning, once): the module could not be loaded in Node.
+- What may fold is decided per helper, keyed by its compiled name, with the reason, position and
+  call chain when not. Packages resolve with `production, node, import, module, default`, never
+  `browser`, the same in dev and build; analyses are cached by file, mtime and size. Code a plugin
+  generates cannot be read and does not fold; CommonJS packages never fold; `import.meta.url` is
+  allowed, `import.meta.env` is not.
+- `file:` is recognized before the API lookup, with or without `apis`; `file` is reserved
+  (`SN329`). Its value goes into the head as a JSON `<script>`, not an embed placeholder, so it is
+  in the first frame and not in the embed manifest. New code `SN332` for every `file:` error. A
+  missing file is `SN332` in `sinter check` and the LSP too.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
