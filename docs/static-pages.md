@@ -42,6 +42,22 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
   state, a nested loop that is not constant, an `<sn-component use>` that renders a component, and a
   list over 1,000 items, stay a template that the runtime renders; so does a page's 10,001st row.
 
+## Helpers and files at build time
+
+A helper call over constants runs at build time, and its result is written into the page:
+`data-sn-text="slug(title)"` over a constant `title`, a list `data-sn-for="t in tags(post)"` that
+unrolls, a `data-sn-state` field initialized by a helper. Whether a helper can run there is decided
+from its code: it, and everything it calls and imports, may use only JavaScript's own deterministic
+globals (`Math`, `JSON`, `Array`, `Map`, …), not `Date`, `Intl`, `Math.random`, `fetch`, `window` or
+`process`; each exported function counts on its own. Handlers never run at build time.
+
+- A helper that throws at build time, or returns something that is not plain data (a `Date`, a
+  `Map`, a class), stays in the browser; a dev build warns at the call (`SN534`), and runs each call
+  twice to warn when the results differ: a helper must be pure.
+- `src="file:./intro.txt"` resources ([resources.md](resources.md#files)) are constants too: bindings
+  over them, and helpers called over them, are written into the page, and a file nothing in the
+  browser reads leaves the page. A page whose files and helpers all fold ships no JavaScript.
+
 ## What needs JavaScript
 
 Anything that runs in the browser keeps the runtime on its page:
@@ -49,7 +65,8 @@ Anything that runs in the browser keeps the runtime on its page:
 | On the page | Why |
 | --- | --- |
 | a binding over state a handler, a model or a `then` writes | it changes |
-| a binding over `$url`, `$now`, `$locale`, a helper or a built-in formatter | the browser computes it |
+| a binding over `$url`, `$now`, `$locale` or a built-in formatter | the browser computes it |
+| a binding that calls a helper that cannot run at build time (it reads the clock, the locale, the browser, …) | the browser computes it; `SN322` names the helper and what it reaches |
 | `<sn-resource>`, `<sn-sync>`, an action (`data-sn-post`, `data-sn-call`, …) | it talks to your API |
 | a handler (`data-sn-on-click`, key shortcuts), `data-sn-model`, `data-sn-persist`, `data-sn-listbox` | it reacts to the visitor |
 | a component with a script (`src/components/<name>.ts`) | its script runs |

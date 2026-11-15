@@ -398,9 +398,9 @@ Error, for example:
 
 > about.html must ship no JavaScript (`sinter({ static })`), but `data-sn-on-click` runs in the browser
 
-The page is in `sinter({ static })`, the pages that must ship no JavaScript, but something on it runs in the browser: a binding over state a handler writes, data, `$url`, `$now` or a helper, a handler, an action, a resource or stream, a model, or a component with a script. The error is where that was written, in the page, a component or the layout, once for each.
+The page is in `sinter({ static })`, the pages that must ship no JavaScript, but something on it runs in the browser: a binding over state a handler writes, data, `$url`, `$now` or a helper that cannot run at build time, a handler, an action, a resource or stream, a model, or a component with a script. The error is where that was written, in the page, a component or the layout, once for each. A binding kept in the browser by a helper call says which call and why the helper cannot run at build time: the name outside JavaScript's own deterministic globals it reaches (`Date`, `window`, `fetch`, …), where, and through which functions.
 
-**Fix:** Remove what runs in the browser, or make it a constant (a literal, a prop given as one, state nothing writes). If the page is meant to run it, take the page out of `static` in vite.config.
+**Fix:** Remove what runs in the browser, or make it a constant (a literal, a prop given as one, state nothing writes, a `file:` resource, a helper call over those). For a helper, keep what reads the clock, the locale or the browser out of the functions the page calls at build time (each exported function counts on its own). If the page is meant to run it, take the page out of `static` in vite.config.
 
 ## SN323 needs-site
 
@@ -851,3 +851,13 @@ Warning, for example:
 The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app's Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session.
 
 **Fix:** Move what needs the browser out of the module's top level (into the functions that need it), or into a component script. The page works either way; only build-time folding is lost.
+
+## SN534 helper-not-folded
+
+Warning, for example:
+
+> `fmt.title()` threw at build time (Cannot read properties of undefined), so this call stays in the browser
+
+A helper call over build-time constants (in a binding or a state initializer) runs in the compiler when the helper may fold, and its result is written into the page. This call did not: the helper threw, returned something that is not plain data (JSON values: a `Date`, a `Map`, a class instance, a function), or, in a dev build, which runs each such call twice, returned another result the second time. The call runs in the browser instead, as before. Dev builds only, once per call.
+
+**Fix:** Make the helper return plain data for constant arguments and keep it pure (same arguments, same result, nothing read or changed elsewhere). A helper that cannot is fine in the browser: this is only a warning.

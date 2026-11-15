@@ -31,7 +31,9 @@ disabled shows.
 
 A binding qualifies when it reads only `data-sn-state` fields with a constant initializer, and
 constants. Fields count one by one: in `{ here: '/mail/', at: $now }`, `here` is still constant.
-Helpers, `$locale` and persisted values are not constants (the early script handles those). A
+A helper call over constants is a constant too, when the helper's code can run at build time (it
+uses only JavaScript's own deterministic globals: [static pages](static-pages.md#helpers-and-files-at-build-time)).
+Other helpers, `$locale` and persisted values are not constants (the early script handles those). A
 refused URL or style is left out.
 
 A binding that reads nothing that can change, such as a component's prop given as a literal

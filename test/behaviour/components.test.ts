@@ -162,7 +162,9 @@ describe('data-sn-early="off"', () => {
   const CLOCK = '<template data-sn-component="{ time: string }"><time data-sn-text="time"></time></template>';
   // a helper: not a build-time constant, so only the early script renders it before the page module
   const PAGE = (early: string) => `<div data-sn-state="{ now: label() }"><live-clock data-sn-prop="{ time: now }"${early}></live-clock><b data-sn-text="now"></b></div>`;
-  const helpers = { label: () => '--:--' };
+  // a label only the browser knows (a helper over what it closes over does not run at build time)
+  const clockText = '--:--';
+  const helpers = { label: () => clockText };
 
   test('a use with it is left out of the early script and renders when the page module runs; another use is not', async () => {
     const both = `${PAGE(' data-sn-early="off"')}${PAGE('')}`;

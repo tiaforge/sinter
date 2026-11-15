@@ -15,10 +15,11 @@ there and lands in `main` with the rest.
 | 1, the spike | done (`examples/markdown/` on `ccr-ec5fd4e0-bp4vko`) | see the numbers in the sections |
 | 2, anchors as comments | merged here | see below |
 | 3, slots that pass data | merged here | see below |
-| 4, component roots and text nodes | in progress (from the integration branch) | |
+| 5, tree slots | in progress (from the integration branch) | |
+| 4, component roots and text nodes | merged here | see below |
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | merged here | see below |
-| 8, helpers over constants and `file:` | 8a merged here; 8b (folding) in progress | see below |
+| 8, helpers over constants and `file:` | merged here | see below |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -125,7 +126,8 @@ Step 7, as built:
   pipeline and reserved space, and asks for the second compile only if an answer differs. This
   also fixes `sizes` that were wrong before: a bound class anywhere in a flex row made the layout
   give up on that row (`100vw`), and folding it gives the exact width. RealWorld's pages compile
-  once; the check costs about 40 ms over its 7 pages, against the ~26% a second compile cost.
+  once. The dry run reuses the first pass's reserved space where nothing it read changed (RealWorld's
+  index: 60 → 5 ms), so it costs a few ms per page, against a second compile.
 
 Step 8a, as built (loading, the check, `file:`; nothing folds yet):
 - The helpers module is loaded before the synchronous compile: through the dev server in dev, and
@@ -142,6 +144,43 @@ Step 8a, as built (loading, the check, `file:`; nothing folds yet):
   (`SN329`). Its value goes into the head as a JSON `<script>`, not an embed placeholder, so it is
   in the first frame and not in the embed manifest. New code `SN332` for every `file:` error. A
   missing file is `SN332` in `sinter check` and the LSP too.
+
+Step 8b, as built:
+- Helper calls fold in the evaluator: in bindings, state initializers, and the rows, choices and
+  conditions step 7's worklist evaluates; never in handlers, actions or `then`. Arguments must be
+  plain data and the result is copied and frozen. A throw, a result that is not plain data, or a dev
+  build's second run giving a different result leaves the call to the browser with the new warning
+  `SN534`; an impure call is never baked in.
+- A helper whose modules reach a lazy package never folds, so dev and build agree; neither does a
+  waiting let. `$locale` counts as fixed when helpers are loaded, so namespaces (which were assumed
+  to be messages) can fold; a helper that really reads the locale still cannot.
+- `SN322` on a static page names the call that keeps it from folding and why, with the position
+  of the global it reaches.
+- `file:` values and their `$meta` are constants; a file resource nothing reads at run time is
+  removed with its head script, so a page whose files and helpers all fold can be static.
+- A folded value that the browser still reads is computed again there, as before, rather than
+  written once as embedded data; step 9 handles that for trees that are not unrolled.
+- RealWorld builds to identical HTML before and after: its helpers that read the session
+  (`signedOut()`) are refused by the static check.
+
+Step 4, as built:
+- Measured with step 1's spike, rewritten to use roots and text nodes (17 components instead of 24;
+  run in the same session as the island): the fetched article renders 1,370 elements, as many as
+  the island, with 674 bindings instead of 2,135; LCP 328 → 244 ms against the island's 172–204, so
+  1.2× it instead of 1.9×. What remains is script time (154 ms against 8) and comments: each text
+  run in a dispatched row adds a marker comment, about 1,460 on the article.
+- A text node is not a new kind of node in the IR: its node is the marker before it, with a binding
+  of its own writer, so paths and lookups are unchanged and the element writer on the hot path is
+  untouched. Its slot is an empty comment in all HTML until it has text, so no separators are
+  needed; text over state is not written at build time yet, only literals (step 9 folds constant
+  text runs into plain text).
+- Codes: `SN312` keeps its number for a root that renders more than one element or text, and for a
+  script or root state on a root that is not plain; new `SN333` (invalid text template) and
+  `SN334` (an attribute on the tag of a component whose root may render nothing).
+- On a shared definition, the tag's values and handlers reach the root; a model, an action, a
+  transition or a debounce there is `SN102`. A placement whose default is a component gives no
+  children.
+- The minimal runtime is 15,041 of 15,360 B gzip after steps 2 to 4, 6 to 8 and 10.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)

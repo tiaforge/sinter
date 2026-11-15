@@ -207,14 +207,16 @@ export * as fmt from './format.js';
 - A `data-sn-let` (or a prop) that calls a helper is computed once per scope instance, and again when what it reads changes; a call whose arguments are equal primitives returns its last result ([spec.md](spec.md#derived-names)). So a helper must keep the purity contract: one that reads something else gets no new value at every read.
 - A helper module that reaches a package of `lazy` loads only when a let first needs it ([lazy.md](lazy.md#helpers-that-wait)).
 - The helpers module also runs in Node: the build, the dev server, `sinter check` and the language server
-  load it before compiling, through Vite with your config (aliases and plugins apply), so that calls over
-  values known at build time can run there. Its top-level code runs in Node too: keep what needs the
+  load it before compiling, through Vite with your config (aliases and plugins apply), and a call over
+  values known at build time runs there: its result is written into the page. Its top-level code runs in Node too: keep what needs the
   browser (`window`, `document`) inside the functions that use it. A module that cannot load in Node
   only warns (`SN533`); the page works as before.
 - Whether a helper's calls can run at build time is decided from its code: it, and everything it calls
   and imports, may use only JavaScript's own deterministic globals (`Math`, `JSON`, `Array`, `Map`, …),
   not `Date`, `Intl`, `Math.random`, `toLocale…`, `fetch`, `window` or `process`. Each exported function
-  counts on its own: one date formatter does not stop the others in its module.
+  counts on its own: one date formatter does not stop the others in its module. Its result must be plain
+  data; a call that throws or returns anything else stays in the browser (`SN534` in dev builds, which
+  also run each call twice: a helper that returns another result the second time is not pure).
 - Re-exports follow relative paths only.
 
 ### Built-in formatters
