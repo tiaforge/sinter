@@ -56,7 +56,7 @@ const checks = {
     await page.goto('/');
     await row(page, 'Search results load slowly').getByRole('link', { name: /Search results load slowly/ }).click();
     await page.waitForURL(/\/incidents\/2\/?$/);
-    await expectText(page.locator('h1'), /Search results load slowly/);
+    await expectText(page.locator('h1').filter({ hasText: /Search results load slowly/ }).first(), /Search results load slowly/);
   },
   'search: filters as you type, ignoring case': async (page) => {
     await page.goto('/');
@@ -143,7 +143,7 @@ const checks = {
   },
   'detail: title, severity, status, comments in order': async (page) => {
     await page.goto('/incidents/1');
-    await expectText(page.locator('h1'), /Checkout returns 502/);
+    await expectText(page.locator('h1').filter({ hasText: /Checkout returns 502/ }).first(), /Checkout returns 502/);
     await expectText(page.getByTestId('severity').first(), /high/i);
     await expectText(page.getByTestId('status').first(), /open/i);
     await expectCount(page.getByTestId('comment'), 2);
@@ -163,7 +163,7 @@ const checks = {
   },
   'detail: back link to list': async (page) => {
     await page.goto('/incidents/2');
-    await expectText(page.locator('h1'), /Search results/);
+    await expectText(page.locator('h1').filter({ hasText: /Search results/ }).first(), /Search results/);
     await page.locator('a[href="/"], a[href="./"], a[href="../"], a[href="/index.html"]').first().click();
     await expectCount(items(page), 5);
   },

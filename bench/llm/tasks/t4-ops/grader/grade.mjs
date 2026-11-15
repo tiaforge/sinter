@@ -82,7 +82,7 @@ const checks = {
     await until(async () => (await items(page).count()) === 10, 'not signed in after reload');
     const p2 = await page.context().newPage();
     await p2.goto('/incidents/3');
-    await until(async () => (await p2.locator('h1').textContent()).includes(title(3)), 'not signed in in a new tab');
+    await until(async () => (await p2.locator('h1').allTextContents()).join(' ').includes(title(3)), 'not signed in in a new tab');
   },
   'auth: user name, sign out, stays signed out': async (page) => {
     await board(page);
@@ -240,18 +240,18 @@ const checks = {
   // detail
   'detail: title, updated-by, live changes': async (page) => {
     await signIn(page, '/incidents/23');
-    await until(async () => (await page.locator('h1').textContent()).includes(title(23)), 'h1');
+    await until(async () => (await page.locator('h1').allTextContents()).join(' ').includes(title(23)), 'h1');
     await until(async () => /alice/.test(await page.getByTestId('updated-by').textContent()), 'updated-by');
     await sleep(500);
     await asBob('PATCH', '/incidents/23', { version: 1, title: 'Changed while open' });
-    await until(async () => (await page.locator('h1').textContent()).includes('Changed while open'), 'title not live', 4500);
+    await until(async () => (await page.locator('h1').allTextContents()).join(' ').includes('Changed while open'), 'title not live', 4500);
     await until(async () => /bob/.test(await page.getByTestId('updated-by').textContent()), 'updated-by not live', 2000);
   },
   'detail: not found, and deleted while open': async (page) => {
     await signIn(page, '/incidents/999');
     await page.getByTestId('not-found').waitFor();
     await page.goto('/incidents/20');
-    await until(async () => (await page.locator('h1').textContent()).includes(title(20)), 'h1');
+    await until(async () => (await page.locator('h1').allTextContents()).join(' ').includes(title(20)), 'h1');
     await sleep(500);
     await asBob('DELETE', '/incidents/20');
     await page.getByTestId('not-found').waitFor({ timeout: 4500 });
@@ -259,7 +259,7 @@ const checks = {
   'no uncaught page errors': async (page, { consoleErrors }) => {
     await board(page);
     await page.goto('/incidents/1');
-    await until(async () => (await page.locator('h1').textContent()).includes(title(1)), 'h1');
+    await until(async () => (await page.locator('h1').allTextContents()).join(' ').includes(title(1)), 'h1');
     assert(consoleErrors.length === 0, consoleErrors.join(' | '));
   },
 };

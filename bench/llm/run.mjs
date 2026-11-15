@@ -120,6 +120,7 @@ async function agent(job, slot) {
     p.on('close', (code) => { clearTimeout(timer); try { process.kill(-p.pid, 'SIGKILL'); } catch {} resolve({ code, stdout: Buffer.concat(chunks).toString(), stderr: err }); });
   });
   writeFileSync(join(dir, 'transcript.jsonl'), res.stdout);
+  rmSync(join(dir, 'npm-cache'), { recursive: true, force: true }); // 200–300 MB a run; the workspace keeps its node_modules
   await killPorts([PORT, API_PORT]); // anything the agent left on its ports (its process group is killed above)
   const meta = { ...job, slot, PORT, API_PORT, condition: a.condition, parallelSlots: Number(a.slots), // Lighthouse beside other runs: compare its timings with care
     registry: a.registry ?? null, note: a.note ?? null, exit: res.code, seconds: Math.round((Date.now() - t0) / 1000), stderr: res.stderr.slice(-2000), ...transcriptStats(res.stdout) };
@@ -168,6 +169,7 @@ async function grade(job, r) {
   const g = await run('unshare', ['--pid', '--fork', '--mount-proc', 'node', join(here, TASKS[job.task].dir, 'grader/grade.mjs'), r.ws], { env: { PREVIEW_PORT: String(r.PORT), API_PORT: String(r.API_PORT), npm_config_cache: join(r.dir, 'npm-cache-grade') }, timeout: 900_000 });
   let grade; try { grade = JSON.parse(g.out.slice(g.out.indexOf('{'))); } catch { grade = { error: g.out.slice(-2000), passed: 0, total: null, checks: [] }; }
   writeFileSync(join(r.dir, 'grade.json'), JSON.stringify(grade, null, 2));
+  rmSync(join(r.dir, 'npm-cache-grade'), { recursive: true, force: true });
   await killPorts([r.PORT, r.API_PORT]);
   return grade;
 }
