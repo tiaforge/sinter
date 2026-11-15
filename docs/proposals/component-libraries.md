@@ -1128,9 +1128,10 @@ Steps 2, 3, 6 and 10 do not depend on each other.
 
 None is left for the maintainer. Measured, then decided:
 
-- Handing cached lets from the early script to the page module, if the
-  parser fits the early file at all (step 1); the expansion limit's value (step 9); the cost of fills
-  read through the scope chain (step 5).
+- Handing cached lets from the early script to the page module, if the parser fits the early file
+  at all (step 1).
+- The cost of fills read through the scope chain (step 5).
+- The expansion limit's value (step 9).
 
 ## Decisions
 
