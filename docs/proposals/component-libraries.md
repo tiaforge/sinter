@@ -15,8 +15,10 @@ there and lands in `main` with the rest.
 | 1, the spike | done (`examples/markdown/` on `ccr-ec5fd4e0-bp4vko`) | see the numbers in the sections |
 | 2, anchors as comments | merged here | see below |
 | 3, slots that pass data | merged here | see below |
+| 4, component roots and text nodes | in progress (from the integration branch) | |
 | 6, the constant pre-pass | merged here | see below |
-| 7, nested loops and the worklist | in progress (from the integration branch) | the worklist runs in the first compile; a page still compiles at most twice |
+| 7, nested loops and the worklist | merged here | see below |
+| 8, helpers over constants and `file:` | 8a merged here; 8b (folding) in progress | see below |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -89,6 +91,57 @@ Step 2, as built (2a to 2d landed together; the history was kept):
   the LSP and `migrate` are fixed too.
 - New codes: `SN105` (a reserved comment), `SN106` (an anchor in raw text), `SN213` (`$el` of an
   anchor), and dev warning 31 (an anchor without its end).
+
+Steps 2, 3, 6 and 10 together, measured with step 1's spike (`results/2026-11-15-integration.json`
+on `ccr-ec5fd4e0-bp4vko`; step 1 → integration):
+- The article fetched: LCP 424 → 280 ms, 346 → 210 ms from the response to the rendered article,
+  4 → 2 parses. With embedded data: LCP 1,164 → 280 ms, 2+4 → 1+1 parses, and all 2,831 early
+  elements kept at takeover. The tree from the API: LCP 264 → 168 ms.
+- A re-render with the same source: 296 → 12 ms, no parse, every node kept. A stream: 157 → 76 ms
+  per chunk (median), one parse per chunk.
+- 0 templates and 2.8 comments per node, against 8.5 and 8.4; every prose-CSS selector measured
+  matches as in plain HTML.
+- Against the RealWorld island (172 ms on that run): the fetched article is at 1.6× (2.3× at step
+  1) and the tree from the API is level with it. Step 4 removes the spike's text `<span>`s and its
+  component per heading level, and measures again.
+
+Step 7, as built:
+- The worklist runs in the first compile's evaluator and pass 2 applies it in one top-down
+  traversal (`expandConstants`, which replaces the separate deciding and unrolling). A page compiles
+  at most twice at any depth, in the build and in the LSP. Nested lists 5 levels deep (1,364 rows)
+  compile in 76 ms; before, levels beyond the first were not unrolled at all, and a static page with
+  them failed with `SN322`. The examples' output is byte-identical and their compile times level.
+- Rows take their item as a literal of the value the first pass computed, not `(list)[k]`:
+  inlining the list into every row was quadratic (10 × 300 rows: 1.4 s → 0.19 s).
+- Decisions are per use, keyed by instance path (the loop, row index and use at each level), so two
+  uses on one line are told apart, and uses that disagree are each decided on their own.
+- A choice whose row renders a candidate keeps its loop a template until shared definitions expand
+  (step 9); elsewhere unrendered candidates are dropped.
+- A provisional page cap of 10,000 rows in all, silent; step 9 sets the limit and its warning.
+- On step 2's choice node, the worklist reads which case a use renders; unrendered cases are
+  dropped before the walk, so a decided choice anchor keeps only its case.
+- Whether a folded class or style needs the second compile is measured, not guessed: the first
+  compile applies the folds to a copy of the page, recomputes only what the layout tells the image
+  pipeline and reserved space, and asks for the second compile only if an answer differs. This
+  also fixes `sizes` that were wrong before: a bound class anywhere in a flex row made the layout
+  give up on that row (`100vw`), and folding it gives the exact width. RealWorld's pages compile
+  once; the check costs about 40 ms over its 7 pages, against the ~26% a second compile cost.
+
+Step 8a, as built (loading, the check, `file:`; nothing folds yet):
+- The helpers module is loaded before the synchronous compile: through the dev server in dev, and
+  through a short-lived Vite server over the app's config (aliases and plugins apply, sinter's own
+  plugin inert) in the build, `sinter check` and the LSP, which reloads the project when a file the
+  check read changes. A build with a helpers module starts that extra server, a few hundred ms.
+  New code `SN533` (a warning, once): the module could not be loaded in Node.
+- What may fold is decided per helper, keyed by its compiled name, with the reason, position and
+  call chain when not. Packages resolve with `production, node, import, module, default`, never
+  `browser`, the same in dev and build; analyses are cached by file, mtime and size. Code a plugin
+  generates cannot be read and does not fold; CommonJS packages never fold; `import.meta.url` is
+  allowed, `import.meta.env` is not.
+- `file:` is recognized before the API lookup, with or without `apis`; `file` is reserved
+  (`SN329`). Its value goes into the head as a JSON `<script>`, not an embed placeholder, so it is
+  in the first frame and not in the embed manifest. New code `SN332` for every `file:` error. A
+  missing file is `SN332` in `sinter check` and the LSP too.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)

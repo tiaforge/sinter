@@ -1628,12 +1628,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
         had = true;
         l.pager?.reset(0);
         const v = store(data!.v, request(url));
-        r.meta.loadedAt = env.now();
+        // a `file:` resource: a constant read at build time, never loaded (`loadedAt` null)
+        if (!def.fx) r.meta.loadedAt = env.now();
         l.done(v);
         l.settle(true);
       },
       /** `src` or `when` may have changed: reload from the first page if the URL differs. From typing: once the typing pauses. */
       changed(soft?: boolean) {
+        if (def.fx) return;
         if (typing != null) { env.clearTimeout(typing); typing = null; app.busy--; }
         if (soft) { app.busy++; typing = env.setTimeout(() => { typing = null; app.busy--; l.changed(); }, TYPING, 'debounce'); return; }
         const u = resolve();
@@ -1651,6 +1653,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       },
       /** Repeats the current request; several calls in one task share one request (quiet only if every call was). */
       refetch: (_hint, quiet) => {
+        if (def.fx) return Promise.resolve();
         if (!quiet) loud = true;
         return (again ??= Promise.resolve().then(() => { again = null; const q = !loud; loud = false; return l.load(undefined, q); }));
       },

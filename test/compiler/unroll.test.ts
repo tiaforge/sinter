@@ -44,7 +44,7 @@ describe('loops over constants', () => {
     expect(bodyOf(out.html)).toBe('<dl><dt class="k">a</dt><dd>= <span>1</span></dd><dt class="k">b</dt><dd>= <span>2</span></dd></dl>');
   });
 
-  test('stays a template: a list or a row that can change, a handler, a model, state or a nested template in a row', () => {
+  test('stays a template: a list or a row that can change, a handler, a model, state or a nested template that is not constant', () => {
     const kept = (body: string) => irOf(build(body).module).templates.length;
     // the list is written
     expect(kept('<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs" data-sn-key="x"><b data-sn-text="x"></b></template><button data-sn-on-click="xs = [2]"></button></div>')).toBe(1);
@@ -53,7 +53,8 @@ describe('loops over constants', () => {
     // a row with a handler, a model, a state, a nested loop
     expect(kept('<div data-sn-state="{ s: 0 }"><template data-sn-for="x in [1, 2]" data-sn-key="x"><button data-sn-on-click="s = x"></button></template><b data-sn-text="s"></b></div>')).toBe(1);
     expect(kept('<template data-sn-for="x in [{ v: 1 }]"><div data-sn-state="{ o: 1 }"><b data-sn-text="o"></b></div></template>')).toBe(1);
-    expect(kept('<template data-sn-for="x in [[1]]"><ul><template data-sn-for="y in x" data-sn-key="y"><li data-sn-text="y"></li></template></ul></template>')).toBe(2);
+    // a nested loop that is not over constants (a nested constant one is unrolled too: below)
+    expect(kept('<sn-resource name="r" src="/api/r"></sn-resource><template data-sn-for="x in [1]"><ul><template data-sn-for="y in r" data-sn-key="y"><li data-sn-text="y"></li></template></ul></template>')).toBe(2);
     // a list from a helper, the clock or data
     expect(kept('<template data-sn-for="x in fmt()" data-sn-key="x"><b data-sn-text="x"></b></template>')).toBe(1);
     expect(kept('<sn-resource name="xs" src="/api/xs"></sn-resource><template data-sn-for="x in xs" data-sn-key="x"><b data-sn-text="x"></b></template>')).toBe(1);

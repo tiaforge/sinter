@@ -42,7 +42,10 @@ The same holds inside templates: such a binding is written into the template's m
 row or branch is cloned with it. And a `data-sn-if` over state nothing writes is decided at build
 time: its branch (or its `data-sn-else`) is page markup, written and painted like the rest. A
 `data-sn-for` over a constant list (a literal, a prop given as one, state nothing writes) whose rows read
-only the item, its index and constants is unrolled at build time: its rows are page markup too.
+only the item, its index and constants is unrolled at build time: its rows are page markup too. This
+goes on at any depth: a loop in a row over the row's item is unrolled the same way, a `data-sn-if` in a
+row is decided per row, and an `<sn-component use>` keeps only the component each row or use renders.
+A component's templates are decided per use.
 
 Such bindings on an `<img>`, and constant classes and styles, are written before the build
 optimizes images and computes the layout, so a constant image is optimized like one you wrote

@@ -88,6 +88,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN334', '<div data-sn-state="{ v: true }"><x-maybe id="m" data-sn-prop="{ on: v }"></x-maybe></div>', /`<x-maybe>`'s root may render nothing, so `id` on its tag would point at an element that may not exist/],
   ['SN333', '<div data-sn-state="{ v: 1 }"><template data-sn-text="v" data-sn-if="v"></template></div>', /`data-sn-text` and `data-sn-if` on one `<template>`/],
   ['SN331', '<div><slot></slot></div>', /this `<slot>` is not in a component or a fill, so nothing fills it/],
+  ['SN332', '<button data-sn-post="file:./post.txt"></button>', /`file:` is a source for `<sn-resource src>`/],
   ['SN532', '<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs"><p id="row" data-sn-text="x"></p></template></div>', /`id="row"` is in markup that renders more than once \(a `data-sn-for` row\)/],
   ['SN531', '<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/login" data-sn-body="JSON.stringify({ username: u })"></button></div>', /`data-sn-body` is already JSON text \(`JSON\.stringify\(…\)`\): sinter encodes the body, so the server would get a JSON string, not the object/],
   ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/, { checkCycles: true }],
@@ -113,8 +114,8 @@ const LAZY_ONLY = ['SN324', 'SN325'];
 const APIS_ONLY = ['SN326', 'SN327', 'SN328', 'SN329', 'SN330', 'SN518'];
 /** Codes that need the page's stylesheets (the adapter reads them). Fixtures in test/behaviour/reserve.test.ts. */
 const STYLES_ONLY = ['SN529', 'SN530'];
-/** Warnings of the Vite plugin, with no page position (`formatWarning`): SN521 in test/vite/page-urls.test.ts, SN523 in test/vite/build.test.ts. */
-const BUILD_ONLY = ['SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527', 'SN528'];
+/** Warnings of the Vite plugin, with no page position (`formatWarning`): SN521 in test/vite/page-urls.test.ts, SN523 in test/vite/build.test.ts, SN533 in test/vite/helpers-node.test.ts. */
+const BUILD_ONLY = ['SN533', 'SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527', 'SN528'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {

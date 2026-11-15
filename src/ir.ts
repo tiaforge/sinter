@@ -87,6 +87,8 @@ export interface ResourceDef {
   body?: number;
   /** page module only (`compactIR`): a server-event stream of the page feeds it (an event names it): `$meta.live`, and its stream keeps it current */
   fed?: 1;
+  /** a `file:` resource: its value is the page's embedded data (`data`), read at build time; it never loads or changes */
+  fx?: 1;
 }
 
 export interface EventDef {
@@ -373,6 +375,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     if (names.has(r.name)) errs.push(`${at}: duplicate name ${r.name}`);
     names.add(r.name);
     if (r.call) { fn(r.call.args, `${at}.call.args`, false); fn(r.call.run, `${at}.call.run`, false); if (r.src.length) errs.push(`${at}: a call resource has no src`); }
+    else if (r.fx) { if (r.src.length || r.data == null) errs.push(`${at}: a file resource has no src, and embedded data`); }
     else url(r.src, `${at}.src`);
     fn(r.when, `${at}.when`); fn(r.then, `${at}.then`);
     for (const d of [...(r.w ?? []), ...(r.deps ?? [])]) if (bad(d)) errs.push(`${at}: bad path`);

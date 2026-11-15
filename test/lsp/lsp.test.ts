@@ -142,6 +142,20 @@ describe('sinter lsp', () => {
     await e.diagnostics('index.html', (d) => d.length === 0);
   });
 
+  test('the helpers module is loaded in Node, as the build loads it: one that cannot load there is SN533 on its file', async () => {
+    const root = project({
+      'vite.config.js': `import sinter from ${JSON.stringify(join(__dirname, '../../src/vite.ts'))};\nexport default { plugins: [sinter()] };\n`,
+      'src/sinter.helpers.js': "import { w } from './gone.js';\nexport const len = (s) => s.length + w;\n",
+      'index.html': '<p>hi</p>\n',
+    });
+    const e = await editor(root);
+    e.open('index.html', '<p data-sn-state="{ s: \'ab\' }" data-sn-text="len(s)"></p>\n');
+    const d = await e.diagnostics('src/sinter.helpers.js', (d) => d.length > 0);
+    expect(d.map((x) => x.code)).toEqual(['SN533 helpers-unloaded']);
+    expect(d[0]!.message).toContain('the helpers module could not be loaded in Node (src/sinter.helpers.js');
+    expect(d[0]!.severity).toBe(2);
+  }, 30_000);
+
   test('SN324 per module: a helper of a module that reaches a lazy package, outside a let', async () => {
     const root = project({
       'vite.config.js': `import sinter from ${JSON.stringify(join(__dirname, '../../src/vite.ts'))};\nexport default { plugins: [sinter({ lazy: ['fakelib'] })] };\n`,

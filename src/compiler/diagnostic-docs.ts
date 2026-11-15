@@ -257,6 +257,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'A slot that passes data is declared, placed or filled wrongly. It is a `Slot<T>` member of the props type literal in `data-sn-component` (not in a type alias, not with `?`, not in `data-sn-head` or `data-sn-layout`; the app\'s types module may not export a type named `Slot`), placed with `<slot name="…" data-sn-prop="{ … }">`, whose default is one plain element or a `data-sn-if`/`data-sn-else` chain of them (anything broader comes with the component root, step 4 of the component-libraries proposal). A fill is elements with `slot="…"`; a `<template slot>` only starts an if/else chain. An unnamed `<slot>` in a fill places the children of the element the default renders: an error when it renders none, and the default\'s element may not declare names (`data-sn-let`, `data-sn-state`) its children read, since they move into the fill without it. Also reported: a `<slot>` that no component or fill encloses (on a page, or in a page\'s slot content).',
     fix: 'Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-prop`, give the placement one element as default, and move names the children read onto the `<slot>`\'s `data-sn-prop` or inside the element. Remove a `<slot>` from a page.',
   },
+  SN332: {
+    example: '`refresh` reloads, and a `file:` resource is a constant: it is read at build time and never loads or changes; it takes only `name`, `type`, `items` and `key`',
+    means: 'A `file:` source (`<sn-resource src="file:./post.txt">`) reads a file of the project at build time: its text, or for `.json` its parsed value. The path is a literal, relative to the file that writes it (a page, a layout, a component) or `/…` from the project root, and inside the root; the file must exist, and a `.json` file must parse. The resource is a constant: what would load, page, refresh, cache or change it is refused (`refresh`, `cache`, `paginate`, `each`, `call`, `when`, `then`, `early`, `method`, store functions that name it or change one of its items, write-through, `<sn-event>`s). `file:` is a source of `<sn-resource src>` only, not of an action or `<sn-sync>`.',
+    fix: 'Write a literal path to a file in the project, or fix the JSON. Leave out the attribute that would load or change it; for data that changes, serve it from an API and use a URL. To change the values a page shows, keep them in `data-sn-state`, initialized from the resource.',
+  },
   SN333: {
     example: '`data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it',
     means: 'A `<template data-sn-text>` renders a text node and nothing else: it takes no other attribute (`data-sn-if` and `data-sn-for` go on a template around it, anything else on an element around the text), and content inside it is dropped.',
@@ -421,9 +426,15 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: '`data-sn-body` is already JSON text (`JSON.stringify(…)`): sinter encodes the body, so the server would get a JSON string, not the object',
     means: 'A `data-sn-body` (or a POST `<sn-resource>`\'s `body`) calls `JSON.stringify`. sinter encodes the body as JSON itself, so the request carries the JSON text of a string (`"{\\"username\\":\\"alice\\"}"`), which a server\'s JSON parser reads as one string: the fields it expects are missing. A benchmark agent\'s login with a wrong password went through this way, against an API that compared the missing fields.',
     fix: 'Pass the object: `data-sn-body="{ username, password }"`. For another format, set `data-sn-encoding="form"` or send it from an action (`data-sn-call`). The same holds in an actions module or a component script, where the build cannot see it: `ctx.request(url, { body: { username, password } })`, not `body: JSON.stringify(…)`.',
-  },  SN532: {
+  },
+  SN532: {
     example: '`id="total"` is in markup that renders more than once (a `data-sn-for` row): the page would have that id more than once',
     means: 'A literal `id` in markup that renders more than once, in a page or a component: a `data-sn-for` row, or a fill of a slot placed more than once. Ids are unique in a page; `getElementById`, `<label for>`, `aria-*` references and `run(\'id\')` find only the first.',
     fix: 'Compute the id from the row: `data-sn-attr="{ id: \'total-\' + row.id }"`, or move the element out of the repeated markup.',
+  },
+  SN533: {
+    example: 'the helpers module could not be loaded in Node (src/sinter.helpers.ts: Cannot find module \'./missing.js\'): no helper call is run at build time',
+    means: 'The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app\'s Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session.',
+    fix: 'Move what needs the browser out of the module\'s top level (into the functions that need it), or into a component script. The page works either way; only build-time folding is lost.',
   },
 };

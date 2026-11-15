@@ -62,6 +62,7 @@ export const CODES = {
   SN329: 'api-config',
   SN330: 'configured-shape',
   SN331: 'invalid-slot',
+  SN332: 'file-source',
   SN333: 'invalid-text',
   SN334: 'empty-root',
   SN401: 'parse-error',
@@ -96,6 +97,7 @@ export const CODES = {
   SN530: 'unsized-late-image',
   SN531: 'encoded-body',
   SN532: 'repeated-id',
+  SN533: 'helpers-unloaded',
 } as const;
 
 export type Code = keyof typeof CODES;

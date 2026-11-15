@@ -492,6 +492,16 @@ A slot that passes data is declared, placed or filled wrongly. It is a `Slot<T>`
 
 **Fix:** Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-prop`, give the placement one element as default, and move names the children read onto the `<slot>`'s `data-sn-prop` or inside the element. Remove a `<slot>` from a page.
 
+## SN332 file-source
+
+Error, for example:
+
+> `refresh` reloads, and a `file:` resource is a constant: it is read at build time and never loads or changes; it takes only `name`, `type`, `items` and `key`
+
+A `file:` source (`<sn-resource src="file:./post.txt">`) reads a file of the project at build time: its text, or for `.json` its parsed value. The path is a literal, relative to the file that writes it (a page, a layout, a component) or `/…` from the project root, and inside the root; the file must exist, and a `.json` file must parse. The resource is a constant: what would load, page, refresh, cache or change it is refused (`refresh`, `cache`, `paginate`, `each`, `call`, `when`, `then`, `early`, `method`, store functions that name it or change one of its items, write-through, `<sn-event>`s). `file:` is a source of `<sn-resource src>` only, not of an action or `<sn-sync>`.
+
+**Fix:** Write a literal path to a file in the project, or fix the JSON. Leave out the attribute that would load or change it; for data that changes, serve it from an API and use a URL. To change the values a page shows, keep them in `data-sn-state`, initialized from the resource.
+
 ## SN333 invalid-text
 
 Error, for example:
@@ -831,3 +841,13 @@ Warning, for example:
 A literal `id` in markup that renders more than once, in a page or a component: a `data-sn-for` row, or a fill of a slot placed more than once. Ids are unique in a page; `getElementById`, `<label for>`, `aria-*` references and `run('id')` find only the first.
 
 **Fix:** Compute the id from the row: `data-sn-attr="{ id: 'total-' + row.id }"`, or move the element out of the repeated markup.
+
+## SN533 helpers-unloaded
+
+Warning, for example:
+
+> the helpers module could not be loaded in Node (src/sinter.helpers.ts: Cannot find module './missing.js'): no helper call is run at build time
+
+The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app's Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session.
+
+**Fix:** Move what needs the browser out of the module's top level (into the functions that need it), or into a component script. The page works either way; only build-time folding is lost.
