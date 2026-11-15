@@ -63,7 +63,7 @@ describe('a helper call over constants runs at build time', () => {
     expect(errors(out)).toEqual(expect.arrayContaining([expect.stringContaining('but `data-sn-text` (`stamp()` cannot run at build time: it reaches `Date` (src/lib/x.ts:3:7), which is not one of the globals a build-time call may use) runs in the browser')]));
   });
 
-  test('a call that throws, returns what is not plain data, or (dev) another result the second time: in the browser, SN534 at the call, once', () => {
+  test('a call that throws, returns what is not plain data, or another result the second time: in the browser, SN534 at the call (dev), once', () => {
     let n = 0;
     const out = build(`<main data-sn-state="{ s: 'x' }"><p data-sn-text="boom(s)"></p><p data-sn-text="when(s)"></p><p data-sn-text="drift(s)"></p><p data-sn-text="boom(s) + 1"></p></main>`, {
       boom: [() => { throw new Error('nope'); }, yes], when: [() => new Date(0), yes], drift: [() => String(n++), yes],
@@ -76,8 +76,14 @@ describe('a helper call over constants runs at build time', () => {
     ]);
     expect(out.diagnostics.find((d) => d.code === 'SN534')!.severity).toBe('warning');
     expect(out.module).toMatch(/boom/);
-    // a production build does not warn (and runs each call once)
+    // a production build does not warn
     expect(warnings(build(`<main data-sn-state="{ s: 'x' }"><p data-sn-text="boom(s)"></p></main>`, { boom: [() => { throw new Error('nope'); }, yes] }, { dev: false }))).toEqual([]);
+    // and runs each call twice too: a helper that changes between calls in a way the static check cannot see stays in the browser
+    let m = 0;
+    const prod = build(`<main data-sn-state="{ s: 'x' }"><p data-sn-text="drift(s)"></p><i data-sn-text="upper(s)"></i></main>`, { drift: [() => String(m++), yes], upper: [upper, yes] }, { dev: false });
+    expect(prod.html).toContain('<i>X</i>');
+    expect(prod.html).not.toMatch(/<p>\d<\/p>/);
+    expect(prod.module).toMatch(/drift/);
   });
 
   test('render() and firstPaint() fold too: a helper whose own source reads only its arguments', async () => {

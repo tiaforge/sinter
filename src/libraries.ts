@@ -151,7 +151,7 @@ export function libraries(root: string, list: string[], appComponents: string[],
       continue;
     }
     if (lib.peer === null) {
-      diagnostics.push({ severity: 'warning', code: 'SN537', message: `\`${lib.name}\` does not say which sinter versions it supports: a library lists \`"${SINTER_PACKAGE}"\` in \`peerDependencies\``, file: join(dir, 'package.json'), line: 1, col: 1, hint: `"peerDependencies": { "${SINTER_PACKAGE}": "^${version ?? '0.18.0'}" }` });
+      diagnostics.push({ severity: 'warning', code: 'SN537', message: `\`${lib.name}\` does not say which sinter versions it supports: a library lists \`"${SINTER_PACKAGE}"\` in \`peerDependencies\``, file: join(dir, 'package.json'), line: 1, col: 1, hint: version ? `"peerDependencies": { "${SINTER_PACKAGE}": "^${version}" }` : `list the sinter versions it supports in "peerDependencies": { "${SINTER_PACKAGE}": "…" }` });
     } else if (version && !satisfies(version, lib.peer)) {
       diagnostics.push({ severity: 'warning', code: 'SN537', message: `\`${lib.name}\` supports sinter \`${lib.peer}\`, and this is sinter ${version}: its markup may use what this version does not have, or what it no longer has`, file: join(dir, 'package.json'), line: 1, col: 1, hint: 'install a version of either that fits the other' });
     }

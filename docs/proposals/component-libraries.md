@@ -1,29 +1,29 @@
 # Proposal: component libraries, with markdown as the first
 
-Status: draft, fifth revision, after four reviews. Nothing here is implemented. It builds on what
+Status: implemented (steps 1 to 12), after four reviews of the text and one of the code. It builds on what
 sinter has wherever it can; what is new is listed in [What is new](#what-is-new). Sections are
 numbered in the order of the [Plan](#plan). Every design choice is recorded in
 [Decisions](#decisions); what is left depends on measurements ([Open questions](#open-questions)).
 
 ## Implementation status
 
-Built on the integration branch `ccr-ad93e367-x7ugq8`, one step at a time; each step is reviewed
-there and lands in `main` with the rest.
+Built one step at a time; each step was reviewed on its own, and all of them land in `main`
+together.
 
 | Step | State | Where it departs from this text |
 | --- | --- | --- |
 | 1, the spike | done (`examples/markdown/` on `ccr-ec5fd4e0-bp4vko`) | see the numbers in the sections |
-| 2, anchors as comments | merged here | see below |
-| 3, slots that pass data | merged here | see below |
-| 5, tree slots | merged here | see below |
-| 4, component roots and text nodes | merged here | see below |
-| 6, the constant pre-pass | merged here | see below |
-| 7, nested loops and the worklist | merged here | see below |
-| 8, helpers over constants and `file:` | merged here | see below |
-| 9, constant trees | merged here | see below |
-| 11, libraries ship source | merged here | see below |
-| 12, the markdown library | merged here | see below |
-| 10, lets over helpers | merged here | see below |
+| 2, anchors as comments | done | see below |
+| 3, slots that pass data | done | see below |
+| 5, tree slots | done | see below |
+| 4, component roots and text nodes | done | see below |
+| 6, the constant pre-pass | done | see below |
+| 7, nested loops and the worklist | done | see below |
+| 8, helpers over constants and `file:` | done | see below |
+| 9, constant trees | done | see below |
+| 11, libraries ship source | done | see below |
+| 12, the markdown library | done | see below |
+| 10, lets over helpers | done | see below |
 
 Step 3, as built:
 - New codes: `SN331` (an invalid slot: a placement, a fill or a declaration that breaks a rule of
@@ -33,8 +33,8 @@ Step 3, as built:
 - A `Slot<T>` hidden in a named type alias is found by `sinter check` (`SN208`), not the compiler,
   which cannot see inside an alias. An app type named `Slot` is reported once the app has
   components, since the generated global exists only then.
-- Until step 4, a placement's default is nothing, text, one plain element, or an `if`/`else` chain of
-  plain elements, and a text fill (`<template slot data-sn-text>`) is `SN331` naming step 4.
+- Step 4 lifted step 3's limits on a placement's default (nothing, text, one plain element, or an
+  `if`/`else` chain of plain elements) and allowed text fills (`<template slot data-sn-text>`).
 - Two bugs on `main` were fixed on the way: plain slot content at the top of a component's unrolled
   row failed with `SN201`, and a `<slot>` inside another slot's fallback was never filled.
 
@@ -121,7 +121,7 @@ Step 7, as built:
   uses on one line are told apart, and uses that disagree are each decided on their own.
 - A choice whose row renders a candidate keeps its loop a template until shared definitions expand
   (step 9); elsewhere unrendered candidates are dropped.
-- A provisional page cap of 10,000 rows in all, silent; step 9 sets the limit and its warning.
+- The page cap is step 9's expansion limit and its warning, `SN536`.
 - On step 2's choice node, the worklist reads which case a use renders; unrendered cases are
   dropped before the walk, so a decided choice anchor keeps only its case.
 - Whether a folded class or style needs the second compile is measured, not guessed: the first
@@ -212,7 +212,7 @@ Step 9, as built:
   `<slot>` in them); otherwise the placement stays a run-time choice.
 - A node whose handler writes nothing and reads only constants, `$el` and `$event` does not stop
   unrolling; the page ships only that handler.
-- The expansion limit is 5,000 copies (rows and instances) per page, the option `expansionLimit`;
+- The expansion limit is 10,000 copies (rows and instances) per page, the option `expansionLimit`;
   past it, warning `SN536` at the loop or tag that crosses it, and that part renders in the browser.
   Build and LSP time is about 0.2 ms per copy (6,280 copies: 1.5 s build, 1.3 s LSP).
 - The goal test passes without markdown: a generic tree from `file:./doc.json`, dispatched with
@@ -255,7 +255,7 @@ Step 11, as built:
 Step 12, as built (`packages/sinter-markdown/`, `@tiaforge-ui/sinter-markdown`):
 - The package changes nothing in the framework: outside its folder only the CI workflow (a job of
   its own) and a README link. Its `sinter check` over its 3 fixture pages gives 0 errors and 0
-  warnings; 32 tests pass, plus one expected failure for bug G.
+  warnings; its 37 tests pass.
 - md-doc and md-inline with 20 internal components; md.parse in its own module over a committed
   prebundled parser (table decoder, production conditions), md.headings and md.text in a module that
   does not import it. Heading anchors are `md-` plus a slug; the table slot's default wraps the

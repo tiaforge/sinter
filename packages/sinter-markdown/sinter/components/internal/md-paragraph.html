@@ -1,3 +1,3 @@
 <template data-sn-component="{ node: Paragraph }">
-  <p><template data-sn-for="n in node.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><sn-component use="{ emphasis: 'md-emphasis', strong: 'md-strong', delete: 'md-delete', inlineCode: 'md-inline-code', break: 'md-break', link: 'md-link', image: 'md-image', kbd: 'md-kbd', sub: 'md-sub', sup: 'md-sup', mark: 'md-mark' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></template></p>
+  <p><template data-sn-for="n in node.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><md-phrasing data-sn-prop="{ node: n }"></md-phrasing></template></template></p>
 </template>

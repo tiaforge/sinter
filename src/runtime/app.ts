@@ -214,8 +214,6 @@ export interface App {
       /** `upsert(c.replies, x)`: `owner` (from `names`) gets its list `field` with `item` in it */
       upsert(res: (n: string) => Resource, names: string[], owner: any, field: string, item: unknown): void;
     };
-    /** shared definitions (defs.ts): an empty `<template data-sn-def>` gets its definition before it is first cloned */
-    defs?: (tpl: HTMLTemplateElement) => void;
     /** cached lets (lets.ts): once per flush round, with what reaches a list of dependencies */
     lets?: (hit: (deps: PathRef[] | undefined) => boolean, round: number) => void;
     /** components with a script (components.ts): a root's `cmp` binding, `v` its class module, props and class name */

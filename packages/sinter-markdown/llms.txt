@@ -13,7 +13,7 @@
 - From a file (static, no JavaScript): `<sn-resource name="post" src="file:./post.md"></sn-resource><main data-sn-let="{ doc: md.parse(post, { base: '/posts/' }) }"><md-doc data-sn-prop="{ doc }"></md-doc></main>`. `base` (a folder from the project root) makes relative image and link URLs root paths, so local images are optimized.
 - From an API: `<article data-sn-let="{ doc: md.parse(post?.body) }"><md-doc data-sn-prop="{ doc }"></md-doc></article>`. The let is cached: one parse per source. With the parser lazy, `doc` is undefined until it loads; <md-doc> renders an empty root meanwhile.
 - Readers' content: `md.parse(c.body, { headings: 'strong', images: 'link', html: 'text' })`, and a link fill with `rel="nofollow ugc"`.
-- One line (a title): `<md-inline data-sn-prop="{ doc: md.parse(post.title) }"></md-inline>`, paragraphs without <p>.
+- One line (a title, a label): `<h1><md-inline data-sn-prop="{ doc: md.parse(post.title) }"></md-inline></h1>`: a `<span class="md">` with the paragraphs' and headings' content (phrasing content only; other blocks left out).
 
 ## md.parse options
 
@@ -28,7 +28,7 @@
 - `md.text(node)`: plain text, blocks separated by a blank line.
 - Both import no parser: ordinary helpers, early and folded at build time, also with the parser lazy.
 
-## Slots (on <md-doc> and <md-inline>), each with `$slot.node`
+## Slots (on <md-doc>; <md-inline> has link, image and inlineCode), each with `$slot.node`
 
 - `heading` (Heading: depth, slug, children; anchor id 'md-' + slug), `link` (url, title), `image` (url, alt, title), `code` (lang, meta, value), `inlineCode` (value), `blockquote`, `table` (default: `<div class="md-table"><table>`; a fill places the whole table with `<slot></slot>`).
 - `<slot></slot>` in a fill is the default element's children: `<a slot="link" rel="nofollow ugc" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a>`.
@@ -37,7 +37,7 @@
 
 ## Output
 
-- Plain HTML under `<div class="md">`: h1–h6 with ids, p, em, strong, del, code, pre > code.language-x, ul, ol[start], li.task-list-item with a disabled checkbox, blockquote, hr, img, a, table in div.md-table. No CSS: style `.md …`.
+- Plain HTML under `<div class="md">` (`<span class="md">` for md-inline): h1–h6 with ids, p, em, strong, del, code, pre > code.language-x, ul, ol[start], li.task-list-item with a disabled checkbox, blockquote, hr, img, a, table in div.md-table. No CSS: style `.md …`.
 - URLs are attribute bindings: javascript: and other unsafe schemes are refused. An image from an API is a plain <img>, not sent through the app's resizing service.
 - Lists and branches are marked by comments: keep HTML comments (no comment-stripping minifier).
 

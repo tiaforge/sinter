@@ -2591,8 +2591,8 @@ class Compiler {
   /**
    * What a placement's default renders, for the `<slot>`s of its fills: one plain element, whose
    * children they place, or an if/else chain of plain elements (the children per branch, as a chain);
-   * null when it renders no element (text, nothing). Anything broader is the component root's
-   * (step 4 of the component-libraries proposal), an error here.
+   * null when it renders no element (text, nothing). Anything broader follows the component root's
+   * rules (rootShape).
    */
   defaultShape(p: Placement): { children: (copy: boolean) => P5Node[] | null; what?: string } | null {
     const top = p.el.childNodes.filter(realNode);
@@ -2891,6 +2891,15 @@ class Compiler {
   }
 
   /** What a component's markup sees when its root is not one plain element: computed once, at the first of its top nodes. */
+  /** The instance path `el` is in: its own, or that of the nearest row of an unrolled loop or instance expanded at build time around it. */
+  instOf(el: P5Node): string {
+    for (let x: P5Node | null = el; x; x = (x as { parentNode: P5Node | null }).parentNode) {
+      const at = isElement(x) ? this.instAt.get(x) ?? this.rowOf.get(x)?.inst : undefined;
+      if (at !== undefined) return at;
+    }
+    return '';
+  }
+
   markupOf(u: Use, at: Scope, inst = ''): Scope {
     // (per instance: the copies of an unrolled row, or of an expanded instance, share the use)
     // the caller's scope: the slot content's writer's, with `$slot` when the tag is a fill (`at`: where it is placed)
@@ -2988,8 +2997,8 @@ class Compiler {
   /**
    * A component used inside itself (through a `data-sn-for` or `data-sn-if` template): one shared
    * definition, a `<template>` in the head, compiled once as a row template whose item is the props.
-   * Each use is an empty `<template data-sn-def>` with a `data-sn-for` over `[props]`; the runtime and
-   * the early script clone the definition into it, so a tree renders at any depth.
+   * Each use is a list anchor over `[props]` (two comments in the page) whose row is that definition;
+   * the runtime and the early script render it from the head, so a tree renders at any depth.
    */
   recursionPoint(host: P5Element, name: string, ctx: Ctx, index: number): null {
     const def = this.definition(name);
@@ -3669,7 +3678,8 @@ class Compiler {
     if (row && ownLoop) ctx = rowLets(ctx);
     // a component whose root is not one plain element: its markup starts here (a chain's template, a
     // fill), or an outer component's whose root this is: their scopes, outer first, each in its caller's
-    for (const u of this.scopeStart.get(el) ?? []) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instAt.get(el) ?? this.rowOf.get(el)?.inst ?? '') };
+    // (its instance: the nearest row or expanded instance it is in, for a chain's branch below a row's top too)
+    for (const u of this.scopeStart.get(el) ?? []) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instOf(el)) };
     // slot content sees the scope of the caller that wrote it
     const slot = this.slotOf.get(el);
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
@@ -5515,10 +5525,12 @@ class Compiler {
     let value: unknown;
     if ('error' in where) { this.report(el, 'src', 'SN332', where.error, at); value = null; }
     else {
-      let text: string | null = null;
-      try { text = this.opts.readFile(where.path); } catch { /* reported below */ }
+      let text: string | null = null, outside = false;
+      // the project's readFile refuses a path whose real place (a symlink) is outside the root
+      try { text = this.opts.readFile(where.path); } catch (e) { outside = /outside the project root/.test(String((e as Error)?.message)); }
       this.files.add(where.path);
-      if (text == null) { this.report(el, 'src', 'SN332', `\`${src.trim()}\`: no such file in the project (\`${where.path.slice(normalize(this.opts.root).replace(/\/$/, '').length + 1)}\`)`, at); value = null; }
+      const rel = where.path.slice(normalize(this.opts.root).replace(/\/$/, '').length + 1);
+      if (text == null) { this.report(el, 'src', 'SN332', outside ? `\`${src.trim()}\` is a link to a file outside the project root (\`${rel}\`): a \`file:\` source reads the project's own files` : `\`${src.trim()}\`: no such file in the project (\`${rel}\`)`, at); value = null; }
       else {
         const v = fileValue(text, where.path);
         if ('error' in v) this.report(el, 'src', 'SN332', v.error, at);
@@ -5875,8 +5887,8 @@ class Compiler {
   /**
    * The app's helpers as the build-time evaluator calls them (docs/spec.md, Helpers at build time): a helper the
    * static check lets fold (`helperFold`), with its module loaded in Node (`helperValues`), runs over plain-data
-   * arguments and must return plain data. One that throws, returns anything else, or (dev builds, run twice)
-   * returns another result the second time, stays in the browser, with warning SN534 once at the call. Any other
+   * arguments and must return plain data. One that throws, returns anything else, or (every build runs it twice)
+   * returns another result the second time, stays in the browser, with warning SN534 once at the call in dev builds. Any other
    * helper throws `NOT`, and the call it was in is recorded with the reason, for SN322.
    */
   helperCalls(NOT: Error) {
@@ -5930,7 +5942,9 @@ class Compiler {
             throw NOT;
           }
           if (!plainData(v)) { problem(key, 'returned something that is not plain data (JSON values)'); throw NOT; }
-          if (this.opts.dev) {
+          // every build runs it twice: a second result that differs (a counter, the clock through a path the
+          // static check missed) keeps the call in the browser
+          {
             let again: unknown;
             try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
             if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) { problem(key, 'returned another result when called again with the same arguments: a helper must be pure'); throw NOT; }
@@ -6494,6 +6508,8 @@ class Compiler {
           (n as { parentNode: P5Parent }).parentNode = parent;
           if (row && isElement(n) && !this.rowOf.has(n)) this.rowOf.set(n, row);
           if (at !== undefined && isElement(n) && !this.instAt.has(n)) this.instAt.set(n, at);
+          // a fill that was a chain (`<template slot data-sn-if>`): its kept branch is that fill, and reads its `$slot`
+          for (const map of [this.fillOf, this.defaultOf, this.childrenOf]) if (isElement(n) && map.has(c) && !map.has(n)) map.set(n, map.get(c)!);
         }
         this.inheritSlot(c, nodes);
         // a component's root chain, decided: its markup starts at what is left

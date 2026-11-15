@@ -3,6 +3,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { build } from 'vite';
+import { JSDOM } from 'jsdom';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import sinter from '@tiaforge-ui/sinter/vite';
 import { app, page, PKG } from './app.js';
@@ -28,11 +29,20 @@ Hidden **text**.
 
 </details>
 `;
+// one line inside a paragraph, a heading and a label: md-inline's root is a <span> with phrasing content
+const INLINE = page(`<sn-resource name="post" src="file:./post.md"></sn-resource>
+<main data-sn-let="{ line: md.parse(post) }">
+  <p id="in-p">Title: <md-inline data-sn-prop="{ doc: line }"></md-inline>, and after.</p>
+  <h2 id="in-h"><md-inline data-sn-prop="{ doc: line }"></md-inline></h2>
+  <label id="in-label"><input type="checkbox"> <md-inline data-sn-prop="{ doc: line }"></md-inline></label>
+</main>`);
+const LINE = 'A *title* with `code` and a [link](/x)\n\nand a second paragraph\n\n- a list, left out\n';
 const diagram = readFileSync(join(PKG, 'fixtures/diagram.png'));
 const apps = {
   flat: app({ 'post.md': FLAT, 'index.html': PAGE, 'diagram.png': diagram }),
   allow: app({ 'post.md': HTML, 'index.html': ALLOW }),
   article: app({ 'post.md': ARTICLE, 'index.html': PAGE, 'diagram.png': diagram }),
+  inline: app({ 'post.md': LINE, 'index.html': INLINE }),
 };
 const out: Record<string, { html: string; js: string[]; error: string | null }> = {};
 beforeAll(async () => {
@@ -106,4 +116,17 @@ test('the full article, its nested list included, is a static page', () => {
   expect(out.article!.js).toEqual([]);
   expect(noScript(out.article!.html)).not.toMatch(/<script|<template|<!--/);
   expect(out.article!.html).toContain('<li>two, with a <a href="./other.md">reference link</a><ul><li>nested</li></ul></li>');
+});
+
+test('md-inline is phrasing content: inside a <p>, a heading or a label, the page parses as written', () => {
+  const { html, js, error } = out.inline!;
+  expect(error).toBe(null);
+  expect(js).toEqual([]);
+  const line = '<span class="md">A <em>title</em> with <code>code</code> and a <a href="/x">link</a> and a second paragraph</span>';
+  // as a browser parses the built page: the paragraph keeps its content (a <div> would have closed it)
+  const doc = new JSDOM(html).window.document;
+  expect(doc.querySelector('#in-p')!.innerHTML).toBe(`Title: ${line}, and after.`);
+  expect(doc.querySelector('#in-h')!.innerHTML).toBe(line);
+  expect(doc.querySelector('#in-label')!.innerHTML).toBe(`<input type="checkbox"> ${line}`);
+  expect(doc.querySelectorAll('main > *').length).toBe(3);
 });
