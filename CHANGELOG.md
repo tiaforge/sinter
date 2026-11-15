@@ -100,6 +100,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- In a branch, a node after a nested list, branch or choice was not found at run time: the walk that finds a branch's nodes counted an anchor's two comments as one, so a loop or a bound element after an inner `data-sn-if` (an optional separator before a list) did not render. Builds over constants were not affected.
 - The early script left the page module stale node lists for a row, branch or choice whose top node is a `<template data-sn-text>`: when the page module did not adopt them (another number of rows, another branch or case), the texts stayed beside the new content. The lists now hold the texts, and what is not adopted is cleared between the anchor's comments, with nested anchors' contents.
 - A component's tag as a fill of a slot that passes data (`<x-pill slot="item" data-sn-prop="{ t: $slot.x.t }">`) can read `$slot` in its props and attributes; it was SN201.
 - A text fill of a `<slot>` that is a component's root was SN312 when expanded at build time (over constants) and allowed over state. It is allowed in both: the root renders one text node, and attributes on the tag are SN334.

@@ -1291,6 +1291,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const defs = t.nodes, rbs: RB[] = [];
     // A node and what the early script rendered after it: a nested anchor's branch or rows, up to its end comment.
     const extent = (n: Node): Node => ((n as any)[EARLY] ?? (n as any)[EARLY_ROWS])?.end ?? (isStart(n) ? endOf(n) ?? n : n);
+    // one path step: an anchor's start and end are a node each (as the compiler counts them), what is rendered between them none
+    const step = (n: Node): Node | null => { const e = extent(n); return e != n ? e : n.nextSibling; };
     const find = (): Array<Element | null> => {
       // an adopted early row may hold the branches and rows the early script rendered for its nested templates:
       // the compiled lookup counts siblings and would land on those, so it walks the paths and steps over them
@@ -1300,10 +1302,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
       for (let k = 0; k < defs.length; k++) {
         const path = defs[k]!.path!;
         let node: Node | null = first;
-        for (let c = path[0]!; c-- && node;) node = extent(node).nextSibling;
+        for (let c = path[0]!; c-- && node;) node = step(node);
         for (let x = 1; x < path.length && node; x++) {
           node = node.firstChild;
-          for (let c = path[x]!; c-- && node;) node = extent(node).nextSibling;
+          for (let c = path[x]!; c-- && node;) node = step(node);
         }
         els[k] = node && (defs[k]!.tag == '#' ? node.nodeType == 8 : (node as Element).localName == defs[k]!.tag) ? (node as Element) : null;
       }
