@@ -1,0 +1,53 @@
+<script>
+  import { send, json } from '~lib/api.js';
+  import Badge from '../../../lib/Badge.qz'; // relative to src/pages, not to the mirror
+
+  let { data } = $inputs();
+
+  let comments = $from(data.comments);
+  let body = $cell('');
+  let error = $cell('');
+
+  async function addComment(event) {
+    event.preventDefault();
+    error = '';
+    const r = await send('POST', `/incidents/${data.incident.id}/comments`, { body });
+    const answer = await json(r);
+    if (r?.ok) { comments = [...comments, answer.comment]; body = ''; }
+    else if (r?.status === 422) error = Object.entries(answer.errors ?? {}).map(([f, m]) => `${f} ${m.join(', ')}`).join('; ');
+    else error = 'Could not add the comment. Try again.';
+  }
+</script>
+
+<a href="/">← All incidents</a>
+
+[[if data.incident]]
+  [[let incident = data.incident]]
+  <h1>{incident.title}</h1>
+  <p>
+    <Badge kind="severity" value={incident.severity} />
+    <Badge kind="status" value={incident.status} />
+  </p>
+
+  <h2>Comments</h2>
+  <ol>
+    [[for comment in comments by comment.id]]
+      <li data-testid="comment">{comment.body}</li>
+    [[else]]
+      <li class="empty">No comments yet.</li>
+    [[end]]
+  </ol>
+
+  <form data-testid="comment-form" onsubmit={addComment}>
+    <textarea name="body" rows="3" placeholder="Add a comment" sync:value={body}></textarea>
+    <button type="submit">Comment</button>
+    [[if error]]<p data-testid="error">{error}</p>[[end]]
+  </form>
+[[else]]
+  <p data-testid="not-found">There is no incident with this id.</p>
+[[end]]
+
+<style>
+  ol { padding-left: 20px; }
+  form { display: flex; flex-direction: column; gap: 8px; max-width: 480px; }
+</style>

@@ -1,0 +1,14 @@
+<script>
+  let { children } = $inputs();
+</script>
+
+<main>
+  [[show children()]]
+</main>
+
+<style>
+  :global(body) { font: 15px/1.5 system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1d2330; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+  :global(button) { font: inherit; cursor: pointer; }
+  :global([data-testid='error']) { color: #b42318; }
+</style>

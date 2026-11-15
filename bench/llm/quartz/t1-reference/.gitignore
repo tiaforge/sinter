@@ -1,0 +1,4 @@
+node_modules
+.quartz
+.svelte-kit
+build
