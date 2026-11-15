@@ -224,6 +224,22 @@ export type AnyBlock = Hero | Text | Image;
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
   });
 
+  test('a static page: a component prop in a loop over constants keeps its loop variable (the check reads the page as written, not unrolled)', () => {
+    // a benchmark agent's `sinter check` failed 13 times with "Cannot find name 'p'" and it dropped `static: true` to pass
+    const root = project({ 'src/components/post-item.html': '<template data-sn-component="{ post: { title: string } }"><li data-sn-text="post.title"></li></template>' });
+    const page = (prop: string) => `<!doctype html><html><head><title>x</title></head><body><ul data-sn-state="{ posts: [{ title: 'a' }, { title: 'b' }] }"><template data-sn-for="p in posts"><post-item data-sn-prop="{ post: ${prop} }"></post-item></template></ul></body></html>`;
+    const errors = (prop: string) => {
+      const file = join(root, 'index.html'), html = page(prop);
+      writeFileSync(file, html);
+      const h = { module: null, names: [], namespaces: {} };
+      const out = compile(html, { file, root, dev: false, helpers: h, readFile: (p) => readFileSync(p, 'utf8'), check: true, componentNames: ['post-item'], prerender: true, static: true });
+      return [...out.diagnostics, ...check({ root, units: [out.check!], helpers: h, types: null, tsc }).diagnostics].filter((d) => d.severity === 'error').map((d) => d.message.replace(/ \(TS\d+\)$/, ''));
+    };
+    expect(errors('p')).toEqual([]);
+    // and a real mistake in the loop is still found
+    expect(errors('{ titel: p.title }')).toEqual([expect.stringMatching(/'titel' does not exist|Object literal may only specify known properties/)]);
+  });
+
   test('`$event.target.value`: the SN208 names `$el.value` and data-sn-model; `$el.value` passes', () => {
     const html = (h: string) => page(`<div data-sn-state="{ q: '' }"><input data-sn-on-input="${h}" data-sn-text="q + contacts.length"></div>`);
     const d = checkPage(html('q = $event.target.value'), { files: { 'src/sinter.types.ts': TYPES } });
