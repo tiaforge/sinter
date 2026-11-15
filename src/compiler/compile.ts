@@ -516,7 +516,9 @@ interface Placement {
 type RootShape =
   | { kind: 'el'; el: P5Element; empty: false }
   | { kind: 'chain'; templates: P5Element[]; branches: RootShape[]; empty: boolean }
-  | { kind: 'tag' | 'choice'; el: P5Element; empty: boolean };
+  | { kind: 'tag' | 'choice'; el: P5Element; empty: boolean }
+  /** a text fill (`<template slot data-sn-text>`) of the root `<slot>`: one text node, no element */
+  | { kind: 'text'; el: P5Element; empty: false };
 
 /** The elements a root renders as: each branch's, down to the elements (a component tag is not one). */
 function landingOf(s: RootShape): P5Element[] {
@@ -2043,6 +2045,12 @@ class Compiler {
     const all = [use, ...outer];
     // a root that may render nothing takes no attribute that points at, or depends on, its element
     if (mayBeEmpty(shape)) for (const u of all) this.emptyRootAttrs(u, name);
+    // a text root has no element: an attribute of the tag (or of an outer one passing on to it) has nowhere to land
+    if (shape.kind === 'text') for (const u of all) for (const a of u.host.attrs) {
+      if (a.name === 'slot' || a.name === 'data-sn-prop' || a.name === 'data-sn-early') continue;
+      this.report(u.host, a.name, 'SN334', `\`<${u.name}>\`'s root is a text here (a text fill of the \`<slot>\` at the root${u.name !== name ? ` of \`<${name}>\`` : ''}), so \`${a.name}\` on its tag has no element to land on`, 0,
+        'wrap the tag in an element that carries it, or give a fill that is an element');
+    }
     // the tag's attributes: plain ones move onto the root (onto each branch, onto a component tag that is
     // the root, onto a fill), sinter's are compiled on it in the caller's scope
     for (const a of host.attrs) {
@@ -2124,6 +2132,8 @@ class Compiler {
         const x = this.branchShape(a!, name);
         return typeof x === 'string' ? x : { kind: 'chain', templates: [a!], branches: [x], empty: true };
       }
+      // a caller's text fill of the root `<slot>`: the root renders one text node
+      if (attr(a!, 'data-sn-text') !== undefined && this.slotOf.has(a!)) return { kind: 'text', el: a!, empty: false };
       return `a component's root renders at most one element: a \`<template${attr(a!, 'data-sn-for') !== undefined ? ' data-sn-for' : attr(a!, 'data-sn-text') !== undefined ? ' data-sn-text' : ''}>\` cannot be the root of \`<${name}>\``;
     }
     if (a!.tagName === 'sn-component') return { kind: 'choice', el: a!, empty: true };
@@ -2883,11 +2893,13 @@ class Compiler {
   /** What a component's markup sees when its root is not one plain element: computed once, at the first of its top nodes. */
   markupOf(u: Use, at: Scope, inst = ''): Scope {
     // (per instance: the copies of an unrolled row, or of an expanded instance, share the use)
-    if (!inst) return u.markup ??= this.componentScope(u, u.hostSlot?.caller ?? at);
+    // the caller's scope: the slot content's writer's, with `$slot` when the tag is a fill (`at`: where it is placed)
+    const caller = () => (this.fillOf.has(u.host) ? this.tagFill(u, at) : u.hostSlot?.caller ?? at);
+    if (!inst) return u.markup ??= this.componentScope(u, caller());
     let byInst = this.markups.get(u);
     if (!byInst) this.markups.set(u, byInst = new Map());
     let s = byInst.get(inst);
-    if (!s) byInst.set(inst, s = this.componentScope(u, u.hostSlot?.caller ?? at));
+    if (!s) byInst.set(inst, s = this.componentScope(u, caller()));
     return s;
   }
 
@@ -3670,7 +3682,8 @@ class Compiler {
     const own = dflt && this.useOf.get(el) && this.origins.get(dflt[0]!.el)?.file === this.origins.get(this.useOf.get(el)!.template)?.file;
     if (dflt && !own) this.fillScope(dflt, ctx.scope, null);
     // a fill of a slot that passes data: its writer's scope and `$slot`, the values its placement passes here
-    const fill = this.fillOf.get(el);
+    // (a component tag that is the fill: its root, whose props and the tag's attributes read `$slot`)
+    const fill = this.fillOf.get(el) ?? (this.useOf.has(el) ? this.fillOf.get(this.useOf.get(el)!.host) : undefined);
     if (fill) ctx = { ...ctx, scope: this.fillScope(fill, ctx.scope, slot ?? null) };
     else if (slot?.caller) ctx = { ...ctx, scope: slot.caller };
     if (row && !ownLoop) ctx = rowLets(ctx);
@@ -4521,6 +4534,12 @@ class Compiler {
     const origin = this.origins.get(el) ?? { file: this.opts.file, src: '', chain: [] };
     const { line, col } = el.sourceCodeLocation ? this.lineCol(origin.src, this.valueOffset(el, attrName) + shift) : { line: 1, col: 1 };
     return { file: origin.file, line, col, chain: origin.chain };
+  }
+
+  /** The caller's scope of a component tag that is a fill of a slot that passes data: with its `$slot` (its props read it). */
+  tagFill(u: Use, scope: Scope): Scope {
+    const f = this.fillOf.get(u.host);
+    return f ? this.fillScope(f, scope, this.slotOf.get(u.host) ?? null) : scope;
   }
 
   /** `sinter check`: the scope of a branch, whose expressions are checked where `cond` holds */
