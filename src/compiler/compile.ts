@@ -4079,7 +4079,9 @@ class Compiler {
 
   /** `foldConstants` in `parent`: each `data-sn-if` on a constant prop, decided. */
   foldIn(parent: P5Parent, value: Map<string, boolean>, use: Use) {
-    if (!value.size) return;
+    // a shared definition (a component used inside itself, a candidate of `<sn-component use>`): its props are each
+    // instance's, given at run time; its tag gives none, which must not read as "left out"
+    if (!value.size || this.defHosts.has(use.host)) return;
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
     const contentOf = (t: P5Element) => (t as P5Template).content.childNodes;
     const place = (parent: P5Parent, at: number, count: number, nodes: P5Node[]) => {
