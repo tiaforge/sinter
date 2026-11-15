@@ -5063,6 +5063,27 @@ class Compiler {
   collectConstants() {
     const els = new Map<NodeDef, P5Element>([...this.paints.map((x) => [x.node, x.el] as const), ...this.tplEls]);
     const sheets = (this.opts.styles ?? this.opts.images?.styles ?? []).map((x) => x.css).join('\n');
+    // the selectors of the stylesheets' rules (at-rules' preludes too, which name no class)
+    const selectors = [...sheets.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]*)\{/g)].flatMap((m) => m[1]!.split(',').map((x) => x.trim()));
+    const reserved = new Set([...this.spacePlan].filter(([, plan]) => plan.space).map(([tpl]) => tpl));
+    /** an image or a list with reserved space in `el`, at any depth, templates included */
+    const feeds = (el: P5Node): boolean => {
+      if (!('tagName' in el)) return false;
+      if (el.tagName === 'img' || reserved.has(el)) return true;
+      if (el.childNodes.some(feeds)) return true;
+      return el.tagName === 'template' && (el as P5Template).content.childNodes.some(feeds);
+    };
+    /** whether the class changes what feeds the layout: in its element, or, through a selector that goes on past it (`.a + b`, `.a ~ b`), in the siblings after it; `:has()` with the class may reach anything */
+    const classReaches = (el: P5Element, name: string): boolean => {
+      // (as the stylesheet writes it: `.md\:w-1\/2` for `md:w-1/2`)
+      const token = new RegExp(`\\.${name.replace(/[^\w-]/g, (c) => `\\\\?\\${c}`)}(?![\\w-])`, 'g');
+      const named = selectors.filter((x) => { token.lastIndex = 0; return token.test(x); });
+      if (!named.length) return false;
+      if (feeds(el) || named.some((x) => /:has\(/i.test(x))) return true;
+      const next = named.some((x) => { token.lastIndex = 0; token.test(x); return /[+~]/.test(x.slice(token.lastIndex)); });
+      const parent = el.parentNode;
+      return next && !!parent && parent.childNodes.slice(parent.childNodes.indexOf(el as never) + 1).some(feeds);
+    };
     const put = (key: string, writes: ConstantWrite[], sites: PathRef[]) => {
       const was = this.constants.get(key);
       if (was === null) return;
@@ -5073,10 +5094,11 @@ class Compiler {
     for (const s of this.attrSources) {
       const key = s.bindings.length && !s.noted ? this.constKey(s.src, s.attr) : null;
       const target = els.get(s.node);
-      // a class no stylesheet names changes no box: it waits for the walk, and costs no second pass
-      // (as the stylesheet writes it: `.md\:w-1\/2` for `md:w-1/2`)
-      const named = (b: Binding) => !!b.n && new RegExp(`\\.${b.n.replace(/[^\w-]/g, (c) => `\\\\?\\${c}`)}(?![\\w-])`).test(sheets);
-      const reaches = (target?.tagName === 'img' && !!this.opts.images) || (!!this.layout && (s.attr === 'data-sn-style' || (s.attr === 'data-sn-class' && s.bindings.some(named))));
+      // a class or style counts only where the layout feeds something: an image or a list with reserved space in its
+      // element, or one a selector with the class reaches from there (a class no stylesheet names reaches nothing).
+      // Anything else waits for the walk, and costs no second pass
+      const reaches = (target?.tagName === 'img' && !!this.opts.images)
+        || (!!this.layout && !!target && (s.attr === 'data-sn-style' ? feeds(target) : s.attr === 'data-sn-class' && s.bindings.some((b) => !!b.n && classReaches(target, b.n))));
       if (!key || !reaches) continue;
       const deps = s.bindings.flatMap((b) => b.d ?? []);
       const rows = s.bindings.map((b) => this.rowPaint.get(b));
