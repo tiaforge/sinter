@@ -100,9 +100,9 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 const css = () => readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.css')).map((f) => readFileSync(join(out, 'assets', f), 'utf8')).join('\n');
 
-test('the placeholder after the template, its height from the layout\'s stylesheet and the font\'s metrics', () => {
+test('the placeholder after the list\'s anchor, its height from the layout\'s stylesheet and the font\'s metrics', () => {
   const html = readFileSync(join(out, 'index.html'), 'utf8');
-  expect(html).toMatch(/<\/template><li class="sn-reserve snr\w+0" aria-hidden="true" data-sn="\d+"><\/li><\/ul>/);
+  expect(html).toMatch(/<!--\/sn--><li class="sn-reserve snr\w+0" aria-hidden="true" data-sn="\d+"><\/li><\/ul>/);
   // a row: one line of `normal` and 8 px of padding. Lined's ratio is 1.25, but until it has loaded the text is in the
   // fallback, sans-serif, whose least is Helvetica's 1.0: 20 px, less the pixel engines may round away
   expect(css()).toMatch(/\.sn-reserve\.snr\w+0:not\(#_\)\s*\{[^}]*height:\s*135px\s*!important/);

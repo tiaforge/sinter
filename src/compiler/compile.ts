@@ -5119,8 +5119,8 @@ class Compiler {
         // in a box whose width follows its content, only rows of a width of their own (the placeholder takes it)
         if (Number.isInteger(n) && n > 0 && styled.size && inStyled(tpl)) { if (why === '') why = 'a component\'s own `<style>` styles the rows or their container, and the build reads only the page\'s stylesheets'; }
         else if (Number.isInteger(n) && n > 0) {
-          // the `if` form's template stays after the rows: `:last-child` and the like count it
-          space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized, trailing: form === 'if' });
+          // (the `if` form's anchor after the rows is comments: `:last-child` and the like see the rows as the last elements)
+          space = layout.reserve(tpl, Math.min(n, 1000), { sized: !!sized });
           if (!space && why === '') why = sized && layout.unreserved?.startsWith('the box') ? `the box around it is as wide as its content (${sized.widths}), and the rows have no width of their own (SN529)` : layout.unreserved ?? 'unknown';
         }
       }
