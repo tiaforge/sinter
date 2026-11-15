@@ -24,8 +24,10 @@ export type CheckFrame =
   | { kind: 'let'; name: string; init: number | null; loc?: CheckLoc }
   /** a form's `$error`: its last failed send, or null */
   | { kind: 'formError' }
-  /** a component's props, typed by its `data-sn-component` */
-  | { kind: 'props'; component: string; type: TypeRef; names: string[] };
+  /** a component's props, typed by its `data-sn-component`; `alias`: written as a type the compiler cannot list, which may not hold a `Slot<T>` */
+  | { kind: 'props'; component: string; type: TypeRef; names: string[]; alias?: boolean }
+  /** `$slot` in a fill: the `T` of the slot's `Slot<T>`, and which slot of which component it is */
+  | { kind: 'slot'; type: TypeRef; name: string; component: string };
 
 /** A type the checker writes for something other than a resource. */
 export type TypeRef =

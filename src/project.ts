@@ -10,6 +10,7 @@ import { resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
 import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
 import { componentNames, writeComponentTypes } from './components-build.js';
+import { typeExports } from './check/index.js';
 
 export interface ProjectOptions {
   /** helpers module, relative to the root (default `src/sinter.helpers.js`, or `.ts`) */
@@ -226,11 +227,19 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     try { current = readFileSync(messagesTypes, 'utf8'); } catch { /* missing */ }
     if (current !== text) { mkdirSync(dirname(messagesTypes), { recursive: true }); writeFileSync(messagesTypes, text); }
   }
+  // `Slot` is the type sinter generates for slots that pass data (`Slot<T>` in a component's props)
+  const components = componentNames(root);
+  if (typesRel && components.length) {
+    const file = resolve(root, typesRel);
+    let exported: string[] = [];
+    try { exported = typeExports(readFileSync(file, 'utf8')); } catch { /* unreadable: reported by the check */ }
+    if (exported.includes('Slot')) diagnostics.push({ severity: 'error', code: 'SN331', message: 'the types module exports a type named `Slot`, which is sinter\'s: `Slot<T>` in a component\'s props declares a slot that passes `T` to its fill', file, line: 1, col: 1, hint: 'rename the type (`TimeSlot`, `SlotInfo`)' });
+  }
   return {
     root, helpers, helpersFile, actions, actionsFile, readFile, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
     isStatic: staticPages(root, options.static).has,
     lazy: lazyOf(options.lazy), strict: strictOf(options.strict),
-    componentNames: componentNames(root),
+    componentNames: components,
     messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile),
     config: configRel ? url(configRel) : null,
     changesRequests: configRel ? changesRequests(readFile(resolve(root, configRel))) : false,

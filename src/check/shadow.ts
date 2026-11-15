@@ -99,7 +99,7 @@ export function shadow(o: ShadowOptions): Shadow {
 
   // names a page can see besides its own frames; resources first, as sinter resolves them
   const taken = new Set<string>(unit.resources.map((r) => r.name));
-  for (const n of ['$any', '$item', '$el', '$event', '$result', '$error', '$meta', '$url', '$now', '$locale', '$site', '$canonical', ...STORE_FNS]) taken.add(n);
+  for (const n of ['$any', '$item', '$el', '$event', '$slot', '$result', '$error', '$meta', '$url', '$now', '$locale', '$site', '$canonical', ...STORE_FNS]) taken.add(n);
   const builtin = BUILTIN_HELPERS.filter((h) => !taken.has(h));
   for (const h of builtin) taken.add(h);
   line(`import { ${builtin.join(', ')} } from '${sinter}';`);
@@ -206,6 +206,20 @@ export function shadow(o: ShadowOptions): Shadow {
       } else if (f.kind === 'props') {
         tagged('type', f.type, ' const $props = $any;');
         line(`const { ${f.names.join(', ')} } = $props;`);
+        // a type the compiler cannot list: a `Slot<T>` in it would be a slot the compiler cannot see
+        if (f.alias && f.type.kind === 'ts') {
+          regions.push({ start: out.length + 1, lines: 1, loc: f.type.loc, fixed: true });
+          line(`/** @type {${decl('NoSlots')}<typeof $props>} */ const $noSlots = true; void $noSlots;`);
+        }
+      } else if (f.kind === 'slot') {
+        // what a hover on `$slot` says, with its type
+        line(`/** The values the placement of \`${f.name}\` in \`<${f.component}>\` passes to this fill (\`Slot<T>\` in its props).`);
+        if (f.type.kind === 'ts') {
+          line(' * @type {');
+          verbatim(f.type.text, f.type.loc);
+          regions[regions.length - 1]!.fixed = true;
+          line(' * } */ const $slot = $any;');
+        } else line(' * @type {any} */ const $slot = $any;');
       } else if (f.kind === 'formError') {
         line(`/** @type {${decl('Err')} | null} */ let $error = $any;`);
       } else if (f.kind === 'let') {
@@ -315,6 +329,13 @@ declare global {
    */
   interface SinterAttributes {}
 }
+declare global {
+  /** a slot that passes T to its fill, as a member of the props type in data-sn-component: \`cell: Slot<{ row: Row }>\` */
+  interface Slot<T> { readonly 'sinter.slot': T }
+}
+/** true when no member of the props P is a Slot<T>: a slot is declared in the props type literal, where the compiler sees it */
+export type NoSlots<P> = { [K in keyof P]-?: NonNullable<P[K]> extends Slot<any> ? K : never }[keyof P] extends never ? true
+  : 'a Slot<T> member is in a type alias: write the props as a type literal in data-sn-component, where sinter sees the slot';
 /** what data-sn-attr accepts: the keys SinterAttributes types, anything else as before */
 export type Attrs = { [K in keyof SinterAttributes]?: SinterAttributes[K] } & Record<string, unknown>;
 /** what a URL path interpolation accepts: anything but an array (a whole query value may be one, sent as a repeated key) */

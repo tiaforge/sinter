@@ -13,7 +13,7 @@ Bind values to the page.
 | `data-sn-class` | object literal {unread: …} | toggles each class |
 | `data-sn-style` | object literal {'--color': …} | sets each property with style.setProperty |
 | `data-sn-show` | value expression | toggles the hidden attribute |
-| `data-sn-prop` | object literal | sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only |
+| `data-sn-prop` | object literal | sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only. On a &lt;slot&gt; declared Slot&lt;T&gt;: the values its fill reads as $slot |
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item |
 | `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
 | `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when a change swaps the branch the focused element is in, the element with its id in the new branch takes focus (a toggle's two buttons: &lt;button id="follow" data-sn-delete=…&gt; and &lt;button id="follow" data-sn-post=…&gt;) |
@@ -77,7 +77,7 @@ In a component file in `src/components/`, and on a component's tag (`early`). De
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean } |
+| `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }; a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill |
 | `data-sn-head` | props type | on the &lt;template&gt; of a head component (src/components/&lt;name&gt;.html): its props, as data-sn-component; it holds any number of head elements (&lt;title&gt;, &lt;meta&gt;, &lt;link&gt;, …), inlined at its use in a head |
 | `data-sn-emits` | events type | on the &lt;template data-sn-component&gt;: the events emit() sends and their detail types, e.g. { select: Article } |
 | `data-sn-early` | off | on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for uses that may shift the layout when they render, to keep the early script small |

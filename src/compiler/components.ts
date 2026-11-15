@@ -5,7 +5,15 @@ import * as csstree from 'css-tree';
 // markup; this module reads component files and the contract they declare.
 
 /** A prop or event name in a type literal, with where it is written in the type text. */
-export interface Member { name: string; optional: boolean; offset: number }
+export interface Member {
+  name: string;
+  optional: boolean;
+  offset: number;
+  /** the member's type as written (`Article`, `Slot<{ row: Row }>`) */
+  type?: string;
+  /** `Slot<T>`: a slot that passes `T` to its fill (docs/components.md, Slots that pass data); T as written */
+  slot?: string;
+}
 
 /**
  * The members of a TypeScript type literal (`{ article: Article; compact?: boolean }`), at its
@@ -33,8 +41,10 @@ export function typeMembers(text: string): Member[] | null {
     if (text.startsWith('readonly ', i)) i += 9;
     const m = /^(?:([A-Za-z_$][\w$]*)|'([^']*)'|"([^"]*)")\s*(\?)?\s*:/.exec(text.slice(i, close));
     if (!m) return null;
-    out.push({ name: (m[1] ?? m[2] ?? m[3])!, optional: !!m[4], offset: i });
+    const member: Member = { name: (m[1] ?? m[2] ?? m[3])!, optional: !!m[4], offset: i };
+    out.push(member);
     i += m[0].length;
+    const from = i;
     // the member's type, up to the next separator at depth 0
     let depth = 0;
     while (i < close) {
@@ -45,8 +55,34 @@ export function typeMembers(text: string): Member[] | null {
       else if (depth === 0 && (c === ';' || c === ',' || c === '\n')) break;
       i++;
     }
+    member.type = text.slice(from, i).trim();
+    const slot = /^Slot\s*<([\s\S]*)>$/.exec(member.type);
+    if (slot) member.slot = slot[1]!.trim();
   }
   return out;
+}
+
+/** A use of `Slot` as a type (`Slot<…>`) anywhere in a type's text. */
+export const SLOT_TYPE = /(?<![\w$.])Slot\s*</;
+
+/**
+ * A props type literal without its `Slot<T>` members: what callers pass with `data-sn-prop`, what a
+ * script's `this.props` holds. Slots are filled with markup, not passed. The text unchanged when it
+ * has none, or is not a type literal.
+ */
+export function withoutSlots(text: string): string {
+  const members = typeMembers(text.trim() === '' ? '{}' : text);
+  if (!members?.some((m) => m.slot !== undefined)) return text;
+  const kept = members.filter((m) => m.slot === undefined).map((m) => text.slice(m.offset, m.offset + memberLength(text, m)).trim().replace(/[;,]$/, ''));
+  return kept.length ? `{ ${kept.join('; ')} }` : '{}';
+}
+
+/** The length of a member's text from its offset, up to (not including) its separator. */
+function memberLength(text: string, m: Member): number {
+  const at = text.indexOf(':', m.offset);
+  const t = m.type ?? '';
+  const end = text.indexOf(t, at) + t.length;
+  return end - m.offset;
 }
 
 function endOfString(text: string, i: number): number {

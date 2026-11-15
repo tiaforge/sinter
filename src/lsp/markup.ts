@@ -4,6 +4,7 @@
 import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { parseDocument } from '../compiler/head.js';
+import { typeMembers } from '../compiler/components.js';
 
 type P5Node = DefaultTreeAdapterMap['node'];
 type P5Element = DefaultTreeAdapterMap['element'];
@@ -14,7 +15,7 @@ type P5Template = DefaultTreeAdapterMap['template'];
 export interface TagFile { kind: 'component' | 'head' | 'layout'; file: string; text: string }
 
 /** A slot of a component or layout: its name ('' for the default slot), whether it is in a head, its fallback, where it is. */
-export interface SlotInfo { name: string; head: boolean; fallback: string; line: number; col: number }
+export interface SlotInfo { name: string; head: boolean; fallback: string; line: number; col: number; /** a slot that passes data: its `T` (`Slot<T>` in the props) */ passes?: string }
 
 const HEAD_ELEMENTS = new Set(['title', 'meta', 'link', 'base', 'script', 'style', 'noscript']);
 const isElement = (n: P5Node): n is P5Element => 'tagName' in n;
@@ -40,7 +41,10 @@ export function slotsOf(t: TagFile): SlotInfo[] {
     }
   };
   walk(doc, false);
-  return out;
+  // a slot that passes data, by its `Slot<T>` member; placed more than once, it is listed once
+  const data = new Map((typeMembers(propsOf(t).replace(/&quot;/g, '"').replace(/&amp;/g, '&')) ?? []).filter((m) => m.slot !== undefined).map((m) => [m.name, m.slot!]));
+  const seen = new Set<string>();
+  return out.filter((x) => !data.has(x.name) || (!seen.has(x.name) && !!seen.add(x.name))).map((x) => (data.has(x.name) ? { ...x, passes: data.get(x.name)! } : x));
 }
 
 /** The props a component or layout declares, as written. */
@@ -135,7 +139,7 @@ export function tagCompletions(text: string, offset: number, names: Array<{ name
 export function tagHover(tag: string, t: TagFile, rel: string): string {
   const slots = slotsOf(t);
   const kind = t.kind === 'layout' ? 'layout' : t.kind === 'head' ? 'head component' : 'component';
-  const list = slots.map((s) => `- ${s.name ? `\`${s.name}\`` : 'default'}${t.kind === 'layout' ? ` (${s.head ? 'head' : 'body'})` : ''}${s.fallback ? ', with fallback' : ''}`);
+  const list = slots.map((s) => `- ${s.name ? `\`${s.name}\`` : 'default'}${t.kind === 'layout' ? ` (${s.head ? 'head' : 'body'})` : ''}${s.passes ? `, passes \`$slot\`: \`${s.passes}\`` : ''}${s.fallback ? ', with fallback' : ''}`);
   return [`**\`<${tag}>\`** ${kind} · \`${rel}\``, '', `Props: \`${propsOf(t)}\``, '', slots.length ? `Slots:\n${list.join('\n')}` : 'No slots'].join('\n');
 }
 
