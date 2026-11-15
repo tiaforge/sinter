@@ -104,7 +104,9 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   // `$locale` read early: the page passes the configured locale source (else the early file carries no config)
   const lc = early.fns.some((x) => /\$\.\$locale\b/.test(x)), ls = !!early.ir.urlArrays;
   // array parameters: the page passes `lists` (else the early file carries none of it)
-  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : [])];
+  // cached lets: the early file's own cache (else it carries none of it)
+  const cl = early.fns.some((x) => x.includes('$.$c($, '));
+  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : []), ...(cl ? ['lets'] : [])];
   return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => ', ' + x).join('')} }`, uses: extra.length ? [...r.uses, ...extra].sort() : r.uses };
 }
 
@@ -158,11 +160,11 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   return lines;
 }
 
-export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis'>): string {
+export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis'> & Partial<Pick<CompileOptions, 'root'>>): string {
   return pageLines(parts, options).text();
 }
 
-function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis'>): MappedLines {
+function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis'> & Partial<Pick<CompileOptions, 'root'>>): MappedLines {
   const lines = new MappedLines();
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
@@ -173,14 +175,23 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   // next-page data: the app's pages, described in one module every page shares
   const features = [...parts.features.map(local), ...(options.prefetch ? ['$prefetch'] : [])];
   if (options.prefetch) lines.push(`import $prefetch from ${JSON.stringify(options.prefetch)};`);
-  if (parts.helpers.user.length && options.helpers.module) {
-    lines.push(`import { ${parts.helpers.user.join(', ')} } from ${JSON.stringify(options.helpers.module)};`);
-  }
+  // each helper from the module that declares it, as the early file imports them: past the helpers module and
+  // barrels, so a module that reaches a lazy package loads only when a let needs it (docs/lazy.md)
   let messages = false;
   for (const [ns, members] of Object.entries(parts.namespaces)) {
-    const mod = options.helpers.namespaces[ns]!.module;
-    if (mod === MESSAGES) { lines.push(isFixed(options) ? fixedMessages(ns, members, options) : messagesImport(ns, members)); messages = true; continue; }
-    lines.push(`import { ${members.map((m) => `${m} as ${ns}$${m}`).join(', ')} } from ${JSON.stringify(mod)};`);
+    if (options.helpers.namespaces[ns]!.module !== MESSAGES) continue;
+    lines.push(isFixed(options) ? fixedMessages(ns, members, options) : messagesImport(ns, members));
+    messages = true;
+  }
+  lines.push(...helperImports(parts.helpers.user, parts.namespaces, options.helpers));
+  // helper modules that reach lazy packages: each loads whole, with its packages, when a let first needs it
+  if (parts.lazyHelpers.length) {
+    const specs = [...new Set(parts.lazyHelpers.flatMap((x) => x.lazy))].sort();
+    const loader = (s: string) => `$lp$${specs.indexOf(s)}`;
+    const file = (m: string) => `${(options.root ?? '').replace(/\/$/, '')}${m}`;
+    lines.push(`import { later as $laterH } from '${PACKAGE}/lazy';`);
+    for (const s of specs) lines.push(`import { load as ${loader(s)} } from ${JSON.stringify(`${LAZY_PREFIX}${s}.js`)};`);
+    for (const x of parts.lazyHelpers) lines.push(`const ${x.local} = $laterH(() => import(${JSON.stringify(x.module)}), [${x.lazy.map(loader).join(', ')}], ${options.dev || !x.module.startsWith('/') ? 'null' : JSON.stringify(`__SN_CHUNK__${file(x.module)}__`)}, import.meta.url);`);
   }
   // an app with built-in messages: the page's modules (helpers, actions, islands) may call `m` although
   // its markup does not, so every page waits for the dictionary (and sinter is the locale source)
@@ -232,6 +243,26 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
     lines.push('$use();', 'await $ready();', `$use(mount(document, { ir, fns, features: [${features.join(', ')}] }));`);
   } else lines.push(`mount(document, { ir, fns, features: [${features.join(', ')}] });`);
   return lines;
+}
+
+/**
+ * The imports of the helpers and namespace members compiled code calls (`h`, `ns$m`), each from the module that
+ * declares it, as the early file imports them: past the helpers module and barrels, so a module that reaches a
+ * lazy package is not loaded with the page (docs/lazy.md). The built-in messages are imported apart.
+ */
+export function helperImports(user: Iterable<string>, namespaces: Record<string, Iterable<string>>, helpers: HelperManifest): string[] {
+  const byModule = new Map<string, string[]>();
+  const add = (mod: string, spec: string) => byModule.set(mod, [...(byModule.get(mod) ?? []), spec]);
+  if (helpers.module) for (const h of user) {
+    const o = helpers.from?.[h];
+    add(o?.module ?? helpers.module, o && o.name !== h ? `${o.name} as ${h}` : h);
+  }
+  for (const [ns, members] of Object.entries(namespaces)) {
+    const info = helpers.namespaces[ns]!;
+    if (info.module === MESSAGES) continue;
+    for (const m of members) { const o = info.from?.[m]; add(o?.module ?? info.module, `${o?.name ?? m} as ${ns}$${m}`); }
+  }
+  return [...byModule].map(([mod, specs]) => `import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
 }
 
 /** a page built in one language, with that language's text (`localePrefix`) */

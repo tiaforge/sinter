@@ -251,7 +251,9 @@ its range with one file, so one preload covers them all. In dev, local faces are
 A package only some interactions need (crypto, charts, a PDF renderer) does not have to be on the
 first paint's path: `sinter({ lazy: ['openpgp'] })` loads it on first call. Per page, in the markup,
 `data-sn-import="openpgp"` loads it once the page has taken over, and `data-sn-preload="openpgp"`
-fetches it with the page, for pages whose first content needs it. See [lazy packages](lazy.md).
+fetches it with the page, for pages whose first content needs it. A `data-sn-let` over a helper module
+that reaches such a package waits for it and is not early; the rest of the page is. See
+[lazy packages](lazy.md#helpers-that-wait).
 
 ## Reserved space
 

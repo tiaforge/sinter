@@ -64,6 +64,7 @@
     "./components": "./dist/components.js",
     "./nested": "./dist/nested.js",
     "./defs": "./dist/defs.js",
+    "./lets": "./dist/lets.js",
     "./compiler": "./dist/compiler/index.js",
     "./vite": "./dist/vite.js",
     "./check": "./dist/check/index.js",

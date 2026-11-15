@@ -203,7 +203,9 @@ export * as fmt from './format.js';
 ```
 
 - Exported names become functions. Type-only exports are skipped.
-- `export * as ns from './module.js'` makes a namespace. The compiler reads its members, so `fmt.pirce(...)` is `SN206` with a suggestion. Members must be named literally: `fmt[key]` is refused. Only the members a page uses reach its bundle.
+- `export * as ns from './module.js'` makes a namespace. The compiler reads its members, so `fmt.pirce(...)` is `SN206` with a suggestion. Members must be named literally: `fmt[key]` is refused. Only the members a page uses reach its bundle: the page module and the early file import each helper from the module that declares it, not through the helpers module.
+- A `data-sn-let` (or a prop) that calls a helper is computed once per scope instance, and again when what it reads changes; a call whose arguments are equal primitives returns its last result ([spec.md](spec.md#derived-names)). So a helper must keep the purity contract: one that reads something else gets no new value at every read.
+- A helper module that reaches a package of `lazy` loads only when a let first needs it ([lazy.md](lazy.md#helpers-that-wait)).
 - Re-exports follow relative paths only.
 
 ### Built-in formatters

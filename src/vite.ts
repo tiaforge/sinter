@@ -12,7 +12,7 @@ import { pathToFileURL } from 'node:url';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { applyStrict, compile, formatDiagnostic, formatWarning, strictPromotes, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
 import { lazyOf, project, staticPages, strictOf, type ProjectOptions } from './project.js';
-import { CHUNK_MARK, chainText, helperProblem, isComponentScript, LAZY, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
+import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { loadImages, MIME, type Images } from './images.js';
@@ -613,7 +613,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const out = compile(html, {
       file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
       check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles, lazy: p.lazy,
-      ...(lazyPkgs.length ? { lazyScript } : {}),
+      ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs).reach(m) } : {}),
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(styles?.length ? { styles } : {}),
       ...(lineHeights?.size ? { normalLineHeight: (f: string) => lineHeights.get(f) ?? null } : {}),
@@ -660,20 +660,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /**
    * Lazy packages in an app module (docs/lazy.md): its imports of one point at stubs, after the uses
    * a stub cannot serve were refused (SN324). A component script keeps its imports (it loads with the
-   * package). The helpers module may not reach a lazy package at all.
+   * package), and so does a helper module that reaches one, with the modules between (they load whole with it).
    */
   const lazyTransform = (ctx: { error(e: string | { message: string; id?: string; loc?: { line: number; column: number } }): never }, code: string, id: string) => {
     if (!lazyPkgs.length || id.startsWith('\0') || id.includes('/node_modules/') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return null;
     const file = id.replace(/[?#].*$/, '');
-    const helpers = project(root, options).helpersFile;
-    if (helpers && file === helpers) {
-      const r = reachLazy(file, lazyPkgs, root)[0];
-      if (r) { const d = helperProblem(root, r, file); ctx.error({ message: `sinter: SN324 ${d.message}`, id: file, loc: { line: 1, column: 0 } }); }
-    }
     if (!mentions(code, lazyPkgs)) return null;
     const s = scanLazy(code, file, lazyPkgs);
     if (!s.lazy.length && !s.problems.length) return null;
     if (isComponentScript(root, file)) return null;
+    // a helper module that reaches the package, and the modules between: they load whole with it, when a let first needs them
+    if (lazyHelpers(root, lazyPkgs).whole(project(root, options).helpers).has(file)) return null;
     if (s.problems.length) {
       const at = lineCol(code, s.problems[0]!.offset);
       ctx.error({ message: `sinter: ${s.problems.map((p) => { const l = lineCol(code, p.offset); return `SN324 ${relOf(file)}:${l.line}:${l.col} ${p.message}`; }).join('\n')}`, id: file, loc: { line: at.line, column: at.col - 1 } });

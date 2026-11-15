@@ -132,6 +132,12 @@ export interface PageInfo {
   urlWrites?: Array<{ name: string; list?: true; test?: true; report: (code: Code, message: string) => void }>;
   /** `:name` segments of the page's `data-sn-path` patterns */
   pathParams: Set<string>;
+  /**
+   * helpers declared in a module that reaches a lazy package (docs/lazy.md), by the name compiled code
+   * calls (`parse`, `ns$parse`): the module's index among the page's lazy helper modules and the
+   * export's name in it. Only a `data-sn-let` or a prop may call one (SN324)
+   */
+  lazy?: Map<string, { i: number; name: string }>;
   /** literal `id`s of the page's `<dialog>` elements, for `showModal()` and `close()` */
   dialogs: Set<string>;
   /** the resources an `<sn-event resource>` on the page names: the ones a stream feeds (`$meta.<name>.live`, SN516) */
@@ -158,6 +164,8 @@ export interface ExprOptions {
   urlKind?: number;
   /** where `$event.detail` comes from (a component's event: `@ev:<use>:<event>`) */
   detailSource?: string;
+  /** a `data-sn-let` entry or a prop: it may call a helper of a module that reaches a lazy package (else SN324) */
+  waits?: boolean;
   report: (code: Code, message: string, offset: number, hint?: string) => void;
 }
 
@@ -656,7 +664,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     if (res.kind === 'helper' && BUILTIN_HELPERS.includes(n.name) && !page.helpers.has(n.name)) page.usedHelpers.add(n.name);
-    else if (res.kind === 'helper') page.usedHelpers.add(n.name);
+    else if (res.kind === 'helper') { page.usedHelpers.add(n.name); lazyUse(n.name, n.name, n.start); }
     let sid: number | undefined;
     if (res.kind === 'state') sid = res.sid;
     if (res.kind === 'loop' && res.entry.kind === 'index') usesIndex = true;
@@ -802,9 +810,17 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     if (!page.usedNs.has(ns)) page.usedNs.set(ns, new Set());
     page.usedNs.get(ns)!.add(member);
+    lazyUse(`${ns}$${member}`, `${ns}.${member}`, m.start);
     // a message in a page built in one language is that language's text: no dependency
     if (!(page.locale && ns === page.locale.messages)) addDep(['$locale']);
     edits.push({ start: m.start, end: m.end, text: `${ns}$${member}` });
+  }
+
+  /** a helper of a module that reaches a lazy package, outside a let or a prop: SN324 */
+  function lazyUse(key: string, text: string, at: number) {
+    if (opts.waits || !page.lazy?.has(key)) return;
+    report('SN324', `\`${text}\` is declared in a module that reaches a lazy package, which loads when first needed: only a \`data-sn-let\` entry or a prop can wait for it`, at,
+      `name the value in a \`data-sn-let\` (\`data-sn-let="{ doc: ${text}(…) }"\`) and read the name: it is \`undefined\` until the module has loaded`);
   }
 
   /**

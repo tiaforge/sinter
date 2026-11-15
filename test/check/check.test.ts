@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { compile, readHelperManifest } from '../../src/compiler/index.js';
 import { check, checkPage, findTsc, typeExports } from '../../src/check/index.js';
 import { schemaToTs, specDeclarations } from '../../src/check/openapi-types.js';
+import { shadow } from '../../src/check/shadow.js';
 import { project as projectOf } from '../../src/project.js';
 
 const tsc = findTsc(process.cwd());
@@ -672,5 +673,35 @@ describe('slots that pass data', () => {
     const types = `${TYPES}export type CellProps = { cell: Slot<{ n: number }> };\n`;
     const r = run(page('<x-cell></x-cell>'), { 'src/sinter.types.ts': types, 'src/components/x-cell.html': '<template data-sn-component="CellProps"><div data-sn-text="1"></div></template>' });
     expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/a Slot<T> member is in a type alias: write the props as a type literal/)]);
+  });
+});
+
+describe('a let that waits for a lazy helper module (docs/lazy.md#helpers-that-wait)', () => {
+  const files = {
+    'src/sinter.helpers.ts': "export * as crunch from './lib/crunch.ts';\nexport * as toc from './lib/toc.ts';\n",
+    'src/lib/crunch.ts': "import { lexer } from 'fakelib';\nexport interface Doc { words: string[] }\nexport function parse(s: string): Doc { return { words: lexer(s) }; }\n",
+    'src/lib/toc.ts': 'export function count(s: string): number { return s.length; }\n',
+    'node_modules/fakelib/package.json': '{"name":"fakelib","types":"index.d.ts"}',
+    'node_modules/fakelib/index.d.ts': 'export declare function lexer(s: string): string[];',
+  };
+  const html = (body: string) => `<!doctype html><html><head></head><body data-sn-state="{ src: 'a b' }">${body}</body></html>`;
+  const run = (body: string) => checkPage(html(body), { files, lazy: ['fakelib'] }).map((d) => `${d.code} ${d.line}:${d.col} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+
+  test('typed `T | undefined` (the shadow file); a module that does not reach the package keeps ordinary helpers', () => {
+    expect(run('<main data-sn-let="{ doc: crunch.parse(src) }"><p data-sn-text="(doc?.words.length ?? 0) + toc.count(src)"></p></main>')).toEqual([]);
+    const helpers = { module: '/src/sinter.helpers.ts', names: [], namespaces: { crunch: { module: '/src/lib/crunch.ts', members: ['parse'] } } };
+    const out = compile(html('<main data-sn-let="{ doc: crunch.parse(src), n: 1 }"><p data-sn-text="doc && n"></p></main>'),
+      { file: '/p/index.html', root: '/p', dev: false, check: true, helpers, readFile: () => { throw new Error('none'); }, lazyModule: (m) => (m === '/src/lib/crunch.ts' ? ['fakelib'] : []) });
+    const text = shadow({ unit: out.check!, file: '/p/.sinter/index.js', root: '/p', declarations: '/p/.sinter/sinter.d.ts', types: null, helpers }).text;
+    expect(text).toMatch(/const doc = \$waits\(\$e\d+\(\)\);/);
+    expect(text).toMatch(/const n = \$e\d+\(\);/);
+    expect(text).toContain('@returns {T | undefined}');
+  });
+
+  test('SN324 at a call outside a let or a prop, per module, with the hint', () => {
+    const d = checkPage(html('<p data-sn-text="crunch.parse(src).words.length + toc.count(src)"></p>'), { files, lazy: ['fakelib'] });
+    expect(d.map((x) => `${x.code} ${x.line}:${x.col}`)).toEqual(['SN324 1:89']);
+    expect(d[0]!.message).toContain('`crunch.parse` is declared in a module that reaches a lazy package');
+    expect(d[0]!.hint).toContain('data-sn-let="{ doc: crunch.parse(…) }"');
   });
 });

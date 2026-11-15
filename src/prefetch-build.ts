@@ -1,7 +1,7 @@
 // Build side of the `prefetch` feature: one module with every page's description, imported by
 // every page (a shared chunk in builds), that exports the installed feature.
 import type { HelperManifest, PrefetchParts } from './compiler/compile.js';
-import { PACKAGE } from './compiler/index.js';
+import { helperImports, PACKAGE } from './compiler/index.js';
 
 /** pages hosts look for by name: written as they are, never as a directory */
 export { directoryUrl, movesToDirectory, pageFile, pagePaths, pageUrl, redundantPaths } from './page-paths.js';
@@ -83,8 +83,7 @@ export function prefetchModule(pages: Array<{ paths: string[]; parts: PrefetchPa
   // array parameters: only an app with a page that has them passes `lists` (and carries it)
   const ls = pages.some((p) => p.parts.a);
   const lines = [`import { $k } from '${PACKAGE}';`, `import { prefetch${ls ? ', lists' : ''} } from '${PACKAGE}/prefetch';`];
-  if (user.size && helpers.module) lines.push(`import { ${[...user].sort().join(', ')} } from ${JSON.stringify(helpers.module)};`);
-  for (const [n, members] of ns) lines.push(`import { ${[...members].sort().map((m) => `${m} as ${n}$${m}`).join(', ')} } from ${JSON.stringify(helpers.namespaces[n]!.module)};`);
+  lines.push(...helperImports([...user].sort(), Object.fromEntries([...ns].map(([n, m]) => [n, [...m].sort()])), helpers));
   lines.push('', 'void $k;', 'export default prefetch([');
   for (const { paths, parts } of pages) {
     lines.push(`  { m: ${JSON.stringify(paths)}, r: ${JSON.stringify(parts.res)}, ${parts.a ? `a: ${JSON.stringify(parts.a)}, ` : ''}f: [`);

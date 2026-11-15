@@ -42,13 +42,14 @@ import debounce from '../debounce.js';
 import components from '../components.js';
 import nested from '../nested.js';
 import defs from '../defs.js';
+import lets from '../lets.js';
 import confirm from '../confirm.js';
 import models from '../models.js';
 import sse from '../sse.js';
 import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { components, nested, defs, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, typing, 'query-links': queryLinks, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, nested, defs, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, typing, 'query-links': queryLinks, call, debounce, confirm, models, transition };
 
 // ---- requests
 
@@ -229,6 +230,12 @@ export interface RenderOptions {
   frames?: boolean;
   /** helper functions, and namespaces as objects of functions */
   helpers?: Record<string, unknown>;
+  /**
+   * helper namespaces whose module reaches a lazy package (docs/lazy.md#helpers-that-wait), as the module's
+   * exports and the function that loads it: a `data-sn-let` that calls one is `undefined` until `load()`
+   * resolves (a rejection takes the unhandled-error path)
+   */
+  lazyHelpers?: Record<string, { members: string[]; load: () => Promise<Record<string, unknown>> }>;
   /** action functions for `data-sn-call` and `<sn-resource call>`, and namespaces as objects of functions */
   actions?: Record<string, unknown>;
   /** other files the page reads, by path relative to the page (`src/components/x-y.html`) */
@@ -362,11 +369,11 @@ const PAGE = '/test/page.html';
  * constants, written into the document, and its early chunk run over it. Nothing is mounted:
  * bindings that wait for data are as the HTML has them.
  */
-export async function firstPaint(html: string, options: Pick<RenderOptions, 'helpers' | 'files' | 'components' | 'storage' | 'messages' | 'locale'> & FirstPaintTestOptions = {}): Promise<{ root: HTMLElement; html: string }> {
+export async function firstPaint(html: string, options: Pick<RenderOptions, 'helpers' | 'files' | 'components' | 'storage' | 'messages' | 'locale' | 'lazyHelpers'> & FirstPaintTestOptions = {}): Promise<{ root: HTMLElement; html: string }> {
   if (current) { current.destroy(); current = null; }
   const { files, components } = options;
   const helpers = withMessages(options);
-  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), firstPaint: true });
+  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), ...(options.lazyHelpers ? { lazyHelpers: options.lazyHelpers } : {}), firstPaint: true });
   writePage(parts.html, options.messages);
   const env = config.env;
   config.env = { ...env, storage: () => options.storage ?? null };
@@ -414,6 +421,7 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
     if (typeof v === 'function') manifest.names.push(k);
     else if (v && typeof v === 'object') manifest.namespaces[k] = { module: k, members: Object.keys(v) };
   }
+  for (const [k, v] of Object.entries(options.lazyHelpers ?? {})) manifest.namespaces[k] = { module: `lazy:${k}`, members: v.members };
   const actions = options.actions ?? {};
   const actionManifest: HelperManifest = { module: 'actions', names: [], namespaces: {} };
   for (const [k, v] of Object.entries(actions)) {
@@ -430,6 +438,8 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
     file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
     lazy: true,
+    // helper modules that reach a lazy package: the namespaces in `lazyHelpers`
+    ...(options.lazyHelpers ? { lazyModule: (m: string) => (m.startsWith('lazy:') ? ['(lazy)'] : []) } : {}),
     readFile: proj?.readFile ?? ((p) => {
       const rel = p.startsWith('/test/') ? p.slice('/test/'.length) : p;
       const hit = files[rel] ?? files[`./${rel}`] ?? files[p];
@@ -512,6 +522,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   }
   if (parts.remote) { names.push('$ri'); values.push(remote(parts.remote)); }
   for (const x of parts.lazy) { names.push(x.local); values.push(() => Promise.resolve()); }
+  for (const x of parts.lazyHelpers) { names.push(x.local); values.push(options.lazyHelpers![x.module.slice('lazy:'.length)]!.load); }
   for (const x of parts.scripts) {
     const m = options.scripts?.[x.name];
     names.push(x.local);

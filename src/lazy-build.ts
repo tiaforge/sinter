@@ -79,6 +79,8 @@ export interface LazyScan {
   problems: Array<{ message: string; offset: number }>;
   /** the module's static value imports and re-exports (type-only ones left out), by specifier */
   imports: string[];
+  /** those of `imports` that are re-exports only (`export … from`) */
+  reexports?: string[];
 }
 
 type N = { type: string; start: number; end: number; [k: string]: any };
@@ -180,6 +182,7 @@ export function scanLazy(code: string, file: string, pkgs: readonly string[]): L
       const spec = String(st.source.value);
       if (st.type === 'ExportNamedDeclaration' && (st.specifiers as N[]).every(typeOnly) && st.specifiers.length) continue;
       out.imports.push(spec);
+      (out.reexports ??= []).push(spec);
       if (lazyPackage(spec, pkgs)) out.problems.push({ message: `re-exporting \`${spec}\` hands out its values, which need it loaded at once; \`sinter({ lazy })\` loads ${spec} on first call. Import what you call where you call it`, offset: st.start });
     }
   }
@@ -246,7 +249,7 @@ export interface Reach {
  * The lazy packages a module reaches through static value imports of the app's modules (type-only
  * imports are no edge), each with the shortest chain. `cache`: scans by file, shared between calls.
  */
-export function reachLazy(start: string, pkgs: readonly string[], root: string, cache: Map<string, LazyScan | null> = new Map(), read: (f: string) => string = (f) => readFileSync(f, 'utf8')): Reach[] {
+export function reachLazy(start: string, pkgs: readonly string[], root: string, cache: Map<string, LazyScan | null> = new Map(), read: (f: string) => string = (f) => readFileSync(f, 'utf8'), own = false): Reach[] {
   const scanOf = (f: string): LazyScan | null => {
     if (!cache.has(f)) {
       let s: LazyScan | null = null;
@@ -264,7 +267,8 @@ export function reachLazy(start: string, pkgs: readonly string[], root: string, 
     if (f.includes(`${sep}node_modules${sep}`)) continue;
     const s = scanOf(f);
     if (!s) continue;
-    for (const spec of s.imports) {
+    // `own`: what the start module's own functions need, so not what it only re-exports (a barrel: the helpers module)
+    for (const spec of own && f === start ? s.imports.filter((x) => !s.reexports?.includes(x) || s.imports.indexOf(x) !== s.imports.lastIndexOf(x)) : s.imports) {
       const pkg = lazyPackage(spec, pkgs);
       if (pkg) { if (!found.has(pkg)) found.set(pkg, { spec: pkg, chain: chainTo(f) }); continue; }
       const next = resolveFile(spec, f, root);
@@ -289,11 +293,11 @@ export function isComponentScript(root: string, file: string): boolean {
 
 /**
  * `sinter check`: SN324 in the app's modules: the helpers, actions, config and early modules, the
- * component scripts, and every app module they import. A helper module may not reach a lazy package
- * at all (helpers run synchronously while a binding renders); a component script may use it freely
- * (it loads with the package).
+ * component scripts, and every app module they import. A component script may use a lazy package
+ * freely (it loads with the package), and so may a helper module that reaches one and the modules
+ * between them (`whole`: they load with it; the page calls its helpers only in lets, which wait).
  */
-export function lazyDiagnostics(root: string, pkgs: readonly string[], starts: Array<string | null>, helpersFile: string | null, scripts: string[]): Diagnostic[] {
+export function lazyDiagnostics(root: string, pkgs: readonly string[], starts: Array<string | null>, whole: ReadonlySet<string>, scripts: string[]): Diagnostic[] {
   if (!pkgs.length) return [];
   const out: Diagnostic[] = [];
   const cache = new Map<string, LazyScan | null>();
@@ -306,11 +310,10 @@ export function lazyDiagnostics(root: string, pkgs: readonly string[], starts: A
     let s: LazyScan;
     try { s = scanLazy(code, f, pkgs); } catch (e) { out.push({ severity: 'error', code: 'SN324', message: `cannot read ${relative(root, f)} to check its imports of lazy packages: ${(e as Error).message}`, file: f, line: 1, col: 1 }); return; }
     cache.set(f, s);
-    if (!isComponentScript(root, f)) for (const p of s.problems) out.push({ severity: 'error', code: 'SN324', message: p.message, file: f, ...lineCol(code, p.offset) });
+    if (!isComponentScript(root, f) && !whole.has(f)) for (const p of s.problems) out.push({ severity: 'error', code: 'SN324', message: p.message, file: f, ...lineCol(code, p.offset) });
     for (const spec of s.imports) { const n = resolveFile(spec, f, root); if (n) visit(n); }
   };
   for (const f of [...starts, ...scripts]) if (f) visit(f);
-  if (helpersFile) for (const r of reachLazy(helpersFile, pkgs, root, cache)) out.push(helperProblem(root, r, helpersFile));
   return out;
 }
 
@@ -319,5 +322,33 @@ export function helperProblem(root: string, r: Reach, helpersFile: string): Diag
   return {
     severity: 'error', code: 'SN324', file: helpersFile, line: 1, col: 1,
     message: `the helpers module reaches ${r.spec}, which \`sinter({ lazy })\` loads on first call: helpers run while a binding renders and cannot wait for a download (${chainText(root, r)}). Compute the value in an action or a \`<sn-resource call>\`, or take ${r.spec} out of \`lazy\``,
+  };
+}
+
+/**
+ * Helper modules that reach lazy packages (docs/lazy.md#helpers-that-wait). `reach`: for a module that
+ * declares helpers (its specifier as the helpers manifest has it, `/src/lib/parse.ts`), the lazy packages its
+ * own code reaches, not what it only re-exports (the helpers module re-exports every namespace). `whole`:
+ * those modules and the app's modules between them and the package, which load whole with it (no stubs:
+ * once loaded, their functions are sync).
+ */
+export function lazyHelpers(root: string, pkgs: readonly string[], cache: Map<string, LazyScan | null> = new Map()) {
+  const fileOf = (spec: string) => (spec.startsWith('/') ? resolveFile(spec, root, root) : null);
+  const of = new Map<string, Reach[]>();
+  const reachOf = (spec: string): Reach[] => {
+    const f = pkgs.length ? fileOf(spec) : null;
+    if (!f) return [];
+    if (!of.has(f)) of.set(f, reachLazy(f, pkgs, root, cache, undefined, true));
+    return of.get(f)!;
+  };
+  return {
+    reach: (spec: string) => reachOf(spec).map((r) => r.spec),
+    whole(manifest: { module: string | null; from?: Record<string, { module: string }>; namespaces: Record<string, { module: string; from?: Record<string, { module: string }> }> }): Set<string> {
+      const specs = [manifest.module, ...Object.values(manifest.from ?? {}).map((o) => o.module)];
+      for (const ns of Object.values(manifest.namespaces)) specs.push(ns.module, ...Object.values(ns.from ?? {}).map((o) => o.module));
+      const out = new Set<string>();
+      for (const s of new Set(specs)) if (s) for (const r of reachOf(s)) for (const f of r.chain) out.add(f);
+      return out;
+    },
   };
 }

@@ -10,6 +10,7 @@ import type { CheckUnit } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compile, MESSAGES } from '../compiler/index.js';
+import { lazyHelpers } from '../lazy-build.js';
 import { project, type ProjectOptions } from '../project.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import { specDeclarations, typeName } from './openapi-types.js';
@@ -178,7 +179,7 @@ export function checkPage(html: string, o: ProjectOptions & { files?: Record<str
     const file = join(root, 'index.html');
     writeFileSync(file, html);
     const p = project(root, o);
-    const out = compile(html, { file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles });
+    const out = compile(html, { ...(p.lazy.length ? { lazyModule: lazyHelpers(root, p.lazy).reach } : {}), file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles });
     const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()), messagesTypes: p.messagesTypes });
     return [...p.diagnostics, ...out.diagnostics, ...r.diagnostics].map((d) => ({ ...d, file: relative(root, d.file) }));
   } finally {
