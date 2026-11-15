@@ -284,6 +284,8 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
     get(_, k) {
       // cached lets: the early file's own cache
       if (lc && (k == '$c' || k == '$h')) return lc[k];
+      // a state field the build computed, embedded in the head (parsed when the early script runs: the head is there)
+      if (k == '$d') return (id: number) => JSON.parse(document.querySelector(`head > script[data-sn="${id}"]`)!.textContent!);
       // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
       const l = k == '$locale' ? o.locale?.() : null;
       if (l) return l.get();
