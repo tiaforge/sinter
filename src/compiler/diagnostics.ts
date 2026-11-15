@@ -121,7 +121,7 @@ export function severityOf(code: Code): Severity {
  * installed, a download that failed): `--strict` does not turn them into errors, since a build
  * would then pass or fail with the network.
  */
-export const ENVIRONMENT_CODES: ReadonlySet<string> = new Set(['SN525', 'SN526', 'SN527', 'SN528']);
+export const ENVIRONMENT_CODES: ReadonlySet<string> = new Set(['SN525', 'SN526', 'SN527', 'SN528', 'SN533']);
 
 /**
  * Warnings that are a measure, not a mistake: `--strict` leaves them warnings. `SN507` has its own

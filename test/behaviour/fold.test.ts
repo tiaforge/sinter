@@ -89,6 +89,38 @@ describe('a helper call over constants runs at build time', () => {
   });
 });
 
+describe('a folded value the browser still reads is written once, as embedded data', () => {
+  const page = `<!doctype html><html><head></head><body><main data-sn-state="{ open: false, title: titled('hello world') }">
+    <button data-sn-on-click="open = !open"></button><h1 data-sn-text="open ? title : '…'"></h1></main></body></html>`;
+  const titled = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
+
+  test('the state field reads it from the head; the helper is in neither the page module nor the early file', () => {
+    const out = build(page, { titled: [titled, yes] }, { early: { module: null } });
+    expect(errors(out)).toEqual([]);
+    expect(out.html).toMatch(/<script type="application\/json" data-sn="(\d+)">"Hello World"<\/script>/);
+    const id = /data-sn="(\d+)">"Hello World"/.exec(out.html)![1];
+    expect(out.module).toContain(`$.$d(${id})`);
+    expect(out.module).not.toContain('titled');
+    expect(out.early ?? '').not.toContain('titled');
+  });
+
+  test('at run time and in the first paint: the value, a copy per state', async () => {
+    const r = await render(page, { helpers: { titled } });
+    expect(r.root.querySelector('h1')!.textContent).toBe('…');
+    r.root.querySelector('button')!.click();
+    await r.flush();
+    expect(r.root.querySelector('h1')!.textContent).toBe('Hello World');
+    const early = await firstPaint(page.replace('open: false', 'open: true').replace('data-sn-on-click="open = !open"', 'data-sn-on-click="open = false"'), { helpers: { titled } });
+    expect(early.root.querySelector('h1')!.textContent).toBe('Hello World');
+  });
+
+  test('a helper of a module that reaches a lazy package does not fold, with that reason', () => {
+    const waits = build(`<main data-sn-state="{ s: 'x' }" data-sn-let="{ v: slow(s) }"><p data-sn-text="v"></p></main>`, { slow: [upper, yes] }, { static: true, lazyModule: (m) => (m === '/src/sinter.helpers.ts' ? ['fakelib'] : []) });
+    expect(waits.html).not.toContain('<p>X</p>');
+    expect(errors(waits)).toEqual(expect.arrayContaining([expect.stringContaining('`slow()` cannot run at build time: its module reaches a lazy package')]));
+  });
+});
+
 describe('file: values are constants', () => {
   const files = { 'intro.txt': 'hello there', 'team.json': JSON.stringify({ people: [{ id: 1, name: 'Ada' }, { id: 2, name: 'Grace' }] }) };
 

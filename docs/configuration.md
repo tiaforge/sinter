@@ -210,7 +210,8 @@ export * as fmt from './format.js';
   load it before compiling, through Vite with your config (aliases and plugins apply), and a call over
   values known at build time runs there: its result is written into the page. Its top-level code runs in Node too: keep what needs the
   browser (`window`, `document`) inside the functions that use it. A module that cannot load in Node
-  only warns (`SN533`); the page works as before.
+  only warns (`SN533`, which strict mode does not fail on); the page works as before. Loading it takes
+  one extra Vite server per build, a few hundred milliseconds.
 - Whether a helper's calls can run at build time is decided from its code: it, and everything it calls
   and imports, may use only JavaScript's own deterministic globals (`Math`, `JSON`, `Array`, `Map`, …),
   not `Date`, `Intl`, `Math.random`, `toLocale…`, `fetch`, `window` or `process`. Each exported function

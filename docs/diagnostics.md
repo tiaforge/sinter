@@ -850,7 +850,7 @@ Warning, for example:
 
 The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app's Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session.
 
-**Fix:** Move what needs the browser out of the module's top level (into the functions that need it), or into a component script. The page works either way; only build-time folding is lost.
+**Fix:** Move what needs the browser out of the module's top level (into the functions that need it), or into a component script. The page works either way; only build-time folding is lost. Strict mode does not fail on this warning: it depends on what the app imports, not on a mistake.
 
 ## SN534 helper-not-folded
 

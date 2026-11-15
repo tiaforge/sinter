@@ -652,6 +652,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     page: {
       $r: {}, $meta: {}, $url: readUrl(), $now: new Date(env.now()),
       $m: (el: unknown, v: unknown) => (marked.add(el), v),
+      // a state field the build computed (a helper over constants), embedded in the head: a fresh copy per read
+      $d: (id: number) => { try { return JSON.parse(found.get(id)!.textContent!); } catch { return undefined; } },
       get $locale() { return config.locale?.get(); },
       set $locale(v: any) {
         config.locale?.set(v);
