@@ -16,7 +16,7 @@ there and lands in `main` with the rest.
 | 2, anchors as comments | in progress | a `data-sn-else` after `<sn-component use>` stays an `if` anchor of its own |
 | 3, slots that pass data | merged here | see below |
 | 6, the constant pre-pass | in progress | the values come from the first of two passes ([5](#5-constant-trees-are-unrolled)) |
-| 10, lets over helpers | in progress | |
+| 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
 - New codes: `SN331` (an invalid slot: a placement, a fill or a declaration that breaks a rule of
@@ -30,6 +30,27 @@ Step 3, as built:
   plain elements, and a text fill (`<template slot data-sn-text>`) is `SN331` naming step 4.
 - Two bugs on `main` were fixed on the way: plain slot content at the top of a component's unrolled
   row failed with `SN201`, and a `<slot>` inside another slot's fallback was never filled.
+
+Step 10, as built:
+- Measured with step 1's spike against the build: the article with embedded data reaches LCP at
+  392 ms instead of 1,164, parses once early and once in the page module instead of 2 and 4 times,
+  and keeps all 2,831 early elements at takeover instead of 1. A re-render with the same source
+  takes 10 ms instead of 296, with no parse. 50 comments parse 50 times instead of 100. The
+  js-framework-benchmark is unchanged within noise; the page bundle grows by 0.1 kB gzip.
+- The takeover already adopted early rows by position at its first reconcile; the rows were
+  replaced at the page module's first flush, when storing the embedded data made the inlined let
+  parse again. Cached lets fix that by themselves when the arguments are primitives; positional
+  matching extends to that first flush for helpers given other arguments.
+- Only the app's helpers make a let cached, not the built-in formatters or messages, which depend
+  on `$locale`. An object argument counts as equal when it is a plain object of primitives equal to
+  a copy of the last one, which stays correct for state changed in place.
+- Invalidation is per let, not per instance: a change makes every instance compute again at its
+  next read, and the argument check keeps that from parsing again.
+- A lazy helper module loads when a waiting let is first read, not when its scope is created. A
+  call inside an arrow function in a let waits too.
+- `sinter check` types a waiting let `T | undefined`, but runs without `strictNullChecks`, so an
+  unguarded read is not an error. The editor does not yet report the per-module `SN324`; the build
+  and `sinter check` do.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
