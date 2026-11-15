@@ -260,6 +260,8 @@ export interface App {
    * in a text field, so a resource URL it changes waits for a pause
    */
   mark(path: number | string, scope?: any, typing?: boolean): void;
+  /** whether writing `writes` in `scope` would reach a dependency of `deps`, as a flush would decide (nothing is marked) */
+  reaches(writes: PathRef[], scope: any, deps: PathRef[] | undefined): boolean;
   flush(): void;
   /**
    * Runs `fn`, a server event's changes: what it marks is rendered before the next frame is painted
@@ -445,7 +447,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element | Comment>();
   /** the head templates, by template id (`<template id="sn-t-<id>">`), found once */
   const tpls: HTMLTemplateElement[] = [];
-  let dirty: Dirty[] = [], cur: Dirty[] = [], scheduled = false, flushing = false, round = 0, destroyed = false;
+  let dirty: Dirty[] = [], cur: Dirty[] = [], scheduled = false, flushing = false, round = 0, probe = 0, destroyed = false;
   /** inside `streamed()`; a flush waits for the next frame */
   let streaming = 0, framed = false;
   /** dirty paths of this round that keystrokes in text fields produced */
@@ -603,6 +605,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     ...templatesOf(b).flatMap((x) => templateDeps(ir.templates[x]!)),
   ]))), others.get(t)!);
 
+  /** a written path, with its `{name}` segments as the writer's scope has them */
+  const dirtyOf = (path: PathRef, s: any): Dirty => {
+    const w = typeof path == 'number' ? path : ps.x[path] ?? -1;
+    return { w, v: w < 0 ? [] : slots(w).map((n) => (s ? '' + s[n] : '{' + n + '}')) };
+  };
   /** Whether a dirty path of the current flush reaches one of `deps`. */
   const hit = (deps: PathRef[] | undefined, s?: any) => {
     for (const n of ids(deps)) if (tR[n] == round && ((!tE[n]!.conds.length && !tC[n]) || each(n, (d, e) => level(e, d, s)))) return true;
@@ -681,9 +688,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     url: (tpl, s) => expand(tpl, s, fns),
     mark(path, s, typing) {
-      const w = typeof path == 'number' ? path : ps.x[path] ?? -1;
-      // the written path's `{name}` segments, as the writer's scope has them
-      const d: Dirty = { w, v: w < 0 ? [] : slots(w).map((n) => (s ? '' + s[n] : '{' + n + '}')) };
+      const d = dirtyOf(path, s);
       dirty.push(d);
       if (typing) typed.add(d);
       if (scheduled || flushing) return;
@@ -691,6 +696,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
         // a frame flush only runs when no microtask flush took these changes first
         if (!framed) { framed = true; env.frame(() => { framed = false; if (!scheduled && dirty.length) app.flush(); }); }
       } else { scheduled = true; env.queueMicrotask(app.flush); }
+    },
+    // a round of its own, below 0 (a flush's rounds count on: unkeyed rows adopted from the early script match
+    // by position until the next one): the index is stamped with it and read once
+    reaches(ws, s, deps) {
+      const r = round;
+      round = --probe;
+      index(ws.map((w) => dirtyOf(w, s)));
+      const h = hit(deps);
+      round = r;
+      return h;
     },
     streamed(fn) {
       streaming++;
