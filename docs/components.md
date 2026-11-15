@@ -482,7 +482,17 @@ A list of mixed blocks (a CMS page, dashboard widgets, a form builder) picks a c
   with the item narrowed to its type (`hero-block` can declare `{ block: HeroBlock }` for
   `Block = HeroBlock | TextBlock`). A helper hides that link, so its candidates take the whole union.
 - A value outside the candidates renders nothing, with a warning in dev builds (once per value), or the
-  `data-sn-else` template that follows the element.
+  `data-sn-else` template that follows the element. With that template, a map's key may be any value
+  (`sinter check` takes keys outside the map), and for the convention and the map the template is
+  checked with the item narrowed to the union's other members: `n.value` type-checks there when only
+  the text member has `value`.
+
+  ```html
+  <template data-sn-for="n in node.children">
+    <sn-component use="{ emphasis: 'x-em', link: 'x-link' }[n.type]" data-sn-prop="{ node: n }"></sn-component>
+    <template data-sn-else><template data-sn-text="n.value"></template></template>
+  </template>
+  ```
 - Each candidate compiles to a shared definition in the head (as for [recursion](#a-component-inside-itself)).
   Over constant props, the candidate each use renders is expanded at build time in its place, and a
   candidate nothing renders is not in the page.

@@ -71,6 +71,8 @@ and its events' `detail` is `any`.
 
 Null checks and implicit `any` are off. A binding that reads `null` renders nothing, and expressions in separate attributes cannot narrow each other, so strictness would only produce noise.
 
+Branches do narrow. What is inside a `data-sn-if` template is checked where its condition holds, and what is inside its `data-sn-else` where it does not. A `data-sn-else` after `<sn-component use>` is checked where the key names none of the candidates. With `type Inline = Text | Link`, where only `Text` has `value`, `n.value` checks inside `<template data-sn-if="n.type === 'text'">`.
+
 ## Server events
 
 `type` on `<sn-event>` types the payload, using the same module:

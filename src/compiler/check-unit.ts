@@ -27,7 +27,9 @@ export type CheckFrame =
   /** a component's props, typed by its `data-sn-component`; `alias`: written as a type the compiler cannot list, which may not hold a `Slot<T>` */
   | { kind: 'props'; component: string; type: TypeRef; names: string[]; alias?: boolean }
   /** `$slot` in a fill: the `T` of the slot's `Slot<T>`, and which slot of which component it is */
-  | { kind: 'slot'; type: TypeRef; name: string; component: string };
+  | { kind: 'slot'; type: TypeRef; name: string; component: string }
+  /** a branch: what follows is checked where `cond` holds (a `data-sn-if`, the negation of the ones before for `data-sn-else`), so it narrows; errors in it are its own expression's */
+  | { kind: 'guard'; cond: string };
 
 /** A type the checker writes for something other than a resource. */
 export type TypeRef =

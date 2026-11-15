@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { COMPILER_OPTIONS, shadowOf, shadowPath, typeDiagnostic, writeSupport, type Support } from '../check/index.js';
-import { mapPosition, shadowPosition, type Region } from '../check/shadow.js';
+import { mapPosition, quietLine, shadowPosition, type Region } from '../check/shadow.js';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import type { Diagnostic } from '../compiler/index.js';
 import type { Project } from '../project.js';
@@ -115,7 +115,7 @@ export class TypeScriptBridge {
       if (item.severity !== 1) continue;
       const { start, end } = item.range;
       // broken expressions are the compiler's to report
-      if (s.brokenFrom !== null && start.line + 1 >= s.brokenFrom) continue;
+      if ((s.brokenFrom !== null && start.line + 1 >= s.brokenFrom) || quietLine(s.regions, start.line + 1)) continue;
       const d = typeDiagnostic(s.unit, s.regions, start.line + 1, start.character + 1, `TS${item.code}`, item.message, this.root);
       const a = mapPosition(s.regions, start.line + 1, start.character + 1);
       const b = mapPosition(s.regions, end.line + 1, end.character + 1);

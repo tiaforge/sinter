@@ -96,6 +96,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- `sinter check`: a map in `<sn-component use>` followed by a `data-sn-else` accepts keys outside the map, as the build renders the else for them. The else template, and the branches of a `data-sn-if`/`data-sn-else` chain, are checked with the data narrowed by their conditions, so a member only one type of a union has type-checks in its branch.
 - A state change did not re-render content of components used inside one another (a link in an emphasis in an emphasis): the runtime's template dependencies were memoised mid-recursion.
 - The tag's attributes on a component used inside itself (and a component's tag attributes when its root is `<sn-component use>`) reach the root the shared definition renders: plain attributes, `data-sn-class`, `-attr`, `-style`, `-show` and handlers. They were dropped silently; other sinter attributes there are `SN102`.
 - Plain slot content at the top of a row of a component's loop over constant state failed the first-paint build (`SN201` on the loop's list): the unrolled row's item went onto the caller's scope instead of the component's.

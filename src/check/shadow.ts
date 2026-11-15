@@ -41,6 +41,8 @@ export interface Region {
   loc: CheckLoc;
   /** every line maps to `loc` itself (a `type` attribute in a JSDoc comment) */
   fixed?: boolean;
+  /** generated from markup checked elsewhere (a branch's condition): its errors are not reported again */
+  quiet?: boolean;
 }
 
 export interface Shadow {
@@ -237,6 +239,10 @@ export function shadow(o: ShadowOptions): Shadow {
           regions[regions.length - 1]!.fixed = true;
           line(' * } */ const $slot = $any;');
         } else line(' * @type {any} */ const $slot = $any;');
+      } else if (f.kind === 'guard') {
+        const parts = `if (!(${f.cond}\n)) return $any;`.split('\n');
+        regions.push({ start: out.length + 1, lines: parts.length, loc: { file: unit.file, line: 1, col: 1, chain: [] }, quiet: true });
+        parts.forEach(line);
       } else if (f.kind === 'formError') {
         line(`/** @type {${decl('Err')} | null} */ let $error = $any;`);
       } else if (f.kind === 'let') {
@@ -307,6 +313,11 @@ export function shadow(o: ShadowOptions): Shadow {
     line('}');
   });
   return { text: out.join('\n') + '\n', regions, brokenFrom };
+}
+
+/** A shadow line generated from markup checked elsewhere (a branch's condition): its errors are not reported. */
+export function quietLine(regions: Region[], line: number): boolean {
+  return regions.some((r) => r.quiet && line >= r.start && line < r.start + r.lines);
 }
 
 /** Maps a 1-based shadow position to the HTML, or null for generated lines. */

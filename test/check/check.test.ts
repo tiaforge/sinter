@@ -202,6 +202,42 @@ export type AnyBlock = Hero | Text | Image;
     expect(run2('AnyBlock', "{ hero: 'hero-block', text: 'text-block' }[b.type]")).toEqual([expect.stringMatching(/Type '"image"' is not assignable to type '"hero" \| "text"'/)]);
   });
 
+  test('branches narrow: a data-sn-if is checked under its condition, its data-sn-else under the negation, a choice\'s else under no candidate', () => {
+    const types = `export interface Plain { type: 'plain'; value: string }
+export interface Strong { type: 'strong'; children: Inline[] }
+export interface Ref { type: 'ref'; url: string; children: Inline[] }
+export type Inline = Plain | Strong | Ref;
+`;
+    const files = {
+      'src/sinter.types.ts': types,
+      'src/components/x-strong.html': '<template data-sn-component="{ node: Strong }"><b data-sn-text="node.children.length"></b></template>',
+      'src/components/x-ref.html': '<template data-sn-component="{ node: Ref }"><a data-sn-attr="{ href: node.url }"></a></template>',
+    };
+    const html = (body: string) => `<!doctype html><html><head></head><body>
+<sn-resource name="nodes" src="/api/n" type="Inline[]"></sn-resource>
+<template data-sn-for="n in nodes">${body}</template>
+</body></html>`;
+    const errors = (body: string) => checkPage(html(body), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    // the map's other keys render the else, where n is the union's other member
+    const choice = `<sn-component use="{ strong: 'x-strong', ref: 'x-ref' }[n.type]" data-sn-prop="{ node: n }"></sn-component><template data-sn-else><template data-sn-text="n.value"></template></template>`;
+    expect(errors(choice)).toEqual([]);
+    // without a data-sn-else, a key outside the map is still an error
+    expect(errors(`<sn-component use="{ strong: 'x-strong', ref: 'x-ref' }[n.type]" data-sn-prop="{ node: n }"></sn-component>`))
+      .toEqual([expect.stringMatching(/Type '"plain"' is not assignable to type '"ref" \| "strong"'/)]);
+    // an else is not a candidate: n there is not narrowed to a candidate's member
+    expect(errors(`<sn-component use="{ strong: 'x-strong' }[n.type]" data-sn-prop="{ node: n }"></sn-component><template data-sn-else><template data-sn-text="n.value"></template></template>`))
+      .toEqual([expect.stringMatching(/Property 'value' does not exist on type 'Ref'/)]);
+    // an if chain: each branch under its condition, the else under the negation of the ones before
+    const chain = `<template data-sn-if="n.type === 'plain'"><span data-sn-text="n.value"></span></template><template data-sn-else><template data-sn-if="n.type === 'ref'"><a data-sn-attr="{ href: n.url }" data-sn-text="n.children.length"></a></template><template data-sn-else><b data-sn-state="{ k: 0 }" data-sn-on-click="k = n.children.length" data-sn-text="k"></b></template></template>`;
+    expect(errors(chain)).toEqual([]);
+    // outside the branch, nothing is narrowed
+    expect(errors(`<template data-sn-if="n.type === 'plain'"><span data-sn-text="n.value"></span></template><i data-sn-text="n.value"></i>`))
+      .toEqual([expect.stringMatching(/Property 'value' does not exist on type 'Inline'|Property 'value' does not exist on type 'Strong'/)]);
+    // an error in a condition is reported once, at the condition
+    expect(errors(`<template data-sn-if="n.tpye === 'plain'"><span data-sn-text="n.type"></span></template>`))
+      .toEqual([expect.stringMatching(/Property 'tpye' does not exist/)]);
+  });
+
   test('SN507 complex expressions: in checkPage like other diagnostics, with the complexity option', () => {
     const html = page(`<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5" data-sn-text="n + contacts.length"></button></div>`);
     const d = checkPage(html, { files: { 'src/sinter.types.ts': TYPES } });

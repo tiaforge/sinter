@@ -15,7 +15,7 @@ import { project, type ProjectOptions } from '../project.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import { specDeclarations, typeName } from './openapi-types.js';
 import type { LibraryTypes } from './shadow.js';
-import { DECLARATIONS, mapPosition, shadow, type Region, type Shadow } from './shadow.js';
+import { DECLARATIONS, mapPosition, quietLine, shadow, type Region, type Shadow } from './shadow.js';
 
 export interface CheckOptions {
   root: string;
@@ -240,7 +240,7 @@ function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<str
     last = null;
     const s = shadows.get(resolve(outDir, m[1]!));
     // errors in the app's own modules are its own tsc's business; broken expressions are the compiler's
-    if (!s || (s.brokenFrom !== null && Number(m[2]) >= s.brokenFrom)) continue;
+    if (!s || (s.brokenFrom !== null && Number(m[2]) >= s.brokenFrom) || quietLine(s.regions, Number(m[2]))) continue;
     const d = typeDiagnostic(s.unit, s.regions, Number(m[2]), Number(m[3]), m[4]!, m[5]!, root);
     out.push(d);
     last = d;
