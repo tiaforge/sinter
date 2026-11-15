@@ -42,6 +42,26 @@ Two-way binding has no meaningful value for this input type.
 
 **Fix:** Submit the form with a method attribute (`data-sn-post`, …) on it; a form with a file input is sent as `FormData`.
 
+## SN105 reserved-comment
+
+Error, for example:
+
+> a comment that starts with `sn` is reserved: sinter marks lists and branches with such comments
+
+Every `data-sn-if`, `data-sn-for` and component chosen by data is marked in the page by a pair of comments, `<!--sn 4-->` and `<!--/sn-->`, which the runtime and the early script find. An author's comment that starts the same way would be taken for one.
+
+**Fix:** Reword the comment so it does not start with `sn` or `/sn`, or remove it.
+
+## SN106 anchor-in-raw-text
+
+Error, for example:
+
+> a `<template data-sn-for>` inside `<textarea>` is text to the HTML parser: it renders nothing
+
+The content of `<textarea>` and `<title>` is raw text: the browser's parser reads no elements or comments there, so a list or branch inside one cannot be marked or rendered.
+
+**Fix:** Bind the whole text instead: `data-sn-model` (or `data-sn-attr="{ value: … }"`) on the `<textarea>`, `data-sn-text` on the `<title>`.
+
 ## SN201 unknown-identifier
 
 Error, for example:
@@ -161,6 +181,16 @@ Error, for example:
 The URL holds strings: an object, a function or an instance (`{…}`, `() => …`, `new Date()`) written to a `$url` parameter has no form a reload could read back. At run time such a value removes the parameter, with a dev warning.
 
 **Fix:** Write the string or number you mean (`$url.from = d.toISOString().slice(0, 10)`), or keep the object in state.
+
+## SN213 element-of-anchor
+
+Error, for example:
+
+> `$el` in a `data-sn-if`: the condition is marked by comments in the page, so there is no element to read
+
+A `data-sn-if`, a `data-sn-for` and the `use` of `<sn-component>` render a variable number of nodes between two comments; they have no element of their own for `$el` to name.
+
+**Fix:** Read the element in a binding inside the template (each rendered element has its own `$el`), or decide with state instead of the element.
 
 ## SN301 unknown-resource
 

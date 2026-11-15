@@ -30,7 +30,10 @@ test('a tree renders at any depth from one definition in the head', async () => 
   { requests, components: { 'comment-thread': THREAD } });
   await settle();
   expect(bodies(root)).toEqual(['a', 'b', 'c', 'd', 'e']);
-  expect(document.head.querySelectorAll('template#sn-def-comment-thread')).toHaveLength(1);
+  // head templates (at the end of the body: no early file renders them): the page's row and its thread's replies,
+  // the definition and its replies; no template in the lists' markup
+  expect([...document.querySelectorAll("template[id^='sn-t-']")].map((t) => t.id)).toEqual(['sn-t-0', 'sn-t-1', 'sn-t-2', 'sn-t-3']);
+  expect(root.querySelectorAll('ul template')).toHaveLength(0);
   // the depth: d is four lists deep
   expect(root.querySelectorAll('ul ul ul ul p')[0]!.textContent).toBe('d');
 });
