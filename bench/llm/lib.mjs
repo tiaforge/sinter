@@ -5,15 +5,22 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 export const { chromium } = createRequire(import.meta.url)('playwright');
 
-/** Runs a command to completion; resolves { code, out } (stdout+stderr, last 8 KB). */
+/** Runs a command to completion; resolves { code, out } (stdout+stderr, last 8 KB). On timeout the whole process
+ * group is killed, not just the command: a grader under `unshare --pid --fork` is a child of unshare and would
+ * otherwise live on and hold the output pipe open (a T4 grader hung for an hour that way). */
 export function run(cmd, args, { cwd, env, timeout = 600_000 } = {}) {
   return new Promise((resolve) => {
-    const p = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
+    const p = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    let out = '', done = false;
     const add = (d) => { out = (out + d).slice(-8192); };
     p.stdout.on('data', add); p.stderr.on('data', add);
-    const t = setTimeout(() => p.kill('SIGKILL'), timeout);
-    p.on('close', (code) => { clearTimeout(t); resolve({ code, out }); });
+    const finish = (code) => { if (done) return; done = true; clearTimeout(t); resolve({ code, out }); };
+    const t = setTimeout(() => {
+      out += `\n(killed after ${Math.round(timeout / 1000)} s)`;
+      try { process.kill(-p.pid, 'SIGKILL'); } catch {}
+      setTimeout(() => finish(null), 5000); // even if something still holds the pipes
+    }, timeout);
+    p.on('close', finish);
   });
 }
 
