@@ -7,7 +7,8 @@
   words (`npx sinter docs optimistic rollback`); `npx sinter docs` lists the topics. It prints the
   installed version's docs: don't fetch sinter's docs from the web, which describe another version.
 - To check what a page loads, renders and does (requests and their headers, each resource's state,
-  history), run `npx sinter render page.html --api mocks.json` (`--help` for the steps: click, input,
+  history), run `npm run render` (index.html with `mocks.json`; add routes there as the API grows) or
+  `npx sinter render page.html --api mocks.json` (`--help` for the steps: click, input,
   select, back, …) before writing browser scripts. A browser is only needed for layout and
   browser-specific behaviour.
 - Styling: temper (`data-variant`, `data-tone`, `data-layout`, … with fixed values; no classes for

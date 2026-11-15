@@ -1,0 +1,39 @@
+{
+  "GET /api/tasks": [
+    {
+      "id": "t1",
+      "title": "Write the first page",
+      "notes": "",
+      "done": false,
+      "createdAt": "2026-01-01T08:00:00.000Z"
+    },
+    {
+      "id": "t2",
+      "title": "Ship it",
+      "notes": "After the review.",
+      "done": true,
+      "createdAt": "2026-01-01T07:00:00.000Z"
+    }
+  ],
+  "GET /api/tasks/t1": {
+    "id": "t1",
+    "title": "Write the first page",
+    "notes": "",
+    "done": false,
+    "createdAt": "2026-01-01T08:00:00.000Z"
+  },
+  "GET /api/tasks/t2": {
+    "id": "t2",
+    "title": "Ship it",
+    "notes": "After the review.",
+    "done": true,
+    "createdAt": "2026-01-01T07:00:00.000Z"
+  },
+  "PATCH /api/tasks/t1": {
+    "id": "t1",
+    "title": "Write the first page",
+    "notes": "",
+    "done": true,
+    "createdAt": "2026-01-01T08:00:00.000Z"
+  }
+}
