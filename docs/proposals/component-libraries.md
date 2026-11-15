@@ -15,11 +15,14 @@ there and lands in `main` with the rest.
 | 1, the spike | done (`examples/markdown/` on `ccr-ec5fd4e0-bp4vko`) | see the numbers in the sections |
 | 2, anchors as comments | merged here | see below |
 | 3, slots that pass data | merged here | see below |
-| 5, tree slots | in progress (from the integration branch) | |
+| 5, tree slots | merged here | see below |
 | 4, component roots and text nodes | merged here | see below |
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | merged here | see below |
 | 8, helpers over constants and `file:` | merged here | see below |
+| 9, constant trees | merged here | see below |
+| 11, libraries ship source | merged here | see below |
+| 12, the markdown library | in progress (new session, `packages/sinter-markdown/`) | |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -158,8 +161,10 @@ Step 8b, as built:
   of the global it reaches.
 - `file:` values and their `$meta` are constants; a file resource nothing reads at run time is
   removed with its head script, so a page whose files and helpers all fold can be static.
-- A folded value that the browser still reads is computed again there, as before, rather than
-  written once as embedded data; step 9 handles that for trees that are not unrolled.
+- A folded value that the browser still reads (a state field a helper computed at build time,
+  read by a binding that does not fold) is written once into the head as JSON and read from there
+  (`$.$d`); the helper is in neither the page module nor the early file. `SN322` also names the
+  lazy-package reason, and `SN533` does not fail strict builds.
 - RealWorld builds to identical HTML before and after: its helpers that read the session
   (`signedOut()`) are refused by the static check.
 
@@ -172,8 +177,9 @@ Step 4, as built:
 - A text node is not a new kind of node in the IR: its node is the marker before it, with a binding
   of its own writer, so paths and lookups are unchanged and the element writer on the hot path is
   untouched. Its slot is an empty comment in all HTML until it has text, so no separators are
-  needed; text over state is not written at build time yet, only literals (step 9 folds constant
-  text runs into plain text).
+  needed. A text over build-time constants (an unrolled row's item, state nothing writes, a
+  constant prop) is written into the HTML as plain text and its binding dropped; one that stays a
+  binding keeps its anchor or slot, so a folded text never merges with a live one.
 - Codes: `SN312` keeps its number for a root that renders more than one element or text, and for a
   script or root state on a root that is not plain; new `SN333` (invalid text template) and
   `SN334` (an attribute on the tag of a component whose root may render nothing).
@@ -181,6 +187,70 @@ Step 4, as built:
   transition or a debounce there is `SN102`. A placement whose default is a component gives no
   children.
 - The minimal runtime is 15,041 of 15,360 B gzip after steps 2 to 4, 6 to 8 and 10.
+
+Step 5, as built:
+- A placement inside a shared definition is a run-time choice anchor; one expanded directly in the
+  root's own markup is filled at build time like a plain slot. A fill is a template per fill and
+  placement pair, walked in the caller's scope, and only `$slot` and the fill map travel down the
+  tree. Rules 1 to 7 hold; no root for a placement and rule 5 are `SN331`, rule 7 is `SN312`, and a
+  name close to a declared slot is the new warning `SN535`. `sinter check` types a placement
+  against the root's `T`; the compiler does not compare the `T` of two roots.
+- Measured on a 3,000-node tree with 750 fills (jsdom): changing state the fills read makes 751 DOM
+  writes, all inside fills, in about 13 ms; other state, about 1.3 ms. So only the fills that read
+  it re-render. On step 1's spike with a link fill and a heading fill, every link and heading takes
+  its fill; elements and bindings are unchanged, and comments grow by two per placement.
+- Fixed on the way: the runtime's template dependencies cached partial results during mutual
+  recursion, so state read two components deep did not re-render.
+- Open: case templates grow as fills times placements, which a library with many slots and many
+  placing components would duplicate.
+- The minimal runtime is 15,083 of 15,360 B gzip.
+
+Step 9, as built:
+- A recursion point and the chosen candidate of `<sn-component use>` over constant props expand at
+  build time, per instance; a run-time tree placement over constants expands the fill it chooses;
+  a definition nothing renders leaves the page. Fills expand when flat (no component, placement or
+  `<slot>` in them); otherwise the placement stays a run-time choice.
+- A node whose handler writes nothing and reads only constants, `$el` and `$event` does not stop
+  unrolling; the page ships only that handler.
+- The expansion limit is 5,000 copies (rows and instances) per page, the option `expansionLimit`;
+  past it, warning `SN536` at the loop or tag that crosses it, and that part renders in the browser.
+  Build and LSP time is about 0.2 ms per copy (6,280 copies: 1.5 s build, 1.3 s LSP).
+- The goal test passes without markdown: a generic tree from `file:./doc.json`, dispatched with
+  `<sn-component use>` with a link fill, is static (no script, template, anchor or text marker,
+  images optimized); with a copy button it ships only that handler. The static-site example's
+  `docs/guide.html` builds with no JavaScript.
+- Step 1's article from `file:./article.md`, with `md.parse` folding, stock build, no patch: no
+  JavaScript, 2,831 elements, 82.2 kB HTML (13.6 kB gzip), LCP 64 ms (median of 5), against 300 ms
+  rendered in the browser and the RealWorld island's 172–204 ms. Its build takes about 1 s more. It
+  needs about 5,500 copies. Decided with the user: the limit is 10,000 copies, and
+  `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams` and `structuredClone` may fold (section 6).
+  Writing the HTML straight from the first compile, instead of compiling every copy again, is a
+  follow-up that would make the limit matter less.
+
+Step 11, as built:
+- A package named in `sinter({ components })` is found in `node_modules` of the root or a folder
+  above, keeping a link's path; files whose real path is in a configured package are read. New codes:
+  `SN337` (a package that is missing, has no `"sinter"` folder with `components/`, has a component
+  both public and internal, or more than one prefix), `SN338` (two owners of one prefix), `SN339` (an
+  internal component used by the app, an unknown name under a library's prefix, or a library's
+  `use` map naming a component outside it), and the warning `SN537` (sinter outside the library's
+  `peerDependencies` range, or no range).
+- Tree slots use real package boundaries for rules 2, 3, 5 and 7. In a library's markup,
+  `<sn-component use>` chooses among that package's own components, internal ones included.
+- Helpers from a package are followed through its `exports` entry, which re-exports them, with
+  production conditions, to each member's declaring module inside the package; imports, the lazy
+  rule and the fold check judge each member by that module. A library keeps its parser-free
+  helpers in a module that does not import the parser, and a lazy package only the library depends
+  on resolves from the library's folder. Types written in a library's files
+  are its types module's. Component scripts, their generated declarations and `sinter render` cover
+  library components.
+- Library styles go into `@layer sinter-lib`, declared by a one-line stylesheet linked before the
+  page's first stylesheet, so the app's layers and unlayered CSS win (checked in Chromium).
+- Dev leaves configured packages out of pre-bundling, allows and watches their real paths; the lazy
+  transform and the lazy helper rules follow their modules.
+- A library's own `sinter check` treats its `"sinter"` folder as the components and its
+  `fixtures/**/*.html` as pages, and checks tree slots' rules 5 and 7 there.
+- The fixture library `test/fixtures/ui` (`@fixture/ui`) and its app show the whole shape.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
@@ -896,8 +966,11 @@ way. There is no marker; what may fold is decided from the code.
 - **What may fold.** A helper folds when the code it can reach uses only the globals ECMAScript
   defines (`Object`, `Array`, `Math` but not `Math.random`, `JSON`, `Map`, `RegExp` and the rest),
   and not `Date`, `Intl`, the members `toLocale*` and `localeCompare`, or `innerHTML`, `outerHTML`
-  and `insertAdjacentHTML`. It is an allowlist: `globalThis`, `self`, `process`, `import.meta.env`,
-  `fetch`, timers and every browser name stop a helper from folding without being listed.
+  and `insertAdjacentHTML`, plus five deterministic web-platform utilities: `URL`,
+  `URLSearchParams` and `structuredClone` (which expressions already allow as pure) and
+  `TextEncoder` and `TextDecoder` (decided after step 9: micromark names `TextDecoder`). It is an
+  allowlist: `globalThis`, `self`, `process`, `import.meta.env`, `fetch`, timers and every other
+  browser name stop a helper from folding without being listed.
 - **Per function.** Reachability is followed per exported function, through the functions it calls
   and the modules it imports; a module's top-level code counts for every function in it. One date
   formatter in `sinter.helpers.ts` does not stop the other helpers from folding.
@@ -1156,14 +1229,11 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
   headings get ids from their text, so `md.headings` and the anchors agree; a code block's fill can
   highlight at build time with a helper over the constant code.
 - It is always a package of its own, with its own `package.json`, dependencies, tests and docs,
-  depending on sinter as a peer, never part of the framework's code. Which repository holds it
-  (`packages/` in this one, beside `create`, or its own) is decided at
-  the last step.
-
-## Breaking changes
-
-All of them go into the CHANGELOG under the pre-1.0 policy.
-
+  depending on sinter as a peer, never part of the framework's code. It lives in this repository as
+  `packages/sinter-markdown/`, beside `create` and the server layers (decided with the user), so its
+  CI runs with the framework's and its fixture pages run against the current sinter. It is also the
+  template for building a component library: its layout, its README, its fixture pages and its tests
+  show how a library is written, so they are kept as plain and complete as an example should be.
 - **The DOM shape of every list and branch.** `<template>` elements leave the body: an `if`, a `for`,
   a recursion point and a choice are marked by comments, and their templates are in the head. So:
   - `:first-child`, `:only-child` and `:last-child` now match the first or only row, and
@@ -1424,6 +1494,9 @@ Decided with the user while drafting:
 | Anchors | Comments in place and templates in the head, for every `if`, `for`, recursion point and choice | [1](#1-anchors-as-comments) |
 | Handlers in unrolled trees | A node whose only run-time need is a handler over constants and its own `$el` stays in the unrolled HTML; the rest is plain HTML | [5](#5-constant-trees-are-unrolled) |
 | Where markdown lives | Only in its own package; the framework gains no markdown code, dependency or type, and every step's diff is checked for it | [Goals](#goals) |
+| Where the markdown package lives | `packages/sinter-markdown/` in this repository, as the template for component libraries | [11](#11-the-library) |
+| Web utilities in folded helpers | `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams` and `structuredClone` may fold | [6](#6-helpers-over-constants-run-at-build-time) |
+| The expansion limit | 10,000 copies per page, configurable, `SN536` past it | [5](#5-constant-trees-are-unrolled) |
 
 Settled in the fourth review, from the code and the reasoning recorded there:
 

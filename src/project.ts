@@ -11,6 +11,8 @@ import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity
 import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
 import { componentNames, writeComponentTypes } from './components-build.js';
 import { typeExports } from './check/index.js';
+import { componentsOf, libraries as findLibraries, libraryOf, ownLibrary, type Library } from './libraries.js';
+import { resolveImport } from './fold-check.js';
 
 export interface ProjectOptions {
   /** helpers module, relative to the root (default `src/sinter.helpers.js`, or `.ts`) */
@@ -54,6 +56,12 @@ export interface ProjectOptions {
    * Only awaited calls of its exports work (SN324); component scripts that import it load with it.
    */
   lazy?: string[];
+  /**
+   * Component libraries (docs/libraries.md): packages that ship sinter components as source, in the
+   * folder their package.json names (`"sinter": "./sinter"`). The app uses their public components
+   * by name, and their helpers through a namespace (`export * as ui from '@acme/ui'`).
+   */
+  components?: string[];
   /**
    * Strict mode (docs/strict.md): warnings fail `vite build`, `sinter check` and pages in the dev
    * server, and runtime warnings show in the dev server's terminal and overlay. `allow` keeps codes
@@ -122,8 +130,10 @@ export interface Project {
   apis: ApisDef | null;
   /** problems loading the specs (SN307) and the APIs (SN329) */
   diagnostics: Diagnostic[];
-  /** every component of the app (`src/components/<name>.html`): `ComponentName`, the candidates of `<sn-component use>` */
+  /** every component of the app (`src/components/<name>.html`) and the public ones of its libraries: `ComponentName`, the candidates of `<sn-component use>` */
   componentNames: string[];
+  /** `components`: the component libraries, found */
+  libraries: Library[];
   /** the `complexity` option, checked */
   complexity: ComplexityOptions;
   checkCycles: boolean;
@@ -152,10 +162,14 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     for (const c of candidates) if (existsSync(resolve(root, c))) return c;
     return null;
   };
+  // the component libraries: their files are read wherever they really are (a workspace link)
+  const configFile = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
+  const appComponents = componentNames(root);
+  const libs = findLibraries(root, componentsOf(options.components), appComponents, configFile);
   const readFile = (path: string): string => {
     const real = realpathSync(path);
     const realRoot = realpathSync(root);
-    if (real !== realRoot && !real.startsWith(realRoot + sep)) throw new Error(`outside the project root: ${path}`);
+    if (real !== realRoot && !real.startsWith(realRoot + sep) && !libraryOf(libs.libraries, real)) throw new Error(`outside the project root: ${path}`);
     return readFileSync(real, 'utf8');
   };
   const url = (rel: string) => '/' + rel.split(sep).join('/');
@@ -168,7 +182,11 @@ export function project(root: string, options: ProjectOptions = {}): Project {
       module: url(rel),
       file,
       readFile,
+      // a library's modules: from the root (`/node_modules/@acme/ui/sinter/x.ts`), or by their path when outside it
+      moduleOf: (f) => (libraryOf(libs.libraries, f) ? (f.startsWith(resolve(root) + sep) ? url(relative(root, f)) : f) : null),
       resolve: (spec, from) => {
+        // a re-export of a configured library is followed like a relative one
+        if (libs.libraries.some((l) => spec === l.name || spec.startsWith(l.name + '/'))) return resolveImport(spec, from, root);
         if (!spec.startsWith('.')) return null;
         const b = resolve(dirname(from), spec);
         for (const q of [b, b.replace(/\.js$/, '.ts'), `${b}.js`, `${b}.ts`]) if (existsSync(q)) return q;
@@ -182,7 +200,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   const earlyRel = find(options.early, 'src/sinter.early');
   const typesRel = find(options.types, 'src/sinter.types', ['.ts', '.d.ts', '.js']);
   const openapi: OpenApiSpec[] = [];
-  const diagnostics: Diagnostic[] = [];
+  const diagnostics: Diagnostic[] = [...libs.diagnostics];
   const loadSpec = (rel: string): number | null => {
     const file = resolve(root, rel);
     const fail = (why: string) => { diagnostics.push({ severity: 'error', code: 'SN307', message: `OpenAPI spec \`${rel}\` ${why}`, file, line: 1, col: 1 }); return null; };
@@ -200,7 +218,6 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   const listOf = (v: string | string[] | undefined) => (v == null ? [] : Array.isArray(v) ? v : [v]);
   let apis: ApisDef | null = null;
   if (options.apis != null) {
-    const configFile = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
     const r = resolveApis(options, (rel) => (typeof rel === 'string' ? loadSpec(rel) : null), openapi, configFile);
     diagnostics.push(...r.diagnostics);
     apis = r.apis;
@@ -228,7 +245,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     if (current !== text) { mkdirSync(dirname(messagesTypes), { recursive: true }); writeFileSync(messagesTypes, text); }
   }
   // `Slot` is the type sinter generates for slots that pass data (`Slot<T>` in a component's props)
-  const components = componentNames(root);
+  const components = [...appComponents, ...libs.libraries.flatMap((l) => l.public)].sort();
   if (typesRel && components.length) {
     const file = resolve(root, typesRel);
     let exported: string[] = [];
@@ -239,8 +256,8 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     root, helpers, helpersFile, actions, actionsFile, readFile, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
     isStatic: staticPages(root, options.static).has,
     lazy: lazyOf(options.lazy), strict: strictOf(options.strict),
-    componentNames: components,
-    messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile),
+    componentNames: components, libraries: libs.libraries,
+    messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile, libs.libraries),
     config: configRel ? url(configRel) : null,
     changesRequests: configRel ? changesRequests(readFile(resolve(root, configRel))) : false,
     early: earlyRel ? url(earlyRel) : null,
@@ -258,7 +275,7 @@ export async function viteProject(root: string): Promise<{ pages: string[]; opti
   try {
     vite = await import('vite');
   } catch {
-    return { pages: fallback(), options: {} };
+    return withOwnLibrary(root, { pages: fallback(), options: {} });
   }
   const config = await vite.resolveConfig({ root, logLevel: 'silent' }, 'build', 'production');
   const plugin = config.plugins.find((x) => x.name === 'sinter') as { api?: { options?: ProjectOptions; source?(file: string): string } } | undefined;
@@ -268,7 +285,19 @@ export async function viteProject(root: string): Promise<{ pages: string[]; opti
   // with `localePrefix`, the input is each page once per language: its source, once
   let pages = [...new Set((list as string[]).filter((f) => typeof f === 'string' && f.endsWith('.html')).map((f) => plugin?.api?.source?.(resolve(config.root, f)) ?? resolve(config.root, f)))];
   if (!pages.length) pages = fallback();
-  return { pages, options: plugin?.api?.options ?? {} };
+  return withOwnLibrary(root, { pages, options: plugin?.api?.options ?? {} });
+}
+
+/**
+ * A library's own repository (its package.json has `"sinter"`): it is configured as one of its
+ * components' libraries, and without pages of a Vite config its fixture pages are the pages.
+ */
+function withOwnLibrary(root: string, p: { pages: string[]; options: ProjectOptions }): { pages: string[]; options: ProjectOptions } {
+  const own = ownLibrary(root);
+  if (!own) return p;
+  const options = { ...p.options, components: [...new Set([...(p.options.components ?? []), own.name])] };
+  const onlyIndex = p.pages.length === 1 && p.pages[0] === resolve(root, 'index.html') && own.pages.length;
+  return { pages: p.pages.length && !onlyIndex ? p.pages : own.pages, options };
 }
 
 /** The `complexity` option, refused when it names an unknown limit or level, or a limit is not a number of 0 or more. */

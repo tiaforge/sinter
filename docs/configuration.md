@@ -37,6 +37,7 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | `types` | `src/sinter.types.ts` (then `.d.ts`, `.js`) | the types `type="..."` may name ([docs/type-checking.md](type-checking.md)) |
 | `messages` | `project.inlang`, if it exists | the inlang project for [messages](#messages); `false` turns them off |
 | `apis` | none | the APIs the app calls: base URL, OpenAPI spec, credentials, headers, and what each endpoint returns. Pages then write paths relative to them (`src="/contacts"`), checked against the spec ([docs/apis.md](apis.md)) |
+| `components` | `[]` | component libraries, by package name (`['@acme/ui']`): packages whose `package.json` names a folder of sinter components (`"sinter": "./sinter"`). Their public components are tags in the app; their helpers come in through a namespace re-export in your helpers module ([docs/libraries.md](libraries.md)) |
 | `defaultApi` | the only API | the API a path without `api:` goes to |
 | `openapi` | none | deprecated: one OpenAPI file or a list of them; give each API its spec in `apis` instead ([docs/type-checking.md](type-checking.md#openapi)) |
 
@@ -213,8 +214,9 @@ export * as fmt from './format.js';
   only warns (`SN533`, which strict mode does not fail on); the page works as before. Loading it takes
   one extra Vite server per build, a few hundred milliseconds.
 - Whether a helper's calls can run at build time is decided from its code: it, and everything it calls
-  and imports, may use only JavaScript's own deterministic globals (`Math`, `JSON`, `Array`, `Map`, …),
-  not `Date`, `Intl`, `Math.random`, `toLocale…`, `fetch`, `window` or `process`. Each exported function
+  and imports, may use only JavaScript's own deterministic globals (`Math`, `JSON`, `Array`, `Map`, …)
+  and `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams` and `structuredClone`, not `Date`, `Intl`,
+  `Math.random`, `toLocale…`, `fetch`, `window` or `process`. Each exported function
   counts on its own: one date formatter does not stop the others in its module. Its result must be plain
   data; a call that throws or returns anything else stays in the browser (`SN534` in dev builds, which
   also run each call twice: a helper that returns another result the second time is not pure).

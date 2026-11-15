@@ -38,9 +38,18 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
 
   is `<ul><li><a href="/">Home</a></li><li><a href="/about.html">About</a></li></ul>` in the built page.
   Loops inside the rows are unrolled the same way, at any depth (a list of sections, each with its
-  links), and a `data-sn-if` in a row is decided per row. A row with a handler, a model or its own
-  state, a nested loop that is not constant, an `<sn-component use>` that renders a component, and a
-  list over 1,000 items, stay a template that the runtime renders; so does a page's 10,001st row.
+  links), and a `data-sn-if` in a row is decided per row. A row with a handler that writes state, a
+  model or its own state, a nested loop that is not constant, and a list over 1,000 items, stay a
+  template that the runtime renders.
+- trees over constants: a component used inside itself, and the component an `<sn-component use>`
+  renders, given constant props (a `file:./doc.json` content tree, each node dispatched to its
+  component) are expanded at build time, per node, and a link fill is written into every node that
+  places it. The page is plain HTML, and a component nothing renders leaves it.
+- a handler that reads only constants, `$el` and `$event` (a copy button) does not stop any of it:
+  the page ships that handler and the runtime it needs, nothing else.
+
+At most 10,000 rows and components are expanded per page; the one that would cross it is rendered in
+the browser, with warning [SN536](diagnostics.md#sn536).
 
 ## Helpers and files at build time
 
@@ -48,8 +57,8 @@ A helper call over constants runs at build time, and its result is written into 
 `data-sn-text="slug(title)"` over a constant `title`, a list `data-sn-for="t in tags(post)"` that
 unrolls, a `data-sn-state` field initialized by a helper. Whether a helper can run there is decided
 from its code: it, and everything it calls and imports, may use only JavaScript's own deterministic
-globals (`Math`, `JSON`, `Array`, `Map`, …), not `Date`, `Intl`, `Math.random`, `fetch`, `window` or
-`process`; each exported function counts on its own. Handlers never run at build time.
+globals (`Math`, `JSON`, `Array`, `Map`, …) and `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams`
+and `structuredClone`, not `Date`, `Intl`, `Math.random`, `fetch`, `window` or `process`; each exported function counts on its own. Handlers never run at build time.
 
 - A helper that throws at build time, or returns something that is not plain data (a `Date`, a
   `Map`, a class), stays in the browser; a dev build warns at the call (`SN534`), and runs each call

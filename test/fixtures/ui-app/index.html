@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+<head><title>ui app</title><link rel="stylesheet" href="/src/app.css"></head>
+<body>
+  <div data-sn-state="{ items: [{ id: 1, label: 'root', children: [{ id: 2, label: 'leaf' }] }], who: 'Ada Lovelace', picked: 0 }">
+    <app-frame data-sn-prop="{ heading: shout(who) }"><p class="by" data-sn-text="ui.initials(who)"></p></app-frame>
+    <ui-tree data-sn-prop="{ items }">
+      <button slot="node" class="pick" data-sn-text="$slot.item.label" data-sn-on-click="picked = $slot.item.id"></button>
+    </ui-tree>
+    <output id="picked" data-sn-text="picked"></output>
+    <output id="count" data-sn-text="ui.count(items)"></output>
+  </div>
+</body>
+</html>

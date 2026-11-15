@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head><title>@fixture/ui</title></head>
+<body>
+  <ui-card data-sn-prop="{ title: 'Plain' }"><p>body</p></ui-card>
+  <ui-card data-sn-prop="{ title: 'Loud', tone: 'loud' }"></ui-card>
+  <div data-sn-state="{ items: [{ id: 1, label: 'one', children: [{ id: 2, label: 'two' }] }] }">
+    <ui-tree data-sn-prop="{ items }"></ui-tree>
+    <ui-tree data-sn-prop="{ items }"><b slot="node" data-sn-text="$slot.item.label"></b></ui-tree>
+  </div>
+</body>
+</html>

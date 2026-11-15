@@ -522,6 +522,36 @@ A component whose root may render nothing (an if chain without a `data-sn-else`,
 
 **Fix:** Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it.
 
+## SN337 library-package
+
+Error, for example:
+
+> `@acme/ui` is in `sinter({ components })` and its package.json has no `"sinter"` field: a component library names the folder of its components
+
+A package in `sinter({ components })` is a component library (docs/libraries.md): installed, with `"sinter": "./sinter"` in its package.json naming a folder inside the package that has a `components/` folder. Its components share their first segment (`ui-card`, `ui-tree`: `ui`), the prefix it owns, and a name is in `components/` (public) or `components/internal/`, not both.
+
+**Fix:** Install the package, or take it out of `components` if it is not a component library. A library's author adds the `"sinter"` field and folder, and renames components to share one prefix.
+
+## SN338 library-prefix
+
+Error, for example:
+
+> `<ui-button>` starts with `ui-`, the prefix of `@acme/ui` (`sinter({ components })`): a library owns its prefix, and an app component cannot shadow or add to it
+
+Each component library owns the first segment of its components' names. Two configured libraries with one prefix, or an app component (`src/components/`) whose name starts with a library's prefix, fail the build: a tag names exactly one component, and there is no shadowing.
+
+**Fix:** Rename the app component (`app-button`). To change how a library component looks or behaves everywhere, write a wrapper component of your own that uses it, with fills for its slots. Two libraries with one prefix cannot be used together.
+
+## SN339 library-component
+
+Error, for example:
+
+> `<ui-node>` is internal to `@acme/ui` (`components/internal/`): only its own components use it
+
+A tag with a library's prefix names one of its components. Those in its `components/internal/` folder are its own: the app's markup (pages, layouts, components, fills and slot content) uses the public ones, in `components/`. A tag with the prefix that names no component of the library is an error too, and so is a `<sn-component use>` map in a library's markup that names a component outside it: a library chooses among its own components.
+
+**Fix:** Use one of the public components the message lists, or fix the name. A library's author moves a component the app needs out of `components/internal/`.
+
 ## SN401 parse-error
 
 Error, for example:
@@ -871,3 +901,23 @@ Warning, for example:
 A `<slot>` that passes data, in a component that does not declare its name, is a tree placement: the nearest enclosing component that declares the name fills it (docs/components.md, Tree slots). Its component declares a slot whose name is close, so it is likely a misspelled placement of the component's own slot.
 
 **Fix:** Fix the name to the declared one, or rename the declared slot if the tree placement is meant.
+
+## SN536 expansion-limit
+
+Warning, for example:
+
+> this list's rows would take the page past 10,000 rows and components expanded at build time, so it is rendered in the browser
+
+A constant tree (a loop over constants, a component instantiated over constant props, at any depth) is written into the page as plain HTML at build time. The rows and components a page expands in all are limited, as the layout and image steps then run over the whole page and slow the build. The tree that would cross it stays a template the browser renders, as without build-time expansion; it works the same, with JavaScript.
+
+**Fix:** Split the content over several pages, or keep the long part a list the browser renders. The warning stays a warning with `--strict`.
+
+## SN537 library-version
+
+Warning, for example:
+
+> `@acme/ui` supports sinter `^0.17.0`, and this is sinter 0.18.0: its markup may use what this version does not have, or what it no longer has
+
+A component library ships source that the app's sinter compiles, so it lists the sinter versions it supports in its package.json's `peerDependencies` (`"@tiaforge-ui/sinter": "^0.18.0"`). The app's sinter checks that its own version is in the range, and warns when a library lists none. It cannot know which version introduced a feature newer than itself.
+
+**Fix:** Install a version of sinter or of the library that fits the other. A library's author lists the range in `peerDependencies`.

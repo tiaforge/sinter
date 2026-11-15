@@ -13,7 +13,7 @@ import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, literalNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
-import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
+import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
@@ -139,6 +139,11 @@ export interface CompileOptions {
   sourcemap?: boolean;
   /** where the app's components are (default `<root>/src/components`): `<name>.html` is the component `<name>` */
   components?: string;
+  /**
+   * the component libraries (`sinter({ components })`, docs/libraries.md): a tag with a library's prefix
+   * is its component, from `<folder>/components/` (public) or `<folder>/components/internal/`
+   */
+  libraries?: readonly CompileLibrary[];
   /** where the app's layouts are (default `<root>/src/layouts`): `<name>.html` is the layout `<name>`, a page's only tag */
   layouts?: string;
   /** Vite's `base`, which the pages' URLs start with (default `/`); for SN515 */
@@ -178,6 +183,10 @@ export interface CompileOptions {
    * each writes. The second pass writes them into the markup before the layout and the images (`prefold`)
    */
   constants?: Map<string, ConstantWrite[]>;
+  /** the most rows and component instances a page expands at build time, in all (default `EXPANSION_LIMIT`; tests and measurements) */
+  expansionLimit?: number;
+  /** internal, set by `compileParts` for its second pass: the trees the first found over the limit (`SN536` again, there) */
+  overLimit?: Map<string, number>;
   /**
    * the page must ship no JavaScript (`sinter({ static })`): each thing that runs in the browser is
    * `SN322` where it was written. Needs `prerender`, which leaves out what can never change.
@@ -402,8 +411,25 @@ const IDENT = /^[A-Za-z_][\w]*$/;
 const BAD_PARAM = /^(constructor|__proto__|prototype)$/;
 const SECRET_AUTOCOMPLETE = /^(cc-|one-time-code$|current-password$|new-password$)/;
 
-/** `use`: the uses this markup is in, by their tags' places (`file:offset<…`): two uses on one line differ */
-interface Origin { file: string; src: string; chain: string[]; use?: string }
+/** `use`: the uses this markup is in, by their tags' places (`file:offset<…`): two uses on one line differ; `usedAt`: in a library's file, where the app uses it */
+interface Origin { file: string; src: string; chain: string[]; use?: string; usedAt?: string }
+
+/** the stylesheet `componentCss` serves for the libraries' layer (`@layer sinter-lib;`): a name no component can have */
+export const LAYERS_SHEET = 'sn-layers';
+
+/** A component library, as the compiler needs it (see `Library` in `src/libraries.ts`). */
+export interface CompileLibrary {
+  name: string;
+  /** the package's folder, as diagnostics name its files relative to it */
+  dir: string;
+  /** the app-shaped folder its package.json names */
+  folder: string;
+  prefix: string | null;
+  public: string[];
+  internal: string[];
+  /** its types module: type names in its components' props and slots resolve against it */
+  types: string | null;
+}
 
 /** A row of an unrolled loop (the second pass): its template, item and index, and `inst`, the instance path of what is in it; `up`: the row it is the top of, when the loop is itself a row's top element */
 type RowInfo = { tpl: P5Element; item: string; index: string | null; list: string; offset: number; k: number; value: unknown; inst: string; up?: RowInfo };
@@ -466,6 +492,9 @@ interface ComponentFile {
   rawCss?: string;
   /** the names of its slots that pass data (`Slot<T>` in its props type), read once */
   dataSlots?: Set<string>;
+  /** a component of a library (`sinter({ components })`); `internal`: in its `components/internal/` */
+  lib?: CompileLibrary;
+  internal?: true;
 }
 
 /**
@@ -638,7 +667,7 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   if (!first.decided.size && !unrolled && !constants) return out;
   const frozen = first.foldedState();
   if (constants) for (const s of first.constantSites) frozen.add(s);
-  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(constants ? { constants } : {}), frozen }).run(html);
+  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
 }
 
 class Compiler {
@@ -687,6 +716,14 @@ class Compiler {
   private readonly rowOf = new WeakMap<P5Element, RowInfo>();
   /** the second pass: unrolled loops whose list has been compiled (once, for its diagnostics) */
   private readonly listCompiled = new WeakSet<P5Element>();
+  /** each recursion point and `<sn-component use>`: the components it is in and its nearest root, for expanding it as a use (`inlineInstance`) */
+  private readonly pointCtx = new WeakMap<P5Element, { ch: string[]; en: Use | null }>();
+  /** the second pass: the top nodes of an expanded instance (a recursion point, a choice's case), with the instance path of what is in it */
+  private readonly instAt = new WeakMap<P5Node, string>();
+  /** each component file's markup, parsed once (`expandUse` copies it per use) */
+  private readonly parsedFiles = new Map<string, DefaultTreeAdapterMap['documentFragment']>();
+  /** the scope a use's markup starts, per row or instance it is copied into (`markupOf`) */
+  private readonly markups = new WeakMap<Use, Map<string, Scope>>();
   /** a layout's `<body>`, which takes the handlers of the page's tag */
   private readonly layoutBody = new WeakMap<P5Element, Use>();
   /** text forwarded into a component's named slot by a slot with `slot="…"` (elements carry the attribute) */
@@ -761,7 +798,7 @@ class Compiler {
   /** components used inside themselves: their tags (recursion points), and the definition each compiles to */
   private readonly points = new WeakMap<P5Element, string>();
   /** `<sn-component use>`: one point per candidate, rendered when `use` is its name; `key`: the value of the data that names it, for narrowing */
-  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup }>();
+  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup }>();
   /** `<sn-component use>`: one choice anchor per use, its candidates gathered as the walk reaches them (`finishChoices`) */
   private readonly choiceGroups: ChoiceGroup[] = [];
   /** the `<template>` of each `if`, `for`, `else` and recursion point node, which `anchors()` turns into a pair of comments */
@@ -954,6 +991,8 @@ class Compiler {
   /** the first pass: what the second one writes before the layout (`CompileOptions.constants`), and the state fields they read */
   readonly constants = new Map<string, ConstantWrite[] | null>();
   readonly constantSites = new Set<string>();
+  /** the first pass: the trees over the expansion limit, by key, with the limit, for the second pass to report too */
+  readonly overLimit = new Map<string, number>();
   /**
    * The first pass: a copy of the markup the layout reads (before the layout), the layout's answers for its images
    * and lists then, and the styled roots in the copy, for the dry run of constant classes and styles (`dryRun`)
@@ -1081,6 +1120,7 @@ class Compiler {
       if (r) r.data = id;
     }
     this.fileScripts(doc);
+    this.declareLayers(doc);
     if (this.opts.embed) this.addPlaceholders(doc);
     this.placeholders();
     for (const info of this.page.resources.values()) {
@@ -1183,7 +1223,8 @@ class Compiler {
       styles: [...this.uses.keys()].sort().flatMap((n) => {
         const f = this.componentFiles.get(n), css = f?.css;
         // the root rules of a component that is the root of another component's tag, outside its scope
-        const root = css && this.rootStyled.has(n) ? rootCss(f!.rawCss ?? '', n) : null;
+        const plain = css && this.rootStyled.has(n) ? rootCss(f!.rawCss ?? '', n) : null;
+        const root = plain && f!.lib ? `@layer ${LIBRARY_LAYER} {\n${plain}\n}\n` : plain;
         return css ? [{ name: n, css: root ? css + root : css }] : [];
       }),
       scripts: [...this.scripts].sort(([a], [b]) => a.localeCompare(b)).map(([name, x]) => ({ name, module: x.module, local: x.local, export: x.name, ...(x.lazy ? { lazy: x.lazy } : {}) })),
@@ -1332,7 +1373,8 @@ class Compiler {
     const base = el ? this.valueOffset(el, attr) : 0;
     const { line, col } = el?.sourceCodeLocation ? this.lineCol(origin.src, base + offset) : { line: 1, col: 1 };
     let msg = message;
-    if (origin.chain.length) msg += ` (included from ${origin.chain.join(' ← ')})`;
+    if (origin.usedAt) msg += ` … used at ${origin.usedAt}`;
+    else if (origin.chain.length) msg += ` (included from ${origin.chain.join(' ← ')})`;
     const d: Diagnostic = { severity: severityOf(code), code, message: msg, file: origin.file, line, col };
     if (hint) d.hint = hint;
     const loc = el?.sourceCodeLocation;
@@ -1440,9 +1482,14 @@ class Compiler {
     if (!COMPONENT_NAME.test(tag) || tag.startsWith('sn-')) return null;
     let c = this.componentFiles.get(tag);
     if (c !== undefined) return c;
-    const dir = this.opts.components ?? `${normalize(this.opts.root).replace(/\/$/, '')}/src/components`;
+    // a library's prefix: its component, public or internal, and never the app's
+    const lib = this.libOfTag(tag);
+    const internal = !!lib?.internal.includes(tag);
+    const dir = lib ? `${normalize(lib.folder).replace(/\/$/, '')}/components${internal ? '/internal' : ''}` : this.opts.components ?? `${normalize(this.opts.root).replace(/\/$/, '')}/src/components`;
     const file = normalize(`${dir}/${tag}.html`);
-    try { c = { file, text: this.opts.readFile(file) }; } catch { c = null; }
+    if (lib && !internal && !lib.public.includes(tag)) c = null;
+    else try { c = { file, text: this.opts.readFile(file) }; } catch { c = null; }
+    if (c && lib) { c.lib = lib; if (internal) c.internal = true; }
     if (c && /<template\b[^>]*\sdata-sn-head\b/i.test(c.text)) c.head = true;
     if (c) {
       // a script beside it: the component runs it per instance
@@ -1461,6 +1508,74 @@ class Compiler {
     }
     this.componentFiles.set(tag, c);
     return c;
+  }
+
+  /** the library whose prefix a tag has, or null */
+  libOfTag(tag: string): CompileLibrary | null {
+    if (!this.opts.libraries?.length) return null;
+    const p = tag.split('-')[0];
+    return this.opts.libraries.find((l) => l.prefix === p) ?? null;
+  }
+
+  /** the file whose markup an element is (its own origin, or the nearest ancestor's); undefined for markup sinter made */
+  markupFile(el: P5Element): string | undefined {
+    for (let n: P5Node | P5Parent | null = el; n; n = (n as { parentNode?: P5Parent | null }).parentNode ?? null) {
+      const o = this.origins.get(n as P5Element);
+      if (o) return o.file;
+    }
+    return undefined;
+  }
+
+  /** the package a use's component is in: its library, or null for the app's components (one package) */
+  packageOf(u: Use): CompileLibrary | null {
+    return this.componentFile(u.name)?.lib ?? null;
+  }
+
+  /** a use written in the markup of another package than its component's (rule 3): a new contract, outer fills do not reach into it */
+  crossesPackage(u: Use): boolean {
+    if (!this.opts.libraries?.length || this.defHosts.has(u.host)) return false;
+    const file = this.markupFile(u.host);
+    return file !== undefined && this.libOfFile(file) !== this.packageOf(u);
+  }
+
+  /** the library a file is in, or null: the app's */
+  libOfFile(file: string | undefined): CompileLibrary | null {
+    if (!file || !this.opts.libraries?.length) return null;
+    const f = normalize(file);
+    return this.opts.libraries.find((l) => f.startsWith(normalize(l.folder).replace(/\/$/, '') + '/')) ?? null;
+  }
+
+  /** a library file as messages name it: `@acme/ui/sinter/components/ui-card.html` */
+  libPath(file: string): string {
+    const l = this.libOfFile(file);
+    const f = normalize(file), dir = l ? normalize(l.dir).replace(/\/$/, '') : '';
+    return l && f.startsWith(dir + '/') ? `${l.name}/${f.slice(dir.length + 1)}` : this.rootRel(f);
+  }
+
+  /** a file relative to the root, as diagnostics name it */
+  rootRel(file: string): string {
+    const root = normalize(this.opts.root).replace(/\/$/, '');
+    const f = normalize(file);
+    return f.startsWith(root + '/') ? f.slice(root.length + 1) : f;
+  }
+
+  /** The components the markup of a file chooses among (`<sn-component use>`): a library's own (rule 7), or the app's and the libraries' public ones. */
+  choicePool(file: string | undefined): string[] {
+    const lib = this.libOfFile(file);
+    if (lib) return [...lib.public, ...lib.internal].filter((n) => this.componentFile(n) && !this.componentFile(n)!.head).sort();
+    return [...new Set([...(this.opts.componentNames ?? []), ...this.componentFiles.keys()])].filter((n) => this.componentFile(n) && !this.componentFile(n)!.head && !this.componentFile(n)!.internal).sort();
+  }
+
+  /** A library's internal component used outside its library (SN339): the error, naming the public ones. */
+  internalUse(el: P5Element, def: ComponentFile, offset = 0, attrName: string | null = null): boolean {
+    // a shared definition's host is sinter's: its uses were checked where they are written
+    if (!def.internal || this.defHosts.has(el)) return false;
+    const file = this.markupFile(el);
+    if (file === undefined || this.libOfFile(file) === def.lib) return false;
+    const pub = def.lib!.public;
+    this.report(el, attrName, 'SN339', `\`<${el.tagName === 'sn-component' ? this.points.get(el) ?? '' : el.tagName}>\` is internal to \`${def.lib!.name}\` (\`components/internal/\`): only its own components use it`, offset,
+      pub.length ? `its public components: ${pub.map((n) => `\`<${n}>\``).join(', ')}` : `\`${def.lib!.name}\` has no public components`);
+    return true;
   }
 
   // ---- layouts
@@ -1634,8 +1749,18 @@ class Compiler {
       const ch = this.slotOf.get(child)?.chain ?? chain;
       const su = this.slotOf.get(child);
       const en = su ? this.enclosing.get(su.host) ?? null : encl;
-      if (child.tagName === 'sn-component') { this.choice(child, en); continue; }
+      // (where a recursion point or a choice is: a second pass expands one the first found constant, as a use here)
+      if (child.tagName === 'sn-component') { this.pointCtx.set(child, { ch, en }); this.choice(child, en); continue; }
       const def = this.componentFile(child.tagName);
+      if (!def && COMPONENT_NAME.test(child.tagName) && this.libOfTag(child.tagName)) {
+        const lib = this.libOfTag(child.tagName)!;
+        const pool = this.libOfFile(this.origins.get(child)?.file) === lib ? [...lib.public, ...lib.internal] : lib.public;
+        this.report(child, null, 'SN339', `\`<${child.tagName}>\` is not a component of \`${lib.name}\`, which owns the prefix \`${lib.prefix}-\``, 0,
+          (didYouMean(child.tagName, pool).trim() || '') + (pool.length ? `${didYouMean(child.tagName, pool) ? ' ' : ''}its ${pool === lib.public ? 'public ' : ''}components: ${pool.map((n) => `\`<${n}>\``).join(', ')}` : ''));
+        detach(child);
+        continue;
+      }
+      if (def && this.internalUse(child, def)) { detach(child); continue; }
       if (!def && this.layoutFile(child.tagName)) {
         this.report(child, null, 'SN319', `\`<${child.tagName}>\` is a layout: it is the only tag of a page, at its top level`, 0, 'a layout cannot be inside a component, another layout or other markup');
         detach(child);
@@ -1671,6 +1796,7 @@ class Compiler {
               this.report(child, null, 'SN314', `\`<${name}>\` used inside itself takes no slot content`, 0);
             }
             this.points.set(child, name);
+            this.pointCtx.set(child, { ch, en });
             continue;
           }
           this.report(child, null, 'SN306', `${loop.map((n) => `\`<${n}>\``).join(' → ')} uses itself with no \`data-sn-for\` or \`data-sn-if\` template between, so it would never end`, 0,
@@ -1726,7 +1852,9 @@ class Compiler {
     if (!ast || ast.end !== use!.trimEnd().length) {
       return fail('`<sn-component>` takes `use`, an expression naming the component: ``use="`${b.type}-block`"``, `use="{ hero: \'hero-block\' }[b.type]"` or `use="blockComponent(b)"`');
     }
-    const all = [...new Set([...(this.opts.componentNames ?? []), ...this.componentFiles.keys()])].filter((n) => this.componentFile(n) && !this.componentFile(n)!.head).sort();
+    // rule 7: in a library's markup, its own components; in the app's, the app's and the libraries' public ones
+    const all = this.choicePool(this.origins.get(el)?.file);
+    const lib = this.libOfFile(this.origins.get(el)?.file);
     // each candidate, and the value of the data that names it (convention, map), for narrowing
     let cands: Array<{ name: string; key: string | null }>;
     let keySrc: string | null = null, map = false;
@@ -1745,6 +1873,13 @@ class Compiler {
         if (k === null || v === null) return fail('the map in `use` has literal keys and component names as string values: `{ hero: \'hero-block\' }[b.type]`');
         if (!this.componentFile(v)) { this.report(el, 'use', 'SN312', `\`'${v}'\` is not a component; create \`src/components/${v}.html\``, (p as import('acorn').Property).value.start); continue; }
         if (this.componentFile(v)!.head) { this.report(el, 'use', 'SN312', `\`'${v}'\` is a head component; \`<sn-component>\` chooses components for the body`, (p as import('acorn').Property).value.start); continue; }
+        if (!all.includes(v)) {
+          const f = this.componentFile(v)!;
+          if (lib) this.report(el, 'use', 'SN339', `\`'${v}'\` is not a component of \`${lib.name}\`: \`<sn-component use>\` in a library's markup chooses among its own components`, (p as import('acorn').Property).value.start);
+          else if (f.internal) this.report(el, 'use', 'SN339', `\`'${v}'\` is internal to \`${f.lib!.name}\` (\`components/internal/\`): only its own components use it`, (p as import('acorn').Property).value.start, `its public components: ${f.lib!.public.map((n) => `\`'${n}'\``).join(', ')}`);
+          else { cands.push({ name: v, key: k }); continue; }
+          continue;
+        }
         cands.push({ name: v, key: k });
       }
     } else if (ast.type === 'CallExpression') {
@@ -1771,7 +1906,8 @@ class Compiler {
       if (this.scopeStart.has(el)) this.scopeStart.set(x, this.scopeStart.get(el)!);
       this.origins.set(x, this.origins.get(el)!);
       this.points.set(x, c.name);
-      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
+      if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
       clones.push(x);
     }
     if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);
@@ -1789,9 +1925,12 @@ class Compiler {
   expandUse(host: P5Element, def: ComponentFile, chain: string[]): P5Element | null {
     const name = host.tagName;
     const hostOrigin = this.origins.get(host) ?? { file: this.opts.file, src: '', chain: [] };
-    const frag = parse5.parseFragment(def.text, { sourceCodeLocationInfo: true });
+    // parsed once per file: each use takes a copy (a constant tree expands a component once per node)
+    const frag = freshCopy(this.parsedFiles.get(def.text) ?? this.parsedFiles.set(def.text, parse5.parseFragment(def.text, { sourceCodeLocationInfo: true })).get(def.text)!, null) as DefaultTreeAdapterMap['documentFragment'];
     const loc = host.sourceCodeLocation ? this.lineCol(hostOrigin.src, host.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
-    this.tag(frag, { file: def.file, src: def.text, chain: [`${basename(hostOrigin.file)}:${loc.line}`, ...hostOrigin.chain], use: `${this.siteKey(host) ?? ''}<${hostOrigin.use ?? ''}` });
+    // a library's file: its diagnostics say where the app uses it, the first use from the app's markup
+    const usedAt = hostOrigin.usedAt ?? (def.lib && !this.libOfFile(hostOrigin.file) ? `${this.rootRel(hostOrigin.file)}:${loc.line}` : undefined);
+    this.tag(frag, { file: def.file, src: def.text, chain: [`${basename(hostOrigin.file)}:${loc.line}`, ...hostOrigin.chain], use: `${this.siteKey(host) ?? ''}<${hostOrigin.use ?? ''}`, ...(usedAt ? { usedAt } : {}) });
     this.files.add(def.file);
     const fail = (el: P5Element | null, a: string | null, message: string, hint?: string): null => {
       if (el) this.report(el, a, 'SN312', message, 0, hint);
@@ -1823,7 +1962,7 @@ class Compiler {
     if (def.css === undefined) {
       const css = top.filter((t) => t.tagName === 'style').map((t) => t.childNodes.map((c) => (c as DefaultTreeAdapterMap['textNode']).value ?? '').join('')).join('\n');
       def.rawCss = css;
-      try { def.css = css.trim() ? scopeCss(css, name) : null; } catch (e) {
+      try { def.css = css.trim() ? scopeCss(css, name, def.lib ? LIBRARY_LAYER : undefined) : null; } catch (e) {
         def.css = null;
         this.report(top.find((t) => t.tagName === 'style')!, null, 'SN401', `the component's \`<style>\` does not parse: ${(e as Error).message}`, 0);
       }
@@ -2262,13 +2401,16 @@ class Compiler {
     const k = attr(el, 'name')!;
     const near = didYouMean(k, [...(x.slots?.keys() ?? [])]);
     if (near) this.once(el, 'name', 'SN535', `\`<slot name="${k}">\` in \`<${x.name}>\` is a tree placement, filled by the nearest root that declares \`${k}\`; \`<${x.name}>\` declares a slot of a close name.${near}`, 0);
-    let u = this.enclosing.get(x.host) ?? null, last: Use = x;
-    while (u && !u.slots?.has(k)) { last = u; u = this.enclosing.get(u.host) ?? null; }
+    // within the placement's package (rule 2): a use written in another package's markup is where its package's roots end
+    const pkg = this.packageOf(x);
+    const up1 = (c: Use) => (this.crossesPackage(c) ? null : this.enclosing.get(c.host) ?? null);
+    let u = up1(x), last: Use = x;
+    while (u && !(u.slots?.has(k) && this.packageOf(u) === pkg)) { last = u; u = up1(u); }
     // the fill: the declaring root's own, or (rule 4) an outer root's, while the roots are in their package's markup
     let from: Use | null = u;
-    while (from && !from.treeFills?.has(k) && !this.slotOf.has(from.host)) {
+    while (from && !from.treeFills?.has(k) && !this.slotOf.has(from.host) && !this.crossesPackage(from)) {
       let up = this.enclosing.get(from.host) ?? null;
-      while (up && !up.slots?.has(k)) up = this.enclosing.get(up.host) ?? null;
+      while (up && !(up.slots?.has(k) && this.packageOf(up) === pkg)) up = up1(up);
       if (!up) break;
       from = up;
     }
@@ -2629,7 +2771,7 @@ class Compiler {
     // definition takes them from its row's item, at run time
     // a root in caller markup (slot content, a fill, a page) starts a new contract (rule 3); in its own package's
     // markup, the fills of slots it also declares pass into it, and one written on its tag wins (rule 4)
-    const inherit = def ? { expr: `$.${def.rt}.$f`, own: new Map<string, number | null>() } : this.slotOf.has(use.host) ? undefined : caller.component?.fills;
+    const inherit = def ? { expr: `$.${def.rt}.$f`, own: new Map<string, number | null>() } : this.slotOf.has(use.host) || this.crossesPackage(use) ? undefined : caller.component?.fills;
     let fills = inherit;
     if (use.slots?.size) {
       const own = new Map(inherit?.own ?? []);
@@ -2721,9 +2863,14 @@ class Compiler {
   }
 
   /** What a component's markup sees when its root is not one plain element: computed once, at the first of its top nodes. */
-  markupOf(u: Use, at: Scope): Scope {
-    if (u.markup) return u.markup;
-    return u.markup = this.componentScope(u, u.hostSlot?.caller ?? at);
+  markupOf(u: Use, at: Scope, inst = ''): Scope {
+    // (per instance: the copies of an unrolled row, or of an expanded instance, share the use)
+    if (!inst) return u.markup ??= this.componentScope(u, u.hostSlot?.caller ?? at);
+    let byInst = this.markups.get(u);
+    if (!byInst) this.markups.set(u, byInst = new Map());
+    let s = byInst.get(inst);
+    if (!s) byInst.set(inst, s = this.componentScope(u, u.hostSlot?.caller ?? at));
+    return s;
   }
 
   /** `data-sn-state` on `el`, compiled onto `node`: the scope its subtree sees. */
@@ -2829,7 +2976,7 @@ class Compiler {
         const src = attr(host, 'use')!;
         this.expr(host, 'use', ctx.scope, { mode: 'value' }, choice.keySrc!, src.lastIndexOf(choice.keySrc!));
         this.typeLast({ returns: { kind: 'ts', text: choice.keys.map((k) => JSON.stringify(k)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
-      } else if (choice.first && this.check) this.typeLast({ returns: { kind: 'ts', text: [...new Set([...(this.opts.componentNames ?? []), ...choice.names])].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
+      } else if (choice.first && this.check) this.typeLast({ returns: { kind: 'ts', text: [...new Set([...(choice.pool ?? this.opts.componentNames ?? []), ...choice.names])].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
     }
     const { lets } = this.propLets(use, ctx.scope);
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
@@ -3067,14 +3214,16 @@ class Compiler {
     walk(nodes);
   }
 
-  /** Rule 5: every slot a component declares is placed somewhere inside it, directly or by a component it reaches. */
+  /** Rule 5: every slot a component declares is placed somewhere inside it, directly or by a component of its package it reaches. */
   slotsPlaced() {
     for (const [name, list] of this.uses) {
       const u = list[0]!;
       if (!u.slots?.size) continue;
       const g = this.fileGraph(name);
       for (const [k, m] of u.slots) {
-        if (g.places.has(k) || [...this.reach(name)].some((n) => n !== name && this.fileGraph(n).data.has(k) && !this.fileGraph(n).declares.has(k))) continue;
+        // within its package: a component of another package places its own package's slots
+        const pkg = this.componentFile(name)?.lib ?? null;
+        if (g.places.has(k) || [...this.reach(name)].some((n) => n !== name && (this.componentFile(n)?.lib ?? null) === pkg && this.fileGraph(n).data.has(k) && !this.fileGraph(n).declares.has(k))) continue;
         this.once(u.template, 'data-sn-component', 'SN331', `\`<${name}>\` declares the slot \`${k}\`, and nothing inside it places \`${k}\`: a fill for it would never render`, m.offset,
           `place it: \`<slot name="${k}" data-sn-prop="{ … }">\` in \`<${name}>\` or in a component it uses, or remove it`);
       }
@@ -3485,7 +3634,7 @@ class Compiler {
     if (row && ownLoop) ctx = rowLets(ctx);
     // a component whose root is not one plain element: its markup starts here (a chain's template, a
     // fill), or an outer component's whose root this is: their scopes, outer first, each in its caller's
-    for (const u of this.scopeStart.get(el) ?? []) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope) };
+    for (const u of this.scopeStart.get(el) ?? []) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instAt.get(el) ?? this.rowOf.get(el)?.inst ?? '') };
     // slot content sees the scope of the caller that wrote it
     const slot = this.slotOf.get(el);
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
@@ -5557,6 +5706,8 @@ class Compiler {
     const rowCodes = this.collecting() ? [
       ...this.templates.flatMap((tp) => tp.nodes.flatMap((n) => n.b.filter((b) => b.f !== undefined && (ROW.has(b.k) || b.k === 'if' || b.k === 'for')).map((b) => this.fns[b.f!]!))),
       ...[...this.pointOf.values()].flatMap((p) => (p.pick ? [p.pick.code] : [])),
+      ...[...this.pointOf.values()].flatMap((p) => p.group?.cases.map((c) => `($) => (${c.props})`) ?? []),
+      ...this.runtimePlacements.flatMap((P) => (P.node.b[0]?.f !== undefined ? [this.fns[P.node.b[0].f]!] : [])),
     ] : [];
     const texts = this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d));
     const used = [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes, ...texts.map((t) => this.fns[t.b.f!]!)])];
@@ -5617,7 +5768,7 @@ class Compiler {
       usedMessage = false;
       const v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
       if (c.for) {
-        work.unroll(this.instKey(c.el)!, c.b, (usedMessage && !this.opts.locale) ? FAIL : v, scope);
+        work.unroll(this.instKey(c.el)!, c.b, (usedMessage && !this.opts.locale) ? FAIL : v, scope, c.el);
         continue;
       }
       if (c.if) {
@@ -5817,6 +5968,13 @@ class Compiler {
   /** text nodes `prerender()` wrote as plain text: `dropConstants` removes their nodes */
   private readonly textFolded = new Set<NodeDef>();
 
+  /** `SN536` at a constant tree left to the browser, as it would take the page past the expansion limit. */
+  expansionWarning(el: P5Element, limit: number, list: boolean) {
+    const what = list ? 'this list\'s rows' : 'this component\'s tree';
+    this.report(el, null, 'SN536', `${what} would take the page past ${limit.toLocaleString('en')} rows and components expanded at build time, so it is rendered in the browser`, 0,
+      'a page that long builds and lays out slowly: split the content over pages, or keep a long list of it a list the browser renders');
+  }
+
   /** The first pass of a prerendered page, which may compile it again: it records what folds (`collectConstants`). */
   collecting(): boolean {
     return !!this.opts.prerender && !this.opts.decided && !this.opts.unrolled && !this.opts.constants;
@@ -5832,13 +5990,27 @@ class Compiler {
    * renders comes from its shared definition at run time). What a row decides is kept only when the whole loop
    * is unrolled. Keys are instance paths: `<loop>#<k>/` per level before the template's own key (`instKey`).
    * Two instances with one key (no way to tell them apart) leave it. At most `MAX_UNROLL` items per list and
-   * `MAX_EXPANSION` rows per page.
+   * `EXPANSION_LIMIT` rows and component instances per page (`SN536` past it).
    */
   worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, usedMessage: () => boolean, reset: () => void, ROW: Set<string>) {
-    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; rows: number };
-    const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found } | null>();
+    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; rows: number; over?: true };
+    /** `pick`: a choice's case expanded (decided true), else a loop unrolled */
+    const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element } | null>();
+    const placementOf = new Map(this.runtimePlacements.map((P) => [P.node, P] as const));
+    const written = this.writtenState();
+    /**
+     * Item 6: a handler a static tree keeps, which the page module adopts: it writes nothing and reads only
+     * constants and its own `$el` (no data, URL, clock or state something writes)
+     */
+    const handlerOnly = (b: Binding) => {
+      if (b.k !== 'on' || b.w?.length || b.f === undefined) return false;
+      const code = this.fns[b.f]!;
+      if (/\$\.\$(r|meta|url|now|locale|slot|error)\b|\$\.\$p\d/.test(code)) return false;
+      return [...code.matchAll(/\$\.\$s(\d+)(?:\.([A-Za-z_$][\w$]*))?/g)].every((m) => m[2] !== undefined && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`));
+    };
     const chosen = new Set<string>();
-    let left = MAX_EXPANSION;
+    const limit = this.opts.expansionLimit ?? EXPANSION_LIMIT;
+    let left = limit;
     const run = (sc: object, code: string): unknown => {
       const f = fnOf.get(code);
       if (!f) return FAIL;
@@ -5847,7 +6019,8 @@ class Compiler {
       try { const v = f(sc); return usedMessage() && !this.opts.locale ? FAIL : v; } catch { return FAIL; } finally { this.folding?.end(); }
     };
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.length <= MAX_UNROLL && v.every((x) => plainData(x)) ? v : null);
-    const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.paints.find((x) => x.node === n)?.el ?? this.textMarks.get(n);
+    // (a placement's element is its `<slot>`; an anchor's, its template)
+    const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.paints.find((x) => x.node === n)?.el ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
     const rowScope = (sc: object, t: TemplateDef, item: unknown, k: number) => new Proxy({}, {
       get: (_, p) => (p === t.item ? item : p === t.index || p === t.ii ? k : (sc as Record<string | symbol, unknown>)[p]),
     });
@@ -5864,8 +6037,16 @@ class Compiler {
       const u = run(sc, point.pick.code);
       return u === FAIL ? null : { keys, picked: typeof u === 'string' && keys.has(u) ? u : null };
     };
+    /** a choice's case, at `key`: its definition over its props (one row), when that is static markup */
+    const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found): boolean => {
+      const c = point.group!.cases.find((x) => x.name === name), t = c && this.templates[c.tid];
+      const props = c ? run(sc, `($) => (${c.props})`) : FAIL;
+      if (!t?.item || props === FAIL || !plainData(props)) return false;
+      out.decided.push([prefix + key, true, point.pick!.deps]);
+      return rowsOf(t, [props], prefix + key, sc, out);
+    };
     const rowsOf = (t: TemplateDef, items: unknown[], key: string, sc: object, out: Found): boolean => {
-      if ((out.rows += items.length) > left) return false;
+      if ((out.rows += items.length) > left) { out.over = true; return false; }
       for (let k = 0; k < items.length; k++) {
         const item = deepFreeze({ v: structuredClone(items[k]) }).v;
         if (!nodesOf(t.nodes, rowScope(sc, t, item, k), `${key}#${k}/`, out)) return false;
@@ -5878,14 +6059,33 @@ class Compiler {
         if (n.state !== undefined || n.sid !== undefined) return false;
         const el = elOf(n);
         if (!el) return false;
-        if (this.pointOf.has(n)) {
-          // static only when it renders none of its candidates: one it renders comes from its definition at run time
+        const point = this.pointOf.get(n);
+        if (point?.group) {
+          // the candidates it does not render go; the case it renders is an instance of its definition, expanded
+          // like a row of one item, its props (item 5)
           const ch = caseOf(n, el, sc);
-          if (!ch || ch.picked !== null) return false;
-          for (const ck of ch.keys.values()) out.decided.push([prefix + ck, false, this.pointOf.get(n)!.pick!.deps]);
+          if (!ch) return false;
+          for (const [name, ck] of ch.keys) if (name !== ch.picked) out.decided.push([prefix + ck, false, point.pick!.deps]);
+          if (ch.picked === null) continue;
+          if (!expandCase(point, ch.picked, ch.keys.get(ch.picked)!, sc, prefix, out)) return false;
+          continue;
+        }
+        // a tree placement in a definition: the case its fill map chooses (a fill, or its default), as the instance's markup
+        const P = placementOf.get(n);
+        if (P) {
+          const v = run(sc, this.fns[P.node.b[0]!.f!]!);
+          const pick = Array.isArray(v) && typeof v[0] === 'number' ? v as [number, unknown] : null;
+          const tc = pick ? this.templates[P.cases[pick[0]]!] : undefined;
+          if (!pick || !tc?.item || !plainData(pick[1])) return false;
+          // a fill (not the default): expanded only when it is flat, values over `$slot` and constants (a fill that
+          // places the default's children with a `<slot>`, or holds loops, choices or a root of its own, stays
+          // the runtime's: the second pass does not place those the same way yet)
+          if (pick[0] > 0 && !tc.nodes.every((x) => x.state === undefined && x.sid === undefined && !this.pointOf.has(x) && !placementOf.has(x) && x.b.every((b) => ROW.has(b.k) || handlerOnly(b)))) return false;
+          if (!nodesOf(tc.nodes, rowScope(sc, tc, deepFreeze({ v: structuredClone(pick[1]) }).v, 0), prefix, out)) return false;
           continue;
         }
         for (const b of n.b) {
+          if (handlerOnly(b)) continue;
           if (ROW.has(b.k)) {
             if (b.e || b.w?.length || !fixed(b.d)) return false;
             if (paintable(el, b) && known(strs(b.d))) {
@@ -5916,12 +6116,12 @@ class Compiler {
       return true;
     };
     /** a loop outside any row: unrolled when every row is static markup (above) */
-    const unroll = (key: string, b: Binding, v: unknown, sc: object) => {
+    const unroll = (key: string, b: Binding, v: unknown, sc: object, el: P5Element) => {
       const items = v === FAIL ? null : listOf(v), t = this.templates[b.x!];
       const found: Found = { unrolls: [], decided: [], paints: [], rows: 0 };
       const ok = !!items && !!t?.item && rowsOf(t, items, key, sc, found);
-      // the same template in two instances that nothing tells apart: left alone
-      pending.set(key, pending.has(key) || !ok ? null : { items: items!, d: b.d, found });
+      // the same template in two instances that nothing tells apart: left alone; one over the limit: reported
+      pending.set(key, pending.has(key) || (!ok && !found.over) ? null : { items: items!, d: b.d, found, el });
     };
     /** outside rows: each candidate of a choice that this instance does not render goes (one another instance with this key renders stays) */
     const choose = (n: NodeDef, el: P5Element, sc: object) => {
@@ -5929,7 +6129,18 @@ class Compiler {
       const keys = point.group?.cases.map((c) => this.choiceKey(el, c.name)) ?? [];
       for (const [i, ck] of keys.entries()) {
         if (!ck) continue;
-        if (!ch || ch.picked === point.group!.cases[i]!.name || chosen.has(ck)) { chosen.add(ck); this.decided.delete(ck); continue; }
+        if (!ch || ch.picked === point.group!.cases[i]!.name || chosen.has(ck)) {
+          chosen.add(ck);
+          this.decided.delete(ck);
+          // the case it renders: expanded when its definition over its props is static markup (one instance per key)
+          if (ch?.picked === point.group!.cases[i]!.name) {
+            const found: Found = { unrolls: [], decided: [], paints: [], rows: 0 };
+            const ok = expandCase(point, ch.picked!, ck, sc, '', found);
+            found.decided = found.decided.filter(([k]) => k !== ck);
+            pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el });
+          }
+          continue;
+        }
         this.decided.set(ck, false);
         this.foldReads.set(ck, this.stateSites(point.pick!.deps));
       }
@@ -5943,7 +6154,7 @@ class Compiler {
         for (const b of n.b) {
           const key = this.instKey(el);
           if (!key || b.f === undefined || b.e || !fixed(b.d) || !known(strs(b.d))) continue;
-          if (b.k === 'for' && !pending.has(key)) unroll(key, b, run(sc, this.fns[b.f]!), sc);
+          if (b.k === 'for' && !pending.has(key)) unroll(key, b, run(sc, this.fns[b.f]!), sc, el);
           if (b.k !== 'if' || !this.decided.has(key)) continue;
           const other = b.y !== undefined ? nodes[b.y]?.b.find((x) => x.k === 'else')?.x : undefined;
           const kept = this.decided.get(key) ? this.templates[b.x!] : other !== undefined ? this.templates[other] : undefined;
@@ -5969,9 +6180,11 @@ class Compiler {
           }
         }
         for (const [key, p] of pending) {
-          if (!p || p.found.rows > left) continue;
+          if (!p) continue;
+          // over the page's limit (this tree alone, or with those before it): left to the browser, with a warning
+          if (p.found.over || p.found.rows > left) { this.overLimit.set(key, limit); this.expansionWarning(p.el, limit, !p.pick); continue; }
           left -= p.found.rows;
-          this.unrolls.set(key, p.items);
+          if (p.pick) this.decided.set(key, true); else this.unrolls.set(key, p.items);
           this.foldReads.set(key, this.stateSites(p.d));
           for (const [k, items, d] of p.found.unrolls) { this.unrolls.set(k, items); this.foldReads.set(k, this.stateSites(d)); }
           for (const [k, v, d] of p.found.decided) { this.decided.set(k, v); this.foldReads.set(k, this.stateSites(d)); }
@@ -6164,7 +6377,7 @@ class Compiler {
     const visit = (parent: P5Parent, prefix: string) => {
       for (const c of parent.childNodes) {
         if (!isElement(c)) continue;
-        const row = this.rowOf.get(c)?.inst ?? prefix;
+        const row = this.instAt.get(c) ?? this.rowOf.get(c)?.inst ?? prefix;
         look(c, c, row);
         const use = this.useOf.get(c);
         if (use && !use.head && !use.layout) look(use.host, c, row);
@@ -6215,7 +6428,7 @@ class Compiler {
       const c = parent.childNodes[i]!;
       if (!isElement(c)) continue;
       const row = this.rowOf.get(c);
-      const pre = row ? row.inst : prefix;
+      const pre = this.instAt.get(c) ?? row?.inst ?? prefix;
       // a node that takes `c`'s place at the top of a row is the top of that row too
       const place = (nodes: P5Node[], count: number) => {
         for (const n of nodes) {
@@ -6240,7 +6453,30 @@ class Compiler {
       }
       const choice = this.choices.get(c);
       const ck = choice ? this.choiceKey(c, choice.name) : null;
+      // a tree over the expansion limit, which the first pass reported: reported here too, since this pass's warnings are the build's
+      const over = this.opts.overLimit?.get(pre + (ck ?? (c.tagName === 'template' && attr(c, 'data-sn-for') !== undefined ? this.instKey(c) ?? '' : '')));
+      if (over !== undefined) this.expansionWarning(c, over, !ck);
       if (ck && decided?.get(pre + ck) === false) { place([], 1); continue; }
+      // a choice's case, or a recursion point, that the first pass expanded: the component's markup here, as a use,
+      // whose own templates are decided and unrolled as the loop goes on over them (item 5)
+      const point = this.points.get(c);
+      const pk = point && !choice ? this.instKey(c) : null;
+      if ((ck && decided?.get(pre + ck) === true) || (pk && unrolled?.has(pre + pk))) {
+        const before = parent.childNodes.length, start = this.scopeStart.get(c);
+        if (this.inlineInstance(c, point!)) {
+          const inst = `${pre}${ck ?? pk}#0/`, nodes = parent.childNodes.slice(i, i + parent.childNodes.length - before + 1);
+          this.inheritSlot(c, nodes);
+          for (const x of nodes) {
+            this.instAt.set(x, inst);
+            if (row && isElement(x) && !this.rowOf.has(x)) this.rowOf.set(x, row);
+            // the outer components whose markup started at the candidate (a choice as their root) start here
+            if (start && isElement(x)) this.scopeStart.set(x, [...start, ...(this.scopeStart.get(x) ?? [])]);
+          }
+          changed = true;
+          i--;
+          continue;
+        }
+      }
       const value = !inTemplate && c.tagName === 'template' ? attr(c, 'data-sn-for') : undefined;
       const tkey = value !== undefined ? this.instKey(c) : null;
       const items = tkey ? unrolled?.get(pre + tkey) : undefined;
@@ -6266,6 +6502,37 @@ class Compiler {
   }
 
   /**
+   * The second pass: a recursion point or a choice's case that the first pass found constant, expanded as a use of
+   * its component where it is (instead of an instance of its shared definition): its markup's uses keyed as the
+   * definition's (`Origin.use`), so the first pass's decisions inside it apply.
+   */
+  inlineInstance(host: P5Element, name: string): boolean {
+    const at = this.pointCtx.get(host), def = this.componentFile(name);
+    if (!at || !def || def.bad || def.head) return false;
+    if (this.choices.has(host)) {
+      host.tagName = host.nodeName = name;
+      host.attrs = host.attrs.filter((a) => a.name !== 'use');
+      // the plain attributes of the tags whose root the choice is: onto the tag, which moves them to the root
+      for (const u of this.passOn.get(host) ?? []) for (const a of u.host.attrs) {
+        if (a.name.startsWith('data-sn-') || a.name === 'slot') continue;
+        if (a.name === 'class') setAttr(host, 'class', `${attr(host, 'class') ?? ''} ${a.value}`.trim());
+        else if (attr(host, a.name) === undefined) host.attrs.push({ ...a });
+      }
+    }
+    this.points.delete(host);
+    this.choices.delete(host);
+    this.enclosing.set(host, at.en);
+    const root = this.expandUse(host, def, at.ch);
+    if (!root) return false;
+    const o = this.origins.get(root);
+    if (o) o.use = '<';
+    const use = this.hostUse.get(host);
+    if (use?.shape) this.expandComponents({ childNodes: root.parentNode!.childNodes.filter((c) => this.scopeStart.get(c)?.includes(use)) } as unknown as P5Parent, [...at.ch, name], false, use);
+    else this.expandComponents(root, [...at.ch, name], false, use ?? null);
+    return true;
+  }
+
+  /**
    * Nodes that take the place of `from` (a decided `data-sn-if`'s branch, an unrolled loop's rows): when
    * `from` was slot content, so are they, in the scope of the caller that wrote them and outside the
    * component's scoped styles.
@@ -6285,7 +6552,7 @@ class Compiler {
   cloneTree(node: P5Node, parent: P5Parent, chains = new Map<FillChain, FillChain>()): P5Node {
     const copy = { ...node, parentNode: parent } as P5Node;
     // (a candidate of `<sn-component use>` in an unrolled row: still one)
-    for (const map of [this.origins, this.slotOf, this.useOf, this.forwarded, this.points, this.choices, this.scopeStart, this.landing, this.passOn] as Array<WeakMap<object, unknown>>) if (map.has(node)) map.set(copy, map.get(node));
+    for (const map of [this.origins, this.slotOf, this.useOf, this.forwarded, this.points, this.choices, this.scopeStart, this.landing, this.passOn, this.pointCtx] as Array<WeakMap<object, unknown>>) if (map.has(node)) map.set(copy, map.get(node));
     if (this.defRoots.has(node as P5Element)) this.defRoots.set(copy as P5Element, { rt: this.defRoots.get(node as P5Element)!.rt });
     if (this.repeatedFills.has(node)) this.repeatedFills.add(copy);
     const empty = this.emptyDefaults.get(node);
@@ -7378,6 +7645,22 @@ class Compiler {
   }
 
   /**
+   * A page that uses a library's scoped styles: `@layer sinter-lib;` in a stylesheet linked before
+   * anything else in its head, so the libraries' layer comes first and the app's own layers and its
+   * unlayered CSS win. An app that declares the layer itself (`@layer reset, sinter-lib, app;`) in a
+   * stylesheet before it places it among its layers.
+   */
+  declareLayers(doc: DefaultTreeAdapterMap['document']) {
+    if (!this.opts.componentCss || ![...this.uses.keys()].some((n) => this.componentFiles.get(n)?.lib && this.componentFiles.get(n)?.css)) return;
+    const head = findHead(doc);
+    if (!head) return;
+    const link = parse5.parseFragment(`<link rel="stylesheet" href="${this.opts.componentCss(LAYERS_SHEET).replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`)}">`).childNodes[0] as P5Element;
+    link.parentNode = head;
+    const first = head.childNodes.findIndex((c) => isElement(c) && (c.tagName === 'link' || c.tagName === 'style'));
+    head.childNodes.splice(first < 0 ? head.childNodes.length : first, 0, link as never);
+  }
+
+  /**
    * A page with nothing to run: the stylesheets its module would have imported (the components' scoped
    * styles, the images' rules) are linked in its head instead, for the bundler to build.
    */
@@ -7858,6 +8141,15 @@ function plainData(v: unknown, depth = 0): boolean {
   return (proto === Object.prototype || proto === null) && Object.values(v as object).every((x) => plainData(x, depth + 1));
 }
 
+/** A copy of parsed markup as the parser made it (source locations shared), with nothing the compiler attached. */
+function freshCopy(n: P5Node | DefaultTreeAdapterMap['documentFragment'], parent: P5Parent | null): P5Node {
+  const copy = { ...n, parentNode: parent } as P5Node;
+  if ('attrs' in n) (copy as P5Element).attrs = n.attrs.map((a) => ({ ...a }));
+  if ('childNodes' in n) (copy as P5Element).childNodes = n.childNodes.map((c) => freshCopy(c, copy as P5Parent)) as never[];
+  if ('content' in n && n.content) (copy as P5Template).content = freshCopy(n.content as never, null) as never;
+  return copy;
+}
+
 /** Plain data (`plainData`) as a JavaScript expression that makes an equal value: `undefined`, `NaN`, `-0` and a `__proto__` key included; `<` escaped, for an inline script. */
 function jsLiteral(v: unknown): string {
   if (v === undefined) return 'undefined';
@@ -7878,10 +8170,12 @@ const FAIL: unique symbol = Symbol('first paint: runtime-only');
 /** the most rows a constant loop is unrolled into at build time; a longer list stays a template */
 const MAX_UNROLL = 1000;
 /**
- * the most rows a page unrolls in all, at every depth (a provisional bound: the proposal's expansion limit, with its
- * warning, comes with constant trees); a loop that would cross it stays a template
+ * the most rows and component instances a page expands at build time, at every depth: compiling the expanded page
+ * takes about 0.2 ms each (measured on a generic tree of paragraphs, links and images, in the build and the LSP alike,
+ * which compile it on every edit), so the limit keeps a page near 1 s. A tree that would cross it stays a template,
+ * with `SN536` at its use
  */
-const MAX_EXPANSION = 10_000;
+const EXPANSION_LIMIT = 10_000;
 
 const isPrimitive = (v: unknown) => v == null || ['string', 'number', 'boolean'].includes(typeof v);
 

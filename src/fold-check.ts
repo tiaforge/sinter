@@ -14,9 +14,11 @@ import type { HelperManifest } from './compiler/compile.js';
 export type FoldVerdict = { fold: true } | { fold: false; reason: string; file: string; line: number; col: number; chain: string[] };
 
 /**
- * The globals a helper may use and still fold: ECMAScript's own, deterministic ones. Not `Date`, `Intl`,
- * `WeakRef`, `FinalizationRegistry`, `eval`, `Function` or `globalThis`, nor anything a host adds
- * (`window`, `document`, `process`, `fetch`, timers, `URL`, `structuredClone`, `console`).
+ * The globals a helper may use and still fold: ECMAScript's own, deterministic ones, and five web-platform
+ * utilities that behave the same in Node and browsers (`TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams`,
+ * `structuredClone`; the last three are allowed in expressions too). Not `Date`, `Intl`, `WeakRef`,
+ * `FinalizationRegistry`, `eval`, `Function` or `globalThis`, nor anything else a host adds (`window`,
+ * `document`, `process`, `fetch`, timers, `console`).
  */
 export const FOLD_GLOBALS = new Set([
   'Object', 'Array', 'Math', 'JSON', 'Map', 'Set', 'WeakMap', 'WeakSet', 'RegExp', 'String', 'Number', 'Boolean', 'Symbol', 'BigInt',
@@ -25,6 +27,7 @@ export const FOLD_GLOBALS = new Set([
   'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array', 'BigInt64Array', 'BigUint64Array',
   'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI',
   'NaN', 'Infinity', 'undefined',
+  'TextEncoder', 'TextDecoder', 'URL', 'URLSearchParams', 'structuredClone',
 ]);
 /** members that read the clock, the locale or chance, or write markup, whatever object they are read from */
 const BAD_MEMBERS = /^(toLocale\w*|localeCompare|innerHTML|outerHTML|insertAdjacentHTML)$/;
@@ -91,7 +94,7 @@ function resolveUncached(spec: string, from: string, root: string): string | nul
   const bare = spec.replace(/[?#].*$/, '');
   if (bare.startsWith('.')) return fileFor(resolve(dirname(from), bare));
   if (bare.startsWith(root) || (/^[A-Za-z]:[\\/]/.test(bare))) return fileFor(bare);
-  if (bare.startsWith('/')) return fileFor(resolve(root, '.' + bare));
+  if (bare.startsWith('/')) return fileFor(resolve(root, '.' + bare)) ?? fileFor(bare);
   if (bare.startsWith('node:') || /^[a-z]+:/.test(bare)) return null;
   const m = /^((?:@[^/]+\/)?[^/]+)(\/.*)?$/.exec(bare);
   if (!m) return null;

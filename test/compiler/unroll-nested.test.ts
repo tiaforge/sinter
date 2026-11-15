@@ -79,21 +79,26 @@ describe('decided per unrolled copy', () => {
     '/p/src/components/x-note.html': '<template data-sn-component="{ v: string }"><aside data-sn-text="v"></aside></template>',
   };
 
-  test('`<sn-component use>` per use: only the candidate it renders is left', () => {
+  test('`<sn-component use>` per use: the component it renders, expanded at build time (step 9)', () => {
     const files = { ...blocks, '/p/src/components/one-block.html': '<template data-sn-component="{ kind: string }"><div><sn-component use="`x-${kind}`" data-sn-prop="{ v: kind }"></sn-component></div></template>' };
-    const out = build("<one-block data-sn-prop=\"{ kind: 'hero' }\"></one-block><one-block data-sn-prop=\"{ kind: 'note' }\"></one-block>", files);
+    expect(unrolled("<one-block data-sn-prop=\"{ kind: 'hero' }\"></one-block><one-block data-sn-prop=\"{ kind: 'note' }\"></one-block>", files))
+      .toBe('<div><h1>hero</h1></div><div><aside>note</aside></div>');
+  });
+
+  test('`<sn-component use>` per use, over data: the one case it renders is left', () => {
+    const files = { ...blocks, '/p/src/components/one-block.html': '<template data-sn-component="{ kind: string; v: string }"><div><sn-component use="`x-${kind}`" data-sn-prop="{ v }"></sn-component></div></template>' };
+    const out = build("<sn-resource name=\"r\" src=\"/api/r\"></sn-resource><one-block data-sn-prop=\"{ kind: 'hero', v: r }\"></one-block><one-block data-sn-prop=\"{ kind: 'note', v: r }\"></one-block>", files);
     expect(out.diagnostics).toEqual([]);
     // one choice node per use, each with the one case it renders (before: both candidates in each)
     const choices = irOf(out.module).roots.filter((n: { b: Array<{ k: string }> }) => n.b.some((b) => b.k === 'ch'));
     expect(choices.map((n: { b: Array<{ c: number[] }> }) => n.b[0]!.c.length)).toEqual([1, 1]);
-    expect(bodyOf(out.html)).toContain('<template id="sn-t-0"><h1></h1></template><template id="sn-t-1"><aside></aside></template>');
   });
 
-  test('`<sn-component use>` in rows: a row that renders none of its candidates is markup; one that renders one keeps the loop a template, its definition rendering at run time', () => {
+  test('`<sn-component use>` in rows: each row\'s component, or its `data-sn-else`, expanded at build time (step 9)', () => {
     expect(unrolled("<template data-sn-for=\"k in ['z', 'q']\" data-sn-key=\"k\"><sn-component use=\"`x-${k}`\" data-sn-prop=\"{ v: k }\"></sn-component><template data-sn-else><s data-sn-text=\"k\"></s></template></template>", blocks))
       .toBe('<s>z</s><s>q</s>');
-    const out = build("<template data-sn-for=\"k in ['hero', 'note']\" data-sn-key=\"k\"><sn-component use=\"`x-${k}`\" data-sn-prop=\"{ v: k }\"></sn-component></template>", blocks);
-    expect(irOf(out.module).templates.length).toBeGreaterThan(0);
+    expect(unrolled("<template data-sn-for=\"k in ['hero', 'note']\" data-sn-key=\"k\"><sn-component use=\"`x-${k}`\" data-sn-prop=\"{ v: k }\"></sn-component></template>", blocks))
+      .toBe('<h1>hero</h1><aside>note</aside>');
   });
 });
 
@@ -129,10 +134,17 @@ describe('limits', () => {
     expect(kept(`<template data-sn-for="g in [${list(1001, '1')}]"><p><template data-sn-for="x in g" data-sn-key="x"><b data-sn-text="x"></b></template></p></template>`)).toBe(2);
   });
 
-  test('at most 10,000 rows per page, at every depth: a loop that would cross it stays a template', () => {
+  test('at most 10,000 rows and components per page, at every depth: a loop that would cross it stays a template, with SN536 at it', () => {
     const inner = list(500, '1');
-    expect(kept(`<template data-sn-for="g in ${list(19, inner)}"><p><template data-sn-for="x in g" data-sn-key="x"><b data-sn-text="x"></b></template></p></template>`)).toBe(0);
-    expect(kept(`<template data-sn-for="g in ${list(20, inner)}"><p><template data-sn-for="x in g" data-sn-key="x"><b data-sn-text="x"></b></template></p></template>`)).toBe(2);
+    const page = (n: number) => `<template data-sn-for="g in ${list(n, inner)}"><p><template data-sn-for="x in g" data-sn-key="x"><b data-sn-text="x"></b></template></p></template>`;
+    // 19 rows of 500: 9,519
+    expect(kept(page(19))).toBe(0);
+    expect(build(page(19)).diagnostics).toEqual([]);
+    // 20 rows of 500: 10,020
+    expect(kept(page(20))).toBe(2);
+    expect(build(page(20)).diagnostics.map((d) => [d.code, d.severity, d.message])).toEqual([['SN536', 'warning', 'this list\'s rows would take the page past 10,000 rows and components expanded at build time, so it is rendered in the browser']]);
+    // the limit counts the whole page: two trees that each fit, the second one over
+    expect(build(page(10) + page(10)).diagnostics.map((d) => d.code)).toEqual(['SN536']);
   });
 });
 
