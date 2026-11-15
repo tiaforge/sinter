@@ -158,6 +158,12 @@ export interface CompileOptions {
    */
   frozen?: Set<string>;
   /**
+   * internal, set by `compileParts` for its second pass: the bindings the first pass found constant for good, by
+   * the attribute that wrote them (`file:offset|uses|attribute`, and `#k` for row k of an unrolled loop), with what
+   * each writes. The second pass writes them into the markup before the layout and the images (`prefold`)
+   */
+  constants?: Map<string, ConstantWrite[]>;
+  /**
    * the page must ship no JavaScript (`sinter({ static })`): each thing that runs in the browser is
    * `SN322` where it was written. Needs `prerender`, which leaves out what can never change.
    */
@@ -527,9 +533,15 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   if (!options.prerender || options.decided || options.unrolled) return out;
   // loops over constants: unrolled only when the first pass is clean (the second one compiles the rows with their item)
   // (SN322 does not count: what the first pass found running may be a loop the second one unrolls)
-  const unrolled = first.unrolls.size && !out.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322') ? first.unrolls : null;
-  if (!first.decided.size && !unrolled) return out;
-  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), frozen: first.foldedState() }).run(html);
+  const clean = !out.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
+  const unrolled = first.unrolls.size && clean ? first.unrolls : null;
+  // constant bindings the layout or the images read (an image's attributes, a class or a style): written before
+  // them, in a second pass; it needs a clean first pass too
+  const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
+  if (!first.decided.size && !unrolled && !constants) return out;
+  const frozen = first.foldedState();
+  if (constants) for (const s of first.constantSites) frozen.add(s);
+  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(constants ? { constants } : {}), frozen }).run(html);
 }
 
 class Compiler {
@@ -780,6 +792,19 @@ class Compiler {
   urlArrays(): string[] { return [...new Set(this.urlBinds.filter((b) => b.array).map((b) => b.name))].sort(); }
   /** bindings `prerender()` wrote into the HTML as constants: the early chunk leaves them out */
   readonly painted = new Set<Binding>();
+  /** what `prerender()` wrote for each binding it wrote into the HTML or a template's markup */
+  private readonly paintValue = new Map<Binding, ConstantWrite>();
+  /** what each row's binding of an unrolled loop writes, by row (null: not a constant), for the second pass */
+  private readonly rowPaint = new Map<Binding, Array<ConstantWrite | null>>();
+  /** bindings `dropConstants` left out: constant for good */
+  private readonly dropped = new Set<Binding>();
+  /** the value attributes of each element, the bindings each made, and whether it was reported on (`collectConstants`) */
+  private readonly attrSources: Array<{ src: P5Element; node: NodeDef; attr: string; bindings: Binding[]; noted: boolean }> = [];
+  /** the first pass: what the second one writes before the layout (`CompileOptions.constants`), and the state fields they read */
+  readonly constants = new Map<string, ConstantWrite[] | null>();
+  readonly constantSites = new Set<string>();
+  /** the second pass: images whose `src` or `srcset` `prefold` wrote, which resolve against the page as in the browser */
+  private readonly foldedUrl = new WeakSet<P5Element>();
   /** the page's stylesheets as a cascade (images: boxes of static and bound images) */
   layout: Layout | null = null;
   /** a bound `<img src>` goes through the resizing service (`remoteImages`), with these widths */
@@ -819,6 +844,8 @@ class Compiler {
     if (this.opts.unrolled?.size) this.unrollLoops(doc);
     this.checkHead();
     this.componentIds();
+    // the second pass: bindings the first found constant for good, written before the layout and the images read the markup
+    if (this.opts.constants?.size) this.prefold(doc);
     const sheets = this.opts.styles ?? this.opts.images?.styles;
     const layout = this.layout = sheets?.length ? new Layout(sheets, doc, { ...(this.opts.normalLineHeight ? { normalLineHeight: this.opts.normalLineHeight } : {}), ...(this.opts.zeroWidth ? { zeroWidth: this.opts.zeroWidth } : {}) }) : null;
     // the lists whose rows arrive after the first paint: their space, before anything else reads the markup's bindings
@@ -826,7 +853,8 @@ class Compiler {
     const images = this.opts.images ? rewriteImages(doc, {
       host: this.opts.images, root: this.opts.root,
       ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows, scaled: (el: P5Element, what: 'box' | 'bound') => this.scaledWidth(layout, el, what) } : {}),
-      fileOf: (el) => this.origins.get(el)?.file ?? this.opts.file,
+      // a folded `src` is the URL the browser would have loaded, relative to the page
+      fileOf: (el) => (this.foldedUrl.has(el) ? this.opts.file : this.origins.get(el)?.file ?? this.opts.file),
       warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
     }) : undefined;
     this.declare(doc);
@@ -857,7 +885,7 @@ class Compiler {
     if (this.opts.checkCycles) this.runCycles();
     for (const el of this.remove) detach(el);
     this.markLowPriority();
-    if (this.opts.prerender) { this.prerender(); this.dropConstants(); }
+    if (this.opts.prerender) { this.prerender(); this.dropConstants(); if (this.collecting()) this.collectConstants(); }
     let early = this.opts.early ? this.earlyParts() : undefined;
     if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
     // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
@@ -2496,16 +2524,23 @@ class Compiler {
       const r = this.expr(el, name, scope, { mode: 'value', ...(k == 'show' ? { cond: true } : {}) });
       if (r.ok) node.b.push(this.binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
     };
-    if (has('text')) valueB('text', 'data-sn-text');
-    if (has('show')) valueB('show', 'data-sn-show');
+    // the first pass of a prerendered page: which bindings each value attribute made, for `collectConstants`
+    const source = (name: string, f: () => void) => {
+      if (!this.collecting()) { f(); return; }
+      const b0 = node.b.length, d0 = this.diagnostics.length;
+      f();
+      this.attrSources.push({ src: el, node, attr: name, bindings: node.b.slice(b0), noted: this.diagnostics.slice(d0).some((d) => d.code !== 'SN513') });
+    };
+    if (has('text')) source('data-sn-text', () => valueB('text', 'data-sn-text'));
+    if (has('show')) source('data-sn-show', () => valueB('show', 'data-sn-show'));
     // the morph across a navigation: the name is kept on the element, the transition feature uses it
     if (has('transition')) {
       const r = this.expr(el, 'data-sn-transition', scope, { mode: 'value' });
       if (r.ok) { node.b.push(this.binding({ k: 'attr', n: 'data-sn-vt', f: this.fn(r.code), d: r.deps, ...usesEl(r) })); this.features.add('transition'); }
     }
-    if (has('attr')) this.attrBinding(el, node, scope);
-    if (has('class')) this.objectBinding(el, node, scope, 'class');
-    if (has('style')) this.objectBinding(el, node, scope, 'style');
+    if (has('attr')) source('data-sn-attr', () => this.attrBinding(el, node, scope));
+    if (has('class')) source('data-sn-class', () => this.objectBinding(el, node, scope, 'class'));
+    if (has('style')) source('data-sn-style', () => this.objectBinding(el, node, scope, 'style'));
     if (has('prop') && !use) {
       if (!el.tagName.includes('-')) this.report(el, 'data-sn-prop', 'SN102', '`data-sn-prop` is for custom elements only; use `data-sn-attr`', 0);
       else this.objectBinding(el, node, scope, 'prop');
@@ -4207,6 +4242,7 @@ class Compiler {
         if (n < 0 || (usedMessage && !this.opts.locale) || this.notUnrolled.has(key) || (this.unrolls.has(key) && this.unrolls.get(key) !== n)) { this.unrolls.delete(key); this.notUnrolled.add(key); continue; }
         this.unrolls.set(key, n);
         this.foldReads.set(key, this.stateSites(c.b.d));
+        if (this.collecting()) this.paintRows(c.b, v as unknown[], fnOf, scope, known, schemes, () => usedMessage, () => { usedMessage = false; });
         continue;
       }
       if (c.if) {
@@ -4226,10 +4262,130 @@ class Compiler {
       const w = v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes);
       if (w === FAIL) continue;
       writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
-      if (c.tpl) { this.tplPainted.add(c.b); continue; }
+      if (c.tpl) { this.tplPainted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); continue; }
       if (msg) { setAttr(c.el, 'data-sn-m', ''); continue; }
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
-      if (own === null) this.painted.add(c.b);
+      if (own === null) { this.painted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); }
+    }
+  }
+
+  /** The first pass of a prerendered page, which may compile it again: it records what folds (`collectConstants`). */
+  collecting(): boolean {
+    return !!this.opts.prerender && !this.opts.decided && !this.opts.unrolled && !this.opts.constants;
+  }
+
+  /**
+   * The first pass: what each row of a loop it unrolls writes for its bindings (the item and index are the k-th
+   * item and k), so the second pass writes those before the layout. Only what the second pass would write and
+   * leave out: a value of a kind `prerender()` writes, not a message (outside a page in one language).
+   */
+  paintRows(b: Binding, list: unknown[], fnOf: Map<string, ($: unknown) => unknown>, scope: object, known: (deps: string[]) => boolean, schemes: Set<string>, usedMessage: () => boolean, reset: () => void) {
+    const t = this.templates[b.x!];
+    if (!t?.item) return;
+    const items = list.map((item) => deepFreeze({ v: structuredClone(item) }).v);
+    for (const node of t.nodes) {
+      const el = this.tplEls.get(node);
+      if (!el) continue;
+      for (const x of node.b) {
+        const run = x.f === undefined ? undefined : fnOf.get(this.fns[x.f]!);
+        if (!run || !paintable(el, x) || !known(strs(x.d))) continue;
+        this.rowPaint.set(x, items.map((item, k) => {
+          const row = new Proxy({}, { get: (_, p) => (p === t.item ? item : p === t.index || p === t.ii ? k : (scope as Record<string | symbol, unknown>)[p]) });
+          reset();
+          let v: unknown;
+          try { v = run(row); } catch { return null; }
+          if (usedMessage() && !this.opts.locale) return null;
+          const w = firstPaintValue(el, x, v, schemes);
+          return w === FAIL ? null : { k: w[0], n: x.n ?? null, v: w[1] };
+        }));
+      }
+    }
+  }
+
+  /**
+   * The first pass, after `dropConstants`: each value attribute whose every binding is a constant for good, by
+   * where it was written, with what it writes, when the layout or the images read it: any of an `<img>`'s
+   * (`data-sn-text`, `-show`, `-attr`, `-class`, `-style`), so it is a static image, and `data-sn-class` and
+   * `-style` anywhere when the page has stylesheets. The rest is written after the walk, as before. Uses that
+   * disagree (a component's markup on one line, used twice) leave it. An attribute reported on (`SN513` aside,
+   * which a written image no longer has) stays, so the second pass reports it again.
+   */
+  collectConstants() {
+    const els = new Map<NodeDef, P5Element>([...this.paints.map((x) => [x.node, x.el] as const), ...this.tplEls]);
+    const sheets = (this.opts.styles ?? this.opts.images?.styles ?? []).map((x) => x.css).join('\n');
+    const put = (key: string, writes: ConstantWrite[], sites: PathRef[]) => {
+      const was = this.constants.get(key);
+      if (was === null) return;
+      if (was !== undefined && JSON.stringify(was) !== JSON.stringify(writes)) { this.constants.set(key, null); return; }
+      this.constants.set(key, writes);
+      for (const s of this.stateSites(sites)) this.constantSites.add(s);
+    };
+    for (const s of this.attrSources) {
+      const key = s.bindings.length && !s.noted ? this.constKey(s.src, s.attr) : null;
+      const target = els.get(s.node);
+      // a class no stylesheet names changes no box: it waits for the walk, and costs no second pass
+      // (as the stylesheet writes it: `.md\:w-1\/2` for `md:w-1/2`)
+      const named = (b: Binding) => !!b.n && new RegExp(`\\.${b.n.replace(/[^\w-]/g, (c) => `\\\\?\\${c}`)}(?![\\w-])`).test(sheets);
+      const reaches = (target?.tagName === 'img' && !!this.opts.images) || (!!this.layout && (s.attr === 'data-sn-style' || (s.attr === 'data-sn-class' && s.bindings.some(named))));
+      if (!key || !reaches) continue;
+      const deps = s.bindings.flatMap((b) => b.d ?? []);
+      const rows = s.bindings.map((b) => this.rowPaint.get(b));
+      if (rows.every((r) => r !== undefined)) {
+        for (let k = 0; k < rows[0]!.length; k++) {
+          const writes = rows.map((r) => r![k]);
+          if (writes.every((w) => w)) put(`${key}#${k}`, writes as ConstantWrite[], deps);
+        }
+      } else if (s.bindings.every((b) => this.dropped.has(b) && this.paintValue.has(b))) put(key, s.bindings.map((b) => this.paintValue.get(b)!), deps);
+    }
+    for (const [k, v] of this.constants) if (v === null) this.constants.delete(k);
+  }
+
+  /** An attribute where it was written, the same in both passes: its element's file, offset and component uses. */
+  constKey(el: P5Element, name: string): string | null {
+    const at = this.siteKey(el);
+    return at && `${at}|${(this.origins.get(el)?.chain ?? []).join('<')}|${name}`;
+  }
+
+  /**
+   * The second pass, before the layout and the images: each value attribute the first pass found constant for
+   * good is written into the markup and removed, so the layout sees the class and the image pipeline a static
+   * `<img>`. A component's tag passes its attributes to its root: written there, and removed from the tag only
+   * when every root it gave them to (one per row of an unrolled loop) has them.
+   */
+  prefold(doc: P5Parent) {
+    const consts = this.opts.constants!;
+    const found = new Map<P5Element, Map<string, Array<{ el: P5Element; writes: ConstantWrite[] | undefined }>>>();
+    const look = (src: P5Element, el: P5Element, k: number | null) => {
+      for (const name of FOLDED) {
+        if (attr(src, name) === undefined) continue;
+        const key = this.constKey(src, name);
+        const writes = key ? (k !== null ? consts.get(`${key}#${k}`) : undefined) ?? consts.get(key) : undefined;
+        let bySrc = found.get(src);
+        if (!bySrc) found.set(src, bySrc = new Map());
+        let list = bySrc.get(name);
+        if (!list) bySrc.set(name, list = []);
+        list.push({ el, writes });
+      }
+    };
+    const visit = (parent: P5Parent, k: number | null) => {
+      for (const c of parent.childNodes) {
+        if (!isElement(c)) continue;
+        const row = this.rowOf.get(c)?.k ?? k;
+        look(c, c, row);
+        const use = this.useOf.get(c);
+        if (use && !use.head && !use.layout) look(use.host, c, row);
+        visit(c, row);
+        if (c.tagName === 'template') visit((c as P5Template).content, row);
+      }
+    };
+    visit(doc, null);
+    for (const [src, names] of found) for (const [name, list] of names) {
+      if (!list.every((x) => x.writes)) continue;
+      for (const x of list) for (const w of x.writes!) {
+        writeFirstPaint(x.el, w.k, w.n, w.v);
+        if (w.k === 'attr' && (w.n === 'src' || w.n === 'srcset')) this.foldedUrl.add(x.el);
+      }
+      src.attrs = src.attrs.filter((a) => a.name !== name);
     }
   }
 
@@ -4355,7 +4511,7 @@ class Compiler {
     for (const { el, node } of this.paints) {
       const keep = node.b.filter((b) => !drop(b));
       if (keep.length === node.b.length) continue;
-      for (const b of node.b) if (drop(b)) { if (b.f !== undefined) this.fnUses[b.f]!--; this.freeze(b.d); }
+      for (const b of node.b) if (drop(b)) { if (b.f !== undefined) this.fnUses[b.f]!--; this.freeze(b.d); this.dropped.add(b); }
       node.b = keep;
       if (!keep.length && node.state === undefined && node.sid === undefined) {
         gone.add(node);
@@ -4367,7 +4523,7 @@ class Compiler {
       const out = new Set<NodeDef>();
       for (const node of t.nodes) {
         if (!node.b.some((b) => this.tplPainted.has(b))) continue;
-        for (const b of node.b) if (this.tplPainted.has(b)) { if (b.f !== undefined) this.fnUses[b.f]!--; this.freeze(b.d); }
+        for (const b of node.b) if (this.tplPainted.has(b)) { if (b.f !== undefined) this.fnUses[b.f]!--; this.freeze(b.d); this.dropped.add(b); }
         node.b = node.b.filter((b) => !this.tplPainted.has(b));
         if (!node.b.length && node.state === undefined && node.sid === undefined) out.add(node);
       }
@@ -5673,11 +5829,23 @@ const MAX_UNROLL = 1000;
 
 const isPrimitive = (v: unknown) => v == null || ['string', 'number', 'boolean'].includes(typeof v);
 
+/** what a binding the build found constant writes into the markup (`writeFirstPaint`) */
+export type ConstantWrite = { k: Kind; n: string | null; v: unknown };
+/** the attributes whose bindings the second pass writes before the layout (`prefold`) */
+const FOLDED = ['data-sn-text', 'data-sn-show', 'data-sn-attr', 'data-sn-class', 'data-sn-style'];
+
+/** A binding of a kind `prerender()` writes on `el`, outside templates or in them (no model, a class by name, a text without elements). */
+function paintable(el: P5Element, b: Binding): boolean {
+  if (b.f === undefined || b.e || b.w?.length || !['text', 'attr', 'class', 'style', 'show'].includes(b.k)) return false;
+  if (b.k === 'class' && !b.n) return false;
+  return !(b.k === 'text' && el.childNodes.some(isElement));
+}
+
 /**
  * What the runtime would write for value `v` of binding `b` on `el`, as `[kind, value]`, or FAIL
  * when it cannot be written ahead (an object, a refused URL or style, a select).
  */
-type Kind = 'text' | 'attr' | 'class' | 'style' | 'show' | 'checked' | 'value';
+export type Kind = 'text' | 'attr' | 'class' | 'style' | 'show' | 'checked' | 'value';
 
 function firstPaintValue(el: P5Element, b: Binding, v: unknown, schemes: Set<string>): [Kind, unknown] | typeof FAIL {
   switch (b.k) {

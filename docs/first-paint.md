@@ -44,6 +44,11 @@ time: its branch (or its `data-sn-else`) is page markup, written and painted lik
 `data-sn-for` over a constant list (a literal, a prop given as one, state nothing writes) whose rows read
 only the item, its index and constants is unrolled at build time: its rows are page markup too.
 
+Such bindings on an `<img>`, and constant classes and styles, are written before the build
+optimizes images and computes the layout, so a constant image is optimized like one you wrote
+([images](images.md#what-is-optimized)) and a constant class counts for its `sizes` and for
+[reserved space](#reserved-space).
+
 A page where all of it is constant has nothing left to run, and ships no JavaScript at all: see
 [pages without JavaScript](static-pages.md).
 
