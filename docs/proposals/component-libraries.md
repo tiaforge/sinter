@@ -91,6 +91,19 @@ Step 2, as built (2a to 2d landed together; the history was kept):
 - New codes: `SN105` (a reserved comment), `SN106` (an anchor in raw text), `SN213` (`$el` of an
   anchor), and dev warning 31 (an anchor without its end).
 
+Steps 2, 3, 6 and 10 together, measured with step 1's spike (`results/2026-11-15-integration.json`
+on `ccr-ec5fd4e0-bp4vko`; step 1 → integration):
+- The article fetched: LCP 424 → 280 ms, 346 → 210 ms from the response to the rendered article,
+  4 → 2 parses. With embedded data: LCP 1,164 → 280 ms, 2+4 → 1+1 parses, and all 2,831 early
+  elements kept at takeover. The tree from the API: LCP 264 → 168 ms.
+- A re-render with the same source: 296 → 12 ms, no parse, every node kept. A stream: 157 → 76 ms
+  per chunk (median), one parse per chunk.
+- 0 templates and 2.8 comments per node, against 8.5 and 8.4; every prose-CSS selector measured
+  matches as in plain HTML.
+- Against the RealWorld island (172 ms on that run): the fetched article is at 1.6× (2.3× at step
+  1) and the tree from the API is level with it. Step 4 removes the spike's text `<span>`s and its
+  component per heading level, and measures again.
+
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
   are the target, equally. Streaming and APIs that send a parsed tree should work too, but do not
