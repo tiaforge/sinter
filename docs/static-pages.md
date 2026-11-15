@@ -37,8 +37,10 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
   ```
 
   is `<ul><li><a href="/">Home</a></li><li><a href="/about.html">About</a></li></ul>` in the built page.
-  A row with a handler, a model, its own state or a nested loop, and a list over 1,000 items, stay a
-  template that the runtime renders.
+  Loops inside the rows are unrolled the same way, at any depth (a list of sections, each with its
+  links), and a `data-sn-if` in a row is decided per row. A row with a handler, a model or its own
+  state, a nested loop that is not constant, an `<sn-component use>` that renders a component, and a
+  list over 1,000 items, stay a template that the runtime renders; so does a page's 10,001st row.
 
 ## What needs JavaScript
 

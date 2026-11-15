@@ -120,18 +120,27 @@ describe('what stays as it was', () => {
     expect(kept('<img alt="" data-sn-attr="{ src: fmt() }">')).not.toContain('<picture>');
   });
 
-  test('two uses of a component on one line that disagree: written after the walk, as before (uses are told apart by line)', () => {
+  test('two uses of a component on one line: told apart by where each tag is, so each image is optimized', () => {
     const files = { '/app/src/components/x-pic.html': '<template data-sn-component="{ src: string }"><img alt="" data-sn-attr="{ src }"></template>' };
     const out = build('<x-pic data-sn-prop="{ src: \'img/photo.jpg\' }"></x-pic><x-pic data-sn-prop="{ src: \'img/small.jpg\' }"></x-pic>', { files });
-    expect(bodyOf(out.html)).toBe('<img alt="" src="img/photo.jpg"><img alt="" src="img/small.jpg">');
+    expect(bodyOf(out.html)).toBe(written('<img alt="" src="img/photo.jpg"><img alt="" src="img/small.jpg">'));
   });
 
-  test('a class no stylesheet names: written after the walk, as before (its node had an id, so the ids after it stay)', () => {
+  test('a class or style that reaches no image and no reserved list: written after the walk, as before (its node had an id, so the ids after it stay)', () => {
     const page = '<main data-sn-state="{ on: true, n: 0 }"><p data-sn-class="{ on }">x</p><button data-sn-on-click="n++" data-sn-text="n"></button></main>';
-    expect(bodyOf(build(page, { css: '.off { width: 1px }' }).html)).toBe('<main data-sn="0"><p class="on">x</p><button data-sn="2">0</button></main>');
-    // named: written before the layout, the button's id the next one
-    expect(bodyOf(build(page, { css: '.on { width: 1px }' }).html)).toBe('<main data-sn="0"><p class="on">x</p><button data-sn="1">0</button></main>');
-    expect(bodyOf(build(page.replace('{ on }', '{ \'md:w-1/2\': on }'), { css: '.md\\:w-1\\/2 { width: 50% }' }).html)).toContain('<button data-sn="1">');
+    const after = '<main data-sn="0"><p class="on">x</p><button data-sn="2">0</button></main>';
+    const early = '<main data-sn="0"><p class="on">x</p><button data-sn="1">0</button></main>';
+    // no stylesheet names it, or one does and it reaches nothing that feeds the layout
+    expect(bodyOf(build(page, { css: '.off { width: 1px }' }).html)).toBe(after);
+    expect(bodyOf(build(page, { css: '.on { width: 1px }' }).html)).toBe(after);
+    expect(bodyOf(build(page.replace('data-sn-class="{ on }"', 'data-sn-style="{ width: \'1px\' }"'), { css: 'p { color: red }' }).html)).toBe(after.replace('<p class="on">', '<p style="width: 1px">'));
+    // a selector that goes on to the siblings after it, where an image is; `:has()` may reach anything
+    const img = page.replace('</button>', '</button><img src="/img/photo.jpg" alt="">');
+    expect(bodyOf(build(img, { css: '.on ~ img { width: 10px }' }).html)).toContain('<button data-sn="1">');
+    expect(bodyOf(build(img, { css: '.on { width: 10px }' }).html)).toContain('<button data-sn="2">');
+    expect(bodyOf(build(page, { css: 'main:has(.on) { width: 10px }' }).html)).toBe(early);
+    // the escaped form a stylesheet writes
+    expect(bodyOf(build(page.replace('{ on }', '{ \'md:w-1/2\': on }'), { css: 'main:has(.md\\:w-1\\/2) { width: 50% }' }).html)).toContain('<button data-sn="1">');
   });
 
   test('a class without stylesheets, and a constant text: written after the walk, as before', () => {
