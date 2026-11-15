@@ -66,7 +66,7 @@ describe('injection', () => {
   });
   test('forged duplicate data-sn ids are not bound', async () => {
     // (a helper: the build does not write its value into the HTML, so the binding is the page module's, at id 0)
-    const { root } = await render(`<p data-sn-text="same('bound')">x</p><p data-sn="0">forged</p>`, { helpers: { same: (s: string) => s } });
+    const { root } = await render(`<p data-sn-text="same('bound')">x</p><p data-sn="0">forged</p>`, { helpers: { same: (s: string) => String(s ?? Date.now()) } });
     expect([...root.querySelectorAll('p')].map((p) => p.textContent)).toEqual(['x', 'forged']);
   });
   test('a mismatched tag is not bound', async () => {

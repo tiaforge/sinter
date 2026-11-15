@@ -379,9 +379,11 @@ function isRead(parent: N | null, key: string): boolean {
 
 /** the module of a file, analysed once per content */
 function moduleOf(file: string, cache: FoldCache): ModuleInfo {
+  const hit = cache.modules.get(file);
+  // an in-memory module (a function's own source) has no file
+  if (hit && hit.stamp === '' && !hit.info.broken && !existsSync(file)) return hit.info;
   let stamp = '';
   try { stamp = stampOf(file); } catch { /* reported by the read */ }
-  const hit = cache.modules.get(file);
   if (hit && hit.stamp === stamp) return hit.info;
   let info: ModuleInfo;
   try { info = analyze(file, readFileSync(file, 'utf8')); } catch (e) { info = { file, code: '', units: new Map(), exports: new Map(), stars: [], broken: `cannot be read: ${(e as Error).message}` }; }
@@ -465,6 +467,28 @@ export function foldVerdicts(manifest: HelperManifest, root: string, helpersFile
     for (const m of v.members) { const o = v.from?.[m]; one(`${ns}$${m}`, o?.module ?? v.module, o?.name ?? m); }
   }
   return out;
+}
+
+/**
+ * The verdict for a function given as a value (testing's `render()` and `firstPaint()` take helpers that way): its
+ * own source, read with `toString()`. What it closes over is unknown, so a name from outside it does not fold.
+ */
+export function functionVerdict(fn: unknown, name: string): FoldVerdict {
+  const no = (reason: string): FoldVerdict => ({ fold: false, reason, file: `<${name}>`, line: 1, col: 1, chain: [name] });
+  if (typeof fn !== 'function') return no('not a function');
+  const src = Function.prototype.toString.call(fn);
+  if (/\{\s*\[native code\]\s*\}\s*$/.test(src)) return no('a built-in or bound function, whose source cannot be read');
+  const cache = new FoldCache();
+  // a function or arrow expression, else a method (`parse(s) { … }`, as an object literal writes it)
+  for (const code of [`export const ${'$f'} = (${src});\n`, `export const ${'$f'} = ({ ${src} });\n`]) {
+    const file = `/<${name}>.js`;
+    const info = analyze(file, code);
+    if (info.broken) continue;
+    cache.modules.set(file, { stamp: '', info });
+    const v = foldVerdict(file, '$f', '/', cache);
+    return v.fold ? v : { ...v, file: `<${name}>`, chain: [name] };
+  }
+  return no('a function whose source cannot be read');
 }
 
 /** A verdict as a sentence, for SN322 and the docs: why a helper's call stays in the browser. */

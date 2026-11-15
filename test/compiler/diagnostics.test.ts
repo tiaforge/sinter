@@ -111,8 +111,8 @@ const LAZY_ONLY = ['SN324', 'SN325'];
 const APIS_ONLY = ['SN326', 'SN327', 'SN328', 'SN329', 'SN330', 'SN518'];
 /** Codes that need the page's stylesheets (the adapter reads them). Fixtures in test/behaviour/reserve.test.ts. */
 const STYLES_ONLY = ['SN529', 'SN530'];
-/** Warnings of the Vite plugin, with no page position (`formatWarning`): SN521 in test/vite/page-urls.test.ts, SN523 in test/vite/build.test.ts, SN533 in test/vite/helpers-node.test.ts. */
-const BUILD_ONLY = ['SN533', 'SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527', 'SN528'];
+/** Warnings of the Vite plugin, with no page position (`formatWarning`): SN521 in test/vite/page-urls.test.ts, SN523 in test/vite/build.test.ts, SN533 in test/vite/helpers-node.test.ts; SN534 (a helper call that does not fold) in test/behaviour/fold.test.ts, which needs the helpers loaded. */
+const BUILD_ONLY = ['SN534', 'SN533', 'SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527', 'SN528'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
