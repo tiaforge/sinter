@@ -2881,6 +2881,15 @@ class Compiler {
   }
 
   /** What a component's markup sees when its root is not one plain element: computed once, at the first of its top nodes. */
+  /** The instance path `el` is in: its own, or that of the nearest row of an unrolled loop or instance expanded at build time around it. */
+  instOf(el: P5Node): string {
+    for (let x: P5Node | null = el; x; x = (x as { parentNode: P5Node | null }).parentNode) {
+      const at = isElement(x) ? this.instAt.get(x) ?? this.rowOf.get(x)?.inst : undefined;
+      if (at !== undefined) return at;
+    }
+    return '';
+  }
+
   markupOf(u: Use, at: Scope, inst = ''): Scope {
     // (per instance: the copies of an unrolled row, or of an expanded instance, share the use)
     if (!inst) return u.markup ??= this.componentScope(u, u.hostSlot?.caller ?? at);
@@ -3657,7 +3666,8 @@ class Compiler {
     if (row && ownLoop) ctx = rowLets(ctx);
     // a component whose root is not one plain element: its markup starts here (a chain's template, a
     // fill), or an outer component's whose root this is: their scopes, outer first, each in its caller's
-    for (const u of this.scopeStart.get(el) ?? []) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instAt.get(el) ?? this.rowOf.get(el)?.inst ?? '') };
+    // (its instance: the nearest row or expanded instance it is in, for a chain's branch below a row's top too)
+    for (const u of this.scopeStart.get(el) ?? []) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instOf(el)) };
     // slot content sees the scope of the caller that wrote it
     const slot = this.slotOf.get(el);
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
@@ -6475,6 +6485,8 @@ class Compiler {
           (n as { parentNode: P5Parent }).parentNode = parent;
           if (row && isElement(n) && !this.rowOf.has(n)) this.rowOf.set(n, row);
           if (at !== undefined && isElement(n) && !this.instAt.has(n)) this.instAt.set(n, at);
+          // a fill that was a chain (`<template slot data-sn-if>`): its kept branch is that fill, and reads its `$slot`
+          for (const map of [this.fillOf, this.defaultOf, this.childrenOf]) if (isElement(n) && map.has(c) && !map.has(n)) map.set(n, map.get(c)!);
         }
         this.inheritSlot(c, nodes);
         // a component's root chain, decided: its markup starts at what is left
