@@ -207,9 +207,9 @@ tree, a nested menu.
   cycle that does not is a build error (`SN306`) showing it; the rule covers mutual recursion too (A uses
   B, B uses A).
 - The compiler compiles the component once, as a shared definition: a `<template>` in the `<head>`, so
-  the parser has it before the body. Each inner use is an instance of it, created per item as
-  `data-sn-for` creates rows. The early script clones it too: a tree in embedded data is in the first
-  frame at any depth.
+  the parser has it before the body (at the end of the body when nothing renders it before the first
+  paint). Each inner use is an instance of it, created per item as `data-sn-for` creates rows. The
+  early script clones it too: a tree in embedded data is in the first frame at any depth.
 - A component used inside itself declares its props as a type literal, and its inner uses take no slot
   content.
 - **Nested items are changed along their path.** `patch(r, …)` and `remove(r)` for `r in
@@ -254,6 +254,25 @@ A list of mixed blocks (a CMS page, dashboard widgets, a form builder) picks a c
 - Each candidate compiles to a shared definition in the head (as for [recursion](#a-component-inside-itself)).
   A convention or a map compiles only its candidates; a helper compiles every component of the app,
   since only TypeScript knows its return type.
+- The page holds one place for the chosen component, however many candidates there are: `use` is
+  evaluated once, and the rendered component sits between two comments, as every list and branch does
+  ([lists and branches in the page](#lists-and-branches-in-the-page)).
+
+## Lists and branches in the page
+
+A `data-sn-for`, a `data-sn-if` (with its `data-sn-else`), a component used inside itself and a
+`<sn-component use>` render between two comments, and their templates are in the head:
+
+```html
+<ul><!--sn 4--><li>a</li><li>b</li><!--/sn--></ul>
+```
+
+Comments are not elements, so CSS sees the rows as a plain list: `li:first-child` is the first row,
+`:nth-child` counts rows only, `h2 + p` and `* + *` match inside a branch as written, and an empty
+list matches `ul:empty`. A script that counts `childNodes` sees the comments. A comment of yours that
+starts with `sn` is an error (`SN105`), and `$el` in an `if`, `for` or `use` expression has no element
+to name (`SN213`). Keep HTML comments in sinter's pages: a minifier or CDN that strips them breaks
+lists and branches (dev builds warn).
 
 ## Types
 
