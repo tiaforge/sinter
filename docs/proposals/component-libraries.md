@@ -5,6 +5,32 @@ sinter has wherever it can; what is new is listed in [What is new](#what-is-new)
 numbered in the order of the [Plan](#plan). Every design choice is recorded in
 [Decisions](#decisions); what is left depends on measurements ([Open questions](#open-questions)).
 
+## Implementation status
+
+Built on the integration branch `ccr-ad93e367-x7ugq8`, one step at a time; each step is reviewed
+there and lands in `main` with the rest.
+
+| Step | State | Where it departs from this text |
+| --- | --- | --- |
+| 1, the spike | done (`examples/markdown/` on `ccr-ec5fd4e0-bp4vko`) | see the numbers in the sections |
+| 2, anchors as comments | in progress | a `data-sn-else` after `<sn-component use>` stays an `if` anchor of its own |
+| 3, slots that pass data | merged here | see below |
+| 6, the constant pre-pass | in progress | the values come from the first of two passes ([5](#5-constant-trees-are-unrolled)) |
+| 10, lets over helpers | in progress | |
+
+Step 3, as built:
+- New codes: `SN331` (an invalid slot: a placement, a fill or a declaration that breaks a rule of
+  section 2) and `SN532` (a warning for a literal `id` in a `data-sn-for` row or in a fill copied to
+  more than one placement). A placement whose data does not fit `T` has no code of its own: a type
+  mismatch is `SN208` from `sinter check`, unknown or missing keys `SN313`.
+- A `Slot<T>` hidden in a named type alias is found by `sinter check` (`SN208`), not the compiler,
+  which cannot see inside an alias. An app type named `Slot` is reported once the app has
+  components, since the generated global exists only then.
+- Until step 4, a placement's default is nothing, text, one plain element, or an `if`/`else` chain of
+  plain elements, and a text fill (`<template slot data-sn-text>`) is `SN331` naming step 4.
+- Two bugs on `main` were fixed on the way: plain slot content at the top of a component's unrolled
+  row failed with `SN201`, and a `<slot>` inside another slot's fallback was never filled.
+
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
   are the target, equally. Streaming and APIs that send a parsed tree should work too, but do not
@@ -361,7 +387,9 @@ takes shorthand and is checked against `T` as a tag's props are against the prop
 
 - A fill is written like slot content today: the elements with `slot="<name>"`, in order. A
   `<template slot="<name>">` is for what an element cannot be: an `if`/`else` chain
-  (`<template slot="heading" data-sn-if>`) or a text (`<template slot="label" data-sn-text>`).
+  (`<template slot="heading" data-sn-if>`) or, from step 4 on, a text (`<template slot="label"
+  data-sn-text>`). The restriction applies to fills of slots that pass data; plain slot content
+  keeps today's rules.
 - Its scope is the caller's scope plus `$slot`, the values the placement passes, as a handler reads
   `$event`.
 - Inside a fill for another component, the inner `$slot` hides the outer one; keep the outer value
@@ -1047,7 +1075,7 @@ warnings, not errors: a literal `id` in repeated markup.
 | A fill for a slot the component or root does not declare; direct content for a name an inner use does not declare | `SN314`, with the declared names |
 | A `Slot<T>` member passed through `data-sn-prop` | `SN313` |
 | `Slot<T>` in a type alias, with `?`, in a head or layout declaration, or an app type named `Slot` | new |
-| A placement's `data-sn-prop` does not fit `T` | new |
+| A placement's `data-sn-prop` does not fit `T` | `SN208` from `sinter check`; unknown or missing keys `SN313` |
 | A tree placement with no enclosing root that declares it; one whose name is close to a declared slot | new |
 | A declared slot is placed nowhere inside the root | new, in the library's check and the app's build |
 | A placement whose default's element declares names its children read | new |
