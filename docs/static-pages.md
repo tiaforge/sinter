@@ -38,9 +38,18 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
 
   is `<ul><li><a href="/">Home</a></li><li><a href="/about.html">About</a></li></ul>` in the built page.
   Loops inside the rows are unrolled the same way, at any depth (a list of sections, each with its
-  links), and a `data-sn-if` in a row is decided per row. A row with a handler, a model or its own
-  state, a nested loop that is not constant, an `<sn-component use>` that renders a component, and a
-  list over 1,000 items, stay a template that the runtime renders; so does a page's 10,001st row.
+  links), and a `data-sn-if` in a row is decided per row. A row with a handler that writes state, a
+  model or its own state, a nested loop that is not constant, and a list over 1,000 items, stay a
+  template that the runtime renders.
+- trees over constants: a component used inside itself, and the component an `<sn-component use>`
+  renders, given constant props (a `file:./doc.json` content tree, each node dispatched to its
+  component) are expanded at build time, per node, and a link fill is written into every node that
+  places it. The page is plain HTML, and a component nothing renders leaves it.
+- a handler that reads only constants, `$el` and `$event` (a copy button) does not stop any of it:
+  the page ships that handler and the runtime it needs, nothing else.
+
+At most 5,000 rows and components are expanded per page; the one that would cross it is rendered in
+the browser, with warning [SN536](diagnostics.md#sn536).
 
 ## Helpers and files at build time
 

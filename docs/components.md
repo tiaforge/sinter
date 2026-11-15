@@ -432,6 +432,11 @@ tree, a nested menu.
   the parser has it before the body (at the end of the body when nothing renders it before the first
   paint). Each inner use is an instance of it, created per item as `data-sn-for` creates rows. The
   early script clones it too: a tree in embedded data is in the first frame at any depth.
+- Over constants (a literal, a `file:` resource, state nothing writes), the tree is expanded at build
+  time instead, one copy of the markup per node, and the shared definition leaves the page when no
+  instance is left to render from it ([static pages](static-pages.md#what-is-static)). A tree's node
+  that writes state, or a fill that holds components or slots, keeps its part of the tree in the
+  browser. At most 5,000 rows and components are expanded per page (`SN536` past it).
 - A component used inside itself declares its props as a type literal, and its inner uses take no slot
   content. An inner use's plain attributes, `data-sn-class`, `-attr`, `-style`, `-show` and handlers
   reach the root its instance renders: they are compiled where the tag is written and passed with
@@ -476,6 +481,8 @@ A list of mixed blocks (a CMS page, dashboard widgets, a form builder) picks a c
 - A value outside the candidates renders nothing, with a warning in dev builds (once per value), or the
   `data-sn-else` template that follows the element.
 - Each candidate compiles to a shared definition in the head (as for [recursion](#a-component-inside-itself)).
+  Over constant props, the candidate each use renders is expanded at build time in its place, and a
+  candidate nothing renders is not in the page.
   A convention or a map compiles only its candidates; a helper compiles every component of the app,
   since only TypeScript knows its return type.
 - The page holds one place for the chosen component, however many candidates there are: `use` is
