@@ -298,7 +298,14 @@ function messagesImport(ns: string, members: string[]): string {
  */
 export function readHelperManifest(
   source: string,
-  options: { module: string; file: string; readFile: (path: string) => string; resolve?: (spec: string, from: string) => string | null },
+  options: {
+    module: string; file: string; readFile: (path: string) => string; resolve?: (spec: string, from: string) => string | null;
+    /**
+     * the specifier of a module inside a package the helpers re-export (a component library): members declared
+     * past the package's entry are imported, checked for folding and for lazy packages, from their own module
+     */
+    moduleOf?: (file: string) => string | null;
+  },
 ): HelperManifest {
   const manifest: HelperManifest = { module: options.module, names: [], namespaces: {} };
   const resolve = options.resolve ?? ((spec: string, from: string) => (spec.startsWith('.') ? joinPath(from, spec) : null));
@@ -330,6 +337,12 @@ export function readHelperManifest(
     for (const [n, o] of origin) if (o.file !== file) from[n] = { module: joinPath(spec, relPath(file, o.file)), name: o.name };
     return Object.keys(from).length ? from : null;
   };
+  /** a package's members by their declaring modules, as `moduleOf` names them */
+  const packageFrom = (origin: Map<string, { file: string; name: string }>, file: string, moduleOf: (f: string) => string | null) => {
+    const from: Record<string, HelperOrigin> = {};
+    for (const [n, o] of origin) { const m = o.file !== file ? moduleOf(o.file) : null; if (m) from[n] = { module: m, name: o.name }; }
+    return Object.keys(from).length ? from : null;
+  };
   const topFrom = fromOf(own, options.file, options.module);
   if (topFrom) manifest.from = topFrom;
   for (const [ns, spec] of top.namespaces) {
@@ -341,7 +354,7 @@ export function readHelperManifest(
     manifest.namespaces[ns] = { module: modSpec, members };
     // members declared in a re-exported module (a barrel such as paraglide's message index makes a
     // namespace object; importing past it keeps the early chunk to what it calls)
-    const from = path && spec.startsWith('.') ? fromOf(origin, path, modSpec) : null;
+    const from = !path ? null : spec.startsWith('.') ? fromOf(origin, path, modSpec) : options.moduleOf ? packageFrom(origin, path, options.moduleOf) : null;
     if (from) manifest.namespaces[ns]!.from = from;
   }
   return manifest;

@@ -182,6 +182,8 @@ export function project(root: string, options: ProjectOptions = {}): Project {
       module: url(rel),
       file,
       readFile,
+      // a library's modules: from the root (`/node_modules/@acme/ui/sinter/x.ts`), or by their path when outside it
+      moduleOf: (f) => (libraryOf(libs.libraries, f) ? (f.startsWith(resolve(root) + sep) ? url(relative(root, f)) : f) : null),
       resolve: (spec, from) => {
         // a re-export of a configured library is followed like a relative one
         if (libs.libraries.some((l) => spec === l.name || spec.startsWith(l.name + '/'))) return resolveImport(spec, from, root);

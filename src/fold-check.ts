@@ -94,7 +94,7 @@ function resolveUncached(spec: string, from: string, root: string): string | nul
   const bare = spec.replace(/[?#].*$/, '');
   if (bare.startsWith('.')) return fileFor(resolve(dirname(from), bare));
   if (bare.startsWith(root) || (/^[A-Za-z]:[\\/]/.test(bare))) return fileFor(bare);
-  if (bare.startsWith('/')) return fileFor(resolve(root, '.' + bare));
+  if (bare.startsWith('/')) return fileFor(resolve(root, '.' + bare)) ?? fileFor(bare);
   if (bare.startsWith('node:') || /^[a-z]+:/.test(bare)) return null;
   const m = /^((?:@[^/]+\/)?[^/]+)(\/.*)?$/.exec(bare);
   if (!m) return null;

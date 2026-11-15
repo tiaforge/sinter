@@ -53,8 +53,10 @@ events and fills as for the app's own:
   <p data-sn-text="ui.initials(author.name)"></p>
   ```
 
-  The re-export is followed into the package like a relative one, so what folds at build time and
-  what waits for a [lazy package](lazy.md#helpers-that-wait) is decided as for the app's own helpers.
+  The re-export is followed into the package like a relative one, through the package's entry to
+  the module that declares each helper: the page imports a helper from that module, and what folds
+  at build time and what waits for a [lazy package](lazy.md#helpers-that-wait) is decided per
+  module, as for the app's own helpers.
 - **Types.** A library's props, slot data and helper results are typed by the library's own types
   module. The app names a library's types by re-exporting them from `src/sinter.types.ts`:
 
@@ -125,7 +127,10 @@ fixtures/
   own components, internal ones included (`SN312`, `SN339`). See [tree slots](components.md#tree-slots).
 - **Lazy packages.** A helper module of the library that imports a package of the app's `sinter({
   lazy })` loads whole when a let first needs it, as the app's own would. The app decides what is
-  lazy, not the library.
+  lazy, not the library. Keep helpers that do not need a heavy dependency in a module that does not
+  import it, and re-export both from the entry: those stay ordinary helpers, usable in any binding,
+  and the heavy module is not in the page's bundle. A lazy package that only the library depends on
+  (in its own `node_modules`) is resolved from the library.
 
 ### Checking a library
 

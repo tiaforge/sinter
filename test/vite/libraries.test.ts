@@ -3,7 +3,7 @@
 // node_modules from outside its root, as a workspace links it. Its scoped styles are in `@layer
 // sinter-lib`, declared before the app's stylesheets so the app's layers and unlayered CSS win; a page
 // uses its tree with a fill, its card's script runs, its helpers come through the app's namespace.
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build, createServer, preview, type PreviewServer } from 'vite';
@@ -65,6 +65,49 @@ test.skipIf(!chromium)('a build: the libraries\' layer is declared first, their 
     expect(await tab.$$eval('.tree .pick', (els) => els.map((e) => e.textContent))).toEqual(['root', 'leaf']);
     await tab.click('.tree li li .pick');
     expect(await tab.textContent('#picked')).toBe('2');
+    expect(errors).toEqual([]);
+  } finally {
+    await browser.close();
+    await new Promise<void>((r) => (server ? server.httpServer.close(() => r()) : r()));
+  }
+}, 120_000);
+
+test.skipIf(!chromium)('a package namespace by its declaring modules: the plain member is in the page, the lazy one\'s module loads with its package when the let needs it', async () => {
+  const lroot = join(root, 'lazy-app');
+  cpSync(resolve(__dirname, '../fixtures/ui-app'), lroot, { recursive: true });
+  mkdirSync(join(lroot, 'node_modules/@fixture'), { recursive: true });
+  symlinkSync(UI, join(lroot, 'node_modules/@fixture/ui'), 'dir');
+  writeFileSync(join(lroot, 'index.html'), `<!doctype html><html><head><title>words</title></head><body>
+<div data-sn-state="{ items: [{ id: 1, label: 'root', children: [{ id: 2, label: 'leaf' }] }], s: 'one two three' }">
+  <p id="o" data-sn-text="ui.outline(items).join(', ')"></p>
+  <p id="w" data-sn-let="{ w: ui.words(s) }" data-sn-text="w ? w.length : 'waiting'"></p>
+</div></body></html>`);
+  const lout = join(lroot, 'dist');
+  await build({ root: lroot, logLevel: 'silent', plugins: [sinter({ components: ['@fixture/ui'], lazy: ['@fixture/heavy'] })], resolve: { alias }, build: { outDir: lout, emptyOutDir: true, minify: false } });
+  const html = readFileSync(join(lout, 'index.html'), 'utf8');
+  const entry = html.match(/<script type="module"[^>]*src="([^"]+)"/)![1]!;
+  const files = readdirSync(join(lout, 'assets')).filter((f) => f.endsWith('.js'));
+  const heavy = files.filter((f) => readFileSync(join(lout, 'assets', f), 'utf8').includes('FIXTURE_HEAVY_BODY'));
+  // the package is a chunk of its own, and not the page's entry; the plain member's code is in the page
+  expect(heavy.length).toBe(1);
+  expect(entry).not.toContain(heavy[0]!);
+  const page = readFileSync(join(lout, entry), 'utf8');
+  expect(page).toContain('flatMap');
+  expect(page).not.toContain('FIXTURE_HEAVY_BODY');
+  expect(html).not.toContain(heavy[0]!);
+  const browser = await chromium!.launch();
+  let server: PreviewServer | null = null;
+  try {
+    server = await preview({ root: lroot, logLevel: 'silent', build: { outDir: lout }, preview: { port: 0 } });
+    const tab = await browser.newPage();
+    const errors: string[] = [];
+    tab.on('pageerror', (e) => errors.push(e.message));
+    const loaded: string[] = [];
+    tab.on('request', (r) => { if (r.url().includes(heavy[0]!)) loaded.push(r.url()); });
+    await tab.goto(server.resolvedUrls!.local[0]!);
+    await tab.waitForFunction(() => document.querySelector('#w')?.textContent === '3');
+    expect(await tab.textContent('#o')).toBe('root, leaf');
+    expect(loaded.length).toBe(1);
     expect(errors).toEqual([]);
   } finally {
     await browser.close();

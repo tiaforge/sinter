@@ -987,10 +987,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const lz = id.startsWith(`\0${LAZY}`) ? parseLazyId(id.slice(1)) : null;
       if (lz && lazyPackage(lz.spec, lazyPkgs)) {
         if (lz.names) return stubModule(lz.spec, lz.names);
-        if (dev) return loaderModule(lz.spec, null);
-        const r = await this.resolve(lz.spec, resolve(root, 'index.html'));
+        // a lazy package that only a component library depends on (its own node_modules, as a workspace has it):
+        // resolved from the library, and imported by that path
+        const own = await this.resolve(lz.spec, resolve(root, 'index.html'));
+        let r = own, spec = lz.spec;
+        if (!r) for (const l of options.components?.length ? project(root, options).libraries : []) {
+          r = await this.resolve(lz.spec, join(l.folder, 'index.js'));
+          if (r) { spec = r.id; break; }
+        }
+        if (dev) return loaderModule(spec, null);
         if (r) lazyIds.set(lz.spec, r.id);
-        return loaderModule(lz.spec, r?.id ?? null);
+        return loaderModule(spec, r?.id ?? null);
       }
       // dev: the picker, and each language's whole dictionary
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;

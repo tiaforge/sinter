@@ -1,4 +1,6 @@
 node_modules/
+# a component library fixture's own dependency, installed as a workspace has it
+!test/fixtures/ui/node_modules/
 dist/
 coverage/
 .claude

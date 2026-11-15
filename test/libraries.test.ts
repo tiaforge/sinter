@@ -61,7 +61,12 @@ describe('the packages', () => {
 
   test('helpers: the app re-exports a package as a namespace, followed like a relative re-export', () => {
     const p = project(app(), { components: ['@fixture/ui'] });
-    expect(p.helpers.namespaces.ui).toEqual({ module: '@fixture/ui', members: ['count', 'initials'] });
+    // each member by the module of the package that declares it, past the package's entry
+    const at = (f: string) => ({ module: `/node_modules/@fixture/ui/sinter/${f}`, name: '' });
+    expect(p.helpers.namespaces.ui).toEqual({ module: '@fixture/ui', members: ['count', 'initials', 'outline', 'words'], from: {
+      count: { ...at('sinter.helpers.ts'), name: 'count' }, initials: { ...at('sinter.helpers.ts'), name: 'initials' },
+      outline: { ...at('outline.ts'), name: 'outline' }, words: { ...at('parse.ts'), name: 'words' },
+    } });
     expect(p.helpers.names).toEqual(['shout']);
     // without the package in `components`, it is not followed
     expect(project(app(), {}).helpers.namespaces.ui!.members).toEqual([]);
@@ -325,3 +330,47 @@ test('`sinter render` finds a library component\'s script and runs it', async ()
   expect(r.rendered).toContain('data-ready="ADA LOVELACE"');
   expect(r.rendered).toMatch(/<button class="pick"[^>]*>root<\/button>/);
 }, 60_000);
+
+describe('a package namespace by its declaring modules (section 8\'s per-module rule)', () => {
+  // `outline` needs only the tree; `words` reaches `@fixture/heavy`, lazy in this app; one namespace re-exports both
+  const o = { components: ['@fixture/ui'], lazy: ['@fixture/heavy'] };
+  const compileLazy = (root: string, html: string) => {
+    const p = project(root, o);
+    const file = join(root, 'index.html');
+    const lh = lazyHelpers(root, p.lazy, undefined, p.libraries);
+    return compile(html, { file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: p.readFile, componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy, lazyModule: lh.reach });
+  };
+
+  test('the lazy rule per module: the plain member is an ordinary helper, the one that reaches the lazy package waits', () => {
+    const root = app();
+    const p = project(root, o);
+    const lh = lazyHelpers(root, p.lazy, undefined, p.libraries);
+    expect(lh.reach('@fixture/ui')).toEqual([]);
+    expect(lh.reach('/node_modules/@fixture/ui/sinter/outline.ts')).toEqual([]);
+    expect(lh.reach('/node_modules/@fixture/ui/sinter/parse.ts')).toEqual(['@fixture/heavy']);
+    const out = compileLazy(root, page(`<div data-sn-state="{ items: [{ id: 1, label: 'a' }], s: 'one two' }">
+      <p id="o" data-sn-text="ui.outline(items).join(', ')"></p>
+      <p data-sn-let="{ w: ui.words(s) }" data-sn-text="w?.length"></p></div>`));
+    expect(out.diagnostics).toEqual([]);
+    // the plain member from its own module; the other module loads when the let first needs it
+    expect(out.module).toContain('outline as ui$outline } from "/node_modules/@fixture/ui/sinter/outline.ts"');
+    expect(out.module).toMatch(/import\("\/node_modules\/@fixture\/ui\/sinter\/parse\.ts"\)/);
+    expect(out.module).not.toMatch(/from "\/node_modules\/@fixture\/ui\/sinter\/parse\.ts"|from "@fixture\/ui"/);
+  });
+
+  test('the lazy member in a binding is SN324; the plain one is not', () => {
+    const ds = compileLazy(app(), page('<div data-sn-state="{ s: \'x\' }"><p data-sn-text="ui.words(s)"></p></div>')).diagnostics;
+    expect(ds.map((d) => d.code)).toEqual(['SN324']);
+  });
+
+  test('the fold check per module: the plain member folds, the other is judged by its own module', async () => {
+    const { foldVerdicts } = await import('../src/fold-check.js');
+    const root = app();
+    const p = project(root, o);
+    const v = foldVerdicts(p.helpers, root, p.helpersFile);
+    expect(v.get('ui$outline')).toMatchObject({ fold: true });
+    expect(v.get('ui$initials')).toMatchObject({ fold: true });
+    // `words` is judged by its own module, which reaches the package's top-level code (and, being lazy, never runs at build time anyway)
+    expect(v.get('ui$words')).toMatchObject({ fold: false, reason: '`globalThis`' });
+  });
+});
