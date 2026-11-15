@@ -171,14 +171,14 @@ describe('one slot in each branch of a chain', () => {
 });
 
 describe('a <slot> inside a fill', () => {
-  const MD = `<template data-sn-component="{ node: { url: string; depth: number; text: string }; link: Slot<{ node: { url: string } }>; heading: Slot<{ node: { depth: number } }> }"><div>
+  const NODE_C = `<template data-sn-component="{ node: { url: string; depth: number; text: string }; link: Slot<{ node: { url: string } }>; heading: Slot<{ node: { depth: number } }> }"><div>
     <slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }"><em data-sn-text="node.text"></em></a></slot>
     <slot name="heading" data-sn-prop="{ node }"><template data-sn-if="node.depth === 1"><h1><b data-sn-text="node.text"></b></h1></template><template data-sn-else><h2><i data-sn-text="node.text"></i></h2></template></slot>
   </div></template>`;
   const NODE = '<div data-sn-state="{ n: { url: \'/x\', depth: 1, text: \'hi\' } }">';
 
   test('an unnamed `<slot>` places the children of the element the default renders, in the component\'s scope', () => {
-    const out = run(`${NODE}<x-md data-sn-prop="{ node: n }"><a slot="link" rel="nofollow ugc" data-sn-attr="{ href: $slot.node.url }"><slot></slot> ↗</a></x-md></div>`, { 'x-md': MD });
+    const out = run(`${NODE}<x-node data-sn-prop="{ node: n }"><a slot="link" rel="nofollow ugc" data-sn-attr="{ href: $slot.node.url }"><slot></slot> ↗</a></x-node></div>`, { 'x-node': NODE_C });
     expect(errors(out)).toEqual([]);
     expect(body(out)).toContain('<a rel="nofollow ugc" data-sn="1"><em data-sn="2"></em> ↗</a>');
     // the children read the component's `node`: the caller's expression, inlined
@@ -186,7 +186,7 @@ describe('a <slot> inside a fill', () => {
   });
 
   test('a heading fill that picks its level: a chain, with the children in each branch; the default a chain too', () => {
-    const out = run(`${NODE}<x-md data-sn-prop="{ node: n }"><template slot="heading" data-sn-if="$slot.node.depth === 1"><h1 class="title"><slot></slot></h1></template><template data-sn-else><h2 class="title"><slot></slot></h2></template></x-md></div>`, { 'x-md': MD });
+    const out = run(`${NODE}<x-node data-sn-prop="{ node: n }"><template slot="heading" data-sn-if="$slot.node.depth === 1"><h1 class="title"><slot></slot></h1></template><template data-sn-else><h2 class="title"><slot></slot></h2></template></x-node></div>`, { 'x-node': NODE_C });
     expect(errors(out)).toEqual([]);
     // each branch of the fill places the default's children, by the default's own chain
     expect((out.html.match(/<h1 class="title">/g) ?? []).length).toBe(1);
@@ -199,13 +199,13 @@ describe('a <slot> inside a fill', () => {
   });
 
   test('a fill without a `<slot>` drops the children', () => {
-    const out = run(`${NODE}<x-md data-sn-prop="{ node: n }"><span slot="link" data-sn-text="$slot.node.url"></span></x-md></div>`, { 'x-md': MD });
+    const out = run(`${NODE}<x-node data-sn-prop="{ node: n }"><span slot="link" data-sn-text="$slot.node.url"></span></x-node></div>`, { 'x-node': NODE_C });
     expect(errors(out)).toEqual([]);
     expect(body(out)).not.toContain('<em');
   });
 
   test('two unnamed `<slot>`s that can render together in one fill: SN312; one per branch is allowed', () => {
-    const out = run(`${NODE}<x-md data-sn-prop="{ node: n }"><a slot="link"><slot></slot><slot></slot></a></x-md></div>`, { 'x-md': MD });
+    const out = run(`${NODE}<x-node data-sn-prop="{ node: n }"><a slot="link"><slot></slot><slot></slot></a></x-node></div>`, { 'x-node': NODE_C });
     expect(errors(out)).toEqual([expect.stringMatching(/^SN312 this fill of `link` places the children twice/)]);
   });
 
@@ -228,27 +228,27 @@ describe('a <slot> inside a fill', () => {
   });
 
   test('a component\'s own default slot cannot be placed inside a fill of a data slot: that `<slot>` is the children', () => {
-    const OUTER = `<template data-sn-component="{ node: { url: string; depth: number; text: string } }"><div><x-md data-sn-prop="{ node }"><a slot="link"><slot></slot></a></x-md></div></template>`;
-    const out = run(`${NODE}<x-outer data-sn-prop="{ node: n }"><b>page</b></x-outer></div>`, { 'x-md': MD, 'x-outer': OUTER });
+    const OUTER = `<template data-sn-component="{ node: { url: string; depth: number; text: string } }"><div><x-node data-sn-prop="{ node }"><a slot="link"><slot></slot></a></x-node></div></template>`;
+    const out = run(`${NODE}<x-outer data-sn-prop="{ node: n }"><b>page</b></x-outer></div>`, { 'x-node': NODE_C, 'x-outer': OUTER });
     expect(errors(out)).toEqual([expect.stringMatching(/^SN314 `<x-outer>` has no default `<slot>`/)]);
     expect(body(out)).toContain('<a><em data-sn="1"></em></a>');
   });
 
   test('forwarding passes the children on: a page\'s fill of the wrapper\'s slot places `<slot>`', () => {
-    const WRAP = `<template data-sn-component="{ node: { url: string; depth: number; text: string }; link: Slot<{ url: string }> }"><div class="wrap"><x-md data-sn-prop="{ node }"><slot name="link" slot="link" data-sn-prop="{ url: $slot.node.url + '?w' }"><a class="wrapped"><slot></slot></a></slot></x-md></div></template>`;
-    const filled = run(`${NODE}<x-wrap data-sn-prop="{ node: n }"><a slot="link" data-sn-attr="{ href: $slot.url }"><slot></slot>!</a></x-wrap></div>`, { 'x-md': MD, 'x-wrap': WRAP });
+    const WRAP = `<template data-sn-component="{ node: { url: string; depth: number; text: string }; link: Slot<{ url: string }> }"><div class="wrap"><x-node data-sn-prop="{ node }"><slot name="link" slot="link" data-sn-prop="{ url: $slot.node.url + '?w' }"><a class="wrapped"><slot></slot></a></slot></x-node></div></template>`;
+    const filled = run(`${NODE}<x-wrap data-sn-prop="{ node: n }"><a slot="link" data-sn-attr="{ href: $slot.url }"><slot></slot>!</a></x-wrap></div>`, { 'x-node': NODE_C, 'x-wrap': WRAP });
     expect(errors(filled)).toEqual([]);
     expect(body(filled)).toContain('<a data-sn="1"><em data-sn="2"></em>!</a>');
     expect(filled.module).toContain('$.$s0.n.url + \'?w\'');
     // unfilled: the wrapper's own default is the fill, and its `<slot>` the children too
-    const plain = run(`${NODE}<x-wrap data-sn-prop="{ node: n }"></x-wrap></div>`, { 'x-md': MD, 'x-wrap': WRAP });
+    const plain = run(`${NODE}<x-wrap data-sn-prop="{ node: n }"></x-wrap></div>`, { 'x-node': NODE_C, 'x-wrap': WRAP });
     expect(errors(plain)).toEqual([]);
     expect(body(plain)).toContain('<a class="wrapped"><em data-sn="1"></em></a>');
   });
 
   test('a fill that is only an unnamed `<slot>`: the children without their element', () => {
-    const BARE = `<template data-sn-component="{ node: { url: string; depth: number; text: string } }"><div><x-md data-sn-prop="{ node }"><slot slot="link"></slot></x-md></div></template>`;
-    const out = run(`${NODE}<x-bare data-sn-prop="{ node: n }"></x-bare></div>`, { 'x-md': MD, 'x-bare': BARE });
+    const BARE = `<template data-sn-component="{ node: { url: string; depth: number; text: string } }"><div><x-node data-sn-prop="{ node }"><slot slot="link"></slot></x-node></div></template>`;
+    const out = run(`${NODE}<x-bare data-sn-prop="{ node: n }"></x-bare></div>`, { 'x-node': NODE_C, 'x-bare': BARE });
     expect(errors(out)).toEqual([]);
     expect(body(out)).toMatch(/<div><div> <em data-sn="\d+"><\/em> <template/);
   });
