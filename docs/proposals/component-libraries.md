@@ -20,7 +20,7 @@ there and lands in `main` with the rest.
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | merged here | see below |
 | 8, helpers over constants and `file:` | merged here | see below |
-| 9, constant trees | merged here; the allow-list and the limit being applied | see below |
+| 9, constant trees | merged here | see below |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -217,8 +217,9 @@ Step 9, as built:
   `<sn-component use>` with a link fill, is static (no script, template, anchor or text marker,
   images optimized); with a copy button it ships only that handler. The static-site example's
   `docs/guide.html` builds with no JavaScript.
-- Step 1's article from `file:./article.md`, with `md.parse` folding: 2,831 elements and no
-  JavaScript, 82.2 kB HTML (13.6 kB gzip), LCP 104 ms, against 300 ms rendered in the browser. It
+- Step 1's article from `file:./article.md`, with `md.parse` folding, stock build, no patch: no
+  JavaScript, 2,831 elements, 82.2 kB HTML (13.6 kB gzip), LCP 64 ms (median of 5), against 300 ms
+  rendered in the browser and the RealWorld island's 172–204 ms. Its build takes about 1 s more. It
   needs about 5,500 copies. Decided with the user: the limit is 10,000 copies, and
   `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams` and `structuredClone` may fold (section 6).
   Writing the HTML straight from the first compile, instead of compiling every copy again, is a
