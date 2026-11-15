@@ -209,7 +209,7 @@ app.on('new_email', payload => notify(payload));  // any server event, mapped or
 | --- | --- |
 | `instance(root)` | The instance mounted on `root`. Throws if there is none. |
 | `resource(name)` | The store handle of a declared [resource](resources.md). |
-| `request(url, init)` | `fetch` through the request layer, with the same 401 handling as actions. |
+| `request(url, init)` | `fetch` through the request layer, with the same 401 handling as actions. `init.body` is encoded as JSON: pass the object, not `JSON.stringify(…)`. |
 | `optimistic(change, run)` | Applies `change` as a layer and settles it with the promise from `run`: kept when it resolves, rolled back when it rejects. |
 | `on(event, fn)` | Subscribes to a server event by name (see [sync.md](sync.md)). Returns the unsubscribe function. |
 

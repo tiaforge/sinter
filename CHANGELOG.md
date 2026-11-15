@@ -22,6 +22,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- Docs: `ctx.request(url, { body })` in actions modules and island scripts encodes `body` as JSON itself, so pass the object, not `JSON.stringify(…)` (in `llms.txt`'s `data-sn-call` line, docs/actions.md, docs/islands.md and SN531's entry). A benchmark agent's login sent a double-encoded body from an action, where SN531 cannot see it.
 - The `sinter render` hint in `sinter check`, `sinter docs` and `llms.txt` offers the running API (`--api http://localhost:<port>`) and a step (`--click`), not only mocks, and the testing section (`sinter docs testing`) starts with it. A benchmark agent saw the mocks-only hint five times and wrote a browser suite against its running API instead.
 - `sinter check` ends with how to see a page render with data (`npx sinter render <page> --api mocks.json`) when a page loads data, and every section `sinter docs` prints ends with the same pointer. The starter has a `mocks.json` for its two pages and `npm run render`. In the benchmark, agents read the advice in `llms.txt` and `AGENTS.md` and still scripted a browser to see what a page shows; they do act on what their tools print and on the scripts in `package.json`.
 - `llms.txt`: `$now` is a `Date`; compare and add with numbers through `$now.getTime()`. A benchmark agent's `$now > due` and `$now + 5000` failed the type check.

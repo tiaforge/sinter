@@ -390,6 +390,6 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   SN531: {
     example: '`data-sn-body` is already JSON text (`JSON.stringify(…)`): sinter encodes the body, so the server would get a JSON string, not the object',
     means: 'A `data-sn-body` (or a POST `<sn-resource>`\'s `body`) calls `JSON.stringify`. sinter encodes the body as JSON itself, so the request carries the JSON text of a string (`"{\\"username\\":\\"alice\\"}"`), which a server\'s JSON parser reads as one string: the fields it expects are missing. A benchmark agent\'s login with a wrong password went through this way, against an API that compared the missing fields.',
-    fix: 'Pass the object: `data-sn-body="{ username, password }"`. For another format, set `data-sn-encoding="form"` or send it from an action (`data-sn-call`).',
+    fix: 'Pass the object: `data-sn-body="{ username, password }"`. For another format, set `data-sn-encoding="form"` or send it from an action (`data-sn-call`). The same holds in an actions module or a component script, where the build cannot see it: `ctx.request(url, { body: { username, password } })`, not `body: JSON.stringify(…)`.',
   },
 };

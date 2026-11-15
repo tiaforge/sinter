@@ -344,6 +344,10 @@ export async function sha256(file, ctx) {
   them, then a context `{signal, request, el}`. `request` is `fetch` through your middleware
   (headers, 401 handling, allowed origins, timeout); `signal` aborts when the page is hidden; `el`
   is the element, `null` for a resource.
+- `ctx.request(url, { method: 'POST', body: { username, password } })` encodes `body` as JSON
+  itself (or as a form with `FormData` or `URLSearchParams`). Pass the object, not
+  `JSON.stringify(…)`: a string is encoded too, so the server gets a JSON string and none of the
+  fields. SN531 catches this in markup (`data-sn-body`), but not in your modules.
 - A thrown `SinterError` reaches `$error` as is; any other throw becomes
   `{status: null, body: <thrown value>, message}`.
 - Action functions return data and never touch state or the DOM: `then` puts the result where it
