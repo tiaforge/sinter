@@ -24,6 +24,16 @@ const COMPONENTS: Record<string, string> = {
   'c-out': `<template data-sn-component="{ n: any; x?: any }"><span><c-chain data-sn-prop="{ x: n }"></c-chain></span></template>`,
 };
 
+/** `<c-slot>` over `v` with a named fill that reads `$slot` and `v` */
+function namedFill(pick: <T>(xs: T[]) => T, v: string): string {
+  const fill = pick([
+    `<q slot="item" data-sn-text="$slot.x.t + ${v}.t"></q>`,
+    `<template slot="item" data-sn-if="${v}.on"><q data-sn-text="$slot.x.t"></q></template><template data-sn-else><s data-sn-text="${v}.t"></s></template>`,
+    `<c-chain slot="item" data-sn-prop="{ x: { t: $slot.x.t + ${v}.t, on: ${v}.on } }"></c-chain>`,
+  ]);
+  return `<c-slot data-sn-prop="{ x: ${v} }">${fill}</c-slot>`;
+}
+
 /** markup over the item `v`, `depth` levels of nesting left */
 function markup(r: () => number, v: string, depth: number): string {
   const pick = <T,>(xs: T[]) => xs[Math.floor(r() * xs.length)]!;
@@ -31,7 +41,7 @@ function markup(r: () => number, v: string, depth: number): string {
   let out = '';
   for (let i = 0; i < n; i++) {
     const kinds = depth > 0
-      ? ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'slot', 'slot-tag', 'wrap', 'if', 'for', 'use']
+      ? ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'slot', 'slot-tag', 'wrap', 'if', 'for', 'use', 'wrap-for-fill', 'wrap-if-fill']
       : ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list'];
     switch (pick(kinds)) {
       case 'text': out += `<template data-sn-text="${v}.t"></template>`; break;
@@ -43,6 +53,9 @@ function markup(r: () => number, v: string, depth: number): string {
       case 'out': out += `<c-out data-sn-prop="{ n: ${v}, x: { t: 'OUT', on: true } }"></c-out>`; break;
       case 'list': out += `<c-list data-sn-prop="{ x: ${v} }"></c-list>`; break;
       case 'slot': out += `<c-slot data-sn-prop="{ x: ${v} }"><q slot="item" data-sn-text="$slot.x.t + ${v}.t"></q></c-slot>`; break;
+      // a slot root with a named fill (an element, a chain or a component tag), in a loop or a branch in other slot content
+      case 'wrap-for-fill': { const w = v + 'y'; out += `<c-wrap><template data-sn-for="${w} in ${v}.c">${namedFill(pick, w)}</template></c-wrap>`; break; }
+      case 'wrap-if-fill': out += `<c-wrap><template data-sn-if="${v}.on">${namedFill(pick, v)}</template></c-wrap>`; break;
       case 'slot-tag': { const c = pick(['c-plain', 'c-chain', 'c-tag']); out += `<c-slot data-sn-prop="{ x: ${v} }"><${c} slot="item" data-sn-prop="{ x: $slot.x }"></${c}></c-slot>`; break; }
       case 'wrap': out += `<c-wrap>${markup(r, v, depth - 1)}</c-wrap>`; break;
       case 'if': out += `<template data-sn-if="${v}.on">${markup(r, v, depth - 1)}</template>`; break;
@@ -73,13 +86,13 @@ function shape(n: Node): string {
 }
 
 const lit = (x: unknown) => JSON.stringify(x).replace(/"/g, "'");
-const SEEDS = Number(process.env.SN_FUZZ_SEEDS ?? 300);
+const SEEDS = Number(process.env.SN_FUZZ_SEEDS ?? 300), DEPTH = Number(process.env.SN_FUZZ_DEPTH ?? 2);
 
 test('random nested components: a state change renders what a fresh render, the constant build and the early takeover render', async () => {
   const failures: string[] = [];
   for (let seed = 1; seed <= SEEDS; seed++) {
     const r = rng(seed);
-    const body = markup(r, 'x', 2);
+    const body = markup(r, 'x', DEPTH);
     const tpl = `<template data-sn-for="x in d">${body}</template>`;
     const a = data(r, 2), b = data(r, 2);
     const page = (init: unknown, writes: boolean) => `<div data-sn-state="{ d: ${lit(init)} }">${writes ? `<button id="w" data-sn-on-click="d = ${lit(b)}">w</button>` : ''}<main>${tpl}</main></div>`;
@@ -102,4 +115,4 @@ test('random nested components: a state change renders what a fresh render, the 
     }
   }
   expect(failures).toEqual([]);
-}, 300_000);
+}, Math.max(300_000, SEEDS * DEPTH * 300));
