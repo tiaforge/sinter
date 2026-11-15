@@ -1,0 +1,7 @@
+/* "prose" CSS over any list: the structural selectors the proposal's anchors-as-comments step fixes */
+.md { max-width: 70ch; font: 16px/1.5 system-ui, sans-serif; }
+.md > :first-child { margin-top: 0; }
+.md li + li { margin-top: .25em; }
+.md table { border-collapse: collapse; }
+.md th, .md td { border: 1px solid #ccc; padding: 2px 6px; }
+.md-raw { color: #a33; }

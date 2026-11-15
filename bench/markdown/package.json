@@ -1,0 +1,22 @@
+{
+  "name": "markdown-spike",
+  "private": true,
+  "type": "module",
+  "description": "Step 1 of docs/proposals/component-libraries.md: markdown rendered by userland components over mdast, measured",
+  "scripts": {
+    "build": "vite build",
+    "serve": "node server.mjs",
+    "measure": "node measure.mjs"
+  },
+  "dependencies": {
+    "@tiaforge-ui/sinter": "file:../..",
+    "mdast-util-from-markdown": "2.1.0",
+    "mdast-util-gfm": "3.1.0",
+    "micromark-extension-gfm": "3.0.0"
+  },
+  "devDependencies": {
+    "hast-util-to-html": "^9.0.5",
+    "mdast-util-to-hast": "^13.2.1",
+    "vite": "8.3.5"
+  }
+}

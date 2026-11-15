@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="require-trusted-types-for 'script'">
+  <title>Article</title>
+  <link rel="stylesheet" href="/src/prose.css">
+</head>
+<!-- An article from the API, parsed in the browser by md.parse (a helper loaded with the page) -->
+<body>
+<sn-resource name="article" src="/api/article"></sn-resource>
+<main data-sn-let="{ doc: md.parse(article ? article.body : '') }">
+  <md-doc id="article" data-sn-prop="{ doc }"></md-doc>
+</main>
+</body>
+</html>

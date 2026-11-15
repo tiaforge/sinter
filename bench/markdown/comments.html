@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="require-trusted-types-for 'script'">
+  <title>Comments</title>
+  <link rel="stylesheet" href="/src/prose.css">
+</head>
+<!-- A comment list: user content, parsed per row with the policy of section 10 -->
+<body>
+<sn-resource name="comments" src="/api/comments"></sn-resource>
+<main>
+  <ul id="comments">
+    <template data-sn-for="c in comments" data-sn-key="c.id">
+      <li data-sn-let="{ d: md.parse(c.body, { headings: 'strong', images: 'link', html: 'text' }) }">
+        <b data-sn-text="c.author"></b>
+        <md-doc data-sn-prop="{ doc: d }"></md-doc>
+      </li>
+    </template>
+  </ul>
+</main>
+</body>
+</html>
