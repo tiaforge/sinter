@@ -667,6 +667,8 @@ class Compiler {
   private readonly tplEls = new Map<NodeDef, P5Element>();
   /** text nodes (`<template data-sn-text>`): the node that marks each, for the dry run of constant rows (never painted: the text stays a binding) */
   private readonly textMarks = new Map<NodeDef, P5Element>();
+  /** text nodes outside templates: their anchor pair and slot, so `prerender()` can write a constant as plain text */
+  private readonly textRoots: Array<{ node: NodeDef; b: Binding; parent: P5Parent; nodes: P5Node[] }> = [];
   /** bindings in templates `prerender()` wrote into the template's markup: the page module leaves them out */
   private readonly tplPainted = new Set<Binding>();
   /** `data-sn-if` templates whose condition is constant, by `file:offset`, for a second pass (null: the uses disagree) */
@@ -2798,7 +2800,9 @@ class Compiler {
     let node: NodeDef;
     if (ctx.tid < 0) {
       node = { tag: '#', id: this.nextId++, p: ctx.stateIdx, b: b ? [b] : [] };
-      put([ad.createCommentNode(`sn ${node.id}`), slot, ad.createCommentNode('/sn')]);
+      const pair = [ad.createCommentNode(`sn ${node.id}`), slot, ad.createCommentNode('/sn')];
+      put(pair);
+      if (b) this.textRoots.push({ node, b, parent, nodes: pair });
     } else {
       // the element right before it marks it; otherwise an empty comment does
       const prev = at > 0 ? parent.childNodes[at - 1] : undefined;
@@ -5181,7 +5185,7 @@ class Compiler {
     for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); decide(el, b); unroll(el, b); }
     for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
     const choosing = this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
-    if (!cands.length && !choosing) return;
+    if (!cands.length && !choosing && !this.textRoots.length) return;
     // everything the page could call is shadowed: what is not a constant throws
     const NOT = new Error('not a build-time constant');
     const stub = new Proxy(function () {}, { apply() { throw NOT; }, get() { throw NOT; } });
@@ -5216,7 +5220,8 @@ class Compiler {
       ...this.templates.flatMap((tp) => tp.nodes.flatMap((n) => n.b.filter((b) => b.f !== undefined && (ROW.has(b.k) || b.k === 'if' || b.k === 'for')).map((b) => this.fns[b.f!]!))),
       ...[...this.pointOf.values()].flatMap((p) => (p.pick ? [p.pick.code] : [])),
     ] : [];
-    const used = [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes])];
+    const texts = this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d));
+    const used = [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes, ...texts.map((t) => this.fns[t.b.f!]!)])];
     let table: Array<($: unknown) => unknown>;
     try {
       // eslint-disable-next-line no-new-func -- build time only: the page's own compiled expressions, with nothing in scope
@@ -5287,8 +5292,25 @@ class Compiler {
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) { this.painted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); }
     }
+    // a text node over constants: plain text in the HTML, its anchor pair gone, its binding and node dropped
+    for (const t of texts) {
+      usedMessage = false;
+      const v = known(strs(t.b.d)) ? run(this.fns[t.b.f!]!) : FAIL;
+      if (v === FAIL || usedMessage || (v !== null && v !== undefined && typeof v === 'object')) continue;
+      const text = '' + (v ?? '');
+      const at = t.parent.childNodes.indexOf(t.nodes[0] as never);
+      if (at < 0) continue;
+      const out = text ? [{ nodeName: '#text', value: text, parentNode: t.parent } as unknown as P5Node] : [];
+      t.parent.childNodes.splice(at, t.nodes.length, ...(out as never[]));
+      mergeText(t.parent);
+      this.painted.add(t.b);
+      this.textFolded.add(t.node);
+    }
     if (this.collecting()) work.finish(scope);
   }
+
+  /** text nodes `prerender()` wrote as plain text: `dropConstants` removes their nodes */
+  private readonly textFolded = new Set<NodeDef>();
 
   /** The first pass of a prerendered page, which may compile it again: it records what folds (`collectConstants`). */
   collecting(): boolean {
@@ -5918,6 +5940,12 @@ class Compiler {
     };
     const drop = (b: Binding) => this.painted.has(b) && !b.w?.length && b.k !== 'model' && strs(b.d).every(fixed);
     const gone = new Set<NodeDef>();
+    for (const node of this.textFolded) {
+      if (!node.b.every(drop)) continue;
+      for (const b of node.b) { if (b.f !== undefined) this.fnUses[b.f]!--; this.freeze(b.d); this.dropped.add(b); }
+      node.b = [];
+      gone.add(node);
+    }
     for (const { el, node } of this.paints) {
       const keep = node.b.filter((b) => !drop(b));
       if (keep.length === node.b.length) continue;
