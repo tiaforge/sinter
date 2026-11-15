@@ -43,6 +43,8 @@ export interface Region {
   fixed?: boolean;
   /** generated from markup checked elsewhere (a branch's condition): its errors are not reported again */
   quiet?: boolean;
+  /** a `<sn-component>` candidate's guard: TypeScript finding it can never hold is SN538 (`key` the value it compares) */
+  candidate?: { name: string; key: string; keySrc: string };
 }
 
 export interface Shadow {
@@ -292,7 +294,10 @@ export function shadow(o: ShadowOptions): Shadow {
       // run('id') starts the action without an event: unguarded reads are reported
       if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
       else if (e.event !== null) line(`/** @type {${decl(e.run ? `RunEvent<${decl(`Ev<${JSON.stringify(e.event)}, ${JSON.stringify(e.tag)}>`)}>` : `Ev<${JSON.stringify(e.event)}, ${JSON.stringify(e.tag)}>`)}} */ const $event = $any;`);
-      if (e.guard) line(`if (!(${e.guard})) return $any;`);
+      if (e.guard) {
+        if (e.guardAt) regions.push({ start: out.length + 1, lines: 1, loc: e.guardAt.loc, fixed: true, candidate: { name: e.guardAt.name, key: e.guardAt.key, keySrc: e.guard.replace(/^\((.*)\) === .*$/s, '$1') } });
+        line(`if (!(${e.guard})) return $any;`);
+      }
       // a value of the wrong type as a whole is reported on `return`
       regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
       line('return (');

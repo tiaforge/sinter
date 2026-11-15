@@ -798,7 +798,7 @@ class Compiler {
   /** components used inside themselves: their tags (recursion points), and the definition each compiles to */
   private readonly points = new WeakMap<P5Element, string>();
   /** `<sn-component use>`: one point per candidate, rendered when `use` is its name; `key`: the value of the data that names it, for narrowing */
-  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup }>();
+  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup; keyAt?: number }>();
   /** `<sn-component use>`: one choice anchor per use, its candidates gathered as the walk reaches them (`finishChoices`) */
   private readonly choiceGroups: ChoiceGroup[] = [];
   /** the `<template>` of each `if`, `for`, `else` and recursion point node, which `anchors()` turns into a pair of comments */
@@ -1858,7 +1858,7 @@ class Compiler {
     const all = this.choicePool(this.origins.get(el)?.file);
     const lib = this.libOfFile(this.origins.get(el)?.file);
     // each candidate, and the value of the data that names it (convention, map), for narrowing
-    let cands: Array<{ name: string; key: string | null }>;
+    let cands: Array<{ name: string; key: string | null; at?: number }>;
     let keySrc: string | null = null, map = false;
     if (ast.type === 'TemplateLiteral' && ast.expressions.length === 1) {
       const pre = ast.quasis[0]!.value.cooked ?? '', post = ast.quasis[1]!.value.cooked ?? '';
@@ -1879,10 +1879,10 @@ class Compiler {
           const f = this.componentFile(v)!;
           if (lib) this.report(el, 'use', 'SN339', `\`'${v}'\` is not a component of \`${lib.name}\`: \`<sn-component use>\` in a library's markup chooses among its own components`, (p as import('acorn').Property).value.start);
           else if (f.internal) this.report(el, 'use', 'SN339', `\`'${v}'\` is internal to \`${f.lib!.name}\` (\`components/internal/\`): only its own components use it`, (p as import('acorn').Property).value.start, `its public components: ${f.lib!.public.map((n) => `\`'${n}'\``).join(', ')}`);
-          else { cands.push({ name: v, key: k }); continue; }
+          else { cands.push({ name: v, key: k, at: (p as import('acorn').Property).key.start }); continue; }
           continue;
         }
-        cands.push({ name: v, key: k });
+        cands.push({ name: v, key: k, at: (p as import('acorn').Property).key.start });
       }
     } else if (ast.type === 'CallExpression') {
       // rule 7: in a component that declares slots, or has a tree placement, every component would be a candidate
@@ -1909,7 +1909,7 @@ class Compiler {
       this.origins.set(x, this.origins.get(el)!);
       this.points.set(x, c.name);
       if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
-      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
       clones.push(x);
     }
     if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);
@@ -2053,7 +2053,11 @@ class Compiler {
           this.report(host, a.name, 'SN209', fill
             ? `\`${a.name}\` is set both here and on \`<${el.tagName}>\`, the fill of \`<${name}>\`'s \`<slot>\` that is its root; one of them would be lost`
             : `\`${a.name}\` is set both here and on the root of \`<${name}>\`; one of them would be lost`, 0);
-        } else el.attrs.push({ name: a.name, value: a.value });
+        } else {
+          el.attrs.push({ name: a.name, value: a.value });
+          // the caller's, on this use only: not an id of the component's markup (`componentIds`)
+          if (a.name === 'id') this.tagIds.add(el);
+        }
       }
     }
     // a component tag (or a choice) as root: the outer uses pass on to it
@@ -2727,6 +2731,9 @@ class Compiler {
     return (u.shape ? landingOf(u.shape) : [u.root]).filter((e) => !this.slotOf.has(e) || this.useOf.get(e) === u);
   }
 
+  /** elements whose `id` a component's tag gave them (its use's own) */
+  private readonly tagIds = new WeakSet<P5Element>();
+
   /** literal ids in repeated markup, reported after `componentIds` (which may report the same element as SN209) */
   private readonly repeatedIds: Array<{ el: P5Element; why: string }> = [];
 
@@ -2739,13 +2746,13 @@ class Compiler {
       const find = (n: P5Parent): P5Element | null => {
         for (const c of n.childNodes) {
           if (!isElement(c) || this.slotOf.get(c)) continue;
-          if (attr(c, 'id') !== undefined && this.origins.get(c)?.file === u.file) return c;
+          if (attr(c, 'id') !== undefined && this.origins.get(c)?.file === u.file && !this.tagIds.has(c)) return c;
           const x = find(c) ?? (c.tagName === 'template' ? find((c as P5Template).content) : null);
           if (x) return x;
         }
         return null;
       };
-      const el = attr(u.root, 'id') !== undefined && this.origins.get(u.root)?.file === u.file ? u.root : find(u.root);
+      const el = attr(u.root, 'id') !== undefined && this.origins.get(u.root)?.file === u.file && !this.tagIds.has(u.root) ? u.root : find(u.root);
       if (el) this.report(el, 'id', 'SN209', `\`<${name}>\` is used ${list.length} times on this page, and its markup has \`id="${attr(el, 'id')}"\`: the page would have that id ${list.length} times`, 0,
         'compute the id from a prop: `data-sn-attr="{ id: \'edit-\' + item.id }"`, or use the component once');
       if (el && this.siteKey(el)) out.add(this.siteKey(el)!);
@@ -2985,7 +2992,11 @@ class Compiler {
     }
     const { lets } = this.propLets(use, ctx.scope);
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
-    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) this.check.exprs[this.lastExpr]!.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
+    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) {
+      const e = this.check.exprs[this.lastExpr]!;
+      e.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
+      e.guardAt = { name: choice.name, key: choice.key, loc: this.locOf(host, 'use', choice.keyAt ?? 0) };
+    }
     for (const l of lets) if (l.src?.length) this.addSources(`@def:${name}:${l.name}`, l.src);
     const tagAttrs = this.pointAttrs(host, ctx, `$p${def.tid}`);
     // tree slots: the fills chosen here travel down the definition in its item

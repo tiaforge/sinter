@@ -238,6 +238,29 @@ export type Inline = Plain | Strong | Ref;
       .toEqual([expect.stringMatching(/Property 'tpye' does not exist/)]);
   });
 
+  test('SN538: a candidate the branches around rule out is a warning at its key, not an error in generated code', () => {
+    const types = `export interface Para { type: 'para'; text: string }
+export interface Quote { type: 'quote'; text: string }
+export interface Rule { type: 'rule' }
+export type Block = Para | Quote | Rule;
+`;
+    const files = {
+      'src/sinter.types.ts': types,
+      'src/components/x-para.html': '<template data-sn-component="{ node: Para }"><p data-sn-text="node.text"></p></template>',
+      'src/components/x-quote.html': '<template data-sn-component="{ node: Quote }"><blockquote data-sn-text="node.text"></blockquote></template>',
+    };
+    const use = `{ para: 'x-para', quote: 'x-quote' }[b.type]`;
+    const html = `<!doctype html><html><head></head><body>
+<sn-resource name="blocks" src="/api/b" type="Block[]"></sn-resource>
+<template data-sn-for="b in blocks"><template data-sn-if="b.type === 'para'"><p data-sn-text="b.text"></p></template><template data-sn-else><sn-component use="${use}" data-sn-prop="{ node: b }"></sn-component><template data-sn-else><hr></template></template></template>
+</body></html>`;
+    const d = checkPage(html, { files });
+    expect(d.map((x) => `${x.severity} ${x.code} ${x.message}`)).toEqual(['warning SN538 `x-para` can never be chosen here: `b.type` cannot be `"para"` where this `<sn-component>` is (a branch around it rules it out)']);
+    expect([d[0]!.line, d[0]!.col]).toEqual(at(html, "para: 'x-para'"));
+    // reachable candidates: nothing
+    expect(checkPage(html.replace("<template data-sn-if=\"b.type === 'para'\"><p data-sn-text=\"b.text\"></p></template><template data-sn-else>", '<template data-sn-if="true">'), { files })).toEqual([]);
+  });
+
   test('SN507 complex expressions: in checkPage like other diagnostics, with the complexity option', () => {
     const html = page(`<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5" data-sn-text="n + contacts.length"></button></div>`);
     const d = checkPage(html, { files: { 'src/sinter.types.ts': TYPES } });

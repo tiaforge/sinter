@@ -72,6 +72,8 @@ export interface CheckExpr {
   payload?: { names: string[]; type: TypeRef | null; states?: string[]; lets?: string[] };
   /** checked only where this holds (`<sn-component>`: the data names this candidate), so the data is narrowed */
   guard?: string;
+  /** the candidate the guard is for, and where its key is written: a guard that can never hold is SN538 there */
+  guardAt?: { name: string; key: string; loc: CheckLoc };
   /** a component event's detail type (`data-sn-emits`), for `$event` of a handler on the component's tag */
   detail?: TypeRef;
   /** the compiler reported an error in it (it may not even parse); kept for editor completion, never type-checked */

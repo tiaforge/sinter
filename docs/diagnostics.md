@@ -921,3 +921,13 @@ Warning, for example:
 A component library ships source that the app's sinter compiles, so it lists the sinter versions it supports in its package.json's `peerDependencies` (`"@tiaforge-ui/sinter": "^0.18.0"`). The app's sinter checks that its own version is in the range, and warns when a library lists none. It cannot know which version introduced a feature newer than itself.
 
 **Fix:** Install a version of sinter or of the library that fits the other. A library's author lists the range in `peerDependencies`.
+
+## SN538 unreachable-candidate
+
+Warning, for example:
+
+> `x-para` can never be chosen here: `b.type` cannot be `"paragraph"` where this `<sn-component>` is (a branch around it rules it out)
+
+`sinter check` checks each candidate of a `<sn-component use>` (a template string or a map) with the data narrowed to its key, and the branches around it (`data-sn-if`, `data-sn-else`) narrow the data too. When they leave no value for a candidate's key, TypeScript finds the comparison can never hold: that component is never rendered there. A warning, since the page still works.
+
+**Fix:** Remove the candidate from `use`, or move the `<sn-component>` out of the branch that excludes it.
