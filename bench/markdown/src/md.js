@@ -11,9 +11,12 @@ const strip = (n) => {
   return n;
 };
 
-/** Counts how often parse ran, for measure.mjs (re-parse per render). Not part of the contract. */
-export const stats = { parses: 0, ms: 0 };
-if (typeof window !== 'undefined') window.__mdStats = stats;
+/**
+ * How often parse ran and for how long, for measure.mjs (re-parse per render). One entry per copy of
+ * this module: the early file and the page module each bundle their own. Not part of the contract.
+ */
+const stats = { parses: 0, ms: 0, bytes: 0, early: typeof document !== 'undefined' && document.readyState === 'loading' };
+if (typeof window !== 'undefined') (window.__mdStats ??= []).push(stats);
 
 /**
  * The tree for `source`. Options (section 10), applied after parsing:
@@ -24,6 +27,7 @@ if (typeof window !== 'undefined') window.__mdStats = stats;
 export function parse(source, options) {
   const t0 = performance.now();
   stats.parses++;
+  stats.bytes += source?.length ?? 0;
   const tree = strip(fromMarkdown(source ?? '', { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }));
   if (options) policy(tree, options);
   stats.ms += performance.now() - t0;

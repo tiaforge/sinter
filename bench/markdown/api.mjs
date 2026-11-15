@@ -1,11 +1,12 @@
 // The spike's API as Vite middleware (dev and preview) and a plain handler (server.mjs).
-import { article, comments } from './data.mjs';
+import { article, comments, tree } from './data.mjs';
 
 const BLOCKS = Number(process.env.BLOCKS ?? 300);
 const COMMENTS = Number(process.env.COMMENTS ?? 50);
 const routes = {
   '/api/article': () => ({ id: 1, title: 'A long article', body: article(BLOCKS) }),
   '/api/comments': () => comments(COMMENTS),
+  '/api/tree': () => tree(article(BLOCKS)),
 };
 
 export function handle(req, res, next) {

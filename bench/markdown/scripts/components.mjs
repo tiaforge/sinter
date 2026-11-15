@@ -24,7 +24,7 @@ const files = {
   'md-ul': `<ul>${li()}</ul>`,
   'md-ol': `<ol data-sn-attr="{ start: node.start == null || node.start == 1 ? null : node.start }">${li()}</ol>`,
   'md-blockquote': `<blockquote>${blocks()}</blockquote>`,
-  'md-code': `<pre><code data-sn-attr="{ class: node.lang ? 'language-' + node.lang : null }" data-sn-text="node.value"></code></pre>`,
+  'md-code': `<pre><code data-sn-attr="{ class: node.lang ? 'language-' + node.lang : null }" data-sn-text="node.value + '\\n'"></code></pre>`,
   'md-hr': `<hr>`,
   // raw HTML is never markup: shown as written
   'md-html': `<pre class="md-raw" data-sn-text="node.value"></pre>`,

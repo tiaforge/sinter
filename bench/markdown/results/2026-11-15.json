@@ -1,0 +1,543 @@
+{
+  "bytes": {
+    "plain": {
+      "article.js": {
+        "raw": 62292,
+        "gzip": 4283
+      },
+      "comments.js": {
+        "raw": 62450,
+        "gzip": 4224
+      },
+      "md.js": {
+        "raw": 149520,
+        "gzip": 50859
+      },
+      "stream.js": {
+        "raw": 62300,
+        "gzip": 4285
+      },
+      "tree.js": {
+        "raw": 61953,
+        "gzip": 4110
+      }
+    },
+    "embed": {
+      "article.js": {
+        "raw": 62299,
+        "gzip": 4287
+      },
+      "article-head.js": {
+        "raw": 202201,
+        "gzip": 39181
+      },
+      "comments.js": {
+        "raw": 62457,
+        "gzip": 4228
+      },
+      "comments-head.js": {
+        "raw": 202323,
+        "gzip": 39195
+      },
+      "md.js": {
+        "raw": 149914,
+        "gzip": 51037
+      },
+      "sinter-head.js": {
+        "raw": 6027,
+        "gzip": 2832
+      },
+      "stream.js": {
+        "raw": 62307,
+        "gzip": 4289
+      },
+      "stream-head.js": {
+        "raw": 202213,
+        "gzip": 39181
+      },
+      "tree.js": {
+        "raw": 61960,
+        "gzip": 4113
+      },
+      "tree-head.js": {
+        "raw": 90248,
+        "gzip": 4048
+      }
+    }
+  },
+  "article": {
+    "markdownBytes": 47542,
+    "treeJsonBytes": 143066,
+    "mdastNodes": 2963,
+    "byType": {
+      "root": 1,
+      "heading": 51,
+      "text": 1461,
+      "paragraph": 368,
+      "delete": 110,
+      "link": 98,
+      "inlineCode": 105,
+      "strong": 114,
+      "list": 63,
+      "listItem": 201,
+      "emphasis": 98,
+      "code": 25,
+      "blockquote": 25,
+      "table": 9,
+      "tableRow": 45,
+      "tableCell": 135,
+      "image": 13,
+      "thematicBreak": 13,
+      "html": 21,
+      "break": 7
+    },
+    "parseNodeMs": 68.5
+  },
+  "comments": {
+    "count": 50,
+    "markdownBytes": 9048
+  },
+  "pages": {
+    "article": {
+      "url": "http://127.0.0.1:4390/article/",
+      "lcp": 468,
+      "fcp": 32,
+      "apiEnd": 20,
+      "rendered": 400.9,
+      "renderAfterApi": 362.5,
+      "parseMs": 187.6,
+      "parses": 4,
+      "parsedBytes": 95084,
+      "parsesBy": [
+        {
+          "early": false,
+          "parses": 4,
+          "ms": 233.5
+        }
+      ],
+      "scriptMs": 325.3,
+      "styleLayoutMs": 59.8,
+      "heapMB": 9.3,
+      "dom": {
+        "elements": 2831,
+        "templates": 25150,
+        "defsFilled": 2380,
+        "defsEmpty": 20840,
+        "comments": 24774,
+        "texts": 1612,
+        "emptyTexts": 2,
+        "nodesInsideTemplates": 16230,
+        "bindings": 27285
+      },
+      "errors": []
+    },
+    "articleEmbedded": {
+      "url": "http://127.0.0.1:4391/article/",
+      "lcp": 1292,
+      "fcp": 520,
+      "apiEnd": null,
+      "rendered": 1216.6,
+      "renderAfterApi": null,
+      "parseMs": 586.1,
+      "parses": 6,
+      "parsedBytes": 285252,
+      "parsesBy": [
+        {
+          "early": true,
+          "parses": 2,
+          "ms": 248.8
+        },
+        {
+          "early": false,
+          "parses": 4,
+          "ms": 441.2
+        }
+      ],
+      "scriptMs": 769.6,
+      "styleLayoutMs": 109.9,
+      "heapMB": 10,
+      "dom": {
+        "elements": 2831,
+        "templates": 25150,
+        "defsFilled": 2380,
+        "defsEmpty": 20840,
+        "comments": 24774,
+        "texts": 1612,
+        "emptyTexts": 2,
+        "nodesInsideTemplates": 16230,
+        "bindings": 27285
+      },
+      "errors": []
+    },
+    "articleEmbeddedEarlyOnly": {
+      "url": "http://127.0.0.1:4391/article/",
+      "lcp": 548,
+      "fcp": 548,
+      "apiEnd": null,
+      "rendered": 414.6,
+      "renderAfterApi": null,
+      "parseMs": 208.9,
+      "parses": 2,
+      "parsedBytes": 95084,
+      "parsesBy": [
+        {
+          "early": true,
+          "parses": 2,
+          "ms": 187
+        }
+      ],
+      "scriptMs": 378.6,
+      "styleLayoutMs": 70.6,
+      "heapMB": 5.6,
+      "dom": {
+        "elements": 2831,
+        "templates": 25150,
+        "defsFilled": 2380,
+        "defsEmpty": 20840,
+        "comments": 3934,
+        "texts": 1612,
+        "emptyTexts": 2,
+        "nodesInsideTemplates": 16230,
+        "bindings": 27285
+      },
+      "errors": []
+    },
+    "tree": {
+      "url": "http://127.0.0.1:4390/tree/",
+      "lcp": 320,
+      "fcp": 320,
+      "apiEnd": 21.4,
+      "rendered": 229.6,
+      "renderAfterApi": 210.7,
+      "parseMs": 0,
+      "parses": 0,
+      "parsedBytes": 0,
+      "parsesBy": [
+        {
+          "early": false,
+          "parses": 0,
+          "ms": 0
+        }
+      ],
+      "scriptMs": 176.4,
+      "styleLayoutMs": 67.7,
+      "heapMB": 8,
+      "dom": {
+        "elements": 2831,
+        "templates": 25150,
+        "defsFilled": 2380,
+        "defsEmpty": 20840,
+        "comments": 24774,
+        "texts": 1612,
+        "emptyTexts": 2,
+        "nodesInsideTemplates": 16230,
+        "bindings": 27285
+      },
+      "errors": []
+    },
+    "treeEmbedded": {
+      "url": "http://127.0.0.1:4391/tree/",
+      "lcp": 316,
+      "fcp": 316,
+      "apiEnd": null,
+      "rendered": 433.3,
+      "renderAfterApi": null,
+      "parseMs": 0,
+      "parses": 0,
+      "parsedBytes": 0,
+      "parsesBy": [
+        {
+          "early": true,
+          "parses": 0,
+          "ms": 0
+        },
+        {
+          "early": false,
+          "parses": 0,
+          "ms": 0
+        }
+      ],
+      "scriptMs": 195.6,
+      "styleLayoutMs": 67.6,
+      "heapMB": 10.8,
+      "dom": {
+        "elements": 2831,
+        "templates": 25150,
+        "defsFilled": 2380,
+        "defsEmpty": 20840,
+        "comments": 24774,
+        "texts": 1612,
+        "emptyTexts": 2,
+        "nodesInsideTemplates": 16230,
+        "bindings": 27285
+      },
+      "errors": []
+    },
+    "comments": {
+      "url": "http://127.0.0.1:4390/comments/",
+      "lcp": 196,
+      "fcp": 196,
+      "apiEnd": 19.7,
+      "rendered": 163.2,
+      "renderAfterApi": 143.5,
+      "parseMs": 68.4,
+      "parses": 100,
+      "parsedBytes": 18096,
+      "parsesBy": [
+        {
+          "early": false,
+          "parses": 100,
+          "ms": 64.6
+        }
+      ],
+      "scriptMs": 112.2,
+      "styleLayoutMs": 21.4,
+      "heapMB": 3.8,
+      "dom": {
+        "elements": 663,
+        "templates": 5057,
+        "defsFilled": 482,
+        "defsEmpty": 4206,
+        "comments": 4997,
+        "texts": 359,
+        "emptyTexts": 259,
+        "nodesInsideTemplates": 3586,
+        "bindings": 5477
+      },
+      "errors": []
+    },
+    "commentsEmbedded": {
+      "url": "http://127.0.0.1:4391/comments/",
+      "lcp": 220,
+      "fcp": 220,
+      "apiEnd": null,
+      "rendered": 340,
+      "renderAfterApi": null,
+      "parseMs": 158.1,
+      "parses": 200,
+      "parsedBytes": 36192,
+      "parsesBy": [
+        {
+          "early": true,
+          "parses": 100,
+          "ms": 83.9
+        },
+        {
+          "early": false,
+          "parses": 100,
+          "ms": 59.3
+        }
+      ],
+      "scriptMs": 145.8,
+      "styleLayoutMs": 19.2,
+      "heapMB": 4.4,
+      "dom": {
+        "elements": 663,
+        "templates": 5057,
+        "defsFilled": 482,
+        "defsEmpty": 4206,
+        "comments": 4997,
+        "texts": 359,
+        "emptyTexts": 259,
+        "nodesInsideTemplates": 3586,
+        "bindings": 5477
+      },
+      "errors": []
+    }
+  },
+  "rerender": {
+    "medianMs": 368.4,
+    "parsesPerRender": 2,
+    "runs": [
+      {
+        "ms": 382.9,
+        "parses": 2,
+        "elements": 2831,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 337.9,
+        "parses": 2,
+        "elements": 2831,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 368.4,
+        "parses": 2,
+        "elements": 2831,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 405.8,
+        "parses": 2,
+        "elements": 2831,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 243.7,
+        "parses": 2,
+        "elements": 2831,
+        "firstParagraphKept": false
+      }
+    ]
+  },
+  "stream": {
+    "chunkChars": 2000,
+    "perChunk": [
+      {
+        "ms": 68.8,
+        "parses": 2,
+        "elements": 154,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 60.1,
+        "parses": 2,
+        "elements": 258,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 63.8,
+        "parses": 2,
+        "elements": 363,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 89.9,
+        "parses": 2,
+        "elements": 498,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 88.3,
+        "parses": 2,
+        "elements": 615,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 124.4,
+        "parses": 2,
+        "elements": 708,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 127.4,
+        "parses": 2,
+        "elements": 866,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 179.8,
+        "parses": 2,
+        "elements": 965,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 174.5,
+        "parses": 2,
+        "elements": 1086,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 201.4,
+        "parses": 2,
+        "elements": 1223,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 201.9,
+        "parses": 2,
+        "elements": 1324,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 220.8,
+        "parses": 2,
+        "elements": 1422,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 147.9,
+        "parses": 2,
+        "elements": 1581,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 222.5,
+        "parses": 2,
+        "elements": 1681,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 203.9,
+        "parses": 2,
+        "elements": 1819,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 212.5,
+        "parses": 2,
+        "elements": 1930,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 220.7,
+        "parses": 2,
+        "elements": 2020,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 181.7,
+        "parses": 2,
+        "elements": 2151,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 242.7,
+        "parses": 2,
+        "elements": 2253,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 275.7,
+        "parses": 2,
+        "elements": 2366,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 198.4,
+        "parses": 2,
+        "elements": 2497,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 229.2,
+        "parses": 2,
+        "elements": 2607,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 251.6,
+        "parses": 2,
+        "elements": 2704,
+        "firstParagraphKept": false
+      },
+      {
+        "ms": 382,
+        "parses": 2,
+        "elements": 2831,
+        "firstParagraphKept": false
+      }
+    ],
+    "medianMs": 201.4,
+    "lastMs": 382,
+    "parsesPerChunk": 2
+  },
+  "walk20k": {
+    "nodes": 20001,
+    "querySelectorAll": 0.2,
+    "treeWalkerElementsAndComments": 0.5,
+    "treeWalkerCommentsOnly": 0.3,
+    "walkCheckingData": 1.4
+  }
+}

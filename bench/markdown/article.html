@@ -6,10 +6,12 @@
   <title>Article</title>
   <link rel="stylesheet" href="/src/prose.css">
 </head>
-<!-- An article from the API, parsed in the browser by md.parse (a helper loaded with the page) -->
-<body>
+<!-- An article from the API, parsed in the browser by md.parse (a helper loaded with the page).
+     `rev` is read by the let and changes nothing in it: #touch re-renders with the same source. -->
+<body data-sn-state="{ rev: 0 }">
 <sn-resource name="article" src="/api/article"></sn-resource>
-<main data-sn-let="{ doc: md.parse(article ? article.body : '') }">
+<button id="touch" data-sn-on-click="rev = rev + 1">re-render</button>
+<main data-sn-let="{ doc: md.parse(article && rev >= 0 ? article.body : '') }">
   <md-doc id="article" data-sn-prop="{ doc }"></md-doc>
 </main>
 </body>

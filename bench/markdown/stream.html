@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="require-trusted-types-for 'script'">
+  <title>Stream</title>
+  <link rel="stylesheet" href="/src/prose.css">
+</head>
+<!-- Streamed markdown, simulated: #next shows the next 2,000 characters of the article; the whole
+     prefix is parsed again and the tree rendered again, as for model output -->
+<body data-sn-state="{ i: 0 }">
+<sn-resource name="article" src="/api/article"></sn-resource>
+<button id="next" data-sn-on-click="i = i + 1">next chunk</button>
+<main data-sn-let="{ doc: md.parse(article ? article.body.slice(0, i * 2000) : '') }">
+  <md-doc id="article" data-sn-prop="{ doc }"></md-doc>
+</main>
+</body>
+</html>

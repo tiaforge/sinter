@@ -6,7 +6,8 @@
   "scripts": {
     "build": "vite build",
     "serve": "node server.mjs",
-    "measure": "node measure.mjs"
+    "measure": "node measure.mjs",
+    "verify": "node verify.mjs"
   },
   "dependencies": {
     "@tiaforge-ui/sinter": "file:../..",
@@ -15,8 +16,8 @@
     "micromark-extension-gfm": "3.0.0"
   },
   "devDependencies": {
-    "hast-util-to-html": "^9.0.5",
-    "mdast-util-to-hast": "^13.2.1",
+    "hast-util-to-html": "9.0.5",
+    "mdast-util-to-hast": "13.2.1",
     "vite": "8.3.5"
   }
 }

@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="require-trusted-types-for 'script'">
+  <title>Tree</title>
+  <link rel="stylesheet" href="/src/prose.css">
+</head>
+<!-- The same article, sent by the API as an mdast tree: no parser on the page -->
+<body>
+<sn-resource name="tree" src="/api/tree"></sn-resource>
+<main>
+  <md-doc id="article" data-sn-prop="{ doc: tree }"></md-doc>
+</main>
+</body>
+</html>

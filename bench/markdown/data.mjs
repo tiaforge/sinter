@@ -1,3 +1,5 @@
+import { parse } from './src/md.js';
+
 // The spike's API data: a long article and a comment list, generated deterministically.
 // Every node type the components render appears; `blocks` sets the article's length.
 const words = 'sinter binds json apis to plain html with keyed resources and optimistic mutations compiled at build time so the page renders in the first frame'.split(' ');
@@ -50,3 +52,6 @@ export function comments(n = 50) {
       : `${sentence()} ${sentence()}${i % 3 === 0 ? `\n\n- ${sentence(4)}\n- ${sentence(4)}` : ''}`,
   }));
 }
+
+/** The article as an API that stores the tree would send it: mdast without positions, parsed in Node. */
+export const tree = (source) => parse(source);
