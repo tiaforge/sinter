@@ -174,8 +174,10 @@ Step 4, as built:
 - A text node is not a new kind of node in the IR: its node is the marker before it, with a binding
   of its own writer, so paths and lookups are unchanged and the element writer on the hot path is
   untouched. Its slot is an empty comment in all HTML until it has text, so no separators are
-  needed; text over state is not written at build time yet, only literals (step 9 folds constant
-  text runs into plain text).
+  needed. A text over build-time constants (an unrolled row's item, state nothing writes, a
+  constant prop) is written into the HTML as plain text and its binding dropped; one that stays a
+  binding keeps its anchor or slot, so a folded text never merges with a live one. Lands with
+  step 5's branch.
 - Codes: `SN312` keeps its number for a root that renders more than one element or text, and for a
   script or root state on a root that is not plain; new `SN333` (invalid text template) and
   `SN334` (an attribute on the tag of a component whose root may render nothing).
