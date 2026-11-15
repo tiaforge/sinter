@@ -345,7 +345,7 @@ around it.
   from the node before it at each write, so text that browser translation replaced is written in
   place. Outside rows it is marked like a branch (`<!--sn 7-->…<!--/sn-->`); in a row, the element
   before it marks it, or an empty comment does.
-- A build-time constant (a literal, state nothing writes, a constant prop, the item of a row unrolled at build time) folds into the HTML as plain text, its marks and binding gone; a text that stays a binding keeps its marks, so the two never merge. A page whose text is all constant ships no JavaScript for it.
+- A literal folds into the HTML as text.
 - A fill may be a text: `<template slot="label" data-sn-text="$slot.v"></template>`.
 
 ## A component inside itself

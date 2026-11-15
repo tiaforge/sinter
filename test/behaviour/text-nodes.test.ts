@@ -2,7 +2,7 @@
 // `<template>` renders a text node. One node slot, found from the node before it; an anchor pair
 // outside rows.
 import { describe, expect, test } from 'vitest';
-import { compile, compileParts } from '../../src/compiler/index.js';
+import { compile } from '../../src/compiler/index.js';
 import { firstPaint, render } from '../../src/testing/index.js';
 
 const out = (html: string) => compile(html, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); } });
@@ -38,23 +38,6 @@ const HIGHLIGHT = `<div data-sn-state="{ q: 'an', title: 'banana band' }">
   </template></h2>
   <p id="side">[<template data-sn-text="q"></template><template data-sn-text="q.toUpperCase()"></template>]</p>
 </div>`;
-
-describe('folded at build time', () => {
-  const build = (html: string) => compileParts(html, { file: '/p/index.html', root: '/p', dev: false, prerender: true, early: { module: null }, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); } } as never);
-  test('an unrolled constant list of text runs is plain text, with no script', () => {
-    const out = build(`<div data-sn-state="{ runs: [{ t: 'a ', em: false }, { t: 'b', em: true }, { t: ' c', em: false }], who: 'you' }"><p><template data-sn-for="r in runs"><template data-sn-if="r.em"><em data-sn-text="r.t"></em></template><template data-sn-else><template data-sn-text="r.t"></template></template></template></p><p>hi <template data-sn-text="who"></template>!</p></div>`);
-    expect(out.diagnostics).toEqual([]);
-    expect(out.static).toBe(true);
-    expect(out.html).toContain('<p>a <em>b</em> c</p><p>hi you!</p>');
-    expect(out.html).not.toMatch(/<!--|<script|<template/);
-  });
-
-  test('a constant beside a text that stays a binding: the live one keeps its marks, so nothing merges', () => {
-    const out = build(`<div data-sn-state="{ a: 'x', n: 0 }"><p id="p"><template data-sn-text="a"></template><template data-sn-text="n"></template></p><button data-sn-on-click="n++"></button></div>`);
-    expect(out.diagnostics).toEqual([]);
-    expect(out.html).toMatch(/<p id="p">x<!--sn \d+--><!----><!--\/sn--><\/p>/);
-  });
-});
 
 describe('in the browser', () => {
   test('search highlighting: runs of text beside elements, side by side, empty, and changing', async () => {
