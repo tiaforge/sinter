@@ -1,8 +1,9 @@
 # Proposal: component libraries, with markdown as the first
 
-Status: draft, fourth revision, after three reviews. Nothing here is implemented. It builds on what
+Status: draft, fifth revision, after four reviews. Nothing here is implemented. It builds on what
 sinter has wherever it can; what is new is listed in [What is new](#what-is-new). Sections are
-numbered in the order of the [Plan](#plan).
+numbered in the order of the [Plan](#plan). The fourth review settled most open choices; they are in
+[Decisions](#decisions), and one is left for the maintainer ([Open questions](#open-questions)).
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
@@ -15,13 +16,11 @@ Constraints set by the user:
 - A bigger feature is fine where it fits best, but existing concepts are generalized before a name
   is added.
 
-Decisions taken with the user while drafting are in [Decisions](#decisions).
-
 ## Goals
 
 - Markdown from the repo is plain HTML in the page, with optimized images and no JavaScript.
 - Markdown from an API renders with the page's bindings, parsed once per value, with the parser
-  loaded only where it is used, and with the same DOM as the same markdown from the repo.
+  loaded only where it is used, and with the same elements as the same markdown from the repo.
 - An app changes how any node looks, per use or app-wide, without naming a library's internal
   components.
 - What user-written markdown may contain is decided in one place, and raw HTML never becomes markup.
@@ -60,19 +59,27 @@ cells, a tree view: a library that turns a value into a tree, and components tha
 - **Recursion and runtime choice** ([components.md](../components.md#a-component-inside-itself)): a
   component may use itself through a `data-sn-for` or `data-sn-if`, compiled once as a shared
   definition (`<template id="sn-def-…">` in the head). Each inner use becomes an empty
-  `<template data-sn-def>` in place, with a `for` over its props. ``<sn-component use>`` becomes one
-  such template per candidate. With embedded data, the early script renders a tree in the first
-  frame at any depth. A markdown renderer should be possible in userland today; step 1 of the
-  [Plan](#plan) checks that.
+  `<template data-sn-def>` in place, with a `for` over its props; the definition it clones is named
+  by that static attribute (`src/defs.ts`). ``<sn-component use>`` becomes one such template per
+  candidate, each with its own `for` that evaluates `use`. With embedded data, the early script
+  renders a tree in the first frame at any depth.
 - **Anchors.** Every `data-sn-if` and `data-sn-for` keeps its `<template>` in place and inserts an
   end comment after what it renders (`runtime/app.ts`); so does every recursion point and every
-  candidate of `<sn-component use>`. A `<template>` is an element, so `:first-child`, `+` and `>`
-  see it: `li:first-child` does not match the first row of a list today, and a rendered tree has a
-  template beside every node. The early script hands a branch or rows to the page module as a
-  property on that template element.
-- **Addressing.** Bindings outside rows find their element by a `data-sn` attribute. Inside a row,
-  nodes are found by sibling-index paths, checked by tag name. A keyed list gives each row the nodes
-  from its first node to the next row's first node, so every row has at least one node.
+  candidate. A `<template>` is an element, so `:first-child`, `:nth-child`, `+` and `>` count it:
+  `li:first-child` does not match the first row of a list today. The compiler's layout model counts
+  it too: reserved space and `sizes` treat "the template, right before row 1" as a sibling
+  (`compiler/layout.ts`, spec.md Reserved space).
+- **Ids.** Root bindings, `if`s and `for`s have node ids (`data-sn`); templates have ids of their own
+  in the IR; templates inside rows have neither, only a path. An `else` is a root node of its own,
+  linked to its `if`.
+- **Addressing.** Root nodes are found with one `querySelectorAll('[data-sn]')` at mount. Inside a
+  row, nodes are found by sibling-index paths, checked by tag name. A keyed list gives each row the
+  nodes from its first node to the next row's first node; a row made only of a nested template has
+  that template as its first node.
+- **Early to page.** The early script marks each template it rendered with a `Symbol.for` property
+  (`EARLY`, `EARLY_ROWS`), and the page module reads it per node, also to step over nested content in
+  adopted rows. `runtime/handoff.ts` holds prefetched responses and a meeting flag. The page module
+  computes state again on mount.
 - **One root element.** A component's template has exactly one plain element at its top, not a
   `<template>`, a `<slot>` or a component. A text binding sits on an element: `data-sn-text` sets an
   element's content. So every link, heading and run of text in a rendered tree needs an element of
@@ -85,23 +92,22 @@ cells, a tree view: a library that turns a value into a tree, and components tha
   `data-sn-if` per use, before the walk. The evaluator runs the built-in messages, and under
   `localePrefix` some formatters, but no app helpers. The limits that matter here:
   - only state fields and literal props are constants; no resource is;
-  - a row is unrolled only when none of its nodes is a nested template;
+  - a row is unrolled only when none of its nodes is a nested template, and none has a handler;
   - a state-based `data-sn-if` is decided per template, only when it reads no row, and inside a
     component only when every use agrees;
-  - unrolling is two compile passes, not a fixpoint;
+  - unrolling is two full compile passes, not a fixpoint;
   - shared definitions are never unrolled.
 - **The compile order.** In `run()` in `compile.ts`: loops are unrolled; the layout is computed,
   reserved space planned and images rewritten; the walk compiles bindings, reading the layout for
   bound images; the evaluator writes constants, so it can only run after the walk. An `<img>` with a
   `data-sn-*` attribute is skipped by the image pipeline. `compile()` is synchronous.
+- **Scopes at run time.** A row's scope is `Object.create` of its parent's, so a definition's rows
+  already chain to the scope of the row the tree was used in.
 - **Sources.** A resource's `src` is a request. With `sinter({ apis })` it is `[api:]/path`, where
   `site` is a built-in API name. The image pipeline reads every `src` without a scheme as a file
   (`photo.jpg`, `./photo.jpg`, or `/img/x.jpg` from the project root).
 - **Embedded data**: JSON in a placeholder in the page's head (`<script type="application/json"
   data-sn-data>`), read by the early script and the page module as a resource's first value.
-- **Two bundles, no shared state.** The early file and the page module are separate; the page
-  module computes state again on mount. The only handoff is prefetched responses
-  (`runtime/handoff.ts`).
 - **Helpers are pure by contract**: "same arguments, same result, nothing read or changed elsewhere"
   ([configuration.md](../configuration.md#helpers)). Their manifest is read statically. The early
   file imports each helper from the module that declares it; the page module imports namespace
@@ -110,13 +116,15 @@ cells, a tree view: a library that turns a value into a tree, and components tha
   compiled into every expression that reads it, so it is always current, costs no runtime and is
   tracked like the expression itself" (spec.md, Derived names); a helper in a let is called again at
   every read. Entries are `name: expression`, with no shorthand, and may not reuse a name in scope
-  (`SN209`). A component's props are lets internally.
+  (`SN209`). A component's props are lets internally. State may be changed in place
+  (`data.splice(…)` in the benchmark), so the same object can hold new contents.
 - **Lazy packages** ([lazy.md](../lazy.md)): every call into the package returns a promise. A helper
   module that reaches one is `SN324`, and lazy.md names a markdown body as the case to load with the
-  page instead. A component script that imports one loads with it, whole, when the component first
-  renders. The lazy transform and its import walk cover the app's modules, not `node_modules`.
-  `<sn-resource call>` runs an async action function; it does not combine with `each` and is not
-  early.
+  page instead; the RealWorld example notes that a lazy renderer was what held its largest element
+  (`examples/realworld/src/markdown.js`). A component script that imports a lazy package loads with
+  it, whole, when the component first renders. The lazy transform and its import walk cover the
+  app's modules, not `node_modules`. `<sn-resource call>` runs an async action function; it does not
+  combine with `each` and is not early.
 - **Slots** fill at build time: the caller's content goes into the `<slot>` of that name, and a
   plain slot inside a `data-sn-for` renders it once per row. Two `<slot>`s of one name in a file are
   `SN312`, also in two branches of one `if`/`else`. An empty slot shows its own children. A `<slot>`
@@ -124,10 +132,9 @@ cells, a tree view: a library that turns a value into a tree, and components tha
   component forwards (`<slot name="aside" slot="side">`). Slot content sees only the caller's scope.
   A recursive component's inner uses take no slot content (`SN314`), and `<sn-component>` drops it.
   A `<slot>` written on a page is left in the HTML, with no diagnostic.
-- **The tag's attributes on a recursion point are dropped**, with no diagnostic: the tag becomes
-  `<template data-sn-def>` and its `class`, `id` and handlers are lost (`compile.ts`, the recursion
-  point). That is a bug today, independent of this proposal, and [3](#3-the-component-root) defines
-  what should happen.
+- **Bugs this proposal touches**, independent of it: the tag's attributes on a recursion point are
+  dropped with no diagnostic (the tag becomes `<template data-sn-def>`); a `<template data-sn-for>`
+  inside `<svg>` crashes the compiler (parse5 gives a foreign `template` no `content`).
 - **Scoped slots were sketched as additive** in the [components proposal](components.md#scope), as
   `<slot data-sn-let="{ item }">` read through `$slot`. `data-sn-let` takes no shorthand, so this
   proposal keeps `$slot` and passes the data with `data-sn-prop`.
@@ -142,15 +149,16 @@ cells, a tree view: a library that turns a value into a tree, and components tha
 | Need | Built on | New |
 | --- | --- | --- |
 | Lists and trees that CSS sees as plain elements | `if` and `for` anchors, shared definitions in the head | anchors as comments in place, every template in the head |
+| A template chosen by a value (`<sn-component use>`, fills) | `if` anchors, shared definitions | a third kind of anchor, the choice |
 | Slot content that receives data | `<slot>`, `data-sn-prop`, magic names such as `$event` | `$slot`; `Slot<T>` in the props type |
 | A fill that places the node's children | `<slot>` and the innermost-first lookup of names | a rule: a `<slot>` is filled by the nearest markup given content for it |
 | A heading whose fill picks its level | `SN312`, `if`/`else` | a rule: one slot may be placed in each branch of one chain |
 | A root that is not one plain element | `data-sn-if`, component tags, `<slot>` | a rule: a root renders at most one element |
 | Text without an element | `data-sn-text`, `<template>` | `data-sn-text` on a `<template>`; a text node as a binding target |
-| Fills that reach deep into a tree | slots, shared definitions selected by id | a rule: a placement of a slot the component does not declare is filled by the root |
-| Constant trees folded into HTML | unrolling, literal props | a constant pre-pass, nested loops, decisions per instance, a fixpoint |
-| Helpers run at build time | the purity contract, the evaluator, messages at build time | a rule, with a static check of what a helper may touch |
-| A file from the repo | `<sn-resource src>`, embedded data | the `file:` scheme |
+| Fills that reach deep into a tree | slots, the runtime scope chain | a rule: a placement of a slot the component does not declare is filled by the root |
+| Constant trees folded into HTML | unrolling, literal props | a constant pre-pass, nested loops, decisions per instance, a worklist |
+| Helpers run at build time | the purity contract, the evaluator, messages at build time | a rule, with a static check of what each helper may reach |
+| A file from the repo | `<sn-resource src>`, `site`, embedded data | the `file:` source |
 | Parse once per value, with a package loaded on demand | `data-sn-let`, lazy component scripts | two rules: a let over a helper is cached; it may wait for a lazy helper module |
 | Components from a package | `src/components/`, helper namespaces, the `lazy` option | `sinter({ components })`, the `"sinter"` field, `components/internal/`, `@layer sinter-lib` |
 
@@ -161,47 +169,99 @@ The behaviour of existing pages that changes is listed in [Breaking changes](#br
 | Source | Example | Parsed | Shipped |
 | --- | --- | --- | --- |
 | The repo | docs, a README, page copy | by the compiler | HTML only: no parser, no bindings |
-| An API, as a string | an article body, a comment | in the browser, once per value, in a `data-sn-let` | the parser (on demand) and the renderer's bindings |
+| An API, as a string | an article body, a comment | in the browser, once per value, in a `data-sn-let` | the parser and the renderer's bindings |
 | An API, as a tree | a backend that stores mdast | not at all | the renderer's bindings; first frame with embedded data |
 | A stream | model output | in the browser, again on each chunk | as from an API |
 
 Keeping parsing and rendering apart lets one library serve all four. The renderer only ever sees a
-tree, and with [1](#1-anchors-as-comments) the DOM is the same whichever way it was rendered.
+tree, and with [1](#1-anchors-as-comments) it renders the same elements whichever way it was
+rendered.
 
 ## Design
 
 ### 1. Anchors as comments
 
-Every place sinter renders a variable number of nodes (an `if`, a `for`, a recursion point, a
-candidate of `<sn-component use>`) is marked in the DOM by two comments, and its template lives in
-the head:
+Every place sinter renders a variable number of nodes is marked in the DOM by a start and an end
+comment, and its templates live in the head.
 
 ```html
 <!-- today -->
 <ul><template data-sn="4"></template><li>a</li><li>b</li><!----></ul>
 
 <!-- proposed -->
-<head>… <template id="sn-t-4"><li>…</li></template> …</head>
+<head>… <template id="sn-t-1"><li>…</li></template> …</head>
 <ul><!--sn 4--><li>a</li><li>b</li><!--/sn--></ul>
 ```
 
-- Comments are not elements, so `li:first-child`, `h2 + p` and `.md > * + *` match the rendered
-  elements as they would plain HTML. This holds for every list and branch in sinter, not only for
-  markdown, and makes markdown from an API render the same DOM as markdown folded from the repo.
-- An `if` that renders nothing, and a row whose content renders nothing, still have their two
-  comments, so a keyed list's row always has a first node.
-- Templates move to the head, as shared definitions (`sn-def-*`) already are: the parser has them
-  before the body, for the early script and the page module alike.
-- **Addressing.** A start comment carries the id the template element carried (`sn 4`). The page
-  module finds anchors in one walk over comments at mount, from the elements with a `data-sn` id
-  around them; row paths count comments as nodes, as they count templates today, and a nested
-  anchor is skipped from its start comment to its end comment.
-- **The early script** finds an anchor the same way as the parser inserts it, and hands its branch
-  or rows to the page module through the handoff global, keyed by the anchor's id, instead of a
-  property on the template element. The handoff gains that one kind of entry.
-- **Benchmarks.** `bench/js-framework-benchmark` and the live grids must not get slower: creating
-  rows clones a template from the head as it clones one in place today, and a comment costs less
-  to insert than an element.
+Comments are not elements, so `li:first-child`, `:nth-child`, `h2 + p` and `.md > * + *` match the
+rendered elements as they would plain HTML. This holds for every list and branch in sinter, not only
+for markdown, and markdown from an API renders the same elements as markdown folded from the repo.
+The DOM is not identical: `childNodes` also holds the comments and any text separators
+([3](#text-without-an-element)).
+
+#### Three kinds of anchor
+
+| Kind | Renders | Templates |
+| --- | --- | --- |
+| `if` | one branch of an `if`/`else` chain, or nothing | one per branch, fixed |
+| `for` | one instance of its template per item | one, fixed |
+| choice | one instance of a template chosen by a value | one of a fixed set, by the binding's value |
+
+- An `if`/`else` chain becomes one anchor pair with a template per branch; the `else` is no longer a
+  node of its own in the IR.
+- The choice is new. ``<sn-component use>`` becomes one choice anchor whose value is the candidate,
+  where today it is one anchor and one evaluation of `use` per candidate; a dispatcher over fifteen
+  candidates would otherwise leave thirty comments beside each node. A fill uses the same anchor
+  ([4](#how-it-compiles)).
+
+#### Ids and templates
+
+- A root anchor's start comment carries its node id (`<!--sn 4-->`). An anchor inside a row carries
+  none (`<!--sn-->`): it is found by its path, as nodes in rows are today.
+- Templates are found from the IR (`sn-t-<template id>`), not from the comment, and cached once per
+  template.
+- An author's comment that starts with `sn` is an error at compile time.
+
+#### Finding anchors
+
+- **The page module** finds root nodes with a walk over the mount root that visits elements and
+  comments (a `TreeWalker` for both), replacing `querySelectorAll('[data-sn]')`. It also visits
+  author comments and text separators, so its cost is measured in step 1 on a large page.
+- **Inside rows,** paths count comments as nodes, as they count templates today, and a nested anchor
+  is skipped from its start comment to its end comment.
+- **The early script** sees comments as the parser inserts them (`MutationObserver` reports comment
+  nodes too): one more `nodeType` check per added node. An anchor is ready when its end comment is
+  parsed, which replaces waiting for the `else` sibling. Its first scan covers anchors already parsed
+  in the head.
+- **Handing over** stays per node: the early script puts `EARLY` and `EARLY_ROWS` on the start
+  comment instead of the template element, and the page module reads them there. `handoff.ts` does
+  not change. A start comment without them but with nodes before its end comment is an early render
+  that failed, and the page module clears it; today that case would duplicate.
+
+#### What else changes
+
+- **The layout model.** Reserved space, `sizes` and paint CSS treat the template as the element
+  before row 1, and a trailer template after the rows (`layout.ts`: `withRow`, `rowSibling`,
+  `rowStructural`, `around`, `siblingsUnknown`, `TRAILER`). They are reworked to count no element
+  there, and spec.md's Reserved space paragraph is rewritten. This is a large part of step 2.
+- **The anchor is a `Comment`.** Code that treats the bound node as an element changes: the dialog
+  check (`closest('dialog:not([open])')`), `BoundBinding.el`'s type, `prepared` and the `else`
+  pairing. `$el` in an `if`, `for` or choice expression has no element and is an error.
+- **Foreign content.** A template's content in the head is parsed as HTML. For an anchor inside
+  `<svg>` or `<math>`, the compiler wraps the head template's content in that element and clones the
+  wrapper's children, so `<circle>` is SVG. This also fixes the crash on `<template data-sn-for>`
+  inside `<svg>`.
+- **Raw text.** An anchor or `<template data-sn-text>` inside `<textarea>` or `<title>` is text to
+  the parser; that is an error, where today it is silent.
+- **Head weight.** Every template moves before `<body>` in the byte stream. Templates the early
+  script never instantiates go at the end of the body instead; step 2 measures the bytes before the
+  first byte of the body in `bench/first-paint`.
+- **Dev checks.** A missing, duplicate or unpaired anchor comment is a dev warning, as a missing
+  `data-sn` element is today. That is also how a comment-stripping minifier is noticed.
+- **Benchmarks.** One-element rows, the hot path of `bench/js-framework-benchmark`, are unchanged:
+  they clone the template's first child and find nodes with compiled paths. A nested template's
+  content is no longer cloned with every row; a never-true `if` in a row becomes two comments where
+  it was one template. The js-framework-benchmark and the live grids must not get slower.
 - Pages that ship no JavaScript are unchanged: folded markup has no anchors.
 
 ### 2. Slots that pass data
@@ -251,25 +311,26 @@ takes shorthand and is checked against `T` as a tag's props are against the prop
 
 #### The fill: `$slot`
 
-- A fill is written like slot content today: the elements with `slot="<name>"`, in order, or one
-  `<template slot="<name>" data-sn-if>` chain. Its scope is the caller's scope plus `$slot`, the
-  values the placement passes, as a handler reads `$event`.
+- A fill is written like slot content today: the elements with `slot="<name>"`, in order. A
+  `<template slot="<name>">` is for what an element cannot be: an `if`/`else` chain
+  (`<template slot="heading" data-sn-if>`) or a text (`<template slot="label" data-sn-text>`).
+- Its scope is the caller's scope plus `$slot`, the values the placement passes, as a handler reads
+  `$event`.
 - Inside a fill for another component, the inner `$slot` hides the outer one; keep the outer value
   with `data-sn-let="{ outer: $slot.row }"` on the outer fill.
 - Provenance flows through: `$slot.row` is the row the component got from its prop, so
   `patch($slot.row, …)` and `remove($slot.row)` act on the caller's resource, as `$event.detail`
   already carries sources.
-- A literal `id` is an error in a fill that is inside a template or whose slot has more than one
-  placement, and in content placed inside such a fill. (Plain slot content inside a `data-sn-for`
-  has the same problem today, unchecked; the same rule applies to it.)
 - A fill for a slot the component does not have is `SN314`, the existing unknown-slot error.
+- Whether a slot is filled cannot be tested in the component; an unfilled slot shows its default.
 
 #### One slot in each branch of a chain
 
 `SN312` counts placements that can render together. Two `<slot>`s of one name in different branches
 of one `if`/`else` chain cannot, so they are allowed; for a slot that passes nothing, its content is
-copied into each branch at build time, and only one renders. This is what lets a heading fill pick
-its level ([below](#a-slot-inside-a-fill)).
+copied into each branch at build time, as a slot inside a `for` already renders its content per row,
+and only one branch renders. This is what lets a heading fill pick its level
+([below](#a-slot-inside-a-fill)).
 
 #### A `<slot>` inside a fill
 
@@ -333,6 +394,12 @@ The cases at the edge:
 - A `<slot>` that no component or fill encloses (on a page, or in a page's slot content) is an
   error. Today it is left in the HTML.
 
+#### Literal ids in repeated markup
+
+A literal `id` in markup that renders more than once (anything a `for` repeats, a fill inside a
+template, or a fill of a slot placed more than once) is a warning, in pages and components alike.
+Today it is unchecked in a page's loop.
+
 ### 3. The component root
 
 A component's root exists so that what a caller writes on the tag (`class`, `id`, `aria-*`,
@@ -393,18 +460,23 @@ data, and an element an app can swap for its own.
 - With a `<slot>` as root, they land on the fill. One attribute on both the tag and the fill is an
   error at the tag, which names the fill.
 - **On a shared definition** (a recursion point, a candidate of `<sn-component use>`), the tag's
-  attributes become hidden inputs of the definition, as a fill's reads do ([4](#what-a-fill-may-contain)),
-  and are written onto the root the definition renders. Today they are dropped silently.
-  `<sn-component>` keeps refusing other attributes (`SN101`).
+  attributes are compiled in the scope where the tag is written and written onto the root the
+  definition renders, read through the run-time scope chain as fills are
+  ([4](#what-a-fill-may-contain)). Today they are dropped silently. `<sn-component>` keeps refusing
+  other attributes (`SN101`).
 - A root that may render nothing takes no `id`, `data-sn-model`, action (`data-sn-post`, …) or
   `data-sn-transition` on its tag: each would point at or depend on an element that may not exist.
   That is an error.
 
 #### Scoped styles
 
-- `data-sn-c` holds a list of names (`data-sn-c="primary-button ui-button"`) and the compiler
-  matches it with `~=`, so one element can be the root of several components and each one's rules
-  reach it. A component's rules stop at a nested root as today.
+- `data-sn-c` stays one name: the component whose markup the element is.
+- When a component's root is another component's tag, the outer component's rules can only reach
+  that element (its own markup inside is slot content, which `data-sn-s` already scopes). The
+  compiler marks the element with the outer names in a second attribute (`data-sn-r`, written by the
+  compiler like `data-sn-c`) and emits the outer component's root rules against it, outside
+  `@scope`. A shared `@scope` would not work: the element would be both the scope's root and its
+  limit, and the outer rules would reach the inner component's markup.
 - An `if` root's branches each carry the marker.
 - A `<slot>` as root: the component's root rules apply to its default, never to a fill; an instance
   whose slot is filled has no element with the component's marker. A fill is the caller's markup and
@@ -424,13 +496,20 @@ the element sinter uses for "no element of its own".
 
 - Search highlighting, a list joined with commas and "and", a translated sentence with a link in it,
   and every run of text in a markdown paragraph need it.
-- A text node becomes a binding target: a new kind of node in the IR, the runtime's row paths
+- **One node slot.** A text binding always occupies exactly one node: a `Text`, or an empty comment
+  while its value is empty. So sibling paths do not shift with the value.
+- **Separators.** In HTML written at build time, in HTML the early script renders as the page is
+  parsed, and in the content of every template in the head, the compiler writes an empty comment
+  (`<!---->`) between a text binding and a neighbouring text node, so each text node is found after
+  the parser has merged them. A constant text folds into the HTML as text, with no comment, when
+  nothing beside it runs.
+- **Outside rows,** a text binding has no element for a `data-sn` id, so it is an anchor pair with
+  its text between (`<!--sn 7-->text<!--/sn-->`), which needs no separator.
+- **A target in the IR.** A text node is a new kind of node in the IR, the runtime's row paths
   (which check tag names today) and the early script's writers.
-- In HTML written at build time, in HTML the early script renders as the page is parsed, and in the
-  content of every template in the head, the compiler writes an empty comment (`<!---->`) between a
-  text binding and a neighbouring text node, and in place of an empty one, so each text node is
-  found after the parser has merged or dropped them. A constant text folds into the HTML as text,
-  with no comment, when nothing beside it runs.
+- **Robustness.** A row's first node is never a text node (a row that would start with one starts
+  with its anchor), and a write finds its text from the node before it, so a text node that browser
+  translation or an extension replaced is found again rather than written while detached.
 - `data-sn-text` with `data-sn-if` or `data-sn-for` on the same `<template>` is an error.
 
 ### 4. Tree slots
@@ -486,31 +565,27 @@ inner use that passes direct content for a name it does not declare is `SN314` t
 
 #### What a fill may contain
 
-A fill is compiled as a shared definition of its own. Definitions are compiled with an empty scope
-and take only props, so what a fill reads from the caller is carried in. In the first version:
+A fill is compiled once, keyed by its source location, in the caller's scope: it reads the caller's
+state, `data-sn-let` names, loop variables and props as any markup there does. At run time, the
+tree's rows chain to the scope of the row where the root is used (`Object.create`, as today), so the
+fill's reads resolve through that chain; only `$slot` and the choice of the fill travel down the tree
+as props.
 
-- Reads of the caller's scope (state, `data-sn-let` names, loop variables, props) and `$slot`: the
-  names it reads become hidden inputs, passed through every level of the tree, through
-  `<sn-component use>` points, and into the children a fill's `<slot>` places. A `data-sn-let` name
-  is captured as its value, as a prop is.
-- Store functions on caller rows (`patch(c, …)`): each hidden input carries the sources it has at
-  the use, as definition props do (`@def:<name>:<prop>`).
-- Handlers that write page-level state. A fill that writes state declared inside a caller's row is an
-  error in the first version: a write needs a reference to that row's scope, not a value.
-- `$el`, `$event` and `emit()`, as in the caller's markup. `emit()` names are checked against the
-  component whose markup the fill is.
+- So a fill may read, write state (also state declared in the caller's row), call store functions on
+  caller rows with their provenance, and use `$el`, `$event` and `emit()` as the caller's markup
+  does. `emit()` names are checked against the component whose markup the fill is.
+- A change to state a fill reads renders the fills that read it, not every level of the tree.
+- This needs the runtime names of the tree's own loop variables and state to be unique, so that no
+  library name shadows a caller's on the chain. Today's renaming is partial; step 5 completes it.
 
 #### How it compiles
 
-Shared definitions are already selected by an id read at run time (`src/defs.ts`). A root use with
-fills compiles each fill as a definition, and passes the fill's definition id down the tree as one
-more hidden input; a placement instantiates the fill's definition when it has one, and its default
-otherwise. The library's definitions are compiled once, whatever the fills. A fill's definition is
-keyed by its source location (so the same text in two loops is two definitions, each with its own
-resolved names and types) and the use's `data-sn-early` mode.
-
-`data-sn-early="off"` on a root use applies to its fills as well: unlike plain slot content, fills
-are compiled as definitions the tree instantiates.
+Each fill is a template of its own. A placement is a choice anchor ([1](#three-kinds-of-anchor))
+between its default and the fill the root's use passed down, so the library's definitions are
+compiled once, whatever the fills. A fill's template is keyed by its source location (the same text
+in two loops is two templates, each with its own resolved names and types) and the use's
+`data-sn-early` mode. `data-sn-early="off"` on a root use applies to its fills as well: unlike plain
+slot content, fills are templates the tree instantiates.
 
 #### App-wide looks and wrappers
 
@@ -549,24 +624,24 @@ of this is useful on its own, for nested constant data in any page.
    Image analysis is already async with a recompile; that stays.
 2. **Nested constant loops.** A row that contains a template is unrolled when that template is
    itself over constants, at any depth.
-3. **Decisions per instance.** A `data-sn-if` that reads the row, and a `<sn-component use>` over a
-   constant node type, are decided per unrolled copy. Keys become instance paths: the template's
-   file and offset, the component chain, and the item index at each level. Literal props already
-   decide per use; this extends it to rows.
-4. **A fixpoint, not two passes.** Expansion repeats until nothing more is decided: today's two
-   passes decide one level.
+3. **Decisions per instance.** A `data-sn-if` that reads the row, and a choice over a constant value,
+   are decided per unrolled copy. Keys become instance paths: the template's file and offset, the
+   component chain, and the item index at each level. Literal props already decide per use; this
+   extends it to rows.
+4. **A worklist, not passes.** Expansion continues within one compile until nothing more is decided.
+   Today each further level would cost one more full compile (`compilePasses`), also in the LSP.
 5. **Shared definitions over constants.** A recursion point instantiated over constant props is
    expanded at build time like a nested loop, and a definition leaves the page when nothing else
-   instantiates it. Fill definitions ([4](#how-it-compiles)) expand the same way.
+   instantiates it. Fill templates ([4](#how-it-compiles)) expand the same way.
 
 The conditions on rows stay as they are, at every level: bindings of kind `text`, `attr`, `class`,
 `style` or `show` that read only the row and fixed state, no state of their own, and a page with no
-errors but `SN322`. A tree with one subtree that needs run time (a fill with a handler, a code block
-with a copy button) is not unrolled in the first version.
+errors but `SN322`. Whether a node with a handler (a copy button on a code block) may stay in an
+unrolled tree is the one question left for the maintainer ([Open questions](#open-questions)).
 
-There is a limit on the nodes of one expansion, beyond the 1,000 items per list. It also bounds
-layout and image work, which runs over the whole document. Its value comes from build times
-measured when item 5 is built; over it, the tree is left to the runtime with a warning at the use.
+The expansion limit is per page, reported at the use that crosses it, beside the 1,000 items per
+list: what it bounds (the layout and images) runs over the whole document. Its value comes from
+build times measured in step 9; over it, the tree is left to the runtime with a warning.
 
 ### 6. Helpers over constants run at build time
 
@@ -576,24 +651,29 @@ way. There is no marker; what may fold is decided from the code.
 
 - **Where.** In the positions the evaluator considers: bindings and state initializers. Never in
   handlers, actions or `then`.
-- **What.** The helper's module and what it imports must not use, as free names, `Date`, `Intl`,
-  `Math.random`, `crypto`, `performance`, `navigator`, `location`, `document`, `window` or storage,
-  nor the members `toLocale*`, `localeCompare`, `innerHTML`, `outerHTML` or `insertAdjacentHTML`.
-  The walk follows imports into packages, resolved with the conditions the browser build uses, so
-  what is checked is what ships. A local variable named `location` does not count. A helper that
-  uses one of them stays in the browser, with no warning: that is what it is for.
+- **What may fold.** A helper folds when the code it can reach uses only the globals ECMAScript
+  defines (`Object`, `Array`, `Math` but not `Math.random`, `JSON`, `Map`, `RegExp` and the rest),
+  and not `Date`, `Intl`, the members `toLocale*` and `localeCompare`, or `innerHTML`, `outerHTML`
+  and `insertAdjacentHTML`. It is an allowlist: `globalThis`, `self`, `process`, `import.meta.env`,
+  `fetch`, timers and every browser name stop a helper from folding without being listed.
+- **Per function.** Reachability is followed per exported function, through the functions it calls
+  and the modules it imports; a module's top-level code counts for every function in it. One date
+  formatter in `sinter.helpers.ts` does not stop the other helpers from folding.
+- **Conditions.** The walk follows imports into packages, resolved with production conditions, the
+  same in dev and in the build, so `SN322` does not differ between them. A local variable named like
+  a global (`location`) does not count.
+- A helper that cannot fold stays in the browser, with no warning: that is what it is for.
 - **The result** must be plain data (JSON values). A call that throws, or returns anything else, is
   left to the browser, with a dev warning at the call, once.
 - **Loading.** `compile()` stays synchronous: the helpers module is loaded before compiling and
-  passed in. The build loads it with Vite's module runner, the app's Vite config and the browser
-  conditions (aliases and plugins apply; `sinter render`'s private server, with `configFile: false`,
-  does not do that). `sinter check` and `sinter lsp` load it the same way, so what folds, and so
-  `SN322`, agrees with the build; the LSP reloads it when its files change. A module that fails to
-  load in Node (one that reads `location` at its top level, or whose browser build touches the DOM
-  when it loads) folds nothing, with one warning. Testing's `render()` and `firstPaint()` already
-  take `helpers`.
+  passed in. The build loads it with Vite's module runner and the app's Vite config (aliases and
+  plugins apply; `sinter render`'s private server, with `configFile: false`, does not do that).
+  `sinter check` and `sinter lsp` load it the same way, so what folds, and so `SN322`, agrees with
+  the build; the LSP reloads it when its files change. A module that fails to load in Node folds
+  nothing, with one warning. Testing's `render()` and `firstPaint()` already take `helpers`.
 - **Why a call did not fold.** On a `static` page, `SN322` names the call that keeps it from folding
-  and the reason (a name from the list, a throw, a result that is not plain data).
+  and the reason (a name outside the allowlist and where it is reached, a throw, a result that is not
+  plain data).
 - **Purity is still trusted.** Dev builds run each folded call twice and warn when the results
   differ.
 - **Where a folded result goes.** Written into the HTML where it is a binding's value. Where
@@ -606,10 +686,10 @@ way. There is no marker; what may fold is decided from the code.
   ([Alternatives](#alternatives-considered)): its output is markup the checker and the editor cannot
   follow. A helper's output is data with a type.
 
-### 7. Files: the `file:` scheme
+### 7. Files: the `file:` source
 
-`file:` is a scheme for a resource's `src`, handled before an API name is looked for, with or
-without `sinter({ apis })`. It names a file in the project, read at build time.
+`file` is a second built-in name in the `src` grammar, beside `site`, read at build time with or
+without `sinter({ apis })`.
 
 ```html
 <sn-resource name="post" src="file:./post.md"></sn-resource>
@@ -631,14 +711,17 @@ without `sinter({ apis })`. It names a file in the project, read at build time.
 - There is nothing to load or change. `$meta.post` is constant: `loading` false, `error`, `loadedAt`
   and the rest null. `refresh`, `cache`, `paginate`, `each`, `call`, `when`, `then`, `early`, sync
   events, store functions and write-through on it are errors.
-- The dev server reloads the page when the file changes.
+- The file is one of the page's dependencies (`CompileResult.files`), so the dev server reloads the
+  page when it changes.
 
 Relative URLs inside a file's text are the parser's to resolve. A markdown file's images are next to
 it in the repo, but the component that renders them is in the library, and the image pipeline
-resolves a relative `src` against the file that wrote the element. So the parser takes a base and
-writes root paths: `md.parse(post, { base: '/content/posts/' })` turns `./diagram.png` into
-`/content/posts/diagram.png`, which the image pipeline resolves against the project root. A link to
-another markdown file (`./other.md`) stays as written; a page for it is not in this proposal.
+resolves a relative `src` against the file that wrote the element. So the parser takes a base, a
+path from the project root, and writes root paths: `md.parse(post, { base: '/content/posts/' })`
+turns `./diagram.png` into `/content/posts/diagram.png`. A folded `<img>` goes through the image
+pipeline, which resolves it against the project root and writes the built URL, also under Vite's
+`base`. For markdown from an API nothing is rewritten. A link to another markdown file
+(`./other.md`) stays as written.
 
 ### 8. Lets over helpers
 
@@ -656,11 +739,12 @@ computed from data, so the parse goes there, with two rules.
 #### A let over a helper is cached
 
 A let entry whose expression calls a helper at its top level (not inside an arrow function) is
-computed once per scope instance and kept while the helper's arguments compare equal. Arguments are
-compared by identity; an object or array expression in argument position (`{ headings: 'strong' }`,
-`{ base: c.base }`) is compared member by member, by identity. A change to `comments` does not parse
-every row again: each row's call compares its own `c.body`. A let without a helper call stays
-inlined, as today.
+computed once per scope instance and kept until one of its dependencies changes, as tracked for any
+binding. When they change, it is computed again, unless every argument of the call is a primitive,
+or an object literal of primitives, equal to the last call's. So `md.parse(c.body, { headings:
+'strong' })` parses once per body, and `visible(tasks, q)` after `tasks.push(…)` is computed again,
+since `tasks` is the same object with new contents. A let without a helper call stays inlined, as
+today.
 
 - Lets that read `$el` or `$index` are cached per instance like any other.
 - A handler, or an `<sn-sync>` mapping, that reads the let gets the cached value.
@@ -676,7 +760,10 @@ turn its functions into promises: once loaded, they are synchronous.
 
 - A let that calls a member of such a module is `undefined` until the module has arrived, and
   `sinter check` types it `T | undefined`. The module's arrival is one more dependency: it renders
-  what reads the let.
+  what reads the let. A page shows something else meanwhile with `data-sn-if` on the let, or `??`;
+  a let has no `$meta`. An app that needs loading and error states uses `<sn-resource call>`.
+- If the module fails to load, the let stays `undefined` and the failure takes the unhandled-error
+  path (`onError`), once.
 - A component prop is a let, so `data-sn-prop="{ doc: md.parse(x) }"` is the same.
 - Anywhere else (a binding, a handler, a state initializer), calling a member of such a module is
   `SN324`, with the hint to name it in a `data-sn-let`. The rule is per module: a library keeps the
@@ -684,15 +771,18 @@ turn its functions into promises: once loaded, they are synchronous.
   parser, and they stay ordinary helpers. For that, the page module imports each member from the
   module that declares it, as the early file already does; today it imports namespace members from
   the namespace's module.
+- Only the app's `lazy` option makes a package lazy. A library cannot: it would change types and
+  make the app's call sites `SN324`.
 - The module loads when the first scope with such a let is created. A page whose main content is
   markdown from an API adds `data-sn-preload` to start it with the page, as lazy.md advises: measure
   first.
 - A let that waits is not early. The rest of the item (a comment's author and date) still renders
   early with embedded data.
 - An app that leaves the parser out of `lazy` gets a synchronous helper: the let is early over
-  embedded data, and the parser is in both the early file and the page module, and parses twice. A
-  parser of micromark's size is likely to be over the early budget (`earlyBudget`, 10,000 bytes);
-  the plan measures it.
+  embedded data, and the parser is in both the early file and the page module, and parses twice.
+  Which is better for an article body (lazy, or the parser in the early file) is measured in step 1:
+  the early file against `earlyBudget` (10,000 bytes), the parse at takeover, and the article's LCP
+  both ways. RealWorld found that a lazy renderer held its LCP.
 - A draft in state is a let like any other: `data-sn-let="{ preview: md.parse(draft) }"` is a live
   preview, cached until the draft changes.
 - Two views of one item parse it twice, once in each scope.
@@ -764,7 +854,7 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
   `data-sn-attr` takes literal keys and sinter has no dynamic tag, so a list chosen by the caller
   cannot be rendered; the set grows with the library.
 - Link and image URLs from the tree are `attr` bindings, so the runtime's scheme check refuses
-  `javascript:` and other unsafe URLs without the parser's help.
+  `javascript:` and other unsafe URLs, at run time, early and when folded, without the parser's help.
 - An image from user content is a plain `<img>`: the library's image component does not use a
   resizing service unless the app's fill does.
 
@@ -775,11 +865,14 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
   union; `options.base` turns relative URLs into root paths. `md.headings(doc)` (a table of
   contents) and `md.text(doc)` (a description, a reading time) read a tree and live in a module that
   does not import the parser.
-- **A parser that runs under Trusted Types.** micromark's browser build decodes named character
-  references through `innerHTML` (its `decode-named-character-reference` dependency), which throws
-  under sinter's `require-trusted-types-for 'script'`. The library depends on a build that decodes
-  from a table, in the browser and in Node, and has a browser test with entities (`&amp;`) under
-  Trusted Types.
+- **The parser is one prebundled module**, built by the library with production, non-browser
+  conditions. A library cannot control how the app's Vite resolves a transitive dependency's
+  `browser` or `development` condition, and micromark's decoder of named character references has a
+  browser build that decodes through `innerHTML`, which throws under sinter's
+  `require-trusted-types-for 'script'`. Prebundled, the parser behaves the same under Trusted Types
+  in every app, and the static check of [6](#6-helpers-over-constants-run-at-build-time) sees one
+  module graph. Step 1 confirms the parser's export maps; the library has a browser test with
+  entities (`&amp;`) under Trusted Types.
 - **One function in three places.** Over a `file:` resource, the compiler runs it. In a let over API
   data, it loads on demand when the app lists the parser in `lazy`, or with the page when it does not.
 - **Public components**: `md-doc` (block content) and `md-inline` (one line: a title, a table
@@ -788,9 +881,9 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
   `doc` as optional, rendering their content only when it is there: a let that waits leaves the
   element in place, so the tag may carry an `id`.
 - **Roots.** A heading's root is an `if` chain over its depth, a list's over `ordered`, and a node a
-  caller can change has its slot as its root; text runs are `<template data-sn-text>` in the
-  children loop. `## Hello *world*` renders as `<h2>Hello <em>world</em></h2>`, plus the anchor
-  comments of what renders at run time.
+  caller can change has its slot as its root. Block and inline nodes are dispatched by choice
+  anchors; text runs are `<template data-sn-text>` in the children loop. `## Hello *world*` renders
+  as `<h2>Hello <em>world</em></h2>`, plus the anchor comments of what renders at run time.
 - **Declared slots** on both roots, for the nodes an app is likely to change: `heading`, `link`,
   `image`, `code`, `inlineCode`, `blockquote`, `table`. Adding one later is additive.
 - **What sinter does for it:** internal links prefetch; local images from the repo are optimized;
@@ -801,23 +894,29 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
 
 ## Breaking changes
 
+All of them go into the CHANGELOG under the pre-1.0 policy.
+
 - **The DOM shape of every list and branch.** `<template>` elements leave the body: an `if`, a `for`,
-  a recursion point and a choice are marked by comments, and their templates are in the head. CSS
-  that worked around the templates (`:first-of-type` for `:first-child`) keeps working; CSS, tests or
-  scripts that select the templates in the body (`template[data-sn]`) do not.
+  a recursion point and a choice are marked by comments, and their templates are in the head. So:
+  - `:first-child`, `:only-child` and `:last-child` now match the first or only row, and
+    `:nth-child` parity flips (the template was child 1): zebra striping changes;
+  - `* + *` no longer matches the first row, and `ul:empty` matches an empty list;
+  - `.children[n]`, `firstElementChild` and `childNodes` indexes shift in tests and scripts;
+  - CSS, tests or scripts that select the templates in the body (`template[data-sn]`) find nothing;
+  - in this repository, `.page-item:first-child .page-link` (`examples/realworld/src/styles.css`)
+    starts matching over the pager's rows (`conduit-pager.html`).
+- **An author's comment that starts with `sn`** is an error.
+- **`$el` in an `if` or `for` expression** is an error: the anchor is a comment.
 - **The helpers module runs in Node**, in builds, the dev server, `sinter check` and the LSP. Its
   side effects at load run there; a module that cannot load there folds nothing and warns.
 - **Helpers over constants fold.** A binding over one is written into the HTML, and state
   initialized by one becomes a constant: bindings over it leave the early script, and a page can
-  become static. A helper that breaks the purity contract without using the listed names gets its
+  become static. A helper that breaks the purity contract while using only allowed globals gets its
   result baked in; the dev check warns where two runs differ.
 - **Every let over a helper is cached**, which changes when the helper runs and what is kept in
   memory, for every app that has one. A helper that breaks the purity contract no longer gives a new
   value at every read.
 - **A `<slot>` that no component or fill encloses** is an error; today it is left in the HTML.
-- **A literal `id` in plain slot content inside a `data-sn-for`** is an error; today it repeats.
-- **`data-sn-c` holds a list.** Code that matched it exactly (`[data-sn-c="name"]`) matches with
-  `~=`.
 - **`file` is a reserved API name.** An app with an API named `file` renames it.
 - **`Slot` is a reserved type name** in component declarations.
 - **The tag's attributes on a recursion point** now reach the root, where they were dropped.
@@ -825,24 +924,29 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
   once that package is configured.
 
 Relaxed, not breaking: `SN312` counts only placements that can render together, a slot that passes
-data may be placed more than once, and a component's root need not be one plain element.
+data may be placed more than once, and a component's root need not be one plain element. New
+warnings, not errors: a literal `id` in repeated markup.
 
 ## Limits
 
-- A constant tree with any subtree that needs run time is not unrolled in the first version.
+- A constant tree with a subtree that needs run time is unrolled only as far as the open question on
+  handlers allows.
 - Markdown from an API as a string is in the first frame only when the parser is not lazy; then the
   parser is in the early file and the page module, and parses twice, once in each. Reserved space
   covers only paginated lists, so a body that renders late shifts the layout. An API that sends the
   tree avoids all three.
 - A placement gives a fill only its default slot; a fill cannot receive named parts.
 - A stream that appends to a let's source parses the whole body again for each chunk.
-- A fill cannot write state declared inside a caller's row.
-- Links between markdown files stay as written.
+- Links between markdown files stay as written, and a relative link to a repo file is not emitted as
+  an asset. A run-time image under a root path needs to be in `publicDir`.
 - A root that is not a plain element is replaced when its condition changes, and focus on it is
   lost. Components with a script, or with state on their root, keep a plain root.
 - `<sn-component>` takes no attributes but `use`, `data-sn-prop` and `data-sn-early`.
 - An HTML minifier or CDN optimizer that strips comments breaks takeover: anchors and text
-  separators are comments. Such stripping has to be turned off for sinter's pages.
+  separators are comments. The dev warnings for missing anchors show it; such stripping has to be
+  turned off for sinter's pages.
+- Browser translation and extensions that rewrite text: a replaced bound text node is found again
+  from its marker, but one that is removed with its marker is not.
 
 ## Diagnostics
 
@@ -850,6 +954,10 @@ data may be placed more than once, and a component's root need not be one plain 
 
 | Situation | Code |
 | --- | --- |
+| An author's comment that starts with `sn` | new |
+| `$el` in an `if`, `for` or choice expression | new |
+| An anchor or `<template data-sn-text>` inside `<textarea>` or `<title>` | new |
+| A missing, duplicate or unpaired anchor comment at mount | dev warning, as for a missing `data-sn` element |
 | A fill for a slot the component or root does not declare; direct content for a name an inner use does not declare | `SN314`, with the declared names |
 | A `Slot<T>` member passed through `data-sn-prop` | `SN313` |
 | `Slot<T>` in a type alias, with `?`, in a head or layout declaration, or an app type named `Slot` | new |
@@ -860,8 +968,7 @@ data may be placed more than once, and a component's root need not be one plain 
 | A `<slot>` in a fill whose placement's default renders no element | new |
 | Two placements of one name that can render together, or two unnamed `<slot>`s in one fill | `SN312` |
 | A `<slot>` that no component or fill encloses | new |
-| A literal `id` in a fill inside a template, in a fill of a slot placed more than once, or in plain slot content inside a `data-sn-for` | new |
-| A fill writes state declared inside a caller's row | new |
+| A literal `id` in markup that renders more than once | new warning |
 | The helper form of `<sn-component use>` in a component that declares slots or has a tree placement | new |
 | A root that can render more than one element, or text | new |
 | A component with a script or root state whose root is not a plain element | new |
@@ -871,11 +978,12 @@ data may be placed more than once, and a component's root need not be one plain 
 | A helper call that throws at build time or returns something that is not plain data | dev warning, at the call |
 | A call that keeps a `static` page from folding, with the reason | `SN322` |
 | The helpers module could not be loaded at build time | warning, once |
-| A tree over the expansion limit | warning, at the use, with the count |
+| A page over the expansion limit | warning, at the use that crosses it |
 | An API named `file` | `SN329` |
 | A `file:` source with an interpolation, outside the project root, or missing; `file:` outside `<sn-resource src>` | new |
 | An attribute or store function on a `file:` resource that needs loading or writing | new |
 | A member of a helper module that reaches a lazy package, called outside a `data-sn-let` or prop | `SN324`, with the hint |
+| A lazy helper module that fails to load | the unhandled-error path |
 | A configured package without a `"sinter"` folder, or without `components/` | new |
 | Two packages, or a package and the app, own the same prefix | new |
 | The app uses an internal library component | new |
@@ -889,20 +997,26 @@ data may be placed more than once, and a component's root need not be one plain 
 | Shadowing (an app file named like a library component replaces it) | Silent, global, and makes every internal name public API. One wrapper with fills does the same, visibly |
 | Inner components declare their own fillable slots | The contract would spread over every file of the library |
 | Keeping template anchors, with roots that leave none (third revision) | A rendered tree keeps a template beside every node anyway, so markdown from an API would style differently from the same markdown from the repo, and a root that renders nothing leaves a keyed row without a first node |
-| Copying the library's definitions per set of fills (third revision) | Every definition the root reaches is duplicated; passing the fill's definition id down copies nothing |
+| One anchor per candidate of `<sn-component use>` (today) | Two comments and one evaluation per candidate per node; a choice anchor is one pair and one evaluation |
+| A new handoff entry keyed by anchor id (fourth revision) | An anchor inside a row exists once per row; the property on the start comment is per node, as today |
+| Copying the library's definitions per set of fills (third revision) | Every definition the root reaches is duplicated; a choice anchor between default and fill copies nothing |
+| Hidden inputs threaded through the tree (fourth revision) | Any state a fill reads would re-render every level of the tree, and a fill could not write a caller row's state; the scope chain already reaches the caller |
+| One `data-sn-c` list for a component tag as root (fourth revision) | The element would be both the `@scope` root and its limit, so the outer component's rules would reach the inner one's markup |
+| Caching a let by argument identity (fourth revision) | Stale after a change in place, which sinter supports |
+| A denylist of globals, per module (fourth revision) | It cannot be complete (`globalThis`, `process`, `import.meta.env`), and one date formatter would stop every helper in the file from folding |
 | A `data-sn-slots` attribute (first revision) | A third declaration beside props and events; `Slot<T>` in the props type keeps two |
 | `data-sn-let` on `<slot>` (the components proposal's sketch, second revision) | Lets take no shorthand and may not repeat a prop's name, and the fill reads `$slot.x`, not the bare name. `data-sn-prop` already means "values for what renders inside" |
 | A marker on tree placements (`data-sn-tree`, first revision) | A placement of a name the component does not declare is already explicit |
 | `<sn-children>` (first revision) | A new element for what a `<slot>` inside a fill means under the nearest-markup rule |
 | An empty fill gets the default's children (second revision) | Invisible in the markup, changes existing empty fills, and cannot place children beside other content |
 | A `pure()` marker on helpers (first revision) | What may fold can be read from the code; a marker would be one more thing to keep in step |
-| Every helper over constants folds, by the purity contract alone (second revision) | The contract is about re-rendering in one browser, not about the build machine and the visitor's browser agreeing on locale, time zone or globals |
 | `$file()` (first revision), or `./` in `src` as a file (second revision) | `$file()` is a function among magic names that are values; `./` would make `post.md` and `./post.md` mean different things, and conflicts with `apis` |
 | `$meta.<name>.url` as a base (second revision) | Not known early, a path for files but a URL for APIs, and only files need a base; the parser takes one |
-| Derived fields on resources (first revision) | A new attribute for what `data-sn-let` names; a let also covers drafts in state. It parsed once per item for all views, where a let parses once per scope |
+| Derived fields on resources (first revision) | A new attribute for what `data-sn-let` names; a let also covers drafts in state |
 | `<sn-resource call>` for markdown from an API | What lazy.md recommends, and enough for one article, but it does not combine with `each`, is not early, and calls action functions, not the helpers a page folds |
-| Handing cached lets from the early script to the page module | A second kind of handoff, worth it only for a parser that is not lazy; left open |
-| Bindings that wait for a lazy package | Every binding would need a pending state. Only lets wait, and they read as `undefined`, as a resource that has not loaded reads as empty |
+| A library that declares its parser lazy | `lazy` changes types and makes call sites `SN324`; a library switching it would break app builds |
+| `$meta` for a let that waits | A let with a status would be a second kind of resource; `<sn-resource call>` is that already |
+| Bindings that wait for a lazy package | Every binding would need a pending state. Only lets wait, and they read as `undefined` |
 | A dynamic tag (`data-sn-tag`) | A new attribute that covers only the choice of tag, not a slot or a component as the root, nor text |
 | Components without a root (fragments) | A tag whose component has several top-level nodes could take no `class` or handlers, and a component edited from one root to two would break its callers |
 | A compiler hook a library registers for its tag | Its output is markup that `sinter check` and the editor cannot follow |
@@ -913,23 +1027,30 @@ data may be placed more than once, and a component's root need not be one plain 
 - Pages from a folder of markdown files (a blog: one page per post, an index of them, links between
   them). It builds on `file:` and helpers at build time, and needs its own design for page paths and
   interpolated `file:` sources.
-- Partial unrolling: a constant tree with a subtree that needs run time.
 - Named parts a placement gives its fill.
+- Testing in a component whether a slot is filled; additive later, as a per-use constant like a
+  left-out prop.
 - Parsing in a worker.
 - Using sinter components outside sinter: unchanged, still deferred.
 
 ## Testing
 
-- Compiler tests in `test/` for each step: anchors, slots, fills and their `<slot>`s, roots, text
-  nodes, reach-through and fill definitions, folding and unrolling, `file:`, lets, packages. Each
-  diagnostic has a test.
+- Compiler tests in `test/` for each step: anchors, choices, slots, fills and their `<slot>`s,
+  roots, text nodes, reach-through and fill templates, folding and unrolling, `file:`, lets,
+  packages. Each diagnostic has a test. Layout and reserved-space goldens are updated for the new
+  anchors.
 - Browser tests for the runtime parts, under the strict CSP and Trusted Types as today: anchors in
-  lists, branches, trees and keyed reorders (including rows whose content renders nothing); fills in
-  rows; fill definitions instantiated by the runtime and the early script; roots replaced when their
-  condition changes; cached and waiting lets; a lazy helper module.
+  lists, branches, choices, trees and keyed reorders (including rows whose content renders nothing);
+  anchors in tables, `<select>`, SVG and dialogs; fills in rows; fill templates instantiated by the
+  runtime and the early script; roots replaced when their condition changes; cached and waiting lets;
+  a lazy helper module and its failure; the dev warning for stripped comments.
 - First paint and takeover, with the takeover changing nothing (the existing `firstPaint` then
-  `render` pattern): anchors found by the early script and the page module, roots decided at build
-  time, early and at mount, and text nodes side by side, empty, and in row templates.
+  `render` pattern): anchors found by the early script and the page module, an early render that
+  failed and is cleared, roots decided at build time, early and at mount, and text nodes side by
+  side, empty, and in row templates. The testing module's whole-document path (`writePage`) with
+  templates in the head.
+- Tests with tables run on jsdom: happy-dom mis-parses `<tr>` and `<td>` inside a template, today and
+  after this change.
 - The testing module's `render()` and `firstPaint()` take fills, `file:` resources (through
   `files`) and the helpers that fold.
 - A library's fixture pages are checked by `sinter check`, and the markdown library's are tested in
@@ -937,68 +1058,79 @@ data may be placed more than once, and a component's root need not be one plain 
 
 ## Docs
 
-Each step updates `spec.md`, `attributes.md`, `components.md` (and `lazy.md`, `resources.md`,
-`apis.md`, `configuration.md` where it touches them), `llms.txt`, the compiler's vocabulary, the
-editor data (`html-custom-data.json`) and the LSP: hover on `$slot` and on a `<slot>` says what
-fills it, and completion offers a root's declared slots on a fill. The markdown library gets its own
-page and a recipe.
+Each step updates `spec.md` (Reserved space, HTML rewrite and the early script for anchors),
+`attributes.md`, `components.md` (and `lazy.md`, `resources.md`, `apis.md`, `configuration.md` where
+it touches them), `llms.txt`, the compiler's vocabulary, the editor data (`html-custom-data.json`),
+the examples whose CSS or tests depend on the old DOM, and the LSP: hover on `$slot` and on a
+`<slot>` says what fills it, and completion offers a root's declared slots on a fill. The markdown
+library gets its own page and a recipe.
 
 ## Plan
 
 1. **A spike in userland, measuring only.** In an example app: `md.parse` as an ordinary helper over
-   mdast, loaded with the page; about fifteen recursive `md-*` components; an article and a comment
-   list from the API, under Trusted Types. Measure, in `bench/`: render time and binding count for a
-   long article; the DOM it produces (wrappers, templates and comments per node, inline whitespace);
-   the page and early files with embedded data against `earlyBudget`; the parse at takeover;
-   re-parse cost per render, since lets are inlined today, and per streamed chunk. It cannot try
-   fills, which need the compiler.
-2. **Anchors as comments** (section 1): templates in the head, start and end comments, addressing,
-   the early script's handoff by id, keyed lists. Useful on its own: prose CSS over any list.
-   `bench/js-framework-benchmark` and the live grids must not regress.
+   mdast, loaded with the page; about fifteen recursive `md-*` components dispatched with
+   `<sn-component use>`; an article and a comment list from the API, under Trusted Types. Confirm
+   the parser's export maps and which builds touch the DOM. Measure, in `bench/`:
+   - render time and binding count for a long article;
+   - the DOM it produces: wrappers, templates and comments per node, and the anchors per node with
+     fifteen candidates;
+   - the page and early files with embedded data against `earlyBudget`, the parse at takeover, and
+     the article's LCP with the parser lazy and with the page;
+   - re-parse cost per render, since lets are inlined today, and per streamed chunk;
+   - the cost of a walk over elements and comments at mount on a page of 20,000 nodes.
+   It cannot try fills, which need the compiler.
+2. **Anchors as comments** (section 1): the three kinds of anchor, the choice among them; templates
+   in the head (or at the end of the body when nothing early uses them); ids and the IR change for
+   `else`; finding anchors at mount and early; the handoff on the start comment; keyed lists; the
+   layout model and reserved space; foreign content; the dev warnings; spec.md, the goldens and the
+   examples. Useful on its own: prose CSS over any list, and the SVG crash fixed. The
+   js-framework-benchmark, the live grids and the bytes before the body in `bench/first-paint` must
+   not regress.
 3. **Slots that pass data** (section 2): `Slot<T>`, `data-sn-prop` on `<slot>`, `$slot`, a slot per
-   branch, a fill's `<slot>` by the nearest-markup rule, with a data table and a list with custom
-   rows as tests.
+   branch, a fill's `<slot>` by the nearest-markup rule, literal ids in repeated markup, with a data
+   table and a list with custom rows as tests.
 4. **The component root and text nodes** (section 3): roots that render at most one element, the
-   tag's attributes on them and on shared definitions, the scope marker list, `<template
-   data-sn-text>` as a binding target with its comments. Useful on its own for buttons, headings and
-   variants. Needs 2.
+   tag's attributes on them and on shared definitions (which fixes the dropped attributes), the
+   root marker for scoped styles, `<template data-sn-text>` as a binding target with its separators.
+   Useful on its own for buttons, headings and variants. Needs 2.
 5. **Tree slots** (section 4) among app components: tree placements, roots and boundaries, fill
-   definitions selected by id, hidden inputs and their sources, early mode. The package rules are
-   tested in step 11. Needs 3 and 4.
+   templates chosen by choice anchors, fills compiled in the caller's scope and read through the
+   scope chain, with unique runtime names. Measures the re-render of a 3,000-node tree when state a
+   fill reads changes. The package rules are tested in step 11. Needs 3 and 4.
 6. **The constant pre-pass** (section 5, item 1): constants written before layout and images.
    Useful for any page whose constant images or classes come from bindings.
-7. **Nested constant loops, decisions per instance and a fixpoint** (section 5, items 2 to 4).
-   Useful for any page with nested constant data.
+7. **Nested constant loops, decisions per instance and the worklist** (section 5, items 2 to 4).
+   Measures build time against nesting depth, in the build and the LSP.
 8. **Helpers over constants and `file:`** (sections 6 and 7): the module runner with the app's
-   config and the browser conditions, in the build, `sinter check` and the LSP; the static check.
-9. **Constant trees** (section 5, item 5), fill definitions included: a docs page from a `.md` file
+   config, in the build, `sinter check` and the LSP; the allowlist check per function, run against
+   the markdown parser's real module graph under dev and build.
+9. **Constant trees** (section 5, item 5), fill templates included: a docs page from a `.md` file
    ships no JavaScript, with its images optimized. A test in `test/` and the `static-site` example.
    Sets the expansion limit. Needs 5, 6, 7 and 8.
-10. **Lets over helpers** (section 8): cached, and waiting for a lazy helper module, with members
-    imported from their declaring modules in the page module.
+10. **Lets over helpers** (section 8): cached by dependencies with equal primitive arguments, and
+    waiting for a lazy helper module, with members imported from their declaring modules in the
+    page module.
 11. **Libraries ship source** (section 9), once the format above is settled. The spike's components
     move into a local package with fixture pages; the package rules of step 5 and a library's lazy
     helper module from step 10 are tested here.
-12. **The markdown library** (sections 10 and 11), its docs page, `llms.txt`, and a recipe with an
-    article and its comments on one page.
+12. **The markdown library** (sections 10 and 11), with its prebundled parser, its docs page,
+    `llms.txt`, and a recipe with an article and its comments on one page.
 
 Steps 2, 3, 6 and 10 do not depend on each other.
 
 ## Open questions
 
-- Fills as elements, as slot content is today, or as `<template slot>` for every fill, which makes
-  the repetition visible and allows text or several elements without a wrapper.
-- Whether a component can test that a slot is filled.
-- Whether a library may declare that its parser is lazy, or only the app's `lazy` option does.
-- Whether a let that waits should expose that through `$meta` for a placeholder, or a `data-sn-if` on
-  the let is enough.
-- Handing cached lets from the early script to the page module, if step 1 shows the parse at
-  takeover matters for a parser that is not lazy.
-- How `md.parse`'s base and the image pipeline agree on root paths when Vite's `base` or `publicDir`
-  is set.
-- The expansion limit: per tree or per page, and its value.
-- Partial unrolling, if step 9 shows trees that are constant except for a button.
-- Writes from a fill to state inside a caller's row: needed, or a fill emits instead.
+- **For the maintainer: handlers in unrolled trees.** Today a row with a handler is never unrolled,
+  so a docs page whose code blocks have a copy button would ship its whole tree to the runtime, which
+  goes against the first goal. The options:
+  - (a) keep the rule in the first version, and decide later;
+  - (b) in step 9, allow nodes whose only run-time need is a handler that reads constants and the
+    node's own `$el` (a copy button): they stay in the unrolled HTML as elements with a handler,
+    adopted by the page module, and the rest of the tree is plain HTML.
+  The reviewer recommends (b).
+- **Measured, then decided:** handing cached lets from the early script to the page module, if the
+  parser fits the early file at all (step 1); the expansion limit's value (step 9); the cost of fills
+  read through the scope chain (step 5).
 
 ## Decisions
 
@@ -1010,20 +1142,26 @@ Decided with the user while drafting:
 | The component root | Renders at most one element: a plain element, an `if` chain, a component tag, `<sn-component use>` or a slot; plain for scripts and root state; text through `<template data-sn-text>` | [3](#3-the-component-root) |
 | Anchors | Comments in place and templates in the head, for every `if`, `for`, recursion point and choice | [1](#1-anchors-as-comments) |
 
-Proposed here, for review:
+Settled in the fourth review, from the code and the reasoning recorded there:
 
-| Question | Proposal | Section |
+| Question | Decision | Section |
 | --- | --- | --- |
-| Slot data | Declared as `Slot<T>` in the props type, passed with `data-sn-prop` on `<slot>`, read as `$slot` | [2](#2-slots-that-pass-data) |
-| One slot in several branches | Allowed when the branches cannot render together | [2](#one-slot-in-each-branch-of-a-chain) |
-| Reach-through | A placement of a name its component does not declare, filled by the nearest root that declares it, within the root's package | [4](#the-rules) |
-| Fills | Compiled as definitions selected by id; reads, store functions on caller rows, page-level writes; no writes to a caller row's state | [4](#what-a-fill-may-contain) |
+| Slot data | `Slot<T>` in the props type, `data-sn-prop` on `<slot>`, `$slot` | [2](#2-slots-that-pass-data) |
+| One slot in several branches | Allowed within one `if`/`else` chain | [2](#one-slot-in-each-branch-of-a-chain) |
+| Fills as elements or templates | Elements, as today; `<template slot>` only for a chain or a text | [2](#the-fill-slot) |
+| Testing whether a slot is filled | Not in this proposal | [Not in this proposal](#not-in-this-proposal) |
+| Reach-through | As proposed; the boundary is the app's components until packages exist | [4](#the-rules) |
+| How fills reach the caller | Compiled in the caller's scope and read through the run-time scope chain; choice anchors select them; writes to a caller row's state work | [4](#what-a-fill-may-contain) |
+| Scoped styles for a component tag as root | A root marker and root-only rules, not a shared `@scope` | [3](#scoped-styles) |
 | App-wide looks | A wrapper component with fills; no shadowing | [4](#app-wide-looks-and-wrappers) |
-| Constant folding | A constant pre-pass before images; nested loops, per-instance decisions, a fixpoint; then trees | [5](#5-constant-trees-are-unrolled) |
-| Helpers at build time | Calls over constants in bindings and state initializers, refused statically for helpers that use locale, time, DOM or browser names; loaded with the app's Vite config and the browser conditions | [6](#6-helpers-over-constants-run-at-build-time) |
-| Files from the repo | The `file:` scheme, with `file` reserved; what does not fold becomes embedded data | [7](#7-files-the-file-scheme) |
-| Markdown from an API | A let over the parser: cached per scope by its arguments; waiting for a helper module loaded whole | [8](#8-lets-over-helpers) |
-| How a library ships | As source, named in the config, an app-shaped folder | [9](#9-libraries-ship-source) |
+| Constant folding | A pre-pass before images; nested loops, per-instance decisions, a worklist; then trees | [5](#5-constant-trees-are-unrolled) |
+| The expansion limit's scope | Per page | [5](#5-constant-trees-are-unrolled) |
+| Helpers at build time | No marker; an allowlist of ECMAScript globals, reachability per exported function, production conditions in dev and build | [6](#6-helpers-over-constants-run-at-build-time) |
+| Files from the repo | `file` as a built-in name beside `site`, reserved; what does not fold becomes embedded data | [7](#7-files-the-file-source) |
+| Base paths | A project-root path, for `file:` sources only; the image pipeline writes the built URL | [7](#7-files-the-file-source) |
+| The let cache | Invalidated by dependencies, skipped when the arguments are equal primitives | [8](#a-let-over-a-helper-is-cached) |
+| A lazy parser | Only the app's `lazy`; a let that waits has no `$meta`; a failed load takes the unhandled-error path | [8](#a-let-may-wait-for-a-lazy-helper-module) |
+| How a library ships | As source, named in the config, an app-shaped folder with `components/internal/` | [9](#9-libraries-ship-source) |
 | What content may contain | Parse options; raw HTML shown as text by default; `'allow'` is a fixed set | [10](#10-parse-options-what-content-may-contain) |
-| The parser | A build that decodes entities from a table, tested under Trusted Types | [11](#11-the-library) |
+| The parser | One prebundled module, built with production, non-browser conditions, tested under Trusted Types | [11](#11-the-library) |
 | First step | A spike that measures, before any compiler change | [Plan](#plan) |
