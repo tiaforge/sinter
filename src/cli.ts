@@ -84,7 +84,17 @@ async function main(argv: string[]): Promise<number> {
   const warnings = diagnostics.length - errors;
   const promoted = warned - warnings;
   console.log(`sinter check${strict ? ' --strict' : ''}: ${files.length} page(s), ${errors} error(s)${promoted ? ` (${promoted} were warnings)` : ''}, ${warnings} warning(s); ${r.typed} of ${r.resources} resources typed${r.openapi ? ` (${r.openapi} via OpenAPI)` : ''}`);
+  // agents check what a page shows in a browser they script themselves; `sinter render` answers that in one command
+  const withData = units.find((u) => u.resources.length);
+  if (withData) console.log(renderHint(relative(process.cwd(), withData.file) || withData.file, root));
   return errors ? 1 : 0;
+}
+
+/** The line `sinter check` ends with on a project whose pages load data: how to see one render with it. */
+export function renderHint(page: string, root: string): string {
+  let mocks = '--api mocks.json';
+  try { readFileSync(join(root, 'mocks.json')); } catch { mocks = '--api mocks.json (routes such as { "GET /api/x": … })'; }
+  return `to see a page render with data, and what it requests: npx sinter render ${page} ${mocks} (sinter render --help for clicks and other steps)`;
 }
 
 /** `sinter docs [topic]`: from the llms-full.txt (else llms.txt) and docs/diagnostics.md that ship beside dist/. */

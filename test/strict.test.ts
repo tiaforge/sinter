@@ -41,6 +41,8 @@ test('sinter check: a warning passes, --strict and SINTER_STRICT fail on it, --a
   const plain = cli([]);
   expectExit(plain, 0);
   expect(plain.out).toContain('warning SN501 unused-resource');
+  // a page loads data: the check ends with how to see it render (agents otherwise script a browser for that)
+  expect(plain.out).toMatch(/to see a page render with data, and what it requests: npx sinter render \S*index\.html --api mocks\.json \(routes such as/);
 
   const strict = cli(['--strict']);
   expectExit(strict, 1);

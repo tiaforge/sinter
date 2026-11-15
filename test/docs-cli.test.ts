@@ -24,6 +24,8 @@ test('a section by its slug or a word of it; a ## section with its ### children,
   expect(get('first paint').text.startsWith('## First paint\n')).toBe(true);
   expect(get('optimistic-toggle').text).toMatch(/^### Optimistic toggle\n\n```html/);
   expect(get('recipes').text).toContain('### Optimistic toggle');
+  // each section ends with how to see a page work, which agents otherwise script a browser for
+  expect(layouts.endsWith('`npx sinter render page.html --api mocks.json`.)')).toBe(true);
 });
 
 test('an attribute or element: its reference line and where else it is used', () => {

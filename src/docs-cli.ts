@@ -21,6 +21,9 @@ export function sections(md: string): Section[] {
   });
 }
 
+/** After a section: how to see a page work, which agents otherwise script a browser for. */
+const RENDER = '\n\n(To see a page render with data, and what it requests: `npx sinter render page.html --api mocks.json`.)';
+
 export interface Docs { llms: string; diagnostics: string }
 
 /** What `sinter docs <topic>` prints, and whether it found something. */
@@ -46,7 +49,7 @@ export function lookup(docs: Docs, topic: string | undefined): { text: string; f
   const slug = slugOf(t);
   const exact = all.filter((s) => s.slug === slug);
   const pick = exact.length ? exact : all.filter((s) => s.slug.startsWith(slug) || (slug.length > 3 && s.slug.includes(slug)));
-  if (pick.length === 1) return { text: pick[0]!.text, found: true };
+  if (pick.length === 1) return { text: pick[0]!.text + RENDER, found: true };
   // an attribute or element: its reference line, then the other lines that name it
   const name = /^(data-sn-[\w-]+|sn-[\w-]+)$/.exec(t)?.[1];
   if (name) {
