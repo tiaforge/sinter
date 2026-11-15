@@ -125,7 +125,8 @@ Step 7, as built:
   pipeline and reserved space, and asks for the second compile only if an answer differs. This
   also fixes `sizes` that were wrong before: a bound class anywhere in a flex row made the layout
   give up on that row (`100vw`), and folding it gives the exact width. RealWorld's pages compile
-  once; the check costs about 40 ms over its 7 pages, against the ~26% a second compile cost.
+  once. The dry run reuses the first pass's reserved space where nothing it read changed (RealWorld's
+  index: 60 → 5 ms), so it costs a few ms per page, against a second compile.
 
 Step 8a, as built (loading, the check, `file:`; nothing folds yet):
 - The helpers module is loaded before the synchronous compile: through the dev server in dev, and
