@@ -17,7 +17,8 @@ there and lands in `main` with the rest.
 | 3, slots that pass data | merged here | see below |
 | 4, component roots and text nodes | in progress (from the integration branch) | |
 | 6, the constant pre-pass | merged here | see below |
-| 7, nested loops and the worklist | built, being merged with step 2 | see below |
+| 7, nested loops and the worklist | merged here | see below |
+| 8, helpers over constants and `file:` | in progress (8a: loading, the static check, `file:`; 8b after step 7) | |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -104,7 +105,7 @@ on `ccr-ec5fd4e0-bp4vko`; step 1 → integration):
   1) and the tree from the API is level with it. Step 4 removes the spike's text `<span>`s and its
   component per heading level, and measures again.
 
-Step 7, as built (before its merge with step 2):
+Step 7, as built:
 - The worklist runs in the first compile's evaluator and pass 2 applies it in one top-down
   traversal (`expandConstants`, which replaces the separate deciding and unrolling). A page compiles
   at most twice at any depth, in the build and in the LSP. Nested lists 5 levels deep (1,364 rows)
@@ -117,6 +118,14 @@ Step 7, as built (before its merge with step 2):
 - A choice whose row renders a candidate keeps its loop a template until shared definitions expand
   (step 9); elsewhere unrendered candidates are dropped.
 - A provisional page cap of 10,000 rows in all, silent; step 9 sets the limit and its warning.
+- On step 2's choice node, the worklist reads which case a use renders; unrendered cases are
+  dropped before the walk, so a decided choice anchor keeps only its case.
+- The pre-pass asks for a second compile only where a folded class or style can change what the
+  layout feeds: an image or a list with reserved space inside the element, a following sibling a
+  `+` or `~` selector reaches, or any class inside `:has()`. RealWorld's pages compile once again
+  (its `active` nav class reaches neither), so step 6's extra build time is gone. A class that
+  changes a flex or grid sibling's width, and through it an image's `sizes`, does not trigger it,
+  as before step 6.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)

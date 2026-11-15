@@ -79,14 +79,15 @@ describe('constant bindings', () => {
     expect(build('<div data-sn-state="{ o: false }"><button data-sn-on-click="o = true"></button><template data-sn-if="o"><i>x</i></template></div>').html).toContain('<template');
   });
 
-  test('a component used with different values: its data-sn-if stays, as the uses disagree', () => {
+  test('a component used with different values: its data-sn-if is decided per use', () => {
     const files: Record<string, string> = { '/p/src/components/x-tab.html': '<template data-sn-component="{ on: boolean }"><span><template data-sn-if="on"><b>on</b></template></span></template>' };
     const out = compile('<!doctype html><html><head></head><body><div data-sn-state="{ a: true, b: false }"><x-tab data-sn-prop="{ on: a }"></x-tab><x-tab data-sn-prop="{ on: b }"></x-tab></div></body></html>', {
       file: '/p/index.html', root: '/p', dev: false, prerender: true,
       helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error('missing'); },
     });
     expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
-    expect(out.html.match(/<template/g)?.length).toBe(2);
+    expect(out.html).toContain('<div><span><b>on</b></span><span></span></div>');
+    expect(out.html).not.toContain('<template');
   });
 
   test('a value from state stays bound: a handler can change it', () => {
