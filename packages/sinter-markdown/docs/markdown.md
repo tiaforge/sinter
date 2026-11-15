@@ -174,7 +174,9 @@ in the tree, in a list item, a quote or a table cell. Each passes the node as `$
   places the whole table, or renders its own from `$slot.node`.
 - A fill is the page's markup: it reads the page's state and helpers, and its handlers write the page's
   state. Over a file, a fill that reads only constants is expanded at build time with the rest of the
-  tree. A code block's fill can highlight at build time with a helper of yours over `$slot.node.value`.
+  tree, the ones above included. Two kinds render in the browser instead: a fill that holds a
+  component with slots of its own (another `<md-doc>`), and one your wrapper passes on with
+  `<slot name="link" slot="link">`; on a static page, `SN322` names the fill and why. A code block's fill can highlight at build time with a helper of yours over `$slot.node.value`.
 - To give every page the same looks, write a wrapper component whose root is `<md-doc>` with your
   fills, and use it instead
   ([app-wide looks](https://github.com/tiaforge/sinter/blob/main/docs/components.md#tree-slots)).

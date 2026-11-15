@@ -44,7 +44,11 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
 - trees over constants: a component used inside itself, and the component an `<sn-component use>`
   renders, given constant props (a `file:./doc.json` content tree, each node dispatched to its
   component) are expanded at build time, per node, and a link fill is written into every node that
-  places it. The page is plain HTML, and a component nothing renders leaves it.
+  places it: an element, an if/else chain, a component tag, and a fill whose `<slot>` places the
+  node's own children. The page is plain HTML, and a component nothing renders leaves it. Two fills
+  render in the browser: one that holds a component with slots of its own (a tree inside the fill),
+  and one that a wrapper component passes on with `<slot name="…" slot="…">`; on a static page,
+  [SN322](diagnostics.md#sn322-ships-javascript) names the fill and why.
 - a handler that reads only constants, `$el` and `$event` (a copy button) does not stop any of it:
   the page ships that handler and the runtime it needs, nothing else.
 

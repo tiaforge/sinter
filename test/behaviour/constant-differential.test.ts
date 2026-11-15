@@ -202,3 +202,36 @@ describe('fills of a tree placement, in a tree over constants', () => {
     });
   }
 });
+
+describe('a choice inside a component over its own prop, choosing a component-tag root over a chain root', () => {
+  const B = {
+    ...C,
+    'x-c2': `<template data-sn-component="{ x: any }"><sn-component use="{ a: 'x-plain', v: 'x-var' }[x.k]" data-sn-prop="{ href: x.href, label: x.t }"></sn-component></template>`,
+  };
+  const D = "[{ t: 'a', href: '/a', k: 'a' }, { t: 'b', k: 'v' }, { t: 'c', href: '/c', k: 'v' }]";
+  const BODIES: Record<string, string> = {
+    'in an element of the row': `<ul><template data-sn-for="x in d"><li><x-c2 data-sn-prop="{ x }"></x-c2></li></template></ul>`,
+    'as the row': `<ul><template data-sn-for="x in d"><x-c2 data-sn-prop="{ x }"></x-c2></template></ul>`,
+    'outside a loop': `<ul><x-c2 data-sn-prop="{ x: d[1] }"></x-c2><x-c2 data-sn-prop="{ x: d[2] }"></x-c2></ul>`,
+  };
+  for (const [name, body] of Object.entries(BODIES)) {
+    test(name, async () => {
+      const fixed = await render(`<main data-sn-state="{ d: ${D} }">${body}</main>`, { components: B });
+      const live = await render(`<main data-sn-state="{ d: ${D} }"><i data-sn-on-click="d = [...d]"></i>${body}</main>`, { components: B });
+      await fixed.flush(); await live.flush();
+      expect(shown(fixed.root)).toBe(shown(live.root));
+      expect(shown(live.root)).toMatch(/<button[^>]*class="v"[^>]*>b!<\/button>/);
+      expect(anchors(fixed.root)).toBe(0);
+    });
+  }
+});
+
+test('a literal text after the text a previous row ended with does not hide the node after it', async () => {
+  const D = "[{ on: true, t: 'A', c: [{ t: 'a1' }] }, { on: true, t: 'B', c: [{ t: 'b1' }, { t: 'b2' }] }]";
+  const body = `<p><template data-sn-for="x in d"><template data-sn-if="x.on || true"><template data-sn-text="'~'"></template><template data-sn-for="y in x.c"><template data-sn-text="y.t"></template><template data-sn-text="y.t"></template><template data-sn-text="'~'"></template></template></template></template></p>`;
+  const fixed = await render(`<main data-sn-state="{ d: ${D} }">${body}</main>`);
+  const live = await render(`<main data-sn-state="{ d: ${D} }"><i data-sn-on-click="d = [...d]"></i>${body}</main>`);
+  expect(fixed.root.querySelector('p')!.textContent).toBe('~a1a1~~b1b1~b2b2~');
+  expect(live.root.querySelector('p')!.textContent).toBe('~a1a1~~b1b1~b2b2~');
+  expect(fixed.root.querySelector('p template')).toBeNull();
+});

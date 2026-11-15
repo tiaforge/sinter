@@ -100,6 +100,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- Over constants, a component tag used as a fill of a slot a list places per row rendered the first row's `$slot` in every row (its props, its class and attributes, a chain or tag root, slot content in the tag, a nested fill), with no diagnostic.
+- `<sn-component use>` inside a component, over that component's prop, choosing a component whose root is another component's tag over an if/else root, failed the build over constants with `SN201` in the chosen component.
+- A literal text (`data-sn-text="'~'"`) right after a text the previous row of a constant loop ended with hid the node after it: that node was left a `<template>` in the HTML.
+- In a constant tree, a fill of a tree placement that places the node's children with a `<slot>`, an if/else chain fill, and a component tag fill are expanded at build time (they rendered in the browser; on a static page, `SN322` named only the resource). A component whose root is a choice, among the children a fill places, read the default's loop names. A fill that holds a component with slots of its own, or that a wrapper passes on, still renders in the browser, and `SN322` names it with why.
 - A `<template data-sn-text>` after a list or branch in a row or a branch was lost or misplaced at run time (inside the next anchor, removed by a later render): its path did not count the anchor's two comments.
 - A `data-sn-if` on an optional prop (`data-sn-if="href"`) in a component used inside itself or chosen by `<sn-component use>` was decided at build time as if the prop were left out: the shared definition's tag gives no props. It is decided per instance.
 - In a branch, a node after a nested list, branch or choice was not found at run time: the walk that finds a branch's nodes counted an anchor's two comments as one, so a loop or a bound element after an inner `data-sn-if` (an optional separator before a list) did not render. Builds over constants were not affected.
