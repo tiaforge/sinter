@@ -21,7 +21,7 @@ there and lands in `main` with the rest.
 | 7, nested loops and the worklist | merged here | see below |
 | 8, helpers over constants and `file:` | merged here | see below |
 | 9, constant trees | merged here | see below |
-| 11, libraries ship source | in progress (from the integration branch) | |
+| 11, libraries ship source | merged here | see below |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -225,6 +225,28 @@ Step 9, as built:
   `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams` and `structuredClone` may fold (section 6).
   Writing the HTML straight from the first compile, instead of compiling every copy again, is a
   follow-up that would make the limit matter less.
+
+Step 11, as built:
+- A package named in `sinter({ components })` is found in `node_modules` of the root or a folder
+  above, keeping a link's path; files whose real path is in a configured package are read. New codes:
+  `SN337` (a package that is missing, has no `"sinter"` folder with `components/`, has a component
+  both public and internal, or more than one prefix), `SN338` (two owners of one prefix), `SN339` (an
+  internal component used by the app, an unknown name under a library's prefix, or a library's
+  `use` map naming a component outside it), and the warning `SN537` (sinter outside the library's
+  `peerDependencies` range, or no range).
+- Tree slots use real package boundaries for rules 2, 3, 5 and 7. In a library's markup,
+  `<sn-component use>` chooses among that package's own components, internal ones included.
+- Helpers from a package are followed through its `exports` entry, which re-exports them, with
+  production conditions; members are imported from the entry. Types written in a library's files
+  are its types module's. Component scripts, their generated declarations and `sinter render` cover
+  library components.
+- Library styles go into `@layer sinter-lib`, declared by a one-line stylesheet linked before the
+  page's first stylesheet, so the app's layers and unlayered CSS win (checked in Chromium).
+- Dev leaves configured packages out of pre-bundling, allows and watches their real paths; the lazy
+  transform and the lazy helper rules follow their modules.
+- A library's own `sinter check` treats its `"sinter"` folder as the components and its
+  `fixtures/**/*.html` as pages, and checks tree slots' rules 5 and 7 there.
+- The fixture library `test/fixtures/ui` (`@fixture/ui`) and its app show the whole shape.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
