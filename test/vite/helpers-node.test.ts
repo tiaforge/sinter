@@ -68,3 +68,27 @@ test('sinter check loads it the same way: a module that cannot load in Node is S
   expect(r.status, out).toBe(0);
   expect(out).toMatch(/src\/sinter\.helpers\.ts:1:1 warning SN533 helpers-unloaded: the helpers module could not be loaded in Node \(src\/sinter\.helpers\.ts/);
 }, 60_000);
+
+test('loading the helpers runs none of the app\'s dev-server hooks: a mock API\'s timer does not keep `vite build` alive', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sinter-helpers-hooks-'));
+  dirs.push(root);
+  const put = (f: string, s: string) => { mkdirSync(join(root, f, '..'), { recursive: true }); writeFileSync(join(root, f), s); };
+  put('package.json', '{"type":"module"}');
+  // as a mock API plugin does: a timer started in configureServer, cleared only when the HTTP server closes
+  put('vite.config.js', `import sinter from ${JSON.stringify(join(src, 'vite.ts'))};
+const api = { name: 'mock-api', configureServer(server) {
+  globalThis.__hooked = (globalThis.__hooked ?? 0) + 1;
+  const t = setInterval(() => {}, 1000);
+  server.httpServer?.on('close', () => clearInterval(t));
+} };
+export default { resolve: { alias: ${JSON.stringify(alias.map((a) => ({ find: a.find.source, replacement: a.replacement })))}.map((a) => ({ find: new RegExp(a.find), replacement: a.replacement })) }, plugins: [api, sinter({ static: true })] };
+`);
+  put('src/sinter.helpers.ts', 'export const loud = (s: string): string => s.toUpperCase();\n');
+  put('index.html', '<!doctype html><html><head><title>x</title></head><body><main data-sn-state="{ s: \'a\' }"><p data-sn-text="loud(s)"></p></main></body></html>');
+  const t0 = Date.now();
+  const r = spawnSync(process.execPath, [resolve(__dirname, '../../node_modules/vite/bin/vite.js'), 'build', '--logLevel', 'error'], { cwd: root, encoding: 'utf8', timeout: 90_000 });
+  expect(r.signal, `vite build was still running after ${Date.now() - t0} ms`).toBe(null);
+  expect(r.status, r.stderr).toBe(0);
+  // the helper ran at build time (in the loader, and again in the build's cross-check)
+  expect(readFileSync(join(root, 'dist/index.html'), 'utf8')).toContain('<p>A</p>');
+}, 120_000);

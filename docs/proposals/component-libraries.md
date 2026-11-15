@@ -1506,6 +1506,20 @@ None is left for the maintainer. Measured, then decided:
 - The cost of fills read through the scope chain (step 5).
 - The expansion limit's value (step 9).
 
+To discuss after this lands:
+
+- **Does `emit` still earn its place?** Slots that pass data took over part of its job. When the
+  caller renders an item through a fill, the fill's handlers run in the caller's scope
+  (`patch($slot.row, …)`), so no event is needed. `emit` is left for what a component renders
+  itself: a rating widget's stars, a dialog's close button, a copy button in a library's code
+  block. It also carries `data-sn-model` on components (a `value` prop and a `change` event), and
+  script components and islands use it. Against it: the repository's examples call it once
+  (RealWorld's `islands.js`) and the markdown library not at all. And its listeners run inside the
+  emitting handler, a path the cached-lets fix first missed (PR #51, third review). Questions:
+  whether to keep it as it is, narrow it, or fold it into another concept; and whether
+  docs/components.md should give the rule outright (data down through props, the caller acting
+  through fills when it renders the item, `emit` when the component renders the control).
+
 ## Decisions
 
 Decided with the user while drafting:

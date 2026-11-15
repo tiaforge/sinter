@@ -89,11 +89,11 @@ export interface CompileOptions {
   /** per helper (`fmt`, `ns$member`), whether its calls may run at build time, and why not (fold-check.ts): for SN322 */
   helperFold?: ReadonlyMap<string, FoldVerdict>;
   /**
-   * a build: each distinct call that ran at build time and gave plain data (once per page), its arguments and its
-   * result as JSON, which the build runs again in a fresh copy of the helpers module at its end. Without it, each
-   * call runs twice in the page instead
+   * a build: each distinct call that ran at build time and gave plain data (once per page), its arguments (another
+   * call's result by its id) and its result (`resultKey`), which the build runs again in a fresh copy of the helpers
+   * module at its end. `id` counts the page's calls from 0, again when the page starts afresh
    */
-  foldLog?: (key: string, args: unknown[], json: string) => void;
+  foldLog?: (key: string, args: FoldArg[], result: string, id: number) => void;
   /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
@@ -424,7 +424,13 @@ interface Origin { file: string; src: string; chain: string[]; use?: string; use
  * Build-time helper calls of the page being compiled, by the helpers module's values: a page's passes share them
  * (a let over `parse()` is evaluated in each pass and by the worklist), the next page starts again.
  */
-const FOLD_MEMO = new WeakMap<object, { file: string; calls: Map<string, { v: unknown } | { what: string }> }>();
+const FOLD_MEMO = new WeakMap<object, FoldMemo>();
+/** one page's build-time calls: by helper and arguments; the results it handed out, by object, with their call ids */
+interface FoldMemo { file: string; calls: Map<string, { v: unknown } | { what: string }>; refs: WeakMap<object, number>; n: number }
+/** a logged call's argument: a value, or the result of the page's call `r` (a parse passed on), replayed from that call */
+export type FoldArg = { v: unknown } | { r: number };
+/** a result as `foldLog` reports it: tagged, so `undefined` is a result like any other */
+export const resultKey = (v: unknown): string => (v === undefined ? 'u' : 'j' + JSON.stringify(v));
 /**
  * Plain data as a key, one to one: every value tagged by its kind and strings by their length, so `undefined`,
  * `NaN`, `-0` and the infinities stay apart and no string can pass for another value
@@ -1960,6 +1966,8 @@ class Compiler {
       // a choice that is a component's root: that component's markup starts at each candidate
       if (this.scopeStart.has(el)) this.scopeStart.set(x, this.scopeStart.get(el)!);
       this.origins.set(x, this.origins.get(el)!);
+      // slot content (or a fill, or children a fill places) stays that: its writer's scope
+      for (const map of [this.slotOf, this.fillOf, this.defaultOf, this.childrenOf] as Array<WeakMap<object, unknown>>) if (map.has(el)) map.set(x, map.get(el));
       this.points.set(x, c.name);
       if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
       this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
@@ -2139,11 +2147,11 @@ class Compiler {
     if (root) {
       if (slotUse && !this.slotOf.has(root)) this.slotOf.set(root, slotUse);
       this.useOf.set(root, use);
-      // the outer components' markup starts here, before this one's
-      if (outer.length) this.scopeStart.set(root, outer);
+      // the outer components' markup starts here, before this one's (outer first: `passOn` lists the nearest first)
+      if (outer.length) this.scopeStart.set(root, [...outer].reverse());
     } else {
       use.hostSlot = slotUse;
-      for (const t of tops) this.scopeStart.set(t, [...outer, use]);
+      for (const t of tops) this.scopeStart.set(t, [...[...outer].reverse(), use]);
     }
     this.hostUse.set(host, use);
     if (!this.uses.has(name)) this.uses.set(name, []);
@@ -2985,10 +2993,10 @@ class Compiler {
     return '';
   }
 
-  markupOf(u: Use, at: Scope, inst = ''): Scope {
+  markupOf(u: Use, at: Scope, inst = '', here = false): Scope {
     // (per instance: the copies of an unrolled row, or of an expanded instance, share the use)
     // the caller's scope: the slot content's writer's, with `$slot` when the tag is a fill (`at`: where it is placed)
-    const caller = () => (this.fillOf.has(u.host) ? this.tagFill(u, at, inst) : u.hostSlot?.caller ?? at);
+    const caller = () => (this.fillOf.has(u.host) ? this.tagFill(u, at, inst) : (here ? undefined : u.hostSlot?.caller) ?? at);
     if (!inst) return u.markup ??= this.componentScope(u, caller());
     let byInst = this.markups.get(u);
     if (!byInst) this.markups.set(u, byInst = new Map());
@@ -3293,7 +3301,15 @@ class Compiler {
           this.freshChoices(nodes);
           this.origins.set(tpl, this.origins.get(P.el) ?? { file: this.opts.file, src: '', chain: [] });
           // the fill's own `<slot>`s: the children of the element the placement's default renders
+          const accepted: Array<{ path: unknown }> = [];
           for (const s of this.placements(tpl.content).filter((x) => attr(x.el, 'name') === undefined)) {
+            // (the rule the build applies when it expands the fill: one place for the children)
+            if (accepted.some((a) => !exclusive(a.path as never, s.path))) {
+              this.once(s.el, null, 'SN312', `this fill of \`${P.k}\` places the children twice: two \`<slot>\`s in it can render together`, 0, 'one `<slot>` per branch of one `data-sn-if`/`data-sn-else` chain');
+              detach(s.el);
+              continue;
+            }
+            accepted.push(s);
             const kids = P.shape?.children(true) ?? null;
             if (!kids) { this.report(s.el, null, 'SN331', `the default of \`${P.k}\` renders ${P.shape?.what ? `a component (\`<${P.shape.what}>\`)` : 'no element'}, so this \`<slot>\` has no children to place`, 0); detach(s.el); continue; }
             for (const kid of kids) if (isElement(kid)) this.caseScopes.set(kid, P.at);
@@ -3783,9 +3799,17 @@ class Compiler {
     // a component whose root is not one plain element: its markup starts here (a chain's template, a
     // fill), or an outer component's whose root this is: their scopes, outer first, each in its caller's
     // (its instance: the nearest row or expanded instance it is in, for a chain's branch below a row's top too)
-    for (const u of this.scopeStart.get(el) ?? []) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instOf(el)) };
-    // slot content sees the scope of the caller that wrote it
+    // slot content (a row or a branch of it) where another component's markup starts: its writer's scope and
+    // rows first, which that component's tag was written in, as for a plain root (not a fill that is a root:
+    // the slot's owner starts there, in the scope of its own tag)
     const slot = this.slotOf.get(el);
+    const starts = this.scopeStart.get(el) ?? [];
+    const inSlot = !!slot && starts.length > 0 && !starts.includes(slot) && !this.fillOf.has(el);
+    if (inSlot && slot.caller) ctx = { ...ctx, scope: slot.caller };
+    if (inSlot && row && !ownLoop && !placedRow) ctx = rowLets(ctx);
+    // (switched to the writer's scope here: each component's caller is the scope the walk has, not its tag's slot)
+    for (const u of starts) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instOf(el), inSlot) };
+    // slot content sees the scope of the caller that wrote it
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
     // an unfilled placement: its `data-sn-prop`, compiled for its diagnostics and types
     const dflt = this.defaultOf.get(el);
@@ -3796,8 +3820,8 @@ class Compiler {
     // (a component tag that is the fill: its root, whose props and the tag's attributes read `$slot`)
     const fill = this.fillOf.get(el) ?? (this.useOf.has(el) ? this.fillOf.get(this.useOf.get(el)!.host) : undefined);
     if (fill) ctx = { ...ctx, scope: this.fillScope(fill, ctx.scope, slot ?? null, this.instOf(el)) };
-    else if (slot?.caller) ctx = { ...ctx, scope: slot.caller };
-    if (row && !ownLoop && !placedRow) ctx = rowLets(ctx);
+    else if (slot?.caller && !inSlot) ctx = { ...ctx, scope: slot.caller };
+    if (row && !ownLoop && !placedRow && !inSlot) ctx = rowLets(ctx);
     // a fill's case template, or the children it places (tree slots): the scope they are compiled in
     const caseScope = this.caseScopes.get(el);
     if (caseScope) ctx = { ...ctx, scope: caseScope };
@@ -4187,7 +4211,8 @@ class Compiler {
     const fold = (parent: P5Parent) => {
       for (let i = 0; i < parent.childNodes.length; i++) {
         const c = parent.childNodes[i]!;
-        if (!isElement(c) || this.slotOf.has(c) || (this.useOf.has(c) && c !== use.root) || this.points.has(c)) continue;
+        // (another component's markup: its root, or where a root that is not one plain element starts)
+        if (!isElement(c) || this.slotOf.has(c) || (this.useOf.has(c) && c !== use.root) || this.points.has(c) || this.scopeStart.get(c)?.some((u) => u !== use)) continue;
         const cond = c.tagName === 'template' ? attr(c, 'data-sn-if')?.trim() : undefined;
         if (cond !== undefined && value.has(cond)) {
           const j = parent.childNodes.findIndex((x, k) => k > i && real(x));
@@ -5997,13 +6022,16 @@ class Compiler {
   helperCalls(NOT: Error) {
     const values = this.opts.helperValues, verdicts = this.opts.helperFold;
     // a page's build-time calls, by helper and arguments: its passes and the worklist evaluate a let again and again
-    let memo: Map<string, { v: unknown } | { what: string }> | null = null;
+    let rec: FoldMemo | null = null;
     if (values) {
       const m = FOLD_MEMO.get(values);
       // (the editor compiles one file again at every edit: what it no longer calls is dropped now and then)
-      if (m?.file === this.opts.file && m.calls.size < 512) memo = m.calls;
-      else FOLD_MEMO.set(values, { file: this.opts.file, calls: (memo = new Map()) });
+      if (m?.file === this.opts.file && m.calls.size < 512) rec = m;
+      else FOLD_MEMO.set(values, (rec = { file: this.opts.file, calls: new Map(), refs: new WeakMap(), n: 0 }));
     }
+    const memo = rec?.calls ?? null;
+    /** an argument that is a result the page handed out: that call, not its (large) value */
+    const refOf = (x: unknown) => (x && typeof x === 'object' ? rec?.refs.get(x) : undefined);
     let code: string | null = null;
     const warned = new Set<string>();
     const why = (key: string) => {
@@ -6046,7 +6074,7 @@ class Compiler {
         return (...a: unknown[]) => {
           if (!may) { const w = code && !this.foldWhy.has(code) ? why(key) : null; if (w) this.foldWhy.set(code!, w); throw NOT; }
           if (!a.every((x) => plainData(x))) throw NOT;
-          const mk = key + '\0' + dataKey(a);
+          const mk = key + '\0' + a.map((x) => { const r = refOf(x); return r === undefined ? dataKey(x) : `r${r};`; }).join('');
           const hit = memo?.get(mk);
           if (hit) {
             if ('what' in hit) { problem(key, hit.what); throw NOT; }
@@ -6060,10 +6088,10 @@ class Compiler {
             refuse(`threw at build time (${(e as Error)?.message ?? String(e)})`);
           }
           if (!plainData(v)) refuse('returned something that is not plain data (JSON values)');
-          // a build cross-checks each distinct call in a fresh copy of the helpers module, at its end (`foldLog`);
-          // anything else runs it twice here: a second result that differs (a counter, the clock through a path the
-          // static check missed) keeps the call in the browser
-          if (!this.opts.foldLog) {
+          // run twice here: a second result that differs (a counter, the clock through a path the static check missed)
+          // keeps the call in the browser. A build also runs each call again at its end, in a fresh copy of the module
+          // and another page order (`foldLog`), for what depends on the calls before, another page's included
+          {
             let again: unknown;
             try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
             if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) refuse('returned another result when called again with the same arguments: a helper must be pure');
@@ -6071,7 +6099,11 @@ class Compiler {
           api.called = true;
           const out = v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
           memo?.set(mk, { v: out });
-          this.opts.foldLog?.(key, structuredClone(a), JSON.stringify(v));
+          if (rec && this.opts.foldLog) {
+            const id = rec.n++;
+            this.opts.foldLog(key, a.map((x): FoldArg => { const r = refOf(x); return r === undefined ? { v: structuredClone(x) } : { r }; }), resultKey(v), id);
+            if (out && typeof out === 'object') rec.refs.set(out, id);
+          }
           return out;
         };
       },

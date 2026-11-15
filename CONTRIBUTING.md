@@ -17,6 +17,32 @@ Link the issue from the pull request.
   regenerated files.
 - Add a line to [CHANGELOG.md](CHANGELOG.md) under "Unreleased". Attribute names, function names and
   diagnostic codes are public API.
+- A feature that renders markup (a new attribute, root shape, slot or fill form, control-flow
+  template, or a build-time optimization) adds its shapes to the fuzz tests. See
+  [Fuzz tests](#fuzz-tests).
+
+## Fuzz tests
+
+Two seeded fuzz tests generate random markup and check that every way of rendering it agrees. They
+found bugs that hand-written tests missed: wrong output where features meet, over constants only,
+or only after the page module takes over.
+
+- `test/behaviour/component-fuzz.test.ts` nests components of every root shape (plain, `if`/`else`,
+  another component's tag, a slot, a choice, a list), with fills, slot content,
+  `<sn-component use>`, loops, branches and texts.
+- `test/behaviour/anchor-fuzz.test.ts` nests lists, branches, texts and elements inside a row.
+
+Each case compares the page after a state change with a fresh render of the new state, with the
+build over constants (state nothing writes), and (component fuzz) with the early script's first
+paint taken over by the page module.
+
+When you develop a feature:
+- Add its shapes to the generator: a component in `COMPONENTS`, a case in `markup()`, or a field in
+  the generated data. The fuzz then covers it combined with everything already there.
+- Before you open the pull request, run more seeds than CI does:
+  `SN_FUZZ_SEEDS=3000 npx vitest run test/behaviour/component-fuzz.test.ts`.
+- A failing seed names its case. Turn its minimal repro into a test of its own, next to the fix.
+  Don't skip or allow-list a seed to get green.
 
 ## License and sign-off
 
