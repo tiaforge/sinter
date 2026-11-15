@@ -26,6 +26,8 @@ const USES: Record<string, string> = {
   slot: `<x-slot data-sn-prop="{ label: x.t }"><b slot="item" data-sn-text="$slot.label + x.t"></b></x-slot>`,
   // a fill that is a chain over `$slot` (and the row)
   'slot chain': `<x-slot data-sn-prop="{ label: x.t }"><template slot="item" data-sn-if="$slot.label == 'b'"><b data-sn-text="$slot.label + x.t"></b></template><template data-sn-else><u data-sn-text="$slot.label"></u></template></x-slot>`,
+  // a choice of a component whose root is a component tag
+  'choice of a tag root': `<sn-component use="{ v: 'x-var', p: 'x-plain' }[x.href ? 'v' : 'p']" data-sn-prop="{ href: x.href, label: x.t }"></sn-component>`,
   // the tag's attributes land on the root the chain renders
   attrs: `<x-ifelse class="k" data-sn-class="{ on: !!x.href }" data-sn-attr="{ title: x.t }" data-sn-prop="{ href: x.href, label: x.t }"></x-ifelse>`,
 };
@@ -95,6 +97,108 @@ describe('a fill that is a chain over `$slot`, outside a loop', () => {
       const html = (r: { root: Element }) => r.root.querySelector('div')!.innerHTML.replace(/<!--[^]*?-->/g, '').replace(/ data-sn[\w-]*="[^"]*"/g, '');
       expect(html(fixed)).toBe(t === 'b' ? '<b>b</b>' : '<u>c</u>');
       expect(html(fixed)).toBe(html(live));
+    });
+  }
+});
+
+describe('a component tag as the fill of a slot a list places per row', () => {
+  const L: Record<string, string> = {
+    ...C,
+    'x-list': `<template data-sn-component="{ rows: any[]; cell: Slot<{ row: any; i: number }> }"><ul><template data-sn-for="(r, i) in rows"><li><slot name="cell" data-sn-prop="{ row: r, i }"><i data-sn-text="r.n"></i></slot></li></template></ul></template>`,
+    'x-cell': `<template data-sn-component="{ v: string; hot?: boolean }"><b data-sn-class="{ hot }" data-sn-text="v"></b></template>`,
+    'x-wrap': `<template data-sn-component="{}"><em><slot></slot></em></template>`,
+  };
+  const ROWS = [{ n: 'a', hot: true }, { n: 'b' }, { n: 'c', hot: true }];
+  /** the fill, by case; `extra` is what the page loop adds to a value */
+  const FILLS: Record<string, (extra: string) => string> = {
+    'its props': (e) => `<x-cell slot="cell" data-sn-prop="{ v: $slot.row.n + $slot.i${e}, hot: $slot.row.hot }"></x-cell>`,
+    'the tag\'s class and attributes': (e) => `<x-cell slot="cell" data-sn-class="{ on: !!$slot.row.hot }" data-sn-attr="{ title: $slot.row.n${e} }" data-sn-prop="{ v: $slot.row.n }"></x-cell>`,
+    'a chain root': (e) => `<x-ifelse slot="cell" data-sn-prop="{ href: $slot.row.hot ? '/h' : undefined, label: $slot.row.n${e} }"></x-ifelse>`,
+    'a component-tag root': (e) => `<x-var slot="cell" data-sn-prop="{ href: $slot.row.hot ? '/h' : undefined, label: $slot.row.n${e} }"></x-var>`,
+    'slot content in the fill tag': (e) => `<x-wrap slot="cell"><span data-sn-text="$slot.row.n${e}"></span></x-wrap>`,
+    'a nested fill': (e) => `<x-slot slot="cell" data-sn-prop="{ label: $slot.row.n${e} }"><u slot="item" data-sn-text="$slot.label + '.'"></u></x-slot>`,
+  };
+  const state = (written: boolean) => `data-sn-state="{ d: ${JSON.stringify(ROWS).replace(/"/g, "'")} }">${written ? '<i data-sn-on-click="d = [...d]"></i>' : ''}`;
+  const pages: Record<string, (fill: (e: string) => string, written: boolean) => string> = {
+    'outside a loop': (f, w) => `<main ${state(w)}<x-list data-sn-prop="{ rows: d }">${f('')}</x-list></main>`,
+    'in a page loop': (f, w) => `<main ${state(w)}<template data-sn-for="x in d"><section><x-list data-sn-prop="{ rows: d }">${f(' + x.n')}</x-list></section></template></main>`,
+  };
+  const out = (root: Element) => {
+    const m = root.querySelector('main')!.cloneNode(true) as Element;
+    for (const i of [...m.querySelectorAll(':scope > i')]) i.remove();
+    const walk = (n: Node) => {
+      for (const c of [...n.childNodes]) {
+        if (c.nodeType === 8) c.remove();
+        else if (c.nodeType === 1) { for (const a of [...(c as Element).attributes]) if (a.name.startsWith('data-sn')) (c as Element).removeAttribute(a.name); walk(c); }
+      }
+    };
+    walk(m);
+    return m.innerHTML.replace(/>\s+</g, '><').trim();
+  };
+  const comments = (root: Element) => { let n = 0; const w = root.ownerDocument.createTreeWalker(root.querySelector('main')!, 128); while (w.nextNode()) n++; return n; };
+  for (const [name, fill] of Object.entries(FILLS)) {
+    for (const [where, pageOf] of Object.entries(pages)) {
+      test(`${name}, ${where}`, async () => {
+        const fixed = await render(pageOf(fill, false), { components: L });
+        const live = await render(pageOf(fill, true), { components: L });
+        await fixed.flush(); await live.flush();
+        const want = out(live.root);
+        expect(want).toMatch(/a[\s\S]*b[\s\S]*c/);
+        expect(out(fixed.root)).toBe(want);
+        expect(comments(fixed.root)).toBe(0);
+      });
+    }
+  }
+});
+
+describe('fills of a tree placement, in a tree over constants', () => {
+  const MAP = "{ p: 'x-p', a: 'x-a', t: 'x-t', h: 'x-h' }";
+  const T: Record<string, string> = {
+    'x-doc': `<template data-sn-component="{ doc: any; link: Slot<{ href: string }>; heading: Slot<{ node: any }> }"><article><template data-sn-for="b in doc.children"><sn-component use="${MAP}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article></template>`,
+    'x-p': `<template data-sn-component="{ node: any }"><p><template data-sn-for="c in node.children"><sn-component use="${MAP}[c.type]" data-sn-prop="{ node: c }"></sn-component></template></p></template>`,
+    'x-h': `<template data-sn-component="{ node: any }"><slot name="heading" data-sn-prop="{ node }"><h3><template data-sn-for="c in node.children"><sn-component use="${MAP}[c.type]" data-sn-prop="{ node: c }"></sn-component></template></h3></slot></template>`,
+    'x-t': `<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>`,
+    // its default's children through a component whose root is a choice (a phrasing dispatcher)
+    'x-a': `<template data-sn-component="{ node: any }"><slot name="link" data-sn-prop="{ href: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="c in node.children"><x-in data-sn-prop="{ node: c }"></x-in></template></a></slot></template>`,
+    'x-in': `<template data-sn-component="{ node: any }"><sn-component use="${MAP}[node.type]" data-sn-prop="{ node }"></sn-component></template>`,
+    'x-pill': `<template data-sn-component="{ to: string }"><a class="pill" data-sn-attr="{ href: to }"><slot></slot></a></template>`,
+  };
+  const t = (value: string) => ({ type: 't', value });
+  const DOC = { children: [
+    // (a link in the heading: a fill inside a fill that places its children)
+    { type: 'h', children: [t('Title '), { type: 'a', url: '/in', children: [t('in')] }] },
+    { type: 'p', children: [t('see '), { type: 'a', url: '/one', children: [t('one')] }, t(' and '), { type: 'a', url: '/two', children: [t('two')] }] },
+  ] };
+  const FILLS: Record<string, string> = {
+    'an element with a <slot>': `<a slot="link" class="L" data-sn-attr="{ href: $slot.href }"><slot></slot></a>`,
+    'a heading with a <slot>': `<h2 slot="heading"><slot></slot></h2>`,
+    'a chain': `<template slot="link" data-sn-if="$slot.href == '/one'"><b data-sn-text="$slot.href"></b></template><template data-sn-else><i data-sn-text="$slot.href"></i></template>`,
+    'a component tag with a <slot> in its content': `<x-pill slot="link" data-sn-prop="{ to: $slot.href }"><slot></slot></x-pill>`,
+    'an element without a <slot>': `<em slot="link" data-sn-text="$slot.href"></em>`,
+  };
+  const pageOf = (fill: string, written: boolean) =>
+    `<main data-sn-state="{ doc: ${JSON.stringify(DOC).replace(/"/g, "'")} }">${written ? '<i data-sn-on-click="doc = { ...doc }"></i>' : ''}<x-doc data-sn-prop="{ doc }">${fill}</x-doc></main>`;
+  const out = (root: Element) => {
+    const a = root.querySelector('article')!.cloneNode(true) as Element;
+    const walk = (n: Node) => {
+      for (const c of [...n.childNodes]) {
+        if (c.nodeType === 8) c.remove();
+        else if (c.nodeType === 1) { for (const x of [...(c as Element).attributes]) if (x.name.startsWith('data-sn')) (c as Element).removeAttribute(x.name); walk(c); }
+      }
+    };
+    walk(a);
+    return a.innerHTML.replace(/>\s+</g, '><').trim();
+  };
+  const comments = (root: Element) => { let n = 0; const w = root.ownerDocument.createTreeWalker(root.querySelector('article')!, 128); while (w.nextNode()) n++; return n; };
+  for (const [name, fill] of Object.entries(FILLS)) {
+    test(name, async () => {
+      const fixed = await render(pageOf(fill, false), { components: T });
+      const live = await render(pageOf(fill, true), { components: T });
+      await fixed.flush(); await live.flush();
+      const want = out(live.root);
+      expect(want).toMatch(/one[\s\S]*two/);
+      expect(out(fixed.root)).toBe(want);
+      expect(comments(fixed.root)).toBe(0);
     });
   }
 });
