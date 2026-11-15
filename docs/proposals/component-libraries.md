@@ -16,7 +16,7 @@ there and lands in `main` with the rest.
 | 2, anchors as comments | in progress | a `data-sn-else` after `<sn-component use>` stays an `if` anchor of its own |
 | 3, slots that pass data | merged here | see below |
 | 6, the constant pre-pass | merged here | see below |
-| 7, nested loops and the worklist | in progress (from the integration branch) | |
+| 7, nested loops and the worklist | in progress (from the integration branch) | the worklist runs in the first compile; a page still compiles at most twice |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -747,8 +747,12 @@ of this is useful on its own, for nested constant data in any page.
    are decided per unrolled copy. Keys become instance paths: the template's file and offset, the
    component chain, and the item index at each level. Literal props already decide per use; this
    extends it to rows.
-4. **A worklist, not passes.** Expansion continues within one compile until nothing more is decided.
-   Today each further level would cost one more full compile (`compilePasses`), also in the LSP.
+4. **A worklist, at most two compiles.** Which state is constant is known only after the walk, so a
+   page whose constants decide something still compiles twice, as today. But the first compile's
+   evaluator works through the compiled templates until nothing more is decided, at every depth
+   (nested lists, row-dependent `if`s, chosen candidates, values), keyed by instance path, and the
+   second applies it all at once. Today each further level would cost one more full compile, also
+   in the LSP.
 5. **Shared definitions over constants.** A recursion point instantiated over constant props is
    expanded at build time like a nested loop, and a definition leaves the page when nothing else
    instantiates it. Fill templates ([4](#how-it-compiles)) expand the same way.
