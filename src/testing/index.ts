@@ -9,6 +9,7 @@ import type { OpenApiSpec } from '../compiler/openapi.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compactIR } from '../ir.js';
 import type { CompiledParts, HelperManifest } from '../compiler/compile.js';
+import { functionVerdict, type FoldVerdict } from '../fold-check.js';
 import * as earlyExports from '../early.js';
 import { early as runEarly } from '../early.js';
 import { t as message, use as useMessages } from '../messages.js';
@@ -451,6 +452,8 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
     ...(proj?.lazyModule ? { lazyModule: proj.lazyModule } : {}), actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
     lazy: true,
+    // helper calls over build-time constants run at build time, as in a build: each function's own source decides
+    helperValues: helpers, helperFold: helperVerdicts(helpers),
     // helper modules that reach a lazy package: the namespaces in `lazyHelpers`
     ...(options.lazyHelpers ? { lazyModule: (m: string) => (m.startsWith('lazy:') ? ['(lazy)'] : []) } : {}),
     readFile: proj?.readFile ?? ((p) => {
@@ -472,6 +475,16 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   const errors = diagnostics.filter((d) => d.severity === 'error');
   if (errors.length) throw new Error(`sinter: build failed\n${errors.map(formatDiagnostic).join('\n')}`);
   return { parts, manifest, actions, apis: apis?.apis ?? null, diagnostics };
+}
+
+/** Whether each helper given may run at build time, by the name compiled code calls (fold-check.ts, from its own source). */
+function helperVerdicts(helpers: Record<string, unknown>): Map<string, FoldVerdict> {
+  const out = new Map<string, FoldVerdict>();
+  for (const [k, v] of Object.entries(helpers)) {
+    if (typeof v === 'function') out.set(k, functionVerdict(v, k));
+    else if (v && typeof v === 'object') for (const [m, f] of Object.entries(v)) out.set(`${k}$${m}`, functionVerdict(f, `${k}.${m}`));
+  }
+  return out;
 }
 
 /** What a module of the helpers manifest exports of the helpers given (`sinter render` loads them all), by export name. */

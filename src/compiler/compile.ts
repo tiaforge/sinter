@@ -20,7 +20,7 @@ import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
-import type { FoldVerdict } from '../fold-check.js';
+import { foldReason, type FoldVerdict } from '../fold-check.js';
 import { FILE_ATTRS, fileAttrProblem, filePath, fileValue, isFileSource, scriptJson } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
@@ -1008,7 +1008,7 @@ class Compiler {
     if (this.opts.checkCycles) this.runCycles();
     for (const el of this.remove) detach(el);
     this.markLowPriority();
-    if (this.opts.prerender) { this.prerender(); this.dropConstants(); if (this.collecting()) this.collectConstants(); }
+    if (this.opts.prerender) { this.prerender(); this.dropConstants(); this.dropFiles(); if (this.collecting()) this.collectConstants(); }
     this.anchors();
     let early = this.opts.early ? this.earlyParts() : undefined;
     this.placeTemplates(doc, early);
@@ -1055,7 +1055,9 @@ class Compiler {
     const builtin: string[] = [];
     const user: string[] = [];
     // a lazy module's helpers are not imported: the module loads when a let needs it
-    const imported = (key: string) => !this.page.lazy?.has(key);
+    // and a helper whose every call ran at build time (written into the HTML) is not imported either
+    const live = this.fns.filter((c) => c !== '0').join('\n');
+    const imported = (key: string) => !this.page.lazy?.has(key) && new RegExp(`(?<![\\w$.])${key.replace(/\$/g, '\\$')}(?![\\w$])`).test(live);
     for (const h of [...this.page.usedHelpers].sort()) if (imported(h)) (this.page.helpers.has(h) ? user : builtin).push(h);
     const namespaces: Record<string, string[]> = {};
     for (const [k, v] of [...this.page.usedNs].sort(([a], [b]) => a.localeCompare(b))) {
@@ -4637,7 +4639,7 @@ class Compiler {
   }
 
   /** `file:` resources by name: their value is in the head (`data-sn` id), written there by `run()` */
-  readonly fileData = new Map<string, { id: number; json: string }>();
+  readonly fileData = new Map<string, { id: number; json: string; value: unknown; el?: P5Element }>();
 
   /**
    * `<sn-resource src="file:./post.txt">` (files.ts): the file read at build time, its value embedded in the
@@ -4664,7 +4666,7 @@ class Compiler {
     const items = attr(el, 'items')?.trim() || null;
     if (items && typeof value === 'string') this.report(el, 'items', 'SN332', '`items` picks a list out of a JSON file; this file is text', 0);
     const id = this.nextId++;
-    this.fileData.set(name, { id, json: scriptJson(value) });
+    this.fileData.set(name, { id, json: scriptJson(value), value });
     this.embedded.set(name, id);
     if (this.check) {
       const type = attr(el, 'type')?.trim() || null;
@@ -4829,6 +4831,11 @@ class Compiler {
     const cands: Cand[] = [];
     const written = this.writtenState();
     const fixed = (ds: PathRef[] | undefined) => strs(ds).every((d) => {
+      // a `file:` resource and its status: constants nothing writes
+      if (this.fileConstant(d)) return true;
+      // a namespace member's call depends on `$locale` (i18n libraries export namespaces): one that may fold reads no
+      // locale, and anything else that reads it throws in the evaluator
+      if (d === '$locale' && this.opts.helperFold) return true;
       const m = /^\$s(\d+)\.([^.]+)/.exec(d);
       return !!m && m[2] !== '*' && m[2] !== '**' && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`);
     });
@@ -4863,6 +4870,10 @@ class Compiler {
     const params = new Map<string, unknown>([['$k', $k]]);
     // (`location`: the browser's, as in a pattern page's `$canonical`; a test environment may have one)
     for (const h of ['Date', 'Intl', 'Math', 'location', 'date', 'time', 'datetime', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
+    // the app's helpers: a call over constants runs here when the static check lets it (`helperFold`), else its stub
+    // records which helper kept the binding in the browser, for SN322
+    const folding = (this.folding = this.helperCalls(NOT));
+    for (const h of this.opts.helpers.names) params.set(h, folding.fn(h));
     // a page built in one language: what depends only on the language is written as the browser would. A calendar
     // date (`2026-11-11`) is the same day everywhere; a moment (`…T09:00Z`) is the visitor's time zone's
     const lang = this.opts.locale?.name;
@@ -4873,7 +4884,7 @@ class Compiler {
       params.set('bytes', (v: unknown) => inLang(() => bytes(v)));
       params.set('date', (v: unknown, style?: 'full' | 'long' | 'medium' | 'short') => { if (!isCalendarDate(v)) throw NOT; return inLang(() => date(v, style)); });
     }
-    for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, stub);
+    for (const [ns, { members, module }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, module === '@tiaforge-ui/sinter/messages' ? stub : folding.fn(`${ns}$${m}`));
     // the base language's text, for a text binding: the binding is marked and stays the browser's
     const base = this.opts.baseMessages;
     let usedMessage = false;
@@ -4905,18 +4916,26 @@ class Compiler {
     const known = (deps: string[]) => deps.every((d) => {
       // a message re-renders on `$locale`: its base text is what is written
       if (d === '$locale' && msgNs) return true;
+      if (d === '$locale' && this.opts.helperFold) return true;
+      if (this.fileConstant(d)) return true;
       const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
       if (!m || !states.has(Number(m[1]))) return false;
       return m[2] !== undefined ? !isPersisted(`$s${m[1]}.${m[2]}`) : ![...this.persisted].some((p) => p !== own && p.startsWith(`$s${m[1]}.`));
     });
+    const files = this.fileConstants(NOT);
     const scope = new Proxy({}, {
       get: (_, k) => {
         const m = typeof k === 'string' ? /^\$s(\d+)$/.exec(k) : null;
         if (m && states.has(Number(m[1]))) return states.get(Number(m[1]));
+        // `file:` resources: their values and constant status; a cached let computes its value (lets.ts), a lazy helper is not here
+        if (k === '$r') return files.r;
+        if (k === '$meta') return files.meta;
+        if (k === '$c') return (_s: unknown, _j: number, _n: string, f: ($: unknown) => unknown) => f(_s);
+        if (k === '$h') return (_k: number, f: (...a: unknown[]) => unknown, a: unknown[]) => f(...a);
         throw NOT;
       },
     });
-    const run = (code: string): unknown => { try { return fnOf.get(code)!(scope); } catch { return FAIL; } };
+    const run = (code: string): unknown => { folding.start(code); try { return fnOf.get(code)!(scope); } catch { return FAIL; } finally { folding.end(); } };
     for (const st of this.stateInits) {
       if (st.persist) continue;
       const sid = st.sid, obj: Record<string, unknown> = {};
@@ -4965,6 +4984,110 @@ class Compiler {
     if (this.collecting()) work.finish(scope);
   }
 
+  /** prerender's helper calls, while it evaluates (`helperCalls`) */
+  folding: ReturnType<Compiler['helperCalls']> | null = null;
+  /** by compiled code: the app helper whose call kept it from being a build-time constant, and why (SN322) */
+  readonly foldWhy = new Map<string, string>();
+
+  /**
+   * The app's helpers as the build-time evaluator calls them (docs/spec.md, Helpers at build time): a helper the
+   * static check lets fold (`helperFold`), with its module loaded in Node (`helperValues`), runs over plain-data
+   * arguments and must return plain data. One that throws, returns anything else, or (dev builds, run twice)
+   * returns another result the second time, stays in the browser, with warning SN534 once at the call. Any other
+   * helper throws `NOT`, and the call it was in is recorded with the reason, for SN322.
+   */
+  helperCalls(NOT: Error) {
+    const values = this.opts.helperValues, verdicts = this.opts.helperFold;
+    let code: string | null = null;
+    const warned = new Set<string>();
+    const why = (key: string) => {
+      const v = verdicts?.get(key);
+      const name = key.replace('$', '.') + '()';
+      if (v && !v.fold) return `\`${name}\` cannot run at build time: ${foldReason(v, this.opts.root)}`;
+      if (values === null) return `\`${name}\` cannot run at build time: the helpers module could not be loaded in Node (SN533)`;
+      // a compile with no helpers loaded at all (a plain `compile()`): nothing to say
+      return null;
+    };
+    const valueOf = (key: string): unknown => {
+      if (!values) return undefined;
+      const i = key.indexOf('$');
+      return i < 0 ? values[key] : (values[key.slice(0, i)] as Record<string, unknown> | undefined)?.[key.slice(i + 1)];
+    };
+    const problem = (key: string, what: string) => {
+      const at = code ? this.codeAt.get(code) : null;
+      const k = `${code}\0${key}`;
+      if (!this.opts.dev || !at || warned.has(k)) return;
+      warned.add(k);
+      this.report(at.el, at.attr, 'SN534', `\`${key.replace('$', '.')}()\` ${what}, so this call stays in the browser`, at.shift);
+    };
+    return {
+      start: (c: string) => { code = c; },
+      end: () => { code = null; },
+      fn: (key: string) => {
+        const f = valueOf(key);
+        // a helper of a module that reaches a lazy package never runs here: dev stubs the package, the build does not
+        const may = typeof f === 'function' && verdicts?.get(key)?.fold === true && !this.page.lazy?.has(key);
+        return (...a: unknown[]) => {
+          if (!may) { const w = code && !this.foldWhy.has(code) ? why(key) : null; if (w) this.foldWhy.set(code!, w); throw NOT; }
+          if (!a.every((x) => plainData(x))) throw NOT;
+          let v: unknown;
+          try { v = (f as (...x: unknown[]) => unknown)(...a); } catch (e) {
+            if (e === NOT) throw NOT;
+            problem(key, `threw at build time (${(e as Error)?.message ?? String(e)})`);
+            throw NOT;
+          }
+          if (!plainData(v)) { problem(key, 'returned something that is not plain data (JSON values)'); throw NOT; }
+          if (this.opts.dev) {
+            let again: unknown;
+            try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
+            if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) { problem(key, 'returned another result when called again with the same arguments: a helper must be pure'); throw NOT; }
+          }
+          return v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
+        };
+      },
+    };
+  }
+
+  /**
+   * A `file:` resource that nothing left for the browser reads (every binding over it was written into the HTML):
+   * out of the page, with its embedded data, so a page whose files all folded can ship no JavaScript.
+   */
+  dropFiles() {
+    if (!this.fileData.size) return;
+    const code = this.fns.filter((c) => c !== '0');
+    // a resource chosen by a computed name (`$r[name]`, `$meta[name]`) may be any of them
+    if (code.some((c) => /\$\.\$(r|meta)\[/.test(c))) return;
+    for (const [name, d] of this.fileData) {
+      const re = new RegExp(`\\$\\.\\$(r|meta)\\.${name}(?![\\w$])`);
+      if (code.some((c) => re.test(c))) continue;
+      const i = this.resources.findIndex((r) => r.name === name);
+      if (i >= 0) this.resources.splice(i, 1);
+      if (d.el) detach(d.el);
+      this.embedded.delete(name);
+      this.fileData.delete(name);
+    }
+  }
+
+  /** whether a dependency path is a `file:` resource's value or status: a constant nothing writes */
+  fileConstant(d: string): boolean {
+    const m = /^\$(r|meta)\.([^.]+)/.exec(d);
+    return !!m && this.fileData.has(m[2]!);
+  }
+
+  /** `$r` and `$meta` for the build-time evaluator: the `file:` resources' values (frozen) and constant status; any other resource throws */
+  fileConstants(NOT: Error): { r: object; meta: object } {
+    const values = new Map<string, unknown>(), status = new Map<string, unknown>();
+    for (const [name, d] of this.fileData) {
+      const def = this.resources.find((x) => x.name === name);
+      let v = d.value;
+      for (const k of def?.items ? def.items.split('.') : []) v = (v as Record<string, unknown> | null)?.[k];
+      values.set(name, v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v);
+      status.set(name, Object.freeze({ loading: false, error: null, loadedAt: null, pending: 0, total: null, live: null }));
+    }
+    const of = (m: Map<string, unknown>) => new Proxy({}, { get: (_, k) => { if (typeof k === 'string' && m.has(k)) return m.get(k); throw NOT; } });
+    return { r: of(values), meta: of(status) };
+  }
+
   /** The first pass of a prerendered page, which may compile it again: it records what folds (`collectConstants`). */
   collecting(): boolean {
     return !!this.opts.prerender && !this.opts.decided && !this.opts.unrolled && !this.opts.constants;
@@ -4991,7 +5114,8 @@ class Compiler {
       const f = fnOf.get(code);
       if (!f) return FAIL;
       reset();
-      try { const v = f(sc); return usedMessage() && !this.opts.locale ? FAIL : v; } catch { return FAIL; }
+      this.folding?.start(code);
+      try { const v = f(sc); return usedMessage() && !this.opts.locale ? FAIL : v; } catch { return FAIL; } finally { this.folding?.end(); }
     };
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.length <= MAX_UNROLL && v.every((x) => plainData(x)) ? v : null);
     const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.paints.find((x) => x.node === n)?.el;
@@ -5495,6 +5619,8 @@ class Compiler {
     const written = this.writtenState();
     // a state field no write reaches keeps its first value, which the HTML has
     const fixed = (d: string) => {
+      // a `file:` resource's value and status never change; a helper that folded read no `$locale`
+      if (this.fileConstant(d) || (d === '$locale' && this.opts.helperFold)) return true;
       const m = /^\$s(\d+)\.([^.]+)/.exec(d);
       return !!m && m[2] !== '*' && m[2] !== '**' && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`);
     };
@@ -6282,10 +6408,11 @@ class Compiler {
     const html = doc.childNodes.find((n) => isElement(n) && n.tagName === 'html') as P5Element | undefined;
     const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
     if (!head) return;
-    for (const { id, json } of this.fileData.values()) {
-      const el = parse5.parseFragment(`<script type="application/json" data-sn="${id}">${json}</script>`).childNodes[0] as P5Element;
+    for (const d of this.fileData.values()) {
+      const el = parse5.parseFragment(`<script type="application/json" data-sn="${d.id}">${d.json}</script>`).childNodes[0] as P5Element;
       el.parentNode = head;
       head.childNodes.push(el as never);
+      d.el = el;
     }
   }
 
@@ -6355,6 +6482,23 @@ class Compiler {
    * Why the page needs the runtime, in document order: each element with something bound, a state or a
    * component script (by its first sinter attribute), each resource and stream. Empty: nothing runs.
    */
+  /** why a node's bindings (or the rows of its templates) stayed in the browser, when an app helper's call kept them there */
+  whyNotFolded(n: NodeDef, seen = new Set<number>()): string | null {
+    for (const b of n.b) {
+      const w = b.f !== undefined ? this.foldWhy.get(this.fns[b.f]!) : undefined;
+      if (w) return w;
+      if ((b.k === 'for' || b.k === 'if' || b.k === 'else') && b.x !== undefined && !seen.has(b.x)) {
+        seen.add(b.x);
+        for (const m of this.templates[b.x]?.nodes ?? []) { const r = this.whyNotFolded(m, seen); if (r) return r; }
+      }
+    }
+    if (n.state !== undefined) {
+      const st = this.stateInits.find((x) => x.sid === n.sid);
+      for (const f of st?.fields ?? []) { const w = this.foldWhy.get(f.code); if (w) return w; }
+    }
+    return null;
+  }
+
   runtimeReasons(): RuntimeReason[] {
     const out: Array<RuntimeReason & { at: number }> = [];
     const self = this.canonicalLink;
@@ -6375,7 +6519,8 @@ class Compiler {
       const b = n.b.find((x) => x.k === 'cmp') ?? n.b[0];
       if (b?.k === 'cmp') { out.push({ what: `the script of \`<${this.useOf.get(el)?.name ?? el.tagName}>\``, ...at(el, null) }); continue; }
       const name = nameOf(el, b);
-      out.push({ what: name ? `\`${name}\`` : `\`<${el.tagName}>\``, ...at(el, name) });
+      const why = this.whyNotFolded(n);
+      out.push({ what: `${name ? `\`${name}\`` : `\`<${el.tagName}>\``}${why ? ` (${why})` : ''}`, ...at(el, name) });
     }
     for (const r of this.resources) {
       const el = this.declAt.get(r);

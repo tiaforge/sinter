@@ -831,3 +831,13 @@ Warning, for example:
 The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app's Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session.
 
 **Fix:** Move what needs the browser out of the module's top level (into the functions that need it), or into a component script. The page works either way; only build-time folding is lost.
+
+## SN534 helper-not-folded
+
+Warning, for example:
+
+> `fmt.title()` threw at build time (Cannot read properties of undefined), so this call stays in the browser
+
+A helper call over build-time constants (in a binding or a state initializer) runs in the compiler when the helper may fold, and its result is written into the page. This call did not: the helper threw, returned something that is not plain data (JSON values: a `Date`, a `Map`, a class instance, a function), or, in a dev build, which runs each such call twice, returned another result the second time. The call runs in the browser instead, as before. Dev builds only, once per call.
+
+**Fix:** Make the helper return plain data for constant arguments and keep it pure (same arguments, same result, nothing read or changed elsewhere). A helper that cannot is fine in the browser: this is only a warning.

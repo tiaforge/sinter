@@ -20,7 +20,8 @@ const listen = (s: Server) => new Promise<number>((r) => s.listen(0, '127.0.0.1'
 
 beforeAll(async () => {
   mkdirSync(join(root, 'src'), { recursive: true });
-  writeFileSync(join(root, 'src', 'sinter.helpers.js'), "export const site = () => 'Docs';\nexport const withImage = () => true;\n");
+  // helpers only the browser runs (they read `globalThis`, so the build does not run them)
+  writeFileSync(join(root, 'src', 'sinter.helpers.js'), "export const site = () => globalThis.siteName ?? 'Docs';\nexport const withImage = () => globalThis.withImage ?? true;\n");
   writeFileSync(join(root, 'index.html'), `<!doctype html>
 <html lang="en">
 <head>
