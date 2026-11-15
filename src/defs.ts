@@ -9,7 +9,10 @@ const feature: Feature = {
   install(app: App) {
     app.ext.defs = (tpl) => {
       const id = tpl.getAttribute('data-sn-def');
-      if (id && !tpl.content.firstChild) tpl.content.append((tpl.ownerDocument.getElementById(id) as HTMLTemplateElement).content.cloneNode(true));
+      // the definition is in the page's head: a use inside a row not yet inserted (a candidate of
+      // `<sn-component use>` in a `data-sn-for`) is owned by the template's inert document
+      const doc = app.root.ownerDocument ?? (app.root as Document);
+      if (id && !tpl.content.firstChild) tpl.content.append((doc.getElementById(id) as HTMLTemplateElement).content.cloneNode(true));
     };
   },
 };

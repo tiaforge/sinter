@@ -264,7 +264,7 @@
     },
     {
       "name": "data-sn-call",
-      "description": "local action: calls a function from the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id') (action call)"
+      "description": "local action: calls a function from the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)`, which arrives as a string (action call)"
     },
     {
       "name": "data-sn-body",

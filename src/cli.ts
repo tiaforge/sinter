@@ -84,15 +84,25 @@ async function main(argv: string[]): Promise<number> {
   const warnings = diagnostics.length - errors;
   const promoted = warned - warnings;
   console.log(`sinter check${strict ? ' --strict' : ''}: ${files.length} page(s), ${errors} error(s)${promoted ? ` (${promoted} were warnings)` : ''}, ${warnings} warning(s); ${r.typed} of ${r.resources} resources typed${r.openapi ? ` (${r.openapi} via OpenAPI)` : ''}`);
+  // agents check what a page shows in a browser they script themselves; `sinter render` answers that in one command
+  const withData = units.find((u) => u.resources.length);
+  if (withData) console.log(renderHint(relative(process.cwd(), withData.file) || withData.file, root));
   return errors ? 1 : 0;
 }
 
-/** `sinter docs [topic]`: from the llms.txt and docs/diagnostics.md that ship beside dist/. */
+/** The line `sinter check` ends with on a project whose pages load data: how to see one render with it. */
+export function renderHint(page: string, root: string): string {
+  let mocks = 'mocks.json';
+  try { readFileSync(join(root, 'mocks.json')); } catch { mocks = 'mocks.json (routes such as { "GET /api/x": … })'; }
+  return `to try a page and test what it does without a browser: npx sinter render ${page} --api http://localhost:<port> --click '<selector>' (your running API, or --api ${mocks}; prints the requests, the page and what each step changed; sinter render --help)`;
+}
+
+/** `sinter docs [topic]`: from the llms-full.txt (else llms.txt) and docs/diagnostics.md that ship beside dist/. */
 async function docs(args: string[]): Promise<number> {
   const { lookup } = await import('./docs-cli.js');
   const pkg = new URL('..', import.meta.url);
   const read = (f: string) => { try { return readFileSync(new URL(f, pkg), 'utf8'); } catch { return ''; } };
-  const r = lookup({ llms: read('llms.txt'), diagnostics: read('docs/diagnostics.md') }, args.join(' ') || undefined);
+  const r = lookup({ llms: read('llms-full.txt') || read('llms.txt'), diagnostics: read('docs/diagnostics.md') }, args.join(' ') || undefined);
   (r.found ? console.log : console.error)(r.text);
   return r.found ? 0 : 1;
 }

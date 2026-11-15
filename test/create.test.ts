@@ -20,10 +20,20 @@ const create = (...args: string[]) => execFileSync(process.execPath, [bin, ...ar
 test('copies the template, restores .gitignore and names the package after the directory', () => {
   const out = create('My App');
   const dir = join(tmp, 'My App');
-  expect(readdirSync(dir).sort()).toEqual(['.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'index.html', 'package.json', 'server', 'src', 'task.html', 'tsconfig.json', 'vite.config.js']);
+  expect(readdirSync(dir).sort()).toEqual(['.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'index.html', 'mocks.json', 'package.json', 'server', 'src', 'task.html', 'tsconfig.json', 'vite.config.js']);
   expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).name).toBe('my-app');
   expect(out).toContain('cd "My App"\n  npm install\n  npm run dev');
   expect(() => create('My App')).toThrow();
+});
+
+test('the template\'s mocks.json (`npm run render`) answers what the pages load, with tasks shaped as the Task type', () => {
+  const t = join(repo, 'packages/create/template');
+  const mocks = JSON.parse(readFileSync(join(t, 'mocks.json'), 'utf8')) as Record<string, unknown>;
+  expect(JSON.parse(readFileSync(join(t, 'package.json'), 'utf8')).scripts.render).toBe('sinter render index.html --api mocks.json');
+  // the routes index.html and task.html request
+  expect(Object.keys(mocks)).toEqual(expect.arrayContaining(['GET /api/tasks', 'GET /api/tasks/t1']));
+  const fields = [...readFileSync(join(t, 'src/sinter.types.ts'), 'utf8').match(/interface Task \{([^}]*)\}/)![1]!.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]).sort();
+  for (const task of [...(mocks['GET /api/tasks'] as object[]), mocks['GET /api/tasks/t1'] as object]) expect(Object.keys(task).sort()).toEqual(fields);
 });
 
 test('the template asks for the version of sinter this repo is at', () => {

@@ -7,7 +7,7 @@ import { expect, test } from 'vitest';
 import { lookup, sections } from '../src/docs-cli.js';
 
 const root = resolve(__dirname, '..');
-const docs = { llms: readFileSync(resolve(root, 'llms.txt'), 'utf8'), diagnostics: readFileSync(resolve(root, 'docs/diagnostics.md'), 'utf8') };
+const docs = { llms: readFileSync(resolve(root, 'llms-full.txt'), 'utf8'), diagnostics: readFileSync(resolve(root, 'docs/diagnostics.md'), 'utf8') };
 const get = (t?: string) => lookup(docs, t);
 
 test('without a topic: every section, by slug', () => {
@@ -24,6 +24,10 @@ test('a section by its slug or a word of it; a ## section with its ### children,
   expect(get('first paint').text.startsWith('## First paint\n')).toBe(true);
   expect(get('optimistic-toggle').text).toMatch(/^### Optimistic toggle\n\n```html/);
   expect(get('recipes').text).toContain('### Optimistic toggle');
+  // each section ends with how to see a page work, which agents otherwise script a browser for
+  expect(layouts.endsWith("against your running API or `--api mocks.json`.)")).toBe(true);
+  // the testing section starts with sinter render: an agent that looked it up still wrote a browser suite
+  expect(get('testing').text).toMatch(/^## Testing\n\nTo try a page and test what it does, start here, before a browser script: `npx sinter render /);
 });
 
 test('an attribute or element: its reference line and where else it is used', () => {

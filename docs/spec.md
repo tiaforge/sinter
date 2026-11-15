@@ -1282,7 +1282,7 @@ Configuration comes only from `configure()` in JavaScript, never from the DOM, s
 - Injection tests: server-rendered markup containing `data-sn-*` attributes, forged `data-sn` ids and forged `data-sn-data` scripts must stay inert.
 - A DOM clobbering corpus (named `form`, `img` and `a` elements shadowing `document` and `window` properties) must not change runtime behaviour.
 - URL tests: absolute and protocol-relative values, `.`/`..` segments and disallowed origins in every URL template position.
-- The whole browser suite also runs with Trusted Types enforced and a strict CSP, and fails on any violation report.
+- The e2e navigation pages run under `script-src 'self'` and fail on any violation report. No test enforces Trusted Types yet.
 
 ### Supply chain and build
 - The runtime has zero dependencies; the compiler's are few, pinned, and reviewed on update.
@@ -1415,7 +1415,7 @@ Operations are calls, `new`, operators, assignments, updates, computed member ac
 The dev build adds checks that need real data: duplicate keys in a response, an item missing a key field, an `items` path that is not an array, a server event payload missing key fields. Warnings name the resource, the page and the offending value.
 
 ### LLM support
-- `llms.txt` in the package: the full attribute reference, the scope rules and eight copy-paste recipes (list with filter, form dialog, field errors, SSE sync, optimistic toggle, pagination in the URL, typed resources, local actions); the other recipes are listed with links. Agents read all of it, so it stays short (about 55 KB): recipe tests stay beside the recipes in `docs/recipes/`, and build internals stay in the guides.
+- `llms.txt` in the package, short enough for a shell's `cat` to show whole (under 25 KB; Claude Code keeps about 30 KB of a command's output): the opening rules, the attribute and element reference, the scope rules, what belongs in markup, the magic names and store functions, and an index of the other sections as `sinter docs` topics. `llms-full.txt` beside it has everything, eight copy-paste recipes included (list with filter, form dialog, field errors, SSE sync, optimistic toggle, pagination in the URL, typed resources, local actions), and `sinter docs` prints from it. Both are generated from one source (test/docs.test.ts).
 - A generated VS Code custom-data file (`html-custom-data.json`) so editors and agents get attribute completion; the VS Code extension ships it.
 - Every diagnostic links to its section in `docs/diagnostics.md`, which is generated from the compiler's table of codes (example, meaning, fix).
 
@@ -1495,11 +1495,11 @@ The module has no test-runner imports. It works with Vitest, or anything else, o
 | Real browsers | Playwright on Chromium, Firefox and WebKit | `<dialog>`, `commandfor`, back/forward cache, `EventSource`, focus preservation |
 | Budgets | size per module and a list-update benchmark in CI | the 11 KB core budget, performance regressions |
 
-Rules: every bug fix adds a failing test first, and every code example in the docs and in `llms.txt` is executed as a test.
+Rules: every bug fix adds a failing test first, and every code example in the docs and in `llms-full.txt` is executed as a test.
 
 ### Encouraging app tests
-- Every recipe in the docs and in `llms.txt` has its test in `docs/recipes/`, executed by the suite.
-- `llms.txt` has a testing section, so coding agents write a test next to the markup by default.
+- Every recipe in the docs and in `llms-full.txt` has its test in `docs/recipes/`, executed by the suite.
+- `llms-full.txt` has a testing section (`sinter docs testing`), so coding agents write a test next to the markup by default.
 - Failures are readable: an unmatched request prints the request and the routes; a failed render prints the build diagnostics.
 
 ## Worked example: contacts page
