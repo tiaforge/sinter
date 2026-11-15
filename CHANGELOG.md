@@ -100,6 +100,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- A component whose root is an if/else chain or another component's tag, used inside a component with a plain root, resolved its names in that outer component: over the outer's constant props its branch was decided by them and its text was theirs (`<button>OUTER</button>` for a link), at run time too.
+- Slot content holding a `data-sn-for` or `data-sn-if` template whose content is a component with an if/else, component-tag or choice root failed the build over constants (`SN201`), and so did `<sn-component use>` directly in slot content: each now compiles in the scope of the markup that wrote it.
+- A slot-root component filled by a component-tag-root component (`<x-slot><x-var slot="item" …>`) failed to build: the components whose markup starts at one node were ordered nearest first, three levels deep.
+- A fill of a tree placement with two `<slot>`s that can render together is `SN312` over state as over constants (it compiled over state and placed the children twice).
 - Over constants, a component tag used as a fill of a slot a list places per row rendered the first row's `$slot` in every row (its props, its class and attributes, a chain or tag root, slot content in the tag, a nested fill), with no diagnostic.
 - `<sn-component use>` inside a component, over that component's prop, choosing a component whose root is another component's tag over an if/else root, failed the build over constants with `SN201` in the chosen component.
 - A literal text (`data-sn-text="'~'"`) right after a text the previous row of a constant loop ended with hid the node after it: that node was left a `<template>` in the HTML.
