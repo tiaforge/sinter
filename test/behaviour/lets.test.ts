@@ -29,6 +29,30 @@ describe('a let over a helper is cached', () => {
     expect(calls).toEqual(['a b']);
   });
 
+  // a handler's writes are marked when it returns: a read later in the same handler must see them
+  for (const [what, state, let_, handler, seen] of [
+    ['a list changed in place', '{ xs: [1, 2], seen: 0 }', '{ total: sum(xs) }', 'xs.push(10); seen = total', 13],
+    ['a list replaced', '{ xs: [1, 2, 10], seen: 0 }', '{ total: sum(xs) }', 'xs = [...xs, 5]; seen = total', 18],
+    ['an object changed in place, read through a member', '{ o: { xs: [1] }, seen: 0 }', '{ n: len(o) }', 'o.xs.push(1); seen = n', 2],
+  ] as const) {
+    test(`a handler that changes a let's inputs and then reads it sees the new value (${what})`, async () => {
+      let calls = 0;
+      const sum = (xs: number[]) => { calls++; return xs.reduce((a, b) => a + b, 0); };
+      const len = (o: { xs: unknown[] }) => { calls++; return o.xs.length; };
+      const name = let_.slice(2, let_.indexOf(':'));
+      const r = await render(`<main data-sn-state="${state}" data-sn-let="${let_}"><p data-sn-text="${name}"></p><b data-sn-text="seen"></b>
+        <button data-sn-on-click="${handler}"></button></main>`, { helpers: { sum, len } });
+      const before = r.root.querySelector('p')!.textContent;
+      r.root.querySelector('button')!.click();
+      await r.flush();
+      expect(r.root.querySelector('b')!.textContent).toBe(String(seen));
+      // the binding agrees, and the page did not compute it for every read: once at mount, once in the handler, once after
+      expect(r.root.querySelector('p')!.textContent).toBe(String(seen));
+      expect(before).not.toBe(String(seen));
+      expect(calls).toBeLessThanOrEqual(3);
+    });
+  }
+
   test('a dependency changes: computed again; equal primitive arguments return the last result', async () => {
     const { calls, parse } = counting();
     const r = await render(`<main data-sn-state="{ post: { body: 'a b', likes: 0 }, upper: false }" data-sn-let="{ doc: parse(post.body, { upper }) }">
@@ -143,6 +167,22 @@ describe('first paint and takeover', () => {
     expect(calls).toEqual(['a b c']);
     expect([...document.querySelectorAll('li')].map((x) => x.textContent)).toEqual(['a', 'b', 'c']);
     expect(document.querySelector('p')!.textContent).toBe('3');
+  });
+
+  test('the early cache: a let computed once, and a handler after the takeover that changes its input and reads it sees the new value', async () => {
+    let calls = 0;
+    const sum = (xs: number[]) => { calls++; return xs.reduce((a, b) => a + b, 0); };
+    const html = `<!doctype html><html><head></head><body><main data-sn-state="{ xs: [1, 2], seen: 0 }" data-sn-let="{ total: sum(xs) }">
+      <p data-sn-text="total"></p><i data-sn-text="total + 1"></i><b data-sn-text="seen"></b><button data-sn-on-click="xs.push(10); seen = total"></button></main></body></html>`;
+    await firstPaint(html, { helpers: { sum } });
+    expect(document.querySelector('p')!.textContent).toBe('3');
+    expect(document.querySelector('i')!.textContent).toBe('4');
+    expect(calls).toBe(1);
+    const r = await render(html, { helpers: { sum }, firstPaint: {} });
+    document.querySelector('button')!.click();
+    await r.flush();
+    expect(document.querySelector('b')!.textContent).toBe('13');
+    expect(document.querySelector('p')!.textContent).toBe('13');
   });
 
   for (const [what, expr, parses] of [
