@@ -6561,8 +6561,8 @@ class Compiler {
     const o = this.origins.get(root);
     if (o) o.use = '<';
     const use = this.hostUse.get(host);
-    if (use?.shape) this.expandComponents({ childNodes: root.parentNode!.childNodes.filter((c) => this.scopeStart.get(c)?.includes(use)) } as unknown as P5Parent, [...at.ch, name], false, use);
-    else this.expandComponents(root, [...at.ch, name], false, use ?? null);
+    if (use?.shape) this.expandComponents({ childNodes: root.parentNode!.childNodes.filter((c) => this.scopeStart.get(c)?.includes(use)) } as unknown as P5Parent, [name], false, use);
+    else this.expandComponents(root, [name], false, use ?? null);
     return true;
   }
 
@@ -7658,13 +7658,17 @@ class Compiler {
     const elOf = new Map(this.paints.map((x) => [x.node, x.el]));
     for (const n of this.roots) {
       if (!n.b.length && n.state === undefined) continue;
-      const el = elOf.get(n);
-      if (!el || el === self) continue;
+      // an anchor (a loop, branch, choice or recursion point left to the browser) paints nothing: its element
+      // is the template or tag it took the place of, so that it is never left out
+      const el = elOf.get(n) ?? this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.anchorEls.get(n);
+      if (el === self) continue;
+      // (no element to point at: still a reason, at the page, so that a page never ships code without one)
+      if (!el) { const k = n.b[0] && BY_KIND[n.b[0].k]; out.push({ what: `${k ? `\`${k}\`` : 'a binding'} (where it was written is not known)`, file: this.opts.file, line: 1, col: 1, at: 0 }); continue; }
       const b = n.b.find((x) => x.k === 'cmp') ?? n.b[0];
       if (b?.k === 'cmp') { out.push({ what: `the script of \`<${this.useOf.get(el)?.name ?? el.tagName}>\``, ...at(el, null) }); continue; }
       const name = nameOf(el, b);
       const why = this.whyNotFolded(n);
-      out.push({ what: `${name ? `\`${name}\`` : `\`<${el.tagName}>\``}${why ? ` (${why})` : ''}`, ...at(el, name) });
+      out.push({ what: `${name ? `\`${name}\`` : `\`<${this.points.get(el) ?? el.tagName}>\``}${why ? ` (${why})` : ''}`, ...at(el, name) });
     }
     for (const r of this.resources) {
       const el = this.declAt.get(r);
