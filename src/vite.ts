@@ -4,7 +4,7 @@
 // head (one shared by every page, one of the page's own) that render what needs no
 // data as the parser inserts it, before the first paint, with nothing render-blocking.
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
@@ -30,7 +30,9 @@ import { chooserHtml, hreflangTags, readLocales, type Locales } from './locales-
 import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
 import { faceName, faceOf, fontDownloader, fontFileDownloader, inlineFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
-import { COMPONENT_NAME } from './compiler/components.js';
+import { COMPONENT_NAME, LIBRARY_LAYER } from './compiler/components.js';
+import { componentsOf, libraryOf } from './libraries.js';
+import { LAYERS_SHEET } from './compiler/compile.js';
 import { apiOrigins } from './compiler/apis.js';
 import { loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from './helpers-node.js';
 import { FoldCache } from './fold-check.js';
@@ -320,7 +322,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** the lazy packages a component script reaches (`/src/components/x.ts`); a build logs why it loads with them */
   const lazyScript = (module: string): string[] => {
     const file = resolve(root, '.' + module);
-    const r = reachLazy(file, lazyPkgs, root);
+    const r = reachLazy(file, lazyPkgs, root, undefined, undefined, false, project(root, options).libraries);
     if (r.length && !dev && !loggedScripts.has(module)) {
       loggedScripts.add(module);
       resolved?.logger.info(`sinter: ${relOf(file)} loads with ${r.map((x) => x.spec).join(', ')}, when its component first renders: ${r.map((x) => chainText(root, x)).join('; ')}`);
@@ -501,6 +503,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (watched.has(file)) return;
     watched.add(file);
     server?.watcher.add(file);
+    // a library's file through a workspace link: the watcher reports its real path
+    let real = file;
+    try { real = realpathSync(file); } catch { /* missing */ }
+    if (real !== file) { watched.add(real); server?.watcher.add(real); }
   };
   const relOf = (file: string) => relative(root, file).split(sep).join('/');
 
@@ -628,8 +634,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
       file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
-      check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles, lazy: p.lazy,
-      ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs).reach(m) } : {}),
+      check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
+      ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
       ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold } : {}),
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(styles?.length ? { styles } : {}),
@@ -680,14 +686,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * package), and so does a helper module that reaches one, with the modules between (they load whole with it).
    */
   const lazyTransform = (ctx: { error(e: string | { message: string; id?: string; loc?: { line: number; column: number } }): never }, code: string, id: string) => {
-    if (!lazyPkgs.length || id.startsWith('\0') || id.includes('/node_modules/') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return null;
+    if (!lazyPkgs.length || id.startsWith('\0') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return null;
     const file = id.replace(/[?#].*$/, '');
+    // packages are not the app's modules, except the component libraries
+    const libs = options.components?.length ? project(root, options).libraries : [];
+    if (id.includes('/node_modules/') && !libraryOf(libs, file)) return null;
     if (!mentions(code, lazyPkgs)) return null;
     const s = scanLazy(code, file, lazyPkgs);
     if (!s.lazy.length && !s.problems.length) return null;
-    if (isComponentScript(root, file)) return null;
+    if (isComponentScript(root, file, libs)) return null;
     // a helper module that reaches the package, and the modules between: they load whole with it, when a let first needs them
-    if (lazyHelpers(root, lazyPkgs).whole(project(root, options).helpers).has(file)) return null;
+    if (lazyHelpers(root, lazyPkgs, undefined, libs).whole(project(root, options).helpers).has(file)) return null;
     if (s.problems.length) {
       const at = lineCol(code, s.problems[0]!.offset);
       ctx.error({ message: `sinter: ${s.problems.map((p) => { const l = lineCol(code, p.offset); return `SN324 ${relOf(file)}:${l.line}:${l.col} ${p.message}`; }).join('\n')}`, id: file, loc: { line: at.line, column: at.col - 1 } });
@@ -709,7 +718,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      */
     config(user) {
       // dev: the lazy packages are pre-bundled at startup (no page imports them statically, so the scan would not find them)
-      const deps = lazyPkgs.length ? { optimizeDeps: { include: lazyPkgs } } : {};
+      // component libraries ship source the plugin compiles: never pre-bundled
+      const libs = componentsOf(options.components);
+      const deps = lazyPkgs.length || libs.length ? { optimizeDeps: { ...(lazyPkgs.length ? { include: lazyPkgs } : {}), ...(libs.length ? { exclude: libs } : {}) } } : {};
       const mp = user.build?.modulePreload;
       if (mp === false || (typeof mp === 'object' && mp.polyfill !== undefined)) return deps;
       return { ...deps, build: { modulePreload: { polyfill: false } } };
@@ -719,6 +730,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       root = config.root;
       dev = config.command === 'serve';
       resolved = config;
+      // dev: a component library's files are served wherever they really are (a workspace link outside the root)
+      if (dev && options.components?.length) {
+        const allow = (config.server.fs as { allow?: string[] }).allow;
+        if (Array.isArray(allow)) for (const l of project(root, options).libraries) if (!allow.includes(l.real)) allow.push(l.real);
+      }
       if (options.localePrefix) {
         if (options.messages === false) throw new Error('sinter({ localePrefix }): the languages come from the built-in messages, which `messages: false` turns off');
         locales = readLocales(root, typeof options.messages === 'string' ? options.messages : 'project.inlang');
@@ -950,7 +966,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (importer && id.endsWith('.html') && !importer.endsWith('.html')) {
         const file = resolve(dirname(importer.replace(/[?#].*$/, '')), id);
         const name = file.slice(0, -5).split(sep).pop()!;
-        if (dirname(file) === resolve(root, 'src/components') && COMPONENT_NAME.test(name)) return `\0${COMPONENT_BASE}${name}.js`;
+        if (COMPONENT_NAME.test(name) && (dirname(file) === resolve(root, 'src/components') || (options.components?.length && isComponentScript(root, file.slice(0, -5) + '.ts', project(root, options).libraries)))) return `\0${COMPONENT_BASE}${name}.js`;
       }
       // a build with source maps: page modules keep a plain id, as Rolldown drops the map of a `\0` module
       if (id.startsWith(PREFIX) && !dev && maps.has(id)) return id;
@@ -964,6 +980,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const css = id.replace(/\?.*$/, '');
       if (css.startsWith(`\0${IMG_CSS}`)) return imageCss.get(css.slice(IMG_CSS.length + 1, -4)) ?? '';
       if (css.startsWith(`\0${PAINT_CSS}`)) return paintCss.get(css.slice(PAINT_CSS.length + 1, -4)) ?? '';
+      if (css === `\0${COMPONENT_CSS}${LAYERS_SHEET}.css`) return `@layer ${LIBRARY_LAYER};\n`;
       if (css.startsWith(`\0${COMPONENT_CSS}`)) return componentCss.get(css.slice(COMPONENT_CSS.length + 1, -4)) ?? '';
       if (id.startsWith(`\0${COMPONENT_BASE}`)) return componentBase(id.slice(COMPONENT_BASE.length + 1, -3));
       // lazy packages: the loader (one `import()` of the package) and each importer's stubs

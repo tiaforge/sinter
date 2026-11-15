@@ -1,0 +1,13 @@
+{
+  "name": "@fixture/ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "sinter": "./sinter",
+  "exports": {
+    ".": "./sinter/index.ts"
+  },
+  "peerDependencies": {
+    "@tiaforge-ui/sinter": ">=0.18.0 <1"
+  }
+}

@@ -4,7 +4,7 @@
 // with their headers and statuses, the rendered markup, each resource's state, history writes and warnings.
 // For coding agents: a page's data and behaviour, checked in one command, without a browser.
 import { existsSync, readFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { format } from 'node:util';
 import { formatDiagnostic } from './compiler/index.js';
@@ -624,9 +624,14 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
     if (p.config) await modules(abs(p.config));
     const helpers = await modules(p.helpersFile), actions = await modules(p.actionsFile);
     const scripts: Record<string, unknown> = {};
-    for (const name of p.componentNames) {
+    // the app's components' scripts, and the libraries' (public and internal)
+    const dirOf = (name: string) => {
+      const l = p.libraries.find((x) => x.prefix === name.split('-')[0]);
+      return l ? join(l.folder, 'components', l.internal.includes(name) ? 'internal' : '') : resolve(a.root, 'src/components');
+    };
+    for (const name of [...p.componentNames, ...p.libraries.flatMap((l) => l.internal)]) {
       for (const ext of ['.ts', '.js']) {
-        const f = resolve(a.root, 'src/components', name + ext);
+        const f = join(dirOf(name), name + ext);
         if (existsSync(f)) { scripts[name] = await load(f); break; }
       }
     }
@@ -642,7 +647,7 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
       ...(messages ? { messages } : {}),
       ...(a.now !== null ? { now: a.now } : {}),
       ...(a.locale ? { locale: a.locale } : {}),
-      project: { root: a.root, file: a.page, readFile: p.readFile, componentNames: p.componentNames, openapi: p.openapi, apis: p.apis, helpers: p.helpers, ...(p.lazy.length ? { lazyModule: lazyHelpers(a.root, p.lazy).reach } : {}) },
+      project: { root: a.root, file: a.page, readFile: p.readFile, componentNames: p.componentNames, libraries: p.libraries, openapi: p.openapi, apis: p.apis, helpers: p.helpers, ...(p.lazy.length ? { lazyModule: lazyHelpers(a.root, p.lazy, undefined, p.libraries).reach } : {}) },
     });
     let error: string | undefined;
     try { await r.settle(); } catch (e) { error = (e as Error).message; }

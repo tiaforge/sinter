@@ -65,6 +65,9 @@ export const CODES = {
   SN332: 'file-source',
   SN333: 'invalid-text',
   SN334: 'empty-root',
+  SN337: 'library-package',
+  SN338: 'library-prefix',
+  SN339: 'library-component',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',
@@ -101,6 +104,7 @@ export const CODES = {
   SN534: 'helper-not-folded',
   SN535: 'close-slot-name',
   SN536: 'expansion-limit',
+  SN537: 'library-version',
 } as const;
 
 export type Code = keyof typeof CODES;
@@ -189,7 +193,9 @@ export function formatWarning(code: Code, message: string): string {
 /** Formats a diagnostic the way the terminal and the testing module print it. */
 export function formatDiagnostic(d: Diagnostic): string {
   const name = CODES[d.code as Code] ?? '';
-  let s = `${d.file}:${d.line}:${d.col} ${d.severity} ${d.code} ${name}: ${d.message}`;
+  // a component library's file, by its package (`@acme/ui/sinter/components/x.html`), wherever it is installed
+  const file = d.file.replace(/^.*[\\/]node_modules[\\/]/, '').split('\\').join('/');
+  let s = `${file}:${d.line}:${d.col} ${d.severity} ${d.code} ${name}: ${d.message}`;
   if (d.hint) s += `\n  hint: ${d.hint}`;
   return s + `\n  docs: ${/^SN\d{3}$/.test(d.code) ? `\`npx sinter docs ${d.code}\`, ` : ''}${docsUrl(d.code)}`;
 }

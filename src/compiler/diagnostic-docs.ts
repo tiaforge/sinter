@@ -272,6 +272,21 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes.',
     fix: 'Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it.',
   },
+  SN337: {
+    example: '`@acme/ui` is in `sinter({ components })` and its package.json has no `"sinter"` field: a component library names the folder of its components',
+    means: 'A package in `sinter({ components })` is a component library (docs/libraries.md): installed, with `"sinter": "./sinter"` in its package.json naming a folder inside the package that has a `components/` folder. Its components share their first segment (`ui-card`, `ui-tree`: `ui`), the prefix it owns, and a name is in `components/` (public) or `components/internal/`, not both.',
+    fix: 'Install the package, or take it out of `components` if it is not a component library. A library\'s author adds the `"sinter"` field and folder, and renames components to share one prefix.',
+  },
+  SN338: {
+    example: '`<ui-button>` starts with `ui-`, the prefix of `@acme/ui` (`sinter({ components })`): a library owns its prefix, and an app component cannot shadow or add to it',
+    means: 'Each component library owns the first segment of its components\' names. Two configured libraries with one prefix, or an app component (`src/components/`) whose name starts with a library\'s prefix, fail the build: a tag names exactly one component, and there is no shadowing.',
+    fix: 'Rename the app component (`app-button`). To change how a library component looks or behaves everywhere, write a wrapper component of your own that uses it, with fills for its slots. Two libraries with one prefix cannot be used together.',
+  },
+  SN339: {
+    example: '`<ui-node>` is internal to `@acme/ui` (`components/internal/`): only its own components use it',
+    means: 'A tag with a library\'s prefix names one of its components. Those in its `components/internal/` folder are its own: the app\'s markup (pages, layouts, components, fills and slot content) uses the public ones, in `components/`. A tag with the prefix that names no component of the library is an error too, and so is a `<sn-component use>` map in a library\'s markup that names a component outside it: a library chooses among its own components.',
+    fix: 'Use one of the public components the message lists, or fix the name. A library\'s author moves a component the app needs out of `components/internal/`.',
+  },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
     means: 'An attribute value has the wrong form: a JavaScript syntax error (the column points inside the attribute), or a value outside what the attribute accepts, such as `paginate` or `data-sn-concurrency`.',
@@ -450,5 +465,10 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: 'this list\'s rows would take the page past 10,000 rows and components expanded at build time, so it is rendered in the browser',
     means: 'A constant tree (a loop over constants, a component instantiated over constant props, at any depth) is written into the page as plain HTML at build time. The rows and components a page expands in all are limited, as the layout and image steps then run over the whole page and slow the build. The tree that would cross it stays a template the browser renders, as without build-time expansion; it works the same, with JavaScript.',
     fix: 'Split the content over several pages, or keep the long part a list the browser renders. The warning stays a warning with `--strict`.',
+  },
+  SN537: {
+    example: '`@acme/ui` supports sinter `^0.17.0`, and this is sinter 0.18.0: its markup may use what this version does not have, or what it no longer has',
+    means: 'A component library ships source that the app\'s sinter compiles, so it lists the sinter versions it supports in its package.json\'s `peerDependencies` (`"@tiaforge-ui/sinter": "^0.18.0"`). The app\'s sinter checks that its own version is in the range, and warns when a library lists none. It cannot know which version introduced a feature newer than itself.',
+    fix: 'Install a version of sinter or of the library that fits the other. A library\'s author lists the range in `peerDependencies`.',
   },
 };

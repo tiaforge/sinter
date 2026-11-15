@@ -1,0 +1,10 @@
+<template data-sn-component="{ items: Item[]; node: Slot<{ item: Item }> }">
+  <ul class="tree">
+    <template data-sn-for="item in items" data-sn-key="item.id">
+      <ui-node data-sn-prop="{ item }"></ui-node>
+    </template>
+  </ul>
+</template>
+<style>
+  .tree { margin: 0; }
+</style>

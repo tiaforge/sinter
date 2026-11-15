@@ -8,7 +8,7 @@ import { apiOrigins, resolveApis, type ApiOptions, type ApisDef } from '../compi
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compactIR } from '../ir.js';
-import type { CompiledParts, HelperManifest } from '../compiler/compile.js';
+import type { CompileLibrary, CompiledParts, HelperManifest } from '../compiler/compile.js';
 import { functionVerdict, type FoldVerdict } from '../fold-check.js';
 import * as earlyExports from '../early.js';
 import { early as runEarly } from '../early.js';
@@ -297,6 +297,8 @@ export interface RenderProject {
   file: string;
   readFile: (path: string) => string;
   componentNames: string[];
+  /** the component libraries (`sinter({ components })`) */
+  libraries?: readonly CompileLibrary[];
   openapi: OpenApiSpec[];
   apis: ApisDef | null;
   /** the project's helpers manifest (where each helper is declared), and the lazy packages each declaring module reaches */
@@ -449,7 +451,7 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   const apis = proj ? { specs: proj.openapi, apis: proj.apis } : options.apis ? testApis(options) : null;
   const parts = compileParts(html, {
     file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: true, helpers: manifest,
-    ...(proj?.lazyModule ? { lazyModule: proj.lazyModule } : {}), actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}),
+    ...(proj?.lazyModule ? { lazyModule: proj.lazyModule } : {}), actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}), ...(proj?.libraries?.length ? { libraries: proj.libraries } : {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
     lazy: true,
     // helper calls over build-time constants run at build time, as in a build: each function's own source decides
