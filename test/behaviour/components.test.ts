@@ -140,7 +140,7 @@ describe('component diagnostics', () => {
     expect(codes('<x-card data-sn-prop="{ title: \'a\' }" data-sn-on-pik="1" data-sn-on-click="1"></x-card>')).toEqual([expect.stringMatching(/^SN315 `<x-card>` does not emit `pik`; it declares `pick`/)]);
     expect(codes('<x-e></x-e>', { 'x-e': '<template data-sn-component="" data-sn-emits="{ a: number }"><button data-sn-on-click="emit(\'b\', 1)"></button></template>' }))
       .toEqual([expect.stringMatching(/^SN315 `<x-e>` does not declare the event `b`/)]);
-    expect(codes('<x-two></x-two>', { 'x-two': '<template data-sn-component=""><p></p><p></p></template>' })).toEqual([expect.stringMatching(/^SN312 a component has one root element; `<x-two>` has 2 elements/)]);
+    expect(codes('<x-two></x-two>', { 'x-two': '<template data-sn-component=""><p></p><p></p></template>' })).toEqual([expect.stringMatching(/^SN312 a component's root renders at most one element; `<x-two>` has 2 elements/)]);
     expect(codes('<x-card data-sn-prop="{ title: \'a\' }" data-sn-text="1"></x-card>')).toEqual([expect.stringMatching(/^SN102 `data-sn-text` cannot be on a component's tag/)]);
     expect(codes('<x-id></x-id><x-id></x-id>', { 'x-id': '<template data-sn-component=""><dialog id="edit"></dialog></template>' }))
       .toEqual([expect.stringMatching(/^SN209 `<x-id>` is used 2 times on this page, and its markup has `id="edit"`/)]);

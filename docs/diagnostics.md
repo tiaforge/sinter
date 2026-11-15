@@ -492,6 +492,16 @@ A slot that passes data is declared, placed or filled wrongly. It is a `Slot<T>`
 
 **Fix:** Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-prop`, give the placement one element as default, and move names the children read onto the `<slot>`'s `data-sn-prop` or inside the element. Remove a `<slot>` from a page.
 
+## SN332 empty-root
+
+Error, for example:
+
+> `<ui-panel>`'s root may render nothing, so `id` on its tag would point at an element that may not exist
+
+A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes.
+
+**Fix:** Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it.
+
 ## SN401 parse-error
 
 Error, for example:

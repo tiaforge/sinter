@@ -62,6 +62,7 @@ export const CODES = {
   SN329: 'api-config',
   SN330: 'configured-shape',
   SN331: 'invalid-slot',
+  SN332: 'empty-root',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',

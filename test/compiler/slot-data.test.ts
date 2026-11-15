@@ -87,15 +87,19 @@ describe('the placement: data-sn-prop on a <slot>', () => {
     ]);
   });
 
-  test('a default broader than one plain element or a chain of them names step 4', () => {
-    for (const d of ['<li></li><li></li>', '<x-item></x-item>', '<template data-sn-for="y in items"><li></li></template>']) {
-      const out = run('<x-list data-sn-prop="{ items: [] }"></x-list>', { 'x-list': comp(`<slot name="row" data-sn-prop="{ item: x, i: k }">${d}</slot>`), 'x-item': '<template data-sn-component=""><li></li></template>' });
-      expect(errors(out)).toEqual([expect.stringMatching(/^SN331 the default of `<slot name="row">` is one plain element.*step 4 of the component-libraries proposal/)]);
+  test('a placement\'s default is a root: it renders at most one element', () => {
+    for (const d of ['<li></li><li></li>', '<template data-sn-for="y in items"><li></li></template>', 'text <li></li>']) {
+      const out = run('<x-list data-sn-prop="{ items: [] }"></x-list>', { 'x-list': comp(`<slot name="row" data-sn-prop="{ item: x, i: k }">${d}</slot>`) });
+      expect(errors(out)).toEqual([expect.stringMatching(/^SN331 the default of `<slot name="row">` is a root: it renders at most one element/)]);
     }
-    // text, nothing, one element, a chain: allowed
-    for (const d of ['', 'none', '<li></li>', '<template data-sn-if="k"><li></li></template><template data-sn-else><li class="first"></li></template>']) {
-      expect(errors(run('<x-list data-sn-prop="{ items: [] }"></x-list>', { 'x-list': comp(`<slot name="row" data-sn-prop="{ item: x, i: k }">${d}</slot>`) }))).toEqual([]);
+    // text, nothing, one element, a chain (nested too), a component: allowed
+    for (const d of ['', 'none', '<li></li>', '<template data-sn-if="k"><li></li></template><template data-sn-else><li class="first"></li></template>',
+      '<template data-sn-if="k"><li></li></template><template data-sn-else><template data-sn-if="x"><li></li></template><template data-sn-else><li class="no"></li></template></template>', '<x-item></x-item>']) {
+      expect(errors(run('<x-list data-sn-prop="{ items: [] }"></x-list>', { 'x-list': comp(`<slot name="row" data-sn-prop="{ item: x, i: k }">${d}</slot>`), 'x-item': '<template data-sn-component=""><li></li></template>' }))).toEqual([]);
     }
+    // a component default gives a fill no children to place
+    const out = run('<x-list data-sn-prop="{ items: [] }"><b slot="row"><slot></slot></b></x-list>', { 'x-list': comp('<slot name="row" data-sn-prop="{ item: x, i: k }"><x-item></x-item></slot>'), 'x-item': '<template data-sn-component=""><li></li></template>' });
+    expect(errors(out)).toEqual([expect.stringMatching(/^SN331 the default of `row` in `<x-list>` renders a component \(`<x-item>`\)/)]);
   });
 });
 
