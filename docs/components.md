@@ -235,6 +235,63 @@ data is that element's children. They are the component's markup, with its scope
   are `SN312`.
 - A `<slot>` that no component or fill encloses (on a page, or in a page's slot content) is an error.
 
+### Tree slots
+
+A component made of other components (a document of paragraphs, lists and links, or a tree of
+folders and files) can let its caller fill a slot that a component deep inside it places. The root
+declares the slot; a component inside it places it without declaring it:
+
+```html
+<!-- src/components/x-doc.html: the root -->
+<template data-sn-component="{ doc: Block[]; link: Slot<{ node: Link }> }">
+  <article><template data-sn-for="b in doc"><x-block data-sn-prop="{ block: b }"></x-block></template></article>
+</template>
+
+<!-- src/components/x-link.html: two levels down, it places the root's slot -->
+<template data-sn-component="{ node: Link }">
+  <slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }"><x-inline data-sn-prop="{ nodes: node.children }"></x-inline></a></slot>
+</template>
+```
+
+```html
+<x-doc data-sn-prop="{ doc: page.doc }">
+  <a slot="link" rel="nofollow" data-sn-attr="{ href: $slot.node.url }"><slot></slot> ↗</a>
+</x-doc>
+```
+
+- **The placement.** A `<slot name>` with `data-sn-prop` whose name its own component does not
+  declare is a tree placement. A name close to one its component declares is `SN535` (warning), with
+  the name it suggests.
+- **Which root fills it.** The nearest enclosing component that declares the name: its caller's fill,
+  or the default when it is not given one. The placement's values are typed by that root's `Slot<T>`.
+  A placement no root encloses is `SN331`, at the use that leaves it without one (the outermost tag,
+  or a page using the component directly).
+- **A root inside a fill** (in the caller's markup) starts again: its own fill or its default, never
+  the outer one.
+- **A root in its own package's markup** (a component that uses another component declaring the same
+  slot) passes the outer fill through: the inner root's own fill wins where it gives one.
+- **Every declared slot is placed** somewhere in the root's components, or it is `SN331`.
+- **Fills do not reach into slot content**: a placement in content a caller gives (a plain slot's
+  fill, the children of another fill) is not filled by the root that content is passed to.
+- **`<sn-component use>`** in its helper form is `SN312` in a component that declares slots or
+  contains a tree placement (the fill could not follow a component chosen by a function).
+- How it compiles: each fill is a template of its own, compiled once in the caller's scope, which it
+  reads through the runtime scope chain (rows, `data-sn-let`, `data-sn-state`, state writes and store
+  functions, `$el`, `$event`, `emit()` of the caller's component). A placement is a choice between its
+  default and the fill passed down; only `$slot` and the fill's choice travel down the components.
+  A component used inside itself compiles once for all its depths. A placement directly in the root's
+  markup is filled at build time, as a plain slot is. `data-sn-early="off"` on the root's tag covers
+  its fills.
+- Children and forwarding work as for any fill: an unnamed `<slot>` in the fill is the placement's
+  default element's children, and a wrapper forwards a root's slot to its own caller:
+
+```html
+<!-- src/components/x-wrap.html: a wrapper that gives the page the link slot -->
+<template data-sn-component="{ doc: Block[]; link: Slot<{ node: Link }> }">
+  <x-doc data-sn-prop="{ doc }"><slot name="link" slot="link" data-sn-prop="{ node: $slot.node }"></slot></x-doc>
+</template>
+```
+
 ## Events
 
 `emit('select', article)` inside the component dispatches a bubbling event from where it runs, up

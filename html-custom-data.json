@@ -176,7 +176,7 @@
     },
     {
       "name": "data-sn-prop",
-      "description": "sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only. On a <slot> declared Slot<T>: the values its fill reads as $slot (object literal)"
+      "description": "sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only. On a <slot> declared Slot<T>: the values its fill reads as $slot; on a named <slot> its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name (object literal)"
     },
     {
       "name": "data-sn-component",

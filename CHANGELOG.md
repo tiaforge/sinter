@@ -7,6 +7,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Added
 
+- Tree slots ([docs/components.md](docs/components.md#tree-slots)): a named `<slot data-sn-prop>` that its component does not declare is filled by the nearest enclosing component that declares the name, through components used inside one another and inside themselves. A document component can let its page restyle every link at any depth. Each fill is compiled once as a template in the caller's scope; a placement in a recursive component is a choice between its default and the fill passed down. In step 1's document spike, with a link fill and a heading fill, the article renders as many elements and bindings as without them.
+- Warning SN535 (`close-slot-name`): a tree placement whose name is close to one its component declares.
 - A component's root renders at most one element ([docs/components.md](docs/components.md#the-root)): besides one plain element, an `data-sn-if`/`data-sn-else` chain of roots (a button that is a link or a button), another component's tag (a variant with no wrapper), `<sn-component use>` (a dispatcher), or a `<slot>` whose default and fills are roots. The tag's attributes land on every branch, pass on through a component tag down to the element that renders, and land on a fill; a constant prop decides the root at build time. A component with a script or root state keeps one plain element.
 - `data-sn-text` on a `<template>` renders a text node with no element ([docs/components.md](docs/components.md#text-without-an-element)): search highlighting, a list joined with commas, runs of text beside elements. It occupies one node, found again from the node before it at each write; a literal folds into the HTML. A fill may be a text (`<template slot data-sn-text>`). In step 1's markdown spike, the article renders 1,370 elements instead of 2,831, as many as the same article from marked.
 - An element that is the root of an outer component through its tag carries `data-sn-r`, and that component's root rules (`.primary`, `:scope`) reach it, outside `@scope`.
@@ -86,6 +88,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- A state change did not re-render content of components used inside one another (a link in an emphasis in an emphasis): the runtime's template dependencies were memoised mid-recursion.
 - The tag's attributes on a component used inside itself (and a component's tag attributes when its root is `<sn-component use>`) reach the root the shared definition renders: plain attributes, `data-sn-class`, `-attr`, `-style`, `-show` and handlers. They were dropped silently; other sinter attributes there are `SN102`.
 - Plain slot content at the top of a row of a component's loop over constant state failed the first-paint build (`SN201` on the loop's list): the unrolled row's item went onto the caller's scope instead of the component's.
 - A `<template data-sn-for>` (or `data-sn-if`) inside `<svg>` or `<math>` crashed the build (parse5 gives a foreign template no content). Its head template now holds the `<svg>` (or `<math>`) and a row is made of its children, so `<circle>` is SVG.
