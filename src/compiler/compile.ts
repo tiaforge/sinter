@@ -414,6 +414,14 @@ const SECRET_AUTOCOMPLETE = /^(cc-|one-time-code$|current-password$|new-password
 /** `use`: the uses this markup is in, by their tags' places (`file:offset<…`): two uses on one line differ; `usedAt`: in a library's file, where the app uses it */
 interface Origin { file: string; src: string; chain: string[]; use?: string; usedAt?: string }
 
+/**
+ * Build-time helper calls of the page being compiled, by the helpers module's values: a page's passes share them
+ * (a let over `parse()` is evaluated in each pass and by the worklist), the next page starts again.
+ */
+const FOLD_MEMO = new WeakMap<object, { file: string; calls: Map<string, { v: unknown } | { what: string }> }>();
+/** JSON that tells apart what plain-data arguments JSON would merge: `undefined`, `NaN`, `-0`, the infinities */
+const exactJson = (_k: string, v: unknown) => (v === undefined ? '\0u' : typeof v === 'number' && (!Number.isFinite(v) || Object.is(v, -0)) ? `\0n${Object.is(v, -0) ? '-0' : v}` : v);
+
 /** the stylesheet `componentCss` serves for the libraries' layer (`@layer sinter-lib;`): a name no component can have */
 export const LAYERS_SHEET = 'sn-layers';
 
@@ -5900,6 +5908,14 @@ class Compiler {
    */
   helperCalls(NOT: Error) {
     const values = this.opts.helperValues, verdicts = this.opts.helperFold;
+    // a page's build-time calls, by helper and arguments: its passes and the worklist evaluate a let again and again
+    let memo: Map<string, { v: unknown } | { what: string }> | null = null;
+    if (values) {
+      const m = FOLD_MEMO.get(values);
+      // (the editor compiles one file again at every edit: what it no longer calls is dropped now and then)
+      if (m?.file === this.opts.file && m.calls.size < 512) memo = m.calls;
+      else FOLD_MEMO.set(values, { file: this.opts.file, calls: (memo = new Map()) });
+    }
     let code: string | null = null;
     const warned = new Set<string>();
     const why = (key: string) => {
@@ -5942,22 +5958,31 @@ class Compiler {
         return (...a: unknown[]) => {
           if (!may) { const w = code && !this.foldWhy.has(code) ? why(key) : null; if (w) this.foldWhy.set(code!, w); throw NOT; }
           if (!a.every((x) => plainData(x))) throw NOT;
+          const mk = key + '\0' + JSON.stringify(a, exactJson);
+          const hit = memo?.get(mk);
+          if (hit) {
+            if ('what' in hit) { problem(key, hit.what); throw NOT; }
+            api.called = true;
+            return hit.v;
+          }
+          const refuse = (what: string): never => { memo?.set(mk, { what }); problem(key, what); throw NOT; };
           let v: unknown;
           try { v = (f as (...x: unknown[]) => unknown)(...a); } catch (e) {
             if (e === NOT) throw NOT;
-            problem(key, `threw at build time (${(e as Error)?.message ?? String(e)})`);
-            throw NOT;
+            refuse(`threw at build time (${(e as Error)?.message ?? String(e)})`);
           }
-          if (!plainData(v)) { problem(key, 'returned something that is not plain data (JSON values)'); throw NOT; }
+          if (!plainData(v)) refuse('returned something that is not plain data (JSON values)');
           // every build runs it twice: a second result that differs (a counter, the clock through a path the
           // static check missed) keeps the call in the browser
           {
             let again: unknown;
             try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
-            if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) { problem(key, 'returned another result when called again with the same arguments: a helper must be pure'); throw NOT; }
+            if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) refuse('returned another result when called again with the same arguments: a helper must be pure');
           }
           api.called = true;
-          return v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
+          const out = v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
+          memo?.set(mk, { v: out });
+          return out;
         };
       },
     };
