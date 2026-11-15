@@ -588,7 +588,7 @@ Warning, for example:
 
 > `src` is bound to local images (`./logo-dark.png`, `./logo.png`), which are not optimized
 
-An `<img>` binds `src` to a local image path, or chooses between a few of them. The build optimizes static `<img src>` (formats, widths, dimensions) but cannot follow a path computed at runtime, so the bound image is served as the original file.
+An `<img>` binds `src` to a local image path, or chooses between a few of them, with something that can change at runtime. The build optimizes static `<img src>` (formats, widths, dimensions) but cannot follow a path computed at runtime, so the bound image is served as the original file. A `src` over build-time constants (state nothing writes, a prop given as a literal) is written into the page first and optimized, with no warning.
 
 **Fix:** Write each image as a static `<img>` and choose with `data-sn-if` or `data-sn-show`: `<img src="./logo-dark.png" alt="" data-sn-show="dark"><img src="./logo.png" alt="" data-sn-show="!dark">`. Images from the API are a different case: see `images.remote`.
 
