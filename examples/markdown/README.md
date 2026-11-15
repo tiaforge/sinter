@@ -259,3 +259,28 @@ Both fixes are in `5d22ab8`, with tests in `test/behaviour/recursion.test.ts` an
   template that reaches itself is now written once into a table `B` in the early file and
   referenced. Other templates are inlined as before, so other pages' early files do not change. The
   regression test fails without the fix.
+
+## Again on step 2: anchors as comments
+
+`results/2026-11-15-step2.json`: the same measurements, built against `impl/anchors-as-comments` at `ec931ff`
+(docs/proposals/component-libraries.md, step 2), same machine and method, the page modules rebuilt. Base is
+`results/2026-11-15.json`.
+
+| | step 1 | step 2 |
+| --- | ---: | ---: |
+| `<template>`s in `<main>` (article) | 25,150 | 0 |
+| comments (article) | 24,774 | 8,218 (2.8 per node) |
+| bindings (article): anchors (comments ÷ 2) and element bindings | 27,285 | ≈6,240 |
+| LCP, article fetched | 424 ms | 316 ms |
+| after the API, article | 346 ms | 255 ms |
+| LCP, tree from the API | 264 ms | 160 ms |
+| LCP, article embedded | 1,164 ms | 736 ms |
+| LCP, RealWorld island (the bar) | 188 ms | 168 ms |
+| heap, article | 9.3 MB | 5.9 MB |
+| re-render with the same source | 296 ms | 179 ms |
+| stream, median / last chunk | 157 / 336 ms | 100 / 179 ms |
+
+The island moved by 11 % between the runs: read the rows against it. Prose CSS (`verify.mjs`) now matches
+plain HTML: `li:first-child` 63/63, `h2 + p` 25/25, `p + p` 53/53, `tr:nth-child(even)` 18/18,
+`li:nth-child(odd)` 113/113. Left: `.md > * + *` 334/327 (the 7 raw-HTML `<pre>`s) and `:is(p, li) > :first-child`
+368/338 (the text `<span>`s), the spike's own extra elements.
