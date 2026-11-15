@@ -231,9 +231,10 @@ What writing this library taught, beyond [the library docs](https://github.com/t
   `image` slot.
 - **A candidate that cannot match is a warning.** Under the else of `data-sn-if="b.type === 'paragraph'"`,
   a map that still lists `paragraph:` names a component that never renders there (`SN538`).
-- **A separator is one bound text.** md-inline puts a space between paragraphs with
-  `<template data-sn-text="i > 0 ? ' ' : ''">`, not with a `data-sn-if` around a constant text: today
-  that form keeps the loop after it in the same branch from rendering in the browser (reported to sinter).
+- **Count what renders.** A separator between items (md-inline's space between paragraphs) goes
+  before every item but the first of the list that renders: md-inline loops over
+  `doc.children.filter((x) => x.type === 'paragraph' || x.type === 'heading')`, so a list it leaves out
+  first adds no leading space. TypeScript narrows the filtered items to `Paragraph | Heading`.
 
 ### Adding a node type
 

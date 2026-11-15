@@ -12,7 +12,7 @@ together.
 
 | Step | State | Where it departs from this text |
 | --- | --- | --- |
-| 1, the spike | done (`examples/markdown/` on `ccr-ec5fd4e0-bp4vko`) | see the numbers in the sections |
+| 1, the spike | done (a spike, not merged: see [Plan](#plan), step 1) | see the numbers in the sections |
 | 2, anchors as comments | done | see below |
 | 3, slots that pass data | done | see below |
 | 5, tree slots | done | see below |

@@ -88,6 +88,12 @@ export interface CompileOptions {
   helperValues?: Record<string, unknown> | null;
   /** per helper (`fmt`, `ns$member`), whether its calls may run at build time, and why not (fold-check.ts): for SN322 */
   helperFold?: ReadonlyMap<string, FoldVerdict>;
+  /**
+   * a build: each distinct call that ran at build time and gave plain data (once per page), its arguments and its
+   * result as JSON, which the build runs again in a fresh copy of the helpers module at its end. Without it, each
+   * call runs twice in the page instead
+   */
+  foldLog?: (key: string, args: unknown[], json: string) => void;
   /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
@@ -419,8 +425,19 @@ interface Origin { file: string; src: string; chain: string[]; use?: string; use
  * (a let over `parse()` is evaluated in each pass and by the worklist), the next page starts again.
  */
 const FOLD_MEMO = new WeakMap<object, { file: string; calls: Map<string, { v: unknown } | { what: string }> }>();
-/** JSON that tells apart what plain-data arguments JSON would merge: `undefined`, `NaN`, `-0`, the infinities */
-const exactJson = (_k: string, v: unknown) => (v === undefined ? '\0u' : typeof v === 'number' && (!Number.isFinite(v) || Object.is(v, -0)) ? `\0n${Object.is(v, -0) ? '-0' : v}` : v);
+/**
+ * Plain data as a key, one to one: every value tagged by its kind and strings by their length, so `undefined`,
+ * `NaN`, `-0` and the infinities stay apart and no string can pass for another value
+ */
+export function dataKey(v: unknown): string {
+  if (v === undefined) return 'u';
+  if (v === null) return 'z';
+  if (typeof v === 'boolean') return v ? 't' : 'f';
+  if (typeof v === 'number') return `n${Object.is(v, -0) ? '-0' : String(v)};`;
+  if (typeof v === 'string') return `s${v.length}:${v}`;
+  if (Array.isArray(v)) return `[${v.map(dataKey).join('')}]`;
+  return `{${Object.entries(v as object).map(([k, x]) => `${k.length}:${k}${dataKey(x)}`).join('')}}`;
+}
 
 /** the stylesheet `componentCss` serves for the libraries' layer (`@layer sinter-lib;`): a name no component can have */
 export const LAYERS_SHEET = 'sn-layers';
@@ -541,6 +558,14 @@ function mayBeEmpty(s: RootShape): boolean {
 /** An element or text that is not whitespace. */
 function realNode(c: P5Node): boolean {
   return isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
+}
+
+/**
+ * The components whose markup starts at a node: `outer` first, then its own, each once (an outer one may
+ * reach it twice: through the tags that pass their attributes on, and from the node it took the place of).
+ */
+function outerFirst(outer: Use[], own: Use[] | undefined): Use[] {
+  return [...outer, ...(own ?? []).filter((u) => !outer.includes(u))];
 }
 
 /** A plain element as a component root: not a template, a slot, sinter's own element or a component. */
@@ -709,6 +734,8 @@ class Compiler {
   readonly origins = new WeakMap<object, Origin>();
   /** template nodes and their elements (in template content), for constants written into templates */
   private readonly tplEls = new Map<NodeDef, P5Element>();
+  /** a text node in a template: the node its path points at (its marking element, or its empty comment), so `anchors()` counts the path again */
+  private readonly textAt = new Map<NodeDef, P5Node>();
   /** text nodes (`<template data-sn-text>`): the node that marks each, for the dry run of constant rows (never painted: the text stays a binding) */
   private readonly textMarks = new Map<NodeDef, P5Element>();
   /** text nodes outside templates: their anchor pair and slot, so `prerender()` can write a constant as plain text */
@@ -769,6 +796,8 @@ class Compiler {
   private readonly runtimeSlots = new WeakSet<P5Element>();
   /** every root's fill for a slot it declares, by id: a case template of each tree placement in a definition it reaches */
   private readonly fillDefs: Array<{ id: number; use: Use; k: string; nodes: P5Node[] }> = [];
+  /** the fill a tree placement's case template renders (`fillStays`, SN322) */
+  private readonly caseFill = new Map<number, { id: number; use: Use; k: string; nodes: P5Node[] }>();
   /** component files read as a graph (`fileGraph`) */
   /** tree placements in shared definitions, made choice anchors by the walk; their fills' cases after it (`finishTreeFills`) */
   private readonly runtimePlacements: Array<{ el: P5Element; node: NodeDef; k: string; at: Scope; data: string; deps: string[]; members: Map<string, LetEntry>; shape: { children: (copy: boolean) => P5Node[] | null; what?: string } | null; cases: number[]; map: Record<number, number> }> = [];
@@ -784,7 +813,12 @@ class Compiler {
   /** the children a fill's `<slot>` places (the component's markup): the fill they are placed in */
   private readonly childrenOf = new WeakMap<object, FillChain>();
   /** per fill: the scope at its placement (what its children see) and what the fill sees, computed at its first node */
-  private readonly fillScopes = new WeakMap<FillChain, { at: Scope; fill: Scope }>();
+  // (per instance too: the copies of an unrolled row share a component tag's fill, found through its use's host)
+  private readonly fillScopes = new WeakMap<FillChain, Map<string, { at: Scope; fill: Scope }>>();
+  /** the elements of a tree placement's case template: an instance of their own for `instOf` (first pass) */
+  private readonly caseInst = new WeakMap<P5Element, string>();
+  /** a fill chain `cloneTree` copied, and the chain it was copied from */
+  private readonly chainCopyOf = new WeakMap<FillChain, FillChain>();
   /** fills of a slot placed more than once: each copy renders, so a literal `id` in one repeats */
   private readonly repeatedFills = new WeakSet<object>();
   /** library errors found at every use of a component, reported once per place */
@@ -1767,7 +1801,9 @@ class Compiler {
       // slot content is the caller's: it is inside the components its caller is in
       const ch = this.slotOf.get(child)?.chain ?? chain;
       const su = this.slotOf.get(child);
-      const en = su ? this.enclosing.get(su.host) ?? null : encl;
+      // the children a fill's `<slot>` places are the markup of the placement's component, in the caller's fill
+      const placedBy = this.childrenOf.get(child);
+      const en = su ? this.enclosing.get(su.host) ?? null : placedBy?.length ? placedBy[placedBy.length - 1]!.use : encl;
       // (where a recursion point or a choice is: a second pass expands one the first found constant, as a use here)
       if (child.tagName === 'sn-component') { this.pointCtx.set(child, { ch, en }); this.choice(child, en); continue; }
       const def = this.componentFile(child.tagName);
@@ -2671,6 +2707,33 @@ class Compiler {
   }
 
   /** The slots that pass data of the component a tag names (`Slot<T>` members), read from its file once; empty for anything else. */
+  /**
+   * Why a fill of a tree placement is not expanded at build time with a constant tree around it, or null: it
+   * forwards to a slot of an inner component (`<slot name="…" slot="…">`), or holds a component that declares
+   * slots of its own (a new tree root in the fill). Those render in the browser.
+   */
+  fillStays(F: { nodes: P5Node[]; use: Use; k: string }): string | null {
+    // given to a component that passed it on to this root (a wrapper's `<slot name="k" slot="k">`): it was written
+    // further out than the root's tag, and keeps its first caller's file
+    const at = this.origins.get(F.use.host)?.file;
+    const from = F.nodes.find(isElement);
+    // (a component's root, as the fill: where its tag was written)
+    const written = from && (this.useOf.get(from)?.host ?? from);
+    if (at && written && this.origins.get(written)?.file !== at) return `it is passed on to \`<${F.use.name}>\` by a component's \`<slot name="${F.k}" slot="${F.k}">\``;
+    const walk = (ns: readonly P5Node[]): string | null => {
+      for (const n of ns) {
+        if (!isElement(n)) continue;
+        if (n.tagName === 'slot' && attr(n, 'name') !== undefined) return `it passes the slot \`${attr(n, 'name')}\` on to an inner component`;
+        const u = this.useOf.get(n) ?? this.hostUse.get(n);
+        if (u && this.dataSlotsOf(u.name).size) return `it holds \`<${u.name}>\`, a component with slots of its own`;
+        const w = walk(n.childNodes) ?? (n.tagName === 'template' ? walk((n as P5Template).content.childNodes) : null);
+        if (w) return w;
+      }
+      return null;
+    };
+    return walk(F.nodes);
+  }
+
   dataSlotsOf(tag: string): Set<string> {
     const def = this.componentFile(tag);
     if (!def || def.head) return new Set();
@@ -2849,8 +2912,22 @@ class Compiler {
    * the placement, where its `data-sn-prop` is compiled; through forwarding slots, each outer
    * placement's `data-sn-prop` is compiled with the inner one's `$slot`. Computed once per fill.
    */
-  fillScope(chain: FillChain, at: Scope, writer: Use | null): Scope {
-    let rec = this.fillScopes.get(chain);
+  /** The scope a fill was compiled in, for the children its `<slot>` places: at the fill's instance, which is the longest one recorded that `inst` (theirs, in a row deeper down) starts with. */
+  fillAt(chain: FillChain, inst: string): { at: Scope; fill: Scope } | undefined {
+    // (rows copied inside the children, whose fill was not copied: the chain they were copied from)
+    let c: FillChain | undefined = chain;
+    while (c && !this.fillScopes.has(c)) c = this.chainCopyOf.get(c);
+    const byInst = c && this.fillScopes.get(c);
+    if (!byInst) return undefined;
+    let best: string | null = null;
+    for (const k of byInst.keys()) if (inst.startsWith(k) && (best === null || k.length > best.length)) best = k;
+    return best === null ? undefined : byInst.get(best);
+  }
+
+  fillScope(chain: FillChain, at: Scope, writer: Use | null, inst = ''): Scope {
+    let byInst = this.fillScopes.get(chain);
+    if (!byInst) this.fillScopes.set(chain, byInst = new Map());
+    let rec = byInst.get(inst);
     if (!rec) {
       let scope = at;
       for (let i = chain.length - 1; i >= 0; i--) {
@@ -2858,7 +2935,7 @@ class Compiler {
         scope = { ...(p.use.caller ?? scope), slot: this.placementData(p, scope) };
       }
       rec = { at, fill: scope };
-      this.fillScopes.set(chain, rec);
+      byInst.set(inst, rec);
     }
     return writer?.caller ? { ...writer.caller, slot: rec.fill.slot! } : rec.fill;
   }
@@ -2902,7 +2979,7 @@ class Compiler {
   /** The instance path `el` is in: its own, or that of the nearest row of an unrolled loop or instance expanded at build time around it. */
   instOf(el: P5Node): string {
     for (let x: P5Node | null = el; x; x = (x as { parentNode: P5Node | null }).parentNode) {
-      const at = isElement(x) ? this.instAt.get(x) ?? this.rowOf.get(x)?.inst : undefined;
+      const at = isElement(x) ? this.instAt.get(x) ?? this.rowOf.get(x)?.inst ?? this.caseInst.get(x) : undefined;
       if (at !== undefined) return at;
     }
     return '';
@@ -2911,7 +2988,7 @@ class Compiler {
   markupOf(u: Use, at: Scope, inst = ''): Scope {
     // (per instance: the copies of an unrolled row, or of an expanded instance, share the use)
     // the caller's scope: the slot content's writer's, with `$slot` when the tag is a fill (`at`: where it is placed)
-    const caller = () => (this.fillOf.has(u.host) ? this.tagFill(u, at) : u.hostSlot?.caller ?? at);
+    const caller = () => (this.fillOf.has(u.host) ? this.tagFill(u, at, inst) : u.hostSlot?.caller ?? at);
     if (!inst) return u.markup ??= this.componentScope(u, caller());
     let byInst = this.markups.get(u);
     if (!byInst) this.markups.set(u, byInst = new Map());
@@ -3130,9 +3207,12 @@ class Compiler {
       if (mark) {
         node = { tag: mark.tagName, path: [...ctx.path, at - 1], p: ctx.stateIdx, b: b ? [b] : [] };
         put([slot]);
+        this.textAt.set(node, mark);
       } else {
         node = { tag: '#', path: [...ctx.path, index], p: ctx.stateIdx, b: b ? [b] : [] };
-        put([ad.createCommentNode(''), slot]);
+        const own = ad.createCommentNode('');
+        put([own, slot]);
+        this.textAt.set(node, own);
       }
     }
     if (ctx.scope.component?.late) this.lateNodes.add(node);
@@ -3222,6 +3302,11 @@ class Compiler {
             for (const kid of kids) (kid as { parentNode: P5Parent }).parentNode = parent;
             parent.childNodes.splice(at, 1, ...(kids as never[]));
           }
+          // its own instance for what the walk keeps per instance (a component's markup scope, a fill's): the
+          // case is a copy of markup compiled already (the placement's default children, a fill's components)
+          // (every element: a loop's rows are template content, which does not lead back to the case)
+          const mark = (ns: readonly P5Node[]) => { for (const c of ns) if (isElement(c)) { this.caseInst.set(c, `#case${tid}/`); mark(c.childNodes); if (c.tagName === 'template') mark((c as P5Template).content.childNodes); } };
+          mark(tpl.content.childNodes);
           const slot: SlotScope = { name: P.k, component: F.use.name, members: new Map([...P.members].map(([key, l]) => [key, { ...l, code: `$.${rt}.${key}`, deps: [] }])), whole: { name: '$slot', code: `$.${rt}`, deps: [], usesEl: false, usesIndex: false, resource: null } };
           if (this.check) {
             const m = F.use.slots!.get(F.k)!;
@@ -3237,6 +3322,7 @@ class Compiler {
           if (F.use.late) for (const n of t.nodes) this.lateNodes.add(n);
           P.cases.push(tid);
           P.map[F.id] = P.cases.length - 1;
+          this.caseFill.set(tid, F);
         }
       }
     }
@@ -3631,7 +3717,7 @@ class Compiler {
   // ---- main walk
 
   walkChildren(parent: P5Parent, ctx: Ctx) {
-    for (const chain of this.emptyDefaults.get(parent) ?? []) this.fillScope(chain, ctx.scope, null);
+    for (const chain of this.emptyDefaults.get(parent) ?? []) this.fillScope(chain, ctx.scope, null, this.instOf(parent as P5Node));
     let lastIf: { node: NodeDef; binding: Binding } | null = null;
     const kids = parent.childNodes;
     for (let i = 0; i < kids.length; i++) {
@@ -3650,8 +3736,11 @@ class Compiler {
         lastIf = null;
         continue;
       }
+      const before = kids.length;
       const res = this.element(child, ctx, i, lastIf);
       lastIf = res;
+      // a literal text folded into the text before it (`mergeText`): the node that followed is at `i` now
+      if (kids.length < before && kids[i] !== child) i -= before - kids.length;
     }
   }
 
@@ -3682,8 +3771,15 @@ class Compiler {
       }
       return c;
     };
-    const ownLoop = !!row && !this.slotOf.has(row.tpl);
+    // (a loop among the children a fill's `<slot>` places: after their scope too, the component's at the placement)
+    const ownLoop = !!row && !this.slotOf.has(row.tpl) && !this.childrenOf.has(row.tpl);
     if (row && ownLoop) ctx = rowLets(ctx);
+    // the children a fill's `<slot>` places: the component's markup, in its scope at the placement (before the
+    // components whose markup starts here take their props from it), and a row of their own loop in it
+    const placed = this.childrenOf.get(el);
+    if (placed) ctx = { ...ctx, scope: this.fillAt(placed, this.instOf(el))?.at ?? ctx.scope };
+    const placedRow = !!row && this.childrenOf.has(row.tpl);
+    if (placedRow) ctx = rowLets(ctx);
     // a component whose root is not one plain element: its markup starts here (a chain's template, a
     // fill), or an outer component's whose root this is: their scopes, outer first, each in its caller's
     // (its instance: the nearest row or expanded instance it is in, for a chain's branch below a row's top too)
@@ -3691,20 +3787,17 @@ class Compiler {
     // slot content sees the scope of the caller that wrote it
     const slot = this.slotOf.get(el);
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
-    // the children a fill's `<slot>` places: the component's markup, in its scope at the placement
-    const placed = this.childrenOf.get(el);
-    if (placed) ctx = { ...ctx, scope: this.fillScopes.get(placed)?.at ?? ctx.scope };
     // an unfilled placement: its `data-sn-prop`, compiled for its diagnostics and types
     const dflt = this.defaultOf.get(el);
     // a default that is a component's root, placed in that component's own markup: in its scope, below
     const own = dflt && this.useOf.get(el) && this.origins.get(dflt[0]!.el)?.file === this.origins.get(this.useOf.get(el)!.template)?.file;
-    if (dflt && !own) this.fillScope(dflt, ctx.scope, null);
+    if (dflt && !own) this.fillScope(dflt, ctx.scope, null, this.instOf(el));
     // a fill of a slot that passes data: its writer's scope and `$slot`, the values its placement passes here
     // (a component tag that is the fill: its root, whose props and the tag's attributes read `$slot`)
     const fill = this.fillOf.get(el) ?? (this.useOf.has(el) ? this.fillOf.get(this.useOf.get(el)!.host) : undefined);
-    if (fill) ctx = { ...ctx, scope: this.fillScope(fill, ctx.scope, slot ?? null) };
+    if (fill) ctx = { ...ctx, scope: this.fillScope(fill, ctx.scope, slot ?? null, this.instOf(el)) };
     else if (slot?.caller) ctx = { ...ctx, scope: slot.caller };
-    if (row && !ownLoop) ctx = rowLets(ctx);
+    if (row && !ownLoop && !placedRow) ctx = rowLets(ctx);
     // a fill's case template, or the children it places (tree slots): the scope they are compiled in
     const caseScope = this.caseScopes.get(el);
     if (caseScope) ctx = { ...ctx, scope: caseScope };
@@ -3724,7 +3817,7 @@ class Compiler {
     const use = this.useOf.get(el);
     const callerCtx = use ? ctx : null;
     if (use && !use.layout) ctx = { ...ctx, scope: use.head ? this.headMarkup(use, base) : this.componentScope(use, ctx.scope) };
-    if (dflt && own) this.fillScope(dflt, ctx.scope, null);
+    if (dflt && own) this.fillScope(dflt, ctx.scope, null, this.instOf(el));
     switch (el.tagName) {
       case 'sn-resource': this.resource(el, ctx); return null;
       case 'sn-sync': this.sync(el, ctx); return null;
@@ -4082,7 +4175,9 @@ class Compiler {
 
   /** `foldConstants` in `parent`: each `data-sn-if` on a constant prop, decided. */
   foldIn(parent: P5Parent, value: Map<string, boolean>, use: Use) {
-    if (!value.size) return;
+    // a shared definition (a component used inside itself, a candidate of `<sn-component use>`): its props are each
+    // instance's, given at run time; its tag gives none, which must not read as "left out"
+    if (!value.size || this.defHosts.has(use.host)) return;
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
     const contentOf = (t: P5Element) => (t as P5Template).content.childNodes;
     const place = (parent: P5Parent, at: number, count: number, nodes: P5Node[]) => {
@@ -4555,9 +4650,9 @@ class Compiler {
   }
 
   /** The caller's scope of a component tag that is a fill of a slot that passes data: with its `$slot` (its props read it). */
-  tagFill(u: Use, scope: Scope): Scope {
+  tagFill(u: Use, scope: Scope, inst = ''): Scope {
     const f = this.fillOf.get(u.host);
-    return f ? this.fillScope(f, scope, this.slotOf.get(u.host) ?? null) : scope;
+    return f ? this.fillScope(f, scope, this.slotOf.get(u.host) ?? null, inst) : scope;
   }
 
   /** `sinter check`: the scope of a branch, whose expressions are checked where `cond` holds */
@@ -5951,7 +6046,7 @@ class Compiler {
         return (...a: unknown[]) => {
           if (!may) { const w = code && !this.foldWhy.has(code) ? why(key) : null; if (w) this.foldWhy.set(code!, w); throw NOT; }
           if (!a.every((x) => plainData(x))) throw NOT;
-          const mk = key + '\0' + JSON.stringify(a, exactJson);
+          const mk = key + '\0' + dataKey(a);
           const hit = memo?.get(mk);
           if (hit) {
             if ('what' in hit) { problem(key, hit.what); throw NOT; }
@@ -5965,9 +6060,10 @@ class Compiler {
             refuse(`threw at build time (${(e as Error)?.message ?? String(e)})`);
           }
           if (!plainData(v)) refuse('returned something that is not plain data (JSON values)');
-          // every build runs it twice: a second result that differs (a counter, the clock through a path the
+          // a build cross-checks each distinct call in a fresh copy of the helpers module, at its end (`foldLog`);
+          // anything else runs it twice here: a second result that differs (a counter, the clock through a path the
           // static check missed) keeps the call in the browser
-          {
+          if (!this.opts.foldLog) {
             let again: unknown;
             try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
             if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) refuse('returned another result when called again with the same arguments: a helper must be pure');
@@ -5975,6 +6071,7 @@ class Compiler {
           api.called = true;
           const out = v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
           memo?.set(mk, { v: out });
+          this.opts.foldLog?.(key, structuredClone(a), JSON.stringify(v));
           return out;
         };
       },
@@ -6173,10 +6270,11 @@ class Compiler {
           const pick = Array.isArray(v) && typeof v[0] === 'number' ? v as [number, unknown] : null;
           const tc = pick ? this.templates[P.cases[pick[0]]!] : undefined;
           if (!pick || !tc?.item || !plainData(pick[1])) return false;
-          // a fill (not the default): expanded only when it is flat, values over `$slot` and constants (a fill that
-          // places the default's children with a `<slot>`, or holds loops, choices or a root of its own, stays
-          // the runtime's: the second pass does not place those the same way yet)
-          if (pick[0] > 0 && !tc.nodes.every((x) => x.state === undefined && x.sid === undefined && !this.pointOf.has(x) && !placementOf.has(x) && x.b.every((b) => ROW.has(b.k) || handlerOnly(b)))) return false;
+          // (a fill, or the default: any markup, with the rest of the row's conditions; the second pass expands it inline)
+          // two shapes of fill stay the browser's (`fillStays`, for SN322): one that forwards to an inner component's
+          // slot, and one that holds a tree root of its own
+          const stays = pick[0] > 0 ? this.caseFill.get(P.cases[pick[0]]!) : undefined;
+          if (stays && this.fillStays(stays)) return false;
           if (!nodesOf(tc.nodes, rowScope(sc, tc, deepFreeze({ v: structuredClone(pick[1]) }).v, 0), prefix, out)) return false;
           continue;
         }
@@ -6539,7 +6637,7 @@ class Compiler {
         this.inheritSlot(c, nodes);
         // a component's root chain, decided: its markup starts at what is left
         const start = this.scopeStart.get(c);
-        if (start) for (const n of nodes) if (isElement(n)) this.scopeStart.set(n, [...start, ...(this.scopeStart.get(n) ?? [])]);
+        if (start) for (const n of nodes) if (isElement(n)) this.scopeStart.set(n, outerFirst(start, this.scopeStart.get(n)));
         parent.childNodes.splice(i, count, ...(nodes as never[]));
         changed = true;
         i--;
@@ -6571,7 +6669,9 @@ class Compiler {
             this.instAt.set(x, inst);
             if (row && isElement(x) && !this.rowOf.has(x)) this.rowOf.set(x, row);
             // the outer components whose markup started at the candidate (a choice as their root) start here
-            if (start && isElement(x)) this.scopeStart.set(x, [...start, ...(this.scopeStart.get(x) ?? [])]);
+            if (start && isElement(x)) this.scopeStart.set(x, outerFirst(start, this.scopeStart.get(x)));
+            // a candidate that was a fill, or among the children a fill's `<slot>` places: so is what it renders
+            for (const map of [this.fillOf, this.defaultOf, this.childrenOf]) if (isElement(x) && map.has(c) && !map.has(x)) map.set(x, map.get(c)!);
           }
           changed = true;
           i--;
@@ -6625,9 +6725,12 @@ class Compiler {
     this.enclosing.set(host, at.en);
     const root = this.expandUse(host, def, at.ch);
     if (!root) return false;
-    const o = this.origins.get(root);
-    if (o) o.use = '<';
+    // the component's own markup, keyed as in its definition, whose host is synthetic: one origin for all of it
+    // (a slot root's default and the children a fill places too), not a fill that took the root's place, which
+    // is its caller's markup and keyed as written
     const use = this.hostUse.get(host);
+    const o = this.origins.get(use?.template ?? root);
+    if (o && o.file === def.file) o.use = '<';
     if (use?.shape) this.expandComponents({ childNodes: root.parentNode!.childNodes.filter((c) => this.scopeStart.get(c)?.includes(use)) } as unknown as P5Parent, [name], false, use);
     else this.expandComponents(root, [name], false, use ?? null);
     return true;
@@ -6662,7 +6765,7 @@ class Compiler {
     for (const map of [this.fillOf, this.defaultOf, this.childrenOf]) {
       const c = map.get(node);
       if (!c) continue;
-      if (!chains.has(c)) chains.set(c, [...c]);
+      if (!chains.has(c)) { const copy = [...c]; chains.set(c, copy); this.chainCopyOf.set(copy, c); }
       map.set(copy, chains.get(c)!);
     }
     if (!('childNodes' in node)) return copy;
@@ -6754,7 +6857,7 @@ class Compiler {
       if (!tpl) continue;
       const root: P5Parent = t.w ? (tpl.content.childNodes[0] as P5Element) : tpl.content;
       for (const nd of t.nodes) {
-        const target = (this.anchorStart.get(nd) ?? this.tplEls.get(nd)) as P5Node | undefined;
+        const target = (this.anchorStart.get(nd) ?? this.tplEls.get(nd) ?? this.textAt.get(nd)) as P5Node | undefined;
         if (!target) continue;
         const path: number[] = [];
         for (let n = target as { parentNode: P5Parent | null }; n.parentNode && n !== (root as unknown); n = n.parentNode as unknown as { parentNode: P5Parent | null }) path.unshift(n.parentNode.childNodes.indexOf(n as never));
@@ -7736,6 +7839,14 @@ class Compiler {
       const name = nameOf(el, b);
       const why = this.whyNotFolded(n);
       out.push({ what: `${name ? `\`${name}\`` : `\`<${this.points.get(el) ?? el.tagName}>\``}${why ? ` (${why})` : ''}`, ...at(el, name) });
+    }
+    // a fill of a tree placement that renders in the browser whatever its data (`fillStays`): named, with why
+    for (const F of new Set(this.caseFill.values())) {
+      const why = this.fillStays(F);
+      const el = F.nodes.find(isElement);
+      if (!why || !el) continue;
+      const tag = this.useOf.get(el)?.host ?? el;
+      out.push({ what: `the fill \`<${tag.tagName} slot="${F.k}">\` (${why}, so it renders in the browser)`, ...at(tag, null) });
     }
     for (const r of this.resources) {
       const el = this.declAt.get(r);

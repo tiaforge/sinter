@@ -81,6 +81,93 @@ describe('a let over a helper is cached', () => {
     expect(r.root.querySelector('b')!.textContent).toBe('6');
   });
 
+  // what changes a let's dependencies outside the handler's own writes: every path ends in a mark, which a read checks against
+  describe('a let read in a handler after something else changed what it reads', () => {
+    const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+    const dbl = (a: number) => ({ v: a * 2 });
+    const todos = () => mockRequests({ 'GET /api/todos': [{ id: 1, n: 1 }, { id: 2, n: 2 }] });
+    for (const [what, handler, want] of [
+      ['patch()', 'patch(x, { n: 10 }); o = T', '12'],
+      ['remove()', 'remove(x); o = T', '2'],
+      ["upsert('todos', …)", "upsert('todos', { id: 3, n: 100 }); o = T", '103'],
+    ] as const) {
+      test(`a store function: ${what}`, async () => {
+        const r = await render(`<sn-resource name="todos" src="/api/todos" key="id"></sn-resource>
+          <main data-sn-state="{ o: 0 }" data-sn-let="{ T: sum(todos.map((x) => x.n)) }"><p data-sn-text="T"></p><b data-sn-text="o"></b>
+          <template data-sn-for="x in todos" data-sn-key="x.id"><button data-sn-on-click="${handler}"></button></template></main>`, { helpers: { sum }, requests: todos() });
+        await r.settle();
+        expect(r.root.querySelector('p')!.textContent).toBe('3');
+        r.root.querySelector('button')!.click();
+        await r.flush();
+        expect(r.root.querySelector('b')!.textContent).toBe(want);
+      });
+    }
+
+    test('emit(), the listener writes', async () => {
+      const r = await render(`<main data-sn-state="{ a: 1, o: 0 }" data-sn-let="{ L: dbl(a) }" data-sn-on-bump="a = 5"><p data-sn-text="L.v"></p><b data-sn-text="o"></b>
+        <button data-sn-on-click="emit('bump'); o = L.v"></button></main>`, { helpers: { dbl } });
+      r.root.querySelector('button')!.click();
+      await r.flush();
+      expect(r.root.querySelector('b')!.textContent).toBe('10');
+    });
+
+    test('emit(), the listener reads', async () => {
+      const r = await render(`<main data-sn-state="{ a: 1, o: 0 }" data-sn-let="{ L: dbl(a) }" data-sn-on-ping="o = L.v"><p data-sn-text="L.v"></p><b data-sn-text="o"></b>
+        <button data-sn-on-click="a = 5; emit('ping')"></button></main>`, { helpers: { dbl } });
+      r.root.querySelector('button')!.click();
+      await r.flush();
+      expect(r.root.querySelector('b')!.textContent).toBe('10');
+    });
+
+    test('a component emits, its parent writes the prop its let reads', async () => {
+      const r = await render(`<main data-sn-state="{ a: 1 }"><x-c data-sn-prop="{ a }" data-sn-on-bump="a = 5"></x-c></main>`, {
+        helpers: { dbl },
+        components: { 'x-c': `<template data-sn-component="{ a: number }" data-sn-emits="{ bump: null }"><div data-sn-state="{ o: 0 }" data-sn-let="{ L: dbl(a) }">
+          <p data-sn-text="L.v"></p><b data-sn-text="o"></b><button data-sn-on-click="emit('bump'); o = L.v"></button></div></template>` },
+      });
+      r.root.querySelector('button')!.click();
+      await r.flush();
+      expect(r.root.querySelector('b')!.textContent).toBe('10');
+    });
+
+    test('a synchronous DOM event whose handler writes', async () => {
+      const r = await render(`<main data-sn-state="{ a: 1, o: 0 }" data-sn-let="{ L: dbl(a) }"><p data-sn-text="L.v"></p><b data-sn-text="o"></b>
+        <input data-sn-on-focus="a = 5"><button data-sn-on-click="$el.previousElementSibling.focus(); o = L.v"></button></main>`, { helpers: { dbl } });
+      r.root.querySelector('button')!.click();
+      await r.flush();
+      expect(r.root.querySelector('b')!.textContent).toBe('10');
+    });
+
+    test('two scripted clicks in a row, a write and then a read, before any flush', async () => {
+      const r = await render(`<main data-sn-state="{ a: 1, o: 0 }" data-sn-let="{ L: dbl(a) }"><p data-sn-text="L.v"></p><b data-sn-text="o"></b>
+        <button id="w" data-sn-on-click="a = 5"></button><button id="r" data-sn-on-click="o = L.v"></button></main>`, { helpers: { dbl } });
+      r.root.querySelector<HTMLElement>('#w')!.click();
+      r.root.querySelector<HTMLElement>('#r')!.click();
+      await r.flush();
+      expect(r.root.querySelector('b')!.textContent).toBe('10');
+    });
+
+    test('the check runs once per mark, not once per read: a handler that writes 400 bound fields and reads a let 20,000 times', async () => {
+      const fields = Array.from({ length: 400 }, (_, i) => `f${i}: 0`).join(', ');
+      let calls = 0;
+      const total = (xs: number[]) => { calls++; return xs.length; };
+      const r = await render(`<main data-sn-state="{ big: { ${fields} }, xs: [1, 2], o: 0 }" data-sn-let="{ T: total(xs) }"><p data-sn-text="T"></p>
+        ${Array.from({ length: 400 }, (_, i) => `<i data-sn-text="big.f${i}"></i>`).join('')}
+        <button data-sn-on-click="Object.assign(big, { f0: 1, f399: 2 }); o = reps(20000).reduce((n) => n + T, 0)"></button><b data-sn-text="o"></b></main>`,
+      { helpers: { total, reps: (n: number) => Array.from({ length: n }) }, strict: false });
+      const app = r.app as unknown as { pending: (d: unknown) => boolean };
+      const pending = app.pending;
+      let checks = 0;
+      app.pending = (d) => { checks++; return pending(d); };
+      calls = 0;
+      r.root.querySelector('button')!.click();
+      await r.flush();
+      expect(r.root.querySelector('b')!.textContent).toBe('40000');
+      expect(calls).toBe(0);
+      expect(checks).toBeLessThanOrEqual(2);
+    });
+  });
+
   test('a dependency changes: computed again; equal primitive arguments return the last result', async () => {
     const { calls, parse } = counting();
     const r = await render(`<main data-sn-state="{ post: { body: 'a b', likes: 0 }, upper: false }" data-sn-let="{ doc: parse(post.body, { upper }) }">

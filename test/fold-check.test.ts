@@ -184,18 +184,16 @@ export function scan(s: string) { search.lastIndex = 0; let n = 0; while (search
     ['stack', '`.stack` of an error'],
     ['caught', '`.stack` of an error'],
     ['kept', '`.stack` of an error'],
-    // what a later call returns depends on the calls before it, another page's included (the build shares the module)
-    ['idOf', 'changing the module\'s `ids`'],
-    ['slot', 'adding to the module\'s `table`'],
-    ['first', 'changing the module\'s `seen`'],
-    // a cache that only remembers looks the same: it stays in the browser too
-    ['cached', 'changing the module\'s `memo`'],
   ])('%s does not fold: %s', (name, reason) => {
     expect(why(v.get(name))).toBe(reason);
   });
 
-  test('what still folds: Math\'s members, a stack of its own, a local counter, a regex reset before a scan', () => {
-    for (const n of ['round', 'own', 'local', 'scan']) expect(why(v.get(n)), n).toBe('folds');
+  test('what still folds: Math\'s members, a stack of its own, a local counter, a regex reset before a scan, a cache', () => {
+    for (const n of ['round', 'own', 'local', 'scan', 'cached']) expect(why(v.get(n)), n).toBe('folds');
+    // state kept in a container is not read here: the build runs its calls again in a fresh copy of the module (test/vite/fold-cross.test.ts)
+    for (const n of ['idOf', 'first']) expect(why(v.get(n)), n).toBe('folds');
+    // a counter it assigns is refused as before
+    expect(why(v.get('slot'))).toBe('writing the module\'s `next`');
     // a counter in a member is not seen here: the build runs each call twice and keeps one whose results differ in the browser (test/behaviour/fold.test.ts)
     expect(why(v.get('member'))).toBe('folds');
   });
