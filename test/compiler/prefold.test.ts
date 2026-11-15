@@ -120,10 +120,10 @@ describe('what stays as it was', () => {
     expect(kept('<img alt="" data-sn-attr="{ src: fmt() }">')).not.toContain('<picture>');
   });
 
-  test('two uses of a component on one line that disagree: written after the walk, as before (uses are told apart by line)', () => {
+  test('two uses of a component on one line: told apart by where each tag is, so each image is optimized', () => {
     const files = { '/app/src/components/x-pic.html': '<template data-sn-component="{ src: string }"><img alt="" data-sn-attr="{ src }"></template>' };
     const out = build('<x-pic data-sn-prop="{ src: \'img/photo.jpg\' }"></x-pic><x-pic data-sn-prop="{ src: \'img/small.jpg\' }"></x-pic>', { files });
-    expect(bodyOf(out.html)).toBe('<img alt="" src="img/photo.jpg"><img alt="" src="img/small.jpg">');
+    expect(bodyOf(out.html)).toBe(written('<img alt="" src="img/photo.jpg"><img alt="" src="img/small.jpg">'));
   });
 
   test('a class no stylesheet names: written after the walk, as before (its node had an id, so the ids after it stay)', () => {
