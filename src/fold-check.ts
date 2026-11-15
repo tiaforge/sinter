@@ -237,9 +237,10 @@ function analyze(file: string, code: string): ModuleInfo {
       if (imp && imp.name === '*' && !isLocal(spec)) { edge({ spec: imp.spec, name }); return true; }
       void at;
       return false;
-    }, (spec) => edge({ spec, name: '*' }), name === '<top>' ? undefined : (w, at) => {
-      // a function that writes the module's own state (a counter) gives another result at every call
-      if (!isLocal(w) && topNames.get(w) === '<top>') fail(`writing the module's \`${w}\``, at);
+    }, (spec) => edge({ spec, name: '*' }), name === '<top>' ? undefined : (w, at, how) => {
+      // a function that changes the module's own state (a counter, a table of ids) gives results that depend on the
+      // calls before it: the build shares one module across its pages, each browser page has its own
+      if (!isLocal(w) && topNames.get(w) === '<top>') fail(`${how} the module's \`${w}\``, at);
     });
     return u;
   };
@@ -270,7 +271,7 @@ const SKIP = new Set(['type', 'start', 'end', 'loc', 'range', 'typeAnnotation', 
  * for `ns.x` (true: handled), `side` for a side-effect import.
  */
 function walkScoped(nodes: N[], scopes: Array<Set<string>>, ref: (n: string, at: number) => void, bad: (m: string, at: number) => void,
-  member: (obj: string, prop: string, at: number) => boolean, side: (spec: string) => void, write?: (name: string, at: number) => void) {
+  member: (obj: string, prop: string, at: number) => boolean, side: (spec: string) => void, write?: (name: string, at: number, how: string) => void) {
   /** the `var`s and functions of a function body (not of nested functions) */
   const hoisted = (body: N, into: Set<string>) => {
     const go = (n: N | null | undefined) => {
@@ -311,7 +312,15 @@ function walkScoped(nodes: N[], scopes: Array<Set<string>>, ref: (n: string, at:
         // a binding it assigns (`n++`, `n = …`); not a member (`re.lastIndex = 0` before a scan is how a parser
         // reuses a regex, and a counter in a member gives another result the second time, which every build checks)
         const t: N = n.type === 'AssignmentExpression' ? n.left : n.argument;
-        if (t.type === 'Identifier' && write) write(t.name, n.start);
+        if (t.type === 'Identifier' && write) write(t.name, n.start, 'writing');
+        // an entry of a table it keeps (`ids[s] = …`): what a later call returns depends on earlier calls, even another page's
+        if (t.type === 'MemberExpression' && t.computed && t.object.type === 'Identifier' && write) write(t.object.name, n.start, 'adding to');
+        break;
+      }
+      case 'CallExpression': {
+        // `ids.set(…)`, `seen.add(…)`, `list.push(…)`: the same, through a container's own methods
+        const c = n.callee;
+        if (write && c.type === 'MemberExpression' && !c.computed && c.object.type === 'Identifier' && MUTATORS.has(c.property.name)) write(c.object.name, n.start, 'changing');
         break;
       }
       case 'MemberExpression': {
@@ -420,6 +429,9 @@ function walkScoped(nodes: N[], scopes: Array<Set<string>>, ref: (n: string, at:
 /** globals that may only be the object of a member access (`Math.max`), never a value: through a value, a
  * member the check refuses by name (`random`) can be reached by another name */
 const RESTRICTED = new Set(['Math', 'Reflect']);
+
+/** methods that change a Map, Set or array in place */
+const MUTATORS = new Set(['set', 'add', 'delete', 'clear', 'push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin']);
 
 /** `new Error(…)`, `TypeError(…)`: an expression that constructs an error */
 function isErrorMade(n: N | null | undefined): boolean {

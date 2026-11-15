@@ -158,6 +158,13 @@ export function round(n: number) { return Math.round(n * 100) / 100 + Math.max(0
 export function own() { const stack: number[] = []; stack.push(1); const s = { stack }; return s.stack.length; }
 export function cached(k: string) { if (!memo.has(k)) memo.set(k, k.length); return memo.get(k)!; }
 export function local() { let count = 0; count++; return count; }
+const ids = new Map<string, number>();
+export function idOf(s: string) { if (!ids.has(s)) ids.set(s, ids.size + 1); return ids.get(s)!; }
+const table: Record<string, number> = {};
+let next = 0;
+export function slot(s: string) { return (table[s] ??= next++); }
+const seen: string[] = [];
+export function first(s: string) { if (!seen.includes(s)) seen.push(s); return seen.indexOf(s); }
 const search = /a/g;
 export function scan(s: string) { search.lastIndex = 0; let n = 0; while (search.exec(s)) n++; return n; }
 `);
@@ -177,12 +184,18 @@ export function scan(s: string) { search.lastIndex = 0; let n = 0; while (search
     ['stack', '`.stack` of an error'],
     ['caught', '`.stack` of an error'],
     ['kept', '`.stack` of an error'],
+    // what a later call returns depends on the calls before it, another page's included (the build shares the module)
+    ['idOf', 'changing the module\'s `ids`'],
+    ['slot', 'adding to the module\'s `table`'],
+    ['first', 'changing the module\'s `seen`'],
+    // a cache that only remembers looks the same: it stays in the browser too
+    ['cached', 'changing the module\'s `memo`'],
   ])('%s does not fold: %s', (name, reason) => {
     expect(why(v.get(name))).toBe(reason);
   });
 
-  test('what still folds: Math\'s members, a stack of its own, a cache, a local counter, a regex reset before a scan', () => {
-    for (const n of ['round', 'own', 'cached', 'local', 'scan']) expect(why(v.get(n)), n).toBe('folds');
+  test('what still folds: Math\'s members, a stack of its own, a local counter, a regex reset before a scan', () => {
+    for (const n of ['round', 'own', 'local', 'scan']) expect(why(v.get(n)), n).toBe('folds');
     // a counter in a member is not seen here: the build runs each call twice and keeps one whose results differ in the browser (test/behaviour/fold.test.ts)
     expect(why(v.get('member'))).toBe('folds');
   });

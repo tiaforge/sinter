@@ -49,6 +49,21 @@ describe('a helper call over constants runs at build time', () => {
     expect(out.module).not.toMatch(/fmt\$title|split/);
   });
 
+  test('a page calls a helper once per arguments (and once more for the check), whatever its passes evaluate; the next page again', () => {
+    let calls = 0;
+    const words = (s: string) => { calls++; return s.split(' ').map((w) => ({ w })); };
+    // a let read by several bindings, a loop that unrolls, and a decided condition: the page is compiled twice
+    const html = `<main data-sn-state="{ s: 'a b c' }" data-sn-let="{ ws: words(s) }"><b data-sn-text="ws.length"></b>
+      <ul><template data-sn-for="x in ws"><li data-sn-text="x.w"></li></template></ul><template data-sn-if="ws.length > 2"><i>long</i></template><p data-sn-text="words(s)[0].w"></p></main>`;
+    const out = build(html, { words: [words, yes] }, { dev: false });
+    expect(errors(out)).toEqual([]);
+    expect(out.html).toMatch(/<li>a<\/li><li>b<\/li><li>c<\/li>/);
+    expect(calls).toBe(2);
+    // another page (another file) starts again
+    build(html, { words: [words, yes] }, { dev: false, file: '/p/other.html' });
+    expect(calls).toBe(4);
+  });
+
   test('not in a handler: a click runs it in the browser', async () => {
     let calls = 0;
     const out = build(`<main data-sn-state="{ n: '' }"><button data-sn-on-click="n = upper('x')"></button><p data-sn-text="n"></p></main>`, { upper: [(s: string) => { calls++; return s.toUpperCase(); }, yes] });
