@@ -1,0 +1,4 @@
+<!-- A link: its URL is an attribute binding, so sinter refuses javascript: and other unsafe schemes. -->
+<template data-sn-component="{ node: Link }">
+  <slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url, title: node.title }"><template data-sn-for="n in node.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><sn-component use="{ emphasis: 'md-emphasis', strong: 'md-strong', delete: 'md-delete', inlineCode: 'md-inline-code', break: 'md-break', link: 'md-link', image: 'md-image', kbd: 'md-kbd', sub: 'md-sub', sup: 'md-sup', mark: 'md-mark' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></template></a></slot>
+</template>

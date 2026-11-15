@@ -1,0 +1,9 @@
+<!--
+  md-inline: a parsed line, phrasing content. Public.
+  <md-inline data-sn-prop="{ doc: md.parse(post.title) }"></md-inline> renders the inside of each
+  paragraph without its <p>: a title, a table cell, a label. Other blocks render as md-doc renders them.
+  The same slots as md-doc.
+-->
+<template data-sn-component="{ doc?: Root | null; heading: Slot<{ node: Heading }>; link: Slot<{ node: Link }>; image: Slot<{ node: Image }>; code: Slot<{ node: Code }>; inlineCode: Slot<{ node: InlineCode }>; blockquote: Slot<{ node: Blockquote }>; table: Slot<{ node: Table }> }">
+  <div class="md"><template data-sn-for="b in doc ? doc.children : []"><template data-sn-if="b.type === 'paragraph'"><template data-sn-for="n in b.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><sn-component use="{ emphasis: 'md-emphasis', strong: 'md-strong', delete: 'md-delete', inlineCode: 'md-inline-code', break: 'md-break', link: 'md-link', image: 'md-image', kbd: 'md-kbd', sub: 'md-sub', sup: 'md-sup', mark: 'md-mark' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></template></template><template data-sn-else><sn-component use="{ heading: 'md-heading', thematicBreak: 'md-thematic-break', blockquote: 'md-blockquote', list: 'md-list', code: 'md-code', table: 'md-table', details: 'md-details' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></template></div>
+</template>

@@ -1323,7 +1323,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   function patchChunkUrls(bundle: Record<string, { type: string; fileName: string; code?: string; facadeModuleId?: string | null }>) {
     const byFacade = new Map<string, string>();
     for (const c of Object.values(bundle)) if (c.type === 'chunk' && c.facadeModuleId) byFacade.set(c.facadeModuleId, c.fileName);
-    const mark = new RegExp(`(["'\`])${CHUNK_MARK}(.+?)__\\1`, 'g');
+    // inside one string literal only: a match can never run across code to the next mark
+    const mark = new RegExp(`(["'\`])${CHUNK_MARK}([^"'\`\\n]+?)__\\1`, 'g');
     for (const c of Object.values(bundle)) {
       if (c.type !== 'chunk' || !c.code?.includes(CHUNK_MARK)) continue;
       c.code = c.code.replace(mark, (_, _q: string, raw: string) => {

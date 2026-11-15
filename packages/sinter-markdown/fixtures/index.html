@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>@tiaforge-ui/sinter-markdown: an article from a file</title>
+</head>
+<body>
+  <!-- A markdown file in the repo: md.parse runs at build time, the page is plain HTML -->
+  <sn-resource name="post" src="file:./article.md"></sn-resource>
+  <main data-sn-let="{ doc: md.parse(post, { base: '/fixtures/' }) }">
+    <nav>
+      <ul>
+        <template data-sn-for="h in md.headings(doc)"><li><a data-sn-attr="{ href: '#' + h.id }" data-sn-text="h.text"></a></li></template>
+      </ul>
+    </nav>
+    <p class="summary" data-sn-text="md.text(doc).slice(0, 160)"></p>
+    <p class="time" data-sn-text="Math.ceil(md.text(doc).split(/\s+/).length / 230) + ' min read'"></p>
+    <md-doc id="article" data-sn-prop="{ doc }"></md-doc>
+  </main>
+</body>
+</html>

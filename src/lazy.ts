@@ -5,15 +5,15 @@
 // that threw (`status: null`). The build side is `lazy-build.ts`.
 import { SinterError } from './runtime/config.js';
 
-const MARK = '__SN_CHUNK__';
-
 /**
  * A loader: `load()` imports once and caches the module. `file`: the chunk's URL relative to `base`
  * (the loader's own module), or null when it is not known (dev).
  */
 export function lazy<M>(load: () => Promise<M>, file: string | null, base: string): () => Promise<M> {
   let p: Promise<M> | null = null;
-  const url = file && !file.startsWith(MARK) ? new URL(file, base).href : null;
+  // the build writes a relative URL (`./x.js`) over its mark; anything else is no URL. (The runtime holds no copy
+  // of the mark itself, which a minifier could turn into something the build's patch would match.)
+  const url = file && file[0] == '.' ? new URL(file, base).href : null;
   return () => (p ??= load().catch(async (e: unknown) => {
     p = null;
     throw await loadError(e, url);

@@ -1,0 +1,3 @@
+<template data-sn-component="{ node: Blockquote }">
+  <slot name="blockquote" data-sn-prop="{ node }"><blockquote><template data-sn-for="b in node.children"><sn-component use="{ paragraph: 'md-paragraph', heading: 'md-heading', thematicBreak: 'md-thematic-break', blockquote: 'md-blockquote', list: 'md-list', code: 'md-code', table: 'md-table', details: 'md-details' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></blockquote></slot>
+</template>

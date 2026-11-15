@@ -667,7 +667,10 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   if (!first.decided.size && !unrolled && !constants) return out;
   const frozen = first.foldedState();
   if (constants) for (const s of first.constantSites) frozen.add(s);
-  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+  const second = new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+  // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
+  // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
+  return out.check ? { ...second, check: out.check } : second;
 }
 
 class Compiler {
@@ -1641,14 +1644,18 @@ class Compiler {
     ldoc.childNodes = ldoc.childNodes.filter((c) => c.nodeName !== '#comment');
     const lhtml = ldoc.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'html')!;
     const lhead = lhtml.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'head')!;
-    const decl = attr(lhtml, 'data-sn-layout');
-    if (decl === undefined || !lhtml.sourceCodeLocation?.startTag) {
-      // the page passes no props: the empty declaration is the whole fix (agents guessed it from a hint with props)
-      const props = attr(host, 'data-sn-prop') != null;
-      const hint = lhtml.sourceCodeLocation?.startTag
-        ? (props ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-layout="{ title?: string }">`' : 'it takes no props: `<html lang="en" data-sn-layout="{}">`')
-        : '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (`data-sn-layout="{}"` for a layout without props)';
-      this.diagnostics.push({ severity: 'error', code: 'SN318', message: `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``, file: lf.file, line: 1, col: 1, hint });
+    // a whole document in src/layouts/ without `data-sn-layout` takes no props (agents leave it out when there are
+    // none: every benchmark run that did paid a failed build for it); one whose pages pass props must declare them
+    const whole = !!lhtml.sourceCodeLocation?.startTag, passes = attr(host, 'data-sn-prop') != null;
+    const decl = attr(lhtml, 'data-sn-layout') ?? (whole && !passes ? '{}' : undefined);
+    if (decl === undefined || !whole) {
+      const hint = whole
+        ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-layout="{ title?: string }">`'
+        : '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (or `<html lang="en">` for a layout without props)';
+      const message = whole
+        ? `\`src/layouts/${name}.html\` declares no props, but this page passes \`data-sn-prop\`: a layout declares them on its \`<html>\`, \`<html data-sn-layout="{ …props }">\``
+        : `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``;
+      this.diagnostics.push({ severity: 'error', code: 'SN318', message, file: lf.file, line: 1, col: 1, hint });
       detach(host);
       return null;
     }
@@ -3985,7 +3992,7 @@ class Compiler {
       // a layout's tag: the page's `<body>` handlers, for DOM events and sinter's own
       if (use?.layout && !kf && !DOM_EVENTS.has(event) && !SINTER_EVENTS.includes(event)) {
         this.report(el, a.name, 'SN315', `\`${event}\` is not an event the page's \`<body>\` hears: a layout's tag takes handlers for DOM events and sinter's \`sn-error\` and \`dismiss\`.${didYouMean(event, [...SINTER_EVENTS, ...DOM_EVENTS])}`, 0,
-          'handle a component\'s event on an element around it, in the page\'s content');
+          'a component tells the page with an event it declares: `data-sn-emits="{ \'delete-start\': Item }"` on its template, `emit(\'delete-start\', item)` in it, and the page handles it on the component\'s tag (`<item-row data-sn-on-delete-start="…">`) or an element around it, in the page\'s content');
       } else if (use && !use.layout && !kf && use.emits && !DOM_EVENTS.has(event) && !use.emits.some((m) => m.name === event)) {
         const names = use.emits.map((m) => m.name);
         this.report(el, a.name, 'SN315', `\`<${use.name}>\` does not emit \`${event}\`; ${names.length ? `it declares ${names.map((x) => `\`${x}\``).join(', ')}` : 'it declares no events'}.${didYouMean(event, names)}`, 0);
@@ -6561,8 +6568,8 @@ class Compiler {
     const o = this.origins.get(root);
     if (o) o.use = '<';
     const use = this.hostUse.get(host);
-    if (use?.shape) this.expandComponents({ childNodes: root.parentNode!.childNodes.filter((c) => this.scopeStart.get(c)?.includes(use)) } as unknown as P5Parent, [...at.ch, name], false, use);
-    else this.expandComponents(root, [...at.ch, name], false, use ?? null);
+    if (use?.shape) this.expandComponents({ childNodes: root.parentNode!.childNodes.filter((c) => this.scopeStart.get(c)?.includes(use)) } as unknown as P5Parent, [name], false, use);
+    else this.expandComponents(root, [name], false, use ?? null);
     return true;
   }
 
@@ -7658,13 +7665,17 @@ class Compiler {
     const elOf = new Map(this.paints.map((x) => [x.node, x.el]));
     for (const n of this.roots) {
       if (!n.b.length && n.state === undefined) continue;
-      const el = elOf.get(n);
-      if (!el || el === self) continue;
+      // an anchor (a loop, branch, choice or recursion point left to the browser) paints nothing: its element
+      // is the template or tag it took the place of, so that it is never left out
+      const el = elOf.get(n) ?? this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.anchorEls.get(n);
+      if (el === self) continue;
+      // (no element to point at: still a reason, at the page, so that a page never ships code without one)
+      if (!el) { const k = n.b[0] && BY_KIND[n.b[0].k]; out.push({ what: `${k ? `\`${k}\`` : 'a binding'} (where it was written is not known)`, file: this.opts.file, line: 1, col: 1, at: 0 }); continue; }
       const b = n.b.find((x) => x.k === 'cmp') ?? n.b[0];
       if (b?.k === 'cmp') { out.push({ what: `the script of \`<${this.useOf.get(el)?.name ?? el.tagName}>\``, ...at(el, null) }); continue; }
       const name = nameOf(el, b);
       const why = this.whyNotFolded(n);
-      out.push({ what: `${name ? `\`${name}\`` : `\`<${el.tagName}>\``}${why ? ` (${why})` : ''}`, ...at(el, name) });
+      out.push({ what: `${name ? `\`${name}\`` : `\`<${this.points.get(el) ?? el.tagName}>\``}${why ? ` (${why})` : ''}`, ...at(el, name) });
     }
     for (const r of this.resources) {
       const el = this.declAt.get(r);

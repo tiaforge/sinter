@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>@tiaforge-ui/sinter-markdown: comments from an API</title>
+</head>
+<body>
+  <!-- Markdown written by readers: no headings, no images, raw HTML as text, links marked as user content -->
+  <sn-resource name="comments" src="/api/comments" type="Comment[]"></sn-resource>
+  <section>
+    <template data-sn-for="c in comments" data-sn-key="c.id">
+      <article class="comment" data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html: 'text' }) }">
+        <h3 data-sn-text="c.author"></h3>
+        <md-doc data-sn-prop="{ doc }"><a slot="link" rel="nofollow ugc" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a></md-doc>
+      </article>
+    </template>
+  </section>
+</body>
+</html>

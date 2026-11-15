@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowJs": false,
+    "types": ["node"],
+    "verbatimModuleSyntax": true
+  },
+  "include": ["sinter", "test", "scripts/*.d.ts"],
+  "exclude": ["sinter/sinter.components.d.ts"]
+}

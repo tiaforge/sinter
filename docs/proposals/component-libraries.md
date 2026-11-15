@@ -22,7 +22,7 @@ there and lands in `main` with the rest.
 | 8, helpers over constants and `file:` | merged here | see below |
 | 9, constant trees | merged here | see below |
 | 11, libraries ship source | merged here | see below |
-| 12, the markdown library | in progress (new session, `packages/sinter-markdown/`) | |
+| 12, the markdown library | merged here | see below |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -251,6 +251,29 @@ Step 11, as built:
 - A library's own `sinter check` treats its `"sinter"` folder as the components and its
   `fixtures/**/*.html` as pages, and checks tree slots' rules 5 and 7 there.
 - The fixture library `test/fixtures/ui` (`@fixture/ui`) and its app show the whole shape.
+
+Step 12, as built (`packages/sinter-markdown/`, `@tiaforge-ui/sinter-markdown`):
+- The package changes nothing in the framework: outside its folder only the CI workflow (a job of
+  its own) and a README link. Its `sinter check` over its 3 fixture pages gives 0 errors and 0
+  warnings; 32 tests pass, plus one expected failure for bug G.
+- md-doc and md-inline with 20 internal components; md.parse in its own module over a committed
+  prebundled parser (table decoder, production conditions), md.headings and md.text in a module that
+  does not import it. Heading anchors are `md-` plus a slug; the table slot's default wraps the
+  table in a `<div>`, since the HTML parser moves a `<slot>` out of a table; text runs use
+  `data-sn-if` with the choice in the `else`, 3 comments per run instead of 6.
+- Measured (spike's article and comments, median of 9, the RealWorld island in the same session):
+  from a file, no JavaScript, 1,365 elements, 63.9 kB HTML (12.9 kB gzip), LCP 56 ms; from the API,
+  LCP 208–244 ms eager or lazy, against the island's 140–160 ms, rendering 1.4–1.5× slower; the
+  parser chunk is 36.5 kB gzip.
+- Framework bugs found on the way and fixed: narrowing in `sinter check`, a package importing
+  itself, helpers by their declaring module, a false `SN201`, if-chain roots in the worklist (B, C),
+  lazy chunk URLs under minification (D, also on `main`), a tag's `id` counted as the component's
+  (E, also on `main`), `SN538` for a candidate a branch rules out, and G: a component reached again
+  through a choice in its own row (a list in a list item) expands at every level, and a static page
+  can no longer keep code without `SN322`. The whole article from a file is a static page.
+- Suggestions recorded for later: decide a tree placement with no fill at build time (326 of the
+  article's anchors), an `else-if` form (75 anchors for six heading depths), and dropping
+  whitespace-only text between tags in component markup.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)

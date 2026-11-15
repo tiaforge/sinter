@@ -284,6 +284,36 @@ export type Block = Para | Quote | Rule;
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
   });
 
+  test('a static page: a component prop in a loop over constants keeps its loop variable (the check reads the page as written, not unrolled)', () => {
+    // a benchmark agent's `sinter check` failed 13 times with "Cannot find name 'p'" and it dropped `static: true` to pass
+    const root = project({ 'src/components/post-item.html': '<template data-sn-component="{ post: { title: string } }"><li data-sn-text="post.title"></li></template>' });
+    const page = (prop: string) => `<!doctype html><html><head><title>x</title></head><body><ul data-sn-state="{ posts: [{ title: 'a' }, { title: 'b' }] }"><template data-sn-for="p in posts"><post-item data-sn-prop="{ post: ${prop} }"></post-item></template></ul></body></html>`;
+    const errors = (prop: string) => {
+      const file = join(root, 'index.html'), html = page(prop);
+      writeFileSync(file, html);
+      const h = { module: null, names: [], namespaces: {} };
+      const out = compile(html, { file, root, dev: false, helpers: h, readFile: (p) => readFileSync(p, 'utf8'), check: true, componentNames: ['post-item'], prerender: true, static: true });
+      return [...out.diagnostics, ...check({ root, units: [out.check!], helpers: h, types: null, tsc }).diagnostics].filter((d) => d.severity === 'error').map((d) => d.message.replace(/ \(TS\d+\)$/, ''));
+    };
+    expect(errors('p')).toEqual([]);
+    // and a real mistake in the loop is still found
+    expect(errors('{ titel: p.title }')).toEqual([expect.stringMatching(/'titel' does not exist|Object literal may only specify known properties/)]);
+  });
+
+  test('`$event.target.value`: the SN208 names `$el.value` and data-sn-model; `$el.value` passes', () => {
+    const html = (h: string) => page(`<div data-sn-state="{ q: '' }"><input data-sn-on-input="${h}" data-sn-text="q + contacts.length"></div>`);
+    const d = checkPage(html('q = $event.target.value'), { files: { 'src/sinter.types.ts': TYPES } });
+    expect(d.map((x) => [x.code, x.message.replace(/ \(TS\d+\)$/, '')])).toEqual([['SN208', "Property 'value' does not exist on type 'EventTarget'."]]);
+    expect(d[0]!.hint).toBe('`$event.target` is any EventTarget to TypeScript: read the element the handler is on with `$el.value` (typed by its tag), or bind the field with `data-sn-model`');
+    expect(checkPage(html('q = $el.value'), { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
+    // on an ancestor `$el` is the ancestor (a form takes any name, so `$el.value` would type-check and read the wrong
+    // thing): the hint moves the handler, or narrows the target
+    const on = (el: string) => checkPage(page(`<div data-sn-state="{ q: '' }">${el}<p data-sn-text="q + contacts.length"></p></div>`), { files: { 'src/sinter.types.ts': TYPES } })[0]?.hint;
+    expect(on('<form data-sn-on-input="q = $event.target.value"><input name="a"></form>')).toMatch(/whatever the event started on inside this `<form>`: put the handler on that element .* \(\$event\.target\)\.value`$/);
+    expect(on('<ul data-sn-on-click="q = $event.target.dataset.id"><li data-id="1">a</li></ul>')).toMatch(/inside this `<ul>`.*read the row's item instead of `dataset`/);
+    expect(checkPage(page(`<div data-sn-state="{ q: '' }"><form data-sn-on-input="q = /** @type {HTMLInputElement} */ ($event.target).value"><input name="a"></form><p data-sn-text="q + contacts.length"></p></div>`), { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
+  });
+
   test('page() with a computed target: a direction on keyset; a page number needs offset-param', () => {
     const helpers = `/** @param {boolean} back @returns {'next' | 'prev'} */\nexport function step(back) { return back ? 'prev' : 'next'; }\n`;
     const html = (to: string, attrs = '') => page(`<sn-resource name="list" src="/api/l" key="id" type="Contact[]" paginate="keyset" page-size="5" cursor="{id}" ${attrs}></sn-resource>

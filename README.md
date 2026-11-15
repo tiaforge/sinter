@@ -228,7 +228,8 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   `$error.stale` instead of a broken import. [Lazy packages](docs/lazy.md)
 - **Component libraries as source.** `sinter({ components: ['@acme/ui'] })`: a package's components
   compile with the app's, so they get its constants, early script, types and scoped styles; their
-  CSS sits in a cascade layer the app's own CSS wins over. [Libraries](docs/libraries.md)
+  CSS sits in a cascade layer the app's own CSS wins over. [Libraries](docs/libraries.md),
+  [markdown](packages/sinter-markdown/docs/markdown.md)
 - **Images.** AVIF/WebP/JPEG variants, `srcset` and `sizes` written from your own markup and CSS.
   [Images](docs/images.md)
 - **Fast rendering.** Keyed lists measured level with or ahead of ivi, Solid and Svelte on
