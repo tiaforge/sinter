@@ -15,7 +15,7 @@ there and lands in `main` with the rest.
 | 1, the spike | done (`examples/markdown/` on `ccr-ec5fd4e0-bp4vko`) | see the numbers in the sections |
 | 2, anchors as comments | in progress | a `data-sn-else` after `<sn-component use>` stays an `if` anchor of its own |
 | 3, slots that pass data | merged here | see below |
-| 6, the constant pre-pass | in progress | the values come from the first of two passes ([5](#5-constant-trees-are-unrolled)) |
+| 6, the constant pre-pass | merged here | see below |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -51,6 +51,21 @@ Step 10, as built:
 - `sinter check` types a waiting let `T | undefined`, but runs without `strictNullChecks`, so an
   unguarded read is not an error. The editor does not yet report the per-module `SN324`; the build
   and `sinter check` do.
+
+Step 6, as built:
+- The values come from the first of two passes, as section 5 now says, and only what the layout or
+  the images read is written early: value attributes on an `<img>`, and `data-sn-class` or
+  `data-sn-style` where a stylesheet names the class. Everything else is written after the walk as
+  before, so other output does not change: compiling every page of the test corpus and the examples
+  before and after gave identical output apart from `data-sn` ids on pages whose class folds earlier.
+- A folded `src` resolves against the page, the URL the browser would load. A folded `srcset` stays
+  the author's, as a written one does, and a folded image no longer gets `SN513`.
+- Cost: RealWorld's build takes about 26% longer (median ~475 to ~600 ms of compile), because 6 of
+  its 7 pages have a constant `active` class the CSS names and take a second compile. Other examples
+  and the test corpus take no more passes than before. The editor and `sinter check` never take the
+  extra pass. Step 7's worklist removes the second compile.
+- With `typecheck: true`, the build checks the second pass, so expressions folded early are not
+  type-checked there, as for a decided `if` today; `sinter check` is unaffected.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
