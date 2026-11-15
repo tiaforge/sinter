@@ -20,7 +20,7 @@ there and lands in `main` with the rest.
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | merged here | see below |
 | 8, helpers over constants and `file:` | merged here | see below |
-| 9, constant trees | merged here; two decisions open | see below |
+| 9, constant trees | merged here; the allow-list and the limit being applied | see below |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -219,8 +219,10 @@ Step 9, as built:
   `docs/guide.html` builds with no JavaScript.
 - Step 1's article from `file:./article.md`, with `md.parse` folding: 2,831 elements and no
   JavaScript, 82.2 kB HTML (13.6 kB gzip), LCP 104 ms, against 300 ms rendered in the browser. It
-  needs about 5,500 copies and so crosses the limit, and micromark's code names `TextDecoder`,
-  which the fold check refuses (see Open questions).
+  needs about 5,500 copies. Decided with the user: the limit is 10,000 copies, and
+  `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams` and `structuredClone` may fold (section 6).
+  Writing the HTML straight from the first compile, instead of compiling every copy again, is a
+  follow-up that would make the limit matter less.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
@@ -936,8 +938,11 @@ way. There is no marker; what may fold is decided from the code.
 - **What may fold.** A helper folds when the code it can reach uses only the globals ECMAScript
   defines (`Object`, `Array`, `Math` but not `Math.random`, `JSON`, `Map`, `RegExp` and the rest),
   and not `Date`, `Intl`, the members `toLocale*` and `localeCompare`, or `innerHTML`, `outerHTML`
-  and `insertAdjacentHTML`. It is an allowlist: `globalThis`, `self`, `process`, `import.meta.env`,
-  `fetch`, timers and every browser name stop a helper from folding without being listed.
+  and `insertAdjacentHTML`, plus five deterministic web-platform utilities: `URL`,
+  `URLSearchParams` and `structuredClone` (which expressions already allow as pure) and
+  `TextEncoder` and `TextDecoder` (decided after step 9: micromark names `TextDecoder`). It is an
+  allowlist: `globalThis`, `self`, `process`, `import.meta.env`, `fetch`, timers and every other
+  browser name stop a helper from folding without being listed.
 - **Per function.** Reachability is followed per exported function, through the functions it calls
   and the modules it imports; a module's top-level code counts for every function in it. One date
   formatter in `sinter.helpers.ts` does not stop the other helpers from folding.
@@ -1464,6 +1469,8 @@ Decided with the user while drafting:
 | Anchors | Comments in place and templates in the head, for every `if`, `for`, recursion point and choice | [1](#1-anchors-as-comments) |
 | Handlers in unrolled trees | A node whose only run-time need is a handler over constants and its own `$el` stays in the unrolled HTML; the rest is plain HTML | [5](#5-constant-trees-are-unrolled) |
 | Where markdown lives | Only in its own package; the framework gains no markdown code, dependency or type, and every step's diff is checked for it | [Goals](#goals) |
+| Web utilities in folded helpers | `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams` and `structuredClone` may fold | [6](#6-helpers-over-constants-run-at-build-time) |
+| The expansion limit | 10,000 copies per page, configurable, `SN536` past it | [5](#5-constant-trees-are-unrolled) |
 
 Settled in the fourth review, from the code and the reasoning recorded there:
 
