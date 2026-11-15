@@ -134,7 +134,11 @@ cells, a tree view: a library that turns a value into a tree, and components tha
   A `<slot>` written on a page is left in the HTML, with no diagnostic.
 - **Bugs this proposal touches**, independent of it: the tag's attributes on a recursion point are
   dropped with no diagnostic (the tag becomes `<template data-sn-def>`); a `<template data-sn-for>`
-  inside `<svg>` crashes the compiler (parse5 gives a foreign `template` no `content`).
+  inside `<svg>` crashes the compiler (parse5 gives a foreign `template` no `content`). The step 1
+  spike found and fixed two more, on its branch: `defs.ts` looked a definition up in the inert
+  document of a row not yet inserted (a TypeError in Chromium that jsdom and happy-dom do not
+  reproduce), and the early renderer inlined definitions that reach each other without end, which
+  overflowed the stack with embedded data.
 - **Scoped slots were sketched as additive** in the [components proposal](components.md#scope), as
   `<slot data-sn-let="{ item }">` read through `$slot`. `data-sn-let` takes no shorthand, so this
   proposal keeps `$slot` and passes the data with `data-sn-prop`.
@@ -210,9 +214,12 @@ The DOM is not identical: `childNodes` also holds the comments and any text sepa
 - An `if`/`else` chain becomes one anchor pair with a template per branch; the `else` is no longer a
   node of its own in the IR.
 - The choice is new. ``<sn-component use>`` becomes one choice anchor whose value is the candidate,
-  where today it is one anchor and one evaluation of `use` per candidate; a dispatcher over fifteen
-  candidates would otherwise leave thirty comments beside each node. A fill uses the same anchor
-  ([4](#how-it-compiles)).
+  where today it is one anchor and one evaluation of `use` per candidate. Measured in step 1, a
+  2,963-node article dispatched over 14 block and 9 inline candidates renders 2,831 elements beside
+  25,150 `<template>`s and 24,774 comments (8.5 and 8.4 per node) and 27,285 bindings, almost all of
+  them candidates' `for`s; the 2,380 candidates that rendered also keep a copy of their definition in
+  their `content` (16,230 inert nodes). A choice anchor makes that two comments and one evaluation
+  per node. A fill uses the same anchor ([4](#how-it-compiles)).
 
 #### Ids and templates
 
@@ -245,7 +252,8 @@ The definition stays as a concept: one template, compiled once, that the whole t
 
 - **The page module** finds root nodes with a walk over the mount root that visits elements and
   comments (a `TreeWalker` for both), replacing `querySelectorAll('[data-sn]')`. It also visits
-  author comments and text separators, so its cost is measured in step 1 on a large page.
+  author comments and text separators. Measured in step 1 on a page of 20,000 nodes: 0.2 ms for
+  `querySelectorAll`, 0.5 ms for the walk, 1.4 ms with a test per node. The cost is negligible.
 - **Inside rows,** paths count comments as nodes, as they count templates today, and a nested anchor
   is skipped from its start comment to its end comment.
 - **The early script** sees comments as the parser inserts them (`MutationObserver` reports comment
@@ -275,6 +283,11 @@ The definition stays as a concept: one template, compiled once, that the whole t
 - **Head weight.** Every template moves before `<body>` in the byte stream. Templates the early
   script never instantiates go at the end of the body instead; step 2 measures the bytes before the
   first byte of the body in `bench/first-paint`.
+- **The early renderer's size.** It inlines each template's code at every place it is used, so
+  the early bindings of step 1's article are 142 kB before compression. Templates the early file
+  renders are written once into a table and referenced, as the spike's fix already does for
+  definitions that reach each other; with one choice anchor per node, that also leaves one
+  dispatch per node in the early file.
 - **Dev checks.** A missing, duplicate or unpaired anchor comment is a dev warning, as a missing
   `data-sn` element is today. That is also how a comment-stripping minifier is noticed.
 - **Benchmarks.** One-element rows, the hot path of `bench/js-framework-benchmark`, are unchanged:
@@ -514,7 +527,8 @@ the element sinter uses for "no element of its own".
 ```
 
 - Search highlighting, a list joined with commas and "and", a translated sentence with a link in it,
-  and every run of text in a markdown paragraph need it.
+  and every run of text in a markdown paragraph need it. In step 1's article, 1,461 of the 2,831
+  elements are `<span>`s that exist only to hold a run of text.
 - **One node slot.** A text binding always occupies exactly one node: a `Text`, or an empty comment
   while its value is empty. So sibling paths do not shift with the value.
 - **Separators.** In HTML written at build time, in HTML the early script renders as the page is
@@ -762,6 +776,10 @@ computed from data, so the parse goes there, with two rules.
 
 #### A let over a helper is cached
 
+Measured in step 1: with today's inlined lets, `md.parse` runs once per read of `doc` (the prop
+and the list both read it), so 4 times when the article loads and 100 times for 50 comments, and the
+parse is about half the time from the response to the rendered article (188 of 363 ms).
+
 A let entry whose expression calls a helper at its top level (not inside an arrow function) is
 computed once per scope instance and kept until one of its dependencies changes, as tracked for any
 binding. When they change, it is computed again, unless every argument of the call is a primitive,
@@ -803,10 +821,23 @@ turn its functions into promises: once loaded, they are synchronous.
 - A let that waits is not early. The rest of the item (a comment's author and date) still renders
   early with embedded data.
 - An app that leaves the parser out of `lazy` gets a synchronous helper: the let is early over
-  embedded data, and the parser is in both the early file and the page module, and parses twice.
-  Which is better for an article body (lazy, or the parser in the early file) is measured in step 1:
-  the early file against `earlyBudget` (10,000 bytes), the parse at takeover, and the article's LCP
-  both ways. RealWorld found that a lazy renderer held its LCP.
+  embedded data, and the parser is in both the early file and the page module. Step 1 measured what
+  that costs, and it is a loss:
+  - the early file is 39.2 kB gzip (plus 2.8 kB shared) against the 10,000-byte `earlyBudget`,
+    against 4.0 kB for the same article sent as a tree;
+  - it parses twice before the first paint (FCP 520 ms against 32 ms);
+  - the page module adopts the 2,831 early elements, then evaluates the let again, gets new objects,
+    and replaces every row of the unkeyed lists, which are matched by item identity: LCP 1,292 ms
+    with embedded data against 468 ms fetched.
+  So a parser does not belong in the early file, and handing cached lets from the early script to
+  the page module is not needed. Markdown from an API is in the first frame only when the API sends
+  the tree (LCP 320 ms in step 1).
+- **The takeover keeps what the early script rendered.** The last point is general: any early let
+  whose helper returns new objects makes the takeover replace the unkeyed rows built over them,
+  though a pure helper returns the same contents. At takeover, the rows of an unkeyed list are
+  adopted by position, against the early script's rows, rather than matched by identity; after the
+  takeover, lists behave as today. The takeover then changes nothing, which the `firstPaint` then
+  `render` tests already require.
 - A draft in state is a let like any other: `data-sn-let="{ preview: md.parse(draft) }"` is a live
   preview, cached until the draft changes.
 - Two views of one item parse it twice, once in each scope.
@@ -895,8 +926,11 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
   browser build that decodes through `innerHTML`, which throws under sinter's
   `require-trusted-types-for 'script'`. Prebundled, the parser behaves the same under Trusted Types
   in every app, and the static check of [6](#6-helpers-over-constants-run-at-build-time) sees one
-  module graph. Step 1 confirms the parser's export maps; the library has a browser test with
-  entities (`&amp;`) under Trusted Types.
+  module graph. Step 1 confirmed it: Vite resolves `decode-named-character-reference` through its
+  `browser` condition to the build that decodes with `innerHTML`, and the first `&amp;` throws under
+  Trusted Types, so nothing renders. The safe decoder costs its entity table: the parser is 35.2 kB
+  gzip with it against 23.1 kB with the DOM build. The library has a browser test with entities
+  under Trusted Types.
 - **One function in three places.** Over a `file:` resource, the compiler runs it. In a let over API
   data, it loads on demand when the app lists the parser in `lazy`, or with the page when it does not.
 - **Public components**: `md-doc` (block content) and `md-inline` (one line: a title, a table
@@ -955,12 +989,12 @@ warnings, not errors: a literal `id` in repeated markup.
 
 - A constant tree with a node that needs more at run time than a handler over constants (state, a
   model, a handler that reads data) is not unrolled in the first version.
-- Markdown from an API as a string is in the first frame only when the parser is not lazy; then the
-  parser is in the early file and the page module, and parses twice, once in each. Reserved space
-  covers only paginated lists, so a body that renders late shifts the layout. An API that sends the
-  tree avoids all three.
+- Markdown from an API as a string is not in the first frame: a parser in the early file is four
+  times the early budget and made LCP worse in step 1. Reserved space covers only paginated lists,
+  so a body that renders late shifts the layout. An API that sends the tree avoids both.
 - A placement gives a fill only its default slot; a fill cannot receive named parts.
-- A stream that appends to a let's source parses the whole body again for each chunk.
+- A stream that appends to a let's source parses the whole body again for each chunk: in step 1,
+  69 ms for the first 2,000 characters and 382 ms for the last, so quadratic over the stream.
 - Links between markdown files stay as written, and a relative link to a repo file is not emitted as
   an asset. A run-time image under a root path needs to be in `publicDir`.
 - A root that is not a plain element is replaced when its condition changes, and focus on it is
@@ -1091,7 +1125,10 @@ library gets its own page and a recipe.
 
 ## Plan
 
-1. **A spike in userland, measuring only.** In an example app: `md.parse` as an ordinary helper over
+1. **Done: a spike in userland, measuring only** (`bench/markdown/` on branch
+   `ccr-ec5fd4e0-bp4vko`, with its write-up and raw results). Its numbers are in the sections they
+   bear on. It needed the two fixes listed under bugs above, which go into a pull request of their
+   own. As planned: in an example app, `md.parse` as an ordinary helper over
    mdast, loaded with the page; about fifteen recursive `md-*` components dispatched with
    `<sn-component use>`; an article and a comment list from the API, under Trusted Types. Confirm
    the parser's export maps and which builds touch the DOM. Measure, in `bench/`:
@@ -1107,8 +1144,8 @@ library gets its own page and a recipe.
    in the head (or at the end of the body when nothing early uses them); ids and the IR change for
    `else`; shared definitions as head templates, with `data-sn-def` and `defs.ts` removed; finding
    anchors at mount and early; the handoff on the start comment; keyed lists; the
-   layout model and reserved space; foreign content; the dev warnings; spec.md, the goldens and the
-   examples. Useful on its own: prose CSS over any list, and the SVG crash fixed. The
+   layout model and reserved space; foreign content; the early renderer's templates in a table; the
+   dev warnings; spec.md, the goldens and the examples. Useful on its own: prose CSS over any list, and the SVG crash fixed. The
    js-framework-benchmark, the live grids and the bytes before the body in `bench/first-paint` must
    not regress.
 3. **Slots that pass data** (section 2): `Slot<T>`, `data-sn-prop` on `<slot>`, `$slot`, a slot per
@@ -1135,7 +1172,7 @@ library gets its own page and a recipe.
    Sets the expansion limit. Needs 5, 6, 7 and 8.
 10. **Lets over helpers** (section 8): cached by dependencies with equal primitive arguments, and
     waiting for a lazy helper module, with members imported from their declaring modules in the
-    page module.
+    page module; unkeyed rows adopted by position at takeover.
 11. **Libraries ship source** (section 9), once the format above is settled. The spike's components
     move into a local package with fixture pages; the package rules of step 5 and a library's lazy
     helper module from step 10 are tested here.
@@ -1148,8 +1185,6 @@ Steps 2, 3, 6 and 10 do not depend on each other.
 
 None is left for the maintainer. Measured, then decided:
 
-- Handing cached lets from the early script to the page module, if the parser fits the early file
-  at all (step 1).
 - The cost of fills read through the scope chain (step 5).
 - The expansion limit's value (step 9).
 
@@ -1186,4 +1221,14 @@ Settled in the fourth review, from the code and the reasoning recorded there:
 | How a library ships | As source, named in the config, an app-shaped folder with `components/internal/` | [9](#9-libraries-ship-source) |
 | What content may contain | Parse options; raw HTML shown as text by default; `'allow'` is a fixed set | [10](#10-parse-options-what-content-may-contain) |
 | The parser | One prebundled module, built with production, non-browser conditions, tested under Trusted Types | [11](#11-the-library) |
+
+Settled by the step 1 measurements:
+
+| Question | Decision | Section |
+| --- | --- | --- |
+| A parser in the early file | No: it is four times the early budget and makes LCP worse; markdown from an API is in the first frame only as a tree | [8](#a-let-may-wait-for-a-lazy-helper-module) |
+| Handing cached lets from the early script | Not needed | [8](#a-let-may-wait-for-a-lazy-helper-module) |
+| The takeover over an early let | Unkeyed rows are adopted by position at takeover, so the takeover changes nothing | [8](#a-let-may-wait-for-a-lazy-helper-module) |
+| The cost of finding comment anchors | Negligible: 0.5 ms on 20,000 nodes | [1](#finding-anchors) |
+| The early renderer's size | Templates written once into a table, not inlined per use | [1](#what-else-changes) |
 | First step | A spike that measures, before any compiler change | [Plan](#plan) |
