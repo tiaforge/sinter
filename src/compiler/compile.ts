@@ -6817,7 +6817,7 @@ export function makeCode(nodes: NodeDef[], fns: string[]): string | null {
       const v = 'v' + names.length;
       names.push(v);
       vals.push(`${v} = ${e} ? (${code.slice('($) => ('.length, -1)}) : w.U`);
-      writes.push(`${e} && w.${WRITER[b.k]}(${e}, ${JSON.stringify(b.n ?? '')}, ${v}${b.k === 'class' ? `, ${valued[k]!.cl ? 1 : 0}` : ''})`);
+      writes.push(`${e} && w.${b.k === 'text' && b.n ? 'x' : WRITER[b.k]}(${e}, ${JSON.stringify(b.n ?? '')}, ${v}${b.k === 'class' ? `, ${valued[k]!.cl ? 1 : 0}` : ''})`);
     }
   }
   if (!names.length) return null;
