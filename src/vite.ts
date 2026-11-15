@@ -32,6 +32,8 @@ import { faceName, faceOf, fontDownloader, fontFileDownloader, inlineFonts, prel
 import { componentBase } from './components-build.js';
 import { COMPONENT_NAME } from './compiler/components.js';
 import { apiOrigins } from './compiler/apis.js';
+import { loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from './helpers-node.js';
+import { FoldCache } from './fold-check.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -230,6 +232,8 @@ ${pages.map(page).join('\n')}
 }
 
 export default function sinter(options: SinterOptions = {}): SinterPlugins {
+  // the Vite server sinter starts to load the helpers module in Node (helpers-node.ts): nothing of sinter runs in it
+  if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }];
   let root = process.cwd();
   let dev = false;
   let server: ViteDevServer | null = null;
@@ -389,6 +393,18 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const text = formatWarning(code, message);
     if (strict.on && !dev && strictPromotes(code) && !allowed.has(code)) strictFailures.add(text);
     return text;
+  };
+  /**
+   * The helpers module in Node, with what of it may fold (helpers-node.ts): loaded once before the pages compile, in dev by
+   * the dev server's SSR environment, and again after one of the files it reaches changes. A failure warns once (SN533).
+   */
+  let nodeHelpers: Promise<NodeHelpers> | null = null, helpersNow: NodeHelpers | null = null, warnedHelpers = false;
+  const foldCache = new FoldCache();
+  const helpersReady = async () => {
+    const p = project(root, options);
+    const h = await (nodeHelpers ??= loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers, server: dev ? server : null, ...(resolved ? { configFile: resolved.configFile ?? false, mode: resolved.mode, ...(resolved.configFile ? {} : { alias: resolved.resolve.alias }) } : {}), cache: foldCache }));
+    if (h.error && p.helpersFile && !warnedHelpers) { warnedHelpers = true; resolved?.logger.warn(coded('SN533', unloadedMessage(root, p.helpersFile, h.error))); }
+    return (helpersNow = h);
   };
   /** a page's or the options' diagnostics, with strict mode's promotions */
   const strictly = (ds: Diagnostic[]): Diagnostic[] => (strict.on ? applyStrict(ds, allowed) : ds);
@@ -614,6 +630,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
       check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs).reach(m) } : {}),
+      ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold } : {}),
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(styles?.length ? { styles } : {}),
       ...(lineHeights?.size ? { normalLineHeight: (f: string) => lineHeights.get(f) ?? null } : {}),
@@ -758,6 +775,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       });
       // an HTML, component or helpers change triggers a full reload in v0.1
       s.watcher.on('change', (file) => {
+        // the helpers module, or a file it reaches: loaded again before the next page compiles
+        if (helpersNow?.files.includes(file) || file === project(root, options).helpersFile) nodeHelpers = null;
         // a page's resources may have changed: the next-page module is described again
         if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear(); }
         if (watched.has(file)) s.ws.send({ type: 'full-reload' });
@@ -778,6 +797,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       described.clear();
       pagesCache = null;
       if (dev) return;
+      await helpersReady();
       const p = project(root, options);
       messages = p.messages;
       appEarly = p.early;
@@ -1016,6 +1036,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const lineHeights = styles?.length && firstPaint && !dev && /data-sn-for|<[a-z][a-z0-9]*-/i.test(html) ? await lineHeightsOf(styles) : undefined;
         // the fonts' `0`, for images in a box sized in ch
         const zeros = images && styles?.some((s) => /\dch\b/i.test(s.css)) && styles.some((s) => /@font-face/i.test(s.css)) ? await zeroWidthsOf(styles) : undefined;
+        await helpersReady();
         let { out, p } = build(html, file, earlySrc, styles, lineHeights, zeros);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
         if (images && out.images?.pending.length) {

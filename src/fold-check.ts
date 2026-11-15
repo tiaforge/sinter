@@ -50,7 +50,13 @@ interface ModuleInfo {
 export class FoldCache {
   readonly modules = new Map<string, { stamp: string; info: ModuleInfo }>();
   readonly resolved = new Map<string, string | null>();
+  /** the app's `resolve.alias` (from its Vite config), applied before a specifier is resolved */
+  aliases: Array<{ find: string | RegExp; replacement: string }> = [];
   clear() { this.modules.clear(); this.resolved.clear(); }
+  setAliases(a: Array<{ find: string | RegExp; replacement: string }>) {
+    if (JSON.stringify(a.map((x) => [String(x.find), x.replacement])) !== JSON.stringify(this.aliases.map((x) => [String(x.find), x.replacement]))) this.resolved.clear();
+    this.aliases = a;
+  }
 }
 
 const stampOf = (f: string) => { const s = statSync(f); return `${s.mtimeMs}:${s.size}`; };
@@ -59,9 +65,18 @@ const stampOf = (f: string) => { const s = statSync(f); return `${s.mtimeMs}:${s
 export function resolveImport(spec: string, from: string, root: string, cache?: FoldCache): string | null {
   const key = `${spec}\0${dirname(from)}`;
   if (cache?.resolved.has(key)) return cache.resolved.get(key)!;
-  const out = resolveUncached(spec, from, root);
+  const out = resolveUncached(aliased(spec, cache?.aliases ?? []), from, root);
   cache?.resolved.set(key, out);
   return out;
+}
+
+/** a specifier with the app's first matching alias applied, as Vite applies them */
+function aliased(spec: string, aliases: Array<{ find: string | RegExp; replacement: string }>): string {
+  for (const a of aliases) {
+    if (typeof a.find === 'string') { if (spec === a.find || spec.startsWith(a.find + '/')) return a.replacement + spec.slice(a.find.length); }
+    else if (a.find.test(spec)) return spec.replace(a.find, a.replacement);
+  }
+  return spec;
 }
 
 const EXTS = ['', '.ts', '.tsx', '.mts', '.js', '.mjs', '.cjs', '.jsx', '.json', '/index.ts', '/index.js', '/index.mjs'];
@@ -75,6 +90,7 @@ const fileFor = (b: string) => {
 function resolveUncached(spec: string, from: string, root: string): string | null {
   const bare = spec.replace(/[?#].*$/, '');
   if (bare.startsWith('.')) return fileFor(resolve(dirname(from), bare));
+  if (bare.startsWith(root) || (/^[A-Za-z]:[\\/]/.test(bare))) return fileFor(bare);
   if (bare.startsWith('/')) return fileFor(resolve(root, '.' + bare));
   if (bare.startsWith('node:') || /^[a-z]+:/.test(bare)) return null;
   const m = /^((?:@[^/]+\/)?[^/]+)(\/.*)?$/.exec(bare);

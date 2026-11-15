@@ -20,6 +20,7 @@ import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
+import type { FoldVerdict } from '../fold-check.js';
 import { FILE_ATTRS, fileAttrProblem, filePath, fileValue, isFileSource, scriptJson } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
@@ -80,6 +81,13 @@ export interface CompileOptions {
    * the manifest has it), or none: its helpers wait for it, in a `data-sn-let` (docs/lazy.md#helpers-that-wait)
    */
   lazyModule?: (module: string) => string[];
+  /**
+   * the helpers module as loaded in Node (helpers-node.ts), for helper calls over build-time constants; null when it
+   * could not be loaded (nothing folds). Absent: not loaded (the testing module, a compile without a project)
+   */
+  helperValues?: Record<string, unknown> | null;
+  /** per helper (`fmt`, `ns$member`), whether its calls may run at build time, and why not (fold-check.ts): for SN322 */
+  helperFold?: ReadonlyMap<string, FoldVerdict>;
   /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
