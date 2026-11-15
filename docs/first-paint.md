@@ -48,7 +48,7 @@ only the item, its index and constants is unrolled at build time: its rows are p
 goes on at any depth: a loop in a row over the row's item is unrolled the same way, a `data-sn-if` in a
 row is decided per row, and an `<sn-component use>` renders the component each row or use chooses as
 page markup; a component used inside itself over constant props (a content tree) is expanded the same
-way, at any depth, up to 5,000 rows and components per page.
+way, at any depth, up to 10,000 rows and components per page.
 A component's templates are decided per use.
 
 Such bindings on an `<img>`, and constant classes and styles, are written before the build
