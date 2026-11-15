@@ -97,12 +97,37 @@ export function shadowOf(unit: CheckUnit, support: Support, root: string, helper
   return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}), ...(support.libraries ? { libraries: support.libraries } : {}) });
 }
 
+/** A hint for a type error agents meet in markup, or null; \`tag\` is the element the expression sits on. */
+export function typeHint(message: string, tag?: string): string | null {
+  // `$event.target.value`: TypeScript types an event's target as any EventTarget
+  const target = /Property '(\w+)' does not exist on type 'EventTarget'/.exec(message);
+  if (!target) return null;
+  // on the control itself, `$el` is it; on an ancestor (a form, a list), `$el` is the ancestor: a form even takes any
+  // name (its fields by name), so `$el.value` would type-check and read the wrong thing
+  if (tag && /^(input|select|textarea)$/i.test(tag)) {
+    return `\`$event.target\` is any EventTarget to TypeScript: read the element the handler is on with \`$el.${target[1]}\` (typed by its tag), or bind the field with \`data-sn-model\``;
+  }
+  return `\`$event.target\` is any EventTarget to TypeScript, and here it is whatever the event started on inside this \`<${tag ?? 'element'}>\`: put the handler on that element (in a \`data-sn-for\` row, read the row's item instead of \`dataset\`), bind fields with \`data-sn-model\`, or narrow it: \`/** @type {HTMLInputElement} */ ($event.target).${target[1]}\``;
+}
+
 /** A TypeScript error at a 1-based shadow position, as an SN208 diagnostic at the HTML position. */
-export function typeDiagnostic(unit: CheckUnit, regions: Region[], line: number, col: number, code: string, message: string, root: string): Diagnostic {
+export function typeDiagnostic(unit: CheckUnit, regions: Region[], line: number, col: number, code: string, message: string, root: string): Diagnostic | null {
   const text = `${clean(message, root)} (${code})`;
+  // a candidate of `<sn-component use>` whose key the branches around rule out: never chosen there
+  const cand = regions.find((r) => r.candidate && line >= r.start && line < r.start + r.lines);
+  if (cand) {
+    if (code !== 'TS2367') return null;
+    const c = cand.candidate!, at = cand.loc;
+    return { severity: 'warning', code: 'SN538', message: `\`${c.name}\` can never be chosen here: \`${c.keySrc}\` cannot be \`${JSON.stringify(c.key)}\` where this \`<sn-component>\` is (a branch around it rules it out)` + (at.chain.length ? ` (included from ${at.chain.join(' ← ')})` : ''),
+      file: at.file, line: at.line, col: at.col, hint: 'remove the candidate from `use`, or move the `<sn-component>` out of the branch that excludes it' };
+  }
   const loc = mapPosition(regions, line, col);
+  // the element the expression sits on (for the hint): the expression whose region holds the position
+  const region = regions.find((r) => line >= r.start && line < r.start + r.lines);
+  const expr = region && unit.exprs.find((e) => e.loc === region.loc || (e.loc.file === region.loc.file && e.loc.line === region.loc.line && e.loc.col === region.loc.col));
+  const hint = typeHint(message, expr?.tag);
   return loc
-    ? { severity: 'error', code: 'SN208', message: text + (loc.chain.length ? ` (included from ${loc.chain.join(' ← ')})` : ''), file: loc.file, line: loc.line, col: loc.col }
+    ? { severity: 'error', code: 'SN208', message: text + (loc.chain.length ? ` (included from ${loc.chain.join(' ← ')})` : ''), file: loc.file, line: loc.line, col: loc.col, ...(hint ? { hint } : {}) }
     : { severity: 'error', code: 'SN208', message: `in code sinter generated (please report): ${text}`, file: unit.file, line: 1, col: 1 };
 }
 
@@ -242,6 +267,7 @@ function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<str
     // errors in the app's own modules are its own tsc's business; broken expressions are the compiler's
     if (!s || (s.brokenFrom !== null && Number(m[2]) >= s.brokenFrom) || quietLine(s.regions, Number(m[2]))) continue;
     const d = typeDiagnostic(s.unit, s.regions, Number(m[2]), Number(m[3]), m[4]!, m[5]!, root);
+    if (!d) continue;
     out.push(d);
     last = d;
   }

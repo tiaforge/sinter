@@ -1,0 +1,27 @@
+<!--
+  An article and its comments from an API, on one page (docs/markdown.md).
+  The article is the team's markdown: headings with anchors, a table of contents from the same tree.
+  The comments are readers' markdown, under the user-content policy: no headings, no images, raw HTML
+  shown as written, and links marked as user content by a fill.
+-->
+<sn-resource name="post" src="/api/post"></sn-resource>
+<sn-resource name="comments" src="/api/post/comments"></sn-resource>
+
+<article id="post" data-sn-let="{ doc: md.parse(post?.body) }">
+  <h1><md-inline data-sn-prop="{ doc: md.parse(post?.title) }"></md-inline></h1>
+  <nav aria-label="Contents">
+    <ol>
+      <template data-sn-for="h in md.headings(doc)"><li><a data-sn-attr="{ href: '#' + h.id }" data-sn-text="h.text"></a></li></template>
+    </ol>
+  </nav>
+  <md-doc id="body" data-sn-prop="{ doc }"></md-doc>
+</article>
+
+<section id="comments" aria-label="Comments">
+  <template data-sn-for="c in comments" data-sn-key="c.id">
+    <article class="comment" data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html: 'text' }) }">
+      <h3 data-sn-text="c.author"></h3>
+      <md-doc data-sn-prop="{ doc }"><a slot="link" rel="nofollow ugc" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a></md-doc>
+    </article>
+  </template>
+</section>

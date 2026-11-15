@@ -105,6 +105,7 @@ export const CODES = {
   SN535: 'close-slot-name',
   SN536: 'expansion-limit',
   SN537: 'library-version',
+  SN538: 'unreachable-candidate',
 } as const;
 
 export type Code = keyof typeof CODES;

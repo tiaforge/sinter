@@ -667,7 +667,10 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   if (!first.decided.size && !unrolled && !constants) return out;
   const frozen = first.foldedState();
   if (constants) for (const s of first.constantSites) frozen.add(s);
-  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+  const second = new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+  // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
+  // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
+  return out.check ? { ...second, check: out.check } : second;
 }
 
 class Compiler {
@@ -798,7 +801,7 @@ class Compiler {
   /** components used inside themselves: their tags (recursion points), and the definition each compiles to */
   private readonly points = new WeakMap<P5Element, string>();
   /** `<sn-component use>`: one point per candidate, rendered when `use` is its name; `key`: the value of the data that names it, for narrowing */
-  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup }>();
+  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup; keyAt?: number }>();
   /** `<sn-component use>`: one choice anchor per use, its candidates gathered as the walk reaches them (`finishChoices`) */
   private readonly choiceGroups: ChoiceGroup[] = [];
   /** the `<template>` of each `if`, `for`, `else` and recursion point node, which `anchors()` turns into a pair of comments */
@@ -1641,14 +1644,18 @@ class Compiler {
     ldoc.childNodes = ldoc.childNodes.filter((c) => c.nodeName !== '#comment');
     const lhtml = ldoc.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'html')!;
     const lhead = lhtml.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'head')!;
-    const decl = attr(lhtml, 'data-sn-layout');
-    if (decl === undefined || !lhtml.sourceCodeLocation?.startTag) {
-      // the page passes no props: the empty declaration is the whole fix (agents guessed it from a hint with props)
-      const props = attr(host, 'data-sn-prop') != null;
-      const hint = lhtml.sourceCodeLocation?.startTag
-        ? (props ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-layout="{ title?: string }">`' : 'it takes no props: `<html lang="en" data-sn-layout="{}">`')
-        : '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (`data-sn-layout="{}"` for a layout without props)';
-      this.diagnostics.push({ severity: 'error', code: 'SN318', message: `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``, file: lf.file, line: 1, col: 1, hint });
+    // a whole document in src/layouts/ without `data-sn-layout` takes no props (agents leave it out when there are
+    // none: every benchmark run that did paid a failed build for it); one whose pages pass props must declare them
+    const whole = !!lhtml.sourceCodeLocation?.startTag, passes = attr(host, 'data-sn-prop') != null;
+    const decl = attr(lhtml, 'data-sn-layout') ?? (whole && !passes ? '{}' : undefined);
+    if (decl === undefined || !whole) {
+      const hint = whole
+        ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-layout="{ title?: string }">`'
+        : '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (or `<html lang="en">` for a layout without props)';
+      const message = whole
+        ? `\`src/layouts/${name}.html\` declares no props, but this page passes \`data-sn-prop\`: a layout declares them on its \`<html>\`, \`<html data-sn-layout="{ …props }">\``
+        : `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``;
+      this.diagnostics.push({ severity: 'error', code: 'SN318', message, file: lf.file, line: 1, col: 1, hint });
       detach(host);
       return null;
     }
@@ -1858,7 +1865,7 @@ class Compiler {
     const all = this.choicePool(this.origins.get(el)?.file);
     const lib = this.libOfFile(this.origins.get(el)?.file);
     // each candidate, and the value of the data that names it (convention, map), for narrowing
-    let cands: Array<{ name: string; key: string | null }>;
+    let cands: Array<{ name: string; key: string | null; at?: number }>;
     let keySrc: string | null = null, map = false;
     if (ast.type === 'TemplateLiteral' && ast.expressions.length === 1) {
       const pre = ast.quasis[0]!.value.cooked ?? '', post = ast.quasis[1]!.value.cooked ?? '';
@@ -1879,10 +1886,10 @@ class Compiler {
           const f = this.componentFile(v)!;
           if (lib) this.report(el, 'use', 'SN339', `\`'${v}'\` is not a component of \`${lib.name}\`: \`<sn-component use>\` in a library's markup chooses among its own components`, (p as import('acorn').Property).value.start);
           else if (f.internal) this.report(el, 'use', 'SN339', `\`'${v}'\` is internal to \`${f.lib!.name}\` (\`components/internal/\`): only its own components use it`, (p as import('acorn').Property).value.start, `its public components: ${f.lib!.public.map((n) => `\`'${n}'\``).join(', ')}`);
-          else { cands.push({ name: v, key: k }); continue; }
+          else { cands.push({ name: v, key: k, at: (p as import('acorn').Property).key.start }); continue; }
           continue;
         }
-        cands.push({ name: v, key: k });
+        cands.push({ name: v, key: k, at: (p as import('acorn').Property).key.start });
       }
     } else if (ast.type === 'CallExpression') {
       // rule 7: in a component that declares slots, or has a tree placement, every component would be a candidate
@@ -1909,7 +1916,7 @@ class Compiler {
       this.origins.set(x, this.origins.get(el)!);
       this.points.set(x, c.name);
       if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
-      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
       clones.push(x);
     }
     if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);
@@ -2053,7 +2060,11 @@ class Compiler {
           this.report(host, a.name, 'SN209', fill
             ? `\`${a.name}\` is set both here and on \`<${el.tagName}>\`, the fill of \`<${name}>\`'s \`<slot>\` that is its root; one of them would be lost`
             : `\`${a.name}\` is set both here and on the root of \`<${name}>\`; one of them would be lost`, 0);
-        } else el.attrs.push({ name: a.name, value: a.value });
+        } else {
+          el.attrs.push({ name: a.name, value: a.value });
+          // the caller's, on this use only: not an id of the component's markup (`componentIds`)
+          if (a.name === 'id') this.tagIds.add(el);
+        }
       }
     }
     // a component tag (or a choice) as root: the outer uses pass on to it
@@ -2727,6 +2738,9 @@ class Compiler {
     return (u.shape ? landingOf(u.shape) : [u.root]).filter((e) => !this.slotOf.has(e) || this.useOf.get(e) === u);
   }
 
+  /** elements whose `id` a component's tag gave them (its use's own) */
+  private readonly tagIds = new WeakSet<P5Element>();
+
   /** literal ids in repeated markup, reported after `componentIds` (which may report the same element as SN209) */
   private readonly repeatedIds: Array<{ el: P5Element; why: string }> = [];
 
@@ -2739,13 +2753,13 @@ class Compiler {
       const find = (n: P5Parent): P5Element | null => {
         for (const c of n.childNodes) {
           if (!isElement(c) || this.slotOf.get(c)) continue;
-          if (attr(c, 'id') !== undefined && this.origins.get(c)?.file === u.file) return c;
+          if (attr(c, 'id') !== undefined && this.origins.get(c)?.file === u.file && !this.tagIds.has(c)) return c;
           const x = find(c) ?? (c.tagName === 'template' ? find((c as P5Template).content) : null);
           if (x) return x;
         }
         return null;
       };
-      const el = attr(u.root, 'id') !== undefined && this.origins.get(u.root)?.file === u.file ? u.root : find(u.root);
+      const el = attr(u.root, 'id') !== undefined && this.origins.get(u.root)?.file === u.file && !this.tagIds.has(u.root) ? u.root : find(u.root);
       if (el) this.report(el, 'id', 'SN209', `\`<${name}>\` is used ${list.length} times on this page, and its markup has \`id="${attr(el, 'id')}"\`: the page would have that id ${list.length} times`, 0,
         'compute the id from a prop: `data-sn-attr="{ id: \'edit-\' + item.id }"`, or use the component once');
       if (el && this.siteKey(el)) out.add(this.siteKey(el)!);
@@ -2985,7 +2999,11 @@ class Compiler {
     }
     const { lets } = this.propLets(use, ctx.scope);
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
-    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) this.check.exprs[this.lastExpr]!.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
+    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) {
+      const e = this.check.exprs[this.lastExpr]!;
+      e.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
+      e.guardAt = { name: choice.name, key: choice.key, loc: this.locOf(host, 'use', choice.keyAt ?? 0) };
+    }
     for (const l of lets) if (l.src?.length) this.addSources(`@def:${name}:${l.name}`, l.src);
     const tagAttrs = this.pointAttrs(host, ctx, `$p${def.tid}`);
     // tree slots: the fills chosen here travel down the definition in its item
@@ -3974,7 +3992,7 @@ class Compiler {
       // a layout's tag: the page's `<body>` handlers, for DOM events and sinter's own
       if (use?.layout && !kf && !DOM_EVENTS.has(event) && !SINTER_EVENTS.includes(event)) {
         this.report(el, a.name, 'SN315', `\`${event}\` is not an event the page's \`<body>\` hears: a layout's tag takes handlers for DOM events and sinter's \`sn-error\` and \`dismiss\`.${didYouMean(event, [...SINTER_EVENTS, ...DOM_EVENTS])}`, 0,
-          'handle a component\'s event on an element around it, in the page\'s content');
+          'a component tells the page with an event it declares: `data-sn-emits="{ \'delete-start\': Item }"` on its template, `emit(\'delete-start\', item)` in it, and the page handles it on the component\'s tag (`<item-row data-sn-on-delete-start="…">`) or an element around it, in the page\'s content');
       } else if (use && !use.layout && !kf && use.emits && !DOM_EVENTS.has(event) && !use.emits.some((m) => m.name === event)) {
         const names = use.emits.map((m) => m.name);
         this.report(el, a.name, 'SN315', `\`<${use.name}>\` does not emit \`${event}\`; ${names.length ? `it declares ${names.map((x) => `\`${x}\``).join(', ')}` : 'it declares no events'}.${didYouMean(event, names)}`, 0);
@@ -5838,8 +5856,8 @@ class Compiler {
   /**
    * The app's helpers as the build-time evaluator calls them (docs/spec.md, Helpers at build time): a helper the
    * static check lets fold (`helperFold`), with its module loaded in Node (`helperValues`), runs over plain-data
-   * arguments and must return plain data. One that throws, returns anything else, or (dev builds, run twice)
-   * returns another result the second time, stays in the browser, with warning SN534 once at the call. Any other
+   * arguments and must return plain data. One that throws, returns anything else, or (every build runs it twice)
+   * returns another result the second time, stays in the browser, with warning SN534 once at the call in dev builds. Any other
    * helper throws `NOT`, and the call it was in is recorded with the reason, for SN322.
    */
   helperCalls(NOT: Error) {
@@ -5893,7 +5911,9 @@ class Compiler {
             throw NOT;
           }
           if (!plainData(v)) { problem(key, 'returned something that is not plain data (JSON values)'); throw NOT; }
-          if (this.opts.dev) {
+          // every build runs it twice: a second result that differs (a counter, the clock through a path the
+          // static check missed) keeps the call in the browser
+          {
             let again: unknown;
             try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
             if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) { problem(key, 'returned another result when called again with the same arguments: a helper must be pure'); throw NOT; }
@@ -6550,8 +6570,8 @@ class Compiler {
     const o = this.origins.get(root);
     if (o) o.use = '<';
     const use = this.hostUse.get(host);
-    if (use?.shape) this.expandComponents({ childNodes: root.parentNode!.childNodes.filter((c) => this.scopeStart.get(c)?.includes(use)) } as unknown as P5Parent, [...at.ch, name], false, use);
-    else this.expandComponents(root, [...at.ch, name], false, use ?? null);
+    if (use?.shape) this.expandComponents({ childNodes: root.parentNode!.childNodes.filter((c) => this.scopeStart.get(c)?.includes(use)) } as unknown as P5Parent, [name], false, use);
+    else this.expandComponents(root, [name], false, use ?? null);
     return true;
   }
 
@@ -7647,13 +7667,17 @@ class Compiler {
     const elOf = new Map(this.paints.map((x) => [x.node, x.el]));
     for (const n of this.roots) {
       if (!n.b.length && n.state === undefined) continue;
-      const el = elOf.get(n);
-      if (!el || el === self) continue;
+      // an anchor (a loop, branch, choice or recursion point left to the browser) paints nothing: its element
+      // is the template or tag it took the place of, so that it is never left out
+      const el = elOf.get(n) ?? this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.anchorEls.get(n);
+      if (el === self) continue;
+      // (no element to point at: still a reason, at the page, so that a page never ships code without one)
+      if (!el) { const k = n.b[0] && BY_KIND[n.b[0].k]; out.push({ what: `${k ? `\`${k}\`` : 'a binding'} (where it was written is not known)`, file: this.opts.file, line: 1, col: 1, at: 0 }); continue; }
       const b = n.b.find((x) => x.k === 'cmp') ?? n.b[0];
       if (b?.k === 'cmp') { out.push({ what: `the script of \`<${this.useOf.get(el)?.name ?? el.tagName}>\``, ...at(el, null) }); continue; }
       const name = nameOf(el, b);
       const why = this.whyNotFolded(n);
-      out.push({ what: `${name ? `\`${name}\`` : `\`<${el.tagName}>\``}${why ? ` (${why})` : ''}`, ...at(el, name) });
+      out.push({ what: `${name ? `\`${name}\`` : `\`<${this.points.get(el) ?? el.tagName}>\``}${why ? ` (${why})` : ''}`, ...at(el, name) });
     }
     for (const r of this.resources) {
       const el = this.declAt.get(r);

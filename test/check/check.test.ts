@@ -238,6 +238,29 @@ export type Inline = Plain | Strong | Ref;
       .toEqual([expect.stringMatching(/Property 'tpye' does not exist/)]);
   });
 
+  test('SN538: a candidate the branches around rule out is a warning at its key, not an error in generated code', () => {
+    const types = `export interface Para { type: 'para'; text: string }
+export interface Quote { type: 'quote'; text: string }
+export interface Rule { type: 'rule' }
+export type Block = Para | Quote | Rule;
+`;
+    const files = {
+      'src/sinter.types.ts': types,
+      'src/components/x-para.html': '<template data-sn-component="{ node: Para }"><p data-sn-text="node.text"></p></template>',
+      'src/components/x-quote.html': '<template data-sn-component="{ node: Quote }"><blockquote data-sn-text="node.text"></blockquote></template>',
+    };
+    const use = `{ para: 'x-para', quote: 'x-quote' }[b.type]`;
+    const html = `<!doctype html><html><head></head><body>
+<sn-resource name="blocks" src="/api/b" type="Block[]"></sn-resource>
+<template data-sn-for="b in blocks"><template data-sn-if="b.type === 'para'"><p data-sn-text="b.text"></p></template><template data-sn-else><sn-component use="${use}" data-sn-prop="{ node: b }"></sn-component><template data-sn-else><hr></template></template></template>
+</body></html>`;
+    const d = checkPage(html, { files });
+    expect(d.map((x) => `${x.severity} ${x.code} ${x.message}`)).toEqual(['warning SN538 `x-para` can never be chosen here: `b.type` cannot be `"para"` where this `<sn-component>` is (a branch around it rules it out)']);
+    expect([d[0]!.line, d[0]!.col]).toEqual(at(html, "para: 'x-para'"));
+    // reachable candidates: nothing
+    expect(checkPage(html.replace("<template data-sn-if=\"b.type === 'para'\"><p data-sn-text=\"b.text\"></p></template><template data-sn-else>", '<template data-sn-if="true">'), { files })).toEqual([]);
+  });
+
   test('SN507 complex expressions: in checkPage like other diagnostics, with the complexity option', () => {
     const html = page(`<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5" data-sn-text="n + contacts.length"></button></div>`);
     const d = checkPage(html, { files: { 'src/sinter.types.ts': TYPES } });
@@ -259,6 +282,36 @@ export type Inline = Plain | Strong | Ref;
   test('refresh() with several names types each against the page\'s resources', () => {
     const html = page(`<sn-resource name="other" src="/api/o" type="any"></sn-resource><button data-sn-on-click="refresh('contacts', 'other')" data-sn-text="contacts.length + other"></button>`);
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
+  });
+
+  test('a static page: a component prop in a loop over constants keeps its loop variable (the check reads the page as written, not unrolled)', () => {
+    // a benchmark agent's `sinter check` failed 13 times with "Cannot find name 'p'" and it dropped `static: true` to pass
+    const root = project({ 'src/components/post-item.html': '<template data-sn-component="{ post: { title: string } }"><li data-sn-text="post.title"></li></template>' });
+    const page = (prop: string) => `<!doctype html><html><head><title>x</title></head><body><ul data-sn-state="{ posts: [{ title: 'a' }, { title: 'b' }] }"><template data-sn-for="p in posts"><post-item data-sn-prop="{ post: ${prop} }"></post-item></template></ul></body></html>`;
+    const errors = (prop: string) => {
+      const file = join(root, 'index.html'), html = page(prop);
+      writeFileSync(file, html);
+      const h = { module: null, names: [], namespaces: {} };
+      const out = compile(html, { file, root, dev: false, helpers: h, readFile: (p) => readFileSync(p, 'utf8'), check: true, componentNames: ['post-item'], prerender: true, static: true });
+      return [...out.diagnostics, ...check({ root, units: [out.check!], helpers: h, types: null, tsc }).diagnostics].filter((d) => d.severity === 'error').map((d) => d.message.replace(/ \(TS\d+\)$/, ''));
+    };
+    expect(errors('p')).toEqual([]);
+    // and a real mistake in the loop is still found
+    expect(errors('{ titel: p.title }')).toEqual([expect.stringMatching(/'titel' does not exist|Object literal may only specify known properties/)]);
+  });
+
+  test('`$event.target.value`: the SN208 names `$el.value` and data-sn-model; `$el.value` passes', () => {
+    const html = (h: string) => page(`<div data-sn-state="{ q: '' }"><input data-sn-on-input="${h}" data-sn-text="q + contacts.length"></div>`);
+    const d = checkPage(html('q = $event.target.value'), { files: { 'src/sinter.types.ts': TYPES } });
+    expect(d.map((x) => [x.code, x.message.replace(/ \(TS\d+\)$/, '')])).toEqual([['SN208', "Property 'value' does not exist on type 'EventTarget'."]]);
+    expect(d[0]!.hint).toBe('`$event.target` is any EventTarget to TypeScript: read the element the handler is on with `$el.value` (typed by its tag), or bind the field with `data-sn-model`');
+    expect(checkPage(html('q = $el.value'), { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
+    // on an ancestor `$el` is the ancestor (a form takes any name, so `$el.value` would type-check and read the wrong
+    // thing): the hint moves the handler, or narrows the target
+    const on = (el: string) => checkPage(page(`<div data-sn-state="{ q: '' }">${el}<p data-sn-text="q + contacts.length"></p></div>`), { files: { 'src/sinter.types.ts': TYPES } })[0]?.hint;
+    expect(on('<form data-sn-on-input="q = $event.target.value"><input name="a"></form>')).toMatch(/whatever the event started on inside this `<form>`: put the handler on that element .* \(\$event\.target\)\.value`$/);
+    expect(on('<ul data-sn-on-click="q = $event.target.dataset.id"><li data-id="1">a</li></ul>')).toMatch(/inside this `<ul>`.*read the row's item instead of `dataset`/);
+    expect(checkPage(page(`<div data-sn-state="{ q: '' }"><form data-sn-on-input="q = /** @type {HTMLInputElement} */ ($event.target).value"><input name="a"></form><p data-sn-text="q + contacts.length"></p></div>`), { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
   });
 
   test('page() with a computed target: a direction on keyset; a page number needs offset-param', () => {

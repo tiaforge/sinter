@@ -358,9 +358,9 @@ Error, for example:
 
 > `src/layouts/site-layout.html` is not a layout: a layout is a whole document whose `<html>` declares its props, `<html data-sn-layout="{ …props }">`
 
-A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-layout` with its props type. Also reported: `data-sn-layout` anywhere else, a default slot in the layout's head (the default slot is the page's body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page.
+A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-layout` with its props type (left out, it takes none). Also reported: a page that passes `data-sn-prop` to a layout that declares no props, `data-sn-layout` anywhere else, a default slot in the layout's head (the default slot is the page's body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page.
 
-**Fix:** Write the layout as a document: `<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`; a layout without props is `data-sn-layout="{}"`. Name head slots; leave `src/layouts/` out of the build's inputs (a glob over every `.html` picks it up).
+**Fix:** Write the layout as a document: `<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`; a layout without props needs no `data-sn-layout` (`<html lang="en">`), but one whose pages pass `data-sn-prop` must declare those props. Name head slots; leave `src/layouts/` out of the build's inputs (a glob over every `.html` picks it up).
 
 ## SN319 layout-use
 
@@ -921,3 +921,13 @@ Warning, for example:
 A component library ships source that the app's sinter compiles, so it lists the sinter versions it supports in its package.json's `peerDependencies` (`"@tiaforge-ui/sinter": "^0.18.0"`). The app's sinter checks that its own version is in the range, and warns when a library lists none. It cannot know which version introduced a feature newer than itself.
 
 **Fix:** Install a version of sinter or of the library that fits the other. A library's author lists the range in `peerDependencies`.
+
+## SN538 unreachable-candidate
+
+Warning, for example:
+
+> `x-para` can never be chosen here: `b.type` cannot be `"paragraph"` where this `<sn-component>` is (a branch around it rules it out)
+
+`sinter check` checks each candidate of a `<sn-component use>` (a template string or a map) with the data narrowed to its key, and the branches around it (`data-sn-if`, `data-sn-else`) narrow the data too. When they leave no value for a candidate's key, TypeScript finds the comparison can never hold: that component is never rendered there. A warning, since the page still works.
+
+**Fix:** Remove the candidate from `use`, or move the `<sn-component>` out of the branch that excludes it.

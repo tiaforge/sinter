@@ -237,7 +237,10 @@ function analyze(file: string, code: string): ModuleInfo {
       if (imp && imp.name === '*' && !isLocal(spec)) { edge({ spec: imp.spec, name }); return true; }
       void at;
       return false;
-    }, (spec) => edge({ spec, name: '*' }));
+    }, (spec) => edge({ spec, name: '*' }), name === '<top>' ? undefined : (w, at) => {
+      // a function that writes the module's own state (a counter) gives another result at every call
+      if (!isLocal(w) && topNames.get(w) === '<top>') fail(`writing the module's \`${w}\``, at);
+    });
     return u;
   };
   info.units.set('<top>', unit('<top>', topRest, null));
@@ -267,7 +270,7 @@ const SKIP = new Set(['type', 'start', 'end', 'loc', 'range', 'typeAnnotation', 
  * for `ns.x` (true: handled), `side` for a side-effect import.
  */
 function walkScoped(nodes: N[], scopes: Array<Set<string>>, ref: (n: string, at: number) => void, bad: (m: string, at: number) => void,
-  member: (obj: string, prop: string, at: number) => boolean, side: (spec: string) => void) {
+  member: (obj: string, prop: string, at: number) => boolean, side: (spec: string) => void, write?: (name: string, at: number) => void) {
   /** the `var`s and functions of a function body (not of nested functions) */
   const hoisted = (body: N, into: Set<string>) => {
     const go = (n: N | null | undefined) => {
@@ -292,17 +295,33 @@ function walkScoped(nodes: N[], scopes: Array<Set<string>>, ref: (n: string, at:
     switch (n.type) {
       case 'SideEffect': side(n.spec); return;
       case 'Identifier':
-        if (isRead(parent, key)) ref(n.name, n.start);
+        if (isRead(parent, key)) {
+          ref(n.name, n.start);
+          // `Math` and `Reflect` only as `Math.max(…)`, `Math.PI`: never as a value (an alias, destructured, passed on)
+          if (RESTRICTED.has(n.name) && !scopes.some((s) => s.has(n.name)) && !(parent?.type === 'MemberExpression' && key === 'object' && !parent.computed)) bad(`\`${n.name}\` as a value`, n.start);
+        }
         return;
+      // `import.meta` in any form: the environment, and the module's own URL (the build machine's path)
       case 'MetaProperty':
-        if (parent?.type === 'MemberExpression' && parent.object === n && !parent.computed && parent.property.name === 'env') bad('`import.meta.env`', n.start);
+        bad(parent?.type === 'MemberExpression' && parent.object === n && !parent.computed && parent.property.name === 'env' ? '`import.meta.env`' : '`import.meta`', n.start);
         return;
       case 'ImportExpression': bad('`import()`', n.start); break;
       case 'WithStatement': bad('`with`', n.start); break;
+      case 'AssignmentExpression': case 'UpdateExpression': {
+        // a binding it assigns (`n++`, `n = …`); not a member (`re.lastIndex = 0` before a scan is how a parser
+        // reuses a regex, and a counter in a member gives another result the second time, which every build checks)
+        const t: N = n.type === 'AssignmentExpression' ? n.left : n.argument;
+        if (t.type === 'Identifier' && write) write(t.name, n.start);
+        break;
+      }
       case 'MemberExpression': {
         const prop = !n.computed ? n.property.name : n.property.type === 'Literal' ? String(n.property.value) : null;
         if (prop && BAD_MEMBERS.test(prop)) bad(`\`.${prop}\``, n.property.start);
+        // the way to `Function` from any value, and to any object's prototype
+        if (prop === 'constructor' || prop === '__proto__') bad(`\`.${prop}\``, n.property.start);
         if (n.object.type === 'Identifier' && n.object.name === 'Math' && prop === 'random' && !scopes.some((s) => s.has('Math'))) bad('`Math.random`', n.start);
+        // an error's stack names the build machine's files
+        if (prop === 'stack' && stackOf(n.object)) bad('`.stack` of an error', n.property.start);
         if (n.object.type === 'Identifier' && prop && member(n.object.name, prop, n.start)) { if (n.computed) visit(n.property, n, 'property'); return; }
         break;
       }
@@ -378,10 +397,33 @@ function walkScoped(nodes: N[], scopes: Array<Set<string>>, ref: (n: string, at:
     else if (p.type === 'TSParameterProperty') visitPattern(p.parameter);
     else if (p.type === 'MemberExpression') visit(p, null, '');
   };
+  /** names bound to an error: a catch clause's parameter, or a variable initialized by constructing one */
+  const errors = new Set<string>();
+  const findErrors = (n: N | null | undefined) => {
+    if (!n || typeof n.type !== 'string') return;
+    if (n.type === 'CatchClause' && n.param) for (const x of patternNames(n.param)) errors.add(x);
+    if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && isErrorMade(n.init)) errors.add(n.id.name);
+    if (n.type === 'AssignmentExpression' && n.left.type === 'Identifier' && isErrorMade(n.right)) errors.add(n.left.name);
+    for (const k of Object.keys(n)) { if (SKIP.has(k)) continue; const v = n[k]; if (Array.isArray(v)) v.forEach((c) => c && findErrors(c)); else if (v && typeof v.type === 'string') findErrors(v); }
+  };
+  for (const n of nodes) findErrors(n);
+  const stackOf = (o: N): boolean => {
+    while (/^(TSAsExpression|TSSatisfiesExpression|TSNonNullExpression|TSTypeAssertion|ParenthesizedExpression)$/.test(o.type)) o = o.expression;
+    return isErrorMade(o) || (o.type === 'Identifier' && errors.has(o.name));
+  };
   const top = new Set<string>();
   scopes.push(top);
   for (const n of nodes) visit(n, null, '');
   scopes.pop();
+}
+
+/** globals that may only be the object of a member access (`Math.max`), never a value: through a value, a
+ * member the check refuses by name (`random`) can be reached by another name */
+const RESTRICTED = new Set(['Math', 'Reflect']);
+
+/** `new Error(…)`, `TypeError(…)`: an expression that constructs an error */
+function isErrorMade(n: N | null | undefined): boolean {
+  return !!n && (n.type === 'NewExpression' || n.type === 'CallExpression') && n.callee.type === 'Identifier' && /^(\w*Error)$/.test(n.callee.name);
 }
 
 /** whether the identifier at `parent[key]` is read (not a property name, a label, or a binding) */
