@@ -241,7 +241,9 @@ The DOM is not identical: `childNodes` also holds the comments and any text sepa
   none (`<!--sn-->`): it is found by its path, as nodes in rows are today.
 - Templates are found from the IR (`sn-t-<template id>`), not from the comment, and cached once per
   template.
-- An author's comment that starts with `sn` is an error at compile time.
+- An author's comment whose text is exactly one of the anchor forms (`sn`, `sn ` and digits, `/sn`,
+  or empty) is an error at compile time; any other comment, `<!--snippet-->` included, is left alone.
+  The runtime and the early script match only those forms.
 
 #### Shared definitions are head templates
 
@@ -988,7 +990,8 @@ All of them go into the CHANGELOG under the pre-1.0 policy.
   - CSS, tests or scripts that select the templates in the body (`template[data-sn]`) find nothing;
   - in this repository, `.page-item:first-child .page-link` (`examples/realworld/src/styles.css`)
     starts matching over the pager's rows (`conduit-pager.html`).
-- **An author's comment that starts with `sn`** is an error.
+- **An author's comment that is exactly an anchor form** (`<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->`,
+  `<!---->`) is an error.
 - **`$el` in an `if` or `for` expression** is an error: the anchor is a comment.
 - **The helpers module runs in Node**, in builds, the dev server, `sinter check` and the LSP. Its
   side effects at load run there; a module that cannot load there folds nothing and warns.
@@ -1037,7 +1040,7 @@ warnings, not errors: a literal `id` in repeated markup.
 
 | Situation | Code |
 | --- | --- |
-| An author's comment that starts with `sn` | new |
+| An author's comment that is exactly an anchor form | new |
 | `$el` in an `if`, `for` or choice expression | new |
 | An anchor or `<template data-sn-text>` inside `<textarea>` or `<title>` | new |
 | A missing, duplicate or unpaired anchor comment at mount | dev warning, as for a missing `data-sn` element |
@@ -1171,14 +1174,20 @@ library gets its own page and a recipe.
    - re-parse cost per render, since lets are inlined today, and per streamed chunk;
    - the cost of a walk over elements and comments at mount on a page of 20,000 nodes.
    It cannot try fills, which need the compiler.
-2. **Anchors as comments** (section 1): the three kinds of anchor, the choice among them; templates
-   in the head (or at the end of the body when nothing early uses them); ids and the IR change for
-   `else`; shared definitions as head templates, with `data-sn-def` and `defs.ts` removed; finding
-   anchors at mount and early; the handoff on the start comment; keyed lists; the layout model and
-   reserved space; foreign content; the early renderer's templates in a table; the Trusted Types
-   test harness; the dev warnings; spec.md, the goldens and the examples. Useful on its own: prose
-   CSS over any list, and the SVG crash fixed. The js-framework-benchmark, the live grids and the
-   bytes before the body in `bench/first-paint` must not regress.
+2. **Anchors as comments** (section 1), in four parts on one branch, each tested on its own and
+   merged as one piece of work:
+   - **2a.** The Trusted Types test harness: pages under `script-src 'self'; style-src 'self';
+     require-trusted-types-for 'script'`, failing on any violation report. First, since the other
+     steps use it.
+   - **2b.** Comment anchors for `if` and `for`: templates in the head (or at the end of the body
+     when nothing early uses them); ids and the IR change for `else`; finding anchors at mount and
+     early; the handoff on the start comment; keyed lists; the layout model and reserved space; the
+     dev warnings and the new errors; spec.md, the goldens and the examples. Prose CSS over any
+     list. The js-framework-benchmark, the live grids and the bytes before the body in
+     `bench/first-paint` must not regress.
+   - **2c.** The choice anchor: `<sn-component use>` as one choice; shared definitions as head
+     templates, with `data-sn-def` and `defs.ts` removed; the early renderer's templates in a table.
+   - **2d.** Foreign content, which also fixes the SVG crash.
 3. **Slots that pass data** (section 2): `Slot<T>`, `data-sn-prop` on `<slot>`, `$slot`, a slot per
    branch, a fill's `<slot>` by the nearest-markup rule, literal ids in repeated markup, with a data
    table and a list with custom rows as tests.
