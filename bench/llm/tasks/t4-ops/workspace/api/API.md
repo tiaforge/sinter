@@ -10,7 +10,7 @@ Every `/api/` endpoint except `/api/login` needs a token: `Authorization: Bearer
 
 | Method and path | Body | Answer |
 | --- | --- | --- |
-| `POST /api/login` | `{ username, password }` | `200 { token, user: { username } }` or `401 { error }` |
+| `POST /api/login` | `{ username, password }` (strings) | `200 { token, user: { username } }`, `401 { error }` for a wrong username or password, or `400 { error }` when either is missing |
 | `GET /api/me` | | `200 { user: { username } }` |
 | `POST /api/logout` | | `204`; the user's tokens stop working |
 | `GET /api/incidents` | | `200 { incidents: Incident[], total, page, pages }`. Query: `page` (from 1), `per` (default 10), `status` (`open` or `resolved`), `q` (title contains, ignoring case), `sort` (`newest`, the default, or `severity`: high first, then newest) |

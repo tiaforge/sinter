@@ -44,7 +44,8 @@ createServer(async (req, res) => {
 
   if (p === '/api/login' && req.method === 'POST') {
     const b = await readBody(req);
-    if (!b || USERS[b.username] !== b.password) return send(res, 401, { error: 'Wrong username or password' });
+    if (typeof b?.username !== 'string' || typeof b?.password !== 'string') return send(res, 400, { error: 'username and password are required' });
+    if (!Object.hasOwn(USERS, b.username) || USERS[b.username] !== b.password) return send(res, 401, { error: 'Wrong username or password' });
     const token = randomUUID(); db.tokens.set(token, b.username);
     return send(res, 200, { token, user: { username: b.username } });
   }

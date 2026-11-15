@@ -36,7 +36,7 @@ the end.
 | **T1** incidents | greenfield app | From an empty directory and a given JSON API (`api/server.mjs`, `API.md`): a list with live search, a status filter in the URL, a create form with server-side validation errors, optimistic resolve/reopen with rollback, delete, a detail page with comments, and a not-found state. | 19 | sinter, SvelteKit |
 | **T2** RealWorld | change an existing project | Into each framework's RealWorld app: a table of contents from the Markdown headings (slugged ids) and a "related articles" section fetched from the API. Regressions are checked too. | 13 (5 already pass on the base) | neutral: reading code |
 | **T3** content | greenfield static site | From 6 Markdown posts (one draft): an index, post pages with no JavaScript at all, tag pages, an RSS feed, titles and meta descriptions. Graded with JavaScript disabled. | 13 | Astro |
-| **T4** ops board (hard) | greenfield app | T1 grown up. It adds sign-in with a redirect back to the page first asked for; server-side pagination, search, filter and sort, all in the URL, with Back and Forward working; live updates from other users over SSE; rename with version conflicts (409); undo on delete, with the server delete only after 5 s; optimistic changes with rollback; and a live detail page. | 24 | sinter, SvelteKit |
+| **T4** ops board (hard) | greenfield app | T1 grown up. It adds sign-in with a redirect back to the page first asked for; server-side pagination, search, filter and sort, all in the URL, with Back and Forward working; live updates from other users over SSE; rename with version conflicts (409); undo on delete, with the server delete only after 5 s; optimistic changes with rollback; and a live detail page. | 25 (24 before 2026-11-15) | sinter, SvelteKit |
 | **T5** bilingual site (hard) | greenfield static site | T3 grown up. Two languages with partial translations, a paginated index, a series with previous and next links per language, a computed reading time, dates per language, a language switcher with a fallback, `hreflang` alternates, feeds per language and a sitemap, with no JavaScript anywhere. | 15 | Astro |
 
 T2 bases (`tasks/t2-realworld/setup.mjs`):
@@ -44,6 +44,16 @@ T2 bases (`tasks/t2-realworld/setup.mjs`):
 - SvelteKit: `sveltejs/realworld` at df79670, with the two edits `bench/realworld/fair` makes.
 - **Astro has no maintained RealWorld app**, so Astro sits out T2. A hand-written Astro base, reviewed
   by an Astro user, is listed under [next steps](#next-steps).
+
+**T4's login, fixed on 2026-11-15.** Before then, `POST /api/login` accepted a body with no username and no
+password: `USERS[undefined] !== undefined` is false, so it issued a token. One agent's app sent its body
+encoded twice, a JSON string, and was signed in that way. The API now answers 400 when either field is
+missing or not a string, and 401 unless the user exists and the password matches. A 25th check, "an
+empty or wrong password does not sign in", goes through the app's own login form.
+
+The T4 rows before the fix ran against the lenient API and were graded with 24 checks. No score
+changed: every one of those runs passed its sign-in checks, and the existing wrong-password check
+already required the API's message. Compare T4 rows across the fix by the 24 checks they share.
 
 T1 to T3 turned out too easy to separate the frameworks: nearly every model passes nearly every check.
 T4 and T5 are the hard versions. Each was validated with a dependency-free reference solution that

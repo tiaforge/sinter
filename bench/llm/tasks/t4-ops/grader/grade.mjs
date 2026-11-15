@@ -58,6 +58,19 @@ const checks = {
     await submit(f);
     await until(async () => /Wrong username or password/.test(await page.getByTestId('error').first().textContent()), 'no error');
   },
+  'auth: an empty or wrong password does not sign in': async (page) => {
+    // through the app's own login request: whatever it sends, only alice's real password may sign in
+    for (const password of ['', 'alice-pw-wrong']) {
+      await page.goto('/login');
+      const f = page.getByTestId('login');
+      await f.locator('[name=username]').fill('alice'); await f.locator('[name=password]').fill(password);
+      await submit(f);
+      await sleep(1500);
+      assert(isLogin(page), `signed in with password "${password}"`);
+      await page.goto('/');
+      await until(async () => isLogin(page), `the board opened after signing in with password "${password}"`);
+    }
+  },
   'auth: back to the page first asked for, with its query': async (page) => {
     await signIn(page, '/?status=open&page=2');
     await until(async () => { const u = new URL(page.url()); return (u.pathname === '/' && u.searchParams.get('status') === 'open' && u.searchParams.get('page') === '2') || page.url(); }, 'wrong page after sign-in');
