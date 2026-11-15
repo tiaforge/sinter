@@ -18,7 +18,7 @@ there and lands in `main` with the rest.
 | 4, component roots and text nodes | in progress (from the integration branch) | |
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | merged here | see below |
-| 8, helpers over constants and `file:` | 8a merged here; 8b (folding) in progress | see below |
+| 8, helpers over constants and `file:` | merged here | see below |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -143,6 +143,24 @@ Step 8a, as built (loading, the check, `file:`; nothing folds yet):
   (`SN329`). Its value goes into the head as a JSON `<script>`, not an embed placeholder, so it is
   in the first frame and not in the embed manifest. New code `SN332` for every `file:` error. A
   missing file is `SN332` in `sinter check` and the LSP too.
+
+Step 8b, as built:
+- Helper calls fold in the evaluator: in bindings, state initializers, and the rows, choices and
+  conditions step 7's worklist evaluates; never in handlers, actions or `then`. Arguments must be
+  plain data and the result is copied and frozen. A throw, a result that is not plain data, or a dev
+  build's second run giving a different result leaves the call to the browser with the new warning
+  `SN534`; an impure call is never baked in.
+- A helper whose modules reach a lazy package never folds, so dev and build agree; neither does a
+  waiting let. `$locale` counts as fixed when helpers are loaded, so namespaces (which were assumed
+  to be messages) can fold; a helper that really reads the locale still cannot.
+- `SN322` on a static page names the call that keeps it from folding and why, with the position
+  of the global it reaches.
+- `file:` values and their `$meta` are constants; a file resource nothing reads at run time is
+  removed with its head script, so a page whose files and helpers all fold can be static.
+- A folded value that the browser still reads is computed again there, as before, rather than
+  written once as embedded data; step 9 handles that for trees that are not unrolled.
+- RealWorld builds to identical HTML before and after: its helpers that read the session
+  (`signedOut()`) are refused by the static check.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
