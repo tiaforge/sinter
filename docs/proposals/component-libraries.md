@@ -657,9 +657,14 @@ There is no shadowing. An app that wants its own links everywhere writes one wra
 Folding a parsed document into HTML needs the unrolling of constants to go further than today. Most
 of this is useful on its own, for nested constant data in any page.
 
-1. **A constant pre-pass.** Before the layout is computed, a pass over the unrolled markup evaluates
-   the bindings whose inputs are all constants (compiling those expressions on their own, with the
-   evaluator) and writes them, removing their `data-sn-*` attributes. The order after it is
+1. **A constant pre-pass.** Before the layout is computed, the values of the bindings that are
+   constant are written into the unrolled markup, and their `data-sn-*` attributes removed. Which
+   bindings are constant is known only after the walk, which sees every write (handlers, models,
+   `then`, scripts, persisted state), so this uses the two passes `decided` and `unrolled` already
+   use: the first pass records each binding it drops as constant, by site, with its value; the
+   second writes them before the layout. The second pass runs only on a page where a fold reaches
+   the layout or images (a constant binding on an `<img>`, a constant class or style), or with
+   `decided` and `unrolled` when it runs anyway. Item 4's worklist later replaces the passes. The order after it is
    unchanged: the layout, reserved space and images, then the walk, which reads the layout for bound
    images. A folded `<img>` then becomes a `<picture>` with `srcset`, `width` and `height`, and is
    checked like an image written in the page (`SN513` included); a folded class counts for `sizes`.
