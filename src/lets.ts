@@ -33,7 +33,9 @@ const feature: Feature = {
       const e = all[j];
       // current: no flush since reached it, the same names, and nothing marked since, or nothing marked that reaches it
       if (e && e.r >= gen[j]! && ns.every((x, i) => o[x] === e.n[i]) && (e.q == app.marks || !app.pending(lt[j]!.d))) { e.q = app.marks; return e.v; }
-      const x: Entry = { v: undefined, n: ns.map((k) => o[k]), m: e?.m ?? [], r: round, q: app.marks }, prev = cur;
+      // in a handler whose marked writes reach it, the writes may come after this read: computed again at every read
+      // until the handler returns (q -1), as an inlined let would be; otherwise current until the next mark
+      const x: Entry = { v: undefined, n: ns.map((k) => o[k]), m: e?.m ?? [], r: round, q: app.handling && app.pending(lt[j]!.d) ? -1 : app.marks }, prev = cur;
       cur = x;
       try { x.v = f(o); } catch (err) { if (err !== WAIT) throw err; } finally { cur = prev; }
       all[j] = x;
