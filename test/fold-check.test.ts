@@ -131,3 +131,59 @@ test('the cache: a module is analysed once while its file is unchanged, and agai
   expect(why(verdicts(cache).get('slug'))).toBe('`Date`');
   expect(cache.modules.get(join(root, 'src/lib/fmt.ts'))!.info).toBe(fmt);
 });
+
+describe('a guard against mistakes, not a sandbox: what reaches a refused value another way', () => {
+  const r2 = mkdtempSync(join(tmpdir(), 'sinter-fold-escape-'));
+  afterAll(() => rmSync(r2, { recursive: true, force: true }));
+  const file = join(r2, 'src/sinter.helpers.ts');
+  mkdirSync(join(r2, 'src'), { recursive: true });
+  writeFileSync(file, `let count = 0;
+const state = { n: 0 };
+const memo = new Map<string, number>();
+export function destructured() { const { random } = Math; return random(); }
+export function aliased() { const M = Math; return M.random(); }
+export function reflected() { return Reflect.get(Math, 'random')(); }
+export function computed() { return Math['random'](); }
+export function passed(f: (m: object) => number) { return f(Math); }
+export function here(s: string) { return new URL(s, import.meta.url).href; }
+export function ctor() { return [].constructor.constructor('return process.env.HOME')(); }
+export function proto(o: object) { return (o as any).__proto__; }
+export function counter() { return ++count; }
+export function member() { state.n += 1; return state.n; }
+export function stack() { return new Error().stack; }
+export function caught() { try { JSON.parse('{'); } catch (e) { return (e as Error).stack; } }
+export function kept() { const e = new Error('x'); return e.stack; }
+// what still folds: Math's members called directly, constants, a local stack, a cache that only remembers
+export function round(n: number) { return Math.round(n * 100) / 100 + Math.max(0, Math.PI - Math.PI); }
+export function own() { const stack: number[] = []; stack.push(1); const s = { stack }; return s.stack.length; }
+export function cached(k: string) { if (!memo.has(k)) memo.set(k, k.length); return memo.get(k)!; }
+export function local() { let count = 0; count++; return count; }
+const search = /a/g;
+export function scan(s: string) { search.lastIndex = 0; let n = 0; while (search.exec(s)) n++; return n; }
+`);
+  const m = readHelperManifest(readFileSync(file, 'utf8'), { module: '/src/sinter.helpers.ts', file, readFile: (f) => readFileSync(f, 'utf8') });
+  const v = foldVerdicts(m, r2, file, new FoldCache());
+
+  test.each([
+    ['destructured', '`Math` as a value'],
+    ['aliased', '`Math` as a value'],
+    ['reflected', '`Math` as a value'],
+    ['computed', '`Math.random`'],
+    ['passed', '`Math` as a value'],
+    ['here', '`import.meta`'],
+    ['ctor', '`.constructor`'],
+    ['proto', '`.__proto__`'],
+    ['counter', 'writing the module\'s `count`'],
+    ['stack', '`.stack` of an error'],
+    ['caught', '`.stack` of an error'],
+    ['kept', '`.stack` of an error'],
+  ])('%s does not fold: %s', (name, reason) => {
+    expect(why(v.get(name))).toBe(reason);
+  });
+
+  test('what still folds: Math\'s members, a stack of its own, a cache, a local counter, a regex reset before a scan', () => {
+    for (const n of ['round', 'own', 'cached', 'local', 'scan']) expect(why(v.get(n)), n).toBe('folds');
+    // a counter in a member is not seen here: the build runs each call twice and keeps one whose results differ in the browser (test/behaviour/fold.test.ts)
+    expect(why(v.get('member'))).toBe('folds');
+  });
+});
