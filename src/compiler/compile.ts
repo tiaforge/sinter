@@ -89,11 +89,11 @@ export interface CompileOptions {
   /** per helper (`fmt`, `ns$member`), whether its calls may run at build time, and why not (fold-check.ts): for SN322 */
   helperFold?: ReadonlyMap<string, FoldVerdict>;
   /**
-   * a build: each distinct call that ran at build time and gave plain data (once per page), its arguments and its
-   * result as JSON, which the build runs again in a fresh copy of the helpers module at its end. Without it, each
-   * call runs twice in the page instead
+   * a build: each distinct call that ran at build time and gave plain data (once per page), its arguments (another
+   * call's result by its id) and its result (`resultKey`), which the build runs again in a fresh copy of the helpers
+   * module at its end. `id` counts the page's calls from 0, again when the page starts afresh
    */
-  foldLog?: (key: string, args: unknown[], json: string) => void;
+  foldLog?: (key: string, args: FoldArg[], result: string, id: number) => void;
   /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
   complexity?: ComplexityOptions;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
@@ -424,7 +424,13 @@ interface Origin { file: string; src: string; chain: string[]; use?: string; use
  * Build-time helper calls of the page being compiled, by the helpers module's values: a page's passes share them
  * (a let over `parse()` is evaluated in each pass and by the worklist), the next page starts again.
  */
-const FOLD_MEMO = new WeakMap<object, { file: string; calls: Map<string, { v: unknown } | { what: string }> }>();
+const FOLD_MEMO = new WeakMap<object, FoldMemo>();
+/** one page's build-time calls: by helper and arguments; the results it handed out, by object, with their call ids */
+interface FoldMemo { file: string; calls: Map<string, { v: unknown } | { what: string }>; refs: WeakMap<object, number>; n: number }
+/** a logged call's argument: a value, or the result of the page's call `r` (a parse passed on), replayed from that call */
+export type FoldArg = { v: unknown } | { r: number };
+/** a result as `foldLog` reports it: tagged, so `undefined` is a result like any other */
+export const resultKey = (v: unknown): string => (v === undefined ? 'u' : 'j' + JSON.stringify(v));
 /**
  * Plain data as a key, one to one: every value tagged by its kind and strings by their length, so `undefined`,
  * `NaN`, `-0` and the infinities stay apart and no string can pass for another value
@@ -6016,13 +6022,16 @@ class Compiler {
   helperCalls(NOT: Error) {
     const values = this.opts.helperValues, verdicts = this.opts.helperFold;
     // a page's build-time calls, by helper and arguments: its passes and the worklist evaluate a let again and again
-    let memo: Map<string, { v: unknown } | { what: string }> | null = null;
+    let rec: FoldMemo | null = null;
     if (values) {
       const m = FOLD_MEMO.get(values);
       // (the editor compiles one file again at every edit: what it no longer calls is dropped now and then)
-      if (m?.file === this.opts.file && m.calls.size < 512) memo = m.calls;
-      else FOLD_MEMO.set(values, { file: this.opts.file, calls: (memo = new Map()) });
+      if (m?.file === this.opts.file && m.calls.size < 512) rec = m;
+      else FOLD_MEMO.set(values, (rec = { file: this.opts.file, calls: new Map(), refs: new WeakMap(), n: 0 }));
     }
+    const memo = rec?.calls ?? null;
+    /** an argument that is a result the page handed out: that call, not its (large) value */
+    const refOf = (x: unknown) => (x && typeof x === 'object' ? rec?.refs.get(x) : undefined);
     let code: string | null = null;
     const warned = new Set<string>();
     const why = (key: string) => {
@@ -6065,7 +6074,7 @@ class Compiler {
         return (...a: unknown[]) => {
           if (!may) { const w = code && !this.foldWhy.has(code) ? why(key) : null; if (w) this.foldWhy.set(code!, w); throw NOT; }
           if (!a.every((x) => plainData(x))) throw NOT;
-          const mk = key + '\0' + dataKey(a);
+          const mk = key + '\0' + a.map((x) => { const r = refOf(x); return r === undefined ? dataKey(x) : `r${r};`; }).join('');
           const hit = memo?.get(mk);
           if (hit) {
             if ('what' in hit) { problem(key, hit.what); throw NOT; }
@@ -6079,10 +6088,10 @@ class Compiler {
             refuse(`threw at build time (${(e as Error)?.message ?? String(e)})`);
           }
           if (!plainData(v)) refuse('returned something that is not plain data (JSON values)');
-          // a build cross-checks each distinct call in a fresh copy of the helpers module, at its end (`foldLog`);
-          // anything else runs it twice here: a second result that differs (a counter, the clock through a path the
-          // static check missed) keeps the call in the browser
-          if (!this.opts.foldLog) {
+          // run twice here: a second result that differs (a counter, the clock through a path the static check missed)
+          // keeps the call in the browser. A build also runs each call again at its end, in a fresh copy of the module
+          // and another page order (`foldLog`), for what depends on the calls before, another page's included
+          {
             let again: unknown;
             try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
             if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) refuse('returned another result when called again with the same arguments: a helper must be pure');
@@ -6090,7 +6099,11 @@ class Compiler {
           api.called = true;
           const out = v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
           memo?.set(mk, { v: out });
-          this.opts.foldLog?.(key, structuredClone(a), JSON.stringify(v));
+          if (rec && this.opts.foldLog) {
+            const id = rec.n++;
+            this.opts.foldLog(key, a.map((x): FoldArg => { const r = refOf(x); return r === undefined ? { v: structuredClone(x) } : { r }; }), resultKey(v), id);
+            if (out && typeof out === 'object') rec.refs.set(out, id);
+          }
           return out;
         };
       },

@@ -65,9 +65,9 @@ globals (`Math`, `JSON`, `Array`, `Map`, …) and `TextEncoder`, `TextDecoder`, 
 and `structuredClone`, not `Date`, `Intl`, `Math.random`, `fetch`, `window` or `process`; each exported function counts on its own. Handlers never run at build time.
 
 - A helper that throws at build time, or returns something that is not plain data (a `Date`, a
-  `Map`, a class), stays in the browser; a dev build warns at the call (`SN534`), and runs each call
-  twice to keep one whose results differ in the browser. A production build runs every page's calls
-  again at its end, in a fresh copy of the helpers module and in another page order, and fails
+  `Map`, a class), stays in the browser; a dev build warns at the call (`SN534`). Every build runs each
+  call twice and keeps one whose results differ in the browser, and a production build also runs every
+  page's calls again at its end, in a fresh copy of the helpers module and in another page order, and fails
   (`SN534`) on a result that differs: a helper that keeps state between calls (a table of ids, a
   counter) would give each page what the build's page order made of it. A helper must be pure; a
   cache that only remembers is fine.

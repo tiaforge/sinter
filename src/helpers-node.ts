@@ -2,7 +2,8 @@
 // stays synchronous, so that helper calls over build-time constants can run in the compiler. It is
 // loaded through Vite with the app's own config, so its aliases and plugins apply: by the dev
 // server's SSR environment in dev, else (the build, `sinter check`, `sinter lsp`) by a short-lived
-// Vite server over the app's config file, in which sinter's own plugin stays inert. A module that
+// module runner over the app's config file, in which sinter's own plugin stays inert: an environment
+// of its own with no dev server, so the app's `configureServer` hooks (a mock API's timers) never run. A module that
 // fails to load in Node folds nothing, with one warning (SN533). Beside the module, each helper's
 // verdict from the static check (fold-check.ts): whether its calls may run at build time at all.
 import { relative, sep } from 'node:path';
@@ -55,30 +56,41 @@ export async function loadHelpers(o: LoadOptions): Promise<NodeHelpers> {
   };
   if (!o.helpersFile) return { module: null, error: null, ...check() };
   // the app's aliases apply to the static check too, as they do to the module
-  const aliasesOf = (s: ViteDevServer) => cache.setAliases((s.config.resolve.alias as Array<{ find: string | RegExp; replacement: string }>).filter((a) => typeof a.replacement === 'string'));
-  let server: ViteDevServer | null = o.fresh ? null : o.server ?? null, own = false;
-  const g = globalThis as Record<symbol, number>;
-  try {
-    if (!server) {
-      const { createServer } = await import('vite');
-      g[LOADING] = (g[LOADING] ?? 0) + 1;
-      own = true;
-      server = await createServer({
-        root: o.root, ...(o.configFile !== undefined ? { configFile: o.configFile } : {}), mode: o.mode ?? 'production',
-        ...(o.alias ? { resolve: { alias: o.alias as never } } : {}),
-        logLevel: 'silent', clearScreen: false, appType: 'custom',
-        server: { middlewareMode: true, hmr: false, ws: false, watch: null },
-        optimizeDeps: { noDiscovery: true, include: [] },
-        ...(o.fresh ? { ssr: { noExternal: true } } : {}),
-      });
+  const aliasesOf = (alias: unknown) => cache.setAliases((alias as Array<{ find: string | RegExp; replacement: string }>).filter((a) => typeof a.replacement === 'string'));
+  const server = o.fresh ? null : o.server ?? null;
+  if (server) {
+    try {
+      aliasesOf(server.config.resolve.alias);
+      return { module: (await server.ssrLoadModule(o.helpersFile)) as Record<string, unknown>, error: null, ...check() };
+    } catch (e) {
+      return { module: null, error: (e as Error)?.message ?? String(e), ...check() };
     }
-    aliasesOf(server);
-    const module = await server.ssrLoadModule(o.helpersFile);
+  }
+  // a module runner of its own, with no dev server: the app's `configureServer` hooks never run
+  const g = globalThis as Record<symbol, number>;
+  let env: { close(): Promise<void> } | null = null;
+  g[LOADING] = (g[LOADING] ?? 0) + 1;
+  try {
+    const { resolveConfig, createRunnableDevEnvironment } = await import('vite');
+    const config = await resolveConfig({
+      root: o.root, ...(o.configFile !== undefined ? { configFile: o.configFile } : {}), mode: o.mode ?? 'production',
+      ...(o.alias ? { resolve: { alias: o.alias as never } } : {}),
+      logLevel: 'silent', clearScreen: false, appType: 'custom',
+      server: { middlewareMode: true, hmr: false, ws: false, watch: null },
+      optimizeDeps: { noDiscovery: true, include: [] },
+      ...(o.fresh ? { ssr: { noExternal: true } } : {}),
+    }, 'serve', o.mode ?? 'production');
+    aliasesOf(config.resolve.alias);
+    const e = createRunnableDevEnvironment('ssr', config, { runnerOptions: { hmr: { logger: false } }, hot: false });
+    env = e;
+    await e.init();
+    const module = await e.runner.import(o.helpersFile);
     return { module: module as Record<string, unknown>, error: null, ...check() };
   } catch (e) {
     return { module: null, error: (e as Error)?.message ?? String(e), ...check() };
   } finally {
-    if (own) { g[LOADING]!--; await server?.close().catch(() => {}); }
+    g[LOADING]!--;
+    await env?.close().catch(() => {});
   }
 }
 
