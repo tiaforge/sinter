@@ -90,19 +90,27 @@ export function shadowOf(unit: CheckUnit, support: Support, root: string, helper
   return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}) });
 }
 
-/** A hint for a type error agents meet in markup, or null. */
-export function typeHint(message: string): string | null {
+/** A hint for a type error agents meet in markup, or null; \`tag\` is the element the expression sits on. */
+export function typeHint(message: string, tag?: string): string | null {
   // `$event.target.value`: TypeScript types an event's target as any EventTarget
   const target = /Property '(\w+)' does not exist on type 'EventTarget'/.exec(message);
-  if (target) return `\`$event.target\` is any EventTarget to TypeScript: read the element the handler is on with \`$el.${target[1]}\` (typed by its tag), or bind the field with \`data-sn-model\``;
-  return null;
+  if (!target) return null;
+  // on the control itself, `$el` is it; on an ancestor (a form, a list), `$el` is the ancestor: a form even takes any
+  // name (its fields by name), so `$el.value` would type-check and read the wrong thing
+  if (tag && /^(input|select|textarea)$/i.test(tag)) {
+    return `\`$event.target\` is any EventTarget to TypeScript: read the element the handler is on with \`$el.${target[1]}\` (typed by its tag), or bind the field with \`data-sn-model\``;
+  }
+  return `\`$event.target\` is any EventTarget to TypeScript, and here it is whatever the event started on inside this \`<${tag ?? 'element'}>\`: put the handler on that element (in a \`data-sn-for\` row, read the row's item instead of \`dataset\`), bind fields with \`data-sn-model\`, or narrow it: \`/** @type {HTMLInputElement} */ ($event.target).${target[1]}\``;
 }
 
 /** A TypeScript error at a 1-based shadow position, as an SN208 diagnostic at the HTML position. */
 export function typeDiagnostic(unit: CheckUnit, regions: Region[], line: number, col: number, code: string, message: string, root: string): Diagnostic {
   const text = `${clean(message, root)} (${code})`;
   const loc = mapPosition(regions, line, col);
-  const hint = typeHint(message);
+  // the element the expression sits on (for the hint): the expression whose region holds the position
+  const region = regions.find((r) => line >= r.start && line < r.start + r.lines);
+  const expr = region && unit.exprs.find((e) => e.loc === region.loc || (e.loc.file === region.loc.file && e.loc.line === region.loc.line && e.loc.col === region.loc.col));
+  const hint = typeHint(message, expr?.tag);
   return loc
     ? { severity: 'error', code: 'SN208', message: text + (loc.chain.length ? ` (included from ${loc.chain.join(' ← ')})` : ''), file: loc.file, line: loc.line, col: loc.col, ...(hint ? { hint } : {}) }
     : { severity: 'error', code: 'SN208', message: `in code sinter generated (please report): ${text}`, file: unit.file, line: 1, col: 1 };

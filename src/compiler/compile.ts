@@ -529,7 +529,10 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   // (SN322 does not count: what the first pass found running may be a loop the second one unrolls)
   const unrolled = first.unrolls.size && !out.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322') ? first.unrolls : null;
   if (!first.decided.size && !unrolled) return out;
-  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), frozen: first.foldedState() }).run(html);
+  const second = new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), frozen: first.foldedState() }).run(html);
+  // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
+  // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
+  return out.check ? { ...second, check: out.check } : second;
 }
 
 class Compiler {
