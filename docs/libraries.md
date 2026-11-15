@@ -141,6 +141,16 @@ Vite config with pages, configures the library as the app's `components` would, 
 type-checks them, the declared-slot and `<sn-component use>` rules included. The same rules are
 checked again in each app's build.
 
+The fixtures call the library's helpers as an app does, through a namespace. Their helpers module
+(`src/sinter.helpers.ts` in the library's repository) imports the library by its own name, which a
+package with `exports` may do (Node's self-reference), resolved through its own `exports` with
+production conditions:
+
+```ts
+// src/sinter.helpers.ts in @acme/ui's repository
+export * as ui from '@acme/ui';
+```
+
 ## Diagnostics
 
 | Code | When |
