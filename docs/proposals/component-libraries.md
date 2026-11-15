@@ -238,7 +238,10 @@ Step 11, as built:
 - Tree slots use real package boundaries for rules 2, 3, 5 and 7. In a library's markup,
   `<sn-component use>` chooses among that package's own components, internal ones included.
 - Helpers from a package are followed through its `exports` entry, which re-exports them, with
-  production conditions; members are imported from the entry. Types written in a library's files
+  production conditions, to each member's declaring module inside the package; imports, the lazy
+  rule and the fold check judge each member by that module. A library keeps its parser-free
+  helpers in a module that does not import the parser, and a lazy package only the library depends
+  on resolves from the library's folder. Types written in a library's files
   are its types module's. Component scripts, their generated declarations and `sinter render` cover
   library components.
 - Library styles go into `@layer sinter-lib`, declared by a one-line stylesheet linked before the
