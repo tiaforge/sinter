@@ -20,6 +20,7 @@ there and lands in `main` with the rest.
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | merged here | see below |
 | 8, helpers over constants and `file:` | merged here | see below |
+| 9, constant trees | in progress (from the integration branch) | |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
