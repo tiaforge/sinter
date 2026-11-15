@@ -22,6 +22,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- SN208 for `$event.target.value` ("Property 'value' does not exist on type 'EventTarget'") hints `$el.value` or `data-sn-model`, and `llms.txt` says so under magic names. SN315 on a layout's tag shows how a component tells the page something: an event in `data-sn-emits`, `emit()`, and a handler on the component's tag. Both came up in the benchmark baseline.
 - Docs: docs/security.md and docs/spec.md said the browser test suite runs with Trusted Types enforced and a strict CSP. Only the e2e navigation pages run under a CSP (`script-src 'self'`, failing on a violation report); no test enforces Trusted Types yet. The core still writes no HTML, so `require-trusted-types-for 'script'` works without a policy.
 - Docs: `ctx.request(url, { body })` in actions modules and island scripts encodes `body` as JSON itself, so pass the object, not `JSON.stringify(…)` (in `llms.txt`'s `data-sn-call` line, docs/actions.md, docs/islands.md and SN531's entry). A benchmark agent's login sent a double-encoded body from an action, where SN531 cannot see it.
 - The `sinter render` hint in `sinter check`, `sinter docs` and `llms.txt` offers the running API (`--api http://localhost:<port>`) and a step (`--click`), not only mocks, and the testing section (`sinter docs testing`) starts with it. A benchmark agent saw the mocks-only hint five times and wrote a browser suite against its running API instead.

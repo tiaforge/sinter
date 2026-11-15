@@ -90,12 +90,21 @@ export function shadowOf(unit: CheckUnit, support: Support, root: string, helper
   return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}) });
 }
 
+/** A hint for a type error agents meet in markup, or null. */
+export function typeHint(message: string): string | null {
+  // `$event.target.value`: TypeScript types an event's target as any EventTarget
+  const target = /Property '(\w+)' does not exist on type 'EventTarget'/.exec(message);
+  if (target) return `\`$event.target\` is any EventTarget to TypeScript: read the element the handler is on with \`$el.${target[1]}\` (typed by its tag), or bind the field with \`data-sn-model\``;
+  return null;
+}
+
 /** A TypeScript error at a 1-based shadow position, as an SN208 diagnostic at the HTML position. */
 export function typeDiagnostic(unit: CheckUnit, regions: Region[], line: number, col: number, code: string, message: string, root: string): Diagnostic {
   const text = `${clean(message, root)} (${code})`;
   const loc = mapPosition(regions, line, col);
+  const hint = typeHint(message);
   return loc
-    ? { severity: 'error', code: 'SN208', message: text + (loc.chain.length ? ` (included from ${loc.chain.join(' ← ')})` : ''), file: loc.file, line: loc.line, col: loc.col }
+    ? { severity: 'error', code: 'SN208', message: text + (loc.chain.length ? ` (included from ${loc.chain.join(' ← ')})` : ''), file: loc.file, line: loc.line, col: loc.col, ...(hint ? { hint } : {}) }
     : { severity: 'error', code: 'SN208', message: `in code sinter generated (please report): ${text}`, file: unit.file, line: 1, col: 1 };
 }
 

@@ -2545,7 +2545,7 @@ class Compiler {
       // a layout's tag: the page's `<body>` handlers, for DOM events and sinter's own
       if (use?.layout && !kf && !DOM_EVENTS.has(event) && !SINTER_EVENTS.includes(event)) {
         this.report(el, a.name, 'SN315', `\`${event}\` is not an event the page's \`<body>\` hears: a layout's tag takes handlers for DOM events and sinter's \`sn-error\` and \`dismiss\`.${didYouMean(event, [...SINTER_EVENTS, ...DOM_EVENTS])}`, 0,
-          'handle a component\'s event on an element around it, in the page\'s content');
+          'a component tells the page with an event it declares: `data-sn-emits="{ \'delete-start\': Item }"` on its template, `emit(\'delete-start\', item)` in it, and the page handles it on the component\'s tag (`<item-row data-sn-on-delete-start="…">`) or an element around it, in the page\'s content');
       } else if (use && !use.layout && !kf && use.emits && !DOM_EVENTS.has(event) && !use.emits.some((m) => m.name === event)) {
         const names = use.emits.map((m) => m.name);
         this.report(el, a.name, 'SN315', `\`<${use.name}>\` does not emit \`${event}\`; ${names.length ? `it declares ${names.map((x) => `\`${x}\``).join(', ')}` : 'it declares no events'}.${didYouMean(event, names)}`, 0);

@@ -77,6 +77,9 @@ describe('the merge', () => {
     expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }" data-sn-on-click="1" data-sn-on-dismiss="1"><p>x</p></site-layout>'))).toEqual([]);
     expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }" data-sn-on-sn-eror="1"><p>x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN315 `sn-eror` is not an event the page's `<body>` hears: .*Did you mean `sn-error`\?/)]);
     expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }" data-sn-on-pick="1"><p>x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN315 `pick` is not an event/)]);
+    // a benchmark agent sent its own events from a component to the layout's tag: the hint names the way a component tells the page
+    expect(run('<site-layout data-sn-prop="{ nav: \'x\' }" data-sn-on-pick="1"><p>x</p></site-layout>').diagnostics.find((d) => d.code === 'SN315')?.hint)
+      .toMatch(/data-sn-emits=.*emit\('delete-start', item\).*on the component's tag/);
   });
 
   test('fallback content stays when the page leaves a slot empty', () => {
