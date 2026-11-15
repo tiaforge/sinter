@@ -91,3 +91,12 @@ describe('a nested root boundary', () => {
     expect([...root.querySelectorAll('span.outer a')].map((a) => `${a.getAttribute('href')}:${a.textContent}`)).toEqual(['/in:in', '/in:in']);
   });
 });
+
+test('state a fill reads reaches it through components used inside one another (a link in an emphasis in an emphasis)', async () => {
+  const deep = JSON.stringify({ children: [{ type: 'para', children: [{ type: 'em', children: [{ type: 'em', children: [link('/d', t('d'))] }] }] }] }).replace(/"/g, "'");
+  const { root, flush } = await render(`<div data-sn-state="{ doc: ${deep}, rel: 'a' }"><button id="r" data-sn-on-click="rel = 'b'"></button><x-doc data-sn-prop="{ doc }"><a slot="link" data-sn-attr="{ rel }"><slot></slot></a></x-doc></div>`, { components: TREE });
+  expect(root.querySelector('em em a')!.getAttribute('rel')).toBe('a');
+  (root.querySelector('#r') as HTMLElement).click();
+  await flush();
+  expect(root.querySelector('em em a')!.getAttribute('rel')).toBe('b');
+});

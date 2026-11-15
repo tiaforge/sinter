@@ -581,11 +581,20 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const isMarked = (t: number, s: any) => marked.has(s[ir.templates[t]!.item!]);
   const level = (e: Reach, d: Dirty, s?: any) => (e.conds.length ? reachLevel(e, d.v, s, isMarked) : 2);
 
-  /** Dependencies of every binding in a template's rows, nested templates included. */
-  const templateDeps = (t: TemplateDef): number[] => allDeps.get(t) ?? (allDeps.set(t, []), allDeps.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
-    ...ids(b.d),
-    ...templatesOf(b).flatMap((x) => templateDeps(ir.templates[x]!)),
-  ]))), allDeps.get(t)!);
+  /**
+   * Dependencies of every binding in a template's rows, nested templates included. Templates that reach each
+   * other (components used inside one another) are each visited once per call, and only a whole result is kept:
+   * one kept while another was half done would miss what that one reads.
+   */
+  const templateDeps = (t: TemplateDef, seen?: Set<TemplateDef>): number[] => {
+    if (!seen && allDeps.has(t)) return allDeps.get(t)!;
+    const s = seen ?? new Set<TemplateDef>();
+    if (s.has(t)) return [];
+    s.add(t);
+    const d = t.nodes.flatMap((nd) => nd.b.flatMap((b) => [...ids(b.d), ...templatesOf(b).flatMap((x) => templateDeps(ir.templates[x]!, s))]));
+    if (!seen) allDeps.set(t, d);
+    return d;
+  };
 
   /**
    * The template's dependencies without the outer sides of its selection bindings: what reaches a row
