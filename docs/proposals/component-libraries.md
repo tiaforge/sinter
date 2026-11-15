@@ -15,7 +15,7 @@ there and lands in `main` with the rest.
 | 1, the spike | done (`examples/markdown/` on `ccr-ec5fd4e0-bp4vko`) | see the numbers in the sections |
 | 2, anchors as comments | merged here | see below |
 | 3, slots that pass data | merged here | see below |
-| 5, tree slots | in progress (from the integration branch) | |
+| 5, tree slots | merged here | see below |
 | 4, component roots and text nodes | merged here | see below |
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | merged here | see below |
@@ -176,8 +176,7 @@ Step 4, as built:
   untouched. Its slot is an empty comment in all HTML until it has text, so no separators are
   needed. A text over build-time constants (an unrolled row's item, state nothing writes, a
   constant prop) is written into the HTML as plain text and its binding dropped; one that stays a
-  binding keeps its anchor or slot, so a folded text never merges with a live one. Lands with
-  step 5's branch.
+  binding keeps its anchor or slot, so a folded text never merges with a live one.
 - Codes: `SN312` keeps its number for a root that renders more than one element or text, and for a
   script or root state on a root that is not plain; new `SN333` (invalid text template) and
   `SN334` (an attribute on the tag of a component whose root may render nothing).
@@ -185,6 +184,23 @@ Step 4, as built:
   transition or a debounce there is `SN102`. A placement whose default is a component gives no
   children.
 - The minimal runtime is 15,041 of 15,360 B gzip after steps 2 to 4, 6 to 8 and 10.
+
+Step 5, as built:
+- A placement inside a shared definition is a run-time choice anchor; one expanded directly in the
+  root's own markup is filled at build time like a plain slot. A fill is a template per fill and
+  placement pair, walked in the caller's scope, and only `$slot` and the fill map travel down the
+  tree. Rules 1 to 7 hold; no root for a placement and rule 5 are `SN331`, rule 7 is `SN312`, and a
+  name close to a declared slot is the new warning `SN535`. `sinter check` types a placement
+  against the root's `T`; the compiler does not compare the `T` of two roots.
+- Measured on a 3,000-node tree with 750 fills (jsdom): changing state the fills read makes 751 DOM
+  writes, all inside fills, in about 13 ms; other state, about 1.3 ms. So only the fills that read
+  it re-render. On step 1's spike with a link fill and a heading fill, every link and heading takes
+  its fill; elements and bindings are unchanged, and comments grow by two per placement.
+- Fixed on the way: the runtime's template dependencies cached partial results during mutual
+  recursion, so state read two components deep did not re-render.
+- Open: case templates grow as fills times placements, which a library with many slots and many
+  placing components would duplicate.
+- The minimal runtime is 15,083 of 15,360 B gzip.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
