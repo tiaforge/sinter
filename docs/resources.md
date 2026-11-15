@@ -180,8 +180,11 @@ file's its parsed value.
   other status fields are `null`. It takes only `name`, `type`, `items` and `key`; anything that would
   load or change it is `SN332`: `refresh`, `cache`, `paginate`, `each`, `call`, `when`, `then`, `early`,
   store functions that name it or change one of its items, write-through, and `<sn-event>`s.
-- The value is written into the page's head as embedded data, so the first frame has it and no
-  request is made. It is not a placeholder for a server to fill (not in `sinter-embed.json`).
+- Bindings over it are written into the page at build time, and so are helper calls over it (when the
+  helper can run at build time: [static pages](static-pages.md#helpers-and-files-at-build-time)). What
+  still runs in the browser reads it from embedded data in the page's head, so the first frame has it
+  and no request is made; a file nothing in the browser reads is not in the page at all. It is not a
+  placeholder for a server to fill (not in `sinter-embed.json`).
 - The dev server reloads the page when the file changes.
 - `file:` is only for `<sn-resource src>`: an action or a stream sends a request.
 

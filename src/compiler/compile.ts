@@ -4822,8 +4822,8 @@ class Compiler {
   /**
    * Writes page-level bindings whose value is a build-time constant into the HTML: they read only
    * literal state fields (not persisted) and constants, and evaluate without error to a value the
-   * runtime would write as is. Helpers, `$locale`, resources, the clock and the URL are not
-   * constant: those bindings render in the browser (early chunk or page module).
+   * runtime would write as is. Helpers that may not fold (`helperCalls`), `$locale`, resources but `file:` ones, the
+   * clock and the URL are not constant: those bindings render in the browser (early chunk or page module).
    */
   prerender() {
     /** `tpl`: in a template's content, written there only when it can never change; `if`: a condition decided for a second pass; `for`: a loop unrolled in it */
