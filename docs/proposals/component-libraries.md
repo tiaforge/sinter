@@ -15,6 +15,7 @@ there and lands in `main` with the rest.
 | 1, the spike | done (`examples/markdown/` on `ccr-ec5fd4e0-bp4vko`) | see the numbers in the sections |
 | 2, anchors as comments | merged here | see below |
 | 3, slots that pass data | merged here | see below |
+| 4, component roots and text nodes | in progress (from the integration branch) | |
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | in progress (from the integration branch) | the worklist runs in the first compile; a page still compiles at most twice |
 | 10, lets over helpers | merged here | see below |
