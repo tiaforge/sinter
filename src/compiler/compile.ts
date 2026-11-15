@@ -1016,7 +1016,7 @@ class Compiler {
     if (this.opts.checkCycles) this.runCycles();
     for (const el of this.remove) detach(el);
     this.markLowPriority();
-    if (this.opts.prerender) { this.prerender(); this.dropConstants(); this.dropFiles(); if (this.collecting()) this.collectConstants(); }
+    if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
     this.anchors();
     let early = this.opts.early ? this.earlyParts() : undefined;
     this.placeTemplates(doc, early);
@@ -4926,6 +4926,8 @@ class Compiler {
       if (d === '$locale' && msgNs) return true;
       if (d === '$locale' && this.opts.helperFold) return true;
       if (this.fileConstant(d)) return true;
+      // a waiting let's module: evaluated, so its call (`$z`) records why it does not fold
+      if (d.startsWith('$lz.')) return true;
       const m = /^\$s(\d+)(?:\.([^.]+))?/.exec(d);
       if (!m || !states.has(Number(m[1]))) return false;
       return m[2] !== undefined ? !isPersisted(`$s${m[1]}.${m[2]}`) : ![...this.persisted].some((p) => p !== own && p.startsWith(`$s${m[1]}.`));
@@ -4940,6 +4942,8 @@ class Compiler {
         if (k === '$meta') return files.meta;
         if (k === '$c') return (_s: unknown, _j: number, _n: string, f: ($: unknown) => unknown) => f(_s);
         if (k === '$h') return (_k: number, f: (...a: unknown[]) => unknown, a: unknown[]) => f(...a);
+        // a waiting let's helper (its module reaches a lazy package): never at build time, and SN322 says so
+        if (k === '$z') return (_i: number, name: string) => folding.lazy(name);
         throw NOT;
       },
     });
@@ -4950,7 +4954,7 @@ class Compiler {
       // each field on its own: one that reads the clock leaves the others constant
       for (const x of st.fields) {
         const v = known(x.deps) ? run(x.code) : FAIL;
-        if (v !== FAIL && plainData(v)) obj[x.key] = v;
+        if (v !== FAIL && plainData(v)) { obj[x.key] = v; if (folding.called) this.foldedFields.push({ sid, key: x.key, value: v }); }
         else delete obj[x.key];
       }
       states.set(sid, new Proxy(deepFreeze(obj), {
@@ -5011,6 +5015,7 @@ class Compiler {
     const why = (key: string) => {
       const v = verdicts?.get(key);
       const name = key.replace('$', '.') + '()';
+      if (this.page.lazy?.has(key)) return `\`${name}\` cannot run at build time: its module reaches a lazy package (\`sinter({ lazy })\`), which the dev server loads as stubs and the build does not, so dev and build would differ`;
       if (v && !v.fold) return `\`${name}\` cannot run at build time: ${foldReason(v, this.opts.root)}`;
       if (values === null) return `\`${name}\` cannot run at build time: the helpers module could not be loaded in Node (SN533)`;
       // a compile with no helpers loaded at all (a plain `compile()`): nothing to say
@@ -5028,8 +5033,17 @@ class Compiler {
       warned.add(k);
       this.report(at.el, at.attr, 'SN534', `\`${key.replace('$', '.')}()\` ${what}, so this call stays in the browser`, at.shift);
     };
-    return {
-      start: (c: string) => { code = c; },
+    const api = {
+      /** a helper ran at build time in the current evaluation */
+      called: false,
+      start: (c: string) => { code = c; api.called = false; },
+      /** a call of a lazy module's helper (`$.$z`, a waiting let): recorded for SN322, never run */
+      lazy: (name: string): never => {
+        const key = [...(this.page.lazy ?? [])].find(([, v]) => v.name === name)?.[0] ?? name;
+        const w = code && !this.foldWhy.has(code) ? why(key) : null;
+        if (w) this.foldWhy.set(code!, w);
+        throw NOT;
+      },
       end: () => { code = null; },
       fn: (key: string) => {
         const f = valueOf(key);
@@ -5050,10 +5064,52 @@ class Compiler {
             try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
             if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) { problem(key, 'returned another result when called again with the same arguments: a helper must be pure'); throw NOT; }
           }
+          api.called = true;
           return v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
         };
       },
     };
+    return api;
+  }
+
+  /** state fields whose value a helper call computed at build time (`prerender`), and where each is written once */
+  readonly foldedFields: Array<{ sid: number; key: string; value: unknown }> = [];
+  readonly foldScripts = new Map<number, string>();
+  headEl: P5Element | null = null;
+
+  /**
+   * A folded state field that something in the browser still reads (a binding that does not fold) is read from
+   * embedded data in the head (`$.$d(id)`: the runtime and the early file parse it), not computed again by the
+   * helper, nor written into the page module and the early file both. After `dropConstants`, only the values a
+   * function still reads are written.
+   */
+  embedFolded() {
+    for (const f of this.foldedFields) {
+      const st = this.stateInits.find((x) => x.sid === f.sid), x = st?.fields.find((y) => y.key === f.key);
+      const node = [...this.roots, ...this.templates.flatMap((t) => t.nodes)].find((n) => n.sid === f.sid && n.state !== undefined);
+      if (!x || !node || !x.code.startsWith('($) => (')) continue;
+      const body = x.code.slice('($) => ('.length, -1), init = this.fns[node.state!]!;
+      // the field's expression, once in the state's initializer: replaced by the read of its value
+      if (init.split(body).length !== 2) continue;
+      const id = this.nextId++;
+      this.foldScripts.set(id, scriptJson(f.value));
+      x.code = `($) => ($.$d(${id}))`;
+      this.fnUses[node.state!]!--;
+      if (this.fnUses[node.state!] === 0) this.fns[node.state!] = '0';
+      node.state = this.fn(init.replace(body, `$.$d(${id})`));
+    }
+  }
+
+  /** the embedded values `embedFolded` made that a function left for the browser reads, in the head */
+  foldScriptsOut() {
+    if (!this.foldScripts.size || !this.headEl) return;
+    const live = this.fns.filter((c) => c !== '0').join('\n');
+    for (const [id, json] of this.foldScripts) {
+      if (!live.includes(`$.$d(${id})`)) continue;
+      const el = parse5.parseFragment(`<script type="application/json" data-sn="${id}">${json}</script>`).childNodes[0] as P5Element;
+      el.parentNode = this.headEl;
+      this.headEl.childNodes.push(el as never);
+    }
   }
 
   /**
@@ -6507,10 +6563,10 @@ class Compiler {
    */
   /** the values of the `file:` resources, as embedded data in the head (not placeholders: nothing for a server to fill) */
   fileScripts(doc: DefaultTreeAdapterMap['document']) {
-    if (!this.fileData.size) return;
     const html = doc.childNodes.find((n) => isElement(n) && n.tagName === 'html') as P5Element | undefined;
     const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
-    if (!head) return;
+    this.headEl = head ?? null;
+    if (!head || !this.fileData.size) return;
     for (const d of this.fileData.values()) {
       const el = parse5.parseFragment(`<script type="application/json" data-sn="${d.id}">${d.json}</script>`).childNodes[0] as P5Element;
       el.parentNode = head;
