@@ -701,6 +701,8 @@ class Compiler {
   readonly origins = new WeakMap<object, Origin>();
   /** template nodes and their elements (in template content), for constants written into templates */
   private readonly tplEls = new Map<NodeDef, P5Element>();
+  /** a text node in a template: the node its path points at (its marking element, or its empty comment), so `anchors()` counts the path again */
+  private readonly textAt = new Map<NodeDef, P5Node>();
   /** text nodes (`<template data-sn-text>`): the node that marks each, for the dry run of constant rows (never painted: the text stays a binding) */
   private readonly textMarks = new Map<NodeDef, P5Element>();
   /** text nodes outside templates: their anchor pair and slot, so `prerender()` can write a constant as plain text */
@@ -3122,9 +3124,12 @@ class Compiler {
       if (mark) {
         node = { tag: mark.tagName, path: [...ctx.path, at - 1], p: ctx.stateIdx, b: b ? [b] : [] };
         put([slot]);
+        this.textAt.set(node, mark);
       } else {
         node = { tag: '#', path: [...ctx.path, index], p: ctx.stateIdx, b: b ? [b] : [] };
-        put([ad.createCommentNode(''), slot]);
+        const own = ad.createCommentNode('');
+        put([own, slot]);
+        this.textAt.set(node, own);
       }
     }
     if (ctx.scope.component?.late) this.lateNodes.add(node);
@@ -6729,7 +6734,7 @@ class Compiler {
       if (!tpl) continue;
       const root: P5Parent = t.w ? (tpl.content.childNodes[0] as P5Element) : tpl.content;
       for (const nd of t.nodes) {
-        const target = (this.anchorStart.get(nd) ?? this.tplEls.get(nd)) as P5Node | undefined;
+        const target = (this.anchorStart.get(nd) ?? this.tplEls.get(nd) ?? this.textAt.get(nd)) as P5Node | undefined;
         if (!target) continue;
         const path: number[] = [];
         for (let n = target as { parentNode: P5Parent | null }; n.parentNode && n !== (root as unknown); n = n.parentNode as unknown as { parentNode: P5Parent | null }) path.unshift(n.parentNode.childNodes.indexOf(n as never));
