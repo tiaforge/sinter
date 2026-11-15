@@ -1,7 +1,7 @@
 // The compiler: one pure, deterministic function from annotated HTML to a
 // rewritten page plus its IR and function table.
 import type { SourceMap } from './sourcemap.js';
-import { rewriteImages, type ImageHost, type ImageResult } from './images.js';
+import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
@@ -889,6 +889,11 @@ class Compiler {
   /** the first pass: what the second one writes before the layout (`CompileOptions.constants`), and the state fields they read */
   readonly constants = new Map<string, ConstantWrite[] | null>();
   readonly constantSites = new Set<string>();
+  /**
+   * The first pass: a copy of the markup the layout reads (before the layout), the layout's answers for its images
+   * and lists then, and the styled roots in the copy, for the dry run of constant classes and styles (`dryRun`)
+   */
+  private dry: { doc: DefaultTreeAdapterMap['document']; styled: Set<P5Element>; imgs: string; space: string } | null = null;
   /** the second pass: images whose `src` or `srcset` `prefold` wrote, which resolve against the page as in the browser */
   private readonly foldedUrl = new WeakSet<P5Element>();
   /** the page's stylesheets as a cascade (images: boxes of static and bound images) */
@@ -967,9 +972,12 @@ class Compiler {
     // the second pass: bindings the first found constant for good, written before the layout and the images read the markup
     if (this.opts.constants?.size) this.prefold(doc);
     const sheets = this.opts.styles ?? this.opts.images?.styles;
-    const layout = this.layout = sheets?.length ? new Layout(sheets, doc, { ...(this.opts.normalLineHeight ? { normalLineHeight: this.opts.normalLineHeight } : {}), ...(this.opts.zeroWidth ? { zeroWidth: this.opts.zeroWidth } : {}) }) : null;
+    // the first pass: a copy of the markup the layout reads, for the dry run of constant classes and styles (`dryRun`)
+    if (sheets?.length && this.collecting()) this.snapshot(doc);
+    const layout = this.layout = sheets?.length ? new Layout(sheets, doc, this.layoutOptions()) : null;
     // the lists whose rows arrive after the first paint: their space, before anything else reads the markup's bindings
     if (layout) this.planSpace(doc, layout);
+    if (layout && this.dry) { this.dry.imgs = this.layoutAnswers(doc, layout); this.dry.space = this.spaceAnswers(); }
     const images = this.opts.images ? rewriteImages(doc, {
       host: this.opts.images, root: this.opts.root,
       ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows, scaled: (el: P5Element, what: 'box' | 'bound') => this.scaledWidth(layout, el, what) } : {}),
@@ -5268,26 +5276,15 @@ class Compiler {
     const els = new Map<NodeDef, P5Element>([...this.paints.map((x) => [x.node, x.el] as const), ...this.tplEls]);
     const sheets = (this.opts.styles ?? this.opts.images?.styles ?? []).map((x) => x.css).join('\n');
     // the selectors of the stylesheets' rules (at-rules' preludes too, which name no class)
+    // the selectors of the stylesheets' rules (at-rules' preludes too, which name no class)
     const selectors = [...sheets.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]*)\{/g)].flatMap((m) => m[1]!.split(',').map((x) => x.trim()));
-    const reserved = new Set([...this.spacePlan].filter(([, plan]) => plan.space).map(([tpl]) => tpl));
-    /** an image or a list with reserved space in `el`, at any depth, templates included */
-    const feeds = (el: P5Node): boolean => {
-      if (!('tagName' in el)) return false;
-      if (el.tagName === 'img' || reserved.has(el)) return true;
-      if (el.childNodes.some(feeds)) return true;
-      return el.tagName === 'template' && (el as P5Template).content.childNodes.some(feeds);
+    /** whether some selector names the class (as the stylesheet writes it: `.md\:w-1\/2` for `md:w-1/2`): one none names changes nothing */
+    const named = (name: string) => {
+      const token = new RegExp(`\\.${name.replace(/[^\w-]/g, (c) => `\\\\?\\${c}`)}(?![\\w-])`);
+      return selectors.some((x) => token.test(x));
     };
-    /** whether the class changes what feeds the layout: in its element, or, through a selector that goes on past it (`.a + b`, `.a ~ b`), in the siblings after it; `:has()` with the class may reach anything */
-    const classReaches = (el: P5Element, name: string): boolean => {
-      // (as the stylesheet writes it: `.md\:w-1\/2` for `md:w-1/2`)
-      const token = new RegExp(`\\.${name.replace(/[^\w-]/g, (c) => `\\\\?\\${c}`)}(?![\\w-])`, 'g');
-      const named = selectors.filter((x) => { token.lastIndex = 0; return token.test(x); });
-      if (!named.length) return false;
-      if (feeds(el) || named.some((x) => /:has\(/i.test(x))) return true;
-      const next = named.some((x) => { token.lastIndex = 0; token.test(x); return /[+~]/.test(x.slice(token.lastIndex)); });
-      const parent = el.parentNode;
-      return next && !!parent && parent.childNodes.slice(parent.childNodes.indexOf(el as never) + 1).some(feeds);
-    };
+    /** the keys of constant classes and styles, which the dry run decides */
+    const layoutKeys = new Set<string>();
     const put = (key: string, writes: ConstantWrite[], sites: PathRef[]) => {
       const was = this.constants.get(key);
       if (was === null) return;
@@ -5298,12 +5295,12 @@ class Compiler {
     for (const s of this.attrSources) {
       const key = s.bindings.length && !s.noted ? this.constKey(s.src, s.attr) : null;
       const target = els.get(s.node);
-      // a class or style counts only where the layout feeds something: an image or a list with reserved space in its
-      // element, or one a selector with the class reaches from there (a class no stylesheet names reaches nothing).
-      // Anything else waits for the walk, and costs no second pass
-      const reaches = (target?.tagName === 'img' && !!this.opts.images)
-        || (!!this.layout && !!target && (s.attr === 'data-sn-style' ? feeds(target) : s.attr === 'data-sn-class' && s.bindings.some((b) => !!b.n && classReaches(target, b.n))));
-      if (!key || !reaches) continue;
+      // an image's own attributes: always; a class some selector names, or a style: when the dry run finds that the
+      // layout's answers change (below)
+      const img = target?.tagName === 'img' && !!this.opts.images;
+      const layoutFold = !img && !!this.layout && !!target && (s.attr === 'data-sn-style' || (s.attr === 'data-sn-class' && s.bindings.some((b) => !!b.n && named(b.n))));
+      if (!key || (!img && !layoutFold)) continue;
+      const before = new Set(this.constants.keys());
       const deps = s.bindings.flatMap((b) => b.d ?? []);
       const rows = s.bindings.map((b) => this.rowPaint.get(b));
       if (rows.every((r) => r !== undefined)) {
@@ -5312,8 +5309,109 @@ class Compiler {
           if (writes.every((w) => w)) put(prefix + key, writes as ConstantWrite[], deps);
         }
       } else if (s.bindings.every((b) => this.dropped.has(b) && this.paintValue.has(b))) put(key, s.bindings.map((b) => this.paintValue.get(b)!), deps);
+      if (layoutFold) for (const k of this.constants.keys()) if (!before.has(k)) layoutKeys.add(k);
     }
     for (const [k, v] of this.constants) if (v === null) this.constants.delete(k);
+    const folds = [...layoutKeys].filter((k) => this.constants.has(k));
+    if (!folds.length) return;
+    // the page is compiled again anyway (an image's attributes, a decided template, an unrolled loop): they go with it
+    const clean = !this.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
+    if (this.constants.size > folds.length || this.decided.size || (this.unrolls.size && clean)) return;
+    // else only when the dry run finds a difference (no copy: the page has no image or list for them to change)
+    if (this.dry && this.dryRun(new Map(folds.map((k) => [k, this.constants.get(k)!])))) return;
+    for (const k of folds) this.constants.delete(k);
+  }
+
+  layoutOptions() {
+    return { ...(this.opts.normalLineHeight ? { normalLineHeight: this.opts.normalLineHeight } : {}), ...(this.opts.zeroWidth ? { zeroWidth: this.opts.zeroWidth } : {}) };
+  }
+
+  /**
+   * The first pass, before the layout: a copy of the markup, when a constant class or style could change what the
+   * layout feeds (a `data-sn-class` or `-style` on the page, and an image or a list in it), with the styled roots
+   * mapped into it (the two trees have one shape).
+   */
+  snapshot(doc: DefaultTreeAdapterMap['document']) {
+    let bound = false, feeds = false;
+    const scan = (p: P5Parent) => {
+      for (const c of p.childNodes) {
+        if (!isElement(c)) continue;
+        const host = this.useOf.get(c)?.host;
+        if ([c, ...(host ? [host] : [])].some((e) => e.attrs.some((a) => a.name === 'data-sn-class' || a.name === 'data-sn-style'))) bound = true;
+        if (c.tagName === 'img' || (c.tagName === 'template' && attr(c, 'data-sn-for') !== undefined)) feeds = true;
+        scan(c.tagName === 'template' ? (c as P5Template).content : c);
+      }
+    };
+    scan(doc);
+    if (!bound || !feeds) return;
+    const copy = this.cloneTree(doc as unknown as P5Node, null as unknown as P5Parent) as unknown as DefaultTreeAdapterMap['document'];
+    const styled = this.styledRoots(), mapped = new Set<P5Element>();
+    if (styled.size) {
+      const pair = (a: P5Parent, b: P5Parent) => a.childNodes.forEach((x, i) => {
+        const y = b.childNodes[i]!;
+        if (!isElement(x)) return;
+        if (styled.has(x)) mapped.add(y as P5Element);
+        pair(x, y as P5Parent);
+        if (x.tagName === 'template') pair((x as P5Template).content, (y as P5Template).content);
+      });
+      pair(doc, copy);
+    }
+    this.dry = { doc: copy, styled: mapped, imgs: '', space: '' };
+  }
+
+  /**
+   * What the layout tells the images in `doc`, in document order (templates included): what `rewriteImages` and
+   * `remoteImage` ask, the box and its scaled width, or the rendered width at every viewport width (with the file's
+   * own width when it is a local image), whether an `auto-fit` grid was why that failed, and the bound.
+   */
+  layoutAnswers(doc: P5Parent, layout: Layout): string {
+    const out: unknown[] = [];
+    const host = this.opts.images, ctx = { root: this.opts.root, fileOf: (el: P5Element) => this.origins.get(el)?.file ?? this.opts.file };
+    const visit = (p: P5Parent) => {
+      for (const c of p.childNodes) {
+        if (!isElement(c)) continue;
+        if (c.tagName === 'img') {
+          // what the image pipeline and `remoteImage` go on to ask, given the answers before: a fixed box needs only its
+          // scaled width; else the width at every viewport width (with the file's own width for a local image), and
+          // the bound when that fails
+          const box = layout.box(c);
+          if (box && box !== 'fluid') { out.push([box, this.scaledWidth(layout, c, 'box')]); continue; }
+          const file = host ? sourceFile(c, ctx) : null;
+          const fluid = layout.fluidSizes(c, (file && host!.info(file)?.width) || undefined), auto = !!layout.autoFitRows;
+          const bound = fluid ? null : layout.maxWidth(c);
+          out.push([box, fluid, auto, bound, bound !== null ? this.scaledWidth(layout, c, 'bound') : null]);
+        }
+        visit(c.tagName === 'template' ? (c as P5Template).content : c);
+      }
+    };
+    visit(doc);
+    return JSON.stringify(out);
+  }
+
+  /** The reserved space `planSpace` planned, list by list in document order: the placeholder, the content-sized box, the unsized images. */
+  spaceAnswers(): string {
+    return JSON.stringify([...this.spacePlan.values()].map((p) => [p.space, p.sized && [p.sized.widths, p.sized.siblings, p.sized.ranges], p.unsized.length, p.why, p.form, p.waitForm]));
+  }
+
+  /**
+   * The dry run (the first pass): the constant classes and styles written into the copy of the markup, and the
+   * layout computed again on it, without a walk: whether any image's or list's answer differs from the first
+   * pass's. Only then is the page compiled again for them.
+   */
+  dryRun(consts: Map<string, ConstantWrite[]>): boolean {
+    const dry = this.dry!, sheets = this.opts.styles ?? this.opts.images?.styles ?? [];
+    this.prefold(dry.doc, consts);
+    const layout = new Layout(sheets, dry.doc, this.layoutOptions());
+    // `planSpace` writes the plan by template: the first pass's, kept aside
+    const plan = new Map(this.spacePlan);
+    this.spacePlan.clear();
+    try {
+      this.planSpace(dry.doc, layout, dry.styled);
+      return this.spaceAnswers() !== dry.space || this.layoutAnswers(dry.doc, layout) !== dry.imgs;
+    } finally {
+      this.spacePlan.clear();
+      for (const [k, v] of plan) this.spacePlan.set(k, v);
+    }
   }
 
   /** An attribute where it was written, the same in both passes: its element's file, offset and component uses. */
@@ -5328,8 +5426,7 @@ class Compiler {
    * `<img>`. A component's tag passes its attributes to its root: written there, and removed from the tag only
    * when every root it gave them to (one per row of an unrolled loop) has them.
    */
-  prefold(doc: P5Parent) {
-    const consts = this.opts.constants!;
+  prefold(doc: P5Parent, consts: Map<string, ConstantWrite[]> = this.opts.constants!) {
     const found = new Map<P5Element, Map<string, Array<{ el: P5Element; writes: ConstantWrite[] | undefined }>>>();
     const look = (src: P5Element, el: P5Element, prefix: string) => {
       for (const name of FOLDED) {
@@ -6131,7 +6228,14 @@ class Compiler {
    * `data-sn-reserve="n"`), and the box around it whose width follows its content
    * (`Layout.contentSized`). Read before the walk, which removes the bindings the cascade looks at.
    */
-  planSpace(doc: DefaultTreeAdapterMap['document'], layout: Layout) {
+  /** the roots a component's own `<style>` reaches from (its root, slot content it passes on), which the layout does not read */
+  styledRoots(): Set<P5Element> {
+    const styled = new Set(this.componentFiles.size ? [...this.uses].filter(([n]) => this.componentFiles.get(n)?.css).flatMap(([, us]) => us.map((u) => u.root)) : []);
+    for (const x of this.slotEls) if (this.componentFiles.get(x.caller)?.css) styled.add(x.el);
+    return styled;
+  }
+
+  planSpace(doc: DefaultTreeAdapterMap['document'], layout: Layout, styledIn?: Set<P5Element>) {
     const resources = new Map<string, P5Element>(), lists: P5Element[] = [];
     const walk = (p: P5Parent, dialog: boolean) => {
       for (const c of p.childNodes) {
@@ -6148,8 +6252,7 @@ class Compiler {
     const words = (t: string) => new Set(t.match(/[A-Za-z_$][\w$]*/g) ?? []);
     // the roots a component's own `<style>` reaches from (its root, slot content it passes on): the layout reads the page's
     // stylesheets, not these
-    const styled = new Set(this.componentFiles.size ? [...this.uses].filter(([n]) => this.componentFiles.get(n)?.css).flatMap(([, us]) => us.map((u) => u.root)) : []);
-    for (const x of this.slotEls) if (this.componentFiles.get(x.caller)?.css) styled.add(x.el);
+    const styled = styledIn ?? this.styledRoots();
     const inStyled = (tpl: P5Element) => {
       for (let up = tpl.parentNode as P5Element | null; up && 'attrs' in up; up = up.parentNode as P5Element | null) if (styled.has(up)) return true;
       const down = (p: P5Parent): boolean => p.childNodes.some((c) => isElement(c) && (styled.has(c) || down(c.tagName === 'template' ? (c as P5Template).content : c)));

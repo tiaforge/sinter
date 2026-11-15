@@ -137,7 +137,7 @@ const setAttr = (el: P5Element, name: string, value: string) => {
 const removeAttr = (el: P5Element, name: string) => { el.attrs = el.attrs.filter((a) => a.name !== name); };
 
 /** The absolute path of a local, optimizable `src`, or null. */
-function sourceFile(el: P5Element, ctx: RewriteContext): string | null {
+export function sourceFile(el: P5Element, ctx: Pick<RewriteContext, 'root' | 'fileOf'>): string | null {
   const src = attrOf(el, 'src')?.trim();
   if (!src || /^[a-z][a-z\d+.-]*:|^\/\/|[?#]/i.test(src) || !OPTIMIZED.test(src)) return null;
   let path: string;

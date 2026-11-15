@@ -126,21 +126,44 @@ describe('what stays as it was', () => {
     expect(bodyOf(out.html)).toBe(written('<img alt="" src="img/photo.jpg"><img alt="" src="img/small.jpg">'));
   });
 
-  test('a class or style that reaches no image and no reserved list: written after the walk, as before (its node had an id, so the ids after it stay)', () => {
+  test('a class or style that changes nothing the layout feeds: written after the walk, as before (its node had an id, so the ids after it stay)', () => {
     const page = '<main data-sn-state="{ on: true, n: 0 }"><p data-sn-class="{ on }">x</p><button data-sn-on-click="n++" data-sn-text="n"></button></main>';
     const after = '<main data-sn="0"><p class="on">x</p><button data-sn="2">0</button></main>';
-    const early = '<main data-sn="0"><p class="on">x</p><button data-sn="1">0</button></main>';
-    // no stylesheet names it, or one does and it reaches nothing that feeds the layout
+    // no stylesheet names it, or the page has no image or list for it to change, whatever its rules say
     expect(bodyOf(build(page, { css: '.off { width: 1px }' }).html)).toBe(after);
     expect(bodyOf(build(page, { css: '.on { width: 1px }' }).html)).toBe(after);
+    expect(bodyOf(build(page, { css: 'main:has(.on) { width: 10px }' }).html)).toBe(after);
     expect(bodyOf(build(page.replace('data-sn-class="{ on }"', 'data-sn-style="{ width: \'1px\' }"'), { css: 'p { color: red }' }).html)).toBe(after.replace('<p class="on">', '<p style="width: 1px">'));
-    // a selector that goes on to the siblings after it, where an image is; `:has()` may reach anything
+    // with an image: a rule that changes its box takes the fold before the layout (the next id), one that does not leaves it
     const img = page.replace('</button>', '</button><img src="/img/photo.jpg" alt="">');
     expect(bodyOf(build(img, { css: '.on ~ img { width: 10px }' }).html)).toContain('<button data-sn="1">');
     expect(bodyOf(build(img, { css: '.on { width: 10px }' }).html)).toContain('<button data-sn="2">');
-    expect(bodyOf(build(page, { css: 'main:has(.on) { width: 10px }' }).html)).toBe(early);
     // the escaped form a stylesheet writes
-    expect(bodyOf(build(page.replace('{ on }', '{ \'md:w-1/2\': on }'), { css: 'main:has(.md\\:w-1\\/2) { width: 50% }' }).html)).toContain('<button data-sn="1">');
+    expect(bodyOf(build(img.replace('{ on }', '{ \'md:w-1/2\': on }'), { css: '.md\\:w-1\\/2 ~ img { width: 50px }' }).html)).toContain('<button data-sn="1">');
+  });
+
+  test('a class on a flex or grid sibling that changes an image\'s width: the dry run finds it, and the page is compiled again with it', () => {
+    const flex = '.row { display: flex } aside { flex: none; width: 200px } aside.wide { width: 400px } .body { flex: 1 } .body img { width: 100% }';
+    const page = (cls: string) => `<section data-sn-state="{ wide: true, n: 0 }"><div class="row"><aside${cls}>menu</aside><div class="body"><img src="/img/photo.jpg" alt=""></div></div><button data-sn-on-click="n++" data-sn-text="n"></button></section>`;
+    const folded = build(page(' data-sn-class="{ wide }"'), { css: flex });
+    expect(folded.diagnostics).toEqual([]);
+    // the rest of the viewport after a 400 px aside, not a 200 px one
+    expect(bodyOf(folded.html)).toContain('calc(100vw - 416px)');
+    // as the page written by hand
+    expect(bodyOf(folded.html).replace(/ data-sn="\d+"/g, '')).toBe(written(page(' class="wide"'), { css: flex }).replace(/ data-sn="\d+"/g, ''));
+    // a grid's track
+    const grid = '.row { display: grid; grid-template-columns: 200px 1fr } .row.wide { grid-template-columns: 500px 1fr } .body img { width: 100% }';
+    const g = (cls: string) => `<section data-sn-state="{ wide: true, n: 0 }"><div${cls}><aside>menu</aside><div class="body"><img src="/img/photo.jpg" alt=""></div></div><button data-sn-on-click="n++" data-sn-text="n"></button></section>`;
+    const gf = build(g(' class="row" data-sn-class="{ wide }"'), { css: grid });
+    expect(bodyOf(gf.html)).toContain('calc(100vw - 516px)');
+    expect(bodyOf(gf.html).replace(/ data-sn="\d+"/g, '')).toBe(written(g(' class="row wide"'), { css: grid }).replace(/ data-sn="\d+"/g, ''));
+    // even a class that only colors the aside: unfolded, the layout cannot tell its width, and the image got `100vw`
+    const color = flex.replace('aside.wide { width: 400px }', 'aside.wide { color: red }');
+    expect(bodyOf(build(page(' data-sn-class="{ wide }"'), { css: color }).html)).toContain('calc(100vw - 216px)');
+    // a class outside the row, which the layout of the image does not read: no second compile (the ids after it stay)
+    const outside = `<section data-sn-state="{ wide: true, n: 0 }"><div class="row"><aside>menu</aside><div class="body"><img src="/img/photo.jpg" alt=""></div></div><p data-sn-class="{ wide }">x</p><button data-sn-on-click="n++" data-sn-text="n"></button></section>`;
+    expect(bodyOf(build(outside, { css: flex + ' p.wide { width: 10px }' }).html)).toContain('<button data-sn="2">');
+    expect(bodyOf(folded.html)).toContain('<button data-sn="1">');
   });
 
   test('a class without stylesheets, and a constant text: written after the walk, as before', () => {
