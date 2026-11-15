@@ -36,8 +36,18 @@ const COMPONENTS: Record<string, string> = {
   // section 3: text without an element, and roots that are no element of their own
   'y-p': '<template data-sn-component="{ node: any }"><p><template data-sn-for="n in node.children"><template data-sn-if="n.type === \'text\'"><template data-sn-text="n.value"></template></template><template data-sn-else><y-inline data-sn-prop="{ node: n }"></y-inline></template></template></p></template>',
   'y-inline': '<template data-sn-component="{ node: any }"><template data-sn-if="node.type === \'em\'"><em><template data-sn-for="n in node.children"><template data-sn-text="n.value"></template></template></em></template><template data-sn-else><strong><template data-sn-for="n in node.children"><template data-sn-text="n.value"></template></template></strong></template></template>',
+  // section 4: a tree root whose link slot is placed deep inside, through shared definitions
+  'z-doc': '<template data-sn-component="{ doc?: any; link: Slot<{ node: any }> }"><div class="z"><template data-sn-for="b in doc ? doc.children : []"><z-p data-sn-prop="{ node: b }"></z-p></template></div></template>',
+  'z-p': '<template data-sn-component="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: \'z-text\', link: \'z-link\', em: \'z-em\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>',
+  'z-em': '<template data-sn-component="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: \'z-text\', link: \'z-link\', em: \'z-em\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></em></template>',
+  'z-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'z-link': '<template data-sn-component="{ node: any }"><slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="{ text: \'z-text\', link: \'z-link\', em: \'z-em\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></slot></template>',
   'ui-button': '<template data-sn-component="{ href?: string; label: string }"><template data-sn-if="href"><a class="btn" data-sn-attr="{ href }" data-sn-text="label"></a></template><template data-sn-else><button class="btn" type="button" data-sn-text="label"></button></template></template>',
 };
+const LINK_DOC = { children: [
+  { type: 'p', children: [{ type: 'text', value: 'a ' }, { type: 'link', url: '/x', children: [{ type: 'text', value: 'x' }] }] },
+  { type: 'p', children: [{ type: 'em', children: [{ type: 'em', children: [{ type: 'link', url: '/y', children: [{ type: 'text', value: 'y' }] }] }] }] },
+] };
 const TEXT_DOC = { children: [
   { type: 'p', children: [{ type: 'text', value: 'a ' }, { type: 'em', children: [{ type: 'text', value: 'b' }] }, { type: 'text', value: ' c' }] },
   { type: 'p', children: [{ type: 'strong', children: [{ type: 'text', value: 'd' }] }, { type: 'text', value: '' }, { type: 'text', value: 'e' }, { type: 'text', value: 'f' }] },
@@ -79,7 +89,13 @@ beforeAll(async () => {
   <p id="count">n=<template data-sn-text="n"></template></p>
   <nav id="buttons"><template data-sn-for="it in items" data-sn-key="it.id"><ui-button class="row" data-sn-prop="{ href: it.to, label: 'L' + it.id }" data-sn-on-click="$event.preventDefault(); n = n + it.id"></ui-button></template></nav>
 </body></html>`);
-  const input = { index: join(root, 'index.html'), tree: join(root, 'tree.html'), text: join(root, 'text.html') };
+  writeFileSync(join(root, 'links.html'), `<!doctype html><html lang="en">${head('Links')}
+<body data-sn-state="{ rel: 'ugc', clicks: 0 }">
+  <sn-resource name="doc" src="/api/links"></sn-resource>
+  <p id="clicks" data-sn-text="clicks"></p><button id="rel" data-sn-on-click="rel = 'nofollow'">rel</button>
+  <z-doc data-sn-prop="{ doc }"><a slot="link" class="mine" data-sn-attr="{ href: $slot.node.url, rel }" data-sn-on-click="$event.preventDefault(); clicks = clicks + 1"><slot></slot>!</a></z-doc>
+</body></html>`);
+  const input = { index: join(root, 'index.html'), tree: join(root, 'tree.html'), text: join(root, 'text.html'), links: join(root, 'links.html') };
   await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()], build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input } } });
   await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter({ embed: true })], build: { outDir: outEmbed, emptyOutDir: true, minify: false, rollupOptions: { input } } });
 }, 120_000);
@@ -89,11 +105,12 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 const serve = (from: string, embed = false) => http((req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
   if (url.pathname === '/api/doc') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(DOC)); }
+  if (url.pathname === '/api/links') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(LINK_DOC)); }
   if (url.pathname === '/api/text') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(TEXT_DOC)); }
   const path = url.pathname === '/' ? '/index.html' : /^\/[a-z]+\/?$/.test(url.pathname) ? `${url.pathname.replace(/\/$/, '')}/index.html` : url.pathname;
   let body: Buffer | string;
   try { body = readFileSync(join(from, path)); } catch { try { body = readFileSync(join(from, path.replace(/\/index\.html$/, '.html'))); } catch { res.statusCode = 404; return res.end(); } }
-  if (embed && path.endsWith('.html')) body = String(body).replace(/(<script type="application\/json" data-sn="\d+">)(<\/script>)/, `$1${JSON.stringify(path.includes('text') ? TEXT_DOC : DOC).replace(/</g, '\\u003c')}$2`);
+  if (embed && path.endsWith('.html')) body = String(body).replace(/(<script type="application\/json" data-sn="\d+">)(<\/script>)/, `$1${JSON.stringify(path.includes('text') ? TEXT_DOC : path.includes('links') ? LINK_DOC : DOC).replace(/</g, '\\u003c')}$2`);
   res.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html');
   res.end(body);
 });
@@ -225,6 +242,33 @@ test.skipIf(!chromium)('text without an element and roots that are no element, u
       await page.click('#buttons button.row');
       await page.click('#buttons a.row');
       await page.waitForFunction(() => document.querySelector('#count')!.textContent === 'n=3');
+      await check();
+    } finally { await browser.close(); site.close(); }
+  }
+}, 90_000);
+
+test.skipIf(!chromium)('tree slots under Trusted Types: a link fill at every depth, early over embedded data and at takeover; state it reads', async () => {
+  for (const [from, embed] of [[out, false], [outEmbed, true]] as const) {
+    const site = serve(from, embed), port = await listen(site), browser = await chromium!.launch();
+    try {
+      const { page, check } = await tab(browser);
+      await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => { (window as any).__early = [...document.querySelectorAll('a.mine')]; }));
+      await page.goto(`http://127.0.0.1:${port}/links/`);
+      await page.waitForFunction(() => document.querySelectorAll('a.mine').length === 2);
+      await page.waitForLoadState('networkidle');
+      const links = () => page.$$eval('a.mine', (a) => a.map((x) => `${x.getAttribute('href')}|${x.getAttribute('rel')}|${x.textContent}`));
+      expect(await links()).toEqual(['/x|ugc|x!', '/y|ugc|y!']);
+      expect(await page.$$eval('.z p em em a.mine', (a) => a.length)).toBe(1);
+      // with embedded data the early script rendered the fills, and the takeover kept them
+      if (embed) {
+        expect(await page.evaluate(() => (window as any).__early.length)).toBe(2);
+        expect(await page.evaluate(() => (window as any).__early.every((a: Element) => a.isConnected))).toBe(true);
+      }
+      await page.click('#rel');
+      await page.waitForFunction(() => document.querySelector('a.mine')!.getAttribute('rel') === 'nofollow');
+      expect(await links()).toEqual(['/x|nofollow|x!', '/y|nofollow|y!']);
+      await page.click('.z p em em a.mine');
+      await page.waitForFunction(() => document.querySelector('#clicks')!.textContent === '1');
       await check();
     } finally { await browser.close(); site.close(); }
   }

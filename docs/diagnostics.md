@@ -861,3 +861,13 @@ Warning, for example:
 A helper call over build-time constants (in a binding or a state initializer) runs in the compiler when the helper may fold, and its result is written into the page. This call did not: the helper threw, returned something that is not plain data (JSON values: a `Date`, a `Map`, a class instance, a function), or, in a dev build, which runs each such call twice, returned another result the second time. The call runs in the browser instead, as before. Dev builds only, once per call.
 
 **Fix:** Make the helper return plain data for constant arguments and keep it pure (same arguments, same result, nothing read or changed elsewhere). A helper that cannot is fine in the browser: this is only a warning.
+
+## SN535 close-slot-name
+
+Warning, for example:
+
+> `<slot name="cel">` in `<x-cell>` is a tree placement, filled by the nearest root that declares `cel`; `<x-cell>` declares a slot of a close name. Did you mean `cell`?
+
+A `<slot>` that passes data, in a component that does not declare its name, is a tree placement: the nearest enclosing component that declares the name fills it (docs/components.md, Tree slots). Its component declares a slot whose name is close, so it is likely a misspelled placement of the component's own slot.
+
+**Fix:** Fix the name to the declared one, or rename the declared slot if the tree placement is meant.

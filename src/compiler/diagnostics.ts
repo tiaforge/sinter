@@ -99,6 +99,7 @@ export const CODES = {
   SN532: 'repeated-id',
   SN533: 'helpers-unloaded',
   SN534: 'helper-not-folded',
+  SN535: 'close-slot-name',
 } as const;
 
 export type Code = keyof typeof CODES;
