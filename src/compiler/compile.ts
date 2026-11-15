@@ -5157,8 +5157,8 @@ class Compiler {
 
   /**
    * What the layout tells the images in `doc`, in document order (templates included): what `rewriteImages` and
-   * `remoteImage` ask, the box, the bound, the rendered width at every viewport width (with the file's own width
-   * when it is a local image), whether an `auto-fit` grid was why that failed, and the scaled widths.
+   * `remoteImage` ask, the box and its scaled width, or the rendered width at every viewport width (with the file's
+   * own width when it is a local image), whether an `auto-fit` grid was why that failed, and the bound.
    */
   layoutAnswers(doc: P5Parent, layout: Layout): string {
     const out: unknown[] = [];
@@ -5167,10 +5167,15 @@ class Compiler {
       for (const c of p.childNodes) {
         if (!isElement(c)) continue;
         if (c.tagName === 'img') {
+          // what the image pipeline and `remoteImage` go on to ask, given the answers before: a fixed box needs only its
+          // scaled width; else the width at every viewport width (with the file's own width for a local image), and
+          // the bound when that fails
+          const box = layout.box(c);
+          if (box && box !== 'fluid') { out.push([box, this.scaledWidth(layout, c, 'box')]); continue; }
           const file = host ? sourceFile(c, ctx) : null;
-          const w = file ? host!.info(file)?.width : undefined;
-          const fluid = layout.fluidSizes(c), auto = !!layout.autoFitRows;
-          out.push([layout.box(c), layout.maxWidth(c), fluid, auto, w ? layout.fluidSizes(c, w) : null, this.scaledWidth(layout, c, 'box'), this.scaledWidth(layout, c, 'bound')]);
+          const fluid = layout.fluidSizes(c, (file && host!.info(file)?.width) || undefined), auto = !!layout.autoFitRows;
+          const bound = fluid ? null : layout.maxWidth(c);
+          out.push([box, fluid, auto, bound, bound !== null ? this.scaledWidth(layout, c, 'bound') : null]);
         }
         visit(c.tagName === 'template' ? (c as P5Template).content : c);
       }
