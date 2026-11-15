@@ -26,6 +26,11 @@ Constraints set by the user:
 - What user-written markdown may contain is decided in one place, and raw HTML never becomes markup.
 - A library ships components, helpers and types that the app's sinter compiles like its own.
 - Every piece is general: none of the compiler's work is specific to markdown.
+- **No markdown code in the framework.** Everything about markdown (the parser and its options, the
+  `md-*` components, `md.*` helpers, mdast types, their tests and docs) lives in its own package and
+  ships only as that package. The framework (`src/`, its tests, its dependencies) gains no markdown
+  parser, no mdast type and no code path that knows about markdown; its tests use generic trees.
+  Before a step merges, its diff is checked for this.
 
 ## The case
 
@@ -965,7 +970,9 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
 - **What sinter does for it:** internal links prefetch; local images from the repo are optimized;
   headings get ids from their text, so `md.headings` and the anchors agree; a code block's fill can
   highlight at build time with a helper over the constant code.
-- Where it lives (this repository, a package beside `create`, or its own repository) is decided at
+- It is always a package of its own, with its own `package.json`, dependencies, tests and docs,
+  depending on sinter as a peer, never part of the framework's code. Which repository holds it
+  (`packages/` in this one, beside `create`, or its own) is decided at
   the last step.
 
 ## Breaking changes
@@ -1201,8 +1208,9 @@ library gets its own page and a recipe.
 11. **Libraries ship source** (section 9), once the format above is settled. The spike's components
     move into a local package with fixture pages; the package rules of step 5 and a library's lazy
     helper module from step 10 are tested here.
-12. **The markdown library** (sections 10 and 11), with its prebundled parser, its docs page,
-    `llms.txt`, and a recipe with an article and its comments on one page.
+12. **The markdown library** (sections 10 and 11), as its own package, with its prebundled parser,
+    its docs page, its `llms.txt`, and a recipe with an article and its comments on one page. The
+    framework's docs link to it; nothing of it is in the framework's code.
 
 Steps 2, 3, 6 and 10 do not depend on each other.
 
@@ -1223,6 +1231,7 @@ Decided with the user while drafting:
 | The component root | Renders at most one element: a plain element, an `if` chain, a component tag, `<sn-component use>` or a slot; plain for scripts and root state; text through `<template data-sn-text>` | [3](#3-the-component-root) |
 | Anchors | Comments in place and templates in the head, for every `if`, `for`, recursion point and choice | [1](#1-anchors-as-comments) |
 | Handlers in unrolled trees | A node whose only run-time need is a handler over constants and its own `$el` stays in the unrolled HTML; the rest is plain HTML | [5](#5-constant-trees-are-unrolled) |
+| Where markdown lives | Only in its own package; the framework gains no markdown code, dependency or type, and every step's diff is checked for it | [Goals](#goals) |
 
 Settled in the fourth review, from the code and the reasoning recorded there:
 
