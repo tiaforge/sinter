@@ -87,6 +87,8 @@ export interface ResourceDef {
   body?: number;
   /** page module only (`compactIR`): a server-event stream of the page feeds it (an event names it): `$meta.live`, and its stream keeps it current */
   fed?: 1;
+  /** a `file:` resource: its value is the page's embedded data (`data`), read at build time; it never loads or changes */
+  fx?: 1;
 }
 
 export interface EventDef {
@@ -115,7 +117,11 @@ export interface SyncDef {
 
 export type BindingKind =
   | 'text' | 'attr' | 'class' | 'style' | 'show' | 'model' | 'prop'
-  | 'for' | 'if' | 'else' | 'on'
+  | 'for' | 'if' | 'on'
+  /** compiler only, before anchors are placed: a `data-sn-else` template; the IR has it as its `if`'s `z` */
+  | 'else'
+  /** `<sn-component use>`: one anchor that renders the template of the candidate `f` names (`[case, props]`, or null for none), from `c` */
+  | 'ch'
   /** a component's script on its root: `f` gives `[its module, its props, the class name]` */
   | 'cmp'
   /** `data-sn-import`: `f` starts loading lazy packages when the element is rendered; nothing is written */
@@ -133,9 +139,13 @@ export interface Binding {
   n?: string;
   /** action index (`on`), template id (`for`, `if`, `else`) */
   x?: number;
+  /** if: the template of its `data-sn-else` branch */
+  z?: number;
+  /** choice: the template of each case, by the index `f` returns */
+  c?: number[];
   /** model setter function index */
   a?: number;
-  /** if: node index of the paired else template */
+  /** compiler only, before anchors are placed: an if's node index of its `data-sn-else` template */
   y?: number;
   /** handler: paths it may change */
   w?: PathRef[];
@@ -162,8 +172,9 @@ export interface Binding {
 export interface NodeDef {
   /** `data-sn` id (roots) */
   id?: number;
-  /** child indexes from the template content root (template nodes) */
+  /** child indexes from the template content root (template nodes); an anchor counts as its start comment */
   path?: number[];
+  /** the element's tag; `#` for an anchor (`if`, `for`, choice, recursion point): its start comment `<!--sn-->` */
   tag: string;
   /** index of the nearest enclosing node in the same list that opens a state scope, -1 (or absent) for none */
   p?: number;
@@ -186,7 +197,8 @@ export interface NodeDef {
 export interface EarlyIR {
   roots: NodeDef[];
   /** by template id; null for templates the early chunk does not render */
-  templates: Array<{ nodes: NodeDef[]; item?: string; index?: string | null } | null>;
+  /** by template id; null for templates the early chunk does not render; `w`: inside `<svg>` or `<math>` (`TemplateDef.w`) */
+  templates: Array<{ nodes: NodeDef[]; item?: string; index?: string | null; w?: 1 } | null>;
   /** resources with embedded data the early bindings read (`$r.<name>`): the data element's `data-sn` id and `items` path */
   emb?: Record<string, { id: number; items: string | null }>;
   /** resources the early file requests: URL template and `when` (function indexes into the early table), scope by index into `roots`, -1 for the page; `q`: a paginated resource's first-page query parameters */
@@ -207,6 +219,8 @@ export interface EarlyIR {
 export interface TemplateDef {
   id: number;
   nodes: NodeDef[];
+  /** its content is inside `<svg>` or `<math>` (foreign content): the head template holds that element, and a row is made of its children */
+  w?: 1;
   /** for: loop variable, index variable, internal index name */
   item?: string;
   index?: string | null;
@@ -311,6 +325,16 @@ export interface IR {
   /** the path table (page module only); without it, paths are strings */
   ps?: PathTable;
   /**
+   * cached lets (`data-sn-let` over a helper, `lets.ts`), by the id their code passes to `$.$c`: the paths
+   * whose change computes them again; absent for none
+   */
+  lt?: Array<{ d: PathRef[] }>;
+  /**
+   * helper modules that reach lazy packages, by the index a waiting let passes to `$.$z`: the function that
+   * loads each one (its arrival is the path `$lz.<index>`); absent for none
+   */
+  lm?: number[];
+  /**
    * the event types the mount listens for at its root (page module only): each handler's, `input` and `change` with
    * a model, `toggle` where a dialog opening has something to render (an element in a dialog, a control that is not
    * a text field); absent for none
@@ -351,6 +375,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     if (names.has(r.name)) errs.push(`${at}: duplicate name ${r.name}`);
     names.add(r.name);
     if (r.call) { fn(r.call.args, `${at}.call.args`, false); fn(r.call.run, `${at}.call.run`, false); if (r.src.length) errs.push(`${at}: a call resource has no src`); }
+    else if (r.fx) { if (r.src.length || r.data == null) errs.push(`${at}: a file resource has no src, and embedded data`); }
     else url(r.src, `${at}.src`);
     fn(r.when, `${at}.when`); fn(r.then, `${at}.then`);
     for (const d of [...(r.w ?? []), ...(r.deps ?? [])]) if (bad(d)) errs.push(`${at}: bad path`);
@@ -373,7 +398,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
       for (const d of e.w ?? []) if (bad(d)) errs.push(`${at}: bad path`);
     });
   });
-  const kinds = new Set(['text', 'attr', 'class', 'style', 'show', 'model', 'prop', 'for', 'if', 'else', 'on', 'cmp', 'imp']);
+  const kinds = new Set(['text', 'attr', 'class', 'style', 'show', 'model', 'prop', 'for', 'if', 'ch', 'on', 'cmp', 'imp']);
   const nodes = (list: NodeDef[], at: string, inTemplate: boolean) => list.forEach((n, i) => {
     const a = `${at}[${i}]`;
     if (inTemplate ? !Array.isArray(n.path) : !Number.isInteger(n.id)) errs.push(`${a}: needs ${inTemplate ? 'path' : 'id'}`);
@@ -387,10 +412,15 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
         if (b.x !== undefined) { if (!o.actions[b.x]) errs.push(`${ba}: bad action ${b.x}`); } else fn(b.f, `${ba}.f`, false);
         if (b.q !== undefined && (typeof b.q !== 'string' || !b.q || !/^key(down|up)$/.test(b.n!))) errs.push(`${ba}: bad key filter`);
         if (b.m !== undefined && (!Number.isInteger(b.m) || b.q === undefined)) errs.push(`${ba}: bad key modifiers`);
-      } else if (b.k === 'for' || b.k === 'if' || b.k === 'else') {
+      } else if (b.k === 'for' || b.k === 'if') {
         if (!o.templates[b.x!]) errs.push(`${ba}: bad template ${b.x}`);
-        if (b.k !== 'else') fn(b.f, `${ba}.f`, false);
-        if (b.y !== undefined && !list[b.y]?.b.some((x) => x.k === 'else')) errs.push(`${ba}: y must point at an else node`);
+        if (b.z !== undefined && !o.templates[b.z]) errs.push(`${ba}: bad else template ${b.z}`);
+        fn(b.f, `${ba}.f`, false);
+        if (n.tag !== '#') errs.push(`${ba}: an anchor's tag is #`);
+      } else if (b.k === 'ch') {
+        if (!Array.isArray(b.c) || !b.c.length || b.c.some((x) => !o.templates[x])) errs.push(`${ba}: a choice needs its templates`);
+        fn(b.f, `${ba}.f`, false);
+        if (n.tag !== '#') errs.push(`${ba}: an anchor's tag is #`);
       } else fn(b.f, `${ba}.f`, false);
       if (b.k === 'model') fn(b.a, `${ba}.a`, false);
       if (b.s !== undefined) {
@@ -408,6 +438,8 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     fn(t.find, `templates[${i}].find`);
     fn(t.make, `templates[${i}].make`);
   });
+  (o.lt ?? []).forEach((l, i) => { for (const d of l.d) if (bad(d)) errs.push(`lt[${i}]: bad path`); });
+  (o.lm ?? []).forEach((f, i) => fn(f, `lm[${i}]`, false));
   o.actions.forEach((a, i) => {
     const at = `actions[${i}]`;
     if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'CALL'].includes(a.method)) errs.push(`${at}: bad method`);
@@ -423,6 +455,9 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
   });
   return errs;
 }
+
+/** The templates an anchor binding renders: a `for`'s or `if`'s (with its `else`), a choice's; none for other kinds. */
+export const templatesOf = (b: Binding): number[] => (b.k == 'ch' ? b.c! : b.k == 'for' || b.k == 'if' ? (b.z != null ? [b.x!, b.z] : [b.x!]) : []);
 
 const NULLS = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null));
 
@@ -446,7 +481,7 @@ export function compactIR(full: IR): IR {
   const simple = (t: TemplateDef) => t.find != null && t.nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE.has(b.k)));
   // (a component used inside itself makes a template its own descendant: a template being visited adds nothing)
   const reads = (t: TemplateDef, seen: Set<TemplateDef>): boolean => !seen.has(t) && (seen.add(t), t.nodes.some((nd) => nd.b.some((b) =>
-    !!b.i || ((b.k == 'for' || b.k == 'if' || b.k == 'else') && reads(ir.templates[b.x!]!, seen)))));
+    !!b.i || templatesOf(b).some((x) => reads(ir.templates[x]!, seen)))));
   // the resources a stream feeds: the runtime reads a flag where it searched every stream's events, per resource
   const fed = new Set((syncs ?? []).flatMap((s) => s.events.map((e) => e.resource)));
   return {

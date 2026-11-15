@@ -20,12 +20,16 @@ export type CheckFrame =
   | { kind: 'state'; names: string[]; init: number | null; locs?: CheckLoc[] }
   /** `loc`, `indexLoc`: where the item and index names are written */
   | { kind: 'loop'; item: string; index: string | null; init: number | null; loc?: CheckLoc; indexLoc?: CheckLoc }
-  /** a `data-sn-let` name; `loc`: where the name is written */
-  | { kind: 'let'; name: string; init: number | null; loc?: CheckLoc }
+  /** a `data-sn-let` name; `loc`: where the name is written; `waits`: it calls a helper of a lazy module, so it is `T | undefined` */
+  | { kind: 'let'; name: string; init: number | null; loc?: CheckLoc; waits?: true }
   /** a form's `$error`: its last failed send, or null */
   | { kind: 'formError' }
-  /** a component's props, typed by its `data-sn-component` */
-  | { kind: 'props'; component: string; type: TypeRef; names: string[] };
+  /** a component's props, typed by its `data-sn-component`; `alias`: written as a type the compiler cannot list, which may not hold a `Slot<T>` */
+  | { kind: 'props'; component: string; type: TypeRef; names: string[]; alias?: boolean }
+  /** `$slot` in a fill: the `T` of the slot's `Slot<T>`, and which slot of which component it is */
+  | { kind: 'slot'; type: TypeRef; name: string; component: string }
+  /** a branch: what follows is checked where `cond` holds (a `data-sn-if`, the negation of the ones before for `data-sn-else`), so it narrows; errors in it are its own expression's */
+  | { kind: 'guard'; cond: string };
 
 /** A type the checker writes for something other than a resource. */
 export type TypeRef =
@@ -68,6 +72,8 @@ export interface CheckExpr {
   payload?: { names: string[]; type: TypeRef | null; states?: string[]; lets?: string[] };
   /** checked only where this holds (`<sn-component>`: the data names this candidate), so the data is narrowed */
   guard?: string;
+  /** the candidate the guard is for, and where its key is written: a guard that can never hold is SN538 there */
+  guardAt?: { name: string; key: string; loc: CheckLoc };
   /** a component event's detail type (`data-sn-emits`), for `$event` of a handler on the component's tag */
   detail?: TypeRef;
   /** the compiler reported an error in it (it may not even parse); kept for editor completion, never type-checked */

@@ -104,7 +104,7 @@ export function rewriteImages(doc: P5Parent, ctx: RewriteContext): ImageResult {
     for (const node of [...parent.childNodes] as P5Node[]) {
       if (!('tagName' in node)) continue;
       const el = node as P5Element;
-      if (el.tagName === 'template') { visit((el as P5Template).content, true); continue; }
+      if (el.tagName === 'template') { visit((el as P5Template).content ?? el, true); continue; }
       if (el.tagName === 'img') {
         const eager = first && !inTemplate;
         if (!inTemplate) first = false;
@@ -137,7 +137,7 @@ const setAttr = (el: P5Element, name: string, value: string) => {
 const removeAttr = (el: P5Element, name: string) => { el.attrs = el.attrs.filter((a) => a.name !== name); };
 
 /** The absolute path of a local, optimizable `src`, or null. */
-function sourceFile(el: P5Element, ctx: RewriteContext): string | null {
+export function sourceFile(el: P5Element, ctx: Pick<RewriteContext, 'root' | 'fileOf'>): string | null {
   const src = attrOf(el, 'src')?.trim();
   if (!src || /^[a-z][a-z\d+.-]*:|^\/\/|[?#]/i.test(src) || !OPTIMIZED.test(src)) return null;
   let path: string;

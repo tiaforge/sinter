@@ -24,9 +24,21 @@ Left alone: remote, `data:` and `blob:` URLs, SVG and GIF, an `<img>` that alrea
 an `<img>` inside your own `<picture>` (art direction stays hand-written), an `<img>` with
 `data-sn-*` attributes (those are API images), and `og:image`, favicons and touch icons.
 
+A binding over [build-time constants](first-paint.md#build-time-constants) is written into the page before images
+are optimized: a `src` from state nothing writes, from a component prop given as a literal, or from
+the item of a constant list, makes a static `<img>` like any other, with its path relative to the
+page, as in the browser. A class or style from constants counts for the box and `sizes` the same
+way.
+
+```html
+<div data-sn-state="{ dark: false }">
+  <img alt="" data-sn-attr="{ src: dark ? './logo-dark.png' : './logo.png' }">  <!-- optimized: nothing writes `dark` -->
+</div>
+```
+
 A page that switches between a few local images writes each as a static `<img>` under `data-sn-if`
-or `data-sn-show`, so each is optimized. A `src` bound to local image paths is warning
-[`SN513`](#warnings).
+or `data-sn-show`, so each is optimized. A `src` bound to local image paths that can change is
+warning [`SN513`](#warnings).
 
 ## Formats
 
@@ -298,7 +310,7 @@ needs a hand-written `<picture>` with `media`.
 | --- | --- | --- |
 | `SN511 image-too-small` | A fixed box needs more pixels than the source has at 2x. The source is used as the largest file. | Use a larger source. |
 | `SN512 image-stretched` | The box (`width`/`height`, or the stylesheets) has another ratio than the source and no `object-fit`. | Add `object-fit: cover` to crop, or fix the attributes. |
-| `SN513 bound-local-image` | An `<img>` binds `src` to a local image path, or chooses between a few (`dark ? './logo-dark.png' : './logo.png'`), which the build cannot optimize. | Write each as a static `<img>` under `data-sn-if` or `data-sn-show`. |
+| `SN513 bound-local-image` | An `<img>` binds `src` to a local image path, or chooses between a few (`dark ? './logo-dark.png' : './logo.png'`) with something that can change, which the build cannot optimize. | Write each as a static `<img>` under `data-sn-if` or `data-sn-show`. |
 | `SN514 auto-fit-rows` | An image in the rows of a `data-sn-for` inside a `repeat(auto-fit, ...)` grid. Its width depends on the row count, known only at runtime, so it gets the upper bound. | Use `auto-fill` (the same columns, without stretching a short list), or write `sizes`. |
 
 **Check in the browser, in dev.** The dev server adds a script to every page (builds never include

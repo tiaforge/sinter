@@ -5,6 +5,7 @@
 import type { OpenApiSpec } from './openapi.js';
 import type { Diagnostic } from './diagnostics.js';
 import type { UrlTemplate } from '../ir.js';
+import { FILE } from './files.js';
 
 /** What an endpoint returns, said once (`defaults` for the spec's operations, `operations` for others). */
 export interface OperationShape {
@@ -154,6 +155,7 @@ export function resolveApis(
   const list: ApiDef[] = [];
   for (const [name, raw] of entries) {
     if (!/^[A-Za-z_][\w-]*$/.test(name)) { fail(`\`${name}\` is not an API name: a letter or \`_\`, then letters, digits, \`_\` and \`-\``); continue; }
+    if (name === FILE) { fail('`file` is the built-in source of the project\'s own files (`src="file:./post.txt"`): name the API otherwise'); continue; }
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { fail(`\`${name}\` takes an object (\`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\`)`); continue; }
     const a = raw as ApiOptions & Record<string, unknown>;
     for (const k of Object.keys(a)) if (!['base', 'openapi', 'credentials', 'headers', 'defaults', 'operations'].includes(k)) fail(`\`${name}.${k}\` is not an API setting; the settings are \`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\` and \`operations\``);

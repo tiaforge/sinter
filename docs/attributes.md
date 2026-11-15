@@ -8,16 +8,16 @@ Bind values to the page.
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-text` | value expression | sets textContent; never HTML |
+| `data-sn-text` | value expression | sets textContent; never HTML. On a &lt;template&gt;: a text node with no element (a run of text beside elements); no other attribute on that template |
 | `data-sn-attr` | object literal {href: …} | literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property |
 | `data-sn-class` | object literal {unread: …} | toggles each class |
 | `data-sn-style` | object literal {'--color': …} | sets each property with style.setProperty |
 | `data-sn-show` | value expression | toggles the hidden attribute |
-| `data-sn-prop` | object literal | sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only |
+| `data-sn-prop` | object literal | sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only. On a &lt;slot&gt; declared Slot&lt;T&gt;: the values its fill reads as $slot; on a named &lt;slot&gt; its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name |
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item |
 | `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
 | `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when a change swaps the branch the focused element is in, the element with its id in the new branch takes focus (a toggle's two buttons: &lt;button id="follow" data-sn-delete=…&gt; and &lt;button id="follow" data-sn-post=…&gt;) |
-| `data-sn-else` |  | on a &lt;template&gt; directly after an if template |
+| `data-sn-else` |  | on a &lt;template&gt; directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`), so CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments |
 
 ## Keep state
 
@@ -26,7 +26,7 @@ Local state next to the markup that uses it.
 | Attribute | Value | Meaning |
 | --- | --- | --- |
 | `data-sn-state` | object literal | declares local reactive state for the element and its subtree |
-| `data-sn-let` | object literal {name: expression} | derived names for the element and its subtree, computed where they are read; later names may use earlier ones |
+| `data-sn-let` | object literal {name: expression} | derived names for the element and its subtree; later names may use earlier ones. A name is inlined where it is read, unless its expression calls a helper: then it is computed once per scope instance and again when what it reads changes (a call whose arguments are equal primitives returns its last result) |
 | `data-sn-model` | state path \| $url.&lt;param&gt; | two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a &lt;select multiple&gt; or a checkbox with a value makes the parameter a list |
 | `data-sn-persist` | storage key | persists the model or state in localStorage under sn: |
 
@@ -77,7 +77,7 @@ In a component file in `src/components/`, and on a component's tag (`early`). De
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean } |
+| `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html, or a component library's components/): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }; a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill. Its root renders at most one element: one element, a data-sn-if/data-sn-else chain of them, a component, &lt;sn-component use&gt; or a &lt;slot&gt; |
 | `data-sn-head` | props type | on the &lt;template&gt; of a head component (src/components/&lt;name&gt;.html): its props, as data-sn-component; it holds any number of head elements (&lt;title&gt;, &lt;meta&gt;, &lt;link&gt;, …), inlined at its use in a head |
 | `data-sn-emits` | events type | on the &lt;template data-sn-component&gt;: the events emit() sends and their detail types, e.g. { select: Article } |
 | `data-sn-early` | off | on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for uses that may shift the layout when they render, to keep the early script small |

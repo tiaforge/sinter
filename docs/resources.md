@@ -160,6 +160,34 @@ the results into one collection:
 - `refresh('mailboxes')` reloads every source. `then` runs once per source response.
 - If you control the server, prefer one endpoint for the whole collection.
 
+## Files
+
+`src="file:…"` reads a file of the project at build time: a text file's value is its text, a `.json`
+file's its parsed value.
+
+```html
+<sn-resource name="intro" src="file:./intro.txt"></sn-resource>
+<sn-resource name="team" src="file:/content/team.json" items="people" key="id" type="Person[]"></sn-resource>
+<p data-sn-text="intro"></p>
+<ul><template data-sn-for="p in team"><li data-sn-text="p.name"></li></template></ul>
+```
+
+- The path is a literal: relative to the file that writes it (a page, a layout or a component), or
+  `/…` from the project root. It must stay inside the project root and exist; an interpolation
+  (`{…}`) is an error (`SN332`). With `sinter({ apis })` it is read the same way, and `file` cannot be
+  an API's name (`SN329`).
+- It is a constant: nothing loads, refreshes or changes it. `$meta.<name>.loading` is `false` and the
+  other status fields are `null`. It takes only `name`, `type`, `items` and `key`; anything that would
+  load or change it is `SN332`: `refresh`, `cache`, `paginate`, `each`, `call`, `when`, `then`, `early`,
+  store functions that name it or change one of its items, write-through, and `<sn-event>`s.
+- Bindings over it are written into the page at build time, and so are helper calls over it (when the
+  helper can run at build time: [static pages](static-pages.md#helpers-and-files-at-build-time)). What
+  still runs in the browser reads it from embedded data in the page's head, so the first frame has it
+  and no request is made; a file nothing in the browser reads is not in the page at all. It is not a
+  placeholder for a server to fill (not in `sinter-embed.json`).
+- The dev server reloads the page when the file changes.
+- `file:` is only for `<sn-resource src>`: an action or a stream sends a request.
+
 ## Loading behavior
 
 - **Shared requests.** Resources with the same resolved `src` share one request, for example one

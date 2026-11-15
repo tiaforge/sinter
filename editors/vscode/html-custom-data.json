@@ -3,7 +3,7 @@
   "tags": [
     {
       "name": "sn-resource",
-      "description": "a named, page-wide cache of server data; `cache` (or `cache=\"10m\"`) shows the data from the last page load at once, then revalidates. `refresh=\"30s\"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early=\"off\"`: never preloaded or requested before the page module (for a resource a request middleware answers itself; one whose request a middleware changes, such as a token, needs nothing: the build and runtime handle it). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). With `sinter({ apis })`, `src` is a path relative to an API (`/articles`, `billing:/invoices`); `method=\"POST\"` with `body` loads with a POST of that value. Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches. `page-model=\"$url.page\"` (offset lists) keeps the page in the URL: read at load, written back by page() (a history entry), followed when the URL changes",
+      "description": "a named, page-wide cache of server data; `cache` (or `cache=\"10m\"`) shows the data from the last page load at once, then revalidates. `refresh=\"30s\"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early=\"off\"`: never preloaded or requested before the page module (for a resource a request middleware answers itself; one whose request a middleware changes, such as a token, needs nothing: the build and runtime handle it). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). With `sinter({ apis })`, `src` is a path relative to an API (`/articles`, `billing:/invoices`); `method=\"POST\"` with `body` loads with a POST of that value. `src=\"file:./intro.txt\"` (or `file:/…` from the project root) reads a file of the project at build time: its text, or a `.json` file's value; a constant written into the page, never loaded, taking only `name`, `type`, `items` and `key`. Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches. `page-model=\"$url.page\"` (offset lists) keeps the page in the URL: read at load, written back by page() (a history entry), followed when the URL changes",
       "attributes": [
         {
           "name": "name"
@@ -144,11 +144,11 @@
     },
     {
       "name": "data-sn-let",
-      "description": "derived names for the element and its subtree, computed where they are read; later names may use earlier ones (object literal {name: expression})"
+      "description": "derived names for the element and its subtree; later names may use earlier ones. A name is inlined where it is read, unless its expression calls a helper: then it is computed once per scope instance and again when what it reads changes (a call whose arguments are equal primitives returns its last result) (object literal {name: expression})"
     },
     {
       "name": "data-sn-text",
-      "description": "sets textContent; never HTML (value expression)"
+      "description": "sets textContent; never HTML. On a <template>: a text node with no element (a run of text beside elements); no other attribute on that template (value expression)"
     },
     {
       "name": "data-sn-attr",
@@ -176,11 +176,11 @@
     },
     {
       "name": "data-sn-prop",
-      "description": "sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only (object literal)"
+      "description": "sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only. On a <slot> declared Slot<T>: the values its fill reads as $slot; on a named <slot> its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name (object literal)"
     },
     {
       "name": "data-sn-component",
-      "description": "on the <template> of a component file (src/components/<name>.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean } (props type)"
+      "description": "on the <template> of a component file (src/components/<name>.html, or a component library's components/): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }; a member cell: Slot<{ row: Row }> is a slot that passes data to its fill. Its root renders at most one element: one element, a data-sn-if/data-sn-else chain of them, a component, <sn-component use> or a <slot> (props type)"
     },
     {
       "name": "data-sn-early",
@@ -232,7 +232,7 @@
     },
     {
       "name": "data-sn-else",
-      "description": "on a <template> directly after an if template"
+      "description": "on a <template> directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`), so CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments"
     },
     {
       "name": "data-sn-listbox",

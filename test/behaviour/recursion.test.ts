@@ -30,7 +30,10 @@ test('a tree renders at any depth from one definition in the head', async () => 
   { requests, components: { 'comment-thread': THREAD } });
   await settle();
   expect(bodies(root)).toEqual(['a', 'b', 'c', 'd', 'e']);
-  expect(document.head.querySelectorAll('template#sn-def-comment-thread')).toHaveLength(1);
+  // head templates (at the end of the body: no early file renders them): the page's row and its thread's replies,
+  // the definition and its replies; no template in the lists' markup
+  expect([...document.querySelectorAll("template[id^='sn-t-']")].map((t) => t.id)).toEqual(['sn-t-0', 'sn-t-1', 'sn-t-2', 'sn-t-3']);
+  expect(root.querySelectorAll('ul template')).toHaveLength(0);
   // the depth: d is four lists deep
   expect(root.querySelectorAll('ul ul ul ul p')[0]!.textContent).toBe('d');
 });
@@ -168,7 +171,7 @@ test('<sn-component use>: production builds carry no warning code', () => {
 });
 
 describe('components that reach each other through <sn-component use>', () => {
-  // a small markdown-like tree: a block holds inlines, an inline holds inlines (docs/proposals/component-libraries.md, step 1)
+  // a tree of nodes of two kinds: a block holds inlines, an inline holds inlines
   const C = {
     'x-p': `<template data-sn-component="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>`,
     'x-em': `<template data-sn-component="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></em></template>`,

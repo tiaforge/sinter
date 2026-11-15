@@ -140,7 +140,7 @@ describe('component diagnostics', () => {
     expect(codes('<x-card data-sn-prop="{ title: \'a\' }" data-sn-on-pik="1" data-sn-on-click="1"></x-card>')).toEqual([expect.stringMatching(/^SN315 `<x-card>` does not emit `pik`; it declares `pick`/)]);
     expect(codes('<x-e></x-e>', { 'x-e': '<template data-sn-component="" data-sn-emits="{ a: number }"><button data-sn-on-click="emit(\'b\', 1)"></button></template>' }))
       .toEqual([expect.stringMatching(/^SN315 `<x-e>` does not declare the event `b`/)]);
-    expect(codes('<x-two></x-two>', { 'x-two': '<template data-sn-component=""><p></p><p></p></template>' })).toEqual([expect.stringMatching(/^SN312 a component has one root element; `<x-two>` has 2 elements/)]);
+    expect(codes('<x-two></x-two>', { 'x-two': '<template data-sn-component=""><p></p><p></p></template>' })).toEqual([expect.stringMatching(/^SN312 a component's root renders at most one element; `<x-two>` has 2 elements/)]);
     expect(codes('<x-card data-sn-prop="{ title: \'a\' }" data-sn-text="1"></x-card>')).toEqual([expect.stringMatching(/^SN102 `data-sn-text` cannot be on a component's tag/)]);
     expect(codes('<x-id></x-id><x-id></x-id>', { 'x-id': '<template data-sn-component=""><dialog id="edit"></dialog></template>' }))
       .toEqual([expect.stringMatching(/^SN209 `<x-id>` is used 2 times on this page, and its markup has `id="edit"`/)]);
@@ -162,7 +162,9 @@ describe('data-sn-early="off"', () => {
   const CLOCK = '<template data-sn-component="{ time: string }"><time data-sn-text="time"></time></template>';
   // a helper: not a build-time constant, so only the early script renders it before the page module
   const PAGE = (early: string) => `<div data-sn-state="{ now: label() }"><live-clock data-sn-prop="{ time: now }"${early}></live-clock><b data-sn-text="now"></b></div>`;
-  const helpers = { label: () => '--:--' };
+  // a label only the browser knows (a helper over what it closes over does not run at build time)
+  const clockText = '--:--';
+  const helpers = { label: () => clockText };
 
   test('a use with it is left out of the early script and renders when the page module runs; another use is not', async () => {
     const both = `${PAGE(' data-sn-early="off"')}${PAGE('')}`;

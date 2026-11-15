@@ -142,6 +142,36 @@ describe('sinter lsp', () => {
     await e.diagnostics('index.html', (d) => d.length === 0);
   });
 
+  test('the helpers module is loaded in Node, as the build loads it: one that cannot load there is SN533 on its file', async () => {
+    const root = project({
+      'vite.config.js': `import sinter from ${JSON.stringify(join(__dirname, '../../src/vite.ts'))};\nexport default { plugins: [sinter()] };\n`,
+      'src/sinter.helpers.js': "import { w } from './gone.js';\nexport const len = (s) => s.length + w;\n",
+      'index.html': '<p>hi</p>\n',
+    });
+    const e = await editor(root);
+    e.open('index.html', '<p data-sn-state="{ s: \'ab\' }" data-sn-text="len(s)"></p>\n');
+    const d = await e.diagnostics('src/sinter.helpers.js', (d) => d.length > 0);
+    expect(d.map((x) => x.code)).toEqual(['SN533 helpers-unloaded']);
+    expect(d[0]!.message).toContain('the helpers module could not be loaded in Node (src/sinter.helpers.js');
+    expect(d[0]!.severity).toBe(2);
+  }, 30_000);
+
+  test('SN324 per module: a helper of a module that reaches a lazy package, outside a let', async () => {
+    const root = project({
+      'vite.config.js': `import sinter from ${JSON.stringify(join(__dirname, '../../src/vite.ts'))};\nexport default { plugins: [sinter({ lazy: ['fakelib'] })] };\n`,
+      'node_modules/fakelib/package.json': '{"name":"fakelib","type":"module","main":"index.js"}',
+      'node_modules/fakelib/index.js': 'export const twice = (s) => s + s;\n',
+      'src/sinter.helpers.js': "export * as crunch from './lib/crunch.js';\nexport * as text from './lib/text.js';\n",
+      'src/lib/crunch.js': "import { twice } from 'fakelib';\nexport function run(s) { return twice(s); }\n",
+      'src/lib/text.js': 'export function len(s) { return s.length; }\n',
+      'index.html': '<p>hi</p>\n',
+    });
+    const e = await editor(root);
+    e.open('index.html', '<main data-sn-state="{ s: \'ab\' }" data-sn-let="{ out: crunch.run(s) }">\n  <p data-sn-text="crunch.run(s) + out + text.len(s)"></p>\n</main>\n');
+    const d = await e.diagnostics('index.html', (d) => d.length > 0);
+    expect(d.map((x) => [x.code, x.range.start.line, x.range.start.character])).toEqual([['SN324 lazy-package-use', 1, 19]]);
+  }, 30_000);
+
   test('a component is checked through the pages that use it, and on its own when none does', async () => {
     const page = '<sn-resource name="contacts" src="/api/contacts" key="id"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <contact-list data-sn-prop="{ q }"></contact-list>\n</div>\n';
     const component = '<template data-sn-component="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.name + q"></p>\n</template></ul></template>\n';
@@ -271,6 +301,20 @@ describe('sinter lsp', () => {
       expect(await e.hover('index.html', 1, 2)).toBeNull();
     });
   
+    test('hover on `$slot` in a fill: its type, and which placement passes it', async () => {
+      const list = '<template data-sn-component="{ rows: Contact[]; row: Slot<{ contact: Contact }> }"><ul><template data-sn-for="c in rows"><slot name="row" data-sn-prop="{ contact: c }"><li></li></slot></template></ul></template>\n';
+      const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<contact-list data-sn-prop="{ rows: contacts }">\n  <li slot="row" data-sn-text="$slot.contact.name"></li>\n</contact-list>\n';
+      const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': page, 'src/components/contact-list.html': list });
+      const e = await editor(root);
+      e.open('index.html', page);
+      await e.diagnostics('index.html');
+      // on `$slot` (line 3, column 32)
+      const h = (await e.hover('index.html', 2, 32))!.contents.value;
+      expect(h).toContain('const $slot: {');
+      expect(h).toContain('contact: Contact;');
+      expect(h).toContain('The values the placement of `row` in `<contact-list>` passes to this fill');
+    });
+
     test('before TypeScript 7, type errors come from `tsc` on save', async () => {
       // a TypeScript 5 package whose `tsc` runs the real one
       const root = project({

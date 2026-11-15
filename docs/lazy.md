@@ -55,11 +55,8 @@ package loaded at once:
 | `keys.map(openpgp.readKey)`, passing `openpgp` around | a function or the namespace as a value: call it where it is needed |
 | `import 'openpgp'`, `export … from 'openpgp'` | side effects and re-exports need the package: import what you call where you call it |
 
-**Helpers cannot use a lazy package.** They run synchronously while a binding renders, so they cannot
-wait for a download: the helpers module reaching one through its imports is `SN324`, with the chain.
-Compute the value in an action or a `<sn-resource call>`. If the first content of a page needs the
-package (a markdown body rendered by a helper), do not make it lazy: loading it with the page is faster
-there anyway.
+Helpers are different: a helper module that reaches a lazy package loads whole, and only a
+`data-sn-let` can wait for it ([below](#helpers-that-wait)).
 
 A subpath is covered by its package: `lazy: ['openpgp']` covers `openpgp/lightweight`, which is a chunk
 of its own. Your own heavy modules are not covered; a plain `import()` splits them, and the
@@ -129,6 +126,51 @@ export class TaskRing extends TaskRingComponent {
   once reaches the package only through `await import()`.
 - Islands (custom elements your app defines and imports) are your modules: they get the stubs.
 
+## Helpers that wait
+
+A helper runs while a binding renders, so it cannot wait for a download. A helper module that reaches a
+lazy package through its imports is therefore loaded whole, like a [component script](#component-scripts):
+the page does not import it, its imports of the package are not stubs, and once it has arrived its
+functions are as synchronous as in the package. A `data-sn-let` that calls one of its helpers waits for it:
+
+```ts
+// src/sinter.helpers.ts
+export * as doc from './lib/doc.ts';    // imports a heavy parser: loaded when a let first needs it
+export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parser: an ordinary helper
+```
+
+```html
+<!-- vite.config.ts: sinter({ lazy: ['some-parser'] }) -->
+<article data-sn-let="{ tree: doc.parse(post.body) }">
+  <template data-sn-if="tree"><doc-view data-sn-prop="{ tree }"></doc-view></template>
+  <template data-sn-else><p class="placeholder">…</p></template>
+  <nav data-sn-text="toc.title(post)"></nav>
+</article>
+```
+
+- The let is `undefined` until the module has arrived, and `sinter check` types it `T | undefined`. The
+  check runs without `strictNullChecks`, so it does not report an unguarded read (`doc.words`): guard
+  every read (`data-sn-if="doc"`, `doc?.words`, `doc ?? fallback`). The arrival renders what reads it. Show something else meanwhile with `data-sn-if` on the let, or `??`. A
+  let has no `$meta`: an app that needs loading and error states uses `<sn-resource call>`.
+- A component prop is a let: `data-sn-prop="{ tree: doc.parse(x) }"` waits the same way.
+- Anywhere else (a binding, a handler, a state initializer) calling a helper of such a module is `SN324`,
+  with the hint to name it in a let. The rule is per module: keep the helpers that do not need the
+  package (`toc.title`, a reading time) in a module that does not import it, and they stay ordinary
+  helpers. The page module imports every helper from the module that declares it, past the helpers
+  module, so one such module does not hold the others back.
+- The module loads with its packages when the first let that calls it is read, and its arrival computes
+  the let again. A page whose main content needs it adds `data-sn-preload` for the package: measure first.
+- A failed load leaves the let `undefined` and takes the unhandled-error path (`sn-error`, `onError`),
+  once.
+- A let that waits is not early. The rest of the page (the item's author, its date) still renders in the
+  first frame.
+- Only the app's `lazy` option makes a package lazy. A helper module that reaches none is an ordinary
+  helper: loaded with the page, early with embedded data, and in the early file too. For a parser, that is
+  usually a loss: measured with a 35 kB gzip parser in the early file, the early file was
+  four times the early budget and the first paint waited for the parse.
+- The modules between such a helper module and the package load whole with it too. One of them that a
+  page also imports another way puts the package into that page's bundle, which is `SN325`.
+
 ## The checks
 
 The stubs make every import of the package in your code lazy, so your code cannot undo the split. Two
@@ -182,3 +224,17 @@ from other failures: when a lazy load fails, it requests the chunk's URL again.
 `data-sn-preload` and loads nothing for them. Your functions import the package as they would anyway.
 Under vitest with the app's Vite config the stubs apply, otherwise the real package does: both behave
 the same, since every call is awaited.
+
+`sinter check` types such a let `T | undefined` but runs without `strictNullChecks`, so it does not flag
+an unguarded read: render the page before `load()` resolves, as below, to see what it shows meanwhile.
+
+A helper module that waits: pass it as `lazyHelpers`, with its members and a function that loads it, and
+a let that calls it is `undefined` until that function's promise resolves:
+
+```ts
+let open!: (m: object) => void;
+const r = await render(page, { lazyHelpers: { doc: { members: ['parse'], load: () => new Promise((ok) => { open = ok; }) } } });
+expect(r.root.querySelector('.placeholder')).not.toBeNull();
+open(await import('../src/lib/doc.ts'));
+await r.settle();
+```

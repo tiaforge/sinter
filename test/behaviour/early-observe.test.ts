@@ -28,15 +28,15 @@ afterEach(() => {
   delete (globalThis as any)[I18N];
 });
 
-/** roots 1 (text), 2 (if) and 3 (its else); `msg`: root 1's text reads the dictionary. One function table, as compiled pages have */
+/** roots 1 (text) and 2 (an if anchor, its branches head templates 0 and 1); `msg`: root 1's text reads the dictionary. One function table, as compiled pages have */
 const hi = () => (globalThis as any)[I18N].dicts[(globalThis as any)[I18N].locale].hi, early = () => 'early', no = () => false;
 const page = (msg = false): EarlyPage => () => ({
   ir: {}, fns: [],
   scopes: () => [],
   render(d) {
-    const n = byId(d, [1, 2, 3]);
+    const n = byId(d, [1, 2]);
     w(n[0]!, msg ? hi : early, null, text);
-    w(n[1]!, no, null, (t, v) => iff(t as HTMLTemplateElement, v, n[2] as HTMLTemplateElement | null, 0, 0, null));
+    w(n[1]!, no, null, (t, v) => iff(t as Comment, v, 0, 1, 0, 0, null));
   },
 });
 
@@ -52,11 +52,12 @@ test('each root is rendered once the parser has moved past it, before DOMContent
   document.body.append(document.createTextNode('\n'));
   await tick();
   expect(p.textContent).toBe('early');
-  // the if and its else: rendered once the else is parsed too
-  document.body.insertAdjacentHTML('beforeend', '<template data-sn="2"><b>yes</b></template><template data-sn="3" data-sn-else><i>no</i></template>');
+  // the if: rendered once its end comment is parsed (its templates are in the head, parsed before the body)
+  document.head.insertAdjacentHTML('beforeend', '<template id="sn-t-0"><b>yes</b></template><template id="sn-t-1"><i>no</i></template>');
+  document.body.append(document.createComment('sn 2'));
   await tick();
   expect(document.body.querySelector('i')).toBeNull();
-  document.body.append(document.createElement('footer'));
+  document.body.append(document.createComment('/sn'));
   await tick();
   expect(document.body.querySelectorAll('i').length).toBe(1);
   let done = false;

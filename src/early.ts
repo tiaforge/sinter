@@ -16,6 +16,7 @@ import type { lists } from './runtime/lists.js';
 export { lists } from './runtime/lists.js';
 import { toPage } from './runtime/pages.js';
 import type { EarlyIR } from './ir.js';
+import { call, owner, type Entry } from './runtime/memo.js';
 
 /** What the early requests read from the outside world: the clock, the location, fetch. */
 type EarlyEnv = Pick<Env, 'now' | 'href' | 'fetch'>;
@@ -34,9 +35,45 @@ export { $k } from './runtime/keys.js';
 /** for a page whose early requests include a paginated resource's first page (the compiler passes it to `requests`) */
 export { withParams } from './runtime/url.js';
 
-/** On a `data-sn-if` template the early chunk rendered: the branch, its nodes and end marker, for the runtime to adopt. */
+/** On the start comment of a `data-sn-if` (or a choice) the early chunk rendered: the branch, its nodes and the end comment, for the runtime to adopt. */
 export const EARLY = Symbol.for('sinter.early');
 export interface EarlyBranch { br: number; nodes: Node[]; end: Comment }
+
+/** an anchor's start comment, exactly: `<!--sn 4-->` at the page's top level, `<!--sn-->` in a row (`<!--snippet-->` is not) */
+const isStart = (n: Node | null) => n?.nodeType == 8 && /^sn(?: \d+)?$/.test((n as Comment).data);
+/** a root anchor's id: `<!--sn 4-->` */
+const anchorId = (n: Node) => (n.nodeType == 8 && (n as Comment).data.length > 3 && isStart(n) ? +(n as Comment).data.slice(3) : null);
+/** an anchor's end comment: the first `<!--/sn-->` after its start that closes no anchor nested in between (null: not parsed yet) */
+const endOf = (start: Node): Comment | null => {
+  let d = 0;
+  for (let n = start.nextSibling; n; n = n.nextSibling) if (n.nodeType == 8) {
+    const t = (n as Comment).data;
+    if (t == '/sn') { if (!d--) return n as Comment; } else if (isStart(n)) d++;
+  }
+  return null;
+};
+/** the page's roots: `data-sn` elements and anchors' start comments, under `top`, by id */
+const rootsIn = (top: Node, f: (id: number, n: Node) => void) => {
+  const tw = (top.ownerDocument ?? (top as Document)).createTreeWalker(top, 129 /* SHOW_ELEMENT | SHOW_COMMENT */);
+  for (let n: Node | null = tw.currentNode; n; n = tw.nextNode()) {
+    const id = n.nodeType == 1 ? ((n as Element).hasAttribute('data-sn') ? +(n as Element).getAttribute('data-sn')! : null) : anchorId(n);
+    if (id != null) f(id, n);
+  }
+};
+/**
+ * A head template's nodes, cloned: `<template id="sn-t-<id>">`; a negative `id` (`-1 - id`) is one
+ * inside `<svg>` or `<math>`, whose head template holds that element: its children are the row
+ */
+const tplOf = (id: number) => document.getElementById('sn-t-' + (id < 0 ? -1 - id : id)) as HTMLTemplateElement | null;
+const cloneOf = (id: number): Node[] => {
+  const t = tplOf(id)!;
+  return [...((id < 0 ? t.content.firstChild! : t.content).cloneNode(true) as ParentNode).childNodes];
+};
+/**
+ * What an anchor's writer returns while one of its templates is not parsed yet: an anchor in the head comes
+ * before the head templates, which are last in the head. The observer tries it again in a later pass.
+ */
+const WAIT = Symbol('wait');
 
 type Fn = (...a: any[]) => any;
 
@@ -45,10 +82,35 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists; lets?: typeof lets };
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
+
+/**
+ * Cached lets, for a page whose early functions have one (others carry none of it): the early file's own
+ * copy of the page module's cache (lets.ts), with no dependencies to watch: each let is computed once per
+ * scope instance, and a helper call again only for other arguments (runtime/memo.ts)
+ */
+export function lets(): { $c: Fn; $h: Fn } {
+  const caches = new WeakMap<object, Array<Entry | undefined>>();
+  let cur: Entry | null = null;
+  return {
+    $c(s: any, j: number, n: string, f: Fn) {
+      const ns = n ? n.split(' ') : [], o = owner(s, ns);
+      let all = caches.get(o);
+      if (!all) caches.set(o, (all = []));
+      const e = all[j];
+      if (e && ns.every((x, i) => o[x] === e.n[i])) return e.v;
+      const x: Entry = { v: undefined, n: ns.map((k) => o[k]), m: e?.m ?? [], r: 0 }, prev = cur;
+      cur = x;
+      try { x.v = f(o); } finally { cur = prev; }
+      all[j] = x;
+      return x.v;
+    },
+    $h: (k: number, f: Fn, a: unknown[]) => call(cur, k, f, a),
+  };
+}
 
 /**
  * The dev server's early module (builds use `observe`): renders the page's early part once the
@@ -115,16 +177,17 @@ export function observe(page: EarlyPage | null, messages: { use(): void; state?(
   if (!p) { m.finish(); return; }
   const prep = p, I = messages?.state?.();
   const waiting = () => !!I?.locale && !I.dicts?.[I.locale];
-  /** the roots seen and not rendered yet; `pick`: rendered in this pass, by `data-sn` id */
-  /** every root seen, by `data-sn` id (a binding may name another root: an `if` its `data-sn-else`); `fresh`: any since the last pass */
-  const roots = new Map<number, Element>();
+  /** every root seen, by id: `data-sn` elements and anchors' start comments; `fresh`: any since the last pass */
+  const roots = new Map<number, Node>();
   let fresh = false, held = 0;
-  const root = (el: Element) => { roots.set(+el.getAttribute('data-sn')!, el); fresh = true; };
+  const root = (id: number, n: Node) => { roots.set(id, n); fresh = true; };
   const add = (n: Node) => {
+    // an anchor's start comment (the parser adds comments too: one more check per node)
+    if (n.nodeType == 8) { const id = anchorId(n); if (id != null) root(id, n); return; }
     if (n.nodeType != 1) return;
-    if ((n as Element).hasAttribute('data-sn')) root(n as Element);
+    if ((n as Element).hasAttribute('data-sn')) root(+(n as Element).getAttribute('data-sn')!, n);
     // a node inserted with children (a parser chunk, or a branch clone): its roots too
-    if ((n as Element).firstElementChild) for (const el of (n as Element).querySelectorAll('[data-sn]')) root(el);
+    if (n.firstChild) rootsIn(n, (id, x) => { if (x != n) root(id, x); });
   };
   const pass = (all: boolean) => {
     // every root seen so far: its attribute-like bindings are written at once (its attributes are all there when the
@@ -144,8 +207,8 @@ export function observe(page: EarlyPage | null, messages: { use(): void; state?(
   let ended = false;
   const seen = (rs: MutationRecord[]) => { for (const r of rs) for (const n of r.addedNodes) add(n); };
   const o = new MutationObserver((rs) => { if (ended) return; seen(rs); pass(false); });
-  // what is parsed already (`<html>`, the head so far)
-  for (const el of doc.querySelectorAll('[data-sn]')) root(el);
+  // what is parsed already (`<html>`, the head so far: its anchors too)
+  rootsIn(doc.documentElement, root);
   o.observe(doc.documentElement, { childList: true, subtree: true });
   pass(false);
   if (I && waiting()) {
@@ -167,30 +230,30 @@ export function observe(page: EarlyPage | null, messages: { use(): void; state?(
 const NOT_YET = Symbol('not yet');
 /** what `observe` reads of the messages' shared state (messages.ts) */
 interface I18nLike { locale?: string; dicts?: Record<string, unknown>; loaded?: (l: string) => void }
-/** during an observing pass: the roots it renders, by `data-sn` id */
-let live: { pick: Map<number, Element>; all: boolean; waiting: Set<Element> } | null = null;
-/** observing: the bindings already written, by element (a root whose content waits is rendered again by later passes) */
-const wrote = new WeakMap<Element, Set<string>>();
+/** during an observing pass: the roots it renders, by id */
+let live: { pick: Map<number, Node>; all: boolean; waiting: Set<Node> } | null = null;
+/** observing: the bindings already written, by node (a root whose content waits is rendered again by later passes) */
+const wrote = new WeakMap<Node, Set<string>>();
 let fnIds = new WeakMap<Fn, number>(), fnN = 0;
-/** a content binding (text, a control's value, an `if` or `for` template) waits for the parser to close its element */
-const content = (el: Element, wr: unknown) => el.localName == 'template' || wr === text || wr === model;
+/** a content binding (text, a control's value, an anchor) waits for the parser to close its element, or to parse the anchor's end */
+const content = (el: Node, wr: unknown) => el.nodeType == 8 || wr === text || wr === model || wr === slot;
 /** the bindings skipped for a missing dictionary, tried again when it arrives */
 const retries: Array<() => void> = [];
 
 /** whether the parser has moved past `el`: it, or an ancestor, has a following node */
-const closed = (el: Node) => {
+const closed = (el: Node): boolean => {
   for (let n: Node | null = el; n && n.nodeType == 1; n = n.parentNode) if (n.nextSibling) return true;
   return false;
 };
 /**
- * A root to render now: closed, and the `data-sn-else` template that follows an `if` parsed too.
- * `<html>` and `<body>` at once: their attributes are all there when they are created, and no early
- * binding writes their content.
+ * A root to render now: an element closed, an anchor whose end comment is parsed. `<html>` and
+ * `<body>` at once: their attributes are all there when they are created, and no early binding
+ * writes their content.
  */
-const ready = (el: Element) => {
-  if (el.localName == 'html' || el.localName == 'body') return true;
-  const e = el.localName == 'template' ? el.nextElementSibling : null;
-  return closed(el) && (!e || !e.hasAttribute('data-sn-else') || closed(e));
+const ready = (el: Node) => {
+  if (el.nodeType == 8) return !!endOf(el);
+  const n = (el as Element).localName;
+  return n == 'html' || n == 'body' || closed(el);
 };
 
 /** `$r` over the page's embedded data: each resource's items (by its `items` path), parsed once; another resource throws */
@@ -216,8 +279,13 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
   let emb: any = null, url: any = null;
   // array parameters as lists: only a page that has them passes `lists` (and carries it)
   const more = (h: string, u: any) => (o.lists ? o.lists(h, o.ir.urlArrays!, u) : u);
+  const lc = o.lets?.();
   return new Proxy(Object.create(null), {
     get(_, k) {
+      // cached lets: the early file's own cache
+      if (lc && (k == '$c' || k == '$h')) return lc[k];
+      // a state field the build computed, embedded in the head (parsed when the early script runs: the head is there)
+      if (k == '$d') return (id: number) => JSON.parse(document.querySelector(`head > script[data-sn="${id}"]`)!.textContent!);
       // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
       const l = k == '$locale' ? o.locale?.() : null;
       if (l) return l.get();
@@ -353,33 +421,35 @@ export function pm(s: any, key: string, set: Fn): void {
   if (v !== undefined) try { set(s, v); } catch { /* ignored */ }
 }
 
-/** the root elements by `data-sn` id, in the order given */
-export function byId(doc: Document, ids: Array<number | undefined>): Array<Element | null> {
+/** the roots by id (`data-sn` elements, anchors' start comments), in the order given */
+export function byId(doc: Document, ids: Array<number | undefined>): Array<Node | null> {
   // observing: the roots of this pass, each once, when the parser has closed it
   if (live) { const l = live.pick; return ids.map((i) => l.get(i!) ?? null); }
-  const m = new Map<number, Element>();
-  for (const el of doc.querySelectorAll('[data-sn]')) m.set(+el.getAttribute('data-sn')!, el);
+  const m = new Map<number, Node>();
+  rootsIn(doc.documentElement, (id, n) => m.set(id, n));
   return ids.map((i) => m.get(i!) ?? null);
 }
 
-/** a branch's element: the runtime's path walk (path[0] a node of the clone, the rest descend), checked against its tag */
-export function at(nodes: Node[], path: number[], tag: string): Element | null {
+/** a branch's node: the runtime's path walk (path[0] a node of the clone, the rest descend), checked against its tag (`#`: an anchor's start comment) */
+export function at(nodes: Node[], path: number[], tag: string): Node | null {
   let n: Node | null = nodes[path[0]!] ?? null;
   for (let k = 1; k < path.length && n; k++) {
     n = n.firstChild;
     for (let c = path[k]!; c-- && n;) n = n.nextSibling;
   }
-  return n && (n as Element).localName == tag ? n as Element : null;
+  return n && (tag == '#' ? n.nodeType == 8 : (n as Element).localName == tag) ? n : null;
 }
 
 /** one binding's first write: its value in `s` (one that throws is the page module's), written by `wr` */
-export function w(el: Element | null, f: Fn, s: any, wr: (el: any, v: any, n: string) => void, n = ''): void {
+export function w(el: Node | null, f: Fn, s: any, wr: (el: any, v: any, n: string) => unknown, n = ''): void {
   if (!el) return;
+  let done: Set<string> | null = null, key = '';
   if (live) {
     // observing: each binding once; a content binding of an element the parser has not closed yet waits
     let id = fnIds.get(f);
     if (id == null) fnIds.set(f, (id = fnN++));
-    const key = id + ' ' + n + ' ' + (content(el, wr) ? 'c' : 'a'), done = wrote.get(el) ?? new Set<string>();
+    key = id + ' ' + n + ' ' + (content(el, wr) ? 'c' : 'a');
+    done = wrote.get(el) ?? new Set<string>();
     if (done.has(key)) return;
     if (!live.all && content(el, wr) && !ready(el)) { live.waiting.add(el); return; }
     done.add(key);
@@ -391,53 +461,75 @@ export function w(el: Element | null, f: Fn, s: any, wr: (el: any, v: any, n: st
     if (e === NOT_YET) retries.push(() => w(el, f, s, wr, n));
     return;
   }
-  wr(el, v, n);
+  // an anchor whose template the parser has not reached yet (one in the head): the next pass tries it again
+  if (wr(el, v, n) === WAIT && live) { done!.delete(key); live.waiting.add(el); }
 }
 
 /**
- * A `data-sn-if`: the branch to show (1 its own, 2 the `data-sn-else` template `other`), cloned after
- * the template and left on it for the runtime to adopt; `a`/`b` render the branch's bindings over its nodes.
+ * A `data-sn-if` at its start comment: the branch to show (1 template `x`, 2 its `data-sn-else` template
+ * `z`, -1 for none), cloned before the end comment and left on the start for the runtime to adopt; `a`/`b`
+ * render the branch's bindings over its nodes.
  */
-export function iff(tpl: HTMLTemplateElement, v: unknown, other: HTMLTemplateElement | null, a: Branch | 0, b: Branch | 0, s: any): void {
-  const br = v ? 1 : other ? 2 : 0;
-  if (!br) return;
-  const frag = (br == 1 ? tpl : other!).content.cloneNode(true) as DocumentFragment, nodes = [...frag.childNodes];
-  const end = new Comment();
-  tpl.after(end);
+export function iff(start: Comment, v: unknown, x: number, z: number | null, a: Branch | 0, b: Branch | 0, s: any): void | typeof WAIT {
+  const br = v ? 1 : z != null ? 2 : 0, end = endOf(start);
+  if (!br || !end) return;
+  if (!tplOf(br == 1 ? x : z!)) return WAIT;
+  const nodes = cloneOf(br == 1 ? x : z!);
   end.before(...nodes);
-  (tpl as any)[EARLY] = { br, nodes, end } satisfies EarlyBranch;
+  (start as any)[EARLY] = { br, nodes, end } satisfies EarlyBranch;
   const r = br == 1 ? a : b;
   if (r) r(nodes, Object.create(s));
 }
 type Branch = (nodes: Node[], s: any) => void;
 
-/** set on a `data-sn-for` template whose rows `each` rendered: each row's nodes and the end marker, for the page module to adopt */
+/**
+ * A choice (`<sn-component use>`) at its start comment: `v` is `[case, props]` or null; the case's
+ * definition (template `ts[case]`) is cloned before the end comment with the props as its row's item
+ * `item[case]`, and left on the start for the runtime to adopt (`br`: the case + 1).
+ */
+export function ch(start: Comment, v: [number, unknown] | null, ts: number[], items: string[], rs: Array<Branch | 0>, s: any): void | typeof WAIT {
+  const end = endOf(start);
+  if (!v || !end || ts[v[0]] == null) return;
+  if (!tplOf(ts[v[0]]!)) return WAIT;
+  const k = v[0], nodes = cloneOf(ts[k]!);
+  end.before(...nodes);
+  (start as any)[EARLY] = { br: k + 1, nodes, end } satisfies EarlyBranch;
+  const r = rs[k];
+  if (r) { const sc = Object.create(s); sc[items[k]!] = v[1]; r(nodes, sc); }
+}
+
+/** set on the start comment of a `data-sn-for` whose rows `each` rendered: each row's nodes and the end comment, for the page module to adopt */
 export const EARLY_ROWS = Symbol.for('sinter.early.rows');
 export interface EarlyRows { rows: Node[][]; end: Comment }
 
 /**
- * A `data-sn-for` over embedded data: a clone of the template per item, after it, each rendered by `r` over a scope
- * with the loop variable (and index). The rows are left on the template: the page module adopts them (binds them
- * instead of new clones) when its list has the same number of items, else removes them.
+ * A `data-sn-for` over embedded data, at its start comment: a clone of template `x` per item, before the end
+ * comment, each rendered by `r` over a scope with the loop variable (and index). The rows are left on the start:
+ * the page module adopts them (binds them instead of new clones) when its list has the same number of items,
+ * else removes them.
  */
-export function each(tpl: HTMLTemplateElement, list: unknown, r: Branch | 0, item: string, index: string | null, s: any): void {
-  if (!Array.isArray(list) || !list.length) return;
-  const end = new Comment(), rows: Node[][] = [];
-  tpl.after(end);
+export function each(start: Comment, list: unknown, x: number, r: Branch | 0, item: string, index: string | null, s: any): void | typeof WAIT {
+  const end = endOf(start);
+  if (!Array.isArray(list) || !list.length || !end) return;
+  if (!tplOf(x)) return WAIT;
+  const rows: Node[][] = [];
   list.forEach((v, i) => {
-    // a component used inside itself: the template is empty, its definition is in the head
-    const id = tpl.getAttribute('data-sn-def');
-    if (id && !tpl.content.firstChild) tpl.content.append((document.getElementById(id) as HTMLTemplateElement).content.cloneNode(true));
-    const nodes = [...(tpl.content.cloneNode(true) as DocumentFragment).childNodes];
+    const nodes = cloneOf(x);
     end.before(...nodes);
     rows.push(nodes);
     if (r) { const sc = Object.create(s); sc[item] = v; if (index) sc[index] = i; r(nodes, sc); }
   });
-  (tpl as any)[EARLY_ROWS] = { rows, end } satisfies EarlyRows;
+  (start as any)[EARLY_ROWS] = { rows, end } satisfies EarlyRows;
 }
 
 // the writers, as the runtime's first write
 export const text = (el: HTMLElement, v: any) => { el.textContent = '' + (v ?? ''); };
+/** `<template data-sn-text>`: the text node after `el` (the start of its anchor, or the node before it in a row), in place of its empty comment */
+export const slot = (el: ChildNode, v: any) => {
+  const s = el.nextSibling as CharacterData | null;
+  v = '' + (v ?? '');
+  if (s?.nodeType == 3) s.data = v; else if (v) s?.nodeType == 8 && !s.data ? s.replaceWith(v) : el.after(v);
+};
 export const show = (el: HTMLElement, v: any) => { el.hidden = !v; };
 export const cls = (el: HTMLElement, v: any, n: string) => { if (v || el.hasAttribute('class')) el.classList.toggle(n, !!v); };
 /** a class binding without a name: `[name, on]` */

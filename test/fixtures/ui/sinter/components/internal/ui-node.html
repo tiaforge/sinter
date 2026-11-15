@@ -1,0 +1,12 @@
+<template data-sn-component="{ item: Item }">
+  <li>
+    <slot name="node" data-sn-prop="{ item }"><span class="label" data-sn-text="item.label"></span></slot>
+    <template data-sn-if="item.children?.length">
+      <ul>
+        <template data-sn-for="c in item.children" data-sn-key="c.id">
+          <ui-node data-sn-prop="{ item: c }"></ui-node>
+        </template>
+      </ul>
+    </template>
+  </li>
+</template>

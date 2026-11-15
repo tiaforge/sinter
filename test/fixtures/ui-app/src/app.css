@@ -1,0 +1,2 @@
+@layer base, theme;
+@layer theme { h2 { letter-spacing: 1px; } }

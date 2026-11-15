@@ -28,7 +28,9 @@ describe('head components', () => {
     expect(head).not.toMatch(/seo-tags|og-tags|<slot/);
     // the constant `image: false` dropped its branch at build time
     expect(head).not.toContain('image_src');
-    expect(head).toMatch(/<title data-sn="\d+">Blog<\/title>[\s\S]*<template data-sn="\d+"><meta property="og:title" content="og"><\/template><meta name="x" content="in-og">[\s\S]*<meta name="robots" content="noindex">[\s\S]*<link rel="stylesheet" href="\/a.css">/);
+    expect(head).toMatch(/<title data-sn="\d+">Blog<\/title>[\s\S]*<!--sn \d+--><!--\/sn--><meta name="x" content="in-og">[\s\S]*<meta name="robots" content="noindex">[\s\S]*<link rel="stylesheet" href="\/a.css">/);
+    // the branch's template: nothing early renders it, so it is at the end of the body
+    expect(out.html).toMatch(/<template id="sn-t-\d+"><meta property="og:title" content="og"><\/template><\/body>/);
     // the inner component's prop is the outer one's, which is the page's
     expect(out.module).toContain("($) => (($.$r.post?.title) ? ($.$r.post?.title) + ' · Blog' : 'Blog')");
     expect(out.module).toContain('($.$r.post?.title)');

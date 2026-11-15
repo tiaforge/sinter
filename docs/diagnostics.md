@@ -42,6 +42,26 @@ Two-way binding has no meaningful value for this input type.
 
 **Fix:** Submit the form with a method attribute (`data-sn-post`, …) on it; a form with a file input is sent as `FormData`.
 
+## SN105 reserved-comment
+
+Error, for example:
+
+> this comment is one of the forms sinter marks lists and branches with (`<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->`, `<!---->`): the page would take it for one
+
+Every `data-sn-if`, `data-sn-for` and component chosen by data is marked in the page by a pair of comments, `<!--sn 4-->` (`<!--sn-->` in a row) and `<!--/sn-->`, and an empty comment separates text; the runtime and the early script find them by their exact text. An author's comment with exactly one of those texts would be taken for one. Any other comment, `<!--snippet-->` or `<!-- sn notes -->` included, is the author's.
+
+**Fix:** Add a word to the comment, or remove it.
+
+## SN106 anchor-in-raw-text
+
+Error, for example:
+
+> a `<template data-sn-for>` inside `<textarea>` is text to the HTML parser: it renders nothing
+
+The content of `<textarea>` and `<title>` is raw text: the browser's parser reads no elements or comments there, so a list or branch inside one cannot be marked or rendered.
+
+**Fix:** Bind the whole text instead: `data-sn-model` (or `data-sn-attr="{ value: … }"`) on the `<textarea>`, `data-sn-text` on the `<title>`.
+
 ## SN201 unknown-identifier
 
 Error, for example:
@@ -161,6 +181,16 @@ Error, for example:
 The URL holds strings: an object, a function or an instance (`{…}`, `() => …`, `new Date()`) written to a `$url` parameter has no form a reload could read back. At run time such a value removes the parameter, with a dev warning.
 
 **Fix:** Write the string or number you mean (`$url.from = d.toISOString().slice(0, 10)`), or keep the object in state.
+
+## SN213 element-of-anchor
+
+Error, for example:
+
+> `$el` in a `data-sn-if`: the condition is marked by comments in the page, so there is no element to read
+
+A `data-sn-if`, a `data-sn-for` and the `use` of `<sn-component>` render a variable number of nodes between two comments; they have no element of their own for `$el` to name.
+
+**Fix:** Read the element in a binding inside the template (each rendered element has its own `$el`), or decide with state instead of the element.
 
 ## SN301 unknown-resource
 
@@ -368,9 +398,9 @@ Error, for example:
 
 > about.html must ship no JavaScript (`sinter({ static })`), but `data-sn-on-click` runs in the browser
 
-The page is in `sinter({ static })`, the pages that must ship no JavaScript, but something on it runs in the browser: a binding over state a handler writes, data, `$url`, `$now` or a helper, a handler, an action, a resource or stream, a model, or a component with a script. The error is where that was written, in the page, a component or the layout, once for each.
+The page is in `sinter({ static })`, the pages that must ship no JavaScript, but something on it runs in the browser: a binding over state a handler writes, data, `$url`, `$now` or a helper that cannot run at build time, a handler, an action, a resource or stream, a model, or a component with a script. The error is where that was written, in the page, a component or the layout, once for each. A binding kept in the browser by a helper call says which call and why the helper cannot run at build time: the name outside JavaScript's own deterministic globals it reaches (`Date`, `window`, `fetch`, …), where, and through which functions.
 
-**Fix:** Remove what runs in the browser, or make it a constant (a literal, a prop given as one, state nothing writes). If the page is meant to run it, take the page out of `static` in vite.config.
+**Fix:** Remove what runs in the browser, or make it a constant (a literal, a prop given as one, state nothing writes, a `file:` resource, a helper call over those). For a helper, keep what reads the clock, the locale or the browser out of the functions the page calls at build time (each exported function counts on its own). If the page is meant to run it, take the page out of `static` in vite.config.
 
 ## SN323 needs-site
 
@@ -388,9 +418,9 @@ Error, for example:
 
 > `openpgp.encrypt(…)` is not awaited: `sinter({ lazy })` loads openpgp on first call, so every call returns a Promise
 
-The package is in `sinter({ lazy })`, so the app's imports of it are stubs that load it on first call: each call returns a Promise, and nothing else of the package is there before it has loaded. So a value imported from it may only be called, and each call must be waited for (`await`, `return`, `.then`, `void`, or `Promise.all`). Refused: a call nothing waits for, `new`, `instanceof`, reading a constant or setting (`openpgp.enums`, `openpgp.config`), passing a function or the namespace as a value, `import 'pkg'` for its side effects, and re-exporting it. Also: the helpers module reaches a lazy package through its imports (helpers run while a binding renders and cannot wait); and in markup, `data-sn-import` or `data-sn-preload` names a package that is not in `lazy`.
+The package is in `sinter({ lazy })`, so the app's imports of it are stubs that load it on first call: each call returns a Promise, and nothing else of the package is there before it has loaded. So a value imported from it may only be called, and each call must be waited for (`await`, `return`, `.then`, `void`, or `Promise.all`). Refused: a call nothing waits for, `new`, `instanceof`, reading a constant or setting (`openpgp.enums`, `openpgp.config`), passing a function or the namespace as a value, `import 'pkg'` for its side effects, and re-exporting it. Also, in markup: a helper declared in a module that reaches a lazy package is called outside a `data-sn-let` or a prop (only a let can wait for the module; helpers of other modules stay ordinary helpers); and `data-sn-import` or `data-sn-preload` names a package that is not in `lazy`.
 
-**Fix:** Await the call. For classes and constants, load the package where they are needed with `await import('pkg')`, or move that code into a component script, which loads with the package. Compute what a helper needed in an action or a `<sn-resource call>`. In markup, name a package of `lazy`, or add it there.
+**Fix:** Await the call. For classes and constants, load the package where they are needed with `await import('pkg')`, or move that code into a component script, which loads with the package. For a helper of a module that reaches a lazy package, name its value in a `data-sn-let` (`data-sn-let="{ tree: doc.parse(body) }"`) and read the name, which is `undefined` until the module has loaded; keep the helpers that do not need the package in a module that does not import it. In markup, name a package of `lazy`, or add it there.
 
 ## SN325 lazy-package-bundled
 
@@ -451,6 +481,76 @@ Error, for example:
 What an endpoint returns (`items`, `total`, `key`, `type`) is said once: when the API's `defaults` or `operations` give a value, a resource of that operation does not write a different one, because two pages would read different shapes from one endpoint. The same value is the warning `SN518`.
 
 **Fix:** Remove the attribute, or change the configured value if the page is right.
+
+## SN331 invalid-slot
+
+Error, for example:
+
+> the slot `cell` is written with `?`; every slot may be left unfilled, and its placement shows its default
+
+A slot that passes data is declared, placed or filled wrongly. It is a `Slot<T>` member of the props type literal in `data-sn-component` (not in a type alias, not with `?`, not in `data-sn-head` or `data-sn-layout`; the app's types module may not export a type named `Slot`), placed with `<slot name="…" data-sn-prop="{ … }">`, whose default is one plain element or a `data-sn-if`/`data-sn-else` chain of them (anything broader comes with the component root, step 4 of the component-libraries proposal). A fill is elements with `slot="…"`; a `<template slot>` only starts an if/else chain. An unnamed `<slot>` in a fill places the children of the element the default renders: an error when it renders none, and the default's element may not declare names (`data-sn-let`, `data-sn-state`) its children read, since they move into the fill without it. Also reported: a `<slot>` that no component or fill encloses (on a page, or in a page's slot content).
+
+**Fix:** Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-prop`, give the placement one element as default, and move names the children read onto the `<slot>`'s `data-sn-prop` or inside the element. Remove a `<slot>` from a page.
+
+## SN332 file-source
+
+Error, for example:
+
+> `refresh` reloads, and a `file:` resource is a constant: it is read at build time and never loads or changes; it takes only `name`, `type`, `items` and `key`
+
+A `file:` source (`<sn-resource src="file:./post.txt">`) reads a file of the project at build time: its text, or for `.json` its parsed value. The path is a literal, relative to the file that writes it (a page, a layout, a component) or `/…` from the project root, and inside the root; the file must exist, and a `.json` file must parse. The resource is a constant: what would load, page, refresh, cache or change it is refused (`refresh`, `cache`, `paginate`, `each`, `call`, `when`, `then`, `early`, `method`, store functions that name it or change one of its items, write-through, `<sn-event>`s). `file:` is a source of `<sn-resource src>` only, not of an action or `<sn-sync>`.
+
+**Fix:** Write a literal path to a file in the project, or fix the JSON. Leave out the attribute that would load or change it; for data that changes, serve it from an API and use a URL. To change the values a page shows, keep them in `data-sn-state`, initialized from the resource.
+
+## SN333 invalid-text
+
+Error, for example:
+
+> `data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it
+
+A `<template data-sn-text>` renders a text node and nothing else: it takes no other attribute (`data-sn-if` and `data-sn-for` go on a template around it, anything else on an element around the text), and content inside it is dropped.
+
+**Fix:** Wrap it: `<template data-sn-if="…"><template data-sn-text="…"></template></template>`, or put the text in an element.
+
+## SN334 empty-root
+
+Error, for example:
+
+> `<ui-panel>`'s root may render nothing, so `id` on its tag would point at an element that may not exist
+
+A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes.
+
+**Fix:** Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it.
+
+## SN337 library-package
+
+Error, for example:
+
+> `@acme/ui` is in `sinter({ components })` and its package.json has no `"sinter"` field: a component library names the folder of its components
+
+A package in `sinter({ components })` is a component library (docs/libraries.md): installed, with `"sinter": "./sinter"` in its package.json naming a folder inside the package that has a `components/` folder. Its components share their first segment (`ui-card`, `ui-tree`: `ui`), the prefix it owns, and a name is in `components/` (public) or `components/internal/`, not both.
+
+**Fix:** Install the package, or take it out of `components` if it is not a component library. A library's author adds the `"sinter"` field and folder, and renames components to share one prefix.
+
+## SN338 library-prefix
+
+Error, for example:
+
+> `<ui-button>` starts with `ui-`, the prefix of `@acme/ui` (`sinter({ components })`): a library owns its prefix, and an app component cannot shadow or add to it
+
+Each component library owns the first segment of its components' names. Two configured libraries with one prefix, or an app component (`src/components/`) whose name starts with a library's prefix, fail the build: a tag names exactly one component, and there is no shadowing.
+
+**Fix:** Rename the app component (`app-button`). To change how a library component looks or behaves everywhere, write a wrapper component of your own that uses it, with fills for its slots. Two libraries with one prefix cannot be used together.
+
+## SN339 library-component
+
+Error, for example:
+
+> `<ui-node>` is internal to `@acme/ui` (`components/internal/`): only its own components use it
+
+A tag with a library's prefix names one of its components. Those in its `components/internal/` folder are its own: the app's markup (pages, layouts, components, fills and slot content) uses the public ones, in `components/`. A tag with the prefix that names no component of the library is an error too, and so is a `<sn-component use>` map in a library's markup that names a component outside it: a library chooses among its own components.
+
+**Fix:** Use one of the public components the message lists, or fix the name. A library's author moves a component the app needs out of `components/internal/`.
 
 ## SN401 parse-error
 
@@ -578,7 +678,7 @@ Warning, for example:
 
 > `src` is bound to local images (`./logo-dark.png`, `./logo.png`), which are not optimized
 
-An `<img>` binds `src` to a local image path, or chooses between a few of them. The build optimizes static `<img src>` (formats, widths, dimensions) but cannot follow a path computed at runtime, so the bound image is served as the original file.
+An `<img>` binds `src` to a local image path, or chooses between a few of them, with something that can change at runtime. The build optimizes static `<img src>` (formats, widths, dimensions) but cannot follow a path computed at runtime, so the bound image is served as the original file. A `src` over build-time constants (state nothing writes, a prop given as a literal) is written into the page first and optimized, with no warning.
 
 **Fix:** Write each image as a static `<img>` and choose with `data-sn-if` or `data-sn-show`: `<img src="./logo-dark.png" alt="" data-sn-show="dark"><img src="./logo.png" alt="" data-sn-show="!dark">`. Images from the API are a different case: see `images.remote`.
 
@@ -761,3 +861,73 @@ Warning, for example:
 A `data-sn-body` (or a POST `<sn-resource>`'s `body`) calls `JSON.stringify`. sinter encodes the body as JSON itself, so the request carries the JSON text of a string (`"{\"username\":\"alice\"}"`), which a server's JSON parser reads as one string: the fields it expects are missing. A benchmark agent's login with a wrong password went through this way, against an API that compared the missing fields.
 
 **Fix:** Pass the object: `data-sn-body="{ username, password }"`. For another format, set `data-sn-encoding="form"` or send it from an action (`data-sn-call`). The same holds in an actions module or a component script, where the build cannot see it: `ctx.request(url, { body: { username, password } })`, not `body: JSON.stringify(…)`.
+
+## SN532 repeated-id
+
+Warning, for example:
+
+> `id="total"` is in markup that renders more than once (a `data-sn-for` row): the page would have that id more than once
+
+A literal `id` in markup that renders more than once, in a page or a component: a `data-sn-for` row, or a fill of a slot placed more than once. Ids are unique in a page; `getElementById`, `<label for>`, `aria-*` references and `run('id')` find only the first.
+
+**Fix:** Compute the id from the row: `data-sn-attr="{ id: 'total-' + row.id }"`, or move the element out of the repeated markup.
+
+## SN533 helpers-unloaded
+
+Warning, for example:
+
+> the helpers module could not be loaded in Node (src/sinter.helpers.ts: Cannot find module './missing.js'): no helper call is run at build time
+
+The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app's Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session.
+
+**Fix:** Move what needs the browser out of the module's top level (into the functions that need it), or into a component script. The page works either way; only build-time folding is lost. Strict mode does not fail on this warning: it depends on what the app imports, not on a mistake.
+
+## SN534 helper-not-folded
+
+Warning, for example:
+
+> `fmt.title()` threw at build time (Cannot read properties of undefined), so this call stays in the browser
+
+A helper call over build-time constants (in a binding or a state initializer) runs in the compiler when the helper may fold, and its result is written into the page. This call did not: the helper threw, returned something that is not plain data (JSON values: a `Date`, a `Map`, a class instance, a function), or, in a dev build, which runs each such call twice, returned another result the second time. The call runs in the browser instead, as before. Dev builds only, once per call.
+
+**Fix:** Make the helper return plain data for constant arguments and keep it pure (same arguments, same result, nothing read or changed elsewhere). A helper that cannot is fine in the browser: this is only a warning.
+
+## SN535 close-slot-name
+
+Warning, for example:
+
+> `<slot name="cel">` in `<x-cell>` is a tree placement, filled by the nearest root that declares `cel`; `<x-cell>` declares a slot of a close name. Did you mean `cell`?
+
+A `<slot>` that passes data, in a component that does not declare its name, is a tree placement: the nearest enclosing component that declares the name fills it (docs/components.md, Tree slots). Its component declares a slot whose name is close, so it is likely a misspelled placement of the component's own slot.
+
+**Fix:** Fix the name to the declared one, or rename the declared slot if the tree placement is meant.
+
+## SN536 expansion-limit
+
+Warning, for example:
+
+> this list's rows would take the page past 10,000 rows and components expanded at build time, so it is rendered in the browser
+
+A constant tree (a loop over constants, a component instantiated over constant props, at any depth) is written into the page as plain HTML at build time. The rows and components a page expands in all are limited, as the layout and image steps then run over the whole page and slow the build. The tree that would cross it stays a template the browser renders, as without build-time expansion; it works the same, with JavaScript.
+
+**Fix:** Split the content over several pages, or keep the long part a list the browser renders. The warning stays a warning with `--strict`.
+
+## SN537 library-version
+
+Warning, for example:
+
+> `@acme/ui` supports sinter `^0.17.0`, and this is sinter 0.18.0: its markup may use what this version does not have, or what it no longer has
+
+A component library ships source that the app's sinter compiles, so it lists the sinter versions it supports in its package.json's `peerDependencies` (`"@tiaforge-ui/sinter": "^0.18.0"`). The app's sinter checks that its own version is in the range, and warns when a library lists none. It cannot know which version introduced a feature newer than itself.
+
+**Fix:** Install a version of sinter or of the library that fits the other. A library's author lists the range in `peerDependencies`.
+
+## SN538 unreachable-candidate
+
+Warning, for example:
+
+> `x-para` can never be chosen here: `b.type` cannot be `"paragraph"` where this `<sn-component>` is (a branch around it rules it out)
+
+`sinter check` checks each candidate of a `<sn-component use>` (a template string or a map) with the data narrowed to its key, and the branches around it (`data-sn-if`, `data-sn-else`) narrow the data too. When they leave no value for a candidate's key, TypeScript finds the comparison can never hold: that component is never rendered there. A warning, since the page still works.
+
+**Fix:** Remove the candidate from `use`, or move the `<sn-component>` out of the branch that excludes it.

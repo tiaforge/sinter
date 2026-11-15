@@ -1,0 +1,11 @@
+<!doctype html>
+<html>
+<head><title>@fixture/ui helpers</title></head>
+<body>
+  <div data-sn-state="{ who: 'Ada Lovelace', items: [{ id: 1, label: 'one', children: [{ id: 2, label: 'two' }] }] }">
+    <p data-sn-text="ui.initials(who)"></p>
+    <p data-sn-text="ui.outline(items).join(', ')"></p>
+    <ui-card data-sn-prop="{ title: ui.initials(who) }"></ui-card>
+  </div>
+</body>
+</html>

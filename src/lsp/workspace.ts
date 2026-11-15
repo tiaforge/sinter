@@ -6,6 +6,9 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import { compile, type Diagnostic, type HelperManifest } from '../compiler/index.js';
 import { project, viteProject, type Project, type ProjectOptions } from '../project.js';
+import { lazyHelpers } from '../lazy-build.js';
+import { loadHelpers, unloadedMessage, type NodeHelpers } from '../helpers-node.js';
+import { FoldCache } from '../fold-check.js';
 import { HEAD_DECL, writeComponentTypes } from '../components-build.js';
 
 const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
@@ -26,8 +29,10 @@ export interface ProjectState {
   units: Map<string, CheckUnit>;
   /** TypeScript's diagnostics, per page (or per check run); they lag behind compiles */
   types: Map<string, Diagnostic[]>;
-  /** files whose change reloads the project: Vite config, helpers, types, specs */
+  /** files whose change reloads the project: Vite config, helpers (and what the helpers module reaches), types, specs */
   inputs: Set<string>;
+  /** the helpers module as loaded in Node, with what of it may fold (helpers-node.ts); loaded again with the project */
+  helpers: NodeHelpers;
 }
 
 export interface WorkspaceHooks {
@@ -51,6 +56,8 @@ export class Workspace {
   readonly projects = new Map<string, Promise<ProjectState>>();
   /** files that currently have diagnostics published */
   private published = new Set<string>();
+  /** the static check's per-module analyses (fold-check.ts), kept across reloads: a module is read again only when it changed */
+  private readonly foldCache = new FoldCache();
 
   constructor(private hooks: WorkspaceHooks) {}
 
@@ -93,9 +100,13 @@ export class Workspace {
     }
     inputs.add(join(root, 'src/sinter.types.d.ts'));
     for (const m of Object.values(p.helpers.namespaces)) if (m.module.startsWith('/')) inputs.add(join(root, m.module));
+    // the helpers module in Node, as the build loads it (with the app's Vite config); the files it reaches reload the project
+    const helpers = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers, cache: this.foldCache });
+    for (const f of helpers.files) inputs.add(f);
+    if (helpers.error && p.helpersFile) p.diagnostics.push({ severity: 'warning', code: 'SN533', message: unloadedMessage(root, p.helpersFile, helpers.error), file: p.helpersFile, line: 1, col: 1 });
     const state: ProjectState = {
       root, options, project: p, entries: new Set(pages), pages: new Set(pages),
-      includes: new Map(), diagnostics: new Map(), units: new Map(), types: new Map(), inputs,
+      includes: new Map(), diagnostics: new Map(), units: new Map(), types: new Map(), inputs, helpers,
     };
     for (const [file] of this.docs) if (file.endsWith('.html') && this.rootOf(file) === root) state.pages.add(file);
     this.compilePages(state, [...state.pages]);
@@ -181,6 +192,7 @@ export class Workspace {
       const disk = p.readFile(path); // refuses files outside the root
       return this.docs.get(resolve(path)) ?? disk;
     };
+    let lh: ReturnType<typeof lazyHelpers> | undefined;
     for (const page of pages) {
       let html: string;
       try { html = this.read(page); } catch { continue; }
@@ -200,7 +212,10 @@ export class Workspace {
       }
       try {
         const out = compile(html, {
-          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles, lazy: p.lazy,
+          // helper modules that reach a lazy package: their helpers outside a let are SN324, as in the build
+          ...(p.lazy.length ? { lazyModule: (lh ??= lazyHelpers(state.root, p.lazy, undefined, p.libraries)).reach } : {}),
+          helperValues: state.helpers.module, helperFold: state.helpers.fold,
+          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
           ...(!component && p.isStatic(page) ? { static: true, prerender: true } : {}),
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));

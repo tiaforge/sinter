@@ -37,6 +37,7 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | `types` | `src/sinter.types.ts` (then `.d.ts`, `.js`) | the types `type="..."` may name ([docs/type-checking.md](type-checking.md)) |
 | `messages` | `project.inlang`, if it exists | the inlang project for [messages](#messages); `false` turns them off |
 | `apis` | none | the APIs the app calls: base URL, OpenAPI spec, credentials, headers, and what each endpoint returns. Pages then write paths relative to them (`src="/contacts"`), checked against the spec ([docs/apis.md](apis.md)) |
+| `components` | `[]` | component libraries, by package name (`['@acme/ui']`): packages whose `package.json` names a folder of sinter components (`"sinter": "./sinter"`). Their public components are tags in the app; their helpers come in through a namespace re-export in your helpers module ([docs/libraries.md](libraries.md)) |
 | `defaultApi` | the only API | the API a path without `api:` goes to |
 | `openapi` | none | deprecated: one OpenAPI file or a list of them; give each API its spec in `apis` instead ([docs/type-checking.md](type-checking.md#openapi)) |
 
@@ -203,7 +204,22 @@ export * as fmt from './format.js';
 ```
 
 - Exported names become functions. Type-only exports are skipped.
-- `export * as ns from './module.js'` makes a namespace. The compiler reads its members, so `fmt.pirce(...)` is `SN206` with a suggestion. Members must be named literally: `fmt[key]` is refused. Only the members a page uses reach its bundle.
+- `export * as ns from './module.js'` makes a namespace. The compiler reads its members, so `fmt.pirce(...)` is `SN206` with a suggestion. Members must be named literally: `fmt[key]` is refused. Only the members a page uses reach its bundle: the page module and the early file import each helper from the module that declares it, not through the helpers module.
+- A `data-sn-let` (or a prop) that calls a helper is computed once per scope instance, and again when what it reads changes; a call whose arguments are equal primitives returns its last result ([spec.md](spec.md#derived-names)). So a helper must keep the purity contract: one that reads something else gets no new value at every read.
+- A helper module that reaches a package of `lazy` loads only when a let first needs it ([lazy.md](lazy.md#helpers-that-wait)).
+- The helpers module also runs in Node: the build, the dev server, `sinter check` and the language server
+  load it before compiling, through Vite with your config (aliases and plugins apply), and a call over
+  values known at build time runs there: its result is written into the page. Its top-level code runs in Node too: keep what needs the
+  browser (`window`, `document`) inside the functions that use it. A module that cannot load in Node
+  only warns (`SN533`, which strict mode does not fail on); the page works as before. Loading it takes
+  one extra Vite server per build, a few hundred milliseconds.
+- Whether a helper's calls can run at build time is decided from its code: it, and everything it calls
+  and imports, may use only JavaScript's own deterministic globals (`Math`, `JSON`, `Array`, `Map`, …)
+  and `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams` and `structuredClone`, not `Date`, `Intl`,
+  `Math.random`, `toLocale…`, `fetch`, `window` or `process`. Each exported function
+  counts on its own: one date formatter does not stop the others in its module. Its result must be plain
+  data; a call that throws or returns anything else stays in the browser (`SN534` in dev builds, which
+  also run each call twice: a helper that returns another result the second time is not pure).
 - Re-exports follow relative paths only.
 
 ### Built-in formatters
