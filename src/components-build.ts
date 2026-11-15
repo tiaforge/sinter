@@ -8,6 +8,7 @@ import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { COMPONENT_NAME, withoutSlots } from './compiler/components.js';
 import { typeExports } from './check/index.js';
+import type { Library } from './libraries.js';
 
 type El = DefaultTreeAdapterMap['element'];
 type Parent = DefaultTreeAdapterMap['parentNode'];
@@ -94,37 +95,56 @@ function stateType(src: string | undefined): string {
  * `data-sn-component`, `this.emit()` from `data-sn-emits`, `this.refs` from `data-sn-ref` (by tag),
  * `this.state` from the root's `data-sn-state`. Null when no component has a script.
  */
-export function componentTypes(root: string, read: (file: string) => string = (f) => readFileSync(f, 'utf8')): string | null {
+export function componentTypes(root: string, read: (file: string) => string = (f) => readFileSync(f, 'utf8'), libs: readonly Library[] = []): string | null {
   const dir = join(root, 'src', 'components');
-  let files: string[];
-  try { files = readdirSync(dir).filter((f) => f.endsWith('.html') && COMPONENT_NAME.test(f.slice(0, -5))).sort(); } catch { return null; }
+  let files: string[] = [];
+  try { files = readdirSync(dir).filter((f) => f.endsWith('.html') && COMPONENT_NAME.test(f.slice(0, -5))).sort(); } catch { if (!libs.length) return null; }
+  // a library that is the project itself (its own repository, `sinter check` over its fixtures): its d.ts is in its folder
+  const self = libs.find((l) => l.dir === root);
   const out: string[] = [];
+  const src = self ? self.folder : join(root, 'src');
   const typesFile = ['src/sinter.types.ts', 'src/sinter.types.d.ts'].map((f) => join(root, f)).find((f) => existsSync(f));
-  const typeNames = typesFile ? typeExports(readFileSync(typesFile, 'utf8')) : [];
-  const typesSpec = typesFile ? './' + relative(join(root, 'src'), typesFile).split(sep).join('/').replace(/\.(d\.)?ts$/, '') : null;
-  for (const f of files) {
-    const name = f.slice(0, -5);
-    if (!componentScript(join(dir, f))) continue;
-    let c: Contract | null = null;
-    try { c = contractOf(read(join(dir, f))); } catch { /* reported by the compiler */ }
-    if (!c) continue;
-    const text = [c.props, c.emits].join(' ');
-    const used = typeNames.filter((n) => new RegExp(`(?<![\\w$.])${n.replace(/\$/g, '\\$')}(?![\\w$])`).test(text));
-    out.push(`declare module '*/${name}.html' {`);
-    for (const n of used) out.push(`  type ${n} = import('${typesSpec}').${n};`);
-    out.push(`  const Base: typeof import('${COMPONENTS_MODULE}').Component;`);
-    out.push(`  /** the base of \`src/components/${name}.ts\`: props, events, refs and state as \`${f}\` declares them */`);
-    out.push(`  export class ${pascal(name)}Component extends Base<${c.props}, ${c.emits}, ${c.refs}, ${c.state}> {}`);
-    out.push('}');
+  const specOf = (f: string) => { const s = relative(src, f).split(sep).join('/').replace(/\.(d\.)?ts$/, ''); return s.startsWith('.') ? s : './' + s; };
+  /** the declarations of one folder's components with a script, type names resolved against `types` */
+  const declare = (cdir: string, list: string[], types: string | null, shown: string) => {
+    const typeNames = types ? typeExports(readFileSync(types, 'utf8')) : [];
+    const typesSpec = types ? specOf(types) : null;
+    for (const f of list) {
+      const name = f.slice(0, -5);
+      if (!componentScript(join(cdir, f))) continue;
+      let c: Contract | null = null;
+      try { c = contractOf(read(join(cdir, f))); } catch { /* reported by the compiler */ }
+      if (!c) continue;
+      const text = [c.props, c.emits].join(' ');
+      const used = typeNames.filter((n) => new RegExp(`(?<![\\w$.])${n.replace(/\$/g, '\\$')}(?![\\w$])`).test(text));
+      out.push(`declare module '*/${name}.html' {`);
+      for (const n of used) out.push(`  type ${n} = import('${typesSpec}').${n};`);
+      out.push(`  const Base: typeof import('${COMPONENTS_MODULE}').Component;`);
+      out.push(`  /** the base of \`${shown}${name}.ts\`: props, events, refs and state as \`${f}\` declares them */`);
+      out.push(`  export class ${pascal(name)}Component extends Base<${c.props}, ${c.emits}, ${c.refs}, ${c.state}> {}`);
+      out.push('}');
+    }
+  };
+  if (!self) declare(dir, files, typesFile ?? null, 'src/components/');
+  // the libraries' components, public and internal, typed by each library's types module
+  const libFiles = (l: Library, internal: boolean) => (internal ? l.internal : l.public).map((n) => `${n}.html`);
+  for (const l of libs) {
+    declare(join(l.folder, 'components'), libFiles(l, false), l.types, `${l.name}/${relative(l.dir, l.folder).split(sep).join('/')}/components/`);
+    declare(join(l.folder, 'components', 'internal'), libFiles(l, true), l.types, `${l.name}/${relative(l.dir, l.folder).split(sep).join('/')}/components/internal/`);
   }
+  const typeNames = typesFile ? typeExports(readFileSync(typesFile, 'utf8')) : [];
+  const typesSpec = typesFile ? specOf(typesFile) : null;
   // the layouts and their props (`src/layouts/<name>.html`, `<html data-sn-layout>`)
   let layouts: string[] = [];
-  try { layouts = readdirSync(join(root, 'src', 'layouts')).filter((f) => f.endsWith('.html') && COMPONENT_NAME.test(f.slice(0, -5))).sort(); } catch { /* none */ }
-  if (!files.length && !layouts.length) return null;
+  if (!self) try { layouts = readdirSync(join(root, 'src', 'layouts')).filter((f) => f.endsWith('.html') && COMPONENT_NAME.test(f.slice(0, -5))).sort(); } catch { /* none */ }
+  const libNames = libs.flatMap((l) => l.public);
+  if (!files.length && !layouts.length && !libNames.length) return null;
   // every component's name: what `<sn-component use>` takes, and a helper that picks one returns (head components are not chosen)
-  const body = files.filter((f) => { try { return !HEAD_DECL.test(read(join(dir, f))); } catch { return true; } });
-  const names = body.map((f) => JSON.stringify(f.slice(0, -5))).join(' | ') || 'never';
-  const lines = [`// Generated by sinter from src/components/*.html${layouts.length ? ' and src/layouts/*.html' : ''}. Do not edit.`, '/** every component of the app, by its tag */', `type ComponentName = ${names};`,
+  const body = (self ? [] : files).filter((f) => { try { return !HEAD_DECL.test(read(join(dir, f))); } catch { return true; } }).map((f) => f.slice(0, -5));
+  const libBody = libs.flatMap((l) => l.public.filter((n) => { try { return !HEAD_DECL.test(read(join(l.folder, 'components', `${n}.html`))); } catch { return true; } }));
+  const names = [...body, ...libBody].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never';
+  const from = [...(self ? [] : ['src/components/*.html']), ...(layouts.length ? ['src/layouts/*.html'] : []), ...libs.map((l) => `${l.name}'s components`)];
+  const lines = [`// Generated by sinter from ${from.join(', ').replace(/, ([^,]*)$/, ' and $1')}. Do not edit.`, `/** every component of the app${libs.length ? ' and the public ones of its libraries' : ''}, by its tag */`, `type ComponentName = ${names};`,
     '/** a slot that passes T to its fill, as a member of a component\'s props type: `cell: Slot<{ row: Row }>` */', 'interface Slot<T> { readonly \'sinter.slot\': T }'];
   if (layouts.length) {
     lines.push('/** every layout of the app, by its tag */', `type LayoutName = ${layouts.map((f) => JSON.stringify(f.slice(0, -5))).join(' | ')};`);
@@ -144,9 +164,10 @@ export function componentTypes(root: string, read: (file: string) => string = (f
 }
 
 /** Writes `src/sinter.components.d.ts` when it changed; its path, or null when no component has a script. */
-export function writeComponentTypes(root: string, read?: (file: string) => string): string | null {
-  const text = componentTypes(root, read);
-  const file = join(root, 'src', 'sinter.components.d.ts');
+export function writeComponentTypes(root: string, read?: (file: string) => string, libs: readonly Library[] = []): string | null {
+  const text = componentTypes(root, read, libs);
+  const self = libs.find((l) => l.dir === root);
+  const file = self ? join(self.folder, 'sinter.components.d.ts') : join(root, 'src', 'sinter.components.d.ts');
   if (text === null) return null;
   let current = '';
   try { current = readFileSync(file, 'utf8'); } catch { /* missing */ }

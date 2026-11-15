@@ -4,8 +4,10 @@
 // the build side: reading a module's imports of lazy packages (and refusing uses a stub cannot serve:
 // SN324), rewriting them, the generated modules, and walking the app's imports (helpers, component
 // scripts). The runtime side is `lazy.ts`.
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, relative, resolve, sep } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import { libraryOf, type Library } from './libraries.js';
+import { resolveImport } from './fold-check.js';
 import { parseModule } from './compiler/index.js';
 import type { Diagnostic } from './compiler/diagnostics.js';
 
@@ -249,7 +251,7 @@ export interface Reach {
  * The lazy packages a module reaches through static value imports of the app's modules (type-only
  * imports are no edge), each with the shortest chain. `cache`: scans by file, shared between calls.
  */
-export function reachLazy(start: string, pkgs: readonly string[], root: string, cache: Map<string, LazyScan | null> = new Map(), read: (f: string) => string = (f) => readFileSync(f, 'utf8'), own = false): Reach[] {
+export function reachLazy(start: string, pkgs: readonly string[], root: string, cache: Map<string, LazyScan | null> = new Map(), read: (f: string) => string = (f) => readFileSync(f, 'utf8'), own = false, libs: readonly Library[] = []): Reach[] {
   const scanOf = (f: string): LazyScan | null => {
     if (!cache.has(f)) {
       let s: LazyScan | null = null;
@@ -264,14 +266,15 @@ export function reachLazy(start: string, pkgs: readonly string[], root: string, 
   const chainTo = (f: string) => { const c: string[] = []; for (let x: string | null = f; x; x = prev.get(x) ?? null) c.unshift(x); return c; };
   while (queue.length) {
     const f = queue.shift()!;
-    if (f.includes(`${sep}node_modules${sep}`)) continue;
+    // packages are not the app's modules, except the component libraries, whose source the app compiles
+    if (f.includes(`${sep}node_modules${sep}`) && !libraryOf(libs, f)) continue;
     const s = scanOf(f);
     if (!s) continue;
     // `own`: what the start module's own functions need, so not what it only re-exports (a barrel: the helpers module)
     for (const spec of own && f === start ? s.imports.filter((x) => !s.reexports?.includes(x) || s.imports.indexOf(x) !== s.imports.lastIndexOf(x)) : s.imports) {
       const pkg = lazyPackage(spec, pkgs);
       if (pkg) { if (!found.has(pkg)) found.set(pkg, { spec: pkg, chain: chainTo(f) }); continue; }
-      const next = resolveFile(spec, f, root);
+      const next = resolveFile(spec, f, root) ?? libraryFile(spec, f, root, libs);
       if (next && !prev.has(next)) { prev.set(next, f); queue.push(next); }
     }
   }
@@ -284,11 +287,17 @@ export function chainText(root: string, r: Reach): string {
 }
 
 /** whether a file is a component's script (`src/components/<name>.ts` beside its `<name>.html`) */
-export function isComponentScript(root: string, file: string): boolean {
-  const dir = resolve(root, 'src/components');
-  if (dirname(file) !== dir) return false;
+export function isComponentScript(root: string, file: string, libs: readonly Library[] = []): boolean {
+  const dirs = [resolve(root, 'src/components'), ...libs.flatMap((l) => [l.folder, l.real + l.folder.slice(l.dir.length)].flatMap((f) => [join(f, 'components'), join(f, 'components', 'internal')]))];
+  const dir = dirname(file);
+  if (!dirs.includes(dir)) return false;
   const m = /^([a-z][a-z0-9]*-[a-z0-9-]*)\.[cm]?[jt]s$/.exec(file.slice(dir.length + 1));
   return !!m && existsSync(resolve(dir, `${m[1]}.html`));
+}
+
+/** a module of a component library an import names (`@acme/ui`, `@acme/ui/x`), resolved as the build resolves it */
+function libraryFile(spec: string, from: string, root: string, libs: readonly Library[]): string | null {
+  return libs.some((l) => spec === l.name || spec.startsWith(l.name + '/')) ? resolveImport(spec, from, root) : null;
 }
 
 /**
@@ -297,21 +306,21 @@ export function isComponentScript(root: string, file: string): boolean {
  * freely (it loads with the package), and so may a helper module that reaches one and the modules
  * between them (`whole`: they load with it; the page calls its helpers only in lets, which wait).
  */
-export function lazyDiagnostics(root: string, pkgs: readonly string[], starts: Array<string | null>, whole: ReadonlySet<string>, scripts: string[]): Diagnostic[] {
+export function lazyDiagnostics(root: string, pkgs: readonly string[], starts: Array<string | null>, whole: ReadonlySet<string>, scripts: string[], libs: readonly Library[] = []): Diagnostic[] {
   if (!pkgs.length) return [];
   const out: Diagnostic[] = [];
   const cache = new Map<string, LazyScan | null>();
   const seen = new Set<string>();
   const visit = (f: string) => {
-    if (seen.has(f) || f.includes(`${sep}node_modules${sep}`)) return;
+    if (seen.has(f) || (f.includes(`${sep}node_modules${sep}`) && !libraryOf(libs, f))) return;
     seen.add(f);
     let code: string;
     try { code = readFileSync(f, 'utf8'); } catch { return; }
     let s: LazyScan;
     try { s = scanLazy(code, f, pkgs); } catch (e) { out.push({ severity: 'error', code: 'SN324', message: `cannot read ${relative(root, f)} to check its imports of lazy packages: ${(e as Error).message}`, file: f, line: 1, col: 1 }); return; }
     cache.set(f, s);
-    if (!isComponentScript(root, f) && !whole.has(f)) for (const p of s.problems) out.push({ severity: 'error', code: 'SN324', message: p.message, file: f, ...lineCol(code, p.offset) });
-    for (const spec of s.imports) { const n = resolveFile(spec, f, root); if (n) visit(n); }
+    if (!isComponentScript(root, f, libs) && !whole.has(f)) for (const p of s.problems) out.push({ severity: 'error', code: 'SN324', message: p.message, file: f, ...lineCol(code, p.offset) });
+    for (const spec of s.imports) { const n = resolveFile(spec, f, root) ?? libraryFile(spec, f, root, libs); if (n) visit(n); }
   };
   for (const f of [...starts, ...scripts]) if (f) visit(f);
   return out;
@@ -332,13 +341,13 @@ export function helperProblem(root: string, r: Reach, helpersFile: string): Diag
  * those modules and the app's modules between them and the package, which load whole with it (no stubs:
  * once loaded, their functions are sync).
  */
-export function lazyHelpers(root: string, pkgs: readonly string[], cache: Map<string, LazyScan | null> = new Map()) {
-  const fileOf = (spec: string) => (spec.startsWith('/') ? resolveFile(spec, root, root) : null);
+export function lazyHelpers(root: string, pkgs: readonly string[], cache: Map<string, LazyScan | null> = new Map(), libs: readonly Library[] = []) {
+  const fileOf = (spec: string) => (spec.startsWith('/') ? resolveFile(spec, root, root) : libraryFile(spec, join(root, 'package.json'), root, libs));
   const of = new Map<string, Reach[]>();
   const reachOf = (spec: string): Reach[] => {
     const f = pkgs.length ? fileOf(spec) : null;
     if (!f) return [];
-    if (!of.has(f)) of.set(f, reachLazy(f, pkgs, root, cache, undefined, true));
+    if (!of.has(f)) of.set(f, reachLazy(f, pkgs, root, cache, undefined, true, libs));
     return of.get(f)!;
   };
   return {
@@ -347,7 +356,8 @@ export function lazyHelpers(root: string, pkgs: readonly string[], cache: Map<st
       const specs = [manifest.module, ...Object.values(manifest.from ?? {}).map((o) => o.module)];
       for (const ns of Object.values(manifest.namespaces)) specs.push(ns.module, ...Object.values(ns.from ?? {}).map((o) => o.module));
       const out = new Set<string>();
-      for (const s of new Set(specs)) if (s) for (const r of reachOf(s)) for (const f of r.chain) out.add(f);
+      // a library module by the path it was found at, and by its real one (a workspace link), which the bundler gives
+      for (const s of new Set(specs)) if (s) for (const r of reachOf(s)) for (const f of r.chain) { out.add(f); try { out.add(realpathSync(f)); } catch { /* as found */ } }
       return out;
     },
   };

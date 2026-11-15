@@ -269,7 +269,10 @@ declares the slot; a component inside it places it without declaring it:
 - **A root inside a fill** (in the caller's markup) starts again: its own fill or its default, never
   the outer one.
 - **A root in its own package's markup** (a component that uses another component declaring the same
-  slot) passes the outer fill through: the inner root's own fill wins where it gives one.
+  slot) passes the outer fill through: the inner root's own fill wins where it gives one. The app's
+  components are one package and each [component library](libraries.md) is one: a placement is
+  filled by a root of its own package only, and a root written in another package's markup starts
+  again.
 - **Every declared slot is placed** somewhere in the root's components, or it is `SN331`.
 - **Fills do not reach into slot content**: a placement in content a caller gives (a plain slot's
   fill, the children of another fill) is not filled by the root that content is passed to.
@@ -564,6 +567,12 @@ A component for the `<head>` holds head elements, any number of them, with no wr
 
 sinter parses a head so that a component's tag stays where it is written; the browser's parser
 would end the head at it and move it, and everything after it, into the body.
+
+## From a library
+
+A [component library](libraries.md) is a package of components in this format, named in
+`sinter({ components: ['@acme/ui'] })`. Its public components are tags like the app's own; their
+names start with the library's prefix (`ui-`), which no app component may use.
 
 ## From `<sn-include>`
 

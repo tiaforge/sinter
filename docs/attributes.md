@@ -77,7 +77,7 @@ In a component file in `src/components/`, and on a component's tag (`early`). De
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }; a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill. Its root renders at most one element: one element, a data-sn-if/data-sn-else chain of them, a component, &lt;sn-component use&gt; or a &lt;slot&gt; |
+| `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html, or a component library's components/): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }; a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill. Its root renders at most one element: one element, a data-sn-if/data-sn-else chain of them, a component, &lt;sn-component use&gt; or a &lt;slot&gt; |
 | `data-sn-head` | props type | on the &lt;template&gt; of a head component (src/components/&lt;name&gt;.html): its props, as data-sn-component; it holds any number of head elements (&lt;title&gt;, &lt;meta&gt;, &lt;link&gt;, …), inlined at its use in a head |
 | `data-sn-emits` | events type | on the &lt;template data-sn-component&gt;: the events emit() sends and their detail types, e.g. { select: Article } |
 | `data-sn-early` | off | on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for uses that may shift the layout when they render, to keep the early script small |

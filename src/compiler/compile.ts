@@ -13,7 +13,7 @@ import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, literalNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
-import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
+import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
@@ -139,6 +139,11 @@ export interface CompileOptions {
   sourcemap?: boolean;
   /** where the app's components are (default `<root>/src/components`): `<name>.html` is the component `<name>` */
   components?: string;
+  /**
+   * the component libraries (`sinter({ components })`, docs/libraries.md): a tag with a library's prefix
+   * is its component, from `<folder>/components/` (public) or `<folder>/components/internal/`
+   */
+  libraries?: readonly CompileLibrary[];
   /** where the app's layouts are (default `<root>/src/layouts`): `<name>.html` is the layout `<name>`, a page's only tag */
   layouts?: string;
   /** Vite's `base`, which the pages' URLs start with (default `/`); for SN515 */
@@ -406,8 +411,25 @@ const IDENT = /^[A-Za-z_][\w]*$/;
 const BAD_PARAM = /^(constructor|__proto__|prototype)$/;
 const SECRET_AUTOCOMPLETE = /^(cc-|one-time-code$|current-password$|new-password$)/;
 
-/** `use`: the uses this markup is in, by their tags' places (`file:offset<…`): two uses on one line differ */
-interface Origin { file: string; src: string; chain: string[]; use?: string }
+/** `use`: the uses this markup is in, by their tags' places (`file:offset<…`): two uses on one line differ; `usedAt`: in a library's file, where the app uses it */
+interface Origin { file: string; src: string; chain: string[]; use?: string; usedAt?: string }
+
+/** the stylesheet `componentCss` serves for the libraries' layer (`@layer sinter-lib;`): a name no component can have */
+export const LAYERS_SHEET = 'sn-layers';
+
+/** A component library, as the compiler needs it (see `Library` in `src/libraries.ts`). */
+export interface CompileLibrary {
+  name: string;
+  /** the package's folder, as diagnostics name its files relative to it */
+  dir: string;
+  /** the app-shaped folder its package.json names */
+  folder: string;
+  prefix: string | null;
+  public: string[];
+  internal: string[];
+  /** its types module: type names in its components' props and slots resolve against it */
+  types: string | null;
+}
 
 /** A row of an unrolled loop (the second pass): its template, item and index, and `inst`, the instance path of what is in it; `up`: the row it is the top of, when the loop is itself a row's top element */
 type RowInfo = { tpl: P5Element; item: string; index: string | null; list: string; offset: number; k: number; value: unknown; inst: string; up?: RowInfo };
@@ -470,6 +492,9 @@ interface ComponentFile {
   rawCss?: string;
   /** the names of its slots that pass data (`Slot<T>` in its props type), read once */
   dataSlots?: Set<string>;
+  /** a component of a library (`sinter({ components })`); `internal`: in its `components/internal/` */
+  lib?: CompileLibrary;
+  internal?: true;
 }
 
 /**
@@ -773,7 +798,7 @@ class Compiler {
   /** components used inside themselves: their tags (recursion points), and the definition each compiles to */
   private readonly points = new WeakMap<P5Element, string>();
   /** `<sn-component use>`: one point per candidate, rendered when `use` is its name; `key`: the value of the data that names it, for narrowing */
-  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup }>();
+  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup }>();
   /** `<sn-component use>`: one choice anchor per use, its candidates gathered as the walk reaches them (`finishChoices`) */
   private readonly choiceGroups: ChoiceGroup[] = [];
   /** the `<template>` of each `if`, `for`, `else` and recursion point node, which `anchors()` turns into a pair of comments */
@@ -1095,6 +1120,7 @@ class Compiler {
       if (r) r.data = id;
     }
     this.fileScripts(doc);
+    this.declareLayers(doc);
     if (this.opts.embed) this.addPlaceholders(doc);
     this.placeholders();
     for (const info of this.page.resources.values()) {
@@ -1197,7 +1223,8 @@ class Compiler {
       styles: [...this.uses.keys()].sort().flatMap((n) => {
         const f = this.componentFiles.get(n), css = f?.css;
         // the root rules of a component that is the root of another component's tag, outside its scope
-        const root = css && this.rootStyled.has(n) ? rootCss(f!.rawCss ?? '', n) : null;
+        const plain = css && this.rootStyled.has(n) ? rootCss(f!.rawCss ?? '', n) : null;
+        const root = plain && f!.lib ? `@layer ${LIBRARY_LAYER} {\n${plain}\n}\n` : plain;
         return css ? [{ name: n, css: root ? css + root : css }] : [];
       }),
       scripts: [...this.scripts].sort(([a], [b]) => a.localeCompare(b)).map(([name, x]) => ({ name, module: x.module, local: x.local, export: x.name, ...(x.lazy ? { lazy: x.lazy } : {}) })),
@@ -1346,7 +1373,8 @@ class Compiler {
     const base = el ? this.valueOffset(el, attr) : 0;
     const { line, col } = el?.sourceCodeLocation ? this.lineCol(origin.src, base + offset) : { line: 1, col: 1 };
     let msg = message;
-    if (origin.chain.length) msg += ` (included from ${origin.chain.join(' ← ')})`;
+    if (origin.usedAt) msg += ` … used at ${origin.usedAt}`;
+    else if (origin.chain.length) msg += ` (included from ${origin.chain.join(' ← ')})`;
     const d: Diagnostic = { severity: severityOf(code), code, message: msg, file: origin.file, line, col };
     if (hint) d.hint = hint;
     const loc = el?.sourceCodeLocation;
@@ -1454,9 +1482,14 @@ class Compiler {
     if (!COMPONENT_NAME.test(tag) || tag.startsWith('sn-')) return null;
     let c = this.componentFiles.get(tag);
     if (c !== undefined) return c;
-    const dir = this.opts.components ?? `${normalize(this.opts.root).replace(/\/$/, '')}/src/components`;
+    // a library's prefix: its component, public or internal, and never the app's
+    const lib = this.libOfTag(tag);
+    const internal = !!lib?.internal.includes(tag);
+    const dir = lib ? `${normalize(lib.folder).replace(/\/$/, '')}/components${internal ? '/internal' : ''}` : this.opts.components ?? `${normalize(this.opts.root).replace(/\/$/, '')}/src/components`;
     const file = normalize(`${dir}/${tag}.html`);
-    try { c = { file, text: this.opts.readFile(file) }; } catch { c = null; }
+    if (lib && !internal && !lib.public.includes(tag)) c = null;
+    else try { c = { file, text: this.opts.readFile(file) }; } catch { c = null; }
+    if (c && lib) { c.lib = lib; if (internal) c.internal = true; }
     if (c && /<template\b[^>]*\sdata-sn-head\b/i.test(c.text)) c.head = true;
     if (c) {
       // a script beside it: the component runs it per instance
@@ -1475,6 +1508,74 @@ class Compiler {
     }
     this.componentFiles.set(tag, c);
     return c;
+  }
+
+  /** the library whose prefix a tag has, or null */
+  libOfTag(tag: string): CompileLibrary | null {
+    if (!this.opts.libraries?.length) return null;
+    const p = tag.split('-')[0];
+    return this.opts.libraries.find((l) => l.prefix === p) ?? null;
+  }
+
+  /** the file whose markup an element is (its own origin, or the nearest ancestor's); undefined for markup sinter made */
+  markupFile(el: P5Element): string | undefined {
+    for (let n: P5Node | P5Parent | null = el; n; n = (n as { parentNode?: P5Parent | null }).parentNode ?? null) {
+      const o = this.origins.get(n as P5Element);
+      if (o) return o.file;
+    }
+    return undefined;
+  }
+
+  /** the package a use's component is in: its library, or null for the app's components (one package) */
+  packageOf(u: Use): CompileLibrary | null {
+    return this.componentFile(u.name)?.lib ?? null;
+  }
+
+  /** a use written in the markup of another package than its component's (rule 3): a new contract, outer fills do not reach into it */
+  crossesPackage(u: Use): boolean {
+    if (!this.opts.libraries?.length || this.defHosts.has(u.host)) return false;
+    const file = this.markupFile(u.host);
+    return file !== undefined && this.libOfFile(file) !== this.packageOf(u);
+  }
+
+  /** the library a file is in, or null: the app's */
+  libOfFile(file: string | undefined): CompileLibrary | null {
+    if (!file || !this.opts.libraries?.length) return null;
+    const f = normalize(file);
+    return this.opts.libraries.find((l) => f.startsWith(normalize(l.folder).replace(/\/$/, '') + '/')) ?? null;
+  }
+
+  /** a library file as messages name it: `@acme/ui/sinter/components/ui-card.html` */
+  libPath(file: string): string {
+    const l = this.libOfFile(file);
+    const f = normalize(file), dir = l ? normalize(l.dir).replace(/\/$/, '') : '';
+    return l && f.startsWith(dir + '/') ? `${l.name}/${f.slice(dir.length + 1)}` : this.rootRel(f);
+  }
+
+  /** a file relative to the root, as diagnostics name it */
+  rootRel(file: string): string {
+    const root = normalize(this.opts.root).replace(/\/$/, '');
+    const f = normalize(file);
+    return f.startsWith(root + '/') ? f.slice(root.length + 1) : f;
+  }
+
+  /** The components the markup of a file chooses among (`<sn-component use>`): a library's own (rule 7), or the app's and the libraries' public ones. */
+  choicePool(file: string | undefined): string[] {
+    const lib = this.libOfFile(file);
+    if (lib) return [...lib.public, ...lib.internal].filter((n) => this.componentFile(n) && !this.componentFile(n)!.head).sort();
+    return [...new Set([...(this.opts.componentNames ?? []), ...this.componentFiles.keys()])].filter((n) => this.componentFile(n) && !this.componentFile(n)!.head && !this.componentFile(n)!.internal).sort();
+  }
+
+  /** A library's internal component used outside its library (SN339): the error, naming the public ones. */
+  internalUse(el: P5Element, def: ComponentFile, offset = 0, attrName: string | null = null): boolean {
+    // a shared definition's host is sinter's: its uses were checked where they are written
+    if (!def.internal || this.defHosts.has(el)) return false;
+    const file = this.markupFile(el);
+    if (file === undefined || this.libOfFile(file) === def.lib) return false;
+    const pub = def.lib!.public;
+    this.report(el, attrName, 'SN339', `\`<${el.tagName === 'sn-component' ? this.points.get(el) ?? '' : el.tagName}>\` is internal to \`${def.lib!.name}\` (\`components/internal/\`): only its own components use it`, offset,
+      pub.length ? `its public components: ${pub.map((n) => `\`<${n}>\``).join(', ')}` : `\`${def.lib!.name}\` has no public components`);
+    return true;
   }
 
   // ---- layouts
@@ -1651,6 +1752,15 @@ class Compiler {
       // (where a recursion point or a choice is: a second pass expands one the first found constant, as a use here)
       if (child.tagName === 'sn-component') { this.pointCtx.set(child, { ch, en }); this.choice(child, en); continue; }
       const def = this.componentFile(child.tagName);
+      if (!def && COMPONENT_NAME.test(child.tagName) && this.libOfTag(child.tagName)) {
+        const lib = this.libOfTag(child.tagName)!;
+        const pool = this.libOfFile(this.origins.get(child)?.file) === lib ? [...lib.public, ...lib.internal] : lib.public;
+        this.report(child, null, 'SN339', `\`<${child.tagName}>\` is not a component of \`${lib.name}\`, which owns the prefix \`${lib.prefix}-\``, 0,
+          (didYouMean(child.tagName, pool).trim() || '') + (pool.length ? `${didYouMean(child.tagName, pool) ? ' ' : ''}its ${pool === lib.public ? 'public ' : ''}components: ${pool.map((n) => `\`<${n}>\``).join(', ')}` : ''));
+        detach(child);
+        continue;
+      }
+      if (def && this.internalUse(child, def)) { detach(child); continue; }
       if (!def && this.layoutFile(child.tagName)) {
         this.report(child, null, 'SN319', `\`<${child.tagName}>\` is a layout: it is the only tag of a page, at its top level`, 0, 'a layout cannot be inside a component, another layout or other markup');
         detach(child);
@@ -1742,7 +1852,9 @@ class Compiler {
     if (!ast || ast.end !== use!.trimEnd().length) {
       return fail('`<sn-component>` takes `use`, an expression naming the component: ``use="`${b.type}-block`"``, `use="{ hero: \'hero-block\' }[b.type]"` or `use="blockComponent(b)"`');
     }
-    const all = [...new Set([...(this.opts.componentNames ?? []), ...this.componentFiles.keys()])].filter((n) => this.componentFile(n) && !this.componentFile(n)!.head).sort();
+    // rule 7: in a library's markup, its own components; in the app's, the app's and the libraries' public ones
+    const all = this.choicePool(this.origins.get(el)?.file);
+    const lib = this.libOfFile(this.origins.get(el)?.file);
     // each candidate, and the value of the data that names it (convention, map), for narrowing
     let cands: Array<{ name: string; key: string | null }>;
     let keySrc: string | null = null, map = false;
@@ -1761,6 +1873,13 @@ class Compiler {
         if (k === null || v === null) return fail('the map in `use` has literal keys and component names as string values: `{ hero: \'hero-block\' }[b.type]`');
         if (!this.componentFile(v)) { this.report(el, 'use', 'SN312', `\`'${v}'\` is not a component; create \`src/components/${v}.html\``, (p as import('acorn').Property).value.start); continue; }
         if (this.componentFile(v)!.head) { this.report(el, 'use', 'SN312', `\`'${v}'\` is a head component; \`<sn-component>\` chooses components for the body`, (p as import('acorn').Property).value.start); continue; }
+        if (!all.includes(v)) {
+          const f = this.componentFile(v)!;
+          if (lib) this.report(el, 'use', 'SN339', `\`'${v}'\` is not a component of \`${lib.name}\`: \`<sn-component use>\` in a library's markup chooses among its own components`, (p as import('acorn').Property).value.start);
+          else if (f.internal) this.report(el, 'use', 'SN339', `\`'${v}'\` is internal to \`${f.lib!.name}\` (\`components/internal/\`): only its own components use it`, (p as import('acorn').Property).value.start, `its public components: ${f.lib!.public.map((n) => `\`'${n}'\``).join(', ')}`);
+          else { cands.push({ name: v, key: k }); continue; }
+          continue;
+        }
         cands.push({ name: v, key: k });
       }
     } else if (ast.type === 'CallExpression') {
@@ -1788,7 +1907,7 @@ class Compiler {
       this.origins.set(x, this.origins.get(el)!);
       this.points.set(x, c.name);
       if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
-      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
       clones.push(x);
     }
     if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);
@@ -1809,7 +1928,9 @@ class Compiler {
     // parsed once per file: each use takes a copy (a constant tree expands a component once per node)
     const frag = freshCopy(this.parsedFiles.get(def.text) ?? this.parsedFiles.set(def.text, parse5.parseFragment(def.text, { sourceCodeLocationInfo: true })).get(def.text)!, null) as DefaultTreeAdapterMap['documentFragment'];
     const loc = host.sourceCodeLocation ? this.lineCol(hostOrigin.src, host.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
-    this.tag(frag, { file: def.file, src: def.text, chain: [`${basename(hostOrigin.file)}:${loc.line}`, ...hostOrigin.chain], use: `${this.siteKey(host) ?? ''}<${hostOrigin.use ?? ''}` });
+    // a library's file: its diagnostics say where the app uses it, the first use from the app's markup
+    const usedAt = hostOrigin.usedAt ?? (def.lib && !this.libOfFile(hostOrigin.file) ? `${this.rootRel(hostOrigin.file)}:${loc.line}` : undefined);
+    this.tag(frag, { file: def.file, src: def.text, chain: [`${basename(hostOrigin.file)}:${loc.line}`, ...hostOrigin.chain], use: `${this.siteKey(host) ?? ''}<${hostOrigin.use ?? ''}`, ...(usedAt ? { usedAt } : {}) });
     this.files.add(def.file);
     const fail = (el: P5Element | null, a: string | null, message: string, hint?: string): null => {
       if (el) this.report(el, a, 'SN312', message, 0, hint);
@@ -1841,7 +1962,7 @@ class Compiler {
     if (def.css === undefined) {
       const css = top.filter((t) => t.tagName === 'style').map((t) => t.childNodes.map((c) => (c as DefaultTreeAdapterMap['textNode']).value ?? '').join('')).join('\n');
       def.rawCss = css;
-      try { def.css = css.trim() ? scopeCss(css, name) : null; } catch (e) {
+      try { def.css = css.trim() ? scopeCss(css, name, def.lib ? LIBRARY_LAYER : undefined) : null; } catch (e) {
         def.css = null;
         this.report(top.find((t) => t.tagName === 'style')!, null, 'SN401', `the component's \`<style>\` does not parse: ${(e as Error).message}`, 0);
       }
@@ -2280,13 +2401,16 @@ class Compiler {
     const k = attr(el, 'name')!;
     const near = didYouMean(k, [...(x.slots?.keys() ?? [])]);
     if (near) this.once(el, 'name', 'SN535', `\`<slot name="${k}">\` in \`<${x.name}>\` is a tree placement, filled by the nearest root that declares \`${k}\`; \`<${x.name}>\` declares a slot of a close name.${near}`, 0);
-    let u = this.enclosing.get(x.host) ?? null, last: Use = x;
-    while (u && !u.slots?.has(k)) { last = u; u = this.enclosing.get(u.host) ?? null; }
+    // within the placement's package (rule 2): a use written in another package's markup is where its package's roots end
+    const pkg = this.packageOf(x);
+    const up1 = (c: Use) => (this.crossesPackage(c) ? null : this.enclosing.get(c.host) ?? null);
+    let u = up1(x), last: Use = x;
+    while (u && !(u.slots?.has(k) && this.packageOf(u) === pkg)) { last = u; u = up1(u); }
     // the fill: the declaring root's own, or (rule 4) an outer root's, while the roots are in their package's markup
     let from: Use | null = u;
-    while (from && !from.treeFills?.has(k) && !this.slotOf.has(from.host)) {
+    while (from && !from.treeFills?.has(k) && !this.slotOf.has(from.host) && !this.crossesPackage(from)) {
       let up = this.enclosing.get(from.host) ?? null;
-      while (up && !up.slots?.has(k)) up = this.enclosing.get(up.host) ?? null;
+      while (up && !(up.slots?.has(k) && this.packageOf(up) === pkg)) up = up1(up);
       if (!up) break;
       from = up;
     }
@@ -2647,7 +2771,7 @@ class Compiler {
     // definition takes them from its row's item, at run time
     // a root in caller markup (slot content, a fill, a page) starts a new contract (rule 3); in its own package's
     // markup, the fills of slots it also declares pass into it, and one written on its tag wins (rule 4)
-    const inherit = def ? { expr: `$.${def.rt}.$f`, own: new Map<string, number | null>() } : this.slotOf.has(use.host) ? undefined : caller.component?.fills;
+    const inherit = def ? { expr: `$.${def.rt}.$f`, own: new Map<string, number | null>() } : this.slotOf.has(use.host) || this.crossesPackage(use) ? undefined : caller.component?.fills;
     let fills = inherit;
     if (use.slots?.size) {
       const own = new Map(inherit?.own ?? []);
@@ -2852,7 +2976,7 @@ class Compiler {
         const src = attr(host, 'use')!;
         this.expr(host, 'use', ctx.scope, { mode: 'value' }, choice.keySrc!, src.lastIndexOf(choice.keySrc!));
         this.typeLast({ returns: { kind: 'ts', text: choice.keys.map((k) => JSON.stringify(k)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
-      } else if (choice.first && this.check) this.typeLast({ returns: { kind: 'ts', text: [...new Set([...(this.opts.componentNames ?? []), ...choice.names])].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
+      } else if (choice.first && this.check) this.typeLast({ returns: { kind: 'ts', text: [...new Set([...(choice.pool ?? this.opts.componentNames ?? []), ...choice.names])].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
     }
     const { lets } = this.propLets(use, ctx.scope);
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
@@ -3090,14 +3214,16 @@ class Compiler {
     walk(nodes);
   }
 
-  /** Rule 5: every slot a component declares is placed somewhere inside it, directly or by a component it reaches. */
+  /** Rule 5: every slot a component declares is placed somewhere inside it, directly or by a component of its package it reaches. */
   slotsPlaced() {
     for (const [name, list] of this.uses) {
       const u = list[0]!;
       if (!u.slots?.size) continue;
       const g = this.fileGraph(name);
       for (const [k, m] of u.slots) {
-        if (g.places.has(k) || [...this.reach(name)].some((n) => n !== name && this.fileGraph(n).data.has(k) && !this.fileGraph(n).declares.has(k))) continue;
+        // within its package: a component of another package places its own package's slots
+        const pkg = this.componentFile(name)?.lib ?? null;
+        if (g.places.has(k) || [...this.reach(name)].some((n) => n !== name && (this.componentFile(n)?.lib ?? null) === pkg && this.fileGraph(n).data.has(k) && !this.fileGraph(n).declares.has(k))) continue;
         this.once(u.template, 'data-sn-component', 'SN331', `\`<${name}>\` declares the slot \`${k}\`, and nothing inside it places \`${k}\`: a fill for it would never render`, m.offset,
           `place it: \`<slot name="${k}" data-sn-prop="{ … }">\` in \`<${name}>\` or in a component it uses, or remove it`);
       }
@@ -7516,6 +7642,22 @@ class Compiler {
     }
     const page = (r: RuntimeReason) => (r.file === this.opts.file ? 0 : 1);
     return out.sort((a, b) => page(a) - page(b) || (a.file === b.file ? a.at - b.at : 0)).map(({ at: _, ...r }) => r);
+  }
+
+  /**
+   * A page that uses a library's scoped styles: `@layer sinter-lib;` in a stylesheet linked before
+   * anything else in its head, so the libraries' layer comes first and the app's own layers and its
+   * unlayered CSS win. An app that declares the layer itself (`@layer reset, sinter-lib, app;`) in a
+   * stylesheet before it places it among its layers.
+   */
+  declareLayers(doc: DefaultTreeAdapterMap['document']) {
+    if (!this.opts.componentCss || ![...this.uses.keys()].some((n) => this.componentFiles.get(n)?.lib && this.componentFiles.get(n)?.css)) return;
+    const head = findHead(doc);
+    if (!head) return;
+    const link = parse5.parseFragment(`<link rel="stylesheet" href="${this.opts.componentCss(LAYERS_SHEET).replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`)}">`).childNodes[0] as P5Element;
+    link.parentNode = head;
+    const first = head.childNodes.findIndex((c) => isElement(c) && (c.tagName === 'link' || c.tagName === 'style'));
+    head.childNodes.splice(first < 0 ? head.childNodes.length : first, 0, link as never);
   }
 
   /**

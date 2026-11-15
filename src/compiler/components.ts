@@ -143,13 +143,18 @@ const GLOBAL_AT = new Set(['import', 'font-face', 'keyframes', '-webkit-keyframe
  * copy whose first compound may be the root, `.compact p, :where(:scope):is(.compact) p`, with the
  * same specificity (`:where()` adds none). Selectors are otherwise as written.
  */
-export function scopeCss(css: string, name: string): string {
+export function scopeCss(css: string, name: string, layer?: string): string {
   const { global, scoped } = splitCss(css);
   const sel = JSON.stringify(name);
   const out = [...global];
-  if (scoped.length) out.push(`@scope ([data-sn-c=${sel}], [data-sn-s=${sel}]) to ([data-sn-c], [data-sn-s]) {\n${scoped.join('\n')}\n}`);
+  const block = `@scope ([data-sn-c=${sel}], [data-sn-s=${sel}]) to ([data-sn-c], [data-sn-s]) {\n${scoped.join('\n')}\n}`;
+  // a library's: in its cascade layer, below the app's unlayered CSS and its own layers
+  if (scoped.length) out.push(layer ? `@layer ${layer} {\n${block}\n}` : block);
   return out.join('\n') + '\n';
 }
+
+/** the cascade layer of the libraries' scoped styles, declared first in a page's stylesheet */
+export const LIBRARY_LAYER = 'sinter-lib';
 
 /**
  * A component's root rules, for an element that is its root through another component's tag (its

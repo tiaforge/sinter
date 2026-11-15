@@ -26,7 +26,12 @@ export interface ShadowOptions {
   openapi?: string[];
   /** the type names of each spec's named schemas, by spec index */
   schemas?: string[][];
+  /** the component libraries' types modules: a type written in a file of `folder` names theirs */
+  libraries?: LibraryTypes[];
 }
+
+/** A component library's types module, the names it exports, and the folder of the files it types. */
+export interface LibraryTypes { folder: string; file: string; names: string[] }
 
 /** A run of shadow lines that came from the HTML. */
 export interface Region {
@@ -177,11 +182,20 @@ export function shadow(o: ShadowOptions): Shadow {
   line('/** @template T @param {T} v @returns {T | undefined} */');
   line('function $waits(v) { return v; }');
 
+  /** a type written in a library's file: its names are the library's types module's (`Item` → `import('…').Item`) */
+  const libTyped = (text: string, loc: CheckLoc): string => {
+    const lib = o.libraries?.find((l) => loc.file.startsWith(l.folder.replace(/[\\/]$/, '') + '/'));
+    if (!lib?.names.length) return text;
+    const at = spec(lib.file).replace(/\.(d\.)?ts$/, '');
+    const names = new Set(lib.names);
+    // not inside a string, not a property (`.Item`, `Item:`)
+    return text.replace(/'[^']*'|"[^"]*"|(?<![\w$.])[A-Za-z_$][\w$]*(?![\w$]|\s*\??:)/g, (m) => (names.has(m) ? `import('${at}').${m}` : m));
+  };
   /** a JSDoc tag with a type; a type the app wrote maps its errors to where it was written */
   const tagged = (tag: string, t: TypeRef, after = '') => {
     if (t.kind === 'ts') {
       line(`/** @${tag} {`);
-      verbatim(t.text, t.loc);
+      verbatim(libTyped(t.text, t.loc), t.loc);
       regions[regions.length - 1]!.fixed = true;
       line(`} */${after}`);
       return;
@@ -219,7 +233,7 @@ export function shadow(o: ShadowOptions): Shadow {
         line(`/** The values the placement of \`${f.name}\` in \`<${f.component}>\` passes to this fill (\`Slot<T>\` in its props).`);
         if (f.type.kind === 'ts') {
           line(' * @type {');
-          verbatim(f.type.text, f.type.loc);
+          verbatim(libTyped(f.type.text, f.type.loc), f.type.loc);
           regions[regions.length - 1]!.fixed = true;
           line(' * } */ const $slot = $any;');
         } else line(' * @type {any} */ const $slot = $any;');

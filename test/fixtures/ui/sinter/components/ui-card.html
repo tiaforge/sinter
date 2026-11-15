@@ -1,0 +1,10 @@
+<template data-sn-component="{ title: string; tone?: Tone }">
+  <section class="card" data-sn-class="{ loud: tone === 'loud' }">
+    <h2 data-sn-text="title"></h2>
+    <slot></slot>
+  </section>
+</template>
+<style>
+  .card { padding: 9px; }
+  h2 { color: rgb(1, 2, 3); }
+</style>
