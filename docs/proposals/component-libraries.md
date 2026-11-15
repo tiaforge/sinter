@@ -16,6 +16,7 @@ there and lands in `main` with the rest.
 | 2, anchors as comments | in progress | a `data-sn-else` after `<sn-component use>` stays an `if` anchor of its own |
 | 3, slots that pass data | merged here | see below |
 | 6, the constant pre-pass | merged here | see below |
+| 7, nested loops and the worklist | in progress (from the integration branch) | |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
