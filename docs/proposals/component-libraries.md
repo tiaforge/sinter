@@ -66,7 +66,11 @@ cells, a tree view: a library that turns a value into a tree, and components tha
 - **Anchors.** Every `data-sn-if` and `data-sn-for` keeps its `<template>` in place and inserts an
   end comment after what it renders (`runtime/app.ts`); so does every recursion point and every
   candidate. A `<template>` is an element, so `:first-child`, `:nth-child`, `+` and `>` count it:
-  `li:first-child` does not match the first row of a list today. The compiler's layout model counts
+  `li:first-child` does not match the first row of a list today, and with N candidates of
+  `<sn-component use>`, N empty templates sit before every dispatched row, so `+` fails between any
+  two rows. Measured in step 1 on the article: `li:first-child` 0 of 63, `h2 + p` 0 of 25, `p + p`
+  0 of 53, `:is(p, li) > :first-child` 0 of 338, and `tr:nth-child(even)` with its parity flipped.
+  The compiler's layout model counts
   it too: reserved space and `sizes` treat "the template, right before row 1" as a sibling
   (`compiler/layout.ts`, spec.md Reserved space).
 - **Ids.** Root bindings, `if`s and `for`s have node ids (`data-sn`); templates have ids of their own
@@ -82,8 +86,9 @@ cells, a tree view: a library that turns a value into a tree, and components tha
   computes state again on mount.
 - **One root element.** A component's template has exactly one plain element at its top, not a
   `<template>`, a `<slot>` or a component. A text binding sits on an element: `data-sn-text` sets an
-  element's content. So every link, heading and run of text in a rendered tree needs an element of
-  its own today.
+  element's content. In step 1 the rule forced no wrapper elements, but a component per heading
+  level and per kind of list (`md-h1` … `md-h6`, `md-ul`, `md-ol`), and a `<span>` around every run
+  of text that sits beside an element (1,475 of them).
 - **Text in parsed HTML.** Two text nodes side by side in HTML come back from the parser as one, and
   an empty one as none. Today each text binding has an element of its own, so this never matters.
 - **Build-time constants** ([spec.md](../spec.md), Build-time constants): a binding over constants is
@@ -121,7 +126,11 @@ cells, a tree view: a library that turns a value into a tree, and components tha
 - **Lazy packages** ([lazy.md](../lazy.md)): every call into the package returns a promise. A helper
   module that reaches one is `SN324`, and lazy.md names a markdown body as the case to load with the
   page instead; the RealWorld example notes that a lazy renderer was what held its largest element
-  (`examples/realworld/src/markdown.js`). A component script that imports a lazy package loads with
+  (`examples/realworld/src/markdown.js`). Loaded with the page, that island (marked and DOMPurify,
+  writing `innerHTML`, so not under Trusted Types) is the fastest option step 1 measured: LCP 188 ms,
+  1,370 elements, 120 ms from the response to the rendered article, against 424 ms, 2,831 elements
+  and 346 ms for the userland components. The gap is mostly rendering, not parsing; it is the bar
+  steps 2 to 4 are measured against. A component script that imports a lazy package loads with
   it, whole, when the component first renders. The lazy transform and its import walk cover the
   app's modules, not `node_modules`. `<sn-resource call>` runs an async action function; it does not
   combine with `each` and is not early.
@@ -827,11 +836,11 @@ turn its functions into promises: once loaded, they are synchronous.
     against 4.0 kB for the same article sent as a tree;
   - it parses twice before the first paint (FCP 520 ms against 32 ms);
   - the page module adopts the 2,831 early elements, then evaluates the let again, gets new objects,
-    and replaces every row of the unkeyed lists, which are matched by item identity: LCP 1,292 ms
-    with embedded data against 468 ms fetched.
+    and replaces every row of the unkeyed lists, which are matched by item identity: LCP 1,164 ms
+    with embedded data against 424 ms fetched.
   So a parser does not belong in the early file, and handing cached lets from the early script to
   the page module is not needed. Markdown from an API is in the first frame only when the API sends
-  the tree (LCP 320 ms in step 1).
+  the tree (LCP 264 ms in step 1).
 - **The takeover keeps what the early script rendered.** The last point is general: any early let
   whose helper returns new objects makes the takeover replace the unkeyed rows built over them,
   though a pure helper returns the same contents. At takeover, the rows of an unkeyed list are
@@ -927,10 +936,14 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
   `require-trusted-types-for 'script'`. Prebundled, the parser behaves the same under Trusted Types
   in every app, and the static check of [6](#6-helpers-over-constants-run-at-build-time) sees one
   module graph. Step 1 confirmed it: Vite resolves `decode-named-character-reference` through its
-  `browser` condition to the build that decodes with `innerHTML`, and the first `&amp;` throws under
-  Trusted Types, so nothing renders. The safe decoder costs its entity table: the parser is 35.2 kB
-  gzip with it against 23.1 kB with the DOM build. The library has a browser test with entities
-  under Trusted Types.
+  `browser` condition to the build that decodes with `innerHTML`, and every parse that meets an
+  entity throws under Trusted Types: a single let renders nothing, and in a list of 50 comments 19
+  rows rendered an empty body while the page went on, with only a console error per row. The safe
+  decoder renders `Fish &amp; chips` and costs its entity table: the parser is 35.2 kB gzip with it
+  against 23.1 kB with the DOM build. micromark's `development` condition bundles `debug` into
+  `vite dev` (it reads `window`, `navigator` and `localStorage`, guarded); the production build has
+  none of it, and the prebundled parser removes the difference. The library has a browser test with
+  entities under Trusted Types, in the harness of [Testing](#testing).
 - **One function in three places.** Over a `file:` resource, the compiler runs it. In a let over API
   data, it loads on demand when the app lists the parser in `lazy`, or with the page when it does not.
 - **Public components**: `md-doc` (block content) and `md-inline` (one line: a title, a table
@@ -994,7 +1007,7 @@ warnings, not errors: a literal `id` in repeated markup.
   so a body that renders late shifts the layout. An API that sends the tree avoids both.
 - A placement gives a fill only its default slot; a fill cannot receive named parts.
 - A stream that appends to a let's source parses the whole body again for each chunk: in step 1,
-  69 ms for the first 2,000 characters and 382 ms for the last, so quadratic over the stream.
+  47 ms for the first 2,000 characters and 336 ms for the last, so quadratic over the stream.
 - Links between markdown files stay as written, and a relative link to a repo file is not emitted as
   an asset. A run-time image under a root path needs to be in `publicDir`.
 - A root that is not a plain element is replaced when its condition changes, and focus on it is
@@ -1097,7 +1110,13 @@ warnings, not errors: a literal `id` in repeated markup.
   roots, text nodes, reach-through and fill templates, folding and unrolling, `file:`, lets,
   packages. Each diagnostic has a test. Layout and reserved-space goldens are updated for the new
   anchors.
-- Browser tests for the runtime parts, under the strict CSP and Trusted Types as today: anchors in
+- **A browser test harness that enforces Trusted Types.** `docs/security.md` says the browser suite
+  runs with Trusted Types enforced and a strict CSP, but no test sets `require-trusted-types-for`,
+  and the only CSP in a browser test is `script-src 'self'` (`e2e/navigation/index.html`). Step 2
+  adds one: pages served with `script-src 'self'; style-src 'self'; require-trusted-types-for
+  'script'`, failing on any violation report, as step 1's pages already run. The security doc's
+  claim is corrected now, apart from this proposal.
+- Browser tests for the runtime parts, in that harness: anchors in
   lists, branches, choices, trees and keyed reorders (including rows whose content renders nothing);
   anchors in tables, `<select>`, SVG and dialogs; fills in rows; fill templates instantiated by the
   runtime and the early script; roots replaced when their condition changes; cached and waiting lets;
@@ -1125,8 +1144,8 @@ library gets its own page and a recipe.
 
 ## Plan
 
-1. **Done: a spike in userland, measuring only** (`bench/markdown/` on branch
-   `ccr-ec5fd4e0-bp4vko`, with its write-up and raw results). Its numbers are in the sections they
+1. **Done: a spike in userland, measuring only** (`examples/markdown/` on branch
+   `ccr-ec5fd4e0-bp4vko`, with its write-up, raw results and a list of what it contradicted here). Its numbers are in the sections they
    bear on. It needed the two fixes listed under bugs above, which go into a pull request of their
    own. As planned: in an example app, `md.parse` as an ordinary helper over
    mdast, loaded with the page; about fifteen recursive `md-*` components dispatched with
@@ -1144,7 +1163,7 @@ library gets its own page and a recipe.
    in the head (or at the end of the body when nothing early uses them); ids and the IR change for
    `else`; shared definitions as head templates, with `data-sn-def` and `defs.ts` removed; finding
    anchors at mount and early; the handoff on the start comment; keyed lists; the
-   layout model and reserved space; foreign content; the early renderer's templates in a table; the
+   layout model and reserved space; foreign content; the early renderer's templates in a table; the Trusted Types test harness; the
    dev warnings; spec.md, the goldens and the examples. Useful on its own: prose CSS over any list, and the SVG crash fixed. The
    js-framework-benchmark, the live grids and the bytes before the body in `bench/first-paint` must
    not regress.
@@ -1154,7 +1173,7 @@ library gets its own page and a recipe.
 4. **The component root and text nodes** (section 3): roots that render at most one element, the
    tag's attributes on them and on shared definitions (which fixes the dropped attributes), the
    root marker for scoped styles, `<template data-sn-text>` as a binding target with its separators.
-   Useful on its own for buttons, headings and variants. Needs 2.
+   Useful on its own for buttons, headings and variants. Needs 2. After it, step 1's article is measured again against the RealWorld island (LCP 188 ms, 120 ms to render).
 5. **Tree slots** (section 4) among app components: tree placements, roots and boundaries, fill
    templates chosen by choice anchors, fills compiled in the caller's scope and read through the
    scope chain, with unique runtime names. Measures the re-render of a 3,000-node tree when state a
