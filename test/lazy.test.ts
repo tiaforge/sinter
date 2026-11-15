@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { lazyDiagnostics, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubId, stubModule } from '../src/lazy-build.js';
+import { lazyDiagnostics, lazyHelpers, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubId, stubModule } from '../src/lazy-build.js';
 import { lazyOf } from '../src/project.js';
 
 const scan = (code: string, file = 'a.ts') => scanLazy(code, file, ['openpgp', 'chart.js']);
@@ -125,14 +125,22 @@ describe('the app\'s imports', () => {
     expect(r.map((x) => [x.spec, x.chain.map((f) => f.slice(root.length + 1))])).toEqual([['openpgp', ['src/sinter.helpers.ts', 'src/lib/fmt.ts', 'src/lib/mime.ts', 'src/lib/pgp.ts']]]);
   });
 
-  test('sinter check: problems in the app\'s modules, the helpers that reach a package; component scripts may use it', () => {
-    const d = lazyDiagnostics(root, ['openpgp', 'chart.js'], [join(root, 'src/sinter.helpers.ts'), null], join(root, 'src/sinter.helpers.ts'), [join(root, 'src/components/task-ring.ts')]);
-    expect(d.map((x) => `${x.file.slice(root.length + 1)}:${x.line} ${x.message.slice(0, 60)}`)).toEqual([
-      'src/sinter.helpers.ts:1 the helpers module reaches openpgp, which `sinter({ lazy })`',
-    ]);
-    expect(d[0]!.message).toContain('src/sinter.helpers.ts → src/lib/fmt.ts → src/lib/mime.ts → src/lib/pgp.ts → openpgp');
+  test('helper modules that reach a package: per declaring module, not through the helpers module\'s re-exports', () => {
+    const lh = lazyHelpers(root, ['openpgp']);
+    expect(lh.reach('/src/lib/fmt.ts')).toEqual(['openpgp']);
+    expect(lh.reach('/src/sinter.helpers.ts')).toEqual([]);
+    expect(lh.reach('/src/lib/mime.ts')).toEqual(['openpgp']);
+    // what loads whole with the package: the declaring module and the modules between it and the package
+    const whole = lh.whole({ module: '/src/sinter.helpers.ts', from: { fmt: { module: '/src/lib/fmt.ts' } }, namespaces: {} });
+    expect([...whole].map((f) => f.slice(root.length + 1)).sort()).toEqual(['src/lib/fmt.ts', 'src/lib/mime.ts', 'src/lib/pgp.ts']);
+  });
+
+  test('sinter check: problems in the app\'s modules; component scripts and helper modules that load whole may use the package', () => {
+    const whole = lazyHelpers(root, ['openpgp']).whole({ module: '/src/sinter.helpers.ts', from: { fmt: { module: '/src/lib/fmt.ts' } }, namespaces: {} });
+    const d = lazyDiagnostics(root, ['openpgp', 'chart.js'], [join(root, 'src/sinter.helpers.ts'), null], whole, [join(root, 'src/components/task-ring.ts')]);
+    expect(d).toEqual([]);
     // the types module's misuse is not reached (type-only re-export): put it in the graph
-    const d2 = lazyDiagnostics(root, ['openpgp'], [join(root, 'src/lib/types.ts')], null, []);
+    const d2 = lazyDiagnostics(root, ['openpgp'], [join(root, 'src/lib/types.ts')], new Set(), []);
     expect(d2.map((x) => `${x.line}:${x.col} ${x.code}`)).toEqual(['3:1 SN324']);
   });
 

@@ -177,19 +177,13 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   if (options.prefetch) lines.push(`import $prefetch from ${JSON.stringify(options.prefetch)};`);
   // each helper from the module that declares it, as the early file imports them: past the helpers module and
   // barrels, so a module that reaches a lazy package loads only when a let needs it (docs/lazy.md)
-  const byModule = new Map<string, string[]>();
-  const add = (mod: string, spec: string) => byModule.set(mod, [...(byModule.get(mod) ?? []), spec]);
-  if (parts.helpers.user.length && options.helpers.module) for (const h of parts.helpers.user) {
-    const o = options.helpers.from?.[h];
-    add(o?.module ?? options.helpers.module, o && o.name !== h ? `${o.name} as ${h}` : h);
-  }
   let messages = false;
   for (const [ns, members] of Object.entries(parts.namespaces)) {
-    const info = options.helpers.namespaces[ns]!;
-    if (info.module === MESSAGES) { lines.push(isFixed(options) ? fixedMessages(ns, members, options) : messagesImport(ns, members)); messages = true; continue; }
-    for (const m of members) { const o = info.from?.[m]; add(o?.module ?? info.module, `${o?.name ?? m} as ${ns}$${m}`); }
+    if (options.helpers.namespaces[ns]!.module !== MESSAGES) continue;
+    lines.push(isFixed(options) ? fixedMessages(ns, members, options) : messagesImport(ns, members));
+    messages = true;
   }
-  for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
+  lines.push(...helperImports(parts.helpers.user, parts.namespaces, options.helpers));
   // helper modules that reach lazy packages: each loads whole, with its packages, when a let first needs it
   if (parts.lazyHelpers.length) {
     const specs = [...new Set(parts.lazyHelpers.flatMap((x) => x.lazy))].sort();
@@ -249,6 +243,26 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
     lines.push('$use();', 'await $ready();', `$use(mount(document, { ir, fns, features: [${features.join(', ')}] }));`);
   } else lines.push(`mount(document, { ir, fns, features: [${features.join(', ')}] });`);
   return lines;
+}
+
+/**
+ * The imports of the helpers and namespace members compiled code calls (`h`, `ns$m`), each from the module that
+ * declares it, as the early file imports them: past the helpers module and barrels, so a module that reaches a
+ * lazy package is not loaded with the page (docs/lazy.md). The built-in messages are imported apart.
+ */
+export function helperImports(user: Iterable<string>, namespaces: Record<string, Iterable<string>>, helpers: HelperManifest): string[] {
+  const byModule = new Map<string, string[]>();
+  const add = (mod: string, spec: string) => byModule.set(mod, [...(byModule.get(mod) ?? []), spec]);
+  if (helpers.module) for (const h of user) {
+    const o = helpers.from?.[h];
+    add(o?.module ?? helpers.module, o && o.name !== h ? `${o.name} as ${h}` : h);
+  }
+  for (const [ns, members] of Object.entries(namespaces)) {
+    const info = helpers.namespaces[ns]!;
+    if (info.module === MESSAGES) continue;
+    for (const m of members) { const o = info.from?.[m]; add(o?.module ?? info.module, `${o?.name ?? m} as ${ns}$${m}`); }
+  }
+  return [...byModule].map(([mod, specs]) => `import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
 }
 
 /** a page built in one language, with that language's text (`localePrefix`) */
