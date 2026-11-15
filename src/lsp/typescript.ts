@@ -117,6 +117,7 @@ export class TypeScriptBridge {
       // broken expressions are the compiler's to report
       if ((s.brokenFrom !== null && start.line + 1 >= s.brokenFrom) || quietLine(s.regions, start.line + 1)) continue;
       const d = typeDiagnostic(s.unit, s.regions, start.line + 1, start.character + 1, `TS${item.code}`, item.message, this.root);
+      if (!d) continue;
       const a = mapPosition(s.regions, start.line + 1, start.character + 1);
       const b = mapPosition(s.regions, end.line + 1, end.character + 1);
       if (a && b && a.file === b.file && (b.line > a.line || (b.line === a.line && b.col > a.col))) {

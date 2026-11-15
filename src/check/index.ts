@@ -98,8 +98,16 @@ export function shadowOf(unit: CheckUnit, support: Support, root: string, helper
 }
 
 /** A TypeScript error at a 1-based shadow position, as an SN208 diagnostic at the HTML position. */
-export function typeDiagnostic(unit: CheckUnit, regions: Region[], line: number, col: number, code: string, message: string, root: string): Diagnostic {
+export function typeDiagnostic(unit: CheckUnit, regions: Region[], line: number, col: number, code: string, message: string, root: string): Diagnostic | null {
   const text = `${clean(message, root)} (${code})`;
+  // a candidate of `<sn-component use>` whose key the branches around rule out: never chosen there
+  const cand = regions.find((r) => r.candidate && line >= r.start && line < r.start + r.lines);
+  if (cand) {
+    if (code !== 'TS2367') return null;
+    const c = cand.candidate!, at = cand.loc;
+    return { severity: 'warning', code: 'SN538', message: `\`${c.name}\` can never be chosen here: \`${c.keySrc}\` cannot be \`${JSON.stringify(c.key)}\` where this \`<sn-component>\` is (a branch around it rules it out)` + (at.chain.length ? ` (included from ${at.chain.join(' ← ')})` : ''),
+      file: at.file, line: at.line, col: at.col, hint: 'remove the candidate from `use`, or move the `<sn-component>` out of the branch that excludes it' };
+  }
   const loc = mapPosition(regions, line, col);
   return loc
     ? { severity: 'error', code: 'SN208', message: text + (loc.chain.length ? ` (included from ${loc.chain.join(' ← ')})` : ''), file: loc.file, line: loc.line, col: loc.col }
@@ -242,6 +250,7 @@ function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<str
     // errors in the app's own modules are its own tsc's business; broken expressions are the compiler's
     if (!s || (s.brokenFrom !== null && Number(m[2]) >= s.brokenFrom) || quietLine(s.regions, Number(m[2]))) continue;
     const d = typeDiagnostic(s.unit, s.regions, Number(m[2]), Number(m[3]), m[4]!, m[5]!, root);
+    if (!d) continue;
     out.push(d);
     last = d;
   }

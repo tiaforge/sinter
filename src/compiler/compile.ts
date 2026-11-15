@@ -798,7 +798,7 @@ class Compiler {
   /** components used inside themselves: their tags (recursion points), and the definition each compiles to */
   private readonly points = new WeakMap<P5Element, string>();
   /** `<sn-component use>`: one point per candidate, rendered when `use` is its name; `key`: the value of the data that names it, for narrowing */
-  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup }>();
+  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup; keyAt?: number }>();
   /** `<sn-component use>`: one choice anchor per use, its candidates gathered as the walk reaches them (`finishChoices`) */
   private readonly choiceGroups: ChoiceGroup[] = [];
   /** the `<template>` of each `if`, `for`, `else` and recursion point node, which `anchors()` turns into a pair of comments */
@@ -1858,7 +1858,7 @@ class Compiler {
     const all = this.choicePool(this.origins.get(el)?.file);
     const lib = this.libOfFile(this.origins.get(el)?.file);
     // each candidate, and the value of the data that names it (convention, map), for narrowing
-    let cands: Array<{ name: string; key: string | null }>;
+    let cands: Array<{ name: string; key: string | null; at?: number }>;
     let keySrc: string | null = null, map = false;
     if (ast.type === 'TemplateLiteral' && ast.expressions.length === 1) {
       const pre = ast.quasis[0]!.value.cooked ?? '', post = ast.quasis[1]!.value.cooked ?? '';
@@ -1879,10 +1879,10 @@ class Compiler {
           const f = this.componentFile(v)!;
           if (lib) this.report(el, 'use', 'SN339', `\`'${v}'\` is not a component of \`${lib.name}\`: \`<sn-component use>\` in a library's markup chooses among its own components`, (p as import('acorn').Property).value.start);
           else if (f.internal) this.report(el, 'use', 'SN339', `\`'${v}'\` is internal to \`${f.lib!.name}\` (\`components/internal/\`): only its own components use it`, (p as import('acorn').Property).value.start, `its public components: ${f.lib!.public.map((n) => `\`'${n}'\``).join(', ')}`);
-          else { cands.push({ name: v, key: k }); continue; }
+          else { cands.push({ name: v, key: k, at: (p as import('acorn').Property).key.start }); continue; }
           continue;
         }
-        cands.push({ name: v, key: k });
+        cands.push({ name: v, key: k, at: (p as import('acorn').Property).key.start });
       }
     } else if (ast.type === 'CallExpression') {
       // rule 7: in a component that declares slots, or has a tree placement, every component would be a candidate
@@ -1909,7 +1909,7 @@ class Compiler {
       this.origins.set(x, this.origins.get(el)!);
       this.points.set(x, c.name);
       if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
-      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
       clones.push(x);
     }
     if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);
@@ -2992,7 +2992,11 @@ class Compiler {
     }
     const { lets } = this.propLets(use, ctx.scope);
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
-    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) this.check.exprs[this.lastExpr]!.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
+    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) {
+      const e = this.check.exprs[this.lastExpr]!;
+      e.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
+      e.guardAt = { name: choice.name, key: choice.key, loc: this.locOf(host, 'use', choice.keyAt ?? 0) };
+    }
     for (const l of lets) if (l.src?.length) this.addSources(`@def:${name}:${l.name}`, l.src);
     const tagAttrs = this.pointAttrs(host, ctx, `$p${def.tid}`);
     // tree slots: the fills chosen here travel down the definition in its item
