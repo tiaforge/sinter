@@ -30,7 +30,33 @@ const norm = (html) => blank.evaluate((html) => {
   return root.innerHTML.replace(/>\s+</g, '><').replace(/\s+/g, ' ').replace(/(<br>|<input[^>]*>) /g, '$1').trim();
 }, html);
 const a = await norm(spike), b = await norm(ref);
+
+// prose CSS: what common selectors match in the spike's DOM (template and comment anchors in place)
+// against the same markup without them (to-hast's HTML)
+const SELECTORS = ['li:first-child', 'li:last-child', 'li:nth-child(odd)', 'tr:nth-child(even)', 'h2 + p', 'p + p', '.md > * + *', '.md > :first-child', 'ul:empty', ':is(p, li) > :first-child'];
+const selectorsIn = (target) => target.evaluate((sel) => {
+  const root = document.querySelector('#article');
+  return Object.fromEntries(sel.map((x) => [x, [...root.querySelectorAll(x)].filter((e) => e.localName !== 'template').length]));
+}, SELECTORS);
+await blank.evaluate((html) => {
+  const meta = document.createElement('div'); meta.id = 'article'; meta.className = 'md';
+  meta.append(...new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html').body.childNodes);
+  document.body.replaceChildren(meta);
+}, ref);
+const selectors = { spike: await selectorsIn(page), reference: await selectorsIn(blank) };
+// the DOM shape: elements by tag, and text nodes that are only whitespace, in both
+const shapeIn = (target) => target.evaluate(() => {
+  const root = document.querySelector('#article'), tags = {};
+  for (const e of root.querySelectorAll('*')) if (e.localName !== 'template') tags[e.localName] = (tags[e.localName] ?? 0) + 1;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); let ws = 0, text = 0;
+  while (w.nextNode()) { if (w.currentNode.data.trim()) text++; else ws++; }
+  return { tags, textNodes: text, whitespaceTextNodes: ws };
+});
+const shape = { spike: await shapeIn(page), reference: await shapeIn(blank) };
 await browser.close();
+const diff = Object.fromEntries([...new Set([...Object.keys(shape.spike.tags), ...Object.keys(shape.reference.tags)])]
+  .map((t) => [t, (shape.spike.tags[t] ?? 0) - (shape.reference.tags[t] ?? 0)]).filter(([, d]) => d));
+console.log(JSON.stringify({ selectors, extraElementsByTag: diff, text: { spike: [shape.spike.textNodes, shape.spike.whitespaceTextNodes], reference: [shape.reference.textNodes, shape.reference.whitespaceTextNodes] } }, null, 1));
 if (a === b) { console.log(`equal: ${a.length} characters of normalized HTML`); process.exit(0); }
 let i = 0; while (a[i] === b[i]) i++;
 console.log(`differ at ${i}:\n spike:  …${a.slice(Math.max(0, i - 150), i + 150)}\n to-hast: …${b.slice(Math.max(0, i - 150), i + 150)}`);

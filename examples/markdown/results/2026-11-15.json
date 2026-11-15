@@ -2,62 +2,82 @@
   "bytes": {
     "plain": {
       "article.js": {
-        "raw": 62292,
-        "gzip": 4283
+        "raw": 62333,
+        "gzip": 4304
       },
       "comments.js": {
-        "raw": 62450,
-        "gzip": 4224
+        "raw": 62491,
+        "gzip": 4246
+      },
+      "island.js": {
+        "raw": 60236,
+        "gzip": 20470
       },
       "md.js": {
-        "raw": 149520,
-        "gzip": 50859
+        "raw": 112218,
+        "gzip": 35221
+      },
+      "prefetch.js": {
+        "raw": 37166,
+        "gzip": 15385
       },
       "stream.js": {
-        "raw": 62300,
-        "gzip": 4285
+        "raw": 62341,
+        "gzip": 4306
       },
       "tree.js": {
-        "raw": 61953,
-        "gzip": 4110
+        "raw": 61994,
+        "gzip": 4133
       }
     },
     "embed": {
       "article.js": {
-        "raw": 62299,
-        "gzip": 4287
+        "raw": 62340,
+        "gzip": 4311
       },
       "article-head.js": {
         "raw": 202201,
         "gzip": 39181
       },
       "comments.js": {
-        "raw": 62457,
-        "gzip": 4228
+        "raw": 62498,
+        "gzip": 4252
       },
       "comments-head.js": {
         "raw": 202323,
         "gzip": 39195
       },
+      "island.js": {
+        "raw": 60243,
+        "gzip": 20474
+      },
+      "island-head.js": {
+        "raw": 263,
+        "gzip": 216
+      },
       "md.js": {
-        "raw": 149914,
-        "gzip": 51037
+        "raw": 112218,
+        "gzip": 35221
+      },
+      "prefetch.js": {
+        "raw": 37570,
+        "gzip": 15556
       },
       "sinter-head.js": {
         "raw": 6027,
         "gzip": 2832
       },
       "stream.js": {
-        "raw": 62307,
-        "gzip": 4289
+        "raw": 62348,
+        "gzip": 4313
       },
       "stream-head.js": {
         "raw": 202213,
         "gzip": 39181
       },
       "tree.js": {
-        "raw": 61960,
-        "gzip": 4113
+        "raw": 62001,
+        "gzip": 4138
       },
       "tree-head.js": {
         "raw": 90248,
@@ -91,32 +111,32 @@
       "html": 21,
       "break": 7
     },
-    "parseNodeMs": 68.5
+    "parseNodeMs": 82.2
   },
   "comments": {
     "count": 50,
-    "markdownBytes": 9048
+    "markdownBytes": 9076
   },
   "pages": {
     "article": {
       "url": "http://127.0.0.1:4390/article/",
-      "lcp": 468,
-      "fcp": 32,
-      "apiEnd": 20,
-      "rendered": 400.9,
-      "renderAfterApi": 362.5,
-      "parseMs": 187.6,
+      "lcp": 424,
+      "fcp": 40,
+      "apiEnd": 18.1,
+      "rendered": 363.9,
+      "renderAfterApi": 346,
+      "parseMs": 182,
       "parses": 4,
       "parsedBytes": 95084,
       "parsesBy": [
         {
           "early": false,
           "parses": 4,
-          "ms": 233.5
+          "ms": 171.9
         }
       ],
-      "scriptMs": 325.3,
-      "styleLayoutMs": 59.8,
+      "scriptMs": 315.4,
+      "styleLayoutMs": 49.2,
       "heapMB": 9.3,
       "dom": {
         "elements": 2831,
@@ -133,28 +153,28 @@
     },
     "articleEmbedded": {
       "url": "http://127.0.0.1:4391/article/",
-      "lcp": 1292,
-      "fcp": 520,
+      "lcp": 1164,
+      "fcp": 484,
       "apiEnd": null,
-      "rendered": 1216.6,
+      "rendered": 1105.3,
       "renderAfterApi": null,
-      "parseMs": 586.1,
+      "parseMs": 538.2,
       "parses": 6,
       "parsedBytes": 285252,
       "parsesBy": [
         {
           "early": true,
           "parses": 2,
-          "ms": 248.8
+          "ms": 200.4
         },
         {
           "early": false,
           "parses": 4,
-          "ms": 441.2
+          "ms": 337.8
         }
       ],
-      "scriptMs": 769.6,
-      "styleLayoutMs": 109.9,
+      "scriptMs": 650.7,
+      "styleLayoutMs": 90.8,
       "heapMB": 10,
       "dom": {
         "elements": 2831,
@@ -171,23 +191,23 @@
     },
     "articleEmbeddedEarlyOnly": {
       "url": "http://127.0.0.1:4391/article/",
-      "lcp": 548,
-      "fcp": 548,
+      "lcp": 472,
+      "fcp": 472,
       "apiEnd": null,
-      "rendered": 414.6,
+      "rendered": 362.5,
       "renderAfterApi": null,
-      "parseMs": 208.9,
+      "parseMs": 197.2,
       "parses": 2,
       "parsedBytes": 95084,
       "parsesBy": [
         {
           "early": true,
           "parses": 2,
-          "ms": 187
+          "ms": 197.2
         }
       ],
-      "scriptMs": 378.6,
-      "styleLayoutMs": 70.6,
+      "scriptMs": 335.5,
+      "styleLayoutMs": 56.9,
       "heapMB": 5.6,
       "dom": {
         "elements": 2831,
@@ -204,11 +224,11 @@
     },
     "tree": {
       "url": "http://127.0.0.1:4390/tree/",
-      "lcp": 320,
-      "fcp": 320,
-      "apiEnd": 21.4,
-      "rendered": 229.6,
-      "renderAfterApi": 210.7,
+      "lcp": 264,
+      "fcp": 264,
+      "apiEnd": 17.5,
+      "rendered": 197.3,
+      "renderAfterApi": 177.9,
       "parseMs": 0,
       "parses": 0,
       "parsedBytes": 0,
@@ -219,8 +239,8 @@
           "ms": 0
         }
       ],
-      "scriptMs": 176.4,
-      "styleLayoutMs": 67.7,
+      "scriptMs": 148,
+      "styleLayoutMs": 53.2,
       "heapMB": 8,
       "dom": {
         "elements": 2831,
@@ -235,12 +255,39 @@
       },
       "errors": []
     },
+    "islandMarkedDompurify": {
+      "url": "http://127.0.0.1:4390/island/",
+      "lcp": 188,
+      "fcp": 188,
+      "apiEnd": 19.5,
+      "rendered": 138.7,
+      "renderAfterApi": 120.1,
+      "parseMs": 0,
+      "parses": 0,
+      "parsedBytes": 0,
+      "parsesBy": [],
+      "scriptMs": 10.2,
+      "styleLayoutMs": 31.7,
+      "heapMB": 2.2,
+      "dom": {
+        "elements": 1370,
+        "templates": 1,
+        "defsFilled": 0,
+        "defsEmpty": 0,
+        "comments": 1,
+        "texts": 1605,
+        "emptyTexts": 903,
+        "nodesInsideTemplates": 1,
+        "bindings": 654
+      },
+      "errors": []
+    },
     "treeEmbedded": {
       "url": "http://127.0.0.1:4391/tree/",
-      "lcp": 316,
-      "fcp": 316,
+      "lcp": 252,
+      "fcp": 252,
       "apiEnd": null,
-      "rendered": 433.3,
+      "rendered": 371.6,
       "renderAfterApi": null,
       "parseMs": 0,
       "parses": 0,
@@ -257,8 +304,8 @@
           "ms": 0
         }
       ],
-      "scriptMs": 195.6,
-      "styleLayoutMs": 67.6,
+      "scriptMs": 151.8,
+      "styleLayoutMs": 54.3,
       "heapMB": 10.8,
       "dom": {
         "elements": 2831,
@@ -275,106 +322,106 @@
     },
     "comments": {
       "url": "http://127.0.0.1:4390/comments/",
-      "lcp": 196,
-      "fcp": 196,
-      "apiEnd": 19.7,
-      "rendered": 163.2,
-      "renderAfterApi": 143.5,
-      "parseMs": 68.4,
+      "lcp": 200,
+      "fcp": 200,
+      "apiEnd": 17.4,
+      "rendered": 160.4,
+      "renderAfterApi": 143.1,
+      "parseMs": 70.5,
       "parses": 100,
-      "parsedBytes": 18096,
+      "parsedBytes": 18152,
       "parsesBy": [
         {
           "early": false,
           "parses": 100,
-          "ms": 64.6
+          "ms": 88.4
         }
       ],
-      "scriptMs": 112.2,
-      "styleLayoutMs": 21.4,
-      "heapMB": 3.8,
+      "scriptMs": 113.8,
+      "styleLayoutMs": 19.4,
+      "heapMB": 3.7,
       "dom": {
-        "elements": 663,
-        "templates": 5057,
-        "defsFilled": 482,
-        "defsEmpty": 4206,
-        "comments": 4997,
-        "texts": 359,
+        "elements": 646,
+        "templates": 4896,
+        "defsFilled": 465,
+        "defsEmpty": 4070,
+        "comments": 4836,
+        "texts": 350,
         "emptyTexts": 259,
-        "nodesInsideTemplates": 3586,
-        "bindings": 5477
+        "nodesInsideTemplates": 3489,
+        "bindings": 5308
       },
       "errors": []
     },
     "commentsEmbedded": {
       "url": "http://127.0.0.1:4391/comments/",
-      "lcp": 220,
-      "fcp": 220,
+      "lcp": 188,
+      "fcp": 188,
       "apiEnd": null,
-      "rendered": 340,
+      "rendered": 288.9,
       "renderAfterApi": null,
-      "parseMs": 158.1,
+      "parseMs": 136.8,
       "parses": 200,
-      "parsedBytes": 36192,
+      "parsedBytes": 36304,
       "parsesBy": [
         {
           "early": true,
           "parses": 100,
-          "ms": 83.9
+          "ms": 65.2
         },
         {
           "early": false,
           "parses": 100,
-          "ms": 59.3
+          "ms": 68.9
         }
       ],
-      "scriptMs": 145.8,
-      "styleLayoutMs": 19.2,
-      "heapMB": 4.4,
+      "scriptMs": 123.1,
+      "styleLayoutMs": 18.6,
+      "heapMB": 4.3,
       "dom": {
-        "elements": 663,
-        "templates": 5057,
-        "defsFilled": 482,
-        "defsEmpty": 4206,
-        "comments": 4997,
-        "texts": 359,
+        "elements": 646,
+        "templates": 4896,
+        "defsFilled": 465,
+        "defsEmpty": 4070,
+        "comments": 4836,
+        "texts": 350,
         "emptyTexts": 259,
-        "nodesInsideTemplates": 3586,
-        "bindings": 5477
+        "nodesInsideTemplates": 3489,
+        "bindings": 5308
       },
       "errors": []
     }
   },
   "rerender": {
-    "medianMs": 368.4,
+    "medianMs": 296.3,
     "parsesPerRender": 2,
     "runs": [
       {
-        "ms": 382.9,
+        "ms": 369.5,
         "parses": 2,
         "elements": 2831,
         "firstParagraphKept": false
       },
       {
-        "ms": 337.9,
+        "ms": 296.3,
         "parses": 2,
         "elements": 2831,
         "firstParagraphKept": false
       },
       {
-        "ms": 368.4,
+        "ms": 299.3,
         "parses": 2,
         "elements": 2831,
         "firstParagraphKept": false
       },
       {
-        "ms": 405.8,
+        "ms": 285.6,
         "parses": 2,
         "elements": 2831,
         "firstParagraphKept": false
       },
       {
-        "ms": 243.7,
+        "ms": 296.1,
         "parses": 2,
         "elements": 2831,
         "firstParagraphKept": false
@@ -385,159 +432,159 @@
     "chunkChars": 2000,
     "perChunk": [
       {
-        "ms": 68.8,
+        "ms": 47.2,
         "parses": 2,
         "elements": 154,
         "firstParagraphKept": false
       },
       {
-        "ms": 60.1,
+        "ms": 50.8,
         "parses": 2,
         "elements": 258,
         "firstParagraphKept": false
       },
       {
-        "ms": 63.8,
+        "ms": 52.1,
         "parses": 2,
         "elements": 363,
         "firstParagraphKept": false
       },
       {
-        "ms": 89.9,
+        "ms": 69,
         "parses": 2,
         "elements": 498,
         "firstParagraphKept": false
       },
       {
-        "ms": 88.3,
+        "ms": 70.5,
         "parses": 2,
         "elements": 615,
         "firstParagraphKept": false
       },
       {
-        "ms": 124.4,
+        "ms": 79.1,
         "parses": 2,
         "elements": 708,
         "firstParagraphKept": false
       },
       {
-        "ms": 127.4,
+        "ms": 108,
         "parses": 2,
         "elements": 866,
         "firstParagraphKept": false
       },
       {
-        "ms": 179.8,
+        "ms": 133.7,
         "parses": 2,
         "elements": 965,
         "firstParagraphKept": false
       },
       {
-        "ms": 174.5,
+        "ms": 122.8,
         "parses": 2,
         "elements": 1086,
         "firstParagraphKept": false
       },
       {
-        "ms": 201.4,
+        "ms": 157,
         "parses": 2,
         "elements": 1223,
         "firstParagraphKept": false
       },
       {
-        "ms": 201.9,
+        "ms": 128.1,
         "parses": 2,
         "elements": 1324,
         "firstParagraphKept": false
       },
       {
-        "ms": 220.8,
+        "ms": 135.5,
         "parses": 2,
         "elements": 1422,
         "firstParagraphKept": false
       },
       {
-        "ms": 147.9,
+        "ms": 147.7,
         "parses": 2,
         "elements": 1581,
         "firstParagraphKept": false
       },
       {
-        "ms": 222.5,
+        "ms": 160.7,
         "parses": 2,
         "elements": 1681,
         "firstParagraphKept": false
       },
       {
-        "ms": 203.9,
+        "ms": 167.5,
         "parses": 2,
         "elements": 1819,
         "firstParagraphKept": false
       },
       {
-        "ms": 212.5,
+        "ms": 213.2,
         "parses": 2,
         "elements": 1930,
         "firstParagraphKept": false
       },
       {
-        "ms": 220.7,
+        "ms": 199,
         "parses": 2,
         "elements": 2020,
         "firstParagraphKept": false
       },
       {
-        "ms": 181.7,
+        "ms": 253.2,
         "parses": 2,
         "elements": 2151,
         "firstParagraphKept": false
       },
       {
-        "ms": 242.7,
+        "ms": 200.1,
         "parses": 2,
         "elements": 2253,
         "firstParagraphKept": false
       },
       {
-        "ms": 275.7,
+        "ms": 272,
         "parses": 2,
         "elements": 2366,
         "firstParagraphKept": false
       },
       {
-        "ms": 198.4,
+        "ms": 234.4,
         "parses": 2,
         "elements": 2497,
         "firstParagraphKept": false
       },
       {
-        "ms": 229.2,
+        "ms": 224.6,
         "parses": 2,
         "elements": 2607,
         "firstParagraphKept": false
       },
       {
-        "ms": 251.6,
+        "ms": 223.7,
         "parses": 2,
         "elements": 2704,
         "firstParagraphKept": false
       },
       {
-        "ms": 382,
+        "ms": 336.2,
         "parses": 2,
         "elements": 2831,
         "firstParagraphKept": false
       }
     ],
-    "medianMs": 201.4,
-    "lastMs": 382,
+    "medianMs": 157,
+    "lastMs": 336.2,
     "parsesPerChunk": 2
   },
   "walk20k": {
     "nodes": 20001,
     "querySelectorAll": 0.2,
     "treeWalkerElementsAndComments": 0.5,
-    "treeWalkerCommentsOnly": 0.3,
-    "walkCheckingData": 1.4
+    "treeWalkerCommentsOnly": 0.2,
+    "walkCheckingData": 1.2
   }
 }

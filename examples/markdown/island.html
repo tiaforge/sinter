@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self'; style-src 'self'">
+  <title>Island</title>
+  <link rel="stylesheet" href="/src/prose.css">
+  <script type="module" src="/src/island.js"></script>
+</head>
+<!-- The same article rendered as RealWorld renders its body: marked + DOMPurify in an island, no Trusted Types -->
+<body>
+<sn-resource name="article" src="/api/article"></sn-resource>
+<main>
+  <template data-sn-if="article"><island-markdown id="article" class="md" data-sn-prop="{ source: article.body }"></island-markdown></template>
+</main>
+</body>
+</html>

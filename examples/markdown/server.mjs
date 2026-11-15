@@ -7,7 +7,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { embed } from '../../dist/server.js';
-import { gzip } from '../gzip.mjs';
+import { gzip } from '../../bench/gzip.mjs';
 import { article, comments, tree } from './data.mjs';
 
 const [dir = 'dist', port = '4390'] = process.argv.slice(2);

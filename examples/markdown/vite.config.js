@@ -4,7 +4,7 @@ import sinter from '@tiaforge-ui/sinter/vite';
 import { api } from './api.mjs';
 
 // SINTER_EMBED=1: placeholders for embedded data (server.mjs fills them)
-const pages = ['article', 'comments', 'tree', 'stream'];
+const pages = ['article', 'comments', 'tree', 'stream', 'island'];
 export default defineConfig({
   appType: 'mpa',
   // micromark's entity decoder has a browser build that decodes through innerHTML, which

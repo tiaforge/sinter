@@ -2,3 +2,4 @@ node_modules
 dist
 dist-embed
 results/*.tmp
+dist-dom

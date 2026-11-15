@@ -47,7 +47,9 @@ export function comments(n = 50) {
     id: i + 1,
     author: `user${i % 9}`,
     // user content: a heading, an image and raw HTML, which the parse options take out
-    body: i % 10 === 0
+    // comment 2: an escaped entity, which the parser decodes (Trusted Types: the DOM decoder throws here)
+    body: i === 1 ? 'Fish &amp;amp; chips, and `&amp;` in code.'
+      : i % 10 === 0
       ? `# Not a heading\n\n${sentence()} ![img](/x.png) <script>alert(1)</script>`
       : `${sentence()} ${sentence()}${i % 3 === 0 ? `\n\n- ${sentence(4)}\n- ${sentence(4)}` : ''}`,
   }));

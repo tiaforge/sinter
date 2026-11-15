@@ -2,6 +2,7 @@
 // context per run, median of RUNS. Needs both builds and both servers:
 //   npm run build && SINTER_EMBED=1 npm run build
 //   node server.mjs dist 4390 & node server.mjs dist-embed 4391 &
+// (the island page, RealWorld's marked + DOMPurify body, is the comparison point for LCP)
 //   node measure.mjs > results/<date>.json
 import { chromium } from 'playwright';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -106,6 +107,7 @@ await series('article', `${PLAIN}/article/`);
 await series('articleEmbedded', `${EMBED}/article/`);
 await series('articleEmbeddedEarlyOnly', `${EMBED}/article/`, { block: /\/assets\/article-(?!head-)[^/]*\.js$/ });
 await series('tree', `${PLAIN}/tree/`);
+await series('islandMarkedDompurify', `${PLAIN}/island/`);
 await series('treeEmbedded', `${EMBED}/tree/`);
 await series('comments', `${PLAIN}/comments/`);
 await series('commentsEmbedded', `${EMBED}/comments/`);
