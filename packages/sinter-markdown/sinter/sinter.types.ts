@@ -22,6 +22,9 @@ export type Block = Paragraph | Heading | ThematicBreak | Blockquote | List | Co
 /** phrasing content: the inside of a paragraph, a heading, a table cell */
 export type Inline = Text | Emphasis | Strong | Delete | InlineCode | Break | Link | Image | Kbd | Sub | Sup | Mark;
 
+/** phrasing content other than a text run: what `md-phrasing` dispatches to its component */
+export type Phrasing = Exclude<Inline, Text>;
+
 /** any node of the tree */
 export type MdNode = Root | Block | Inline | ListItem | TableRow | TableCell;
 

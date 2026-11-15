@@ -51,8 +51,10 @@ package.json              name, "sinter": "./sinter", exports, the sinter versio
 sinter/                   the library's source, laid out like an app's src/
   components/             public: what apps use
     md-doc.html           a document: block content, and the slots an app fills
-    md-inline.html        one line: phrasing content, the same slots
+    md-inline.html        one line: phrasing content in a <span>, the slots it can place
     internal/             the library's own: one component per node type
+      md-block.html       one block, by its type: the only place block content is dispatched
+      md-phrasing.html    one inline node but text, by its type: the only place phrasing content is
       md-heading.html     its root is the `heading` slot, whose default is an if chain over the depth
       md-list.html        an if chain over `ordered`
       md-paragraph.html   …
@@ -116,10 +118,22 @@ docs/                     the docs page and the recipe
 - **Roots.** A component's root renders at most one element. A heading is an if chain over its depth,
   a list over `ordered`, and a node an app can change has its slot as its root, with the default
   inside. A root that is not a plain element costs nothing when a constant decides it.
-- **Dispatch.** A node's children are dispatched by type with `<sn-component use="{ paragraph:
-  'md-paragraph', … }[b.type]">`: one choice per node, whatever the number of candidates. In a library
-  with slots it must be the map (or convention) form, so sinter knows every candidate (`SN312`).
-- **Text runs** are `<template data-sn-text>`, a text node with no element around it.
+- **Dispatch in one place.** `md-block` chooses a block's component by its type, and `md-phrasing`
+  an inline node's: each is a component whose root is `<sn-component use="{ paragraph: 'md-paragraph',
+  … }[node.type]">`, one choice per node whatever the number of candidates. Every loop over children
+  renders `<md-block>` or `<md-phrasing>` for each, so each map is written once. A component whose root
+  is the choice adds no element and no anchor of its own. In a library with slots the map (or
+  convention) form is required, so sinter knows every candidate (`SN312`).
+- **Text runs** are `<template data-sn-text>`, a text node with no element around it. A root cannot be
+  text, so text runs are not a component: each loop over phrasing content writes
+  `<template data-sn-if="n.type === 'text'">` for them and passes every other node to `<md-phrasing>`.
+  `test/components.test.ts` checks that every such loop has that form.
+- **Phrasing roots for phrasing places.** `md-inline` is used inside headings, labels and paragraphs,
+  so its root is a `<span>` and everything in it is phrasing content. A `<div>` there is invalid, and
+  in a `<p>` the HTML parser would close the paragraph, so a page built at build time would be
+  reparsed into a different tree. Since it renders no headings, code blocks, quotes or tables, it
+  declares only the slots it places (`link`, `image`, `inlineCode`): every declared slot must be placed
+  (`SN331`).
 
 ### The helpers
 
@@ -216,8 +230,22 @@ What writing this library taught, beyond [the library docs](https://github.com/t
   not to send the image through the app's resizing service; an app that wants it resized fills the
   `image` slot.
 - **A candidate that cannot match is a warning.** Under the else of `data-sn-if="b.type === 'paragraph'"`,
-  a map that still lists `paragraph:` names a component that never renders there (`SN538`), so
-  `md-inline.html` leaves it out.
+  a map that still lists `paragraph:` names a component that never renders there (`SN538`).
+- **A separator is one bound text.** md-inline puts a space between paragraphs with
+  `<template data-sn-text="i > 0 ? ' ' : ''">`, not with a `data-sn-if` around a constant text: today
+  that form keeps the loop after it in the same branch from rendering in the browser (reported to sinter).
+
+### Adding a node type
+
+1. Its interface in `sinter/sinter.types.ts`, with its `type` literal, and the interface in the `Block`
+   or `Inline` union.
+2. Its conversion from mdast in `sinter/parse.ts` (`block()` or `inline()`), and its text in `md.text`
+   (`sinter/tree.ts`) if it has no `children` or `value`.
+3. Its component in `sinter/components/internal/`, named with the `md-` prefix.
+4. One entry in the map of `md-block.html` or `md-phrasing.html`. `test/components.test.ts` fails until
+   the map and the union agree and the component exists.
+5. If apps should be able to change it, a slot: declared in `md-doc.html` (and `md-inline.html` for
+   phrasing content), placed as the new component's root.
 
 ## License
 

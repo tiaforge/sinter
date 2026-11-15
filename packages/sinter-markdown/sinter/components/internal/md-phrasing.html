@@ -1,0 +1,9 @@
+<!--
+  One node of phrasing content other than text, by its type: the only place phrasing content is
+  dispatched. Text runs are not components (a root cannot be text), so each loop over phrasing content
+  writes them itself and passes every other node here. To add an inline type, add it to Inline in
+  sinter.types.ts, write its component in this folder, and add it to this map.
+-->
+<template data-sn-component="{ node: Phrasing }">
+  <sn-component use="{ emphasis: 'md-emphasis', strong: 'md-strong', delete: 'md-delete', inlineCode: 'md-inline-code', break: 'md-break', link: 'md-link', image: 'md-image', kbd: 'md-kbd', sub: 'md-sub', sup: 'md-sup', mark: 'md-mark' }[node.type]" data-sn-prop="{ node }"></sn-component>
+</template>
