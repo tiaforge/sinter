@@ -2,8 +2,7 @@
 
 Status: draft, third revision, after two reviews. Nothing here is implemented. Where the first
 revision added new attributes and functions, this one builds on what sinter has; what is new is
-listed in [What is new](#what-is-new). One question is open and decided next: how a component's root
-may be written ([Open questions](#open-questions)).
+listed in [What is new](#what-is-new).
 
 Decided with the user while drafting:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
@@ -17,6 +16,8 @@ Decided with the user while drafting:
   is added.
 - A fill is filled too: a `<slot>` inside a fill takes what the placement gives it, by the rule in
   [A `<slot>` inside a fill](#a-slot-inside-a-fill).
+- A component's root renders at most one element, and need not be written as one plain element:
+  [The component root](#8-the-component-root).
 
 ## Goals
 
@@ -69,6 +70,12 @@ cells, a tree view: a library that turns a value into a tree, and components tha
   `<template>`, a `<slot>` or a component (`compile.ts`, the component's root). A text binding sits
   on an element: `data-sn-text` sets an element's content. So today every link, heading and run of
   text in a rendered tree needs an element of its own.
+- **Anchors.** A `data-sn-if` adopted at run time leaves its `<template>` element and an end marker
+  in the DOM beside its branch (spec.md, early rendering). A `<template>` is an element, so it counts
+  for `:first-child` and `+`.
+- **Text in parsed HTML.** Two text nodes side by side in HTML come back from the parser as one,
+  and an empty one as none. Today each text binding has an element of its own, so this never
+  matters.
 - **Build-time constants** ([spec.md](../spec.md), Build-time constants): a binding over constants is
   written into the HTML, a `data-sn-if` over them is decided, and a `data-sn-for` over a constant
   list of up to 1,000 items is unrolled. The evaluator runs the built-in messages, and under
@@ -125,6 +132,7 @@ cells, a tree view: a library that turns a value into a tree, and components tha
 | Slot content that receives data | `<slot>`, `data-sn-prop`, magic names such as `$event` | `$slot`; `Slot<T>` in the props type |
 | A fill that places the node's children | `<slot>` and the innermost-first lookup of names | a rule: a `<slot>` is filled by the nearest markup given content for it |
 | Fills that reach deep into a tree | slots | a rule: a placement of a slot the component does not declare is filled by the root |
+| A root that is not one plain element, and text without an element | `data-sn-if`, component tags, `<slot>`, `<template>` | a rule: a root renders at most one element, decided once per instance; `data-sn-text` on a `<template>` |
 | Helpers run at build time | the purity contract, the constant evaluator, messages at build time | a rule, with a static check of what a helper may touch |
 | Constant trees folded into HTML | unrolling | nested loops, decisions per instance, a fixpoint, and constants before images |
 | A file from the repo | `<sn-resource src>`, the `site:` source, embedded data | the `file:` source |
@@ -269,12 +277,12 @@ copied into the shared definitions that place it, as a specialization ([below](#
 
 <!-- @acme/markdown: components/internal/md-link.html, deep inside -->
 <template data-sn-component="{ node: Link }">
-  <span><slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url, title: node.title }">…the children…</a></slot></span>
+  <slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url, title: node.title }">…the children…</a></slot>
 </template>
 ```
 
-The `<span>` is there because a component's root cannot be a `<slot>` today; see
-[Open questions](#open-questions).
+The `<slot>` is `md-link`'s root: its default and every fill are one element
+([8](#8-the-component-root)).
 
 ```html
 <!-- a page -->
@@ -353,7 +361,8 @@ There is no shadowing. An app that wants its own links everywhere writes one wra
 ```
 
 - Pages use `app-markdown`. The override is written down in one place and reaches the library only
-  through what the root declares.
+  through what the root declares. Its root is the `<md-doc>` tag, which renders one element
+  ([8](#8-the-component-root)); a page's `class` on `<app-markdown>` lands on `md-doc`'s root.
 - `<slot>` inside the link's fill is the link's children. `<slot name="code" slot="code">` is itself
   the fill of `code`, not inside one, so it is `app-markdown`'s own `code` slot: a page's fill for
   `code` forwards to `md-doc`, with the data passed on by its `data-sn-prop`. Left unfilled by the
@@ -559,9 +568,105 @@ format.
 - **Versions.** A library declares the sinter versions it supports as a `peerDependency`; the app's
   sinter checks the range. It cannot know which version introduced a feature newer than itself.
 
+### 8. The component root
+
+A component's root exists so that what a caller writes on the tag (`class`, `id`, `aria-*`,
+handlers, `data-sn-class`, `data-sn-transition`) lands on exactly one element. Today that is spelled
+one way: one plain element. The rule becomes the guarantee itself:
+
+**A component's root renders at most one element, decided once per instance.**
+
+| Root | Renders at most one element because |
+| --- | --- |
+| a plain element | as today |
+| a `data-sn-if` / `data-sn-else` chain | each branch is a root; without an `else`, nothing renders when no branch holds |
+| a component tag | its root renders at most one element |
+| `<sn-component use>` | each candidate's root does |
+| a `<slot>` | its default is a root, and every fill must be one element |
+
+```html
+<!-- ui-button.html: an <a> or a <button> -->
+<template data-sn-component="{ href?: string; label: string }">
+  <template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="label"></a></template>
+  <template data-sn-else><button type="button" data-sn-text="label"></button></template>
+</template>
+
+<!-- primary-button.html: a variant, with no wrapper -->
+<template data-sn-component="{ href?: string; label: string }">
+  <ui-button class="primary" data-sn-prop="{ href, label }"></ui-button>
+</template>
+```
+
+The same applies outside markdown: a button that is a link or a button, a heading whose level is a
+prop, variants of a design system's components (today each needs a `<div>` around the component it
+specializes), a dispatcher that picks a block per type, a component that renders nothing without
+data, and an element an app can swap for its own.
+
+#### Decided once, with no anchor
+
+A root that is not a plain element is decided when the instance is created, and leaves nothing in
+the DOM but the element it renders: no `<template>`, no end marker. `:first-child`, `+` and prose CSS
+match it as they match a plain element. When what decided it changes (`href` set on a button that
+was a `<button>`), the instance is replaced as a keyed row is when its key changes: a new element,
+with the tag's attributes and handlers written onto it. Focus on the old element is lost, and a
+handler on the tag sees the new `$el`.
+
+Decided once is what the uses above need: a heading's level, a button's kind and a block's type do
+not change after they render. A component whose element changes while it is used (a `<span>` that
+becomes an `<input>` to edit it) keeps a plain root and switches inside it.
+
+#### What keeps a plain root
+
+- **A component with a script.** It runs on its root (`this.root`, `connected()`,
+  `disconnected()`); replacing the root would restart it.
+- **A component with `data-sn-state` on its root**, which includes optional props' defaults. An
+  `if` root would reset it, a `<slot>` root has no element of the component's to put it on, and a
+  component tag's root belongs to the other component. Such components give defaults with `??` in
+  their expressions, or keep a plain root.
+
+#### The tag's attributes
+
+- They are copied onto every branch at build time, since every branch is known then. The rule that
+  one attribute on both the tag and the root is an error is checked per branch.
+- With a component tag as root, they pass on to that component's tag, joined as `class` is today,
+  down to the element that renders.
+- With a `<slot>` as root, they land on the fill. One attribute on both the tag and the fill is an
+  error at the tag, which names the fill: the tag is the library's, so the library avoids putting
+  attributes on uses of such a component.
+- A root that may render nothing takes no `id` on its tag: an `aria-labelledby` or `<label for>`
+  that points at it would point at nothing. That is an error.
+
+#### Scoped styles
+
+- An `if` root's branches each carry `data-sn-c`.
+- A component tag as root: the element carries the inner component's marker, and the outer
+  component's rules reach that element only, as a component's rules stop at a nested root today.
+- A `<slot>` as root: the component's root rules apply to its default, never to a fill. A fill is
+  the caller's markup and keeps the caller's styles.
+
+#### Text without an element
+
+`data-sn-text` on a `<template>` renders a text node: the attribute that sets an element's text,
+on the element sinter uses for "no element of its own".
+
+```html
+<template data-sn-for="p in highlight(title, q)">
+  <template data-sn-if="p.match"><mark data-sn-text="p.text"></mark></template>
+  <template data-sn-else><template data-sn-text="p.text"></template></template>
+</template>
+```
+
+- Search highlighting, a list joined with commas and "and", a translated sentence with a link in
+  it, and every run of text in a markdown paragraph need it.
+- In HTML written at build time or rendered by the early script, the compiler writes an empty
+  comment (`<!---->`) between a text binding and a neighbouring text node, and in place of an empty
+  one, so the page module finds each node after the parser has merged or dropped them. Comments are
+  not elements, so CSS does not see them.
+- A constant text folds into the HTML as text, with no comment, when nothing follows it that runs.
+
 ## The markdown library
 
-### 8. Parse options: what content may contain
+### 9. Parse options: what content may contain
 
 Markdown written by users and markdown written by the team need different rules: a comment must not
 add an `<h1>` to the page, may not embed images, and must not carry raw HTML. Those rules are options
@@ -584,7 +689,7 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
 - An image from user content is a plain `<img>`: the library's image component does not use a
   resizing service unless the app's fill does.
 
-### 9. The library
+### 10. The library
 
 - **Two helper modules, one namespace.** `md.parse(source, options)` returns an mdast tree
   (CommonMark, and GFM tables, task lists, strikethrough and autolinks), typed as a discriminated
@@ -597,6 +702,9 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
   cell). `md-doc` uses `md-inline` for phrasing content, which rule 4 of [tree slots](#the-rules)
   covers. One internal component per node type. Both take `doc` as optional and render nothing
   without it, for a let that waits.
+- **Roots.** A heading's root is an `if` chain over its depth, a list's over `ordered`, and a node a
+  caller can change has its slot as its root; text runs are `<template data-sn-text>` in the
+  children loop. `## Hello *world*` renders as `<h2>Hello <em>world</em></h2>`, with no wrapper.
 - **Declared slots** on both roots, for the nodes an app is likely to change: `heading`, `link`,
   `image`, `code`, `inlineCode`, `blockquote`, `table`. Adding one later is additive.
 - **What sinter does for it:** internal links prefetch; local images from the repo are optimized;
@@ -620,7 +728,8 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
 - **An app component whose first segment equals a configured package's prefix** fails the build,
   once that package is configured.
 
-Relaxed, not breaking: `SN312` no longer applies to slots that pass data.
+Relaxed, not breaking: `SN312` no longer applies to slots that pass data, and a component's root
+need not be one plain element.
 
 ## Limits
 
@@ -633,6 +742,9 @@ Relaxed, not breaking: `SN312` no longer applies to slots that pass data.
 - A stream that appends to a let's source parses the whole body again for each chunk.
 - A fill cannot write state declared inside a caller's row.
 - Links between markdown files stay as written.
+- A root other than a plain element is decided once per instance; when its condition changes, the
+  instance is replaced and focus on it is lost.
+- Components with a script, or with state on their root, keep a plain root.
 
 ## Diagnostics
 
@@ -650,6 +762,11 @@ New codes are numbered when implemented. Existing codes keep their meaning and g
 | A `<slot>` in a fill whose placement gives no children; two unnamed `<slot>`s in one fill | at the fill; `SN312` |
 | A literal `id` in a fill, or in content placed in one, rendered more than once | at the element |
 | A fill writes state declared inside a caller's row | at the write |
+| A root that can render more than one element, or text | at the root |
+| A component with a script or root state whose root is not a plain element | at the root |
+| A fill for a slot that is a component's root, other than one element | at the fill |
+| One attribute on a tag and on the fill that becomes its root | at the tag, naming the fill |
+| An `id` on the tag of a component whose root may render nothing | at the tag |
 | The helper form of `<sn-component use>` inside a root whose use has fills | at the use |
 | A helper over constants that could not be folded | dev warning, at the call; `SN322` on a `static` page |
 | The helpers module could not be loaded at build time | one warning |
@@ -701,6 +818,10 @@ New codes are numbered when implemented. Existing codes keep their meaning and g
 - Browser tests for the runtime parts: fills in rows, specializations instantiated by the runtime and
   the early script, cached and waiting lets, a lazy helper module, under the strict CSP and Trusted
   Types as today.
+- First paint and takeover for the new roots and for `<template data-sn-text>`: text side by side,
+  empty text, and roots decided at build time, by the early script and by the page module, with the
+  takeover changing nothing (the existing `firstPaint` then `render` pattern). An instance replaced
+  when its condition changes, in a keyed list.
 - The testing module's `render()` and `firstPaint()` take fills, `file:` resources (through
   `files`) and the helpers that fold.
 - A library's fixture pages are checked by `sinter check`, and the markdown library's are tested in
@@ -719,13 +840,17 @@ recipe.
 1. **A spike in userland, measuring only.** In an example app: `md.parse` as an ordinary helper over
    micromark and mdast, loaded with the page; about fifteen recursive `md-*` components; an article
    and a comment list from the API. Measure, in `bench/`: render time and binding count for a long
-   article; the DOM it produces (the wrappers the root rule forces, inline whitespace); the page and
+   article; the DOM it produces (the wrappers the root rule forces, inline whitespace, and the
+   anchors lists already leave, which `:first-child` sees); the page and
    early files with embedded data against `earlyBudget`; the parse at takeover; re-parse cost per
    render, since lets are inlined today, and per streamed chunk. It cannot try fills, which need the
    compiler.
 2. **Slots that pass data** (section 1): `Slot<T>`, `data-sn-prop` on `<slot>`, `$slot`, a fill's
    `<slot>` by the nearest-markup rule, with a data table and a list with custom rows as tests.
-3. **The root rule**, as decided next ([Open questions](#open-questions)).
+3. **The component root** (section 8): roots that render at most one element, decided once with no
+   anchor, the tag's attributes and scoped styles on them, and `<template data-sn-text>` with its
+   comments in HTML. Useful on its own for buttons, headings and variants. Measures the cost of
+   replacing an instance.
 4. **Tree slots** (section 2) among app components: tree placements, roots and boundaries,
    specializations with hidden inputs and their sources, early mode. Measures the cost per
    specialization. The package rules are tested in step 9.
@@ -749,11 +874,10 @@ builds its library case on 10.
 
 ## Open questions
 
-- **The component root, decided next.** Today a component's root is one plain element, and a text
-  binding needs an element, so a rendered tree has a wrapper around each link, heading and text run,
-  and prose CSS (`h2 + p`, `li > a`) does not match. The options are the wrappers, narrower root
-  rules (a `data-sn-if` chain or a `<slot>` as the root, and a text-only `<template data-sn-text>`),
-  or components without a root.
+- Whether a root that switches while it is used (inline editing) is worth allowing later, with
+  anchors, or stays a plain root that switches inside.
+- Whether the anchors that loops leave today (`<template data-sn-for>` beside its rows) need the
+  same treatment as roots, for prose CSS over lists; the spike measures how often they get in the way.
 - Fills as elements, as slot content is today, or as `<template slot>`, which makes the repetition
   visible and allows text or several elements without a wrapper.
 - Whether a component can test that a slot is filled.
@@ -782,5 +906,6 @@ Proposed here, for review:
 | Files from the repo | The `file:` source; what does not fold becomes embedded data | [5](#5-files-the-file-source) |
 | Markdown from an API | A let over the parser: cached per scope by its arguments; waiting for a helper module loaded whole | [6](#6-lets-over-helpers) |
 | How a library ships | As source, named in the config, an app-shaped folder | [7](#7-libraries-ship-source) |
-| What content may contain | Parse options; raw HTML shown as text by default; `'allow'` is a fixed set | [8](#8-parse-options-what-content-may-contain) |
+| The component root | Renders at most one element, decided once per instance with no anchor; plain for scripts and root state; text through `<template data-sn-text>` | [8](#8-the-component-root) |
+| What content may contain | Parse options; raw HTML shown as text by default; `'allow'` is a fixed set | [9](#9-parse-options-what-content-may-contain) |
 | First step | A spike that measures, before any compiler change | [Plan](#plan) |
