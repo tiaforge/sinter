@@ -20,7 +20,7 @@ there and lands in `main` with the rest.
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | merged here | see below |
 | 8, helpers over constants and `file:` | merged here | see below |
-| 9, constant trees | in progress (from the integration branch) | |
+| 9, constant trees | merged here; two decisions open | see below |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -202,6 +202,25 @@ Step 5, as built:
 - Open: case templates grow as fills times placements, which a library with many slots and many
   placing components would duplicate.
 - The minimal runtime is 15,083 of 15,360 B gzip.
+
+Step 9, as built:
+- A recursion point and the chosen candidate of `<sn-component use>` over constant props expand at
+  build time, per instance; a run-time tree placement over constants expands the fill it chooses;
+  a definition nothing renders leaves the page. Fills expand when flat (no component, placement or
+  `<slot>` in them); otherwise the placement stays a run-time choice.
+- A node whose handler writes nothing and reads only constants, `$el` and `$event` does not stop
+  unrolling; the page ships only that handler.
+- The expansion limit is 5,000 copies (rows and instances) per page, the option `expansionLimit`;
+  past it, warning `SN536` at the loop or tag that crosses it, and that part renders in the browser.
+  Build and LSP time is about 0.2 ms per copy (6,280 copies: 1.5 s build, 1.3 s LSP).
+- The goal test passes without markdown: a generic tree from `file:./doc.json`, dispatched with
+  `<sn-component use>` with a link fill, is static (no script, template, anchor or text marker,
+  images optimized); with a copy button it ships only that handler. The static-site example's
+  `docs/guide.html` builds with no JavaScript.
+- Step 1's article from `file:./article.md`, with `md.parse` folding: 2,831 elements and no
+  JavaScript, 82.2 kB HTML (13.6 kB gzip), LCP 104 ms, against 300 ms rendered in the browser. It
+  needs about 5,500 copies and so crosses the limit, and micromark's code names `TextDecoder`,
+  which the fold check refuses (see Open questions).
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
