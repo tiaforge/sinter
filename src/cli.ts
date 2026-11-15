@@ -92,9 +92,9 @@ async function main(argv: string[]): Promise<number> {
 
 /** The line `sinter check` ends with on a project whose pages load data: how to see one render with it. */
 export function renderHint(page: string, root: string): string {
-  let mocks = '--api mocks.json';
-  try { readFileSync(join(root, 'mocks.json')); } catch { mocks = '--api mocks.json (routes such as { "GET /api/x": … })'; }
-  return `to see a page render with data, and what it requests: npx sinter render ${page} ${mocks} (sinter render --help for clicks and other steps)`;
+  let mocks = 'mocks.json';
+  try { readFileSync(join(root, 'mocks.json')); } catch { mocks = 'mocks.json (routes such as { "GET /api/x": … })'; }
+  return `to try a page and test what it does without a browser: npx sinter render ${page} --api http://localhost:<port> --click '<selector>' (your running API, or --api ${mocks}; prints the requests, the page and what each step changed; sinter render --help)`;
 }
 
 /** `sinter docs [topic]`: from the llms-full.txt (else llms.txt) and docs/diagnostics.md that ship beside dist/. */

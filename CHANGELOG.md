@@ -21,6 +21,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- The `sinter render` hint in `sinter check`, `sinter docs` and `llms.txt` offers the running API (`--api http://localhost:<port>`) and a step (`--click`), not only mocks, and the testing section (`sinter docs testing`) starts with it. A benchmark agent saw the mocks-only hint five times and wrote a browser suite against its running API instead.
 - `sinter check` ends with how to see a page render with data (`npx sinter render <page> --api mocks.json`) when a page loads data, and every section `sinter docs` prints ends with the same pointer. The starter has a `mocks.json` for its two pages and `npm run render`. In the benchmark, agents read the advice in `llms.txt` and `AGENTS.md` and still scripted a browser to see what a page shows; they do act on what their tools print and on the scripts in `package.json`.
 - `llms.txt`: `$now` is a `Date`; compare and add with numbers through `$now.getTime()`. A benchmark agent's `$now > due` and `$now + 5000` failed the type check.
 - `llms.txt` is the short version (23 KB): the opening rules, the attribute and element reference, the scope rules, what belongs in markup, magic names and store functions, then an index of the other sections as `npx sinter docs` topics. The full reference, recipes included, is the new `llms-full.txt`, which `sinter docs` reads. A benchmark agent read the 57 KB `llms.txt` with `cat`, and Claude Code showed it only a preview of that much output, so none of the file reached it.

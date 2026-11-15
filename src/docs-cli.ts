@@ -22,7 +22,7 @@ export function sections(md: string): Section[] {
 }
 
 /** After a section: how to see a page work, which agents otherwise script a browser for. */
-const RENDER = '\n\n(To see a page render with data, and what it requests: `npx sinter render page.html --api mocks.json`.)';
+const RENDER = '\n\n(To try a page and test what it does without a browser: `npx sinter render page.html --api http://localhost:<port> --click \'<selector>\'`, against your running API or `--api mocks.json`.)';
 
 export interface Docs { llms: string; diagnostics: string }
 
