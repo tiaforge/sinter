@@ -97,6 +97,100 @@ fallback when it is left empty:
 The caller's `slot="aside"` content ends up in `side-card`'s `side` slot, in the caller's scope:
 slot content keeps the scope of the markup that wrote it through any number of components.
 
+A slot is placed once, with one exception: one `<slot>` of a name in each branch of one
+`data-sn-if`/`data-sn-else` chain, since only one branch renders. Its content is copied into each
+branch at build time. Two placements that can render together are a build error (`SN312`).
+
+```html
+<template data-sn-component="{ level: number }">
+  <div>
+    <template data-sn-if="level === 1"><h1><slot></slot></h1></template>
+    <template data-sn-else><h2><slot></slot></h2></template>
+  </div>
+</template>
+```
+
+## Slots that pass data
+
+A component can pass values to the content of a slot: a data table with custom cells, a list with
+custom rows. The slot is a member of type `Slot<T>` in the props type, and `T` is what it passes:
+
+```html
+<!-- src/components/data-table.html -->
+<template data-sn-component="{ rows: Row[]; columns: (keyof Row)[]; cell: Slot<{ row: Row; column: keyof Row }> }">
+  <table><tbody>
+    <template data-sn-for="r in rows" data-sn-key="r.id">
+      <tr><template data-sn-for="c in columns"><td><slot name="cell" data-sn-prop="{ row: r, column: c }"><span data-sn-text="r[c]"></span></slot></td></template></tr>
+    </template>
+  </tbody></table>
+</template>
+```
+
+```html
+<data-table data-sn-prop="{ rows: invoices, columns: ['number', 'customer', 'total'] }">
+  <span slot="cell" data-sn-text="$slot.column === 'total' ? number($slot.row.total) : $slot.row[$slot.column]"></span>
+</data-table>
+```
+
+- **The declaration.** `cell: Slot<…>` is a type, not a value: the content stays markup. It is written
+  in the props type literal, where the compiler sees it (in a type alias, or inside another type, it
+  is an error), without `?`: every slot may be left unfilled. A slot is not a prop: passing it with
+  `data-sn-prop` is `SN313`, it is not in a script's `this.props`, and nothing requires it.
+  `Slot<T>` is not allowed in `data-sn-head` or `data-sn-layout`. `Slot` is a type sinter
+  generates (in `src/sinter.components.d.ts`, beside `ComponentName`); a types module that exports
+  one is an error that asks for another name. A slot that passes nothing needs no declaration.
+- **The placement.** `data-sn-prop` on the `<slot>` passes the values, as on a component's tag; it is
+  checked against `T`. A slot that passes data is named, and may be placed more than once (each
+  placement renders its own copy of the content).
+- **The fill.** The caller's elements with `slot="cell"`, as for any slot. A `<template slot="cell">`
+  starts an `if`/`else` chain (`<template slot="cell" data-sn-if="…">…</template><template
+  data-sn-else>…</template>`). The fill sees the caller's scope plus `$slot`, the values of its
+  placement, as a handler sees `$event`. `$slot.row` is the row the component got from its prop, so
+  `patch($slot.row, …)` and `remove($slot.row)` act on the caller's resource. Inside a fill for
+  another component, the inner `$slot` hides the outer one; keep the outer value with
+  `data-sn-let="{ outer: $slot.row }"` on the outer fill.
+- Whether a slot is filled cannot be tested in the component: an unfilled placement shows its default.
+- `sinter check` types `$slot` by `T`, and the placement's `data-sn-prop` against it. In the editor,
+  a hover on `$slot` shows its type and its placement.
+
+For a library, turning a plain slot into a `Slot<T>` changes what an unnamed `<slot>` in a caller's
+fill means (below): a breaking change of the library.
+
+### A `<slot>` inside a fill
+
+A `<slot>` is filled by the nearest enclosing markup that is given content for it: a component, given
+slot content by its caller, or a fill, given children by its placement. The placement's default is one
+plain element (or an `if`/`else` chain of them); an unnamed `<slot>` in a fill of a slot that passes
+data is that element's children. They are the component's markup, with its scope and styles.
+
+```html
+<!-- placement: the default renders one element, whose children a fill's <slot> gets -->
+<slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }"><span data-sn-text="node.text"></span></a></slot>
+
+<!-- fill: the children, then an icon -->
+<a slot="link" rel="nofollow ugc" data-sn-attr="{ href: $slot.node.url }"><slot></slot> ↗</a>
+
+<!-- a heading fill that picks its level: a chain, with the children in each branch -->
+<template slot="heading" data-sn-if="$slot.node.depth === 1"><h1 class="title"><slot></slot></h1></template>
+<template data-sn-else><h2 class="title"><slot></slot></h2></template>
+```
+
+- A named `<slot>` inside a fill is the enclosing component's slot, as before. A fill of a slot that
+  passes nothing is given nothing: every `<slot>` in it is the enclosing component's.
+- A component's own default slot cannot be placed inside a fill of a slot that passes data: that
+  `<slot>` is the children there. Give it a name.
+- Forwarding passes the children on: a `<slot name="link" slot="link" data-sn-prop="…">` in a
+  wrapper gives its own fill what its placement gave it, so a page's fill of the wrapper's `link` can
+  place `<slot>` too.
+- A fill without a `<slot>` drops the children.
+- Errors (`SN331`): a `<slot>` in a fill whose placement's default renders no element (text, nothing);
+  names the default's element declares (`data-sn-let`, `data-sn-state`) that its children read, since
+  they move into the fill without it (put them on the `<slot>`'s `data-sn-prop`, or inside); a
+  default that is not one plain element or a chain of them (a component, a loop, several elements:
+  that comes with the component root). Two unnamed `<slot>`s in one fill that can render together
+  are `SN312`.
+- A `<slot>` that no component or fill encloses (on a page, or in a page's slot content) is an error.
+
 ## Events
 
 `emit('select', article)` inside the component dispatches a bubbling event from where it runs, up
@@ -261,7 +355,8 @@ A list of mixed blocks (a CMS page, dashboard widgets, a form builder) picks a c
 
 | Where | What is checked |
 | --- | --- |
-| The tag | `data-sn-prop` keys and types; `data-sn-on-<event>` names and the type of `$event.detail`; slot names |
+| The tag | `data-sn-prop` keys and types; `data-sn-on-<event>` names and the type of `$event.detail`; slot names; `$slot` in a fill, by the slot's `Slot<T>` |
+| A placement | `data-sn-prop` on a `<slot>`, against its `Slot<T>` |
 | The component's markup | bindings read only declared props, its state and globals; `emit()` names match `data-sn-emits` |
 | The script | TypeScript, through the generated base class: a misspelled prop, event or ref, or a wrong detail type, is a type error |
 
@@ -271,7 +366,9 @@ editor, `sinter lsp` checks a component through the pages that use it, and goes 
 ## Ids
 
 A literal `id` in a component used more than once on a page would be on the page more than once:
-that is a build error. Compute it from a prop (`data-sn-attr="{ id: 'edit-' + item.id }"`).
+that is a build error. Compute it from a prop (`data-sn-attr="{ id: 'edit-' + item.id }"`). A literal
+`id` in markup that renders more than once (a `data-sn-for` row, a fill of a slot placed more than
+once), in a page or a component, is a warning (`SN532`).
 
 ## Head components
 

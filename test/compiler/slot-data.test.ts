@@ -272,3 +272,43 @@ describe('literal ids in repeated markup', () => {
     expect(out.module).toContain('($) => (((\'a\') + \'!\'))');
   });
 });
+
+describe('around the compiler', () => {
+  test('a script\'s `this.props` leaves the slots out; `Slot` is a generated global type', async () => {
+    const { withoutSlots } = await import('../../src/compiler/components.js');
+    expect(withoutSlots('{ rows: Row[]; cell: Slot<{ row: Row }>; n?: number }')).toBe('{ rows: Row[]; n?: number }');
+    expect(withoutSlots('{ cell: Slot<{ row: Row }> }')).toBe('{}');
+    expect(withoutSlots('Props')).toBe('Props');
+    const { componentTypes } = await import('../../src/components-build.js');
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const root = mkdtempSync(join(tmpdir(), 'sinter-slot-'));
+    try {
+      mkdirSync(join(root, 'src/components'), { recursive: true });
+      writeFileSync(join(root, 'src/components/x-table.html'), '<template data-sn-component="{ rows: string[]; cell: Slot<{ row: string }> }"><div></div></template>');
+      writeFileSync(join(root, 'src/components/x-table.ts'), 'export class XTable {}');
+      const d = componentTypes(root)!;
+      expect(d).toContain('interface Slot<T> {');
+      expect(d).toContain('extends Base<{ rows: string[] }, {}');
+      // a type the app exports as `Slot`: SN331
+      writeFileSync(join(root, 'src/sinter.types.ts'), 'export type Slot = { start: string };\n');
+      const { project } = await import('../../src/project.js');
+      expect(project(root).diagnostics.map((x) => `${x.code} ${x.message}`)).toEqual([expect.stringMatching(/^SN331 the types module exports a type named `Slot`/)]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('the editor: a tag\'s hover lists what each slot passes', async () => {
+    const { tagHover } = await import('../../src/lsp/markup.js');
+    const text = TABLE.replace('</td>', '</td><td><slot name="cell" data-sn-prop="{ row: r, column: c }"></slot></td>');
+    expect(tagHover('data-table', { kind: 'component', file: '/p/src/components/data-table.html', text }, 'src/components/data-table.html'))
+      .toContain('Slots:\n- `cell`, passes `$slot`: `{ row: Row; column: keyof Row }`, with fallback');
+  });
+});
+
+test('the children a fill\'s `<slot>` places keep the component\'s styles: a scope root of its own', () => {
+  const C = '<template data-sn-component="{ t: string; link: Slot<{ t: string }> }"><p><slot name="link" data-sn-prop="{ t }"><a><em data-sn-text="t"></em></a></slot></p></template><style>em { color: red }</style>';
+  const out = run('<x-c data-sn-prop="{ t: \'a\' }"><b slot="link"><slot></slot></b></x-c>', { 'x-c': C });
+  expect(errors(out)).toEqual([]);
+  expect(body(out)).toContain('<p data-sn-c="x-c"><b data-sn-s=""><em data-sn="0" data-sn-s="x-c"></em></b></p>');
+});

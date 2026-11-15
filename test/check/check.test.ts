@@ -649,3 +649,28 @@ components:`);
   });
 });
 
+
+describe('slots that pass data', () => {
+  const table = (placement = '{ contact: c, column: k }') => ({ 'src/components/contact-table.html': `<template data-sn-component="{ rows: Contact[]; columns: (keyof Contact)[]; cell: Slot<{ contact: Contact; column: keyof Contact }> }">
+  <table><template data-sn-for="c in rows"><tr><template data-sn-for="k in columns"><td><slot name="cell" data-sn-prop="${placement}"><span data-sn-text="c[k]"></span></slot></td></template></tr></template></table>
+</template>` });
+  const use = (fill: string) => page(`<contact-table data-sn-prop="{ rows: contacts, columns: ['name'] }">${fill}</contact-table>`);
+
+  test('`$slot` in the fill is typed by the slot\'s T', () => {
+    expect(run(use('<b slot="cell" data-sn-text="$slot.contact.name + $slot.column"></b>'), table()).diagnostics).toEqual([]);
+    expect(run(use(''), table()).diagnostics).toEqual([]);
+    one(use('<b slot="cell" data-sn-text="$slot.contact.nmae"></b>'), /Property 'nmae' does not exist on type 'Contact'/, 'nmae', table());
+  });
+
+  test('the placement\'s data-sn-prop is checked against T, in the component', () => {
+    const r = run(use(''), table('{ contact: c, column: 1 }'));
+    expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Type 'number' is not assignable to type 'keyof Contact'/)]);
+    expect(r.diagnostics[0]!.file).toMatch(/src\/components\/contact-table.html$/);
+  });
+
+  test('a Slot<T> in a type alias is an error', () => {
+    const types = `${TYPES}export type CellProps = { cell: Slot<{ n: number }> };\n`;
+    const r = run(page('<x-cell></x-cell>'), { 'src/sinter.types.ts': types, 'src/components/x-cell.html': '<template data-sn-component="CellProps"><div data-sn-text="1"></div></template>' });
+    expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/a Slot<T> member is in a type alias: write the props as a type literal/)]);
+  });
+});

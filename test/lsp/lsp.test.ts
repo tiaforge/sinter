@@ -271,6 +271,20 @@ describe('sinter lsp', () => {
       expect(await e.hover('index.html', 1, 2)).toBeNull();
     });
   
+    test('hover on `$slot` in a fill: its type, and which placement passes it', async () => {
+      const list = '<template data-sn-component="{ rows: Contact[]; row: Slot<{ contact: Contact }> }"><ul><template data-sn-for="c in rows"><slot name="row" data-sn-prop="{ contact: c }"><li></li></slot></template></ul></template>\n';
+      const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<contact-list data-sn-prop="{ rows: contacts }">\n  <li slot="row" data-sn-text="$slot.contact.name"></li>\n</contact-list>\n';
+      const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': page, 'src/components/contact-list.html': list });
+      const e = await editor(root);
+      e.open('index.html', page);
+      await e.diagnostics('index.html');
+      // on `$slot` (line 3, column 32)
+      const h = (await e.hover('index.html', 2, 32))!.contents.value;
+      expect(h).toContain('const $slot: {');
+      expect(h).toContain('contact: Contact;');
+      expect(h).toContain('The values the placement of `row` in `<contact-list>` passes to this fill');
+    });
+
     test('before TypeScript 7, type errors come from `tsc` on save', async () => {
       // a TypeScript 5 package whose `tsc` runs the real one
       const root = project({

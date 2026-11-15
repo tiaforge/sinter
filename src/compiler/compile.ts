@@ -1982,6 +1982,9 @@ class Compiler {
       }
       const kids = def.children(i > 0);
       for (const k of kids) if (isElement(k)) this.childrenOf.set(k, chain);
+      // the component's markup inside the caller's fill: a scope root of the component's own styles
+      const styled = (k: P5Node): P5Node[] => (isElement(k) && k.tagName === 'template' ? (k as P5Template).content.childNodes : [k]);
+      for (const k of kids.flatMap(styled)) if (isElement(k) && !this.slotOf.has(k)) this.slotEls.push({ el: k, caller: p.use.name, host: p.use.name });
       const parent = s.el.parentNode!;
       const at = parent.childNodes.indexOf(s.el as never);
       if (at < 0) {
@@ -2630,6 +2633,21 @@ class Compiler {
     this.at = { el, attr: null, shift: 0 };
     // a link the build can see: same-page links (query-links.ts) are decided once the page is read
     if ((el.tagName === 'a' || el.tagName === 'area') && attr(el, 'href') != null) this.hrefs.push({ el, prefixes: [{ s: attr(el, 'href')!.trim(), whole: true }], literal: true });
+    // a row of an unrolled loop: its item and index, as derived names over the constant list, on the
+    // scope of the loop's writer (before a component's root takes its props from this scope). The
+    // component's own loop: before its slot content or fill switches to its caller's scope (which
+    // does not see the row), so a fill's placement sees it; a loop that is itself slot content: after.
+    const row = this.rowOf.get(el);
+    const rowLets = (c: Ctx): Ctx => {
+      const r = this.expr(row!.tpl, 'data-sn-for', c.scope, { mode: 'value' }, row!.list, row!.offset);
+      if (!r.ok) return c;
+      const fixed = { usesEl: false, usesIndex: false, resource: null, src: null };
+      const lets: LetEntry[] = [{ name: row!.item, code: `(${r.inner})[${row!.k}]`, deps: r.deps, ...fixed }];
+      if (row!.index) lets.push({ name: row!.index, code: String(row!.k), deps: [], ...fixed });
+      return { ...c, scope: { ...c.scope, lets: [...(c.scope.lets ?? []), ...lets] } };
+    };
+    const ownLoop = !!row && !this.slotOf.has(row.tpl);
+    if (row && ownLoop) ctx = rowLets(ctx);
     // slot content sees the scope of the caller that wrote it
     const slot = this.slotOf.get(el);
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
@@ -2643,18 +2661,7 @@ class Compiler {
     const fill = this.fillOf.get(el);
     if (fill) ctx = { ...ctx, scope: this.fillScope(fill, ctx.scope, slot ?? null) };
     else if (slot?.caller) ctx = { ...ctx, scope: slot.caller };
-    // a row of an unrolled loop: its item and index, as derived names over the constant list (on the
-    // scope of the loop's writer, slot content's caller; before a component's root takes its props from this scope)
-    const row = this.rowOf.get(el);
-    if (row) {
-      const r = this.expr(row.tpl, 'data-sn-for', ctx.scope, { mode: 'value' }, row.list, row.offset);
-      if (r.ok) {
-        const fixed = { usesEl: false, usesIndex: false, resource: null, src: null };
-        const lets: LetEntry[] = [{ name: row.item, code: `(${r.inner})[${row.k}]`, deps: r.deps, ...fixed }];
-        if (row.index) lets.push({ name: row.index, code: String(row.k), deps: [], ...fixed });
-        ctx = { ...ctx, scope: { ...ctx.scope, lets: [...(ctx.scope.lets ?? []), ...lets] } };
-      }
-    }
+    if (row && !ownLoop) ctx = rowLets(ctx);
     const base = ctx.scope;
     // the partial an `<sn-include>` inserted: what the page's scope has there
     const inc = this.includeTop.get(el);
