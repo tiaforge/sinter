@@ -20,8 +20,8 @@ export type CheckFrame =
   | { kind: 'state'; names: string[]; init: number | null; locs?: CheckLoc[] }
   /** `loc`, `indexLoc`: where the item and index names are written */
   | { kind: 'loop'; item: string; index: string | null; init: number | null; loc?: CheckLoc; indexLoc?: CheckLoc }
-  /** a `data-sn-let` name; `loc`: where the name is written */
-  | { kind: 'let'; name: string; init: number | null; loc?: CheckLoc }
+  /** a `data-sn-let` name; `loc`: where the name is written; `waits`: it calls a helper of a lazy module, so it is `T | undefined` */
+  | { kind: 'let'; name: string; init: number | null; loc?: CheckLoc; waits?: true }
   /** a form's `$error`: its last failed send, or null */
   | { kind: 'formError' }
   /** a component's props, typed by its `data-sn-component` */

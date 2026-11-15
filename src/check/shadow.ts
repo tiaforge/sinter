@@ -99,7 +99,7 @@ export function shadow(o: ShadowOptions): Shadow {
 
   // names a page can see besides its own frames; resources first, as sinter resolves them
   const taken = new Set<string>(unit.resources.map((r) => r.name));
-  for (const n of ['$any', '$item', '$el', '$event', '$result', '$error', '$meta', '$url', '$now', '$locale', '$site', '$canonical', ...STORE_FNS]) taken.add(n);
+  for (const n of ['$any', '$item', '$waits', '$el', '$event', '$result', '$error', '$meta', '$url', '$now', '$locale', '$site', '$canonical', ...STORE_FNS]) taken.add(n);
   const builtin = BUILTIN_HELPERS.filter((h) => !taken.has(h));
   for (const h of builtin) taken.add(h);
   line(`import { ${builtin.join(', ')} } from '${sinter}';`);
@@ -173,6 +173,9 @@ export function shadow(o: ShadowOptions): Shadow {
   line(`const { ${STORE_FNS.filter((f) => !unit.resources.some((r) => r.name === f)).join(', ')} } = $any;`);
   line(`/** @template T @param {T} list @returns {${decl('Item')}<T>} */`);
   line('function $item(list) { return $any; }');
+  // a let that waits for a lazy helper module: undefined until it has arrived
+  line('/** @template T @param {T} v @returns {T | undefined} */');
+  line('function $waits(v) { return v; }');
 
   /** a JSDoc tag with a type; a type the app wrote maps its errors to where it was written */
   const tagged = (tag: string, t: TypeRef, after = '') => {
@@ -210,7 +213,7 @@ export function shadow(o: ShadowOptions): Shadow {
         line(`/** @type {${decl('Err')} | null} */ let $error = $any;`);
       } else if (f.kind === 'let') {
         at(f.loc);
-        line(`const ${f.name} = ${f.init === null ? '$any' : `$e${f.init}()`};`);
+        line(`const ${f.name} = ${f.init === null ? '$any' : f.waits ? `$waits($e${f.init}())` : `$e${f.init}()`};`);
       } else {
         at(f.loc);
         line(`const ${f.item} = ${f.init === null ? '$any' : `$item($e${f.init}())`};`);

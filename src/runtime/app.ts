@@ -213,6 +213,8 @@ export interface App {
     };
     /** shared definitions (defs.ts): an empty `<template data-sn-def>` gets its definition before it is first cloned */
     defs?: (tpl: HTMLTemplateElement) => void;
+    /** cached lets (lets.ts): once per flush round, with what reaches a list of dependencies */
+    lets?: (hit: (deps: PathRef[] | undefined) => boolean, round: number) => void;
     /** components with a script (components.ts): a root's `cmp` binding, `v` its class module, props and class name */
     components?: (rb: BoundBinding, v: unknown) => void;
     fields?: { sent(el: Element, a: ActionDef): ((error: SinterError, request: { url: string; method: string }) => boolean) | undefined };
@@ -307,6 +309,8 @@ interface RB extends BoundBinding {
   pf?: boolean;
   /** for: selection indexes of its rows (by binding), built on demand, dropped when the rows are rendered */
   sx?: Map<Binding, Sel>;
+  /** for, unkeyed: the round its rows were adopted from the early script; until the next flush, rows match by position */
+  ad?: number;
   /** if: rendered branch (0 none, 1 if, 2 else), and the else anchor with its template */
   br?: number;
   else?: [Element, number] | null;
@@ -677,6 +681,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           rowHits = new Map();
           rowSel = new Map();
           index(cur);
+          app.ext.lets?.(hit, round);
           for (const l of loaders) { const k = hits(l.def.deps); if (k) l.changed(k == 1); }
           walk(rootRbs, 0);
           syncSelects();
@@ -1040,6 +1045,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         });
         rb.rr = round;
         rb.pf = true;
+        if (t.key == null && !t.keyFields) rb.ad = round;
         return;
       }
       for (const n of pre.rows.flat()) (n as ChildNode).remove();
@@ -1047,6 +1053,23 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     const t = rb.t!, old = rb.rows!, end = (rb.end ??= after(rb.el)), tpl = rb.el as HTMLTemplateElement;
     const n = items.length, m = old.length, rows: Inst[] = new Array(n), moved = t.ri;
+    // the takeover: the page module's items for an unkeyed list the early script rendered are new objects with the
+    // same contents (a let over a helper, computed again), so the rows it adopted match by position, written again
+    const ad = rb.ad;
+    rb.ad = undefined;
+    if (ad != null && round <= ad + 1 && n == m) {
+      for (let i = 0; i < n; i++) {
+        const x = old[i]!, item = items[i];
+        if (x.item !== item) { setRow(x.s, t, (x.item = item), i); x.key = keyOf(t, item, x.s); x.f = 2; }
+        rows[i] = x;
+      }
+      rb.rows = rows;
+      rb.rr = round;
+      rb.pf = true;
+      rb.keys = undefined;
+      rb.sx = undefined;
+      return;
+    }
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
     const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
