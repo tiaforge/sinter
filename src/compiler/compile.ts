@@ -2053,7 +2053,11 @@ class Compiler {
           this.report(host, a.name, 'SN209', fill
             ? `\`${a.name}\` is set both here and on \`<${el.tagName}>\`, the fill of \`<${name}>\`'s \`<slot>\` that is its root; one of them would be lost`
             : `\`${a.name}\` is set both here and on the root of \`<${name}>\`; one of them would be lost`, 0);
-        } else el.attrs.push({ name: a.name, value: a.value });
+        } else {
+          el.attrs.push({ name: a.name, value: a.value });
+          // the caller's, on this use only: not an id of the component's markup (`componentIds`)
+          if (a.name === 'id') this.tagIds.add(el);
+        }
       }
     }
     // a component tag (or a choice) as root: the outer uses pass on to it
@@ -2727,6 +2731,9 @@ class Compiler {
     return (u.shape ? landingOf(u.shape) : [u.root]).filter((e) => !this.slotOf.has(e) || this.useOf.get(e) === u);
   }
 
+  /** elements whose `id` a component's tag gave them (its use's own) */
+  private readonly tagIds = new WeakSet<P5Element>();
+
   /** literal ids in repeated markup, reported after `componentIds` (which may report the same element as SN209) */
   private readonly repeatedIds: Array<{ el: P5Element; why: string }> = [];
 
@@ -2739,13 +2746,13 @@ class Compiler {
       const find = (n: P5Parent): P5Element | null => {
         for (const c of n.childNodes) {
           if (!isElement(c) || this.slotOf.get(c)) continue;
-          if (attr(c, 'id') !== undefined && this.origins.get(c)?.file === u.file) return c;
+          if (attr(c, 'id') !== undefined && this.origins.get(c)?.file === u.file && !this.tagIds.has(c)) return c;
           const x = find(c) ?? (c.tagName === 'template' ? find((c as P5Template).content) : null);
           if (x) return x;
         }
         return null;
       };
-      const el = attr(u.root, 'id') !== undefined && this.origins.get(u.root)?.file === u.file ? u.root : find(u.root);
+      const el = attr(u.root, 'id') !== undefined && this.origins.get(u.root)?.file === u.file && !this.tagIds.has(u.root) ? u.root : find(u.root);
       if (el) this.report(el, 'id', 'SN209', `\`<${name}>\` is used ${list.length} times on this page, and its markup has \`id="${attr(el, 'id')}"\`: the page would have that id ${list.length} times`, 0,
         'compute the id from a prop: `data-sn-attr="{ id: \'edit-\' + item.id }"`, or use the component once');
       if (el && this.siteKey(el)) out.add(this.siteKey(el)!);

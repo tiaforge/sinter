@@ -97,6 +97,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- An `id` on one use's tag of a component used more than once was reported as an id in the component's markup (SN209). It is that use's; a literal id in the component's own markup still is.
 - A tree placement that is its component's root, rendered with no fill, reported `SN201` for the component's own names in its `data-sn-prop`: it was compiled in the caller's scope. The output was right.
 - `sinter check`: a map in `<sn-component use>` followed by a `data-sn-else` accepts keys outside the map, as the build renders the else for them. The else template, and the branches of a `data-sn-if`/`data-sn-else` chain, are checked with the data narrowed by their conditions, so a member only one type of a union has type-checks in its branch.
 - A constant tree through a component whose root is a `data-sn-if` chain (rendered by `<sn-component use>`, or used inside itself) stayed in the browser below that root: a loop in the kept branch, or a chain nested in its `data-sn-else`, was not unrolled or decided (`SN322` on a static page).
