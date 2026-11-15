@@ -120,12 +120,12 @@ Step 7, as built:
 - A provisional page cap of 10,000 rows in all, silent; step 9 sets the limit and its warning.
 - On step 2's choice node, the worklist reads which case a use renders; unrendered cases are
   dropped before the walk, so a decided choice anchor keeps only its case.
-- The pre-pass asks for a second compile only where a folded class or style can change what the
-  layout feeds: an image or a list with reserved space inside the element, a following sibling a
-  `+` or `~` selector reaches, or any class inside `:has()`. RealWorld's pages compile once again
-  (its `active` nav class reaches neither), so step 6's extra build time is gone. A class that
-  changes a flex or grid sibling's width, and through it an image's `sizes`, does not trigger it,
-  as before step 6.
+- Whether a folded class or style needs the second compile is measured, not guessed: the first
+  compile applies the folds to a copy of the page, recomputes only what the layout tells the image
+  pipeline and reserved space, and asks for the second compile only if an answer differs. This
+  also fixes `sizes` that were wrong before: a bound class anywhere in a flex row made the layout
+  give up on that row (`100vw`), and folding it gives the exact width. RealWorld's pages compile
+  once; the check costs about 40 ms over its 7 pages, against the ~26% a second compile cost.
 
 Step 8a, as built (loading, the check, `file:`; nothing folds yet):
 - The helpers module is loaded before the synchronous compile: through the dev server in dev, and
