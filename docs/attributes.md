@@ -17,7 +17,7 @@ Bind values to the page.
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item |
 | `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
 | `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when a change swaps the branch the focused element is in, the element with its id in the new branch takes focus (a toggle's two buttons: &lt;button id="follow" data-sn-delete=…&gt; and &lt;button id="follow" data-sn-post=…&gt;) |
-| `data-sn-else` |  | on a &lt;template&gt; directly after an if template |
+| `data-sn-else` |  | on a &lt;template&gt; directly after an if template. In the page, a list, a branch and a chosen component render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`), their templates in the head: CSS sees plain children (`li:first-child` is the first row, `ul:empty` an empty list). A comment of yours that is exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` is SN105; `$el` in an if, for or use expression is SN213; keep HTML comments (a minifier that strips them breaks lists) |
 
 ## Keep state
 

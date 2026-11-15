@@ -50,6 +50,25 @@ describe('the markup', () => {
   });
 });
 
+describe('reserved comments: only the exact anchor forms', () => {
+  test('the build: `sn`, `sn <digits>`, `/sn` and an empty comment are SN105; every other comment is the author\'s', () => {
+    const errs = (c: string) => compile(`<p><!--${c}--></p>`).diagnostics.filter((d) => d.code === 'SN105').length;
+    for (const c of ['sn', 'sn 4', '/sn', '']) expect(errs(c), c).toBe(1);
+    for (const c of ['snippet', ' snapshot ', ' sn notes ', 'sn4', 'sn x', '/snap', 'SN', ' sn ']) expect(errs(c), c).toBe(0);
+  });
+
+  test('the page: author comments beside and in a list are left alone, by the runtime and the early script', async () => {
+    const page = `<!doctype html><html><head><script type="application/json" data-sn-data="all">{"c":[{"id":1,"name":"Ada"}]}</script></head><body>
+      <sn-resource name="all" src="/api/all" items="c" key="id"></sn-resource>
+      <!--snippet--><ul><!-- snapshot --><template data-sn-for="c in all"><li data-sn-text="c.name"></li></template><!-- sn notes --></ul></body></html>`;
+    const { root, settle, warnings } = await render(page, { firstPaint: true });
+    await settle();
+    expect([...root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['Ada']);
+    expect(shape(root.querySelector('ul')!)).toEqual(['<!-- snapshot -->', expect.stringMatching(/^<!--sn \d+-->$/), 'li', '<!--/sn-->', '<!-- sn notes -->']);
+    expect(warnings()).toEqual([]);
+  });
+});
+
 describe('the runtime', () => {
   test('a list keeps its rows between its comments; :first-child is the first row', async () => {
     const { root, state, flush } = await render('<div data-sn-state="{ xs: [1, 2, 3] }">' + W('xs = []') + '<ul><template data-sn-for="x in xs" data-sn-key="x"><li data-sn-text="x"></li></template></ul></div>');

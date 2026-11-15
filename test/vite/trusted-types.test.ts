@@ -81,6 +81,18 @@ const serve = (from: string, embed = false) => http((req, res) => {
   res.end(body);
 });
 
+test('the build: head templates are last in the head, after every stylesheet, preload and script; the rest at the end of the body', () => {
+  for (const d of [out, outEmbed]) {
+    const html = readFileSync(join(d, 'tree/index.html'), 'utf8'), head = html.slice(0, html.indexOf('</head>'));
+    const lastFetch = Math.max(...[...head.matchAll(/<link\b[^>]*\brel="(?:stylesheet|modulepreload|preload)"|<script\b/g)].map((m) => m.index!));
+    const firstTemplate = head.search(/<template id="sn-t-/);
+    if (firstTemplate >= 0) expect(firstTemplate, d).toBeGreaterThan(lastFetch);
+    // without embedded data the early file renders no list: every template at the end of the body; with it, in the head
+    if (d === out) { expect(firstTemplate).toBe(-1); expect(html).toMatch(/<template id="sn-t-\d+"[^>]*>[\s\S]*<\/template>\s*<\/body>/); }
+    else expect(firstTemplate).toBeGreaterThan(0);
+  }
+});
+
 /** a tab that records every policy violation and console error; `check()` fails the test on any */
 async function tab(browser: Awaited<ReturnType<NonNullable<typeof chromium>['launch']>>): Promise<{ page: Page; check: () => Promise<void> }> {
   const page = await browser.newPage();

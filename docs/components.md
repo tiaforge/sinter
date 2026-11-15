@@ -269,8 +269,9 @@ A `data-sn-for`, a `data-sn-if` (with its `data-sn-else`), a component used insi
 
 Comments are not elements, so CSS sees the rows as a plain list: `li:first-child` is the first row,
 `:nth-child` counts rows only, `h2 + p` and `* + *` match inside a branch as written, and an empty
-list matches `ul:empty`. A script that counts `childNodes` sees the comments. A comment of yours that
-starts with `sn` is an error (`SN105`), and `$el` in an `if`, `for` or `use` expression has no element
+list matches `ul:empty`. A script that counts `childNodes` sees the comments. A comment of yours whose
+text is exactly one of those forms (`sn`, `sn 4`, `/sn`, or empty) is an error (`SN105`); `<!--snippet-->`
+and any other comment are yours. `$el` in an `if`, `for` or `use` expression has no element
 to name (`SN213`). Keep HTML comments in sinter's pages: a minifier or CDN that strips them breaks
 lists and branches (dev builds warn).
 

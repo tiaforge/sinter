@@ -46,11 +46,11 @@ Two-way binding has no meaningful value for this input type.
 
 Error, for example:
 
-> a comment that starts with `sn` is reserved: sinter marks lists and branches with such comments
+> this comment is one of the forms sinter marks lists and branches with (`<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->`, `<!---->`): the page would take it for one
 
-Every `data-sn-if`, `data-sn-for` and component chosen by data is marked in the page by a pair of comments, `<!--sn 4-->` and `<!--/sn-->`, which the runtime and the early script find. An author's comment that starts the same way would be taken for one.
+Every `data-sn-if`, `data-sn-for` and component chosen by data is marked in the page by a pair of comments, `<!--sn 4-->` (`<!--sn-->` in a row) and `<!--/sn-->`, and an empty comment separates text; the runtime and the early script find them by their exact text. An author's comment with exactly one of those texts would be taken for one. Any other comment, `<!--snippet-->` or `<!-- sn notes -->` included, is the author's.
 
-**Fix:** Reword the comment so it does not start with `sn` or `/sn`, or remove it.
+**Fix:** Add a word to the comment, or remove it.
 
 ## SN106 anchor-in-raw-text
 

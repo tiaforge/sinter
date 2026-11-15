@@ -1181,6 +1181,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           }
           html = html.replace('</head>', `${tags.map((t) => `  ${t}\n`).join('')}</head>`);
         }
+        // the head templates (anchors' templates the early script renders) after all of that: nothing the browser
+        // fetches waits behind their bytes
+        html = headTemplatesLast(html);
         // `data-sn-preload`: the lazy packages' chunks, fetched with the page
         const pre = preloadOf.get(rel);
         if (pre && ctx.bundle) html = withPreloads(html, rel, pre, ctx.bundle, base);
@@ -1627,4 +1630,29 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
   };
   return [main, post, cssImages, fonts, fontCheck, pages];
+}
+
+/**
+ * The page's head templates (`<template id="sn-t-<id>">`, docs/spec.md HTML rewrite) moved to the end of the
+ * `<head>`, in their order: after the stylesheets, preloads, scripts and data slots Vite and the plugin wrote.
+ */
+export function headTemplatesLast(html: string): string {
+  const end = html.search(/<\/head\s*>/i);
+  if (end < 0) return html;
+  const moved: string[] = [];
+  let head = html.slice(0, end);
+  for (let at = head.search(/<template id="sn-t-\d+"/); at >= 0; at = head.search(/<template id="sn-t-\d+"/)) {
+    // to its own `</template>`: a template its content holds counts
+    const re = /<template\b|<\/template\s*>/gi;
+    re.lastIndex = at + 1;
+    let depth = 1, stop = -1;
+    for (let m = re.exec(head); m; m = re.exec(head)) {
+      depth += m[0][1] === '/' ? -1 : 1;
+      if (!depth) { stop = m.index + m[0].length; break; }
+    }
+    if (stop < 0) return html;
+    moved.push(head.slice(at, stop));
+    head = head.slice(0, at) + head.slice(stop);
+  }
+  return moved.length ? `${head}${moved.join('')}${html.slice(end)}` : html;
 }

@@ -42,7 +42,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN102', '<div data-sn-for="x in [1]"></div>', /`data-sn-for` must be on a `<template>`/],
   ['SN103', '<template data-sn-for="x in [1, 2]"><i></i></template>', /needs `data-sn-key`/],
   ['SN104', '<div data-sn-state="{f: null}"><input type="file" data-sn-model="f"></div>', /does not support `type="file"`/],
-  ['SN105', '<ul><!-- sn notes --></ul>', /a comment that starts with `sn` is reserved/],
+  ['SN105', '<ul><!--sn 3--></ul>', /this comment is one of the forms sinter marks lists and branches with/],
   ['SN106', '<div data-sn-state="{ xs: [1] }"><textarea><template data-sn-for="x in xs"><i></i></template></textarea></div>', /a `<template data-sn-for>` inside `<textarea>` is text to the HTML parser/],
   ['SN201', `${R}${use}<p data-sn-text="contcts.length"></p>`, /`contcts` is not defined here. Did you mean `contacts`\?/],
   ['SN202', '<p data-sn-text="window.x"></p>', /`window` is a browser API/],

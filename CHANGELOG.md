@@ -50,7 +50,7 @@ Attribute names, function names and diagnostic codes are public API. Before
   - CSS, tests or scripts that select the templates in the body (`template[data-sn]`, `template[data-sn-def]`) find nothing.
   - In this repository, `.page-item:first-child .page-link` (`examples/realworld/src/styles.css`) now matches the pager's first row, as the RealWorld theme means it to.
   - Reserved space and image `sizes` count no element at the anchor: a row 1 at the start of its parent is `:first-child` for the build too, and the `if` form's placeholder after the rows no longer keeps `:last-child` off the last row.
-- **An author's comment that starts with `sn`** (or `/sn`) is an error (`SN105`): sinter's anchors are such comments.
+- **An author's comment whose text is exactly an anchor form** (`<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->`, or the empty `<!---->` of a text separator) is an error (`SN105`); the runtime and the early script match only those forms, so `<!--snippet-->` and every other comment stay the author's.
 - **`$el` in an `if`, `for` or `use` expression** is an error (`SN213`): the anchor is a comment, with no element.
 - **An anchor inside `<textarea>` or `<title>`** (a `<template data-sn-…>` or `<sn-component>` there, which the parser reads as text) is an error (`SN106`), where it was silent.
 - **Shared definitions are head templates**: `<template id="sn-def-<name>">` is `<template id="sn-t-<id>">` (with `data-sn-name` in dev builds), the empty `<template data-sn-def>` in the body and the `@tiaforge-ui/sinter/defs` feature module are gone, and the early script no longer fills a template from a definition.

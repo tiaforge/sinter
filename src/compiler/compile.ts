@@ -2293,9 +2293,10 @@ class Compiler {
       if (!isElement(child)) {
         if (child.nodeName === '#text' && (child as DefaultTreeAdapterMap['textNode']).value.trim() === '') continue;
         if (child.nodeName === '#comment') {
-          // the anchors of lists and branches are comments that start with `sn` (`<!--sn 4-->`, `<!--/sn-->`)
-          if (/^\/?sn(\s|$)/.test((child as DefaultTreeAdapterMap['commentNode']).data.trim())) {
-            this.report(child as unknown as P5Element, null, 'SN105', 'a comment that starts with `sn` is reserved: sinter marks lists and branches with such comments', 0, 'reword the comment so it does not start with `sn`, or remove it');
+          // the anchors of lists and branches are comments of exactly these forms: `<!--sn-->` (in a row), `<!--sn 4-->`,
+          // `<!--/sn-->`, and an empty one (a text separator); any other comment is the author's (`<!--snippet-->` too)
+          if (ANCHOR_COMMENT.test((child as DefaultTreeAdapterMap['commentNode']).data)) {
+            this.report(child as unknown as P5Element, null, 'SN105', 'this comment is one of the forms sinter marks lists and branches with (`<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->`, `<!---->`): the page would take it for one', 0, 'add a word to the comment, or remove it');
           }
           continue;
         }
@@ -4512,22 +4513,20 @@ class Compiler {
   }
 
   /**
-   * Where each head template goes: those the early file renders in the `<head>` (before embedded data,
-   * which a server may still be fetching when it sends the head), the rest at the end of the `<body>`,
-   * so they do not hold the first byte of the body. In id order.
+   * Where each head template goes: those the early file renders last in the `<head>` (after what the browser
+   * fetches and the embedded data: the Vite plugin moves them after the tags it adds, `headTemplatesLast`),
+   * the rest at the end of the `<body>`, where nothing waits for them. In id order.
    */
   placeTemplates(doc: P5Parent, early: EarlyParts | null | undefined) {
     if (!this.headTemplates.size) return;
     const used = new Set<number>();
     early?.ir.templates.forEach((t, i) => { if (t) used.add(i); });
     const head = this.head ?? findHead(doc), body = findBody(doc);
-    const before = head?.childNodes.find((c) => isElement(c) && c.tagName === 'script' && attr(c, 'type') === 'application/json') ?? null;
     for (const [tid, tpl] of [...this.headTemplates].sort(([a], [b]) => a - b)) {
       const into = used.has(tid) || !body ? head : body;
       if (!into) continue;
       tpl.parentNode = into as never;
-      if (into === head && before) into.childNodes.splice(into.childNodes.indexOf(before), 0, tpl as never);
-      else into.childNodes.push(tpl as never);
+      into.childNodes.push(tpl as never);
     }
   }
 
@@ -5609,6 +5608,9 @@ function findBody(doc: P5Parent): P5Element | null {
   }
   return null;
 }
+
+/** sinter's anchor comments, exactly: `sn` (in a row), `sn <id>`, `/sn`, and empty (a text separator) */
+const ANCHOR_COMMENT = /^(?:sn(?: \d+)?|\/sn)?$/;
 
 /** `task-ring` → `TaskRing`: the class a component's script exports */
 const pascalName = (name: string) => name.split('-').map((p) => p[0]!.toUpperCase() + p.slice(1)).join('');

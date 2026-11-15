@@ -38,8 +38,8 @@ export { withParams } from './runtime/url.js';
 export const EARLY = Symbol.for('sinter.early');
 export interface EarlyBranch { br: number; nodes: Node[]; end: Comment }
 
-/** an anchor's start comment: `<!--sn 4-->` at the page's top level, `<!--sn-->` in a row */
-const isStart = (n: Node | null) => n?.nodeType == 8 && /^sn(?: |$)/.test((n as Comment).data);
+/** an anchor's start comment, exactly: `<!--sn 4-->` at the page's top level, `<!--sn-->` in a row (`<!--snippet-->` is not) */
+const isStart = (n: Node | null) => n?.nodeType == 8 && /^sn(?: \d+)?$/.test((n as Comment).data);
 /** a root anchor's id: `<!--sn 4-->` */
 const anchorId = (n: Node) => (n.nodeType == 8 && (n as Comment).data.length > 3 && isStart(n) ? +(n as Comment).data.slice(3) : null);
 /** an anchor's end comment: the first `<!--/sn-->` after its start that closes no anchor nested in between (null: not parsed yet) */
@@ -63,10 +63,16 @@ const rootsIn = (top: Node, f: (id: number, n: Node) => void) => {
  * A head template's nodes, cloned: `<template id="sn-t-<id>">`; a negative `id` (`-1 - id`) is one
  * inside `<svg>` or `<math>`, whose head template holds that element: its children are the row
  */
+const tplOf = (id: number) => document.getElementById('sn-t-' + (id < 0 ? -1 - id : id)) as HTMLTemplateElement | null;
 const cloneOf = (id: number): Node[] => {
-  const t = document.getElementById('sn-t-' + (id < 0 ? -1 - id : id)) as HTMLTemplateElement;
+  const t = tplOf(id)!;
   return [...((id < 0 ? t.content.firstChild! : t.content).cloneNode(true) as ParentNode).childNodes];
 };
+/**
+ * What an anchor's writer returns while one of its templates is not parsed yet: an anchor in the head comes
+ * before the head templates, which are last in the head. The observer tries it again in a later pass.
+ */
+const WAIT = Symbol('wait');
 
 type Fn = (...a: any[]) => any;
 
@@ -404,13 +410,15 @@ export function at(nodes: Node[], path: number[], tag: string): Node | null {
 }
 
 /** one binding's first write: its value in `s` (one that throws is the page module's), written by `wr` */
-export function w(el: Node | null, f: Fn, s: any, wr: (el: any, v: any, n: string) => void, n = ''): void {
+export function w(el: Node | null, f: Fn, s: any, wr: (el: any, v: any, n: string) => unknown, n = ''): void {
   if (!el) return;
+  let done: Set<string> | null = null, key = '';
   if (live) {
     // observing: each binding once; a content binding of an element the parser has not closed yet waits
     let id = fnIds.get(f);
     if (id == null) fnIds.set(f, (id = fnN++));
-    const key = id + ' ' + n + ' ' + (content(el, wr) ? 'c' : 'a'), done = wrote.get(el) ?? new Set<string>();
+    key = id + ' ' + n + ' ' + (content(el, wr) ? 'c' : 'a');
+    done = wrote.get(el) ?? new Set<string>();
     if (done.has(key)) return;
     if (!live.all && content(el, wr) && !ready(el)) { live.waiting.add(el); return; }
     done.add(key);
@@ -422,7 +430,8 @@ export function w(el: Node | null, f: Fn, s: any, wr: (el: any, v: any, n: strin
     if (e === NOT_YET) retries.push(() => w(el, f, s, wr, n));
     return;
   }
-  wr(el, v, n);
+  // an anchor whose template the parser has not reached yet (one in the head): the next pass tries it again
+  if (wr(el, v, n) === WAIT && live) { done!.delete(key); live.waiting.add(el); }
 }
 
 /**
@@ -430,9 +439,10 @@ export function w(el: Node | null, f: Fn, s: any, wr: (el: any, v: any, n: strin
  * `z`, -1 for none), cloned before the end comment and left on the start for the runtime to adopt; `a`/`b`
  * render the branch's bindings over its nodes.
  */
-export function iff(start: Comment, v: unknown, x: number, z: number | null, a: Branch | 0, b: Branch | 0, s: any): void {
+export function iff(start: Comment, v: unknown, x: number, z: number | null, a: Branch | 0, b: Branch | 0, s: any): void | typeof WAIT {
   const br = v ? 1 : z != null ? 2 : 0, end = endOf(start);
   if (!br || !end) return;
+  if (!tplOf(br == 1 ? x : z!)) return WAIT;
   const nodes = cloneOf(br == 1 ? x : z!);
   end.before(...nodes);
   (start as any)[EARLY] = { br, nodes, end } satisfies EarlyBranch;
@@ -446,9 +456,10 @@ type Branch = (nodes: Node[], s: any) => void;
  * definition (template `ts[case]`) is cloned before the end comment with the props as its row's item
  * `item[case]`, and left on the start for the runtime to adopt (`br`: the case + 1).
  */
-export function ch(start: Comment, v: [number, unknown] | null, ts: number[], items: string[], rs: Array<Branch | 0>, s: any): void {
+export function ch(start: Comment, v: [number, unknown] | null, ts: number[], items: string[], rs: Array<Branch | 0>, s: any): void | typeof WAIT {
   const end = endOf(start);
   if (!v || !end || ts[v[0]] == null) return;
+  if (!tplOf(ts[v[0]]!)) return WAIT;
   const k = v[0], nodes = cloneOf(ts[k]!);
   end.before(...nodes);
   (start as any)[EARLY] = { br: k + 1, nodes, end } satisfies EarlyBranch;
@@ -466,9 +477,10 @@ export interface EarlyRows { rows: Node[][]; end: Comment }
  * the page module adopts them (binds them instead of new clones) when its list has the same number of items,
  * else removes them.
  */
-export function each(start: Comment, list: unknown, x: number, r: Branch | 0, item: string, index: string | null, s: any): void {
+export function each(start: Comment, list: unknown, x: number, r: Branch | 0, item: string, index: string | null, s: any): void | typeof WAIT {
   const end = endOf(start);
   if (!Array.isArray(list) || !list.length || !end) return;
+  if (!tplOf(x)) return WAIT;
   const rows: Node[][] = [];
   list.forEach((v, i) => {
     const nodes = cloneOf(x);

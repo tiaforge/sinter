@@ -372,8 +372,8 @@ const range = (a: Node | null, stop: Node | null) => {
   return out;
 };
 const child = (s: any, props: object) => Object.assign(Object.create(s), props);
-/** an anchor's start comment: `<!--sn 4-->` at the page's top level, `<!--sn-->` in a row */
-const isStart = (n: Node | null) => n?.nodeType == 8 && /^sn(?: |$)/.test((n as Comment).data);
+/** an anchor's start comment, exactly: `<!--sn 4-->` at the page's top level, `<!--sn-->` in a row (`<!--snippet-->` is not) */
+const isStart = (n: Node | null) => n?.nodeType == 8 && /^sn(?: \d+)?$/.test((n as Comment).data);
 /** an anchor's end comment, after its start: the first `<!--/sn-->` that closes no anchor nested in between */
 export function endOf(start: Node): Comment | null {
   let d = 0;
