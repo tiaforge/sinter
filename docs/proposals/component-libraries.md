@@ -1162,18 +1162,19 @@ library gets its own page and a recipe.
 2. **Anchors as comments** (section 1): the three kinds of anchor, the choice among them; templates
    in the head (or at the end of the body when nothing early uses them); ids and the IR change for
    `else`; shared definitions as head templates, with `data-sn-def` and `defs.ts` removed; finding
-   anchors at mount and early; the handoff on the start comment; keyed lists; the
-   layout model and reserved space; foreign content; the early renderer's templates in a table; the Trusted Types test harness; the
-   dev warnings; spec.md, the goldens and the examples. Useful on its own: prose CSS over any list, and the SVG crash fixed. The
-   js-framework-benchmark, the live grids and the bytes before the body in `bench/first-paint` must
-   not regress.
+   anchors at mount and early; the handoff on the start comment; keyed lists; the layout model and
+   reserved space; foreign content; the early renderer's templates in a table; the Trusted Types
+   test harness; the dev warnings; spec.md, the goldens and the examples. Useful on its own: prose
+   CSS over any list, and the SVG crash fixed. The js-framework-benchmark, the live grids and the
+   bytes before the body in `bench/first-paint` must not regress.
 3. **Slots that pass data** (section 2): `Slot<T>`, `data-sn-prop` on `<slot>`, `$slot`, a slot per
    branch, a fill's `<slot>` by the nearest-markup rule, literal ids in repeated markup, with a data
    table and a list with custom rows as tests.
 4. **The component root and text nodes** (section 3): roots that render at most one element, the
    tag's attributes on them and on shared definitions (which fixes the dropped attributes), the
    root marker for scoped styles, `<template data-sn-text>` as a binding target with its separators.
-   Useful on its own for buttons, headings and variants. Needs 2. After it, step 1's article is measured again against the RealWorld island (LCP 188 ms, 120 ms to render).
+   Useful on its own for buttons, headings and variants. Needs 2. After it, step 1's article is
+   measured again against the RealWorld island (LCP 188 ms, 120 ms to render).
 5. **Tree slots** (section 4) among app components: tree placements, roots and boundaries, fill
    templates chosen by choice anchors, fills compiled in the caller's scope and read through the
    scope chain, with unique runtime names. Measures the re-render of a 3,000-node tree when state a
