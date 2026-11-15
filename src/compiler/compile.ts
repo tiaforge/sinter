@@ -874,6 +874,8 @@ class Compiler {
   readonly check: CheckUnit | null;
   /** StateEntry / LoopEntry → frame index in `check.frames` */
   readonly frameOf = new Map<object, number>();
+  /** `sinter check`: the condition a branch is checked under, when it is not its own `data-sn-if` (the `data-sn-else` of a choice); and each `if` binding's, for its `data-sn-else` */
+  private readonly branchGuard = new WeakMap<object, string>();
   /** index in `check.exprs` of the expression `expr()` recorded last, or null */
   lastExpr: number | null = null;
   /** action elements by literal `id` (`run()` targets) */
@@ -1917,6 +1919,8 @@ class Compiler {
     if (next && isElement(next) && next.tagName === 'template' && attr(next, 'data-sn-else') !== undefined) {
       next.attrs = next.attrs.filter((a) => a.name !== 'data-sn-else');
       next.attrs.push({ name: 'data-sn-if', value: `!${JSON.stringify(names)}.includes(${use})` });
+      // checked where the key names no candidate, so the data narrows (`n.value` of the union's other members)
+      if (keySrc !== null && cands.length && cands.every((c) => c.key !== null)) this.branchGuard.set(next, `!(${cands.map((c) => `(${keySrc}) === ${JSON.stringify(c.key)}`).join(' || ')})`);
       for (const c of clones) this.choices.get(c)!.hasElse = true;
     }
   }
@@ -2970,12 +2974,13 @@ class Compiler {
     let pick: ExprResult | null = null;
     if (choice) {
       pick = choice.first ? this.expr(host, 'use', ctx.scope, { mode: 'value' }) : analyze(attr(host, 'use')!, ctx.scope, this.page, { mode: 'value', report: () => {} });
-      // a map in the markup: TypeScript types its values as strings, so the key is what must fit (its keys); the values are checked above
+      // a map in the markup: TypeScript types its values as strings, so the key is what must fit (its keys); the values are checked above.
+      // With a `data-sn-else` after it, any other key renders the else: the key is checked, of any value
       if (choice.first && this.check && choice.keys) {
         if (this.lastExpr !== null) this.check.exprs.pop();
         const src = attr(host, 'use')!;
         this.expr(host, 'use', ctx.scope, { mode: 'value' }, choice.keySrc!, src.lastIndexOf(choice.keySrc!));
-        this.typeLast({ returns: { kind: 'ts', text: choice.keys.map((k) => JSON.stringify(k)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
+        if (!choice.hasElse) this.typeLast({ returns: { kind: 'ts', text: choice.keys.map((k) => JSON.stringify(k)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
       } else if (choice.first && this.check) this.typeLast({ returns: { kind: 'ts', text: [...new Set([...(choice.pool ?? this.opts.componentNames ?? []), ...choice.names])].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
     }
     const { lets } = this.propLets(use, ctx.scope);
@@ -3847,14 +3852,17 @@ class Compiler {
       if (r.usesEl) this.report(el, 'data-sn-if', 'SN213', '`$el` in a `data-sn-if`: the condition is marked by comments in the page, so there is no element to read', 0, 'read the element in a binding inside the template, or move the condition onto an element with `data-sn-show`');
       node.b.push(b);
       result = { node, binding: b };
-      content = { tid, scope };
+      const cond = this.branchGuard.get(el) ?? `(${get('if')})`;
+      if (this.check) this.branchGuard.set(b, cond);
+      content = { tid, scope: this.guarded(scope, cond) };
     } else if (isTemplate && has('else')) {
       if (get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value', 0);
       if (!prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template', 0);
       const tid = this.newTemplate();
       node.b.push(this.binding({ k: 'else', x: tid }));
       if (prevIf) prevIf.binding.y = nodeIdx;
-      content = { tid, scope };
+      const before = prevIf && this.branchGuard.get(prevIf.binding);
+      content = { tid, scope: before ? this.guarded(scope, `!${before}`) : scope };
     }
 
     const defRoot = this.defRoots.get(el);
@@ -4494,9 +4502,18 @@ class Compiler {
     return { file: origin.file, line, col, chain: origin.chain };
   }
 
+  /** `sinter check`: the scope of a branch, whose expressions are checked where `cond` holds */
+  guarded(scope: Scope, cond: string): Scope {
+    if (!this.check) return scope;
+    const g = { cond };
+    this.frameOf.set(g, this.check.frames.length);
+    this.check.frames.push({ kind: 'guard', cond });
+    return { ...scope, guards: [...(scope.guards ?? []), g] };
+  }
+
   recordExpr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, src: string, shift: number, r: ExprResult): number {
     const frames: number[] = [];
-    for (const f of [...(scope.component ? [scope.component] : []), ...scope.states, ...scope.loops, ...(scope.lets ?? []), ...(scope.slot ? [scope.slot] : [])]) {
+    for (const f of [...(scope.component ? [scope.component] : []), ...scope.states, ...scope.loops, ...(scope.lets ?? []), ...(scope.slot ? [scope.slot] : []), ...(scope.guards ?? [])]) {
       const i = this.frameOf.get(f);
       if (i !== undefined && !frames.includes(i)) frames.push(i);
     }

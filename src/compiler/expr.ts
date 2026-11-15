@@ -70,6 +70,8 @@ export interface Scope {
   component?: ComponentScope;
   /** in a fill of a slot that passes data (`Slot<T>`): `$slot`, the values its placement passes */
   slot?: SlotScope;
+  /** `sinter check` only: the branch conditions around (a `data-sn-if`, a `data-sn-else`'s negation), outer to inner, so the types narrow */
+  guards?: Array<{ cond: string }>;
 }
 
 /** `$slot` in a fill: the placement's `data-sn-prop`, each value inlined where it is read, as props are. */
