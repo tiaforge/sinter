@@ -3,7 +3,9 @@
 // of a branch), as its `latest` next to its published versions; every other request is answered by registry.npmjs.org.
 // Serve the starter with the library (create-sinter beside @tiaforge-ui/sinter), so `npm create sinter` works as it does
 // for a real user.
-//   node registry.mjs <package.tgz>… [--port 4873]
+//   node registry.mjs <package.tgz>… [--port 4873] [--pin name@version]…
+// --pin: that package's newest version is the given one (later versions are left out, `latest` points to it), so a
+// release during a run cannot change what the agents install.
 // Point the agent and the grader at it with NPM_CONFIG_REGISTRY=http://127.0.0.1:<port>/ (run.mjs --registry).
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -14,6 +16,8 @@ import { request } from 'node:https';
 const args = process.argv.slice(2);
 const port = args.includes('--port') ? args[args.indexOf('--port') + 1] : '4873';
 const base = `http://127.0.0.1:${port}`;
+const pins = Object.fromEntries(args.flatMap((x, i) => (args[i - 1] === '--pin' ? [[x.slice(0, x.lastIndexOf('@')), x.slice(x.lastIndexOf('@') + 1)]] : [])));
+const newer = (a, b) => { const p = (v) => v.split(/[.-]/).slice(0, 3).map(Number); const [x, y] = [p(a), p(b)]; for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return a !== b && a.includes('-'); };
 const served = args.filter((x, i) => x.endsWith('.tgz') && args[i - 1] !== '--port').map((tgz) => {
   const bytes = readFileSync(tgz);
   const pkg = JSON.parse(execFileSync('tar', ['-xzOf', tgz, 'package/package.json']).toString());
@@ -50,6 +54,15 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(doc));
     }
     const up = await upstream(req.url, req.headers);
+    const pinned = pins[path.slice(1)];
+    if (pinned && up.status === 200) {
+      // a pinned package: nothing newer than the pin, and `latest` is the pin
+      const doc = JSON.parse(up.body);
+      for (const v of Object.keys(doc.versions ?? {})) if (newer(v, pinned)) delete doc.versions[v];
+      doc['dist-tags'] = { ...doc['dist-tags'], latest: pinned };
+      for (const [tag, v] of Object.entries(doc['dist-tags'])) if (!doc.versions[v]) delete doc['dist-tags'][tag];
+      res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(doc));
+    }
     res.writeHead(up.status, { 'content-type': up.type ?? 'application/json' }); res.end(up.body);
   } catch (e) { res.writeHead(502); res.end(String(e)); }
-}).listen(Number(port), '127.0.0.1', () => console.log(`registry on ${base}/: ${served.map((x) => `${x.pkg.name}@${x.pkg.version}`).join(', ')}; the rest from npmjs`));
+}).listen(Number(port), '127.0.0.1', () => console.log(`registry on ${base}/: ${served.map((x) => `${x.pkg.name}@${x.pkg.version}`).join(', ')}${Object.keys(pins).length ? `; pinned ${Object.entries(pins).map(([n, v]) => `${n}@${v}`).join(', ')}` : ''}; the rest from npmjs`));

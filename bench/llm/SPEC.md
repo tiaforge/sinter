@@ -173,8 +173,14 @@ Sources:
 - **Isolation:** one workspace per run, ports per slot (`4400+slot`, API `3100+slot`), and the agent's
   process group is killed afterwards. Grading happens after the agent exits, on a clean
   install and build.
-- **Versions:** each framework resolves to its latest release when the agent installs it. The runs
-  record the versions. Pin them in a release of the benchmark.
+- **Versions:** the agents install the frameworks themselves. For a comparison round, the local
+  registry pins each competitor at the release the earlier rows used (`registry.mjs --pin`: nothing
+  newer is served, `latest` points to the pin). For the rounds from 2026-11-14 on:
+  - Astro 7.4.12;
+  - SvelteKit 3.2.0, with Svelte 5.57.3 (T2's RealWorld base keeps its `^2` range: SvelteKit 2.70.4);
+  - Vite 8.3.8.
+
+  sinter is the packed commit (`pack-branch.mjs`). Every run's lockfile records what it got.
 - **Refresh:** once sinter and these prompts are crawled, the tasks stop being unseen. Keep a private
   held-out set and rotate it.
 
