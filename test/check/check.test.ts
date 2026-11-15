@@ -230,6 +230,12 @@ export type AnyBlock = Hero | Text | Image;
     expect(d.map((x) => [x.code, x.message.replace(/ \(TS\d+\)$/, '')])).toEqual([['SN208', "Property 'value' does not exist on type 'EventTarget'."]]);
     expect(d[0]!.hint).toBe('`$event.target` is any EventTarget to TypeScript: read the element the handler is on with `$el.value` (typed by its tag), or bind the field with `data-sn-model`');
     expect(checkPage(html('q = $el.value'), { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
+    // on an ancestor `$el` is the ancestor (a form takes any name, so `$el.value` would type-check and read the wrong
+    // thing): the hint moves the handler, or narrows the target
+    const on = (el: string) => checkPage(page(`<div data-sn-state="{ q: '' }">${el}<p data-sn-text="q + contacts.length"></p></div>`), { files: { 'src/sinter.types.ts': TYPES } })[0]?.hint;
+    expect(on('<form data-sn-on-input="q = $event.target.value"><input name="a"></form>')).toMatch(/whatever the event started on inside this `<form>`: put the handler on that element .* \(\$event\.target\)\.value`$/);
+    expect(on('<ul data-sn-on-click="q = $event.target.dataset.id"><li data-id="1">a</li></ul>')).toMatch(/inside this `<ul>`.*read the row's item instead of `dataset`/);
+    expect(checkPage(page(`<div data-sn-state="{ q: '' }"><form data-sn-on-input="q = /** @type {HTMLInputElement} */ ($event.target).value"><input name="a"></form><p data-sn-text="q + contacts.length"></p></div>`), { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
   });
 
   test('page() with a computed target: a direction on keyset; a page number needs offset-param', () => {
