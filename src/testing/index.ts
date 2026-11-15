@@ -299,6 +299,9 @@ export interface RenderProject {
   componentNames: string[];
   openapi: OpenApiSpec[];
   apis: ApisDef | null;
+  /** the project's helpers manifest (where each helper is declared), and the lazy packages each declaring module reaches */
+  helpers?: HelperManifest;
+  lazyModule?: (module: string) => string[];
 }
 
 /** One write to the page's history: `push` adds an entry, `replace` and `fragment` change the current one. */
@@ -422,6 +425,16 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
     else if (v && typeof v === 'object') manifest.namespaces[k] = { module: k, members: Object.keys(v) };
   }
   for (const [k, v] of Object.entries(options.lazyHelpers ?? {})) manifest.namespaces[k] = { module: `lazy:${k}`, members: v.members };
+  // `sinter render`: where each helper is declared, so the helper modules that reach a lazy package are known (not the built-in messages)
+  const real = options.project?.helpers;
+  if (real) {
+    if (real.module) manifest.module = real.module;
+    if (real.from) manifest.from = real.from;
+    for (const [k, v] of Object.entries(manifest.namespaces)) {
+      const r = real.namespaces[k];
+      if (r && r.module !== '@tiaforge-ui/sinter/messages') manifest.namespaces[k] = { ...v, module: r.module, ...(r.from ? { from: r.from } : {}) };
+    }
+  }
   const actions = options.actions ?? {};
   const actionManifest: HelperManifest = { module: 'actions', names: [], namespaces: {} };
   for (const [k, v] of Object.entries(actions)) {
@@ -435,7 +448,8 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   const proj = options.project;
   const apis = proj ? { specs: proj.openapi, apis: proj.apis } : options.apis ? testApis(options) : null;
   const parts = compileParts(html, {
-    file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: true, helpers: manifest, actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}),
+    file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: true, helpers: manifest,
+    ...(proj?.lazyModule ? { lazyModule: proj.lazyModule } : {}), actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
     lazy: true,
     // helper modules that reach a lazy package: the namespaces in `lazyHelpers`
@@ -459,6 +473,17 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   const errors = diagnostics.filter((d) => d.severity === 'error');
   if (errors.length) throw new Error(`sinter: build failed\n${errors.map(formatDiagnostic).join('\n')}`);
   return { parts, manifest, actions, apis: apis?.apis ?? null, diagnostics };
+}
+
+/** What a module of the helpers manifest exports of the helpers given (`sinter render` loads them all), by export name. */
+function helpersOf(m: HelperManifest, helpers: Record<string, unknown>, module: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const h of m.names) { const o = m.from?.[h]; if ((o?.module ?? m.module) === module) out[o?.name ?? h] = helpers[h]; }
+  for (const [ns, v] of Object.entries(m.namespaces)) for (const k of v.members) {
+    const o = v.from?.[k];
+    if ((o?.module ?? v.module) === module) out[o?.name ?? k] = (helpers[ns] as Record<string, unknown> | undefined)?.[k];
+  }
+  return out;
 }
 
 /** `apis` of the render options, resolved as the project resolves `sinter({ apis })`; an invalid one throws. */
@@ -491,7 +516,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   const helpers = withMessages(options);
   // `strict: false` on one test wins over SINTER_STRICT: that test expects its warnings
   const strict = options.strict === false ? { on: false, allow: new Map<string, string>() } : strictOf(options.strict);
-  const { parts, actions, apis, diagnostics } = compilePage(html, { ...options, helpers }, strict);
+  const { parts, manifest, actions, apis, diagnostics } = compilePage(html, { ...options, helpers }, strict);
   // the runtime's warnings: all of them for `warnings()`; in strict mode the next call rejects with the page's own
   const sink = warningSink(), seenWarnings: RuntimeWarning[] = [], failing: RuntimeWarning[] = [];
   sink.list.length = 0;
@@ -522,7 +547,11 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   }
   if (parts.remote) { names.push('$ri'); values.push(remote(parts.remote)); }
   for (const x of parts.lazy) { names.push(x.local); values.push(() => Promise.resolve()); }
-  for (const x of parts.lazyHelpers) { names.push(x.local); values.push(options.lazyHelpers![x.module.slice('lazy:'.length)]!.load); }
+  for (const x of parts.lazyHelpers) {
+    names.push(x.local);
+    // `lazyHelpers`, else (`sinter render`) the module's helpers from those already loaded, by their export names
+    values.push(options.lazyHelpers?.[x.module.slice('lazy:'.length)]?.load ?? (async () => helpersOf(manifest, helpers, x.module)));
+  }
   for (const x of parts.scripts) {
     const m = options.scripts?.[x.name];
     names.push(x.local);

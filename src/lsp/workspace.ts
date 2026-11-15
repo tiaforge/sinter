@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import { compile, type Diagnostic, type HelperManifest } from '../compiler/index.js';
 import { project, viteProject, type Project, type ProjectOptions } from '../project.js';
+import { lazyHelpers } from '../lazy-build.js';
 import { HEAD_DECL, writeComponentTypes } from '../components-build.js';
 
 const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
@@ -181,6 +182,7 @@ export class Workspace {
       const disk = p.readFile(path); // refuses files outside the root
       return this.docs.get(resolve(path)) ?? disk;
     };
+    let lh: ReturnType<typeof lazyHelpers> | undefined;
     for (const page of pages) {
       let html: string;
       try { html = this.read(page); } catch { continue; }
@@ -200,6 +202,8 @@ export class Workspace {
       }
       try {
         const out = compile(html, {
+          // helper modules that reach a lazy package: their helpers outside a let are SN324, as in the build
+          ...(p.lazy.length ? { lazyModule: (lh ??= lazyHelpers(state.root, p.lazy)).reach } : {}),
           file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles, lazy: p.lazy,
           ...(!component && p.isStatic(page) ? { static: true, prerender: true } : {}),
         });

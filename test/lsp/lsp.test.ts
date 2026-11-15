@@ -142,6 +142,22 @@ describe('sinter lsp', () => {
     await e.diagnostics('index.html', (d) => d.length === 0);
   });
 
+  test('SN324 per module: a helper of a module that reaches a lazy package, outside a let', async () => {
+    const root = project({
+      'vite.config.js': `import sinter from ${JSON.stringify(join(__dirname, '../../src/vite.ts'))};\nexport default { plugins: [sinter({ lazy: ['fakelib'] })] };\n`,
+      'node_modules/fakelib/package.json': '{"name":"fakelib","type":"module","main":"index.js"}',
+      'node_modules/fakelib/index.js': 'export const twice = (s) => s + s;\n',
+      'src/sinter.helpers.js': "export * as crunch from './lib/crunch.js';\nexport * as text from './lib/text.js';\n",
+      'src/lib/crunch.js': "import { twice } from 'fakelib';\nexport function run(s) { return twice(s); }\n",
+      'src/lib/text.js': 'export function len(s) { return s.length; }\n',
+      'index.html': '<p>hi</p>\n',
+    });
+    const e = await editor(root);
+    e.open('index.html', '<main data-sn-state="{ s: \'ab\' }" data-sn-let="{ out: crunch.run(s) }">\n  <p data-sn-text="crunch.run(s) + out + text.len(s)"></p>\n</main>\n');
+    const d = await e.diagnostics('index.html', (d) => d.length > 0);
+    expect(d.map((x) => [x.code, x.range.start.line, x.range.start.character])).toEqual([['SN324 lazy-package-use', 1, 19]]);
+  }, 30_000);
+
   test('a component is checked through the pages that use it, and on its own when none does', async () => {
     const page = '<sn-resource name="contacts" src="/api/contacts" key="id"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <contact-list data-sn-prop="{ q }"></contact-list>\n</div>\n';
     const component = '<template data-sn-component="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.name + q"></p>\n</template></ul></template>\n';

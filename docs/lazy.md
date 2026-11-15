@@ -149,7 +149,8 @@ export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parse
 ```
 
 - The let is `undefined` until the module has arrived, and `sinter check` types it `T | undefined`. The
-  arrival renders what reads it. Show something else meanwhile with `data-sn-if` on the let, or `??`. A
+  check runs without `strictNullChecks`, so it does not report an unguarded read (`doc.words`): guard
+  every read (`data-sn-if="doc"`, `doc?.words`, `doc ?? fallback`). The arrival renders what reads it. Show something else meanwhile with `data-sn-if` on the let, or `??`. A
   let has no `$meta`: an app that needs loading and error states uses `<sn-resource call>`.
 - A component prop is a let: `data-sn-prop="{ tree: doc.parse(x) }"` waits the same way.
 - Anywhere else (a binding, a handler, a state initializer) calling a helper of such a module is `SN324`,
@@ -223,6 +224,9 @@ from other failures: when a lazy load fails, it requests the chunk's URL again.
 `data-sn-preload` and loads nothing for them. Your functions import the package as they would anyway.
 Under vitest with the app's Vite config the stubs apply, otherwise the real package does: both behave
 the same, since every call is awaited.
+
+`sinter check` types such a let `T | undefined` but runs without `strictNullChecks`, so it does not flag
+an unguarded read: render the page before `load()` resolves, as below, to see what it shows meanwhile.
 
 A helper module that waits: pass it as `lazyHelpers`, with its members and a function that loads it, and
 a let that calls it is `undefined` until that function's promise resolves:
