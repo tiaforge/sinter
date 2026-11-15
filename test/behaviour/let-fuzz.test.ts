@@ -148,11 +148,19 @@ const components = (oracle: boolean) => ({
   'c-l': `<template data-sn-component="{ xs: number[] }"><div data-sn-let="{ C: ${oracle ? 'xs.reduce((p, z) => p + z, 0)' : 'sum(xs)'} }"><b class="cl" data-sn-text="C + ':' + xs.length"></b></div></template>`,
 });
 const PAGES = [{ id: 11, n: 1 }, { id: 12, n: 2 }, { id: 13, n: 3 }, { id: 14, n: 4 }, { id: 15, n: 5 }];
-const requests = () => mockRequests({
-  'GET /api/todos': [{ id: 1, n: 1 }, { id: 2, n: 2 }], 'PATCH /api/t': null, 'POST /api/ok': {}, 'POST /api/bad': { status: 500 },
-  'GET /api/pg': (c) => { const q = new URL(c.url, 'http://x').searchParams, p = Number(q.get('page') ?? 1), n = Number(q.get('limit') ?? 2); return { items: PAGES.slice((p - 1) * n, p * n), total: PAGES.length }; },
-  'GET /api/ev': (c) => { const id = Number(new URL(c.url, 'http://x').searchParams.get('id')); return [{ id: id * 100, n: id * 7 }]; },
-});
+/**
+ * The mocked API. `apart`: each response in a task of its own, as over a network; otherwise two requests made
+ * in one step are answered in the same few microtasks, and their order can turn on when a flush was queued
+ */
+const requests = (apart = false) => {
+  const routes: Record<string, unknown> = {
+    'GET /api/todos': [{ id: 1, n: 1 }, { id: 2, n: 2 }], 'PATCH /api/t': null, 'POST /api/ok': {}, 'POST /api/bad': { status: 500 },
+    'GET /api/pg': (c: { url: string }) => { const q = new URL(c.url, 'http://x').searchParams, p = Number(q.get('page') ?? 1), n = Number(q.get('limit') ?? 2); return { items: PAGES.slice((p - 1) * n, p * n), total: PAGES.length }; },
+    'GET /api/ev': (c: { url: string }) => { const id = Number(new URL(c.url, 'http://x').searchParams.get('id')); return [{ id: id * 100, n: id * 7 }]; },
+  };
+  if (apart) for (const [k, v] of Object.entries(routes)) routes[k] = (c: { url: string }) => new Promise((done) => setTimeout(() => done(typeof v == 'function' ? v(c) : v), 1));
+  return mockRequests(routes as Parameters<typeof mockRequests>[0]);
+};
 /** a fresh storage per render: `data-sn-persist` writes into it */
 function memoryStorage(): Storage {
   const m = new Map<string, string>();
@@ -193,12 +201,12 @@ test('random handlers over cached lets: every read and the page agree with the l
       // a row's own handler (7, the row `row`); msg: an upsert (0-2), a refetch (3), the stream dropped and reconnected (4)
       const steps = Array.from({ length: 3 + Math.floor(sr() * (3 * DEPTH + 1)) }, () => ({ b: Math.floor(sr() * 8), row: Math.floor(sr() * 3), flush: sr() < 0.6, msg: sr() < 0.3 ? Math.floor(sr() * 5) : -1 }));
       const early = seed % 3 === 0;
-      const run = async (oracle: boolean, after = false) => {
+      const run = async (oracle: boolean, after = false, apart = false) => {
         loc = 'en';
         const { html } = page(rng(seed), oracle);
         const stream = mockStream();
         const storage = memoryStorage();
-        const v = await render(html, { helpers: HELPERS, components: components(oracle), requests: requests(), streams: { '/s': stream }, storage, strict: false, ...(early && !oracle ? { firstPaint: true } : {}) });
+        const v = await render(html, { helpers: HELPERS, components: components(oracle), requests: requests(apart), streams: { '/s': stream }, storage, strict: false, ...(early && !oracle ? { firstPaint: true } : {}) });
         if (after) markAfter(v.app);
         await v.settle();
         const main = v.root.querySelector('main')!;
@@ -215,11 +223,14 @@ test('random handlers over cached lets: every read and the page agree with the l
         return { out, handlers: page(rng(seed), oracle).handlers };
       };
       try {
-        const got = await run(false), want = await run(true), main = await run(true, true);
+        // main's exec against this branch's, on the written-out page, with the responses apart
+        const got = await run(false), want = await run(true), first = await run(true, false, true), main = await run(true, true, true);
         const at = got.out.findIndex((x, i) => x !== want.out[i]);
         if (at >= 0) failures.push(`seed ${seed} depth ${DEPTH}${early ? ' (early takeover)' : ''}: step ${at} of ${JSON.stringify(steps)}\n  handlers ${JSON.stringify(got.handlers)}\n  cached  ${got.out[at]}\n  inlined ${want.out[at]}`);
-        const am = want.out.findIndex((x, i) => x !== main.out[i]);
-        if (am >= 0) failures.push(`seed ${seed} depth ${DEPTH}: the written-out page, writes marked first and after (main), step ${am} of ${JSON.stringify(steps)}\n  handlers ${JSON.stringify(got.handlers)}\n  first ${want.out[am]}\n  after ${main.out[am]}`);
+        // settled, the first render does not depend on when the responses came
+        if (first.out[0] !== want.out[0]) failures.push(`seed ${seed}: the first render with the responses apart\n  ${first.out[0]}\n  ${want.out[0]}`);
+        const am = first.out.findIndex((x, i) => x !== main.out[i]);
+        if (am >= 0) failures.push(`seed ${seed} depth ${DEPTH}: the written-out page, writes marked first and after (main), step ${am} of ${JSON.stringify(steps)}\n  handlers ${JSON.stringify(got.handlers)}\n  first ${first.out[am]}\n  after ${main.out[am]}`);
       } catch (e) {
         failures.push(`seed ${seed}: ${(e as Error).message.split('\n').slice(0, 3).join(' ')}`);
       }
