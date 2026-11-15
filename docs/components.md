@@ -436,7 +436,7 @@ tree, a nested menu.
   time instead, one copy of the markup per node, and the shared definition leaves the page when no
   instance is left to render from it ([static pages](static-pages.md#what-is-static)). A tree's node
   that writes state, or a fill that holds components or slots, keeps its part of the tree in the
-  browser. At most 5,000 rows and components are expanded per page (`SN536` past it).
+  browser. At most 10,000 rows and components are expanded per page (`SN536` past it).
 - A component used inside itself declares its props as a type literal, and its inner uses take no slot
   content. An inner use's plain attributes, `data-sn-class`, `-attr`, `-style`, `-show` and handlers
   reach the root its instance renders: they are compiled where the tag is written and passed with

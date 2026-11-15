@@ -8033,7 +8033,7 @@ const MAX_UNROLL = 1000;
  * which compile it on every edit), so the limit keeps a page near 1 s. A tree that would cross it stays a template,
  * with `SN536` at its use
  */
-const EXPANSION_LIMIT = 5_000;
+const EXPANSION_LIMIT = 10_000;
 
 const isPrimitive = (v: unknown) => v == null || ['string', 'number', 'boolean'].includes(typeof v);
 

@@ -48,7 +48,7 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
 - a handler that reads only constants, `$el` and `$event` (a copy button) does not stop any of it:
   the page ships that handler and the runtime it needs, nothing else.
 
-At most 5,000 rows and components are expanded per page; the one that would cross it is rendered in
+At most 10,000 rows and components are expanded per page; the one that would cross it is rendered in
 the browser, with warning [SN536](diagnostics.md#sn536).
 
 ## Helpers and files at build time
@@ -57,8 +57,8 @@ A helper call over constants runs at build time, and its result is written into 
 `data-sn-text="slug(title)"` over a constant `title`, a list `data-sn-for="t in tags(post)"` that
 unrolls, a `data-sn-state` field initialized by a helper. Whether a helper can run there is decided
 from its code: it, and everything it calls and imports, may use only JavaScript's own deterministic
-globals (`Math`, `JSON`, `Array`, `Map`, …), not `Date`, `Intl`, `Math.random`, `fetch`, `window` or
-`process`; each exported function counts on its own. Handlers never run at build time.
+globals (`Math`, `JSON`, `Array`, `Map`, …) and `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams`
+and `structuredClone`, not `Date`, `Intl`, `Math.random`, `fetch`, `window` or `process`; each exported function counts on its own. Handlers never run at build time.
 
 - A helper that throws at build time, or returns something that is not plain data (a `Date`, a
   `Map`, a class), stays in the browser; a dev build warns at the call (`SN534`), and runs each call

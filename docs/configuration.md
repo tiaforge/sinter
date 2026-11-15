@@ -213,8 +213,9 @@ export * as fmt from './format.js';
   only warns (`SN533`, which strict mode does not fail on); the page works as before. Loading it takes
   one extra Vite server per build, a few hundred milliseconds.
 - Whether a helper's calls can run at build time is decided from its code: it, and everything it calls
-  and imports, may use only JavaScript's own deterministic globals (`Math`, `JSON`, `Array`, `Map`, …),
-  not `Date`, `Intl`, `Math.random`, `toLocale…`, `fetch`, `window` or `process`. Each exported function
+  and imports, may use only JavaScript's own deterministic globals (`Math`, `JSON`, `Array`, `Map`, …)
+  and `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams` and `structuredClone`, not `Date`, `Intl`,
+  `Math.random`, `toLocale…`, `fetch`, `window` or `process`. Each exported function
   counts on its own: one date formatter does not stop the others in its module. Its result must be plain
   data; a call that throws or returns anything else stays in the browser (`SN534` in dev builds, which
   also run each call twice: a helper that returns another result the second time is not pure).

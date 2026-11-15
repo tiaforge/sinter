@@ -33,6 +33,11 @@ function remote() { return fetch('/x'); }
 export const arrow = (xs: number[]) => xs.map((x) => { let globalThis = x; return globalThis * 2; });
 export function leaks() { return globalThis.x; }
 export function classy() { class Box { v = 1; get() { return this.v; } } return new Box().get(); }
+export function encode(s: string) { return [...new TextEncoder().encode(s)]; }
+export function decode(b: number[]) { return new TextDecoder().decode(new Uint8Array(b)); }
+export function path(u: string) { return new URL(u, 'https://x.test/').pathname; }
+export function query(q: string) { return new URLSearchParams(q).get('a'); }
+export function copy(o: object) { return structuredClone(o); }
 export function catches() { try { return JSON.parse('{'); } catch (window) { return String(window); } }
 `);
 put('src/lib/text.ts', `import { clean } from './clean.ts';
@@ -76,6 +81,14 @@ describe('what may fold, per helper', () => {
     expect(why(v.get('fmt$later'))).toBe('`import()`');
     expect(why(v.get('fmt$leaks'))).toBe('`globalThis`');
     expect(why(v.get('fmt$classy'))).toBe('folds');
+  });
+
+  test('five web-platform utilities that behave the same in Node and browsers fold too', () => {
+    expect(why(v.get('fmt$encode'))).toBe('folds');
+    expect(why(v.get('fmt$decode'))).toBe('folds');
+    expect(why(v.get('fmt$path'))).toBe('folds');
+    expect(why(v.get('fmt$query'))).toBe('folds');
+    expect(why(v.get('fmt$copy'))).toBe('folds');
   });
 
   test('a local variable named like a global does not count', () => {

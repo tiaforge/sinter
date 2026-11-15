@@ -134,17 +134,17 @@ describe('limits', () => {
     expect(kept(`<template data-sn-for="g in [${list(1001, '1')}]"><p><template data-sn-for="x in g" data-sn-key="x"><b data-sn-text="x"></b></template></p></template>`)).toBe(2);
   });
 
-  test('at most 5,000 rows and components per page, at every depth: a loop that would cross it stays a template, with SN536 at it', () => {
+  test('at most 10,000 rows and components per page, at every depth: a loop that would cross it stays a template, with SN536 at it', () => {
     const inner = list(500, '1');
     const page = (n: number) => `<template data-sn-for="g in ${list(n, inner)}"><p><template data-sn-for="x in g" data-sn-key="x"><b data-sn-text="x"></b></template></p></template>`;
-    // 9 rows of 500: 4,509
-    expect(kept(page(9))).toBe(0);
-    expect(build(page(9)).diagnostics).toEqual([]);
-    // 10 rows of 500: 5,010
-    expect(kept(page(10))).toBe(2);
-    expect(build(page(10)).diagnostics.map((d) => [d.code, d.severity, d.message])).toEqual([['SN536', 'warning', 'this list\'s rows would take the page past 5,000 rows and components expanded at build time, so it is rendered in the browser']]);
+    // 19 rows of 500: 9,519
+    expect(kept(page(19))).toBe(0);
+    expect(build(page(19)).diagnostics).toEqual([]);
+    // 20 rows of 500: 10,020
+    expect(kept(page(20))).toBe(2);
+    expect(build(page(20)).diagnostics.map((d) => [d.code, d.severity, d.message])).toEqual([['SN536', 'warning', 'this list\'s rows would take the page past 10,000 rows and components expanded at build time, so it is rendered in the browser']]);
     // the limit counts the whole page: two trees that each fit, the second one over
-    expect(build(page(5) + page(5)).diagnostics.map((d) => d.code)).toEqual(['SN536']);
+    expect(build(page(10) + page(10)).diagnostics.map((d) => d.code)).toEqual(['SN536']);
   });
 });
 
