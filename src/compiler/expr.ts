@@ -100,6 +100,12 @@ export interface ComponentScope {
   emits?: string[] | null;
   /** names the caller's scope has at the use: reading one is an error that names the prop to add */
   outer: Set<string>;
+  /**
+   * tree slots (section 4): the fills its markup's tree placements take. `expr`: the run-time choice passed
+   * down a shared definition (`$.$p<tid>.$f`), or null; `own`: the fill id of each slot a root in scope
+   * declares (null: declared, left unfilled, so its default), nearer ones over `expr`
+   */
+  fills?: { expr: string | null; own: Map<string, number | null> };
 }
 
 export interface PageInfo {

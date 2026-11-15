@@ -9,6 +9,7 @@ const files: Record<string, string> = {
   '/p/src/components/x-card.html': '<template data-sn-component="{ title: string }" data-sn-emits="{ pick: number }"><div><slot name="foot"></slot></div></template>',
   '/p/partials/old.html': '<p></p>',
   '/p/src/layouts/x-shell.html': '<!doctype html><html data-sn-layout=""><head></head><body><slot></slot></body></html>',
+  '/p/src/components/x-close.html': '<template data-sn-component="{ cell: Slot<{ n: number }> }"><div><slot name="cell" data-sn-prop="{ n: 1 }"><b></b></slot><slot name="cel" data-sn-prop="{ n: 2 }"><i></i></slot></div></template>',
   '/p/src/components/x-two.html': '<template data-sn-component=""><p></p><p></p></template>',
   '/p/src/components/x-maybe.html': '<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>',
 };
@@ -87,6 +88,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN507', '<div data-sn-state="{ a: 0 }"><button data-sn-on-click="a = 1; a = 2; a = 3; a = 4; a = 5" data-sn-text="a"></button></div>', /`data-sn-on-click` is too complex for markup: 5 statements in one handler \(limit `statements`: 4\)\. Move the logic into a helper/],
   ['SN334', '<div data-sn-state="{ v: true }"><x-maybe id="m" data-sn-prop="{ on: v }"></x-maybe></div>', /`<x-maybe>`'s root may render nothing, so `id` on its tag would point at an element that may not exist/],
   ['SN333', '<div data-sn-state="{ v: 1 }"><template data-sn-text="v" data-sn-if="v"></template></div>', /`data-sn-text` and `data-sn-if` on one `<template>`/],
+  ['SN535', '<x-close></x-close>', /`<slot name="cel">` in `<x-close>` is a tree placement.*Did you mean `cell`/],
   ['SN331', '<div><slot></slot></div>', /this `<slot>` is not in a component or a fill, so nothing fills it/],
   ['SN332', '<button data-sn-post="file:./post.txt"></button>', /`file:` is a source for `<sn-resource src>`/],
   ['SN532', '<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs"><p id="row" data-sn-text="x"></p></template></div>', /`id="row"` is in markup that renders more than once \(a `data-sn-for` row\)/],

@@ -82,8 +82,8 @@ describe('the placement: data-sn-prop on a <slot>', () => {
   test('`data-sn-prop` on a slot that is not declared `Slot<T>`, and a `Slot<T>` placed without it: SN331', () => {
     const a = run('<x-list data-sn-prop="{ items: [] }"></x-list>', { 'x-list': comp('<slot name="other" data-sn-prop="{ item: x }"><li></li></slot><slot name="row"><li></li></slot>') });
     expect(errors(a)).toEqual([
-      expect.stringMatching(/^SN331 `data-sn-prop` on `<slot name="other">` passes data, and `<x-list>` does not declare `other` as `Slot<T>`/),
       expect.stringMatching(/^SN331 `row` is declared `Slot<\{ item: string; i: number \}>`: its placement passes the values with `data-sn-prop`/),
+      expect.stringMatching(/^SN331 `<x-list>` places the slot `other` \(`<slot name="other" data-sn-prop>`\), and no component around it declares `other`/),
     ]);
   });
 

@@ -420,6 +420,8 @@ interface Use {
   props: Member[] | null;
   /** the props type, without its `Slot<T>` members */
   propsText: string;
+  /** a root's fills for slots it declares, kept for tree placements deep inside it (section 4), by name, with their fill ids (`fillDefs`) */
+  treeFills?: Map<string, { nodes: P5Node[]; id: number }>;
   /** the slots that pass data: `Slot<T>` members of the props type, by name */
   slots?: Map<string, Member>;
   emits: Member[] | null;
@@ -707,6 +709,20 @@ class Compiler {
   private readonly defaultOf = new WeakMap<object, FillChain>();
   /** unfilled placements with an empty default, by the node they were in: compiled when the walk reaches its children */
   private readonly emptyDefaults = new WeakMap<object, FillChain[]>();
+  /** a component tag: the use whose markup it is in (for slot content, its caller's), for tree placements' nearest root */
+  private readonly enclosing = new WeakMap<P5Element, Use | null>();
+  /** above 0 while a shared definition expands: a tree placement there with no root in it is filled at run time */
+  private inDef = 0;
+  /** tree placements inside shared definitions: `<slot>`s left for the walk, which makes each a choice anchor */
+  private readonly runtimeSlots = new WeakSet<P5Element>();
+  /** every root's fill for a slot it declares, by id: a case template of each tree placement in a definition it reaches */
+  private readonly fillDefs: Array<{ id: number; use: Use; k: string; nodes: P5Node[] }> = [];
+  /** component files read as a graph (`fileGraph`) */
+  /** tree placements in shared definitions, made choice anchors by the walk; their fills' cases after it (`finishTreeFills`) */
+  private readonly runtimePlacements: Array<{ el: P5Element; node: NodeDef; k: string; at: Scope; data: string; deps: string[]; members: Map<string, LetEntry>; shape: { children: (copy: boolean) => P5Node[] | null; what?: string } | null; cases: number[]; map: Record<number, number> }> = [];
+  /** the top nodes of a fill's case template and the children it places: the scope each is walked in */
+  private readonly caseScopes = new WeakMap<object, Scope>();
+  private graphs?: Map<string, { uses: Set<string>; declares: Set<string>; places: Set<string>; data: Set<string>; helperChoice: boolean }>;
   /** a component tag (or `<sn-component>`) that is another component's root: the outer uses, outer first, whose tag's attributes pass on to it */
   private readonly passOn = new WeakMap<P5Element, Use[]>();
   /** where a component's markup starts when its root is not one plain element (a chain's templates, a fill), or the outer components whose root an element also is: the uses, outer first */
@@ -1002,6 +1018,7 @@ class Compiler {
     this.head = findHead(doc);
     this.expandComponents(doc, []);
     this.strayAndRepeated(doc);
+    this.slotsPlaced();
     // the second pass: what the first decided, per instance, at any depth (decided templates and choices, unrolled loops)
     if (this.opts.decided?.size || this.opts.unrolled?.size) this.expandConstants(doc, '', false);
     if (this.opts.urls) this.canonical(doc);
@@ -1036,6 +1053,7 @@ class Compiler {
     const paths = this.pathPatterns(doc);
     this.pathList = paths;
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
+    this.finishTreeFills();
     this.defRootBindings();
     this.finishChoices();
     this.resolveSources();
@@ -1607,12 +1625,14 @@ class Compiler {
    * takes the tag's place, the caller's content fills the slots. `chain`: the components this
    * markup is in, `#` marking a `data-sn-for` or `data-sn-if` template between.
    */
-  expandComponents(parent: P5Parent, chain: string[], inHead = false) {
+  expandComponents(parent: P5Parent, chain: string[], inHead = false, encl: Use | null = null) {
     for (const child of [...parent.childNodes]) {
       if (!isElement(child)) continue;
       // slot content is the caller's: it is inside the components its caller is in
       const ch = this.slotOf.get(child)?.chain ?? chain;
-      if (child.tagName === 'sn-component') { this.choice(child); continue; }
+      const su = this.slotOf.get(child);
+      const en = su ? this.enclosing.get(su.host) ?? null : encl;
+      if (child.tagName === 'sn-component') { this.choice(child, en); continue; }
       const def = this.componentFile(child.tagName);
       if (!def && this.layoutFile(child.tagName)) {
         this.report(child, null, 'SN319', `\`<${child.tagName}>\` is a layout: it is the only tag of a page, at its top level`, 0, 'a layout cannot be inside a component, another layout or other markup');
@@ -1658,19 +1678,20 @@ class Compiler {
         }
         if (def.bad) { detach(child); continue; }
         if (def.head) { this.expandUse(child, def, ch); continue; }
+        this.enclosing.set(child, en);
         const root = this.expandUse(child, def, ch);
         const use = this.hostUse.get(child);
         if (root && use?.shape) {
           // a root that is not one plain element: its templates, its component tag or choice, expanded in place
-          this.expandComponents({ childNodes: root.parentNode!.childNodes.filter((c) => this.scopeStart.get(c)?.includes(use)) } as unknown as P5Parent, [...ch, name]);
-        } else if (root) this.expandComponents(root, [...ch, name]);
+          this.expandComponents({ childNodes: root.parentNode!.childNodes.filter((c) => this.scopeStart.get(c)?.includes(use)) } as unknown as P5Parent, [...ch, name], false, use);
+        } else if (root) this.expandComponents(root, [...ch, name], false, use ?? null);
         continue;
       }
       const head = inHead || child.tagName === 'head';
-      this.expandComponents(child, ch, head);
+      this.expandComponents(child, ch, head, en);
       if (child.tagName === 'template') {
         const t = attr(child, 'data-sn-for') !== undefined || attr(child, 'data-sn-if') !== undefined || attr(child, 'data-sn-else') !== undefined;
-        this.expandComponents((child as P5Template).content, t ? [...ch, '#'] : ch, head);
+        this.expandComponents((child as P5Template).content, t ? [...ch, '#'] : ch, head, en);
       }
     }
   }
@@ -1685,7 +1706,7 @@ class Compiler {
    * It becomes one point per candidate (a shared definition each), of which only the one `use` names
    * renders; a `data-sn-else` template after it renders for a value outside the candidates.
    */
-  choice(el: P5Element) {
+  choice(el: P5Element, encl: Use | null = null) {
     const use = attr(el, 'use');
     const elseAfter = () => el.parentNode?.childNodes.slice(el.parentNode.childNodes.indexOf(el as never) + 1).find((c) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== ''));
     const fail = (message: string, hint?: string) => {
@@ -1725,6 +1746,11 @@ class Compiler {
         cands.push({ name: v, key: k });
       }
     } else if (ast.type === 'CallExpression') {
+      // rule 7: in a component that declares slots, or has a tree placement, every component would be a candidate
+      const g = encl ? this.fileGraph(encl.name) : null;
+      if (encl && g && (encl.slots?.size || [...g.data].some((x) => !g.declares.has(x)))) {
+        return fail(`\`<${encl.name}>\` ${encl.slots?.size ? 'declares slots' : 'has a tree placement'}, so \`<sn-component use>\` in it names its candidates: a template string or a map in \`use\`; a helper makes every component a candidate`);
+      }
       cands = all.map((n) => ({ name: n, key: null }));
     } else if (ast.type === 'BinaryExpression' && ast.operator === '+') {
       return fail('`use` built with `+` is a `string` to TypeScript, so its candidates are unknown: write a template string, ``use="`${b.type}-block`"``');
@@ -1946,6 +1972,8 @@ class Compiler {
     }
     if (a!.tagName === 'sn-component') return { kind: 'choice', el: a!, empty: true };
     if (this.componentFile(a!.tagName)) return { kind: 'tag', el: a!, empty: false };
+    // a tree placement in a shared definition: a choice, at run time, between its default and the fills passed down
+    if (a!.tagName === 'slot' && this.runtimeSlots.has(a!)) return { kind: 'choice', el: a!, empty: false };
     if (a!.tagName === 'slot') return `the \`<slot>\` at the root of \`<${name}>\` was not filled`;
     return { kind: 'el', el: a!, empty: false };
   }
@@ -2117,8 +2145,26 @@ class Compiler {
     const slots = this.placements(container);
     const data = use.slots ?? new Map<string, Member>();
     const byName = new Map<string, Array<{ el: P5Element; path: string[] }>>();
+    const tree: P5Element[] = [];
+    // a root's fills for the slots it declares: kept (a copy) for tree placements inside it
+    for (const k of data.keys()) {
+      const given = groups.get(k);
+      if (!realIn(given)) continue;
+      const caller = chain.filter((x) => x !== '#').at(-1) ?? '';
+      const kept = given!.map((c) => this.cloneTree(c, host));
+      for (const c of kept) {
+        if (isElement(c)) c.attrs = c.attrs.filter((a) => a.name !== 'slot');
+        if (!this.slotOf.has(c)) this.slotOf.set(c, use);
+        if (isElement(c)) this.slotEls.push({ el: c, caller, host: name });
+      }
+      const id = this.fillDefs.length;
+      this.fillDefs.push({ id, use, k, nodes: kept });
+      (use.treeFills ??= new Map()).set(k, { nodes: kept, id });
+    }
     for (const s of slots) {
       const k = attr(s.el, 'name') ?? '';
+      // a named slot that passes data and that the component does not declare: a tree placement (section 4)
+      if (attr(s.el, 'data-sn-prop') !== undefined && k && !data.has(k)) { tree.push(s.el); continue; }
       // a placement that passes data: of a slot declared `Slot<T>`
       if (attr(s.el, 'data-sn-prop') !== undefined && !data.has(k)) {
         this.once(s.el, 'data-sn-prop', 'SN331', k ? `\`data-sn-prop\` on \`<slot name="${k}">\` passes data, and \`<${name}>\` does not declare \`${k}\` as \`Slot<T>\`` : '`data-sn-prop` on the default `<slot>`: a slot that passes data is named, and declared `Slot<T>`', 0,
@@ -2185,14 +2231,65 @@ class Compiler {
         mergeText(parent);
       });
     }
-    const slotNames = [...placedNames].filter((x) => x);
+    for (const el of tree) this.treePlacement(use, el);
+    const slotNames = [...new Set([...placedNames, ...data.keys()])].filter((x) => x);
     for (const [k, nodes] of groups) {
-      if (placedNames.has(k) || !realIn(nodes)) continue;
+      // a declared slot placed deeper in the tree takes its fill from `treeFills`
+      if (placedNames.has(k) || data.has(k) || !realIn(nodes)) continue;
       const el = nodes.find(isElement);
       if (k) this.report(el!, 'slot', 'SN314', `\`<${name}>\` has no slot \`${k}\`.${slotNames.length ? ` Its slots are ${slotNames.map((x) => `\`${x}\``).join(', ')}.` : ''}${didYouMean(k, slotNames)}`, 0);
       else this.report(el ?? host, null, 'SN314', `\`<${name}>\` has no default \`<slot>\`, so this content would be dropped`, 0,
         slotNames.length ? `put it in a named slot: ${slotNames.map((x) => `\`slot="${x}"\``).join(', ')}` : `add a \`<slot></slot>\` to \`<${name}>\` where the content goes`);
     }
+  }
+
+  /**
+   * A tree placement (section 4, rule 1): a `<slot>` that passes data and whose name its component `x`
+   * does not declare. It is filled by the nearest enclosing root that declares the name (rule 2):
+   * here, at build time, when that root's markup expands it; in a shared definition, which is compiled
+   * once for every root, at run time (`runtimePlacement`). A root in caller markup starts a new contract
+   * (rule 3): `enclosing` skips from slot content and fills to the caller's side. With no root at all,
+   * it is an error at the outermost use.
+   */
+  treePlacement(x: Use, el: P5Element) {
+    const k = attr(el, 'name')!;
+    const near = didYouMean(k, [...(x.slots?.keys() ?? [])]);
+    if (near) this.once(el, 'name', 'SN535', `\`<slot name="${k}">\` in \`<${x.name}>\` is a tree placement, filled by the nearest root that declares \`${k}\`; \`<${x.name}>\` declares a slot of a close name.${near}`, 0);
+    let u = this.enclosing.get(x.host) ?? null, last: Use = x;
+    while (u && !u.slots?.has(k)) { last = u; u = this.enclosing.get(u.host) ?? null; }
+    // the fill: the declaring root's own, or (rule 4) an outer root's, while the roots are in their package's markup
+    let from: Use | null = u;
+    while (from && !from.treeFills?.has(k) && !this.slotOf.has(from.host)) {
+      let up = this.enclosing.get(from.host) ?? null;
+      while (up && !up.slots?.has(k)) up = this.enclosing.get(up.host) ?? null;
+      if (!up) break;
+      from = up;
+    }
+    const parent = el.parentNode!;
+    const put = (nodes: P5Node[]) => {
+      const at = parent.childNodes.indexOf(el as never);
+      for (const c of nodes) (c as { parentNode: P5Parent }).parentNode = parent;
+      parent.childNodes.splice(at, 1, ...(nodes as never[]));
+      mergeText(parent);
+    };
+    if (!u) {
+      // in a shared definition: the root that uses it passes its fill at run time
+      if (this.inDef > 0) { this.runtimeSlots.add(el); return; }
+      this.report(last.host, null, 'SN331', `\`<${x.name}>\` places the slot \`${k}\` (\`<slot name="${k}" data-sn-prop>\`), and no component around it declares \`${k}\`: nothing can fill it here`, 0,
+        `use it inside a component that declares \`${k}: Slot<…>\`, or declare it in \`<${x.name}>\` to fill it from its tag`);
+      put([...el.childNodes]);
+      return;
+    }
+    const member = u.slots!.get(k)!;
+    const fill = from?.treeFills?.get(k);
+    const p: Placement = { el, use: fill ? from! : u, name: k, member: fill ? from!.slots!.get(k)! : member };
+    const nodes = fill ? fill.nodes.map((c) => this.cloneTree(c, parent)) : [...el.childNodes];
+    if (fill) for (const c of nodes) {
+      const x0 = this.slotEls.find((y) => y.el === fill.nodes[nodes.indexOf(c)]);
+      if (x0 && isElement(c)) this.slotEls.push({ ...x0, el: c });
+    }
+    this.place(p, nodes, !!fill, false);
+    put(nodes);
   }
 
   /**
@@ -2521,7 +2618,22 @@ class Compiler {
     // no `data-sn-emits`: no events; one the compiler cannot list (an alias): not checked here
     const around = caller.component?.runtime;
     const runtime: Set<string> | 'all' = def || around === 'all' ? 'all' : new Set([...(around ?? []), ...caller.loops.map((l) => l.rt ?? l.name)]);
-    const cs: ComponentScope = { name, outer, runtime, id: this.useIds, ...(use.late || caller.component?.late ? { late: true } : {}), ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
+    // tree slots: the fills its markup's tree placements take, nearer roots over outer ones (rule 4); a shared
+    // definition takes them from its row's item, at run time
+    // a root in caller markup (slot content, a fill, a page) starts a new contract (rule 3); in its own package's
+    // markup, the fills of slots it also declares pass into it, and one written on its tag wins (rule 4)
+    const inherit = def ? { expr: `$.${def.rt}.$f`, own: new Map<string, number | null>() } : this.slotOf.has(use.host) ? undefined : caller.component?.fills;
+    let fills = inherit;
+    if (use.slots?.size) {
+      const own = new Map(inherit?.own ?? []);
+      for (const k of use.slots.keys()) {
+        const id = use.treeFills?.get(k)?.id;
+        if (id !== undefined) own.set(k, id);
+        else if (!inherit || (!own.has(k) && !inherit.expr)) own.set(k, null);
+      }
+      fills = { expr: inherit?.expr ?? null, own };
+    }
+    const cs: ComponentScope = { name, outer, runtime, id: this.useIds, ...(fills ? { fills } : {}), ...(use.late || caller.component?.late ? { late: true } : {}), ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
     use.scope = cs;
     this.useById.set(this.useIds++, use);
     if (this.check) {
@@ -2717,7 +2829,9 @@ class Compiler {
     if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) this.check.exprs[this.lastExpr]!.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
     for (const l of lets) if (l.src?.length) this.addSources(`@def:${name}:${l.name}`, l.src);
     const tagAttrs = this.pointAttrs(host, ctx, `$p${def.tid}`);
-    const props = `[{ ${[...lets.map((l) => `${JSON.stringify(l.name)}: (${l.code})`), ...(tagAttrs ? [`"$a": ${tagAttrs.code}`] : [])].join(', ')} }]`;
+    // tree slots: the fills chosen here travel down the definition in its item
+    const fills = this.reachesTree(name) ? this.fillsCode(ctx.scope) : null;
+    const props = `[{ ${[...lets.map((l) => `${JSON.stringify(l.name)}: (${l.code})`), ...(tagAttrs ? [`"$a": ${tagAttrs.code}`] : []), ...(fills ? [`"$f": ${fills}`] : [])].join(', ')} }]`;
     // dev builds: a value outside the candidates, with no `data-sn-else` to show, is reported (once per value and place)
     const warn = pick && choice!.first && !choice!.hasElse && this.opts.dev
       ? `if (!${JSON.stringify(choice!.names)}.includes(v) && !(($.$f.$snw ??= new Set()).has(${JSON.stringify(this.position(host))} + v))) { $.$f.$snw.add(${JSON.stringify(this.position(host))} + v); console.warn(${JSON.stringify(`sinter: <sn-component use> at ${this.position(host)} is `)} + JSON.stringify(v) + ${JSON.stringify(`, not one of its components (${choice!.names.join(', ')}): nothing is rendered. Add the component, or a <template data-sn-else> after the element`)}); } `
@@ -2818,6 +2932,207 @@ class Compiler {
     if (b) ctx.list.push(node);
     this.textMarks.set(node, el);
     return null;
+  }
+
+  /**
+   * A tree placement in a shared definition (section 4, how it compiles): a choice anchor between its default
+   * (case 0) and the fills that roots pass down the definition (`$f` of its item), one case template per fill,
+   * added after the walk. The case's item is the placement's data: the fill reads it as `$slot`.
+   */
+  runtimePlacement(el: P5Element, ctx: Ctx, index: number): null {
+    const k = attr(el, 'name')!;
+    const ad = parse5.defaultTreeAdapter;
+    // (a copy of the default as written: the walk below strips what it compiles, and each fill's `<slot>` takes the children again)
+    const pristine = { ...el, childNodes: el.childNodes.map((c) => this.cloneTree(c, el)) } as P5Element;
+    const shape = this.defaultShape({ el: pristine, use: this.useById.get(ctx.scope.component?.id ?? -1) ?? ({ name: ctx.scope.component?.name ?? '' } as Use), name: k, member: { name: k, optional: false, offset: 0 } });
+    // the data, in the definition's scope at the placement
+    const r = this.expr(el, 'data-sn-prop', ctx.scope, { mode: 'value', object: 'literal-keys' });
+    const src = attr(el, 'data-sn-prop') ?? '{}';
+    const members = new Map<string, LetEntry>();
+    for (const e of r.entries ?? []) {
+      if (members.has(e.key)) continue;
+      const v = entryValue(r, e);
+      const q = v ? analyze(src.slice(v.start, v.end), ctx.scope, this.page, { mode: 'value', report: () => {} }) : null;
+      members.set(e.key, { name: `$slot.${e.key}`, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: false, usesIndex: false, resource: q?.resource ?? null, src: q?.itemOf ?? null, list: q?.listOf ?? null });
+    }
+    const data = `{ ${[...members].map(([key, l]) => `${JSON.stringify(key)}: (${l.code})`).join(', ')} }`;
+    // case 0: the default, the component's markup
+    const tid = this.newTemplate(), t = this.templates[tid]!;
+    t.item = `$sl${tid}`;
+    const tpl = ad.createElement('template', parse5.html.NS.HTML, [{ name: 'id', value: `sn-t-${tid}` }]) as P5Template;
+    tpl.content = ad.createDocumentFragment();
+    for (const c of [...el.childNodes]) { (c as { parentNode: P5Parent }).parentNode = tpl.content; tpl.content.childNodes.push(c as never); }
+    this.origins.set(tpl, this.origins.get(el)!);
+    this.headTemplates.set(tid, tpl);
+    this.walkChildren(tpl.content, { scope: ctx.scope, list: t.nodes, tid, path: [], stateIdx: -1 });
+    const node: NodeDef = { tag: 'template', p: ctx.stateIdx, b: [this.binding({ k: 'ch', d: [...new Set([...members.values()].flatMap((l) => l.deps))].sort(), c: [tid] })] };
+    if (ctx.scope.component?.late) this.lateNodes.add(node);
+    // the `<slot>` becomes an empty template in place, which `anchors()` turns into the anchor's comments
+    const host = el as unknown as P5Template;
+    el.tagName = el.nodeName = 'template';
+    el.attrs = [];
+    host.content = ad.createDocumentFragment();
+    el.childNodes = [];
+    this.anchorEls.set(node, el);
+    if (ctx.tid < 0) { node.id = this.nextId++; setAttr(el, 'data-sn', String(node.id)); } else node.path = [...ctx.path, index];
+    ctx.list.push(node);
+    this.runtimePlacements.push({ el, node, k, at: ctx.scope, data, deps: node.b[0]!.d as string[], members, shape, cases: [tid], map: {} });
+    return null;
+  }
+
+  /**
+   * After the walk: each tree placement in a definition gets a case template per fill of its name from the
+   * roots that reach it, compiled in that root's caller's scope (`$slot` the case's item, read through the
+   * run-time scope chain), with the placement's default's children for its `<slot>`s in the definition's
+   * scope; then its choice. Walking a fill can reach more definitions and fills: repeated until none is new.
+   */
+  finishTreeFills() {
+    const ad = parse5.defaultTreeAdapter;
+    for (let round = 0, changed = true; changed && round < 50; round++) {
+      changed = false;
+      for (let i = 0; i < this.runtimePlacements.length; i++) {
+        const P = this.runtimePlacements[i]!;
+        const owner = P.at.component?.name ?? '';
+        for (const F of this.fillDefs) {
+          if (F.k !== P.k || F.id in P.map || !F.use.caller || !this.reach(F.use.name).has(owner)) continue;
+          changed = true;
+          const tid = this.newTemplate(), t = this.templates[tid]!, rt = `$sl${tid}`;
+          t.item = rt;
+          const tpl = ad.createElement('template', parse5.html.NS.HTML, [{ name: 'id', value: `sn-t-${tid}` }]) as P5Template;
+          tpl.content = ad.createDocumentFragment();
+          const nodes = F.nodes.map((c) => this.cloneTree(c, tpl.content));
+          tpl.content.childNodes = nodes as never[];
+          this.freshChoices(nodes);
+          this.origins.set(tpl, this.origins.get(P.el) ?? { file: this.opts.file, src: '', chain: [] });
+          // the fill's own `<slot>`s: the children of the element the placement's default renders
+          for (const s of this.placements(tpl.content).filter((x) => attr(x.el, 'name') === undefined)) {
+            const kids = P.shape?.children(true) ?? null;
+            if (!kids) { this.report(s.el, null, 'SN331', `the default of \`${P.k}\` renders ${P.shape?.what ? `a component (\`<${P.shape.what}>\`)` : 'no element'}, so this \`<slot>\` has no children to place`, 0); detach(s.el); continue; }
+            for (const kid of kids) if (isElement(kid)) this.caseScopes.set(kid, P.at);
+            this.freshChoices(kids);
+            const parent = s.el.parentNode!, at = parent.childNodes.indexOf(s.el as never);
+            for (const kid of kids) (kid as { parentNode: P5Parent }).parentNode = parent;
+            parent.childNodes.splice(at, 1, ...(kids as never[]));
+          }
+          const slot: SlotScope = { name: P.k, component: F.use.name, members: new Map([...P.members].map(([key, l]) => [key, { ...l, code: `$.${rt}.${key}`, deps: [] }])), whole: { name: '$slot', code: `$.${rt}`, deps: [], usesEl: false, usesIndex: false, resource: null } };
+          if (this.check) {
+            const m = F.use.slots!.get(F.k)!;
+            this.frameOf.set(slot, this.check.frames.length);
+            this.check.frames.push({ kind: 'slot', type: { kind: 'ts', text: m.slot!, loc: this.locOf(F.use.template, 'data-sn-component', m.offset) }, name: P.k, component: F.use.name });
+          }
+          const scope: Scope = { ...F.use.caller, slot };
+          // (a fill forwarded from further out compiles its placements' data from here, as the walk does for any fill)
+          for (const c of nodes) if (isElement(c) && !this.fillOf.has(c)) this.caseScopes.set(c, scope);
+          this.headTemplates.set(tid, tpl);
+          this.walkChildren(tpl.content, { scope, list: t.nodes, tid, path: [], stateIdx: -1 });
+          // `data-sn-early="off"` on the root's tag covers its fills
+          if (F.use.late) for (const n of t.nodes) this.lateNodes.add(n);
+          P.cases.push(tid);
+          P.map[F.id] = P.cases.length - 1;
+        }
+      }
+    }
+    for (const P of this.runtimePlacements) {
+      const b = P.node.b[0]!;
+      const f = P.at.component?.fills ? this.fillsCode(P.at) : null;
+      b.c = P.cases;
+      b.f = this.fn(`($) => { const f = (${f ?? 'undefined'})?.[${JSON.stringify(P.k)}]; return [f == null ? 0 : (${JSON.stringify(P.map)})[f] ?? 0, ${P.data}]; }`, { el: P.el, attr: null, shift: 0 });
+    }
+  }
+
+  /** Copies that are walked again on their own (a fill's case template): each `<sn-component use>` in them is a choice of its own. */
+  freshChoices(nodes: P5Node[]) {
+    const groups = new Map<ChoiceGroup, ChoiceGroup>();
+    const walk = (ns: P5Node[]) => {
+      for (const n of ns) {
+        if (!isElement(n)) continue;
+        const c = this.choices.get(n);
+        if (c) {
+          if (!groups.has(c.group)) groups.set(c.group, { node: null, cases: [], pick: null, warn: '', site: null });
+          this.choices.set(n, { ...c, group: groups.get(c.group)! });
+        }
+        walk(n.childNodes);
+        if (n.tagName === 'template') walk((n as P5Template).content.childNodes);
+      }
+    };
+    walk(nodes);
+  }
+
+  /** Rule 5: every slot a component declares is placed somewhere inside it, directly or by a component it reaches. */
+  slotsPlaced() {
+    for (const [name, list] of this.uses) {
+      const u = list[0]!;
+      if (!u.slots?.size) continue;
+      const g = this.fileGraph(name);
+      for (const [k, m] of u.slots) {
+        if (g.places.has(k) || [...this.reach(name)].some((n) => n !== name && this.fileGraph(n).data.has(k) && !this.fileGraph(n).declares.has(k))) continue;
+        this.once(u.template, 'data-sn-component', 'SN331', `\`<${name}>\` declares the slot \`${k}\`, and nothing inside it places \`${k}\`: a fill for it would never render`, m.offset,
+          `place it: \`<slot name="${k}" data-sn-prop="{ … }">\` in \`<${name}>\` or in a component it uses, or remove it`);
+      }
+    }
+  }
+
+  /** The fill choice a scope passes into a shared definition (`$f` of its item): the definition's own, nearer roots' ids over it; null for none. */
+  fillsCode(scope: Scope): string | null {
+    const f = scope.component?.fills;
+    if (!f) return null;
+    if (!f.own.size) return f.expr;
+    const own = [...f.own].map(([k, id]) => `${JSON.stringify(k)}: ${id}`).join(', ');
+    return f.expr ? `{ ...${f.expr}, ${own} }` : `{ ${own} }`;
+  }
+
+  /** A component file's markup, read for the graph of what uses what: its tags, its choices' candidates, the slots it declares and places. */
+  fileGraph(name: string): { uses: Set<string>; declares: Set<string>; places: Set<string>; data: Set<string>; helperChoice: boolean } {
+    const cache = (this.graphs ??= new Map());
+    const known = cache.get(name);
+    if (known) return known;
+    const out = { uses: new Set<string>(), declares: new Set<string>(), places: new Set<string>(), data: new Set<string>(), helperChoice: false };
+    cache.set(name, out);
+    const f = this.componentFile(name);
+    if (!f || f.head) return out;
+    let frag: P5Parent;
+    try { frag = parse5.parseFragment(f.text); } catch { return out; }
+    const all = () => [...new Set([...(this.opts.componentNames ?? []), ...this.componentFiles.keys()])].filter((n) => this.componentFile(n) && !this.componentFile(n)!.head);
+    const walk = (n: P5Parent) => {
+      for (const c of n.childNodes) {
+        if (!isElement(c)) continue;
+        if (c.tagName === 'template' && attr(c, 'data-sn-component') !== undefined) {
+          for (const m of typeMembers(attr(c, 'data-sn-component')!.trim() || '{}') ?? []) if (m.slot !== undefined) out.declares.add(m.name);
+        }
+        if (c.tagName === 'slot' && attr(c, 'name')) {
+          out.places.add(attr(c, 'name')!);
+          if (attr(c, 'data-sn-prop') !== undefined) out.data.add(attr(c, 'name')!);
+        }
+        if (c.tagName === 'sn-component') {
+          const u = attr(c, 'use') ?? '';
+          let ast: acorn.Expression | null = null;
+          try { ast = parseExpressionAt(u, 0, { ecmaVersion: 'latest' }) as acorn.Expression; } catch { ast = null; }
+          if (ast?.type === 'TemplateLiteral' && ast.quasis.length === 2) {
+            const pre = ast.quasis[0]!.value.cooked ?? '', post = ast.quasis[1]!.value.cooked ?? '';
+            for (const n2 of all()) if (n2.startsWith(pre) && n2.endsWith(post)) out.uses.add(n2);
+          } else if (ast?.type === 'MemberExpression' && ast.object.type === 'ObjectExpression') {
+            for (const p of ast.object.properties) if (p.type === 'Property' && p.value.type === 'Literal' && typeof p.value.value === 'string') out.uses.add(p.value.value);
+          } else { out.helperChoice = true; for (const n2 of all()) out.uses.add(n2); }
+        } else if (this.componentFile(c.tagName)) out.uses.add(c.tagName);
+        walk(c);
+        if (c.tagName === 'template') walk((c as P5Template).content);
+      }
+    };
+    walk(frag);
+    return out;
+  }
+
+  /** The components a component reaches, itself included: what its markup uses, at any depth. */
+  reach(name: string): Set<string> {
+    const out = new Set<string>([name]);
+    const todo = [name];
+    while (todo.length) for (const u of this.fileGraph(todo.pop()!).uses) if (!out.has(u)) { out.add(u); todo.push(u); }
+    return out;
+  }
+
+  /** Whether a component, or one it reaches, has a tree placement: a placement of a name its own component does not declare. */
+  reachesTree(name: string): boolean {
+    return [...this.reach(name)].some((n) => { const g = this.fileGraph(n); return [...g.data].some((k) => !g.declares.has(k)); });
   }
 
   /**
@@ -2928,7 +3243,8 @@ class Compiler {
     ad.appendChild(tpl.content, host);
     this.origins.set(host, { file: this.opts.file, src: '', chain: [] });
     this.defHosts.set(host, { rt });
-    this.expandComponents(tpl.content, []);
+    this.inDef++;
+    try { this.expandComponents(tpl.content, []); } finally { this.inDef--; }
     const root = tpl.content.childNodes.find(isElement);
     const use = root ? this.useOf.get(root) ?? this.hostUse.get(host) : undefined;
     if (!root || !use) { this.defs.set(name, null); return null; }
@@ -3175,6 +3491,9 @@ class Compiler {
     if (fill) ctx = { ...ctx, scope: this.fillScope(fill, ctx.scope, slot ?? null) };
     else if (slot?.caller) ctx = { ...ctx, scope: slot.caller };
     if (row && !ownLoop) ctx = rowLets(ctx);
+    // a fill's case template, or the children it places (tree slots): the scope they are compiled in
+    const caseScope = this.caseScopes.get(el);
+    if (caseScope) ctx = { ...ctx, scope: caseScope };
     const base = ctx.scope;
     // the partial an `<sn-include>` inserted: what the page's scope has there
     const inc = this.includeTop.get(el);
@@ -3184,6 +3503,9 @@ class Compiler {
     if (point) return this.recursionPoint(el, point, ctx, index);
     // text without an element
     if (el.tagName === 'template' && attr(el, 'data-sn-text') !== undefined) return this.textNode(el, ctx, index);
+    // a tree placement in a shared definition: a choice between its default and the fills passed down
+    if (el.tagName === 'slot' && this.runtimeSlots.has(el)) return this.runtimePlacement(el, ctx, index);
+
     // a component's root: its markup sees the props only
     const use = this.useOf.get(el);
     const callerCtx = use ? ctx : null;
