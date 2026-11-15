@@ -97,6 +97,28 @@ jobs:
       - run: npx sinter check
       - run: npm test
 
+  # the dashboard example built against this repository's sinter. Its package.json depends on sinter from
+  # npm so that StackBlitz, which installs that folder alone, can run it; here the local build replaces it.
+  # The timeout turns a build that never exits into a failure.
+  example-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm install
+        working-directory: examples/dashboard
+      - run: npm install --no-save ../..
+        working-directory: examples/dashboard
+      - run: test "$(readlink -f node_modules/@tiaforge-ui/sinter)" = "$GITHUB_WORKSPACE"
+        working-directory: examples/dashboard
+      - run: timeout 300 npx vite build
+        working-directory: examples/dashboard
+
   # sinter across page loads in a real browser: next-page data, Speculation Rules, morphs
   # (e2e/navigation/README.md); the runner's Chrome
   e2e-navigation:
