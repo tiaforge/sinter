@@ -442,9 +442,10 @@ tree, a nested menu.
   early script clones it too: a tree in embedded data is in the first frame at any depth.
 - Over constants (a literal, a `file:` resource, state nothing writes), the tree is expanded at build
   time instead, one copy of the markup per node, and the shared definition leaves the page when no
-  instance is left to render from it ([static pages](static-pages.md#what-is-static)). A tree's node
-  that writes state, or a fill that holds components or slots, keeps its part of the tree in the
-  browser. At most 10,000 rows and components are expanded per page (`SN536` past it).
+  instance is left to render from it ([static pages](static-pages.md#what-is-static)). Its fills are
+  expanded with it, those that place the node's children with a `<slot>` too. A tree's node that
+  writes state keeps its part of the tree in the browser, and so does a fill that holds a component
+  with slots of its own or that a wrapper passes on (`SN322` names it on a static page). At most 10,000 rows and components are expanded per page (`SN536` past it).
 - A component used inside itself declares its props as a type literal, and its inner uses take no slot
   content. An inner use's plain attributes, `data-sn-class`, `-attr`, `-style`, `-show` and handlers
   reach the root its instance renders: they are compiled where the tag is written and passed with

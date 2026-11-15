@@ -45,12 +45,6 @@ function shape(n: Node): string {
 
 const lit = (x: unknown) => JSON.stringify(x).replace(/"/g, "'");
 
-/**
- * The constant build fails these seeds: a text or an element in a row of a nested list over constants is left a
- * `<template>` or loses its text (expandConstants; reported, fixed separately). The test fails when the set
- * changes either way: a new failure, or a fix, whose seed then leaves this list.
- */
-const CONSTANT_KNOWN = new Set([29, 32, 41, 73, 107, 113]);
 
 test('random templates: a state change renders what a fresh render and the constant build render', async () => {
   const failures: string[] = [], constant = new Set<number>();
@@ -75,5 +69,6 @@ test('random templates: a state change renders what a fresh render and the const
     }
   }
   expect(failures).toEqual([]);
-  expect([...constant]).toEqual([...CONSTANT_KNOWN]);
+  // the build over constants renders the same (a literal text that merged into the text before it skipped the node after it)
+  expect([...constant]).toEqual([]);
 }, 120_000);

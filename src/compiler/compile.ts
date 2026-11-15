@@ -543,6 +543,14 @@ function realNode(c: P5Node): boolean {
   return isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
 }
 
+/**
+ * The components whose markup starts at a node: `outer` first, then its own, each once (an outer one may
+ * reach it twice: through the tags that pass their attributes on, and from the node it took the place of).
+ */
+function outerFirst(outer: Use[], own: Use[] | undefined): Use[] {
+  return [...outer, ...(own ?? []).filter((u) => !outer.includes(u))];
+}
+
 /** A plain element as a component root: not a template, a slot, sinter's own element or a component. */
 function plainRoot(e: P5Node | undefined, c: { componentFile(tag: string): unknown }): boolean {
   return !!e && isElement(e) && e.tagName !== 'template' && e.tagName !== 'slot' && !e.tagName.startsWith('sn-') && !c.componentFile(e.tagName);
@@ -3711,8 +3719,11 @@ class Compiler {
         lastIf = null;
         continue;
       }
+      const before = kids.length;
       const res = this.element(child, ctx, i, lastIf);
       lastIf = res;
+      // a literal text folded into the text before it (`mergeText`): the node that followed is at `i` now
+      if (kids.length < before && kids[i] !== child) i -= before - kids.length;
     }
   }
 
@@ -6607,7 +6618,7 @@ class Compiler {
         this.inheritSlot(c, nodes);
         // a component's root chain, decided: its markup starts at what is left
         const start = this.scopeStart.get(c);
-        if (start) for (const n of nodes) if (isElement(n)) this.scopeStart.set(n, [...start, ...(this.scopeStart.get(n) ?? [])]);
+        if (start) for (const n of nodes) if (isElement(n)) this.scopeStart.set(n, outerFirst(start, this.scopeStart.get(n)));
         parent.childNodes.splice(i, count, ...(nodes as never[]));
         changed = true;
         i--;
@@ -6639,7 +6650,7 @@ class Compiler {
             this.instAt.set(x, inst);
             if (row && isElement(x) && !this.rowOf.has(x)) this.rowOf.set(x, row);
             // the outer components whose markup started at the candidate (a choice as their root) start here
-            if (start && isElement(x)) this.scopeStart.set(x, [...start, ...(this.scopeStart.get(x) ?? [])]);
+            if (start && isElement(x)) this.scopeStart.set(x, outerFirst(start, this.scopeStart.get(x)));
             // a candidate that was a fill, or among the children a fill's `<slot>` places: so is what it renders
             for (const map of [this.fillOf, this.defaultOf, this.childrenOf]) if (isElement(x) && map.has(c) && !map.has(x)) map.set(x, map.get(c)!);
           }
