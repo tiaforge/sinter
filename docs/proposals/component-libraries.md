@@ -22,6 +22,7 @@ there and lands in `main` with the rest.
 | 8, helpers over constants and `file:` | merged here | see below |
 | 9, constant trees | merged here | see below |
 | 11, libraries ship source | merged here | see below |
+| 12, the markdown library | in progress (new session, `packages/sinter-markdown/`) | |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
