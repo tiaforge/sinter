@@ -35,6 +35,7 @@ const INLINE = page(`<sn-resource name="post" src="file:./post.md"></sn-resource
   <p id="in-p">Title: <md-inline data-sn-prop="{ doc: line }"></md-inline>, and after.</p>
   <h2 id="in-h"><md-inline data-sn-prop="{ doc: line }"></md-inline></h2>
   <label id="in-label"><input type="checkbox"> <md-inline data-sn-prop="{ doc: line }"></md-inline></label>
+  <p id="after-list"><md-inline data-sn-prop="{ doc: md.parse('- a list, left out\\n\\nthen a paragraph\\n\\n- another\\n\\n## and a heading') }"></md-inline></p>
 </main>`);
 const LINE = 'A *title* with `code` and a [link](/x)\n\nand a second paragraph\n\n- a list, left out\n';
 const diagram = readFileSync(join(PKG, 'fixtures/diagram.png'));
@@ -128,5 +129,7 @@ test('md-inline is phrasing content: inside a <p>, a heading or a label, the pag
   expect(doc.querySelector('#in-p')!.innerHTML).toBe(`Title: ${line}, and after.`);
   expect(doc.querySelector('#in-h')!.innerHTML).toBe(line);
   expect(doc.querySelector('#in-label')!.innerHTML).toBe(`<input type="checkbox"> ${line}`);
-  expect(doc.querySelectorAll('main > *').length).toBe(3);
+  // a space only between two rendered blocks: none before the first, whatever was left out
+  expect(doc.querySelector('#after-list')!.innerHTML).toBe('<span class="md">then a paragraph and a heading</span>');
+  expect(doc.querySelectorAll('main > *').length).toBe(4);
 });

@@ -117,7 +117,7 @@ Both are pure: over a file they run at build time.
 | | Renders | Root |
 | --- | --- | --- |
 | `<md-doc data-sn-prop="{ doc }">` | the blocks of a document | `<div class="md">` |
-| `<md-inline data-sn-prop="{ doc }">` | one line: the content of the paragraphs and headings, without their elements, separated by a space (a title, a label); other blocks are left out | `<span class="md">` |
+| `<md-inline data-sn-prop="{ doc }">` | one line: the content of the paragraphs and headings, without their elements, with a space between two of them (a title, a label); other blocks are left out | `<span class="md">` |
 
 - `doc` is optional: with none, the root is empty. Its root is always there, so the tag may carry a
   `class`, attributes and handlers.
