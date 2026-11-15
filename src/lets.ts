@@ -1,14 +1,14 @@
 // Cached lets (docs/spec.md, Derived names): a `data-sn-let` entry, or a prop, that calls an app
 // helper is computed once per scope instance and kept until its dependencies change (`ir.lt`, checked
 // per flush round); then computed again, with each helper call returning its last result when its
-// arguments are equal primitives (`memo.ts`). A handler's writes are marked when it returns, so a let
-// read while a handler runs is computed again when what the handler writes reaches its dependencies:
-// it sees what the handler wrote before the read; otherwise it keeps its value (and its objects). A let that calls a helper of a module that reaches a lazy
+// arguments are equal primitives (`memo.ts`). Between flushes, a let read after paths were marked (a
+// handler marks its writes before it runs; store functions, listeners and nested handlers mark theirs)
+// is computed again when one of them reaches its dependencies, and otherwise keeps its value (and its
+// objects); the verdict holds until the next mark. A let that calls a helper of a module that reaches a lazy
 // package waits for the module (`ir.lm`): `undefined` until it arrives, which marks `$lz.<index>`, and
 // the let is computed again. A failed load takes the unhandled-error path, once. Loaded only by pages
 // with such a let.
 import type { App, Feature } from './runtime/app.js';
-import type { PathRef } from './ir.js';
 import { call, owner, type Entry } from './runtime/memo.js';
 import { loadError } from './lazy.js';
 
@@ -20,10 +20,7 @@ const feature: Feature = {
   install(app: App) {
     const ir = app.ir, lt = ir.lt ?? [], gen = new Int32Array(lt.length), names: string[][] = [];
     const caches = new WeakMap<object, Array<Entry | undefined>>();
-    let round = 0, cur: Entry | null = null, hw: [PathRef[], any] | null = null;
-    // in a handler: its writes are not marked yet, so a let that what it writes reaches is computed again (memo still applies)
-    const exec = app.exec;
-    app.exec = (f, s, w, o) => { const p = hw; hw = w?.length ? [w, s] : null; try { exec(f, s, w, o); } finally { hw = p; } };
+    let round = 0, cur: Entry | null = null;
     // a let whose dependencies a round's changes reach is computed again when next read
     app.ext.lets = (hit, r) => { round = r; for (let j = 0; j < lt.length; j++) if (hit(lt[j]!.d)) gen[j] = r; };
     /** lazy helper modules: the module once it has arrived, 1 while it loads, 2 after it failed */
@@ -34,8 +31,9 @@ const feature: Feature = {
       let all = caches.get(o);
       if (!all) caches.set(o, (all = []));
       const e = all[j];
-      if (e && !(hw && app.reaches(hw[0], hw[1], lt[j]!.d)) && e.r >= gen[j]! && ns.every((x, i) => o[x] === e.n[i])) return e.v;
-      const x: Entry = { v: undefined, n: ns.map((k) => o[k]), m: e?.m ?? [], r: round }, prev = cur;
+      // current: no flush since reached it, the same names, and nothing marked since, or nothing marked that reaches it
+      if (e && e.r >= gen[j]! && ns.every((x, i) => o[x] === e.n[i]) && (e.q == app.marks || !app.pending(lt[j]!.d))) { e.q = app.marks; return e.v; }
+      const x: Entry = { v: undefined, n: ns.map((k) => o[k]), m: e?.m ?? [], r: round, q: app.marks }, prev = cur;
       cur = x;
       try { x.v = f(o); } catch (err) { if (err !== WAIT) throw err; } finally { cur = prev; }
       all[j] = x;

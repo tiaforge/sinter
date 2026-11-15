@@ -102,7 +102,7 @@ export function lets(): { $c: Fn; $h: Fn } {
       if (!all) caches.set(o, (all = []));
       const e = all[j];
       if (e && ns.every((x, i) => o[x] === e.n[i])) return e.v;
-      const x: Entry = { v: undefined, n: ns.map((k) => o[k]), m: e?.m ?? [], r: 0 }, prev = cur;
+      const x: Entry = { v: undefined, n: ns.map((k) => o[k]), m: e?.m ?? [], r: 0, q: 0 }, prev = cur;
       cur = x;
       try { x.v = f(o); } finally { cur = prev; }
       all[j] = x;

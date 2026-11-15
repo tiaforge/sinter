@@ -3,7 +3,8 @@
 // `$.$c($, id, names, ($) => …)`, and each helper call in it to `$.$h(k, f, [args])`.
 
 /** one cached let in one scope instance: its value, the owner's values of the names it reads, each call's last arguments and result */
-export interface Entry { v: unknown; n: unknown[]; m: Array<[unknown[] | null, unknown] | undefined>; r: number }
+/** a cached let's value: `r` the flush round it was computed in, `q` the app's marks when it was last known current */
+export interface Entry { v: unknown; n: unknown[]; m: Array<[unknown[] | null, unknown] | undefined>; r: number; q: number }
 
 /**
  * The scope instance a let's value belongs to: from `s`, the nearest scope that holds one of the names its

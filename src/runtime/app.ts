@@ -260,8 +260,10 @@ export interface App {
    * in a text field, so a resource URL it changes waits for a pause
    */
   mark(path: number | string, scope?: any, typing?: boolean): void;
-  /** whether writing `writes` in `scope` would reach a dependency of `deps`, as a flush would decide (nothing is marked) */
-  reaches(writes: PathRef[], scope: any, deps: PathRef[] | undefined): boolean;
+  /** the number of paths marked so far: a value computed from state is current while it has not changed */
+  marks: number;
+  /** whether a path marked since the last flush reaches a dependency of `deps`, as the next flush will decide */
+  pending(deps: PathRef[] | undefined): boolean;
   flush(): void;
   /**
    * Runs `fn`, a server event's changes: what it marks is rendered before the next frame is painted
@@ -274,7 +276,7 @@ export interface App {
   record(change: () => void): (ok?: boolean) => void;
   storeFns(el: Element | null): Record<string, (...a: any[]) => unknown>;
   serverEvent(name: string, payload: unknown): void;
-  /** runs handler `f` in `scope` and invalidates the paths it writes; `o`: the binding it runs for (dev builds name its place) */
+  /** runs handler `f` in `scope`, its paths invalidated first; `o`: the binding it runs for (dev builds name its place) */
   exec(f: number, scope: any, writes?: PathRef[], o?: { at?: Record<number, string> }): void;
   addCleanup(fn: () => void): void;
   /** runs `fn` now, or, on a page the browser prerenders (Speculation Rules), once it is shown */
@@ -687,9 +689,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     },
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     url: (tpl, s) => expand(tpl, s, fns),
+    marks: 0,
     mark(path, s, typing) {
       const d = dirtyOf(path, s);
       dirty.push(d);
+      app.marks++;
       if (typing) typed.add(d);
       if (scheduled || flushing) return;
       if (streaming && env.frame && !env.hidden?.()) {
@@ -699,10 +703,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     },
     // a round of its own, below 0 (a flush's rounds count on: unkeyed rows adopted from the early script match
     // by position until the next one): the index is stamped with it and read once
-    reaches(ws, s, deps) {
+    pending(deps) {
       const r = round;
       round = --probe;
-      index(ws.map((w) => dirtyOf(w, s)));
+      index(dirty);
       const h = hit(deps);
       round = r;
       return h;
@@ -783,8 +787,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       for (const fn of listeners.get(name) ?? []) try { fn(payload); } catch (e) { console.error(e); }
     },
     exec(f, s, writes, o) {
-      try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); }
+      // marked first: what the handler reads after its own writes (a cached let) sees them as changed
       for (const w of writes ?? []) app.mark(w, s);
+      try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); }
     },
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),
