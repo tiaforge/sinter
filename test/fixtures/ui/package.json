@@ -9,5 +9,8 @@
   },
   "peerDependencies": {
     "@tiaforge-ui/sinter": ">=0.18.0 <1"
+  },
+  "dependencies": {
+    "@fixture/heavy": "1.0.0"
   }
 }

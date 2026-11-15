@@ -233,6 +233,8 @@ export function lineCol(code: string, offset: number): { line: number; col: numb
 /** a relative or root-absolute specifier as a file, the way the app's modules are found */
 export function resolveFile(spec: string, from: string, root: string): string | null {
   if (!spec.startsWith('.') && !spec.startsWith('/')) return null;
+  // an absolute path outside the root: a component library's module, found in a folder above the root
+  if (spec.startsWith('/') && !existsSync(resolve(root, '.' + spec.replace(/[?#].*$/, ''))) && existsSync(spec.replace(/[?#].*$/, ''))) return /\.[cm]?[jt]sx?$/.test(spec) ? spec.replace(/[?#].*$/, '') : null;
   const b = spec.startsWith('/') ? resolve(root, '.' + spec.replace(/[?#].*$/, '')) : resolve(dirname(from), spec.replace(/[?#].*$/, ''));
   for (const q of [b, b.replace(/\.js$/, '.ts'), b.replace(/\.mjs$/, '.mts'), `${b}.ts`, `${b}.js`, `${b}.tsx`, `${b}.mjs`, `${b}/index.ts`, `${b}/index.js`]) {
     if (/\.[cm]?[jt]sx?$/.test(q) && existsSync(q)) return q;
