@@ -36,7 +36,7 @@ export function slotsOf(t: TagFile): SlotInfo[] {
         out.push({ name: attr(c, 'name') ?? '', head: inHead || t.kind === 'head', fallback, line, col });
       }
       walk(c, inHead);
-      if (c.tagName === 'template') walk((c as P5Template).content, inHead);
+      if (c.tagName === 'template') walk((c as P5Template).content ?? c, inHead);
     }
   };
   walk(doc, false);
@@ -60,7 +60,7 @@ export function elementAt(text: string, offset: number): { el: P5Element; parent
       const end = loc?.endTag?.endOffset ?? loc?.endOffset ?? -1;
       if (loc && offset >= loc.startOffset && offset <= end) best = { el: c, parent };
       walk(c, c);
-      if (c.tagName === 'template') walk((c as P5Template).content, c);
+      if (c.tagName === 'template') walk((c as P5Template).content ?? c, c);
     }
   };
   walk(doc, null);

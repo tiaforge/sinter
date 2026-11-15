@@ -109,7 +109,8 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
     for (const c of p.childNodes) {
       if (!('tagName' in c)) continue;
       if (['link', 'style', 'script'].includes(c.tagName)) elements.push({ el: c, from });
-      walk(c.tagName === 'template' ? (c as DefaultTreeAdapterMap['template']).content : c, from);
+      // (a `<template>` inside `<svg>` or `<math>` has its children, no content)
+      walk(c.tagName === 'template' ? (c as DefaultTreeAdapterMap['template']).content ?? c : c, from);
     }
   };
   // a page that is a layout's tag (src/layouts/<tag>.html): the layout's stylesheets come first, as in its document

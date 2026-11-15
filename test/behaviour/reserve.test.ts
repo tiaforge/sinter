@@ -249,7 +249,7 @@ test('the `if` form\'s anchor after the rows is comments: a `:last-child` rule m
   expect(page('when="$url.go"')).toContain('height:140px');
   // two lists, one of each form, on one page: the same rows, the same height
   const two = compile(`<!doctype html><html><head></head><body>${PAGE()}${PAGE('', 'paginate="offset" page-size="3" when="$url.go"').replace(/people/g, 'others')}</body></html>`, opts).paint;
-  expect(two.match(/height:140px/g)).toHaveLength(2);
+  expect(two?.match(/height:140px/g)).toHaveLength(2);
 });
 
 test('rows a component\'s own `<style>` reaches: no space (the build reads the page\'s stylesheets only)', () => {

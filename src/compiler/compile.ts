@@ -2041,6 +2041,7 @@ class Compiler {
       : '';
     const deps = [...new Set([...lets.flatMap((l) => l.deps), ...(pick?.deps ?? [])])].sort();
     if (choice) {
+      if (choice.first && pick?.usesEl) this.report(host, 'use', 'SN213', '`$el` in `use`: a component chosen by data is marked by comments in the page, so there is no element to read', 0, 'choose with the data alone');
       // one choice anchor for the whole `<sn-component use>`: each candidate adds its case; the first makes the node
       const g = choice.group;
       g.cases.push({ name: choice.name, tid: def.tid, props: props.slice(1, -1), deps });

@@ -104,7 +104,7 @@ export function rewriteImages(doc: P5Parent, ctx: RewriteContext): ImageResult {
     for (const node of [...parent.childNodes] as P5Node[]) {
       if (!('tagName' in node)) continue;
       const el = node as P5Element;
-      if (el.tagName === 'template') { visit((el as P5Template).content, true); continue; }
+      if (el.tagName === 'template') { visit((el as P5Template).content ?? el, true); continue; }
       if (el.tagName === 'img') {
         const eager = first && !inTemplate;
         if (!inTemplate) first = false;
