@@ -1255,14 +1255,18 @@ class Compiler {
     ldoc.childNodes = ldoc.childNodes.filter((c) => c.nodeName !== '#comment');
     const lhtml = ldoc.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'html')!;
     const lhead = lhtml.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'head')!;
-    const decl = attr(lhtml, 'data-sn-layout');
-    if (decl === undefined || !lhtml.sourceCodeLocation?.startTag) {
-      // the page passes no props: the empty declaration is the whole fix (agents guessed it from a hint with props)
-      const props = attr(host, 'data-sn-prop') != null;
-      const hint = lhtml.sourceCodeLocation?.startTag
-        ? (props ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-layout="{ title?: string }">`' : 'it takes no props: `<html lang="en" data-sn-layout="{}">`')
-        : '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (`data-sn-layout="{}"` for a layout without props)';
-      this.diagnostics.push({ severity: 'error', code: 'SN318', message: `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``, file: lf.file, line: 1, col: 1, hint });
+    // a whole document in src/layouts/ without `data-sn-layout` takes no props (agents leave it out when there are
+    // none: every benchmark run that did paid a failed build for it); one whose pages pass props must declare them
+    const whole = !!lhtml.sourceCodeLocation?.startTag, passes = attr(host, 'data-sn-prop') != null;
+    const decl = attr(lhtml, 'data-sn-layout') ?? (whole && !passes ? '{}' : undefined);
+    if (decl === undefined || !whole) {
+      const hint = whole
+        ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-layout="{ title?: string }">`'
+        : '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (or `<html lang="en">` for a layout without props)';
+      const message = whole
+        ? `\`src/layouts/${name}.html\` declares no props, but this page passes \`data-sn-prop\`: a layout declares them on its \`<html>\`, \`<html data-sn-layout="{ …props }">\``
+        : `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``;
+      this.diagnostics.push({ severity: 'error', code: 'SN318', message, file: lf.file, line: 1, col: 1, hint });
       detach(host);
       return null;
     }
@@ -2545,7 +2549,7 @@ class Compiler {
       // a layout's tag: the page's `<body>` handlers, for DOM events and sinter's own
       if (use?.layout && !kf && !DOM_EVENTS.has(event) && !SINTER_EVENTS.includes(event)) {
         this.report(el, a.name, 'SN315', `\`${event}\` is not an event the page's \`<body>\` hears: a layout's tag takes handlers for DOM events and sinter's \`sn-error\` and \`dismiss\`.${didYouMean(event, [...SINTER_EVENTS, ...DOM_EVENTS])}`, 0,
-          'handle a component\'s event on an element around it, in the page\'s content');
+          'a component tells the page with an event it declares: `data-sn-emits="{ \'delete-start\': Item }"` on its template, `emit(\'delete-start\', item)` in it, and the page handles it on the component\'s tag (`<item-row data-sn-on-delete-start="…">`) or an element around it, in the page\'s content');
       } else if (use && !use.layout && !kf && use.emits && !DOM_EVENTS.has(event) && !use.emits.some((m) => m.name === event)) {
         const names = use.emits.map((m) => m.name);
         this.report(el, a.name, 'SN315', `\`<${use.name}>\` does not emit \`${event}\`; ${names.length ? `it declares ${names.map((x) => `\`${x}\``).join(', ')}` : 'it declares no events'}.${didYouMean(event, names)}`, 0);

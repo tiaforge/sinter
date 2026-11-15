@@ -130,7 +130,8 @@ export function componentTypes(root: string, read: (file: string) => string = (f
     for (const f of layouts) {
       let text = '';
       try { text = read(join(root, 'src', 'layouts', f)); } catch { continue; }
-      const m = /<html\b[^>]*\sdata-sn-layout\s*=\s*"([^"]*)"/i.exec(text);
+      // a whole document without `data-sn-layout` takes no props
+      const m = /<html\b[^>]*\sdata-sn-layout\s*=\s*"([^"]*)"/i.exec(text) ?? (/<html\b/i.test(text) ? [text, '{}'] : null);
       if (!m) continue;
       const used = typeNames.filter((n) => new RegExp(`(?<![\\w$.])${n.replace(/\$/g, '\\$')}(?![\\w$])`).test(m[1]!));
       const t = (m[1]!.trim() || '{}').replace(/&quot;/g, '"').replace(/&amp;/g, '&');

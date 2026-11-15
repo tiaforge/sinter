@@ -328,9 +328,9 @@ Error, for example:
 
 > `src/layouts/site-layout.html` is not a layout: a layout is a whole document whose `<html>` declares its props, `<html data-sn-layout="{ …props }">`
 
-A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-layout` with its props type. Also reported: `data-sn-layout` anywhere else, a default slot in the layout's head (the default slot is the page's body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page.
+A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-layout` with its props type (left out, it takes none). Also reported: a page that passes `data-sn-prop` to a layout that declares no props, `data-sn-layout` anywhere else, a default slot in the layout's head (the default slot is the page's body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page.
 
-**Fix:** Write the layout as a document: `<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`; a layout without props is `data-sn-layout="{}"`. Name head slots; leave `src/layouts/` out of the build's inputs (a glob over every `.html` picks it up).
+**Fix:** Write the layout as a document: `<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`; a layout without props needs no `data-sn-layout` (`<html lang="en">`), but one whose pages pass `data-sn-prop` must declare those props. Name head slots; leave `src/layouts/` out of the build's inputs (a glob over every `.html` picks it up).
 
 ## SN319 layout-use
 

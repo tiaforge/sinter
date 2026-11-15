@@ -224,6 +224,14 @@ export type AnyBlock = Hero | Text | Image;
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
   });
 
+  test('`$event.target.value`: the SN208 names `$el.value` and data-sn-model; `$el.value` passes', () => {
+    const html = (h: string) => page(`<div data-sn-state="{ q: '' }"><input data-sn-on-input="${h}" data-sn-text="q + contacts.length"></div>`);
+    const d = checkPage(html('q = $event.target.value'), { files: { 'src/sinter.types.ts': TYPES } });
+    expect(d.map((x) => [x.code, x.message.replace(/ \(TS\d+\)$/, '')])).toEqual([['SN208', "Property 'value' does not exist on type 'EventTarget'."]]);
+    expect(d[0]!.hint).toBe('`$event.target` is any EventTarget to TypeScript: read the element the handler is on with `$el.value` (typed by its tag), or bind the field with `data-sn-model`');
+    expect(checkPage(html('q = $el.value'), { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
+  });
+
   test('page() with a computed target: a direction on keyset; a page number needs offset-param', () => {
     const helpers = `/** @param {boolean} back @returns {'next' | 'prev'} */\nexport function step(back) { return back ? 'prev' : 'next'; }\n`;
     const html = (to: string, attrs = '') => page(`<sn-resource name="list" src="/api/l" key="id" type="Contact[]" paginate="keyset" page-size="5" cursor="{id}" ${attrs}></sn-resource>

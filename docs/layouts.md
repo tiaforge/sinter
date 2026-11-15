@@ -53,7 +53,8 @@ hand. Nothing of the layout is left at run time.
 - A whole document: an optional doctype, `<html>`, `<head>` and `<body>`. Comments before `<html>`
   document the file and are left out of the pages.
 - `data-sn-layout` on `<html>` declares its props, a TypeScript type literal as for a component
-  (the names of `src/sinter.types.ts` and the OpenAPI schemas work). `data-sn-layout=""` takes none.
+  (the names of `src/sinter.types.ts` and the OpenAPI schemas work). A layout without props needs
+  none: `<html lang="en">` (or `data-sn-layout=""`).
   A layout emits no events and has no script; the components it uses may have both.
 - Slots are `<slot>` elements, named, in the head or the body, with fallback content for a page that
   leaves them empty. The default slot is in the body: it takes the page's content without `slot`.
