@@ -2151,12 +2151,17 @@ class Compiler {
       const given = groups.get(k);
       if (!realIn(given)) continue;
       const caller = chain.filter((x) => x !== '#').at(-1) ?? '';
-      const kept = given!.map((c) => this.cloneTree(c, host));
+      const holder = { nodeName: '#document-fragment', childNodes: [] as P5Node[] } as unknown as P5Parent;
+      const kept = given!.map((c) => this.cloneTree(c, holder));
+      holder.childNodes = kept as never[];
       for (const c of kept) {
         if (isElement(c)) c.attrs = c.attrs.filter((a) => a.name !== 'slot');
         if (!this.slotOf.has(c)) this.slotOf.set(c, use);
         if (isElement(c)) this.slotEls.push({ el: c, caller, host: name });
       }
+      // the components in it expand as the caller's markup (the copy placed at a tree placement is used as is)
+      this.expandComponents(holder, chain, false, this.enclosing.get(host) ?? null);
+      kept.splice(0, kept.length, ...(holder.childNodes as P5Node[]));
       const id = this.fillDefs.length;
       this.fillDefs.push({ id, use, k, nodes: kept });
       (use.treeFills ??= new Map()).set(k, { nodes: kept, id });
