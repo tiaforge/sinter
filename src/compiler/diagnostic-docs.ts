@@ -269,8 +269,8 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN334: {
     example: '`<ui-panel>`\'s root may render nothing, so `id` on its tag would point at an element that may not exist',
-    means: 'A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes.',
-    fix: 'Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it.',
+    means: 'A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes. A root with no element at all is the same case: a `<slot>` at the root given a text fill (`<template slot data-sn-text>`) renders one text node, so every attribute on the tag but `data-sn-prop` and `data-sn-early` is SN334 there, the plain ones (`class`) too, since none has an element to land on.',
+    fix: 'Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it. For a text root, give an element as the fill, or wrap the tag.',
   },
   SN337: {
     example: '`@acme/ui` is in `sinter({ components })` and its package.json has no `"sinter"` field: a component library names the folder of its components',

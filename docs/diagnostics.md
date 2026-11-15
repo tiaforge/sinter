@@ -518,9 +518,9 @@ Error, for example:
 
 > `<ui-panel>`'s root may render nothing, so `id` on its tag would point at an element that may not exist
 
-A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes.
+A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes. A root with no element at all is the same case: a `<slot>` at the root given a text fill (`<template slot data-sn-text>`) renders one text node, so every attribute on the tag but `data-sn-prop` and `data-sn-early` is SN334 there, the plain ones (`class`) too, since none has an element to land on.
 
-**Fix:** Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it.
+**Fix:** Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it. For a text root, give an element as the fill, or wrap the tag.
 
 ## SN337 library-package
 
