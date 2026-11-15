@@ -115,13 +115,17 @@ describe('errors', () => {
     expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }"><meta slot="head" property="og:image" content="/a.png"><meta slot="head" property="og:image" content="/b.png"></site-layout>'))).toEqual([]);
   });
 
-  test('SN318 without data-sn-layout: the hint is the empty declaration for a page that passes no props', () => {
-    // two benchmark agents wrote a layout without props and guessed `{}` from a hint that showed `{ title?: string }`
-    const doc = '<!doctype html><html lang="en"><head></head><body><slot></slot></body></html>';
-    const hint = (page: string) => run(page, { '/p/src/layouts/x-plain.html': doc }).diagnostics.find((d) => d.code === 'SN318')?.hint;
-    expect(hint('<x-plain></x-plain>')).toBe('it takes no props: `<html lang="en" data-sn-layout="{}">`');
-    expect(hint('<x-plain data-sn-prop="{ title: \'A\' }"></x-plain>')).toMatch(/^declare the props the pages pass/);
-    expect(run('<x-bad></x-bad>', { '/p/src/layouts/x-bad.html': '<div><slot></slot></div>' }).diagnostics.find((d) => d.code === 'SN318')?.hint).toContain('`data-sn-layout="{}"` for a layout without props');
+  test('a whole document in src/layouts/ without data-sn-layout takes no props; SN318 only when the page passes some', () => {
+    // benchmark agents left the attribute out of layouts without props, and each paid a failed build for it
+    const doc = '<!doctype html><html lang="en"><head><slot name="head"></slot></head><body><main><slot></slot></main></body></html>';
+    const plain = run('<x-plain><title slot="head">T</title><p>hi</p></x-plain>', { '/p/src/layouts/x-plain.html': doc });
+    expect(errors(plain)).toEqual([]);
+    expect(plain.html).toContain('<main><p>hi</p></main>');
+    expect(plain.html).toContain('<title>T</title>');
+    const passes = run('<x-plain data-sn-prop="{ title: \'A\' }"></x-plain>', { '/p/src/layouts/x-plain.html': doc });
+    expect(errors(passes)).toEqual([expect.stringMatching(/^SN318 `src\/layouts\/x-plain.html` declares no props, but this page passes `data-sn-prop`/)]);
+    expect(passes.diagnostics.find((d) => d.code === 'SN318')?.hint).toMatch(/^declare the props the pages pass/);
+    expect(run('<x-bad></x-bad>', { '/p/src/layouts/x-bad.html': '<div><slot></slot></div>' }).diagnostics.find((d) => d.code === 'SN318')?.hint).toContain('or `<html lang="en">` for a layout without props');
   });
 
   test('SN318: a layout that is not a document, a default slot in its head, a script beside it, a name shared with a component, a layout built as a page', () => {
