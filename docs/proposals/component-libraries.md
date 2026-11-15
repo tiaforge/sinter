@@ -1114,8 +1114,8 @@ warnings, not errors: a literal `id` in repeated markup.
   runs with Trusted Types enforced and a strict CSP, but no test sets `require-trusted-types-for`,
   and the only CSP in a browser test is `script-src 'self'` (`e2e/navigation/index.html`). Step 2
   adds one: pages served with `script-src 'self'; style-src 'self'; require-trusted-types-for
-  'script'`, failing on any violation report, as step 1's pages already run. The security doc's
-  claim is corrected now, apart from this proposal.
+  'script'`, failing on any violation report, as step 1's pages already run. The docs' claim was
+  corrected in #48.
 - Browser tests for the runtime parts, in that harness: anchors in
   lists, branches, choices, trees and keyed reorders (including rows whose content renders nothing);
   anchors in tables, `<select>`, SVG and dialogs; fills in rows; fill templates instantiated by the
