@@ -5856,8 +5856,8 @@ class Compiler {
   /**
    * The app's helpers as the build-time evaluator calls them (docs/spec.md, Helpers at build time): a helper the
    * static check lets fold (`helperFold`), with its module loaded in Node (`helperValues`), runs over plain-data
-   * arguments and must return plain data. One that throws, returns anything else, or (dev builds, run twice)
-   * returns another result the second time, stays in the browser, with warning SN534 once at the call. Any other
+   * arguments and must return plain data. One that throws, returns anything else, or (every build runs it twice)
+   * returns another result the second time, stays in the browser, with warning SN534 once at the call in dev builds. Any other
    * helper throws `NOT`, and the call it was in is recorded with the reason, for SN322.
    */
   helperCalls(NOT: Error) {
@@ -5911,7 +5911,9 @@ class Compiler {
             throw NOT;
           }
           if (!plainData(v)) { problem(key, 'returned something that is not plain data (JSON values)'); throw NOT; }
-          if (this.opts.dev) {
+          // every build runs it twice: a second result that differs (a counter, the clock through a path the
+          // static check missed) keeps the call in the browser
+          {
             let again: unknown;
             try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
             if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) { problem(key, 'returned another result when called again with the same arguments: a helper must be pure'); throw NOT; }

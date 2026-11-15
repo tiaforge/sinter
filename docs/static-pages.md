@@ -61,8 +61,16 @@ globals (`Math`, `JSON`, `Array`, `Map`, …) and `TextEncoder`, `TextDecoder`, 
 and `structuredClone`, not `Date`, `Intl`, `Math.random`, `fetch`, `window` or `process`; each exported function counts on its own. Handlers never run at build time.
 
 - A helper that throws at build time, or returns something that is not plain data (a `Date`, a
-  `Map`, a class), stays in the browser; a dev build warns at the call (`SN534`), and runs each call
-  twice to warn when the results differ: a helper must be pure.
+  `Map`, a class), stays in the browser; a dev build warns at the call (`SN534`). Every build runs
+  each call twice and keeps a call whose results differ in the browser: a helper must be pure.
+- Also refused: `import.meta` in any form (a URL built from it would be the build machine's path),
+  `.constructor` and `__proto__`, `Math` or `Reflect` used as a value (`const M = Math`,
+  `const { random } = Math`, `Reflect.get(Math, 'random')`; `Math.max(…)` and `Math.PI` are fine), an
+  error's `.stack`, and a function that assigns a module-level variable (`count++`).
+- **This is a guard against mistakes, not a sandbox.** It reads your code to tell whether a call
+  gives the same result in the build as in the browser, and it catches the usual ways that fails.
+  Code written to get around it can, and it runs in the build with the build machine's access, as
+  any build plugin or dependency does. Keep untrusted code out of your helpers' imports.
 - `src="file:./intro.txt"` resources ([resources.md](resources.md#files)) are constants too: bindings
   over them, and helpers called over them, are written into the page, and a file nothing in the
   browser reads leaves the page. A page whose files and helpers all fold ships no JavaScript.
