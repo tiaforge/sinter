@@ -39,6 +39,11 @@ const CASES: Record<string, [string, string]> = {
   'a choice directly in slot content': [`<x-wrap><sn-component use="{ a: 'x-plain', i: 'x-ifelse' }[d[0].k]" data-sn-prop="{ href: d[0].href, label: d[0].t }"></sn-component></x-wrap>`, '<em><a href="/h">A</a></em>'],
   // S-1: a slot root filled by a tag-root component
   'a slot root filled by a tag-root component': [`<x-slot data-sn-prop="{ label: d[0].t }"><x-var slot="item" data-sn-prop="{ href: d[0].href, label: $slot.label + '/' }"></x-var></x-slot>`, '<a class="v" href="/h">A/!</a>'],
+  // B4: a component with a named fill, in a loop or a branch in another component's slot content
+  'a named fill in a loop in slot content': [`<x-wrap><template data-sn-for="y in d[0].c"><x-slot data-sn-prop="{ label: y.t }"><u slot="item" data-sn-text="$slot.label + y.t"></u></x-slot></template></x-wrap>`, '<em><u>a1a1</u><u>a2a2</u></em>'],
+  'a chain fill in a loop in slot content': [`<x-wrap><template data-sn-for="y in d[0].c"><x-slot data-sn-prop="{ label: y.t }"><template slot="item" data-sn-if="y.href"><b data-sn-text="$slot.label"></b></template><template data-sn-else><s data-sn-text="y.t"></s></template></x-slot></template></x-wrap>`, '<em><s>a1</s><b>a2</b></em>'],
+  'a tag fill in a loop in slot content': [`<x-wrap><template data-sn-for="y in d[0].c"><x-slot data-sn-prop="{ label: y.t }"><x-ifelse slot="item" data-sn-prop="{ href: y.href, label: $slot.label + y.t }"></x-ifelse></x-slot></template></x-wrap>`, '<em><button type="button">a1a1</button><a href="/a2">a2a2</a></em>'],
+  'a named fill in a branch in slot content in a page loop': [`<template data-sn-for="x in d"><x-wrap><template data-sn-if="x.on"><x-slot data-sn-prop="{ label: x.t }"><u slot="item" data-sn-text="$slot.label + x.t"></u></x-slot></template></x-wrap></template>`, '<em><u>AA</u></em><em></em>'],
 };
 
 describe('a component\'s names are its own', () => {
