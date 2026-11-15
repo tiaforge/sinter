@@ -8,7 +8,8 @@ import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
-import { parseExpressionAt } from 'acorn';
+import { parse as parseProgram, parseExpressionAt } from 'acorn';
+import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, literalNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
@@ -618,6 +619,8 @@ class Compiler {
   private readonly fillOf = new WeakMap<object, FillChain>();
   /** an unfilled placement's default, at the top: its placement, compiled there for its diagnostics and types */
   private readonly defaultOf = new WeakMap<object, FillChain>();
+  /** unfilled placements with an empty default, by the node they were in: compiled when the walk reaches its children */
+  private readonly emptyDefaults = new WeakMap<object, FillChain[]>();
   /** the children a fill's `<slot>` places (the component's markup): the fill they are placed in */
   private readonly childrenOf = new WeakMap<object, FillChain>();
   /** per fill: the scope at its placement (what its children see) and what the fill sees, computed at its first node */
@@ -1949,7 +1952,16 @@ class Compiler {
   place(p: Placement, nodes: P5Node[], filled: boolean, forwards: boolean) {
     const def = this.defaultShape(p);
     if (!filled) {
-      if (!forwards) { const chain: FillChain = [p]; for (const c of nodes) if (isElement(c)) this.defaultOf.set(c, chain); }
+      if (forwards) return;
+      const chain: FillChain = [p];
+      const els = nodes.filter(isElement);
+      for (const c of els) this.defaultOf.set(c, chain);
+      // nothing to hang it on: the node the placement is in, whose children the walk sees in the placement's scope
+      if (!els.length && p.el.parentNode) {
+        const list = this.emptyDefaults.get(p.el.parentNode) ?? [];
+        list.push(chain);
+        this.emptyDefaults.set(p.el.parentNode, list);
+      }
       return;
     }
     // one chain per prior chain: the content of one forwarding fill shares it
@@ -2611,6 +2623,7 @@ class Compiler {
   // ---- main walk
 
   walkChildren(parent: P5Parent, ctx: Ctx) {
+    for (const chain of this.emptyDefaults.get(parent) ?? []) this.fillScope(chain, ctx.scope, null);
     let lastIf: { node: NodeDef; binding: Binding } | null = null;
     const kids = parent.childNodes;
     for (let i = 0; i < kids.length; i++) {
@@ -4721,6 +4734,8 @@ class Compiler {
     const copy = { ...node, parentNode: parent } as P5Node;
     for (const map of [this.origins, this.slotOf, this.useOf, this.forwarded] as Array<WeakMap<object, unknown>>) if (map.has(node)) map.set(copy, map.get(node));
     if (this.repeatedFills.has(node)) this.repeatedFills.add(copy);
+    const empty = this.emptyDefaults.get(node);
+    if (empty) this.emptyDefaults.set(copy, empty.map((c) => { if (!chains.has(c)) chains.set(c, [...c]); return chains.get(c)!; }));
     // a fill copied with it renders in its own place: its own chain, so its `$slot` is compiled there
     for (const map of [this.fillOf, this.defaultOf, this.childrenOf]) {
       const c = map.get(node);
@@ -4735,6 +4750,8 @@ class Compiler {
     if ((node as P5Element).nodeName === 'template') {
       const content = { ...(node as P5Template).content } as P5Template['content'];
       content.childNodes = (node as P5Template).content.childNodes.map((x) => this.cloneTree(x, content, chains)) as never[];
+      const empty = this.emptyDefaults.get((node as P5Template).content);
+      if (empty) this.emptyDefaults.set(content, empty.map((c) => { if (!chains.has(c)) chains.set(c, [...c]); return chains.get(c)!; }));
       (el as P5Template).content = content;
     }
     return copy;
@@ -5836,10 +5853,30 @@ function exclusive(a: string[], b: string[]): boolean {
   return b.some((x) => { const [c, k] = x.split(':') as [string, string]; return branch.has(c) && branch.get(c) !== k; });
 }
 
-/** Whether markup's expressions name `name` (in any `data-sn-*` value): a cheap test, which may count a field of the same name. */
+/**
+ * Whether markup's expressions read `name` (in any `data-sn-*` value): an identifier, not an object
+ * literal's key or a member's property name (`{ node: … }`, `x.node`). A value that does not parse
+ * counts when the name appears in it.
+ */
 function reads(nodes: P5Node[], name: string): boolean {
   const re = new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`);
-  const walk = (ns: P5Node[]): boolean => ns.some((c) => isElement(c) && (c.attrs.some((a) => a.name.startsWith('data-sn-') && re.test(a.value)) || walk(c.childNodes) || (c.tagName === 'template' && walk((c as P5Template).content.childNodes))));
+  const inValue = (v: string): boolean => {
+    if (!re.test(v)) return false;
+    let ast: acorn.Node;
+    try { ast = parseExpressionAt(v, 0, { ecmaVersion: 'latest' }); } catch {
+      try { ast = parseProgram(v, { ecmaVersion: 'latest' }); } catch { return true; }
+    }
+    let found = false;
+    fullAncestor(ast, (n, _state, ancestors) => {
+      if (found || n.type !== 'Identifier' || (n as acorn.Identifier).name !== name) return;
+      const parent = ancestors[ancestors.length - 2] as acorn.Node | undefined;
+      if (parent?.type === 'Property' && (parent as acorn.Property).key === n && !(parent as acorn.Property).computed && !(parent as acorn.Property).shorthand) return;
+      if (parent?.type === 'MemberExpression' && (parent as acorn.MemberExpression).property === n && !(parent as acorn.MemberExpression).computed) return;
+      found = true;
+    });
+    return found;
+  };
+  const walk = (ns: P5Node[]): boolean => ns.some((c) => isElement(c) && (c.attrs.some((a) => a.name.startsWith('data-sn-') && inValue(a.value)) || walk(c.childNodes) || (c.tagName === 'template' && walk((c as P5Template).content.childNodes))));
   return walk(nodes);
 }
 

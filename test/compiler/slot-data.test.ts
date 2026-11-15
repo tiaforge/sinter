@@ -321,3 +321,20 @@ test('the children a fill\'s `<slot>` places keep the component\'s styles: a sco
   expect(errors(out)).toEqual([]);
   expect(body(out)).toContain('<p data-sn-c="x-c"><b data-sn-s=""><em data-sn="0" data-sn-s="x-c"></em></b></p>');
 });
+
+describe('follow-ups', () => {
+  test('names on the default\'s element: an object key or a property of the same name is not a read', () => {
+    const C = (child: string) => `<template data-sn-component="{ v: { node: string }; label: Slot<{ node: string }> }"><p><slot name="label" data-sn-prop="{ node: v.node }"><span data-sn-let="{ node: v.node }">${child}</span></slot></p></template>`;
+    expect(errors(run('<x-c data-sn-prop="{ v: { node: \'a\' } }"></x-c>', { 'x-c': C('<b data-sn-attr="{ node: v.node }" data-sn-text="v.node"></b>') }))).toEqual([]);
+    expect(errors(run('<x-c data-sn-prop="{ v: { node: \'a\' } }"></x-c>', { 'x-c': C('<b data-sn-text="node"></b>') }))).toEqual([expect.stringMatching(/^SN331 the default of `<slot name="label">` declares `node`/)]);
+    // shorthand reads it
+    expect(errors(run('<x-c data-sn-prop="{ v: { node: \'a\' } }"></x-c>', { 'x-c': C('<b data-sn-attr="{ node }"></b>') }))).toEqual([expect.stringMatching(/^SN331 the default of `<slot name="label">` declares `node`/)]);
+  });
+
+  test('an unfilled placement with an empty default still compiles its data-sn-prop', () => {
+    const top = '<template data-sn-component="{ v: string; label: Slot<{ v: string }> }"><p><slot name="label" data-sn-prop="{ v: vv }"></slot></p></template>';
+    expect(errors(run('<x-c data-sn-prop="{ v: \'a\' }"></x-c>', { 'x-c': top }))).toEqual([expect.stringMatching(/^SN201 `vv` is not defined here/)]);
+    const row = '<template data-sn-component="{ xs: string[]; label: Slot<{ v: string; i: number }> }"><p><template data-sn-for="x in xs"><slot name="label" data-sn-prop="{ v: x }"></slot></template></p></template>';
+    expect(errors(run('<x-c data-sn-prop="{ xs: [] }"></x-c>', { 'x-c': row }))).toEqual([expect.stringMatching(/^SN313 the placement of `label` passes no `i`/)]);
+  });
+});
