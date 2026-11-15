@@ -13,7 +13,7 @@ import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
 import { analyze, literalNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
-import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
+import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
@@ -447,6 +447,8 @@ interface ComponentFile {
   exported?: string | null;
   /** `<template data-sn-head>`: a head component */
   head?: boolean;
+  /** its `<style>` as written, for `rootCss` */
+  rawCss?: string;
   /** the names of its slots that pass data (`Slot<T>` in its props type), read once */
   dataSlots?: Set<string>;
 }
@@ -1019,6 +1021,11 @@ class Compiler {
       // a chain root: each branch carries it; a fill that is the root is the caller's markup, and a component tag's root the inner component's
       for (const el of u.shape ? landingOf(u.shape).filter((e) => !this.slotOf.has(e)) : [u.root]) setAttr(el, 'data-sn-c', u.name);
     }
+    // an element that is also the root of outer components (through their tag as root): their names, for their root rules
+    if (styled.length) for (const list of this.uses.values()) for (const u of list) for (const el of this.rootMarked(u)) {
+      const outer = [...new Set((this.landing.get(el) ?? []).filter((x) => x.name !== u.name && this.componentFiles.get(x.name)?.css).map((x) => x.name))];
+      if (outer.length) { setAttr(el, 'data-sn-r', outer.join(' ')); for (const n of outer) this.rootStyled.add(n); }
+    }
     if (styled.length) for (const x of this.slotEls) if (attr(x.el, 'data-sn-c') === undefined) setAttr(x.el, 'data-sn-s', x.caller);
 
     for (const [name, id] of this.embedded) {
@@ -1122,7 +1129,12 @@ class Compiler {
       embed: this.embedSlots(),
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
-      styles: [...this.uses.keys()].sort().flatMap((n) => { const css = this.componentFiles.get(n)?.css; return css ? [{ name: n, css }] : []; }),
+      styles: [...this.uses.keys()].sort().flatMap((n) => {
+        const f = this.componentFiles.get(n), css = f?.css;
+        // the root rules of a component that is the root of another component's tag, outside its scope
+        const root = css && this.rootStyled.has(n) ? rootCss(f!.rawCss ?? '', n) : null;
+        return css ? [{ name: n, css: root ? css + root : css }] : [];
+      }),
       scripts: [...this.scripts].sort(([a], [b]) => a.localeCompare(b)).map(([name, x]) => ({ name, module: x.module, local: x.local, export: x.name, ...(x.lazy ? { lazy: x.lazy } : {}) })),
       lazy: [...this.lazyLoads].map(([spec, local]) => ({ spec, local })),
       lazyHelpers,
@@ -1751,6 +1763,7 @@ class Compiler {
     // its `<style>`, scoped to the component (read once per file)
     if (def.css === undefined) {
       const css = top.filter((t) => t.tagName === 'style').map((t) => t.childNodes.map((c) => (c as DefaultTreeAdapterMap['textNode']).value ?? '').join('')).join('\n');
+      def.rawCss = css;
       try { def.css = css.trim() ? scopeCss(css, name) : null; } catch (e) {
         def.css = null;
         this.report(top.find((t) => t.tagName === 'style')!, null, 'SN401', `the component's \`<style>\` does not parse: ${(e as Error).message}`, 0);
@@ -2426,6 +2439,15 @@ class Compiler {
       }
     };
     walk(doc, null);
+  }
+
+  /** components whose root rules are needed outside their scope (`data-sn-r`) */
+  private readonly rootStyled = new Set<string>();
+
+  /** The elements of a use's own markup that render as its root: the root, each branch's element; not a fill. */
+  rootMarked(u: Use): P5Element[] {
+    if (u.head) return [];
+    return (u.shape ? landingOf(u.shape) : [u.root]).filter((e) => !this.slotOf.has(e) || this.useOf.get(e) === u);
   }
 
   /** literal ids in repeated markup, reported after `componentIds` (which may report the same element as SN209) */

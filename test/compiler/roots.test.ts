@@ -103,3 +103,33 @@ describe('roots that are no element', () => {
     expect(errors(run('<div data-sn-state="{ v: 1 }"><x-t data-sn-prop="{ on: v }"></x-t></div>', { 'x-t': '<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><p></p><p></p></template></template>' }))).toEqual([expect.stringMatching(/^SN312 .*has 2 elements/)]);
   });
 });
+
+describe('scoped styles', () => {
+  const INNER = '<template data-sn-component="{ label: string }"><button class="b" data-sn-text="label"></button></template><style>.b { padding: 1px }</style>';
+  const OUTER = '<template data-sn-component="{ label: string }"><ui-b class="primary" data-sn-prop="{ label }"></ui-b></template><style>.primary { color: red } :scope { margin: 0 } .primary span { x: y } @media (min-width: 9px) { .primary::before { content: "" } }</style>';
+  test('a component tag as root: the element is the inner component\'s, marked with the outer\'s name for its root rules', () => {
+    const out = run('<p-b data-sn-prop="{ label: \'x\' }"></p-b>', { 'ui-b': INNER, 'p-b': OUTER });
+    expect(errors(out)).toEqual([]);
+    expect(body(out)).toBe('<button class="b primary" data-sn="0" data-sn-c="ui-b" data-sn-r="p-b"></button>');
+    const css = out.styles.find((x) => x.name === 'p-b')!.css;
+    expect(css).toContain('@scope ([data-sn-c="p-b"], [data-sn-s="p-b"])');
+    // outside the scope: the rules whose subject is the root, at their own specificity; none that reach inside
+    const outside = css.slice(css.lastIndexOf('}\n}') + 3);
+    expect(outside).toContain(':where([data-sn-r~="p-b"]):is(.primary){color:red}');
+    expect(outside).toContain(':where([data-sn-r~="p-b"]){margin:0}');
+    expect(outside).toContain('@media (min-width: 9px){:where([data-sn-r~="p-b"]):is(.primary)::before{content:""}}');
+    expect(outside).not.toContain('span');
+    // a component used only as a root of its own tag carries no root rules
+    expect(run('<ui-b data-sn-prop="{ label: \'x\' }"></ui-b>', { 'ui-b': INNER }).styles[0]!.css).not.toContain('data-sn-r');
+  });
+
+  test('an if root\'s branches each carry the marker; a slot root\'s fill does not', () => {
+    const CHAIN = '<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><a></a></template><template data-sn-else><b></b></template></template><style>a, b { x: y }</style>';
+    const out = run('<div data-sn-state="{ v: 1 }"><x-c data-sn-prop="{ on: v }"></x-c></div>', { 'x-c': CHAIN });
+    expect(out.html).toMatch(/<a data-sn-c="x-c"><\/a>/);
+    expect(out.html).toMatch(/<b data-sn-c="x-c"><\/b>/);
+    const SLOT = '<template data-sn-component=""><slot><i class="d"></i></slot></template><style>i { x: y }</style>';
+    expect(body(run('<x-s><em></em></x-s>', { 'x-s': SLOT }))).toBe('<em data-sn-s=""></em>');
+    expect(body(run('<x-s></x-s>', { 'x-s': SLOT }))).toBe('<i class="d" data-sn-c="x-s"></i>');
+  });
+});

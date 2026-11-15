@@ -151,6 +151,47 @@ export function scopeCss(css: string, name: string): string {
   return out.join('\n') + '\n';
 }
 
+/**
+ * A component's root rules, for an element that is its root through another component's tag (its
+ * root is `<ui-button>`, whose own root renders): the selectors that can match the scope root
+ * itself (one compound, `.primary`, or `:scope`), against `[data-sn-r~="<name>"]` outside `@scope`,
+ * with the same specificity. Rules that reach inside are not copied: inside, the markup is the other
+ * component's. Inside `@media` and `@supports` too. Null when there are none.
+ */
+export function rootCss(css: string, name: string): string | null {
+  const ast = csstree.parse(css, { parseValue: false, parseAtrulePrelude: false }) as csstree.StyleSheet;
+  const mark = `:where([data-sn-r~=${JSON.stringify(name)}])`;
+  const out: string[] = [];
+  const rule = (r: csstree.Rule): string | null => {
+    if (r.prelude.type !== 'SelectorList') return null;
+    const sels: string[] = [];
+    r.prelude.children.forEach((sel) => {
+      if (sel.type !== 'Selector') return;
+      const nodes = sel.children.toArray();
+      if (nodes.some((n) => n.type === 'Combinator')) return;
+      const text = csstree.generate(sel);
+      if (/^(:scope|&)$/.test(text)) { sels.push(mark); return; }
+      if (/:scope\b|&/.test(text)) return;
+      const pe = nodes.findIndex((n) => n.type === 'PseudoElementSelector');
+      const compound = (pe < 0 ? nodes : nodes.slice(0, pe)).map((n) => csstree.generate(n)).join('');
+      const tail = pe < 0 ? '' : nodes.slice(pe).map((n) => csstree.generate(n)).join('');
+      sels.push(`${mark}:is(${compound})${tail}`);
+    });
+    return sels.length ? `${sels.join(', ')}{${csstree.generate(r.block).slice(1, -1)}}` : null;
+  };
+  const visit = (n: csstree.CssNode): string | null => {
+    if (n.type === 'Rule') return rule(n);
+    if (n.type === 'Atrule' && n.block && /^(media|supports|container|layer)$/i.test(n.name)) {
+      const inner: string[] = [];
+      n.block.children.forEach((c) => { const x = visit(c); if (x) inner.push(x); });
+      return inner.length ? `@${n.name} ${n.prelude ? csstree.generate(n.prelude) : ''}{${inner.join('')}}` : null;
+    }
+    return null;
+  };
+  ast.children.forEach((n) => { if (!(n.type === 'Atrule' && GLOBAL_AT.has(n.name.toLowerCase()))) { const x = visit(n); if (x) out.push(x); } });
+  return out.length ? out.join('\n') + '\n' : null;
+}
+
 /** `.compact p` → `.compact p, :where(:scope):is(.compact) p`: the first compound may also be the scope root. */
 function withRoot(rule: csstree.Rule) {
   if (rule.prelude.type !== 'SelectorList') return;
