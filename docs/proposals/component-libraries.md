@@ -15,7 +15,8 @@ there and lands in `main` with the rest.
 | 1, the spike | done (`examples/markdown/` on `ccr-ec5fd4e0-bp4vko`) | see the numbers in the sections |
 | 2, anchors as comments | merged here | see below |
 | 3, slots that pass data | merged here | see below |
-| 4, component roots and text nodes | in progress (from the integration branch) | |
+| 5, tree slots | in progress (from the integration branch) | |
+| 4, component roots and text nodes | merged here | see below |
 | 6, the constant pre-pass | merged here | see below |
 | 7, nested loops and the worklist | merged here | see below |
 | 8, helpers over constants and `file:` | merged here | see below |
@@ -161,6 +162,25 @@ Step 8b, as built:
   written once as embedded data; step 9 handles that for trees that are not unrolled.
 - RealWorld builds to identical HTML before and after: its helpers that read the session
   (`signedOut()`) are refused by the static check.
+
+Step 4, as built:
+- Measured with step 1's spike, rewritten to use roots and text nodes (17 components instead of 24;
+  run in the same session as the island): the fetched article renders 1,370 elements, as many as
+  the island, with 674 bindings instead of 2,135; LCP 328 → 244 ms against the island's 172–204, so
+  1.2× it instead of 1.9×. What remains is script time (154 ms against 8) and comments: each text
+  run in a dispatched row adds a marker comment, about 1,460 on the article.
+- A text node is not a new kind of node in the IR: its node is the marker before it, with a binding
+  of its own writer, so paths and lookups are unchanged and the element writer on the hot path is
+  untouched. Its slot is an empty comment in all HTML until it has text, so no separators are
+  needed; text over state is not written at build time yet, only literals (step 9 folds constant
+  text runs into plain text).
+- Codes: `SN312` keeps its number for a root that renders more than one element or text, and for a
+  script or root state on a root that is not plain; new `SN333` (invalid text template) and
+  `SN334` (an attribute on the tag of a component whose root may render nothing).
+- On a shared definition, the tag's values and handlers reach the root; a model, an action, a
+  transition or a debounce there is `SN102`. A placement whose default is a component gives no
+  children.
+- The minimal runtime is 15,041 of 15,360 B gzip after steps 2 to 4, 6 to 8 and 10.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
