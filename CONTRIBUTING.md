@@ -23,7 +23,7 @@ Link the issue from the pull request.
 
 ## Fuzz tests
 
-Two seeded fuzz tests generate random markup and check that every way of rendering it agrees. They
+Three seeded fuzz tests generate random pages and check that every way of rendering them agrees. They
 found bugs that hand-written tests missed: wrong output where features meet, over constants only,
 or only after the page module takes over.
 
@@ -31,6 +31,12 @@ or only after the page module takes over.
   another component's tag, a slot, a choice, a list), with fills, slot content,
   `<sn-component use>`, loops, branches and texts.
 - `test/behaviour/anchor-fuzz.test.ts` nests lists, branches, texts and elements inside a row.
+- `test/behaviour/let-fuzz.test.ts` runs random handlers over cached lets (`data-sn-let` over helpers):
+  writes in place and reassigned, store functions, `refresh()`, `emit()` with listeners that write
+  and that read, a synchronous click, an island whose prop setter fires an event mid-flush,
+  `<sn-sync>` messages and an optimistic action, with reads of lets stored between them. It compares
+  every read and the page with the same page whose lets call no helper (inlined, as without the
+  cache), also after the early takeover. `SN_FUZZ_DEPTH` makes the handlers and click scripts longer.
 
 Each case compares the page after a state change with a fresh render of the new state, with the
 build over constants (state nothing writes), and (component fuzz) with the early script's first
