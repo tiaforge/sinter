@@ -17,7 +17,7 @@ there and lands in `main` with the rest.
 | 3, slots that pass data | merged here | see below |
 | 4, component roots and text nodes | in progress (from the integration branch) | |
 | 6, the constant pre-pass | merged here | see below |
-| 7, nested loops and the worklist | in progress (from the integration branch) | the worklist runs in the first compile; a page still compiles at most twice |
+| 7, nested loops and the worklist | built, being merged with step 2 | see below |
 | 10, lets over helpers | merged here | see below |
 
 Step 3, as built:
@@ -103,6 +103,20 @@ on `ccr-ec5fd4e0-bp4vko`; step 1 → integration):
 - Against the RealWorld island (172 ms on that run): the fetched article is at 1.6× (2.3× at step
   1) and the tree from the API is level with it. Step 4 removes the spike's text `<span>`s and its
   component per heading level, and measures again.
+
+Step 7, as built (before its merge with step 2):
+- The worklist runs in the first compile's evaluator and pass 2 applies it in one top-down
+  traversal (`expandConstants`, which replaces the separate deciding and unrolling). A page compiles
+  at most twice at any depth, in the build and in the LSP. Nested lists 5 levels deep (1,364 rows)
+  compile in 76 ms; before, levels beyond the first were not unrolled at all, and a static page with
+  them failed with `SN322`. The examples' output is byte-identical and their compile times level.
+- Rows take their item as a literal of the value the first pass computed, not `(list)[k]`:
+  inlining the list into every row was quadratic (10 × 300 rows: 1.4 s → 0.19 s).
+- Decisions are per use, keyed by instance path (the loop, row index and use at each level), so two
+  uses on one line are told apart, and uses that disagree are each decided on their own.
+- A choice whose row renders a candidate keeps its loop a template until shared definitions expand
+  (step 9); elsewhere unrendered candidates are dropped.
+- A provisional page cap of 10,000 rows in all, silent; step 9 sets the limit and its warning.
 
 Constraints set by the user:
 - Markdown from the repo (built with the site) and markdown from an API (a string in a response)
