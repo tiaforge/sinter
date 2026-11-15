@@ -1,6 +1,6 @@
 # Haiku baseline, 2026-11-15
 
-sinter at main f418bd4 (starter without temper, temporary); Astro 7.4.12, SvelteKit 3.2.0 and Svelte 5.57.3, Vite 8.3.8 (pinned); Haiku 5.5, cold; 3 runs per cell, 4 agents in parallel; every run regraded one at a time on an idle machine. T4 has the fixed login API and 25 checks. Five runs were redone after the session disk filled up (see bench/llm/SPEC.md).
+sinter at main f418bd4 (starter without temper, temporary); Astro 7.4.12, SvelteKit 3.2.0 and Svelte 5.57.3, Vite 8.3.8 (pinned); Haiku 5.5, cold; 3 runs per cell, 4 agents in parallel; every run regraded one at a time on an idle machine. T4 has the fixed login API and 25 checks. Five runs were redone in full: the session disk filled up (each run had its own npm cache), which broke one run and stopped the harness during four others; run.mjs now deletes the caches after each run.
 
 Graded from `results-regraded.json`. Each cell: median (min–max) over its runs.
 
