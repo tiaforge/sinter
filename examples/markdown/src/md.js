@@ -1,6 +1,7 @@
 // md.parse: markdown to an mdast tree (CommonMark + GFM), as an ordinary helper loaded with the page.
 // The spike's stand-in for the library's parser (proposal section 11). Positions are dropped: the
-// components never read them, and they would double the size of embedded data.
+// components never read them, and they would double the size of embedded data. Pure: no globals, no
+// clock, so a build can run it over constants; the counting for measure.mjs is in md-measured.js.
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { gfm } from 'micromark-extension-gfm';
 import { gfmFromMarkdown } from 'mdast-util-gfm';
@@ -12,25 +13,14 @@ const strip = (n) => {
 };
 
 /**
- * How often parse ran and for how long, for measure.mjs (re-parse per render). One entry per copy of
- * this module: the early file and the page module each bundle their own. Not part of the contract.
- */
-const stats = { parses: 0, ms: 0, bytes: 0, early: typeof document !== 'undefined' && document.readyState === 'loading' };
-if (typeof window !== 'undefined') (window.__mdStats ??= []).push(stats);
-
-/**
  * The tree for `source`. Options (section 10), applied after parsing:
  * - `headings: 'strong'` turns headings into paragraphs of strong text;
  * - `images: 'link'` turns images into links to the image;
  * - `html: 'text' | 'drop'` (default 'text') shows raw HTML as written, or drops it.
  */
 export function parse(source, options) {
-  const t0 = performance.now();
-  stats.parses++;
-  stats.bytes += source?.length ?? 0;
   const tree = strip(fromMarkdown(source ?? '', { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }));
   if (options) policy(tree, options);
-  stats.ms += performance.now() - t0;
   return tree;
 }
 

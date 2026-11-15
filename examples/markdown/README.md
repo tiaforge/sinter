@@ -29,7 +29,8 @@ CSP it tests is `script-src 'self'` in `e2e/navigation`.
 ```sh
 npm run build                                  # repository root: sinter's dist/
 cd examples/markdown && npm install
-npx vite build && SINTER_EMBED=1 npx vite build && DOM_DECODER=1 npx vite build --outDir dist-dom
+MEASURE=1 npx vite build && MEASURE=1 SINTER_EMBED=1 npx vite build && DOM_DECODER=1 npx vite build --outDir dist-dom
+# MEASURE=1: the parser counts its calls (src/md-measured.js); without it md.parse is pure, as a build that folds it needs
 node server.mjs dist 4390 & node server.mjs dist-embed 4391 & node server.mjs dist-dom 4392 &
 node verify.mjs                                # equal: 60255 characters of normalized HTML, then selectors and shape
 node measure.mjs > results/<date>.json         # RUNS=5 by default

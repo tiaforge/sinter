@@ -1,6 +1,6 @@
 // Step 1's measurements (docs/proposals/component-libraries.md, Plan): headless Chromium, one fresh
 // context per run, median of RUNS. Needs both builds and both servers:
-//   npm run build && SINTER_EMBED=1 npm run build
+//   MEASURE=1 npm run build && MEASURE=1 SINTER_EMBED=1 npm run build   (MEASURE: the parser counts its calls)
 //   node server.mjs dist 4390 & node server.mjs dist-embed 4391 &
 // (the island page, RealWorld's marked + DOMPurify body, is the comparison point for LCP)
 //   node measure.mjs > results/<date>.json
