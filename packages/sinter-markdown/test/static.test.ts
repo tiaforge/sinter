@@ -37,6 +37,15 @@ const INLINE = page(`<sn-resource name="post" src="file:./post.md"></sn-resource
   <label id="in-label"><input type="checkbox"> <md-inline data-sn-prop="{ doc: line }"></md-inline></label>
   <p id="after-list"><md-inline data-sn-prop="{ doc: md.parse('- a list, left out\\n\\nthen a paragraph\\n\\n- another\\n\\n## and a heading') }"></md-inline></p>
 </main>`);
+// the fills of docs/markdown.md: a link and a heading chain that place their children, a table's wrapper, a code block
+const FILLS = page(`<sn-resource name="post" src="file:./post.md"></sn-resource>
+<main data-sn-let="{ doc: md.parse(post, { base: '/' }) }"><md-doc id="article" data-sn-prop="{ doc }">
+  <a slot="link" rel="nofollow ugc" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a>
+  <template slot="heading" data-sn-if="$slot.node.depth === 1"><h1 data-sn-attr="{ id: 'md-' + $slot.node.slug }"><slot></slot></h1></template>
+  <template data-sn-else><h2 data-sn-attr="{ id: 'md-' + $slot.node.slug }"><slot></slot> <a data-sn-attr="{ href: '#md-' + $slot.node.slug }">#</a></h2></template>
+  <div slot="table" class="scroll"><slot></slot></div>
+  <figure slot="code"><pre><code data-sn-text="$slot.node.value"></code></pre><figcaption data-sn-text="$slot.node.lang"></figcaption></figure>
+</md-doc></main>`);
 const LINE = 'A *title* with `code` and a [link](/x)\n\nand a second paragraph\n\n- a list, left out\n';
 const diagram = readFileSync(join(PKG, 'fixtures/diagram.png'));
 const apps = {
@@ -44,6 +53,7 @@ const apps = {
   allow: app({ 'post.md': HTML, 'index.html': ALLOW }),
   article: app({ 'post.md': ARTICLE, 'index.html': PAGE, 'diagram.png': diagram }),
   inline: app({ 'post.md': LINE, 'index.html': INLINE }),
+  fills: app({ 'post.md': ARTICLE, 'index.html': FILLS, 'diagram.png': diagram }),
 };
 const out: Record<string, { html: string; js: string[]; error: string | null }> = {};
 beforeAll(async () => {
@@ -117,6 +127,18 @@ test('the full article, its nested list included, is a static page', () => {
   expect(out.article!.js).toEqual([]);
   expect(noScript(out.article!.html)).not.toMatch(/<script|<template|<!--/);
   expect(out.article!.html).toContain('<li>two, with a <a href="./other.md">reference link</a><ul><li>nested</li></ul></li>');
+});
+
+test('the fills of the docs, which place their children, are expanded with the tree: a static page', () => {
+  const { html, js, error } = out.fills!;
+  expect(error).toBe(null);
+  expect(js).toEqual([]);
+  expect(noScript(html)).not.toMatch(/<script|<template|<!--/);
+  expect(html).toContain('<h1 id="md-writing-with-sinter-markdown">Writing with sinter-markdown</h1>');
+  expect(html).toMatch(/<h2 id="md-lists">Lists <a href="#md-lists">#<\/a><\/h2>/);
+  expect(html).toMatch(/<a rel="nofollow ugc" href="\.\/other\.md">reference link<\/a>/);
+  expect(html).toMatch(/<div class="scroll"><table>/);
+  expect(html).toMatch(/<figure><pre><code>/);
 });
 
 test('md-inline is phrasing content: inside a <p>, a heading or a label, the page parses as written', () => {
