@@ -10,6 +10,7 @@ const files: Record<string, string> = {
   '/p/partials/old.html': '<p></p>',
   '/p/src/layouts/x-shell.html': '<!doctype html><html data-sn-layout=""><head></head><body><slot></slot></body></html>',
   '/p/src/components/x-two.html': '<template data-sn-component=""><p></p><p></p></template>',
+  '/p/src/components/x-maybe.html': '<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>',
 };
 
 const SPEC = { file: '/p/openapi.json', doc: {
@@ -66,7 +67,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN309', '<dialog id="compose"></dialog><button data-sn-on-click="showModal(\'compse\')"></button>', /no `<dialog id="compse">` on this page. Did you mean `compose`\?/],
   ['SN310', '<button data-sn-call="archive(1)"></button>', /`archive` is not exported by the actions module/],
   ['SN311', `<span id="mark-read" data-sn-post="/x"></span><button data-sn-on-click="run('mark-raed')"></button>`, /no element `id="mark-raed"` on this page. Did you mean `mark-read`\?/],
-  ['SN312', '<x-two></x-two>', /a component has one root element/],
+  ['SN312', '<x-two></x-two>', /a component's root renders at most one element/],
   ['SN313', '<x-card data-sn-prop="{ titel: 1 }"></x-card>', /`titel` is not a prop of `<x-card>`/],
   ['SN314', '<x-card data-sn-prop="{ title: \'a\' }"><b slot="fot"></b></x-card>', /`<x-card>` has no slot `fot`/],
   ['SN315', '<x-card data-sn-prop="{ title: \'a\' }" data-sn-on-pik="1"></x-card>', /`<x-card>` does not emit `pik`/],
@@ -84,6 +85,8 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN504', `${R}${use}`, /resource `contacts` has no type: expressions using it are not checked/, { check: true }],
   ['SN506', `${R}${use}<sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>`, /event `contact_updated` has no type: expressions reading its payload are not checked/, { check: true }],
   ['SN507', '<div data-sn-state="{ a: 0 }"><button data-sn-on-click="a = 1; a = 2; a = 3; a = 4; a = 5" data-sn-text="a"></button></div>', /`data-sn-on-click` is too complex for markup: 5 statements in one handler \(limit `statements`: 4\)\. Move the logic into a helper/],
+  ['SN334', '<div data-sn-state="{ v: true }"><x-maybe id="m" data-sn-prop="{ on: v }"></x-maybe></div>', /`<x-maybe>`'s root may render nothing, so `id` on its tag would point at an element that may not exist/],
+  ['SN333', '<div data-sn-state="{ v: 1 }"><template data-sn-text="v" data-sn-if="v"></template></div>', /`data-sn-text` and `data-sn-if` on one `<template>`/],
   ['SN331', '<div><slot></slot></div>', /this `<slot>` is not in a component or a fill, so nothing fills it/],
   ['SN332', '<button data-sn-post="file:./post.txt"></button>', /`file:` is a source for `<sn-resource src>`/],
   ['SN532', '<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs"><p id="row" data-sn-text="x"></p></template></div>', /`id="row"` is in markup that renders more than once \(a `data-sn-for` row\)/],

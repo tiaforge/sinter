@@ -35,7 +35,8 @@ runtime.
 ## The file
 
 - The name contains a `-` (`article-preview.html` is `<article-preview>`).
-- One `<template data-sn-component="…">` holds the markup, with **exactly one root element**.
+- One `<template data-sn-component="…">` holds the markup. Its root **renders at most one element**
+  ([The root](#the-root)).
 - `data-sn-component` is the props type, written in TypeScript with the names `src/sinter.types.ts`
   exports (or the schemas of your OpenAPI spec), as `<sn-resource type>` is. `data-sn-component=""`
   takes no props.
@@ -54,6 +55,49 @@ child (grid, flex, `data-layout`), with no wrapper.
 - A component whose root is a `<tr>` or `<li>` is that element. Write its tag inside the row's
   `<template data-sn-for>`: directly in a `<table>`, the HTML parser moves an unknown tag out of the
   table, which is a build error with the fix.
+
+## The root
+
+What the caller writes on the tag lands on exactly one element, so a component's root **renders at
+most one element**:
+
+| Root | Renders at most one element because |
+| --- | --- |
+| a plain element | it is one |
+| a `data-sn-if` / `data-sn-else` chain | each branch is a root; without an `else`, nothing renders when no branch holds |
+| another component's tag | its root renders at most one element |
+| `<sn-component use>` | each candidate's root does |
+| a `<slot>` | its default is a root, and so is every fill |
+
+```html
+<!-- ui-button.html: an <a> or a <button> -->
+<template data-sn-component="{ href?: string; label: string }">
+  <template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="label"></a></template>
+  <template data-sn-else><button type="button" data-sn-text="label"></button></template>
+</template>
+
+<!-- primary-button.html: a variant, with no wrapper -->
+<template data-sn-component="{ href?: string; label: string }">
+  <ui-button class="primary" data-sn-prop="{ href, label }"></ui-button>
+</template>
+```
+
+- A root that is not a plain element is an `if` or a choice like any other: marked by comments,
+  decided at build time when a constant prop decides it (`<ui-button data-sn-prop="{ label: 'Save' }">`
+  is a `<button>` in the HTML), otherwise replaced when its condition changes. Focus on the old element
+  is lost, a handler on the tag sees the new `$el`, and a pending or debounced handler on the old
+  element is dropped with it. Whitespace between the branch templates is dropped.
+- The tag's attributes land on every branch (one attribute on the tag and a branch's element is an
+  error, per branch). Through a component tag as root they pass on, `class` joined, down to the element
+  that renders. With a `<slot>` as root they land on the fill, or the default; one attribute on both
+  the tag and the fill is an error at the tag that names the fill.
+- **What keeps a plain root**: a component with a script (it runs on its root; replacing it would
+  restart it), and one with `data-sn-state` on its root (which holds optional props' defaults: give
+  those with `??` in the expressions instead). Anything else is `SN312`.
+- A root that may render nothing (a chain without an `else`, `<sn-component use>`, a component tag
+  whose own root may) takes no `id`, `data-sn-model`, action or `data-sn-transition` on its tag
+  (`SN334`): each points at an element that may not exist.
+- More than one element, or text, at the root is `SN312`.
 
 ## Props
 
@@ -186,8 +230,8 @@ data is that element's children. They are the component's markup, with its scope
 - Errors (`SN331`): a `<slot>` in a fill whose placement's default renders no element (text, nothing);
   names the default's element declares (`data-sn-let`, `data-sn-state`) that its children read, since
   they move into the fill without it (put them on the `<slot>`'s `data-sn-prop`, or inside); a
-  default that is not one plain element or a chain of them (a component, a loop, several elements:
-  that comes with the component root). Two unnamed `<slot>`s in one fill that can render together
+  default that is not a root (several elements, a loop); a `<slot>` in a fill whose default is a
+  component, whose element's children are that component's markup. Two unnamed `<slot>`s in one fill that can render together
   are `SN312`.
 - A `<slot>` that no component or fill encloses (on a page, or in a page's slot content) is an error.
 
@@ -238,7 +282,13 @@ A `<style>` in the component file is scoped to the component:
 - Each instance is its own scope: `.card + .card` does not reach the next instance.
 - `@keyframes`, `@font-face`, `@import` and `@property` stay global.
 - To scope, the root carries `data-sn-c="article-preview"` and top-level slot content carries
-  `data-sn-s`, on pages with scoped styles (the root's name is there in dev builds too).
+  `data-sn-s`, on pages with scoped styles (the root's name is there in dev builds too). Each branch of
+  a chain root carries `data-sn-c`; a fill that is a `<slot>` root keeps the caller's styles.
+- A component whose root is another component's tag (`primary-button` above) has no element of its
+  own: the element is the inner component's (`data-sn-c="ui-button"`) and also carries
+  `data-sn-r="primary-button"`. The outer component's rules whose subject is its root (`.primary`,
+  `:scope`) are emitted against that marker, outside its `@scope`, with the same specificity; its rules
+  that reach inside do not apply there, since the inside is the inner component's.
 - `@scope` is in every browser sinter supports. An older browser ignores the rules, and the component
   shows unstyled.
 - Styling a component's inside from outside is not supported: style its root through the tag's
@@ -277,6 +327,27 @@ HTML: `src/components/task-ring.ts`. sinter runs it once per instance, on the in
 `this.state`, reaches elements through `data-sn-ref` and emits declared events. See
 [components with a script](islands.md).
 
+## Text without an element
+
+`data-sn-text` on a `<template>` renders a text node: a run of text beside elements, with no `<span>`
+around it.
+
+```html
+<template data-sn-for="p in highlight(title, q)">
+  <template data-sn-if="p.match"><mark data-sn-text="p.text"></mark></template>
+  <template data-sn-else><template data-sn-text="p.text"></template></template>
+</template>
+```
+
+- It takes no other attribute: a condition or a loop goes on a template around it (`SN333`), and
+  `$el` has no element there (`SN213`).
+- It always occupies one node (a `Text`, or an empty comment while its value is empty), found again
+  from the node before it at each write, so text that browser translation replaced is written in
+  place. Outside rows it is marked like a branch (`<!--sn 7-->…<!--/sn-->`); in a row, the element
+  before it marks it, or an empty comment does.
+- A literal folds into the HTML as text.
+- A fill may be a text: `<template slot="label" data-sn-text="$slot.v"></template>`.
+
 ## A component inside itself
 
 A component may use itself by its own tag, for a tree of data: comments and their replies, a file
@@ -305,7 +376,9 @@ tree, a nested menu.
   paint). Each inner use is an instance of it, created per item as `data-sn-for` creates rows. The
   early script clones it too: a tree in embedded data is in the first frame at any depth.
 - A component used inside itself declares its props as a type literal, and its inner uses take no slot
-  content.
+  content. An inner use's plain attributes, `data-sn-class`, `-attr`, `-style`, `-show` and handlers
+  reach the root its instance renders: they are compiled where the tag is written and passed with
+  its props. Other sinter attributes on it are `SN102`.
 - **Nested items are changed along their path.** `patch(r, …)` and `remove(r)` for `r in
   comment.replies` act on `r` inside its top-level row, at any depth: the objects along the path are
   replaced, and every view of that row updates. Nested items are matched by the resource's key, so

@@ -502,6 +502,26 @@ A `file:` source (`<sn-resource src="file:./post.txt">`) reads a file of the pro
 
 **Fix:** Write a literal path to a file in the project, or fix the JSON. Leave out the attribute that would load or change it; for data that changes, serve it from an API and use a URL. To change the values a page shows, keep them in `data-sn-state`, initialized from the resource.
 
+## SN333 invalid-text
+
+Error, for example:
+
+> `data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it
+
+A `<template data-sn-text>` renders a text node and nothing else: it takes no other attribute (`data-sn-if` and `data-sn-for` go on a template around it, anything else on an element around the text), and content inside it is dropped.
+
+**Fix:** Wrap it: `<template data-sn-if="…"><template data-sn-text="…"></template></template>`, or put the text in an element.
+
+## SN334 empty-root
+
+Error, for example:
+
+> `<ui-panel>`'s root may render nothing, so `id` on its tag would point at an element that may not exist
+
+A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes.
+
+**Fix:** Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it.
+
 ## SN401 parse-error
 
 Error, for example:

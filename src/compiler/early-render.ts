@@ -92,6 +92,8 @@ export function earlyRender(ir: EarlyIR, fns: string[] = []): EarlyRender {
         else if (b.k == 'class') out.push(b.n ? call(use('cls'), b.n) : call(use('pair')));
         // an attribute needs the browser's URL check only if it is a URL attribute and its scheme is not fixed by the expression
         else if (b.k == 'attr') out.push(call(use(URL_ATTR.test(b.n!.toLowerCase()) || b.n!.toLowerCase().endsWith('srcset') ? (fns[b.f!] != null && fixedScheme(fns[b.f!]!) ? 'set' : 'attr') : 'set'), b.n));
+        // a text without an element: the text node after its marker
+        else if (b.k == 'text' && b.n == '+') out.push(call(use('slot')));
         else if (WRITER[b.k]) out.push(call(use(WRITER[b.k]!), b.n));
       }
     });

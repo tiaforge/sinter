@@ -8,7 +8,7 @@ Bind values to the page.
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-text` | value expression | sets textContent; never HTML |
+| `data-sn-text` | value expression | sets textContent; never HTML. On a &lt;template&gt;: a text node with no element (a run of text beside elements); no other attribute on that template |
 | `data-sn-attr` | object literal {href: …} | literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property |
 | `data-sn-class` | object literal {unread: …} | toggles each class |
 | `data-sn-style` | object literal {'--color': …} | sets each property with style.setProperty |
@@ -77,7 +77,7 @@ In a component file in `src/components/`, and on a component's tag (`early`). De
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }; a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill |
+| `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }; a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill. Its root renders at most one element: one element, a data-sn-if/data-sn-else chain of them, a component, &lt;sn-component use&gt; or a &lt;slot&gt; |
 | `data-sn-head` | props type | on the &lt;template&gt; of a head component (src/components/&lt;name&gt;.html): its props, as data-sn-component; it holds any number of head elements (&lt;title&gt;, &lt;meta&gt;, &lt;link&gt;, …), inlined at its use in a head |
 | `data-sn-emits` | events type | on the &lt;template data-sn-component&gt;: the events emit() sends and their detail types, e.g. { select: Article } |
 | `data-sn-early` | off | on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for uses that may shift the layout when they render, to keep the early script small |
