@@ -1907,7 +1907,7 @@ class Compiler {
       this.origins.set(x, this.origins.get(el)!);
       this.points.set(x, c.name);
       if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
-      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, pool: all, first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
       clones.push(x);
     }
     if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);

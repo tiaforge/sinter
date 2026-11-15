@@ -314,3 +314,14 @@ test('lazy helper modules: a library\'s helper module that reaches a lazy packag
   expect(out.diagnostics).toEqual([]);
   expect(out.module).toMatch(/import\(["']@t\/heavy["']\)/);
 });
+
+test('`sinter render` finds a library component\'s script and runs it', async () => {
+  const { parseRenderArgs, renderPage } = await import('../src/render-cli.js');
+  // the options as the Vite config gives them (the plugin's `api.options`)
+  const root = app({ 'vite.config.mjs': 'export default { plugins: [{ name: \'sinter\', api: { options: { components: [\'@fixture/ui\'] } } }] };\n' });
+  const a = parseRenderArgs(['index.html'], root);
+  if (typeof a === 'string') throw new Error(a);
+  const r = await renderPage(a);
+  expect(r.rendered).toContain('data-ready="ADA LOVELACE"');
+  expect(r.rendered).toMatch(/<button class="pick"[^>]*>root<\/button>/);
+}, 60_000);
