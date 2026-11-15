@@ -98,6 +98,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- A constant tree through a component reached again by `<sn-component use>` in its own rows (a list in a list item) expands at every level; its second level stayed in the browser. A `static` page that keeps such a part in the browser now reports `SN322` (it shipped a page module with none).
 - An `id` on one use's tag of a component used more than once was reported as an id in the component's markup (SN209). It is that use's; a literal id in the component's own markup still is.
 - A minified build (Vite's default) with a lazy package could ship a page module with a syntax error (`Unexpected token 'import'`): the runtime kept the chunk mark as a constant, the minifier made it a template literal, and the build's patch of the loaders' chunk URLs matched from there across code to the next mark, replacing all of it. The patch now matches inside one string literal only, and the runtime no longer holds the mark (it takes a URL starting with `.` as the chunk's). Builds with `minify: false` were not affected.
 - A tree placement that is its component's root, rendered with no fill, reported `SN201` for the component's own names in its `data-sn-prop`: it was compiled in the caller's scope. The output was right.
