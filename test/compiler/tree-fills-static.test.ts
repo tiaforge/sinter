@@ -43,3 +43,17 @@ test('a fill that holds a tree root of its own, or that a wrapper passes on, ren
   const wrapped = build(`<x-wrap data-sn-prop="{ doc }"><em slot="link" data-sn-text="$slot.url"></em></x-wrap>`);
   expect(sn322(wrapped)).toContainEqual(expect.stringMatching(/^1:\d+ the fill `<em slot="link">` \(it is passed on to `<x-doc>` by a component's `<slot name="link" slot="link">`, so it renders in the browser\)$/));
 });
+
+test('a fill that places the children twice is SN312 over constants and over state a handler writes alike', () => {
+  const fill = '<u slot="link"><slot></slot>|<slot></slot></u>';
+  const fixed = build(`<x-doc data-sn-prop="{ doc }">${fill}</x-doc>`);
+  const files: Record<string, string> = {};
+  for (const [k, s] of Object.entries(C)) files[`/p/src/components/${k}.html`] = s;
+  const live = compile(`<!doctype html><html><head></head><body><div data-sn-state="{ doc: ${JSON.stringify(DOC).replace(/"/g, "'")} }"><i data-sn-on-click="doc = { ...doc }"></i><x-doc data-sn-prop="{ doc }">${fill}</x-doc></div></body></html>`, {
+    file: '/p/index.html', root: '/p', dev: false, prerender: true, componentNames: Object.keys(C),
+    helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error(p); },
+  });
+  const twice = (out: ReturnType<typeof build>) => out.diagnostics.filter((d) => d.code === 'SN312').map((d) => d.message);
+  expect(twice(fixed)).toEqual(['this fill of `link` places the children twice: two `<slot>`s in it can render together']);
+  expect(twice(live)).toEqual(twice(fixed));
+});
