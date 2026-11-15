@@ -41,8 +41,10 @@ export function analyze(dir) {
       out.failures.push({ command: cmd.slice(0, 120).replace(/\n/g, ' ⏎ '), diagnostics: diags.slice(0, 12), other: diags.length ? undefined : (r.match(/(error during build[^\n]*|Build failed[^\n]*|\[[A-Z_]+\][^\n]*)/) ?? [])[0]?.slice(0, 200) });
     }
   }
-  const res = lines.findLast((l) => l.type === 'result') ?? {};
-  out.turns = res.num_turns ?? null; out.costUSD = res.total_cost_usd ?? null;
+  // a run can have several results: a background task the agent started may wake it for another turn after it is
+  // done. Turns add up; the cost is a running total, so the last one holds.
+  const ends = lines.filter((l) => l.type === 'result'), res = ends.at(-1) ?? {};
+  out.turns = ends.length ? ends.reduce((n, r) => n + (r.num_turns ?? 0), 0) : null; out.costUSD = res.total_cost_usd ?? null;
   out.inputTokens = (res.usage?.input_tokens ?? 0) + (res.usage?.cache_read_input_tokens ?? 0) + (res.usage?.cache_creation_input_tokens ?? 0);
   out.outputTokens = res.usage?.output_tokens ?? null;
   return out;

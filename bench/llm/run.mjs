@@ -131,7 +131,7 @@ async function agent(job, slot) {
 /** Process metrics from the stream-json transcript: cost, turns, tokens, tool use, doc reads, leaks outside the workspace. */
 function transcriptStats(text) {
   const lines = text.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-  const result = lines.findLast((l) => l.type === 'result') ?? {};
+  const results = lines.filter((l) => l.type === 'result'), result = results.at(-1) ?? {}; // several when a background task woke the agent
   const uses = lines.filter((l) => l.type === 'assistant').flatMap((l) => (l.message?.content ?? []).filter((c) => c.type === 'tool_use'));
   const tools = {}; for (const u of uses) tools[u.name] = (tools[u.name] ?? 0) + 1;
   const inputs = uses.map((u) => JSON.stringify(u.input ?? {}));
@@ -143,7 +143,7 @@ function transcriptStats(text) {
   // the agent must not see this repository (examples/realworld would be an answer key): any path into it is flagged
   const leaks = inputs.filter((s) => /\/home\/user\b|tiaforge\/sinter\/(tree|blob)\/[^"]*examples/.test(s)).slice(0, 5);
   return {
-    costUSD: result.total_cost_usd ?? null, turns: result.num_turns ?? null, apiSeconds: result.duration_api_ms ? Math.round(result.duration_api_ms / 1000) : null,
+    costUSD: result.total_cost_usd ?? null, turns: results.length ? results.reduce((n, r) => n + (r.num_turns ?? 0), 0) : null, apiSeconds: result.duration_api_ms ? Math.round(result.duration_api_ms / 1000) : null,
     outputTokens: result.usage?.output_tokens ?? null, resultSubtype: result.subtype ?? null, toolCalls: uses.length, tools,
     webFetches: urls, webSearches: searches, docReads, mcpCalls, buildRuns: builds, leaks,
   };
