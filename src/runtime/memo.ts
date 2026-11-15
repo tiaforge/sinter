@@ -2,9 +2,12 @@
 // (early.ts) share, each in its own copy. A `data-sn-let` over a helper compiles to
 // `$.$c($, id, names, ($) => …)`, and each helper call in it to `$.$h(k, f, [args])`.
 
-/** one cached let in one scope instance: its value, the owner's values of the names it reads, each call's last arguments and result */
-/** a cached let's value: `r` the flush round it was computed in, `q` the app's marks when it was last known current */
-export interface Entry { v: unknown; n: unknown[]; m: Array<[unknown[] | null, unknown] | undefined>; r: number; q: number }
+/**
+ * one cached let in one scope instance: its value, the owner's values of the names it reads, each call's last
+ * arguments and result (`m`: the kept arguments, the result, and the argument objects the result holds); `r` the
+ * flush round it was computed in, `q` the app's marks when it was last known current, `l` the locale it was computed in
+ */
+export interface Entry { v: unknown; n: unknown[]; m: Array<[unknown[] | null, unknown, unknown[] | null] | undefined>; r: number; q: number; l?: unknown }
 
 /**
  * The scope instance a let's value belongs to: from `s`, the nearest scope that holds one of the names its
@@ -36,8 +39,21 @@ function keep(a: unknown[]): unknown[] | null {
   return out;
 }
 
-const same = (k: unknown[], a: unknown[]) => k.length == a.length && a.every((v, i) => {
+/**
+ * The argument objects a result holds (it is one, or one is a value of its own): a later call with an equal copy
+ * must not return it, or the caller would see the old object (`same(o)` returns `o`). Null when it holds none.
+ */
+function held(a: unknown[], v: unknown): unknown[] | null {
+  let out: unknown[] | null = null;
+  a.forEach((x, i) => {
+    if (!prim(x) && (v === x || (v && typeof v == 'object' && Object.values(v).includes(x)))) (out ??= [])[i] = x;
+  });
+  return out;
+}
+
+const same = (k: unknown[], a: unknown[], h: unknown[] | null) => k.length == a.length && a.every((v, i) => {
   const w = k[i];
+  if (h?.[i] !== undefined && h[i] !== v) return false;
   if (prim(v) || prim(w)) return Object.is(v, w);
   const x = Object.keys(v as object), y = w as Record<string, unknown>;
   return Object.getPrototypeOf(v) === Object.getPrototypeOf(w) && x.length == Object.keys(y).length && x.every((key) => Object.hasOwn(y, key) && Object.is((v as any)[key], y[key]));
@@ -47,8 +63,8 @@ const same = (k: unknown[], a: unknown[]) => k.length == a.length && a.every((v,
 export function call(e: Entry | null, k: number, f: (...a: unknown[]) => unknown, a: unknown[]): unknown {
   if (!e) return f(...a);
   const last = e.m[k];
-  if (last?.[0] && same(last[0], a)) return last[1];
+  if (last?.[0] && same(last[0], a, last[2])) return last[1];
   const v = f(...a);
-  e.m[k] = [keep(a), v];
+  e.m[k] = [keep(a), v, held(a, v)];
   return v;
 }

@@ -36,7 +36,7 @@ export const FOLD_CONDITIONS = ['production', 'node', 'import', 'module', 'defau
 
 type N = { type: string; start: number; end: number; [k: string]: any };
 /** a reference out of a unit: a function or the top level of this module, or an export of another */
-type Edge = { local: string } | { spec: string; name: string | '*' };
+type Edge = { local: string } | { spec: string; name: string | '*' | '<side>' };
 interface Unit { name: string; edges: Edge[]; bad: { reason: string; at: number } | null }
 interface ModuleInfo {
   file: string; code: string;
@@ -47,6 +47,8 @@ interface ModuleInfo {
   stars: string[];
   /** a problem reading the module itself */
   broken?: string;
+  /** the unit any export stands for (a CSS module's class names) */
+  any?: string;
 }
 
 /** Per-module analyses, by file, valid while the file's mtime and size are unchanged; and package resolutions. */
@@ -237,7 +239,7 @@ function analyze(file: string, code: string): ModuleInfo {
       if (imp && imp.name === '*' && !isLocal(spec)) { edge({ spec: imp.spec, name }); return true; }
       void at;
       return false;
-    }, (spec) => edge({ spec, name: '*' }), name === '<top>' ? undefined : (w, at, how) => {
+    }, (spec) => edge({ spec, name: '<side>' }), name === '<top>' ? undefined : (w, at, how) => {
       // a function that assigns the module's own binding (a counter) gives results that depend on the calls before it
       if (!isLocal(w) && topNames.get(w) === '<top>') fail(`${how} the module's \`${w}\``, at);
     });
@@ -445,8 +447,30 @@ function isRead(parent: N | null, key: string): boolean {
 
 // ---- reachability
 
+/** a module that is no JavaScript (a stylesheet, an image), by its extension or a query (`?raw`, `?url`) */
+const CODE = /\.(?:[cm]?[jt]sx?|json)$/i;
+const isNotCode = (spec: string, file: string) => /\?/.test(spec) || (/\.\w+$/.test(file) && !CODE.test(file));
+/** a resolved import: its file, with the query of a module that is not JavaScript (`x.css?raw` is not `x.css`) */
+const targetOf = (spec: string, from: string, root: string, cache: FoldCache): string | null => {
+  const t = resolveImport(spec, from, root, cache);
+  return t && isNotCode(spec, t) ? t + (/\?[^#]*/.exec(spec)?.[0] ?? '') : t;
+};
+
+/**
+ * A stylesheet or an asset as the static check sees it. Imported for its effect (`import './x.css'`) it is an
+ * empty module; `?raw` is the file's text, the same in Node and in the build; any other value it gives (an
+ * asset's URL, `?url`, `?inline`, a CSS module's class names) is the build's own, hashed or processed, which the
+ * module runner in Node does not give: a helper that reaches one does not fold.
+ */
+function assetModule(file: string): ModuleInfo {
+  const raw = /\?(?:.*&)?raw(?:&|$)/.test(file);
+  const value: Unit = { name: 'default', edges: [], bad: raw ? null : { reason: 'its value is the build\'s own (an asset\'s URL with a hash, a stylesheet as built), not what Node sees', at: 0 } };
+  return { file, code: '', units: new Map([['<top>', { name: '<top>', edges: [], bad: null }], ['default', value]]), exports: new Map([['default', { local: 'default' }]]), stars: [], any: 'default' };
+}
+
 /** the module of a file, analysed once per content */
 function moduleOf(file: string, cache: FoldCache): ModuleInfo {
+  if (isNotCode(file, file.replace(/\?.*$/, ''))) return assetModule(file);
   const hit = cache.modules.get(file);
   // an in-memory module (a function's own source) has no file
   if (hit && hit.stamp === '' && !hit.info.broken && !existsSync(file)) return hit.info;
@@ -479,12 +503,14 @@ export function foldVerdict(file: string, name: string, root: string, cache: Fol
     const m = moduleOf(f, cache);
     if (m.broken) return { fold: false, reason: `${rel(f)} ${m.broken}`, file: f, line: 1, col: 1, chain };
     if (depth > 50) return null;
+    // imported for its effect: its top level runs, nothing it exports is read
+    if (exp === '<side>') { stack.push({ file: f, unit: '<top>', chain }); return null; }
     if (exp === '*') { for (const u of m.units.keys()) stack.push({ file: f, unit: u, chain }); for (const [k] of m.exports) { const v = exportUnits(f, k, chain, depth + 1); if (v) return v; } return null; }
-    const e = m.exports.get(exp);
+    const e = m.exports.get(exp) ?? (m.any ? { local: m.any } : undefined);
     if (e && 'local' in e) { stack.push({ file: f, unit: e.local, chain }); stack.push({ file: f, unit: '<top>', chain }); return null; }
     const via = e && 'spec' in e ? [e] : m.stars.map((spec) => ({ spec, name: exp }));
     for (const r of via) {
-      const t = resolveImport(r.spec, f, root, cache);
+      const t = targetOf(r.spec, f, root, cache);
       if (!t) { if (e) return { fold: false, reason: `\`${r.spec}\` cannot be resolved`, file: f, line: 1, col: 1, chain }; continue; }
       if (!e && !moduleOf(t, cache).exports.has(exp) && !moduleOf(t, cache).stars.length) continue;
       stack.push({ file: f, unit: '<top>', chain });
@@ -507,7 +533,7 @@ export function foldVerdict(file: string, name: string, root: string, cache: Fol
     if (u.bad) return { fold: false, reason: u.bad.reason, file: s.file, ...lineCol(m.code, u.bad.at), chain };
     for (const e of u.edges) {
       if ('local' in e) { stack.push({ file: s.file, unit: e.local, chain }); continue; }
-      const t = resolveImport(e.spec, s.file, root, cache);
+      const t = targetOf(e.spec, s.file, root, cache);
       if (!t) return { fold: false, reason: `\`${e.spec}\` cannot be resolved with production conditions`, file: s.file, line: 1, col: 1, chain };
       const v = exportUnits(t, e.name, chain);
       if (v) return v;

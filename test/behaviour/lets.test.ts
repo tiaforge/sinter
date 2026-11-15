@@ -5,6 +5,7 @@
 import { describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 import { firstPaint, mockRequests, mockStream, render } from '../../src/testing/index.js';
+import { configure } from '../../src/index.js';
 
 /** a helper that counts its calls and returns new objects each time, as a parser does */
 const counting = () => {
@@ -444,5 +445,95 @@ describe('a let may wait for a lazy helper module', () => {
     expect(out.module).toContain('import { list as toc$list } from "/src/lib/toc.ts";');
     expect(out.module).toContain('const $lh$0 = $laterH(() => import("/src/lib/crunch.ts"), [$lp$0], "__SN_CHUNK__/p/src/lib/crunch.ts__", import.meta.url);');
     expect(out.module).toContain('$.$z(0, "parse")');
+  });
+});
+
+describe('the locale, and results that hold their arguments', () => {
+  // an i18n library's messages as a namespace of the app's helpers, with the locale connected to it (docs/configuration.md)
+  const setup = () => {
+    let loc = 'en';
+    configure({ locale: { get: () => loc, set: (l) => { loc = l; } } });
+    const m = {
+      inbox_title: () => (loc === 'de' ? 'Posteingang' : 'Inbox'),
+      items_count: ({ count }: { count: number }) => (loc === 'de' ? `${count} Einträge` : `${count} items`),
+    };
+    return Object.assign({ m, upper: (s: string) => s.toUpperCase() }, { switchTo: (l: string) => { loc = l; } });
+  };
+  const PAGE = `<!doctype html><html><head></head><body><main data-sn-state="{ n: 3 }" data-sn-let="{ title: m.inbox_title(), count: m.items_count({ count: n }), T: upper(m.inbox_title()) }">
+    <p data-sn-text="title + ' | ' + count + ' | ' + T"></p><button id="de" data-sn-on-click="$locale = 'de'"></button><button id="n" data-sn-on-click="n = n + 1"></button></main></body></html>`;
+
+  test('a locale that changes between the early file and the takeover: the early memo is not reused', async () => {
+    const helpers = setup();
+    try {
+      const text = () => document.querySelector('p')!.textContent;
+      const r = await render(PAGE, { helpers, firstPaint: { afterEarly: () => helpers.switchTo('de') } });
+      await r.flush();
+      document.querySelector<HTMLElement>('#n')!.click();
+      await r.flush();
+      expect(text()).toBe('Posteingang | 4 Einträge | POSTEINGANG');
+    } finally { configure({ locale: null }); }
+  });
+
+  test('a let over a namespace helper that reads the locale itself: computed again in the new language', async () => {
+    const helpers = setup();
+    try {
+      const r = await render(PAGE, { helpers });
+      const text = () => r.root.querySelector('p')!.textContent;
+      expect(text()).toBe('Inbox | 3 items | INBOX');
+      r.root.querySelector<HTMLElement>('#de')!.click();
+      await r.flush();
+      expect(text()).toBe('Posteingang | 3 Einträge | POSTEINGANG');
+      r.root.querySelector<HTMLElement>('#n')!.click();
+      await r.flush();
+      expect(text()).toBe('Posteingang | 4 Einträge | POSTEINGANG');
+    } finally { configure({ locale: null }); }
+  });
+
+  test('the same, early and after the takeover', async () => {
+    const helpers = setup();
+    try {
+      const text = () => document.querySelector('p')!.textContent;
+      let early = '';
+      const r = await render(PAGE, { helpers, firstPaint: { afterEarly: () => { early = text()!; } } });
+      expect(early).toBe('Inbox | 3 items | INBOX');
+      expect(text()).toBe('Inbox | 3 items | INBOX');
+      document.querySelector<HTMLElement>('#de')!.click();
+      await r.flush();
+      expect(text()).toBe('Posteingang | 3 Einträge | POSTEINGANG');
+      document.querySelector<HTMLElement>('#n')!.click();
+      await r.flush();
+      expect(text()).toBe('Posteingang | 4 Einträge | POSTEINGANG');
+    } finally { configure({ locale: null }); }
+  });
+
+  test('the built-in messages in a let are not memoized, as in a build: render() switches them', async () => {
+    const r = await render(`<main data-sn-let="{ K: fmt.plain(1) + m.hi() }"><p data-sn-text="K"></p><button data-sn-on-click="$locale = 'de'"></button></main>`, {
+      helpers: { fmt: { plain: (n: number) => n + 1 } }, messages: { en: { hi: 'Hello' }, de: { hi: 'Hallo' } },
+    });
+    expect(r.root.querySelector('p')!.textContent).toBe('2Hello');
+    r.root.querySelector('button')!.click();
+    await r.settle();
+    expect(r.root.querySelector('p')!.textContent).toBe('2Hallo');
+  });
+
+  test('a result that is its argument, or holds it, is not returned for an equal copy: the new object is', async () => {
+    const same = (o: { n: number }) => o;
+    const wrap = (o: { n: number }) => ({ o });
+    const r = await render(`<main data-sn-state="{ o: { n: 1 }, r: null, w: null }" data-sn-let="{ F: same(o), W: wrap(o) }"><p data-sn-text="F.n"></p><i data-sn-text="W.o.n"></i>
+      <button data-sn-on-click="o = { n: 1 }; r = F === o; w = W.o === o"></button><b data-sn-text="r + ' ' + w"></b></main>`, { helpers: { same, wrap } });
+    r.root.querySelector('button')!.click();
+    await r.flush();
+    expect(r.root.querySelector('b')!.textContent).toBe('true true');
+  });
+
+  test('a result that holds nothing of its arguments is still returned for an equal copy (an object literal each evaluation)', async () => {
+    let calls = 0;
+    const words = (s: string, o: { upper: boolean }) => { calls++; return s.split(' ').map((w) => (o.upper ? w.toUpperCase() : w)); };
+    const r = await render(`<main data-sn-state="{ s: 'a b', upper: false, k: 0 }" data-sn-let="{ ws: words(s, { upper }) }"><p data-sn-text="ws.join() + k"></p>
+      <button data-sn-on-click="k = k + 1; upper = false"></button></main>`, { helpers: { words } });
+    r.root.querySelector('button')!.click();
+    await r.flush();
+    expect(r.root.querySelector('p')!.textContent).toBe('a,b1');
+    expect(calls).toBe(1);
   });
 });
