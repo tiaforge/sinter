@@ -178,6 +178,10 @@ export interface CompileOptions {
    * each writes. The second pass writes them into the markup before the layout and the images (`prefold`)
    */
   constants?: Map<string, ConstantWrite[]>;
+  /** the most rows and component instances a page expands at build time, in all (default `EXPANSION_LIMIT`; tests and measurements) */
+  expansionLimit?: number;
+  /** internal, set by `compileParts` for its second pass: the trees the first found over the limit (`SN536` again, there) */
+  overLimit?: Map<string, number>;
   /**
    * the page must ship no JavaScript (`sinter({ static })`): each thing that runs in the browser is
    * `SN322` where it was written. Needs `prerender`, which leaves out what can never change.
@@ -638,7 +642,7 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   if (!first.decided.size && !unrolled && !constants) return out;
   const frozen = first.foldedState();
   if (constants) for (const s of first.constantSites) frozen.add(s);
-  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(constants ? { constants } : {}), frozen }).run(html);
+  return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
 }
 
 class Compiler {
@@ -687,6 +691,14 @@ class Compiler {
   private readonly rowOf = new WeakMap<P5Element, RowInfo>();
   /** the second pass: unrolled loops whose list has been compiled (once, for its diagnostics) */
   private readonly listCompiled = new WeakSet<P5Element>();
+  /** each recursion point and `<sn-component use>`: the components it is in and its nearest root, for expanding it as a use (`inlineInstance`) */
+  private readonly pointCtx = new WeakMap<P5Element, { ch: string[]; en: Use | null }>();
+  /** the second pass: the top nodes of an expanded instance (a recursion point, a choice's case), with the instance path of what is in it */
+  private readonly instAt = new WeakMap<P5Node, string>();
+  /** each component file's markup, parsed once (`expandUse` copies it per use) */
+  private readonly parsedFiles = new Map<string, DefaultTreeAdapterMap['documentFragment']>();
+  /** the scope a use's markup starts, per row or instance it is copied into (`markupOf`) */
+  private readonly markups = new WeakMap<Use, Map<string, Scope>>();
   /** a layout's `<body>`, which takes the handlers of the page's tag */
   private readonly layoutBody = new WeakMap<P5Element, Use>();
   /** text forwarded into a component's named slot by a slot with `slot="…"` (elements carry the attribute) */
@@ -954,6 +966,8 @@ class Compiler {
   /** the first pass: what the second one writes before the layout (`CompileOptions.constants`), and the state fields they read */
   readonly constants = new Map<string, ConstantWrite[] | null>();
   readonly constantSites = new Set<string>();
+  /** the first pass: the trees over the expansion limit, by key, with the limit, for the second pass to report too */
+  readonly overLimit = new Map<string, number>();
   /**
    * The first pass: a copy of the markup the layout reads (before the layout), the layout's answers for its images
    * and lists then, and the styled roots in the copy, for the dry run of constant classes and styles (`dryRun`)
@@ -1634,7 +1648,8 @@ class Compiler {
       const ch = this.slotOf.get(child)?.chain ?? chain;
       const su = this.slotOf.get(child);
       const en = su ? this.enclosing.get(su.host) ?? null : encl;
-      if (child.tagName === 'sn-component') { this.choice(child, en); continue; }
+      // (where a recursion point or a choice is: a second pass expands one the first found constant, as a use here)
+      if (child.tagName === 'sn-component') { this.pointCtx.set(child, { ch, en }); this.choice(child, en); continue; }
       const def = this.componentFile(child.tagName);
       if (!def && this.layoutFile(child.tagName)) {
         this.report(child, null, 'SN319', `\`<${child.tagName}>\` is a layout: it is the only tag of a page, at its top level`, 0, 'a layout cannot be inside a component, another layout or other markup');
@@ -1671,6 +1686,7 @@ class Compiler {
               this.report(child, null, 'SN314', `\`<${name}>\` used inside itself takes no slot content`, 0);
             }
             this.points.set(child, name);
+            this.pointCtx.set(child, { ch, en });
             continue;
           }
           this.report(child, null, 'SN306', `${loop.map((n) => `\`<${n}>\``).join(' → ')} uses itself with no \`data-sn-for\` or \`data-sn-if\` template between, so it would never end`, 0,
@@ -1771,6 +1787,7 @@ class Compiler {
       if (this.scopeStart.has(el)) this.scopeStart.set(x, this.scopeStart.get(el)!);
       this.origins.set(x, this.origins.get(el)!);
       this.points.set(x, c.name);
+      if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
       this.choices.set(x, { name: c.name, key: c.key, keySrc, names, first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}) });
       clones.push(x);
     }
@@ -1789,7 +1806,8 @@ class Compiler {
   expandUse(host: P5Element, def: ComponentFile, chain: string[]): P5Element | null {
     const name = host.tagName;
     const hostOrigin = this.origins.get(host) ?? { file: this.opts.file, src: '', chain: [] };
-    const frag = parse5.parseFragment(def.text, { sourceCodeLocationInfo: true });
+    // parsed once per file: each use takes a copy (a constant tree expands a component once per node)
+    const frag = freshCopy(this.parsedFiles.get(def.text) ?? this.parsedFiles.set(def.text, parse5.parseFragment(def.text, { sourceCodeLocationInfo: true })).get(def.text)!, null) as DefaultTreeAdapterMap['documentFragment'];
     const loc = host.sourceCodeLocation ? this.lineCol(hostOrigin.src, host.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
     this.tag(frag, { file: def.file, src: def.text, chain: [`${basename(hostOrigin.file)}:${loc.line}`, ...hostOrigin.chain], use: `${this.siteKey(host) ?? ''}<${hostOrigin.use ?? ''}` });
     this.files.add(def.file);
@@ -2721,9 +2739,14 @@ class Compiler {
   }
 
   /** What a component's markup sees when its root is not one plain element: computed once, at the first of its top nodes. */
-  markupOf(u: Use, at: Scope): Scope {
-    if (u.markup) return u.markup;
-    return u.markup = this.componentScope(u, u.hostSlot?.caller ?? at);
+  markupOf(u: Use, at: Scope, inst = ''): Scope {
+    // (per instance: the copies of an unrolled row, or of an expanded instance, share the use)
+    if (!inst) return u.markup ??= this.componentScope(u, u.hostSlot?.caller ?? at);
+    let byInst = this.markups.get(u);
+    if (!byInst) this.markups.set(u, byInst = new Map());
+    let s = byInst.get(inst);
+    if (!s) byInst.set(inst, s = this.componentScope(u, u.hostSlot?.caller ?? at));
+    return s;
   }
 
   /** `data-sn-state` on `el`, compiled onto `node`: the scope its subtree sees. */
@@ -3485,7 +3508,7 @@ class Compiler {
     if (row && ownLoop) ctx = rowLets(ctx);
     // a component whose root is not one plain element: its markup starts here (a chain's template, a
     // fill), or an outer component's whose root this is: their scopes, outer first, each in its caller's
-    for (const u of this.scopeStart.get(el) ?? []) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope) };
+    for (const u of this.scopeStart.get(el) ?? []) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instAt.get(el) ?? this.rowOf.get(el)?.inst ?? '') };
     // slot content sees the scope of the caller that wrote it
     const slot = this.slotOf.get(el);
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
@@ -5557,6 +5580,8 @@ class Compiler {
     const rowCodes = this.collecting() ? [
       ...this.templates.flatMap((tp) => tp.nodes.flatMap((n) => n.b.filter((b) => b.f !== undefined && (ROW.has(b.k) || b.k === 'if' || b.k === 'for')).map((b) => this.fns[b.f!]!))),
       ...[...this.pointOf.values()].flatMap((p) => (p.pick ? [p.pick.code] : [])),
+      ...[...this.pointOf.values()].flatMap((p) => p.group?.cases.map((c) => `($) => (${c.props})`) ?? []),
+      ...this.runtimePlacements.flatMap((P) => (P.node.b[0]?.f !== undefined ? [this.fns[P.node.b[0].f]!] : [])),
     ] : [];
     const texts = this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d));
     const used = [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes, ...texts.map((t) => this.fns[t.b.f!]!)])];
@@ -5617,7 +5642,7 @@ class Compiler {
       usedMessage = false;
       const v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
       if (c.for) {
-        work.unroll(this.instKey(c.el)!, c.b, (usedMessage && !this.opts.locale) ? FAIL : v, scope);
+        work.unroll(this.instKey(c.el)!, c.b, (usedMessage && !this.opts.locale) ? FAIL : v, scope, c.el);
         continue;
       }
       if (c.if) {
@@ -5817,6 +5842,13 @@ class Compiler {
   /** text nodes `prerender()` wrote as plain text: `dropConstants` removes their nodes */
   private readonly textFolded = new Set<NodeDef>();
 
+  /** `SN536` at a constant tree left to the browser, as it would take the page past the expansion limit. */
+  expansionWarning(el: P5Element, limit: number, list: boolean) {
+    const what = list ? 'this list\'s rows' : 'this component\'s tree';
+    this.report(el, null, 'SN536', `${what} would take the page past ${limit.toLocaleString('en')} rows and components expanded at build time, so it is rendered in the browser`, 0,
+      'a page that long builds and lays out slowly: split the content over pages, or keep a long list of it a list the browser renders');
+  }
+
   /** The first pass of a prerendered page, which may compile it again: it records what folds (`collectConstants`). */
   collecting(): boolean {
     return !!this.opts.prerender && !this.opts.decided && !this.opts.unrolled && !this.opts.constants;
@@ -5832,13 +5864,27 @@ class Compiler {
    * renders comes from its shared definition at run time). What a row decides is kept only when the whole loop
    * is unrolled. Keys are instance paths: `<loop>#<k>/` per level before the template's own key (`instKey`).
    * Two instances with one key (no way to tell them apart) leave it. At most `MAX_UNROLL` items per list and
-   * `MAX_EXPANSION` rows per page.
+   * `EXPANSION_LIMIT` rows and component instances per page (`SN536` past it).
    */
   worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, usedMessage: () => boolean, reset: () => void, ROW: Set<string>) {
-    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; rows: number };
-    const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found } | null>();
+    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; rows: number; over?: true };
+    /** `pick`: a choice's case expanded (decided true), else a loop unrolled */
+    const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element } | null>();
+    const placementOf = new Map(this.runtimePlacements.map((P) => [P.node, P] as const));
+    const written = this.writtenState();
+    /**
+     * Item 6: a handler a static tree keeps, which the page module adopts: it writes nothing and reads only
+     * constants and its own `$el` (no data, URL, clock or state something writes)
+     */
+    const handlerOnly = (b: Binding) => {
+      if (b.k !== 'on' || b.w?.length || b.f === undefined) return false;
+      const code = this.fns[b.f]!;
+      if (/\$\.\$(r|meta|url|now|locale|slot|error)\b|\$\.\$p\d/.test(code)) return false;
+      return [...code.matchAll(/\$\.\$s(\d+)(?:\.([A-Za-z_$][\w$]*))?/g)].every((m) => m[2] !== undefined && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`));
+    };
     const chosen = new Set<string>();
-    let left = MAX_EXPANSION;
+    const limit = this.opts.expansionLimit ?? EXPANSION_LIMIT;
+    let left = limit;
     const run = (sc: object, code: string): unknown => {
       const f = fnOf.get(code);
       if (!f) return FAIL;
@@ -5847,7 +5893,8 @@ class Compiler {
       try { const v = f(sc); return usedMessage() && !this.opts.locale ? FAIL : v; } catch { return FAIL; } finally { this.folding?.end(); }
     };
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.length <= MAX_UNROLL && v.every((x) => plainData(x)) ? v : null);
-    const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.paints.find((x) => x.node === n)?.el ?? this.textMarks.get(n);
+    // (a placement's element is its `<slot>`; an anchor's, its template)
+    const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.paints.find((x) => x.node === n)?.el ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
     const rowScope = (sc: object, t: TemplateDef, item: unknown, k: number) => new Proxy({}, {
       get: (_, p) => (p === t.item ? item : p === t.index || p === t.ii ? k : (sc as Record<string | symbol, unknown>)[p]),
     });
@@ -5864,8 +5911,16 @@ class Compiler {
       const u = run(sc, point.pick.code);
       return u === FAIL ? null : { keys, picked: typeof u === 'string' && keys.has(u) ? u : null };
     };
+    /** a choice's case, at `key`: its definition over its props (one row), when that is static markup */
+    const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found): boolean => {
+      const c = point.group!.cases.find((x) => x.name === name), t = c && this.templates[c.tid];
+      const props = c ? run(sc, `($) => (${c.props})`) : FAIL;
+      if (!t?.item || props === FAIL || !plainData(props)) return false;
+      out.decided.push([prefix + key, true, point.pick!.deps]);
+      return rowsOf(t, [props], prefix + key, sc, out);
+    };
     const rowsOf = (t: TemplateDef, items: unknown[], key: string, sc: object, out: Found): boolean => {
-      if ((out.rows += items.length) > left) return false;
+      if ((out.rows += items.length) > left) { out.over = true; return false; }
       for (let k = 0; k < items.length; k++) {
         const item = deepFreeze({ v: structuredClone(items[k]) }).v;
         if (!nodesOf(t.nodes, rowScope(sc, t, item, k), `${key}#${k}/`, out)) return false;
@@ -5878,14 +5933,33 @@ class Compiler {
         if (n.state !== undefined || n.sid !== undefined) return false;
         const el = elOf(n);
         if (!el) return false;
-        if (this.pointOf.has(n)) {
-          // static only when it renders none of its candidates: one it renders comes from its definition at run time
+        const point = this.pointOf.get(n);
+        if (point?.group) {
+          // the candidates it does not render go; the case it renders is an instance of its definition, expanded
+          // like a row of one item, its props (item 5)
           const ch = caseOf(n, el, sc);
-          if (!ch || ch.picked !== null) return false;
-          for (const ck of ch.keys.values()) out.decided.push([prefix + ck, false, this.pointOf.get(n)!.pick!.deps]);
+          if (!ch) return false;
+          for (const [name, ck] of ch.keys) if (name !== ch.picked) out.decided.push([prefix + ck, false, point.pick!.deps]);
+          if (ch.picked === null) continue;
+          if (!expandCase(point, ch.picked, ch.keys.get(ch.picked)!, sc, prefix, out)) return false;
+          continue;
+        }
+        // a tree placement in a definition: the case its fill map chooses (a fill, or its default), as the instance's markup
+        const P = placementOf.get(n);
+        if (P) {
+          const v = run(sc, this.fns[P.node.b[0]!.f!]!);
+          const pick = Array.isArray(v) && typeof v[0] === 'number' ? v as [number, unknown] : null;
+          const tc = pick ? this.templates[P.cases[pick[0]]!] : undefined;
+          if (!pick || !tc?.item || !plainData(pick[1])) return false;
+          // a fill (not the default): expanded only when it is flat, values over `$slot` and constants (a fill that
+          // places the default's children with a `<slot>`, or holds loops, choices or a root of its own, stays
+          // the runtime's: the second pass does not place those the same way yet)
+          if (pick[0] > 0 && !tc.nodes.every((x) => x.state === undefined && x.sid === undefined && !this.pointOf.has(x) && !placementOf.has(x) && x.b.every((b) => ROW.has(b.k) || handlerOnly(b)))) return false;
+          if (!nodesOf(tc.nodes, rowScope(sc, tc, deepFreeze({ v: structuredClone(pick[1]) }).v, 0), prefix, out)) return false;
           continue;
         }
         for (const b of n.b) {
+          if (handlerOnly(b)) continue;
           if (ROW.has(b.k)) {
             if (b.e || b.w?.length || !fixed(b.d)) return false;
             if (paintable(el, b) && known(strs(b.d))) {
@@ -5916,12 +5990,12 @@ class Compiler {
       return true;
     };
     /** a loop outside any row: unrolled when every row is static markup (above) */
-    const unroll = (key: string, b: Binding, v: unknown, sc: object) => {
+    const unroll = (key: string, b: Binding, v: unknown, sc: object, el: P5Element) => {
       const items = v === FAIL ? null : listOf(v), t = this.templates[b.x!];
       const found: Found = { unrolls: [], decided: [], paints: [], rows: 0 };
       const ok = !!items && !!t?.item && rowsOf(t, items, key, sc, found);
-      // the same template in two instances that nothing tells apart: left alone
-      pending.set(key, pending.has(key) || !ok ? null : { items: items!, d: b.d, found });
+      // the same template in two instances that nothing tells apart: left alone; one over the limit: reported
+      pending.set(key, pending.has(key) || (!ok && !found.over) ? null : { items: items!, d: b.d, found, el });
     };
     /** outside rows: each candidate of a choice that this instance does not render goes (one another instance with this key renders stays) */
     const choose = (n: NodeDef, el: P5Element, sc: object) => {
@@ -5929,7 +6003,18 @@ class Compiler {
       const keys = point.group?.cases.map((c) => this.choiceKey(el, c.name)) ?? [];
       for (const [i, ck] of keys.entries()) {
         if (!ck) continue;
-        if (!ch || ch.picked === point.group!.cases[i]!.name || chosen.has(ck)) { chosen.add(ck); this.decided.delete(ck); continue; }
+        if (!ch || ch.picked === point.group!.cases[i]!.name || chosen.has(ck)) {
+          chosen.add(ck);
+          this.decided.delete(ck);
+          // the case it renders: expanded when its definition over its props is static markup (one instance per key)
+          if (ch?.picked === point.group!.cases[i]!.name) {
+            const found: Found = { unrolls: [], decided: [], paints: [], rows: 0 };
+            const ok = expandCase(point, ch.picked!, ck, sc, '', found);
+            found.decided = found.decided.filter(([k]) => k !== ck);
+            pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el });
+          }
+          continue;
+        }
         this.decided.set(ck, false);
         this.foldReads.set(ck, this.stateSites(point.pick!.deps));
       }
@@ -5943,7 +6028,7 @@ class Compiler {
         for (const b of n.b) {
           const key = this.instKey(el);
           if (!key || b.f === undefined || b.e || !fixed(b.d) || !known(strs(b.d))) continue;
-          if (b.k === 'for' && !pending.has(key)) unroll(key, b, run(sc, this.fns[b.f]!), sc);
+          if (b.k === 'for' && !pending.has(key)) unroll(key, b, run(sc, this.fns[b.f]!), sc, el);
           if (b.k !== 'if' || !this.decided.has(key)) continue;
           const other = b.y !== undefined ? nodes[b.y]?.b.find((x) => x.k === 'else')?.x : undefined;
           const kept = this.decided.get(key) ? this.templates[b.x!] : other !== undefined ? this.templates[other] : undefined;
@@ -5969,9 +6054,11 @@ class Compiler {
           }
         }
         for (const [key, p] of pending) {
-          if (!p || p.found.rows > left) continue;
+          if (!p) continue;
+          // over the page's limit (this tree alone, or with those before it): left to the browser, with a warning
+          if (p.found.over || p.found.rows > left) { this.overLimit.set(key, limit); this.expansionWarning(p.el, limit, !p.pick); continue; }
           left -= p.found.rows;
-          this.unrolls.set(key, p.items);
+          if (p.pick) this.decided.set(key, true); else this.unrolls.set(key, p.items);
           this.foldReads.set(key, this.stateSites(p.d));
           for (const [k, items, d] of p.found.unrolls) { this.unrolls.set(k, items); this.foldReads.set(k, this.stateSites(d)); }
           for (const [k, v, d] of p.found.decided) { this.decided.set(k, v); this.foldReads.set(k, this.stateSites(d)); }
@@ -6164,7 +6251,7 @@ class Compiler {
     const visit = (parent: P5Parent, prefix: string) => {
       for (const c of parent.childNodes) {
         if (!isElement(c)) continue;
-        const row = this.rowOf.get(c)?.inst ?? prefix;
+        const row = this.instAt.get(c) ?? this.rowOf.get(c)?.inst ?? prefix;
         look(c, c, row);
         const use = this.useOf.get(c);
         if (use && !use.head && !use.layout) look(use.host, c, row);
@@ -6215,7 +6302,7 @@ class Compiler {
       const c = parent.childNodes[i]!;
       if (!isElement(c)) continue;
       const row = this.rowOf.get(c);
-      const pre = row ? row.inst : prefix;
+      const pre = this.instAt.get(c) ?? row?.inst ?? prefix;
       // a node that takes `c`'s place at the top of a row is the top of that row too
       const place = (nodes: P5Node[], count: number) => {
         for (const n of nodes) {
@@ -6240,7 +6327,30 @@ class Compiler {
       }
       const choice = this.choices.get(c);
       const ck = choice ? this.choiceKey(c, choice.name) : null;
+      // a tree over the expansion limit, which the first pass reported: reported here too, since this pass's warnings are the build's
+      const over = this.opts.overLimit?.get(pre + (ck ?? (c.tagName === 'template' && attr(c, 'data-sn-for') !== undefined ? this.instKey(c) ?? '' : '')));
+      if (over !== undefined) this.expansionWarning(c, over, !ck);
       if (ck && decided?.get(pre + ck) === false) { place([], 1); continue; }
+      // a choice's case, or a recursion point, that the first pass expanded: the component's markup here, as a use,
+      // whose own templates are decided and unrolled as the loop goes on over them (item 5)
+      const point = this.points.get(c);
+      const pk = point && !choice ? this.instKey(c) : null;
+      if ((ck && decided?.get(pre + ck) === true) || (pk && unrolled?.has(pre + pk))) {
+        const before = parent.childNodes.length, start = this.scopeStart.get(c);
+        if (this.inlineInstance(c, point!)) {
+          const inst = `${pre}${ck ?? pk}#0/`, nodes = parent.childNodes.slice(i, i + parent.childNodes.length - before + 1);
+          this.inheritSlot(c, nodes);
+          for (const x of nodes) {
+            this.instAt.set(x, inst);
+            if (row && isElement(x) && !this.rowOf.has(x)) this.rowOf.set(x, row);
+            // the outer components whose markup started at the candidate (a choice as their root) start here
+            if (start && isElement(x)) this.scopeStart.set(x, [...start, ...(this.scopeStart.get(x) ?? [])]);
+          }
+          changed = true;
+          i--;
+          continue;
+        }
+      }
       const value = !inTemplate && c.tagName === 'template' ? attr(c, 'data-sn-for') : undefined;
       const tkey = value !== undefined ? this.instKey(c) : null;
       const items = tkey ? unrolled?.get(pre + tkey) : undefined;
@@ -6266,6 +6376,37 @@ class Compiler {
   }
 
   /**
+   * The second pass: a recursion point or a choice's case that the first pass found constant, expanded as a use of
+   * its component where it is (instead of an instance of its shared definition): its markup's uses keyed as the
+   * definition's (`Origin.use`), so the first pass's decisions inside it apply.
+   */
+  inlineInstance(host: P5Element, name: string): boolean {
+    const at = this.pointCtx.get(host), def = this.componentFile(name);
+    if (!at || !def || def.bad || def.head) return false;
+    if (this.choices.has(host)) {
+      host.tagName = host.nodeName = name;
+      host.attrs = host.attrs.filter((a) => a.name !== 'use');
+      // the plain attributes of the tags whose root the choice is: onto the tag, which moves them to the root
+      for (const u of this.passOn.get(host) ?? []) for (const a of u.host.attrs) {
+        if (a.name.startsWith('data-sn-') || a.name === 'slot') continue;
+        if (a.name === 'class') setAttr(host, 'class', `${attr(host, 'class') ?? ''} ${a.value}`.trim());
+        else if (attr(host, a.name) === undefined) host.attrs.push({ ...a });
+      }
+    }
+    this.points.delete(host);
+    this.choices.delete(host);
+    this.enclosing.set(host, at.en);
+    const root = this.expandUse(host, def, at.ch);
+    if (!root) return false;
+    const o = this.origins.get(root);
+    if (o) o.use = '<';
+    const use = this.hostUse.get(host);
+    if (use?.shape) this.expandComponents({ childNodes: root.parentNode!.childNodes.filter((c) => this.scopeStart.get(c)?.includes(use)) } as unknown as P5Parent, [...at.ch, name], false, use);
+    else this.expandComponents(root, [...at.ch, name], false, use ?? null);
+    return true;
+  }
+
+  /**
    * Nodes that take the place of `from` (a decided `data-sn-if`'s branch, an unrolled loop's rows): when
    * `from` was slot content, so are they, in the scope of the caller that wrote them and outside the
    * component's scoped styles.
@@ -6285,7 +6426,7 @@ class Compiler {
   cloneTree(node: P5Node, parent: P5Parent, chains = new Map<FillChain, FillChain>()): P5Node {
     const copy = { ...node, parentNode: parent } as P5Node;
     // (a candidate of `<sn-component use>` in an unrolled row: still one)
-    for (const map of [this.origins, this.slotOf, this.useOf, this.forwarded, this.points, this.choices, this.scopeStart, this.landing, this.passOn] as Array<WeakMap<object, unknown>>) if (map.has(node)) map.set(copy, map.get(node));
+    for (const map of [this.origins, this.slotOf, this.useOf, this.forwarded, this.points, this.choices, this.scopeStart, this.landing, this.passOn, this.pointCtx] as Array<WeakMap<object, unknown>>) if (map.has(node)) map.set(copy, map.get(node));
     if (this.defRoots.has(node as P5Element)) this.defRoots.set(copy as P5Element, { rt: this.defRoots.get(node as P5Element)!.rt });
     if (this.repeatedFills.has(node)) this.repeatedFills.add(copy);
     const empty = this.emptyDefaults.get(node);
@@ -7858,6 +7999,15 @@ function plainData(v: unknown, depth = 0): boolean {
   return (proto === Object.prototype || proto === null) && Object.values(v as object).every((x) => plainData(x, depth + 1));
 }
 
+/** A copy of parsed markup as the parser made it (source locations shared), with nothing the compiler attached. */
+function freshCopy(n: P5Node | DefaultTreeAdapterMap['documentFragment'], parent: P5Parent | null): P5Node {
+  const copy = { ...n, parentNode: parent } as P5Node;
+  if ('attrs' in n) (copy as P5Element).attrs = n.attrs.map((a) => ({ ...a }));
+  if ('childNodes' in n) (copy as P5Element).childNodes = n.childNodes.map((c) => freshCopy(c, copy as P5Parent)) as never[];
+  if ('content' in n && n.content) (copy as P5Template).content = freshCopy(n.content as never, null) as never;
+  return copy;
+}
+
 /** Plain data (`plainData`) as a JavaScript expression that makes an equal value: `undefined`, `NaN`, `-0` and a `__proto__` key included; `<` escaped, for an inline script. */
 function jsLiteral(v: unknown): string {
   if (v === undefined) return 'undefined';
@@ -7878,10 +8028,12 @@ const FAIL: unique symbol = Symbol('first paint: runtime-only');
 /** the most rows a constant loop is unrolled into at build time; a longer list stays a template */
 const MAX_UNROLL = 1000;
 /**
- * the most rows a page unrolls in all, at every depth (a provisional bound: the proposal's expansion limit, with its
- * warning, comes with constant trees); a loop that would cross it stays a template
+ * the most rows and component instances a page expands at build time, at every depth: compiling the expanded page
+ * takes about 0.2 ms each (measured on a generic tree of paragraphs, links and images, in the build and the LSP alike,
+ * which compile it on every edit), so the limit keeps a page near 1 s. A tree that would cross it stays a template,
+ * with `SN536` at its use
  */
-const MAX_EXPANSION = 10_000;
+const EXPANSION_LIMIT = 5_000;
 
 const isPrimitive = (v: unknown) => v == null || ['string', 'number', 'boolean'].includes(typeof v);
 

@@ -100,6 +100,7 @@ export const CODES = {
   SN533: 'helpers-unloaded',
   SN534: 'helper-not-folded',
   SN535: 'close-slot-name',
+  SN536: 'expansion-limit',
 } as const;
 
 export type Code = keyof typeof CODES;
@@ -125,9 +126,9 @@ export const ENVIRONMENT_CODES: ReadonlySet<string> = new Set(['SN525', 'SN526',
 
 /**
  * Warnings that are a measure, not a mistake: `--strict` leaves them warnings. `SN507` has its own
- * switch, `sinter({ complexity: { level: 'error' } })`.
+ * switch, `sinter({ complexity: { level: 'error' } })`; `SN536` is the build-time expansion limit.
  */
-export const HEURISTIC_CODES: ReadonlySet<string> = new Set(['SN507']);
+export const HEURISTIC_CODES: ReadonlySet<string> = new Set(['SN507', 'SN536']);
 
 /** Whether `--strict` turns a warning with this code into an error (unless allowed). */
 export function strictPromotes(code: string): boolean {

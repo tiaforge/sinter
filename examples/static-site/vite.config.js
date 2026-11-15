@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import sinter from '@tiaforge-ui/sinter/vite';
 
-const pages = ['index', 'about', 'docs/getting-started', 'status'];
+const pages = ['index', 'about', 'docs/getting-started', 'docs/guide', 'status'];
 
 export default defineConfig({
   appType: 'mpa',

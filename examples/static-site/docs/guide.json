@@ -1,0 +1,23 @@
+{
+  "type": "doc",
+  "children": [
+    { "type": "heading", "children": [{ "type": "text", "value": "How the notes are built" }] },
+    { "type": "para", "children": [
+      { "type": "text", "value": "Every note is a plain JSON tree: blocks and inlines by " },
+      { "type": "code", "value": "type" },
+      { "type": "text", "value": ". The build turns it into HTML, so this page ships no JavaScript. See " },
+      { "type": "link", "url": "/docs/getting-started.html", "children": [{ "type": "text", "value": "getting started" }] },
+      { "type": "text", "value": "." }
+    ] },
+    { "type": "image", "url": "img/layers.jpg", "alt": "The layers of a page: data, markup, styles" },
+    { "type": "heading", "children": [{ "type": "text", "value": "What a tree holds" }] },
+    { "type": "list", "children": [
+      { "type": "item", "children": [{ "type": "text", "value": "Headings, paragraphs and lists, at any depth" }] },
+      { "type": "item", "children": [
+        { "type": "text", "value": "Links, which the site renders with its own " },
+        { "type": "link", "url": "/about.html", "children": [{ "type": "text", "value": "link style" }] }
+      ] },
+      { "type": "item", "children": [{ "type": "text", "value": "Images, optimized like any other on the site" }] }
+    ] }
+  ]
+}

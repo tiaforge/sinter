@@ -871,3 +871,13 @@ Warning, for example:
 A `<slot>` that passes data, in a component that does not declare its name, is a tree placement: the nearest enclosing component that declares the name fills it (docs/components.md, Tree slots). Its component declares a slot whose name is close, so it is likely a misspelled placement of the component's own slot.
 
 **Fix:** Fix the name to the declared one, or rename the declared slot if the tree placement is meant.
+
+## SN536 expansion-limit
+
+Warning, for example:
+
+> this list's rows would take the page past 10,000 rows and components expanded at build time, so it is rendered in the browser
+
+A constant tree (a loop over constants, a component instantiated over constant props, at any depth) is written into the page as plain HTML at build time. The rows and components a page expands in all are limited, as the layout and image steps then run over the whole page and slow the build. The tree that would cross it stays a template the browser renders, as without build-time expansion; it works the same, with JavaScript.
+
+**Fix:** Split the content over several pages, or keep the long part a list the browser renders. The warning stays a warning with `--strict`.

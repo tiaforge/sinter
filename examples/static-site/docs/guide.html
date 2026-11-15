@@ -1,0 +1,7 @@
+<site-layout data-sn-prop="{ title: 'How the notes are built', description: 'A page from a JSON content tree, with no JavaScript.', nav: 'docs' }">
+  <!-- the content is a file: a constant, so the whole tree is written into the page at build time -->
+  <sn-resource name="guide" src="file:./guide.json"></sn-resource>
+  <content-tree data-sn-prop="{ tree: guide }">
+    <a slot="link" class="content-link" data-sn-attr="{ href: $slot.url }" data-sn-text="$slot.text + ' ↗'"></a>
+  </content-tree>
+</site-layout>
