@@ -32,9 +32,9 @@ import { faceName, faceOf, fontDownloader, fontFileDownloader, inlineFonts, prel
 import { componentBase } from './components-build.js';
 import { COMPONENT_NAME, LIBRARY_LAYER } from './compiler/components.js';
 import { componentsOf, libraryOf } from './libraries.js';
-import { dataKey, LAYERS_SHEET } from './compiler/compile.js';
+import { LAYERS_SHEET, type FoldArg } from './compiler/compile.js';
 import { docsUrl } from './compiler/diagnostics.js';
-import { crossCheck, crossMessage, type FoldCall } from './fold-cross.js';
+import { crossCheck, crossMessage, hashOf, type FoldCall } from './fold-cross.js';
 import { apiOrigins } from './compiler/apis.js';
 import { loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from './helpers-node.js';
 import { FoldCache } from './fold-check.js';
@@ -621,11 +621,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     next();
   };
 
+  /** whether a hook runs for the client environment (or a Vite without environments) */
+  const isClient = (ctx: unknown) => { const env = (ctx as { environment?: { config?: { consumer?: string } } }).environment; return !env?.config?.consumer || env.config.consumer === 'client'; };
   /** the build's helper calls that folded, by page and call, for the cross-check at its end */
-  const foldCalls = new Map<string, Map<string, FoldCall>>();
-  const logFold = (page: string, key: string, args: unknown[], json: string) => {
-    const calls = foldCalls.get(page) ?? foldCalls.set(page, new Map()).get(page)!;
-    calls.set(key + '\0' + dataKey(args), { key, args, json });
+  const foldCalls = new Map<string, FoldCall[]>();
+  const logFold = (page: string, key: string, args: FoldArg[], result: string, id: number) => {
+    // ids count from 0 when the page's calls start afresh: what an earlier run logged is replaced
+    const calls = id === 0 || !foldCalls.has(page) ? foldCalls.set(page, []).get(page)! : foldCalls.get(page)!;
+    calls.push({ key, args, hash: hashOf(result), id });
   };
 
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
@@ -647,7 +650,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
       ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold } : {}),
       // a build: each distinct call that folds is run again at its end in a fresh copy of the module (fold-cross.ts)
-      ...(helpersNow?.module && !dev ? { foldLog: (key: string, args: unknown[], json: string) => logFold(relOf(src), key, args, json) } : {}),
+      ...(helpersNow?.module && !dev ? { foldLog: (key: string, args: FoldArg[], result: string, id: number) => logFold(relOf(src), key, args, result, id) } : {}),
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(styles?.length ? { styles } : {}),
       ...(lineHeights?.size ? { normalLineHeight: (f: string) => lineHeights.get(f) ?? null } : {}),
@@ -813,7 +816,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     /** build: the pages that have something to run early (bundled into one file each in generateBundle) */
     async buildStart(input) {
       unhashedPages = 0;
-      foldCalls.clear();
+      // the pages are the client environment's (an SSR environment building beside it compiles none): its calls only
+      if (isClient(this)) foldCalls.clear();
       strictFailures.clear();
       speculationHashes.clear();
       sharedHead = null;
@@ -825,6 +829,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       described.clear();
       pagesCache = null;
       if (dev) return;
+      // a fresh instance each build: under `--watch`, edits to the helpers count, and nothing a helper kept from the
+      // last build (or the memo, by the instance) carries over into this one
+      nodeHelpers = null;
       await helpersReady();
       const p = project(root, options);
       messages = p.messages;
@@ -1051,8 +1058,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const missing = !error && !dev && Array.isArray(options.static) ? staticPages(root, options.static).unmatched([...seen].map((f) => virtual.get(f)?.source ?? f)) : [];
       if (missing.length) this.error(`sinter({ static }): no page matches ${missing.map((m) => `\`${m}\``).join(', ')} (paths relative to the root, such as \`about.html\` or \`docs/**\`)`);
       // the helper calls that folded, again in a fresh copy of the helpers module, the pages in reverse order
-      if (!error && !dev && foldCalls.size) {
-        const pages = [...foldCalls].map(([page, calls]) => [page, [...calls.values()]] as const);
+      if (!error && !dev && foldCalls.size && isClient(this)) {
+        const pages = [...foldCalls];
         foldCalls.clear();
         const p = project(root, options);
         const fresh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers, fresh: true, ...(resolved ? { configFile: resolved.configFile ?? false, mode: resolved.mode, ...(resolved.configFile ? {} : { alias: resolved.resolve.alias }) } : {}), cache: foldCache });

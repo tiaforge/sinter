@@ -64,15 +64,15 @@ describe('a helper call over constants runs at build time', () => {
     expect(calls).toBe(4);
   });
 
-  test('a build (`foldLog`): each distinct call runs once in the page and is logged for the cross-check at the end of the build', () => {
+  test('a build (`foldLog`): each distinct call runs twice in the page, as everywhere, and is logged once for the cross-check at the end of the build; a call over its result by reference', () => {
     let calls = 0;
     const words = (s: string) => { calls++; return s.split(' '); };
-    const log: Array<[string, unknown[], string]> = [];
-    const out = build(`<main data-sn-state="{ s: 'a b' }"><b data-sn-text="words(s).length"></b><i data-sn-text="words(s)[0]"></i></main>`,
-      { words: [words, yes] }, { dev: false, foldLog: (k, a, j) => log.push([k, a, j]) });
-    expect(out.html).toContain('<b>2</b><i>a</i>');
-    expect(calls).toBe(1);
-    expect(log).toEqual([['words', ['a b'], '["a","b"]']]);
+    const log: unknown[] = [];
+    const out = build(`<main data-sn-state="{ s: 'a b' }" data-sn-let="{ ws: words(s) }"><b data-sn-text="words(s).length"></b><i data-sn-text="words(s)[0]"></i><u data-sn-text="size(ws)"></u></main>`,
+      { words: [words, yes], size: [(x: string[]) => x.length, yes] }, { dev: false, foldLog: (k, a, r, id) => log.push([k, a, r, id]) });
+    expect(out.html).toContain('<b>2</b><i>a</i><u>2</u>');
+    expect(calls).toBe(2);
+    expect(log).toEqual([['words', [{ v: 'a b' }], 'j["a","b"]', 0], ['size', [{ r: 0 }], 'j2', 1]]);
   });
 
   test('not in a handler: a click runs it in the browser', async () => {
