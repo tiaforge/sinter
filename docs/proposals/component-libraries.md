@@ -158,8 +158,10 @@ Step 8b, as built:
   of the global it reaches.
 - `file:` values and their `$meta` are constants; a file resource nothing reads at run time is
   removed with its head script, so a page whose files and helpers all fold can be static.
-- A folded value that the browser still reads is computed again there, as before, rather than
-  written once as embedded data; step 9 handles that for trees that are not unrolled.
+- A folded value that the browser still reads (a state field a helper computed at build time,
+  read by a binding that does not fold) is written once into the head as JSON and read from there
+  (`$.$d`); the helper is in neither the page module nor the early file. `SN322` also names the
+  lazy-package reason, and `SN533` does not fail strict builds.
 - RealWorld builds to identical HTML before and after: its helpers that read the session
   (`signedOut()`) are refused by the static check.
 
