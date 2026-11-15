@@ -536,7 +536,9 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   const clean = !out.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
   const unrolled = first.unrolls.size && clean ? first.unrolls : null;
   // constant bindings the layout or the images read (an image's attributes, a class or a style): written before
-  // them, in a second pass; it needs a clean first pass too
+  // them, in a second pass; it needs a clean first pass too. (Step 7 of docs/proposals/component-libraries.md
+  // replaces these passes with a worklist inside one compile: `constants` is keyed and valued so that a worklist
+  // can fill it and call `prefold` as well.)
   const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
   if (!first.decided.size && !unrolled && !constants) return out;
   const frozen = first.foldedState();
