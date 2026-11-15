@@ -32,9 +32,12 @@ or only after the page module takes over.
   `<sn-component use>`, loops, branches and texts.
 - `test/behaviour/anchor-fuzz.test.ts` nests lists, branches, texts and elements inside a row.
 - `test/behaviour/let-fuzz.test.ts` runs random handlers over cached lets (`data-sn-let` over helpers):
-  writes in place and reassigned, store functions, `refresh()`, `emit()` with listeners that write
-  and that read, a synchronous click, an island whose prop setter fires an event mid-flush,
-  `<sn-sync>` messages and an optimistic action, with reads of lets stored between them. It compares
+  writes in place and reassigned, keyed rows moved (and moved then written), store functions,
+  `refresh()`, `page()` on a paginated resource and an `each` resource, `emit()` with listeners that
+  write and that read, a synchronous click, an island whose prop setter fires an event mid-flush,
+  `<sn-sync>` upserts, refetch events and a dropped stream, an optimistic action, actions whose `then`
+  and `catch` read lets, a component with lets of its own and a `data-sn-persist` scope, with reads of
+  lets stored between them. It compares
   every read and the page with the same page whose lets call no helper (inlined, as without the
   cache), also after the early takeover. `SN_FUZZ_DEPTH` makes the handlers and click scripts longer.
 
