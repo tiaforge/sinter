@@ -160,11 +160,34 @@ Sources:
 - LiveCodeBench: https://arxiv.org/abs/2403.07974
 - Min-K% Prob: https://arxiv.org/abs/2310.16789
 
-### Plan: a renamed SvelteKit (familiarity control, not built yet)
+### A renamed SvelteKit as a familiarity control: tried, does not hold (2026-11-15)
 
 The model knows SvelteKit from training, and it knows neither sinter nor a renamed SvelteKit. So the
 gap between SvelteKit and a renamed copy of it measures familiarity alone, with the design held fixed.
 The copy here is called "Quartz"; any name with no prior use works.
+
+**Result of the first step: every model recognised it.** The translator (`quartz/translate.mjs`, 12
+tests), the Vite plugin with the route mirror (`quartz/vite.mjs`) and T1's reference ported to Quartz
+(`quartz/t1-reference`, 19/19 on T1's grader) were all built. The leak probe (`quartz/probe.mjs`) showed
+the models the ported board page, its data file and 2 KB of docs in Quartz terms (`quartz/probe-sample.md`,
+which never mentions Svelte).
+- 30 of 30 answers named Svelte or SvelteKit: Haiku 10/10, Sonnet 10/10 and Opus 10/10 at high confidence
+  every time, at a cost of $0.91.
+- The clues they gave were the design, not the names:
+  - the runes as a set: four `$`-prefixed reactive functions mapping one-to-one onto Svelte 5's, down to
+    `$from.by` ≈ `$derived.by`, plus deeply reactive arrays;
+  - Svelte 5's `onclick={…}` attributes and `let { data } = $inputs()`;
+  - SvelteKit's file conventions: a page file plus a data file exporting a loader, and a layout file.
+  - Opus: "the names have been changed, but the structure matches one-to-one".
+
+Conclusion: renaming, even with changed block syntax and word order, does not hide a framework whose API
+design the model knows. Changing the design enough to hide it would make a different framework, which
+is then no control for SvelteKit. So the renamed clone is set aside. Familiarity is measured instead
+as a gap between conditions (`docs` and `cold`; `offline` for what the model knows on its own), on
+tasks whose solutions are not in the training data. No agent run was made on Quartz. The code stays in
+`quartz/` for reference.
+
+The plan as it was:
 
 **The renaming map.** Every public name changes, and so does the shape wherever it is distinctive
 (the next table).
