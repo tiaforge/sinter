@@ -34,13 +34,32 @@ describe('data-sn-permanent', () => {
     ]);
   });
 
-  test('a name; one element of the page; nothing inside that binds', () => {
+  test('a name; one element of the page; two names whose ranges clash', () => {
     expect(problems(build('<aside data-sn-permanent="1 player"></aside>'))).toEqual(['SN346 `data-sn-permanent` takes a name (letters, digits, `-` and `_`), the same on each page that keeps the element']);
-    expect(problems(build('<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs"><aside data-sn-permanent="p"></aside></template></div>'))).toContain('SN346 `data-sn-permanent` cannot be inside a `<template>`: a kept element is one element of the page');
-    expect(problems(build('<div data-sn-state="{ s: 1 }"><aside data-sn-permanent="p"><b data-sn-text="s"></b></aside></div>'))).toEqual(['SN346 a kept element holds no bindings (`data-sn-text`): the next page\'s code would not find it']);
-    expect(problems(build('<aside data-sn-permanent="p" data-sn-state="{ s: 1 }"></aside>'))).toEqual(['SN346 a kept element holds no bindings (`data-sn-state`): the next page\'s code would not find it']);
+    expect(problems(build('<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs" data-sn-key="x"><aside data-sn-permanent="p"></aside></template></div>'))).toContain('SN346 `data-sn-permanent` cannot be inside a `<template>`: a kept element is one element of the page');
     expect(problems(build('<aside data-sn-permanent="p"></aside><nav data-sn-permanent="p"></nav>'))).toEqual(['SN346 `data-sn-permanent="p"` is on two elements of this page']);
+    expect(problems(build('<aside data-sn-permanent="k23"></aside><nav data-sn-permanent="k38"></nav>'))).toEqual(['SN346 `k38` and `k23` get the same range of ids: rename one']);
     expect(build('<aside data-sn-permanent="a"></aside><nav data-sn-permanent="b-2"></nav>').permanent).toEqual(['a', 'b-2']);
+  });
+
+  test('a kept element binds: its nodes numbered in a range of its own, the same on every page; the page\'s go on', () => {
+    const body = (before: string) => `${before}<aside data-sn-permanent="player" data-sn-state="{ open: false }"><button data-sn-on-click="open = !open">t</button><p data-sn-show="open">x</p></aside><i data-sn-text="$url.q"></i>`;
+    const one = build(body('<b data-sn-text="$url.a"></b>')), two = build(body('<b data-sn-text="$url.a"></b><b data-sn-text="$url.b"></b><b data-sn-text="$url.c"></b>'));
+    expect(one.diagnostics).toEqual([]);
+    const ids = (out: ReturnType<typeof build>) => [.../data-sn-permanent="player"[^>]*>([\s\S]*?)<\/aside>/.exec(out.html)![0]!.matchAll(/data-sn="(\d+)"/g)].map((m) => +m[1]!);
+    expect(ids(one)).toEqual(ids(two));
+    expect(ids(one)[0]).toBeGreaterThanOrEqual(1_000_000);
+    // the page's own numbering goes on after it
+    expect(/<i data-sn="(\d+)"/.exec(one.html)![1]).toBe('1');
+    expect(one.keptBound).toEqual(['player']);
+    expect(Object.keys(one.keptSource!)).toEqual(['player']);
+  });
+
+  test('SN541: media inside whose playback is bound', () => {
+    const out = build('<aside data-sn-permanent="p" data-sn-state="{ m: false, s: \'/a.wav\' }"><audio data-sn-attr="{ src: s, muted: m }"></audio></aside>');
+    expect(out.diagnostics.map((d) => `${d.severity} ${d.code} ${d.message}`)).toEqual([
+      'warning SN541 `muted` of a `<audio>` in a kept element is bound: the next page\'s code sets it again when a link swaps it in, which interrupts playback',
+    ]);
   });
 });
 

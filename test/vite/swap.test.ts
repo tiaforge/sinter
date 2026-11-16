@@ -75,3 +75,13 @@ test('a build: a kept element ships the module only with swaps on; SN540 names t
   expect(on.logs).toContain('SN540');
   expect(on.logs).toContain('an inline script in the body does not run when a link swaps this page in');
 });
+
+test('a kept element that binds is one markup on every page that keeps it (SN346 across the pages)', async () => {
+  const layout = '<!doctype html><html data-sn-layout=""><head><title>x</title></head><body><aside data-sn-permanent="player" data-sn-state="{ n: 0 }"><b data-sn-text="n"></b></aside><slot></slot></body></html>';
+  const ok = app({ 'src/layouts/site-layout.html': layout, 'index.html': '<site-layout><p>a</p></site-layout>', 'about.html': '<site-layout><p>b</p></site-layout>' });
+  await build({ root: ok, logLevel: 'silent', plugins: [sinter({ swap: true })], resolve: { alias }, build: { write: false, rollupOptions: { input: [join(ok, 'index.html'), join(ok, 'about.html')] } } });
+  // the same name written again on another page, plain: the next page's code would not find its nodes
+  const bad = app({ 'src/layouts/site-layout.html': layout, 'index.html': '<site-layout><p>a</p></site-layout>', 'about.html': page('<aside data-sn-permanent="player"></aside>') });
+  await expect(build({ root: bad, logLevel: 'silent', plugins: [sinter({ swap: true })], resolve: { alias }, build: { write: false, rollupOptions: { input: [join(bad, 'index.html'), join(bad, 'about.html')] } } }))
+    .rejects.toThrow(/SN346.*`data-sn-permanent="player"` binds, and (index|about)\.html has another element of that name/s);
+});

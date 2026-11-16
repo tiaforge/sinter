@@ -332,6 +332,10 @@ export interface CompileResult {
   prefetchOff?: true;
   /** the names of the page's kept elements (`data-sn-permanent`), in document order */
   permanent?: string[];
+  /** where each kept element was written (file, offset, a hash of its source): one markup across the pages, for those that bind */
+  keptSource?: Record<string, string>;
+  /** the kept elements that bind */
+  keptBound?: string[];
   /** `<html data-sn-swap="off">`: links to this page load it */
   swapOff?: true;
 }
@@ -457,6 +461,9 @@ export interface CompiledParts {
   prefetchOff?: true;
   /** the names of the page's kept elements (`data-sn-permanent`), in document order */
   permanent?: string[];
+  /** where each kept element was written, and those that bind: one markup across the pages */
+  keptSource?: Record<string, string>;
+  keptBound?: string[];
   /** `<html data-sn-swap="off">`: links to this page load it */
   swapOff?: true;
   /** origins of resources that could be requested early but are not in `origins` */
@@ -1026,6 +1033,9 @@ class Compiler {
   /** the kept elements (`data-sn-permanent`) and their names */
   readonly permanentEls: P5Element[] = [];
   readonly permanentNames: string[] = [];
+  /** the kept elements that bind (their ids from their range), and where each kept element was written */
+  readonly keptBound = new Set<string>();
+  readonly keptSource = new Map<string, string>();
   /** `data-sn-path` patterns (for `$url` in the early file's requests) */
   pathList: string[] = [];
   /** `$s<sid>.<name>` paths a persisted model writes at mount */
@@ -1376,7 +1386,7 @@ class Compiler {
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       embed: this.embedSlots(),
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
-      ...(this.permanentNames.length ? { permanent: [...this.permanentNames] } : {}),
+      ...(this.permanentNames.length ? { permanent: [...this.permanentNames], keptSource: Object.fromEntries(this.keptSource), ...(this.keptBound.size ? { keptBound: [...this.keptBound] } : {}) } : {}),
       ...(this.swapOff ? { swapOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
       styles: [...this.uses.keys()].sort().flatMap((n) => {
@@ -3884,7 +3894,17 @@ class Compiler {
         continue;
       }
       const before = kids.length;
+      // a kept element's nodes are numbered in a range of their own, from its name: the same ids on every page
+      // that keeps it, so the next page's code finds them in the element the swap keeps
+      const kept = ctx.tid < 0 ? attr(child, 'data-sn-permanent')?.trim() : undefined;
+      const saved = this.nextId;
+      if (kept && /^[A-Za-z][\w-]*$/.test(kept)) this.nextId = keptBase(kept);
       const res = this.element(child, ctx, i, lastIf);
+      if (kept && this.nextId !== saved) {
+        if (this.nextId - keptBase(kept) > KEPT_IDS) this.report(child, 'data-sn-permanent', 'SN346', `a kept element binds at most ${KEPT_IDS} nodes (\`${kept}\` binds ${this.nextId - keptBase(kept)})`, 0);
+        if (this.nextId > keptBase(kept)) this.keptBound.add(kept);
+        this.nextId = saved;
+      }
       lastIf = res;
       // a literal text folded into the text before it (`mergeText`): the node that followed is at `i` now
       if (kids.length < before && kids[i] !== child) i -= before - kids.length;
@@ -4011,26 +4031,35 @@ class Compiler {
       else if (get('prefetch')!.trim() !== 'off') this.report(el, 'data-sn-prefetch', 'SN401', '`data-sn-prefetch` takes `off`; prefetching is on without the attribute', 0);
       else this.prefetchOff = true;
     }
-    // kept across a swap (docs/proposals/swap-navigation.md): one element of the page, left as it is, so
-    // nothing inside binds (the next page's code would not find it); the marker stays in the HTML
+    // kept across a swap (docs/proposals/swap-navigation.md §3): one element of the page; its nodes are numbered
+    // from its name (the children loop), and the next page's code takes them over; the marker stays in the HTML
     if (has('permanent')) {
-      const name = get('permanent')!.trim();
-      const inside = (n: P5Node): string | undefined => {
-        for (const c of [...(n as P5Element).childNodes ?? [], ...((n as P5Element & { content?: P5Element }).content?.childNodes ?? [])]) {
-          if (!isElement(c)) continue;
-          const a = c.attrs.find((x) => x.name.startsWith('data-sn-')) ?? (c.tagName.startsWith('sn-') ? { name: `<${c.tagName}>` } : undefined);
-          if (a) return a.name;
-          const deeper = inside(c);
-          if (deeper) return deeper;
-        }
-      };
-      const own = sn.find((a) => a.name !== 'data-sn-permanent');
-      const bound = own?.name ?? inside(el);
+      const name = get('permanent')!.trim(), clash = this.permanentNames.find((n) => n !== name && keptBase(n) === keptBase(name));
       if (!/^[A-Za-z][\w-]*$/.test(name)) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` takes a name (letters, digits, `-` and `_`), the same on each page that keeps the element', 0);
       else if (ctx.tid >= 0) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` cannot be inside a `<template>`: a kept element is one element of the page', 0);
-      else if (bound) this.report(el, 'data-sn-permanent', 'SN346', `a kept element holds no bindings (\`${bound}\`): the next page's code would not find it`, 0);
       else if (this.permanentNames.includes(name)) this.report(el, 'data-sn-permanent', 'SN346', `\`data-sn-permanent="${name}"\` is on two elements of this page`, 0);
-      else { this.permanentNames.push(name); this.permanentEls.push(el); }
+      else if (clash) this.report(el, 'data-sn-permanent', 'SN346', `\`${name}\` and \`${clash}\` get the same range of ids: rename one`, 0);
+      else {
+        this.permanentNames.push(name);
+        this.permanentEls.push(el);
+        // SN541: media inside whose playback is bound: the next page's code writes it again (a jump, a pause)
+        const media = (n: P5Element) => {
+          for (const c of [...n.childNodes, ...((n as P5Element & { content?: P5Element }).content?.childNodes ?? [])]) {
+            if (!isElement(c)) continue;
+            if (c.tagName === 'audio' || c.tagName === 'video') {
+              for (const a of c.attrs) {
+                const m = a.name === 'data-sn-attr' && /\b(currentTime|paused|volume|muted|playbackRate)\s*:/.exec(a.value);
+                if (m) this.report(c, a.name, 'SN541', `\`${m[1]}\` of a \`<${c.tagName}>\` in a kept element is bound: the next page's code sets it again when a link swaps it in, which interrupts playback`, 0, 'leave playback to the element (its controls, or a handler that calls play() and pause()); bind its src, which changes only for another track');
+              }
+            }
+            media(c);
+          }
+        };
+        media(el);
+        // its source, where it was written: one markup on every page that keeps it (checked across the pages by the build)
+        const o = this.origins.get(el), loc = el.sourceCodeLocation;
+        this.keptSource.set(name, `${o?.file ?? this.opts.file}:${loc?.startOffset ?? 0}:${hashText((o?.src ?? '').slice(loc?.startOffset ?? 0, loc?.endOffset ?? 0))}`);
+      }
     }
     // a page or a link the swap leaves to the browser: on `<html>` the build records it, on a link it stays
     if (has('swap')) {
@@ -8693,6 +8722,18 @@ function setAttr(el: P5Element, name: string, value: string) {
 }
 
 const KEPT_ATTRS = new Set(['data-sn-navigate', 'data-sn-permanent', 'data-sn-swap']);
+/** the ids of a kept element's nodes: a range of its own, from its name, past any page's own numbering */
+const KEPT_IDS = 1000;
+export const keptBase = (name: string) => {
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
+  return 1_000_000 + ((h >>> 0) % 1000) * KEPT_IDS;
+};
+const hashText = (t: string) => {
+  let h = 2166136261;
+  for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(36);
+};
 function stripSn(el: P5Element) {
   // what stays, for the runtime: `data-sn-navigate` marks an element with a `navigate` handler (navigate.ts),
   // `data-sn-permanent` a kept element and `data-sn-swap` a link the swap leaves to the browser

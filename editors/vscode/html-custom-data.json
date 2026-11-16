@@ -175,11 +175,11 @@
     },
     {
       "name": "data-sn-permanent",
-      "description": "with sinter({ swap }): kept as is (playing, scrolled) across a link to a page with the name; binds nothing (name)"
+      "description": "with sinter({ swap }): kept as is (playing, scrolled) across a link to a page with the name; its bindings go on (name)"
     },
     {
       "name": "data-sn-swap",
-      "description": "on <html>: links here load the page; on a link: it loads its page (off)"
+      "description": "on <html>: links here load it; on a link: it loads its page (off)"
     },
     {
       "name": "data-sn-transition",

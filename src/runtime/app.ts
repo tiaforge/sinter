@@ -276,6 +276,8 @@ export interface App {
   url(tpl: UrlTemplate, scope: any): string;
   /** the scope of root node `i` (its state), or the page scope for -1 */
   scopeOf(i: number): any;
+  /** the bindings at the page's level, with their rows' (the swap hands kept elements' rows and branches to the next page) */
+  readonly rbs: unknown[];
   /**
    * `path`: a node of the page's path table, or one of the paths the runtime marks itself by name
    * (`$locale`, `$r.<name>`, `$s<sid>.$error`, …: the table's `x`). `typing`: the change is a keystroke
@@ -748,6 +750,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       instances.delete(root);
     },
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
+    rbs: rootRbs,
     url: (tpl, s) => expand(tpl, s, fns),
     mark(path, s, typing) {
       const w = typeof path == 'number' ? path : ps.x[path] ?? -1;

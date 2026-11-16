@@ -17,6 +17,13 @@
     <textarea rows="2" aria-label="Notes"></textarea>
     <div id="scroller" style="block-size: 3rem; overflow: auto"><div style="block-size: 20rem">tall</div></div>
   </aside>
+  <!-- kept, and bound: the next page's code takes it over (its text follows the page; its rows and branch stay the same nodes) -->
+  <section id="bound" data-sn-permanent="bound" data-sn-state="{ ns: [1, 2, 3], open: true }">
+    <span id="where" data-sn-text="title"></span>
+    <button id="more" data-sn-on-click="ns = [...ns, ns.length + 1]">more</button>
+    <ul id="kept-list"><template data-sn-for="n in ns" data-sn-key="n"><li data-sn-text="'row ' + n"></li></template></ul>
+    <template data-sn-if="open"><p id="branch">open</p></template>
+  </section>
   <main><slot></slot></main>
   <!-- tall, so the page scrolls; a target for a link's #hash -->
   <div style="block-size: 4000px"></div>

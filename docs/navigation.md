@@ -228,9 +228,15 @@ page as they are:
 </details>
 ```
 
-The sound plays on, the notes keep their text and the drawer stays open. A kept element holds no
-bindings, on it or inside it (`SN346`): the next page's code would not find them. Focus inside it stays;
-otherwise focus goes to the document, as after a load. Each history entry keeps its scroll position, a
+The sound plays on, the notes keep their text and the drawer stays open. A kept element may bind: the
+next page's code takes it over, so its bindings follow the new page (a prop the page passes, an active
+link), and its rendered rows and branches are adopted, not built again. What the old page's code held for
+it starts again: its `data-sn-state` from its initial value (unless persisted), its resources and streams.
+Write such an element once, in the layout or a component every page uses: the build checks it is the same
+markup on every page that keeps it (`SN346`). Leave playback to the media (`SN541` for a bound `muted`):
+the next page writes each binding once when it mounts. A `data-sn-model` field inside it shows its state's
+value again (persist it to keep what was typed). Focus inside a kept element stays; otherwise focus goes to
+the document, as after a load. Each history entry keeps its scroll position, a
 link's `#hash` is scrolled to, and the new title is announced to screen readers.
 
 **What a swap does not do that a load does,** and which to check before turning swaps on:

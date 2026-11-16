@@ -698,3 +698,23 @@ manifest, the stub and the exported mount together: they are the unproven half.
      23,761 → 27,235 of its 27,648 B budget).
 7. **Kept elements with bindings** ([3](#3-kept-elements)), after a spike of its own: reserved numbering,
    the one-markup check, the takeover (rows and branches adopted), the playback-property warning.
+   **Done** on `swap-navigation` (the spike became the step):
+   - **Reserved numbering:** a kept element's nodes get ids from `1,000,000 + (hash(name) mod 1000) × 1000`,
+     the same on every page; the page's own numbering goes on after it. Two names with the same range, or
+     more than 1000 bound nodes, are `SN346`. The core finds nodes by id in one walk of the document, so a
+     kept element in another place is found; row templates (`sn-t-N`) are the new page's own, at the end of
+     its body.
+   - **The one-markup check:** each kept element's source (file, offset, a hash of its text); the build
+     reports `SN346` when a name binds on one page and another page writes it elsewhere or differently.
+   - **The takeover:** before `destroy()`, the swap marks the lists and branches the old app rendered
+     inside kept elements with the early script's marks (`sinter.early.rows`, `sinter.early`), which the
+     core already adopts: rows (when as many as the new items; keyed rows then match by key) and the shown
+     branch. The core exposes its root bindings (`app.rbs`) for it; the rest is in the swap's lazy part.
+   - **The warning:** `SN541` for a bound `muted` (or another playback property) on media in a kept
+     element (`data-sn-prop` is for custom elements only, so `data-sn-attr` is the one way).
+   - Checked: `e2e/permanent` (a kept section in the layout with state, a text that follows the page, a
+     keyed list and a branch: the same nodes after the swap, and its button works on the next page);
+     `test/compiler/permanent.test.ts`, `test/vite/swap.test.ts`.
+   - **Left:** a `data-sn-model` field inside shows its state's value again (the state starts again);
+     rows over data that is not there at mount (no `cache`) are built again; a stream both pages use
+     reconnects.

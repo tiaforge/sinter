@@ -115,6 +115,7 @@ export const CODES = {
   SN538: 'unreachable-candidate',
   SN539: 'empty-glob',
   SN540: 'swap-script',
+  SN541: 'kept-playback',
 } as const;
 
 export type Code = keyof typeof CODES;

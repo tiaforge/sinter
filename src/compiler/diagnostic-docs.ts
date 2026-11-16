@@ -318,9 +318,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Use one of the public components the message lists, or fix the name. A library\'s author moves a component the app needs out of `components/internal/`.',
   },
   SN346: {
-    example: 'a kept element holds no bindings (`data-sn-text`): the next page\'s code would not find it',
-    means: 'An element with `data-sn-permanent` is kept as it is when a link swaps the next page in (`sinter({ swap: true })`): the same element, playing or scrolled, moves into the page with the same name. So it is one element of the page, named with letters, digits, `-` and `_`, outside any `<template>`, once per page, and nothing on it or inside it binds: the next page\'s code numbers its own elements and would not find these.',
-    fix: 'Give the element a plain name and move bindings out of it (a control beside the player rather than inside it), or remove the attribute where the element need not survive a link.',
+    example: '`data-sn-permanent="player"` binds, and about.html has another element of that name: a kept element that binds is one markup, from one place (a layout or a component), on every page that keeps it',
+    means: 'An element with `data-sn-permanent` is kept as it is when a link swaps the next page in (`sinter({ swap: true })`): the same element, playing or scrolled, moves into the next page where it has an element of the same name, and the next page\'s code takes over its bindings. So it is one element of the page, named with letters, digits, `-` and `_`, outside any `<template>`, once per page; its nodes are numbered in a range of their own, from its name (two names that get the same range, or more than 1000 bound nodes, are reported); and when it binds, every page that keeps it has the same markup, written in one place.',
+    fix: 'Give the element a plain name; write a kept element that binds once, in the layout or a component every page uses; rename one of two names that clash.',
   },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
@@ -520,5 +520,10 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: 'an inline script in the body does not run when a link swaps this page in (`sinter({ swap: true })`), only on a page load',
     means: 'With swaps on, a link to another page of the app fetches it and swaps its body in: the new page\'s module runs, its inline and classic scripts do not (and `load` and `DOMContentLoaded` do not fire again). A script in the body that expects a load, analytics, a chat widget, ads, misses each page reached by a link.',
     fix: 'Move what it does into the page\'s code (a component script, the actions module), load it once as `<script type="module" src>` in the head, or take the page out with `<html data-sn-swap="off">` (links to it load it). A script that must run once per app can stay: this is a warning.',
+  },
+  SN541: {
+    example: '`muted` of a `<audio>` in a kept element is bound: the next page\'s code sets it again when a link swaps it in, which interrupts playback',
+    means: 'A kept element (`data-sn-permanent`) moves into the next page as it is, and the next page\'s code takes over its bindings: each binding is written once when it mounts. For `currentTime`, `paused`, `volume`, `muted` or `playbackRate` of a playing `<audio>` or `<video>`, that write is a jump, a pause or a change of volume in the middle of playback.',
+    fix: 'Leave playback to the element: its controls, or a handler that calls `play()` and `pause()`. Bind `src`, which the next page writes only when it changes (another track starts, as it should).',
   },
 };

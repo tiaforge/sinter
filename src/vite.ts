@@ -497,7 +497,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return { info: (f) => img.info(f), url: (v) => prefix + img.fileName(v), ignore: true, stylesheet: `${IMG_CSS}${rel}.css`, ...(widths ? { widths } : {}), ...(styles?.length ? { styles } : {}) };
   };
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
-  const described = new Map<string, { parts: PrefetchParts | null; path: string[]; off: boolean; keep: string[]; swapOff: boolean }>();
+  const described = new Map<string, { parts: PrefetchParts | null; path: string[]; off: boolean; keep: string[]; swapOff: boolean; keptSource: Record<string, string>; keptBound: string[] }>();
   let speculationHash: string | null = null, rulesWritten = false;
   /** every inline rule set's hash (pages with same-page links have their own) */
   const speculationHashes = new Set<string>();
@@ -681,8 +681,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
         const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
-        described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff });
-      } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true }); }
+        described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [] });
+      } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [] }); }
     }
     return described.get(file)!;
   };
@@ -891,6 +891,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(resolved?.base?.startsWith('/') ? { base: resolved.base } : {}),
       ...(siteOrigin ? { urls: urlsOf(rel, out0Path(file)) } : {}),
     });
+    // with swaps on, a kept element that binds is one markup on every page that keeps it: the next page's code
+    // takes over the element the swap keeps (docs/proposals/swap-navigation.md §3)
+    if (p.swap) for (const [name, at] of Object.entries(out.keptSource ?? {})) {
+      const binds = !!out.keptBound?.includes(name);
+      const other = entries().find((f) => { const d = describe(f), k = d.keptSource[name]; return k && k !== at && (binds || d.keptBound.includes(name)); });
+      if (other) out.diagnostics.push({ severity: 'error', code: 'SN346', message: `\`data-sn-permanent="${name}"\` binds, and ${relOf(other)} has another element of that name: a kept element that binds is one markup, from one place (a layout or a component), on every page that keeps it`, file: src, line: 1, col: 1 });
+    }
     // a page in a language is written into its language's folder: its relative URLs follow
     if (v) out.html = rebaseHtml(out.html, '/' + posix.dirname(relOf(src)).replace(/^\.$/, ''), '/' + posix.dirname(rel));
     runtimeOf.set(rel, out.runtime);

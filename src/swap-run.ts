@@ -14,6 +14,27 @@ interface PageModule { boot(): App | Promise<App>; kept: string[] }
 const SWAPPING = Symbol.for('sinter.swapping');
 /** where each page module registers itself, by its URL (compiler/index.ts) */
 const PAGES = Symbol.for('sinter.pages');
+/** what the next page's code adopts, as from the early script (runtime/app.ts): a list's rows, a branch */
+const ROWS = Symbol.for('sinter.early.rows'), BRANCH = Symbol.for('sinter.early');
+
+interface Row { first: Node; nodes: Node[] | null; rbs: Bound[] | null }
+interface Bound { el: Node & Record<symbol, unknown>; b: { k: string }; rows?: Row[]; end?: Comment; br?: number }
+
+/**
+ * The takeover (§3): the lists and branches the old app rendered inside the kept elements are marked on their
+ * anchors as the early script marks what it rendered, so the next page's code adopts their nodes (a playing
+ * `<audio>` in a row is not built again) instead of rendering them anew.
+ */
+export function handOver(rbs: unknown[], kept: Element[]) {
+  for (const rb of rbs as Bound[]) {
+    const { el, end, rows = [] } = rb, k = rb.b.k, nodes = (r: Row) => r.nodes ?? [r.first];
+    if (end && kept.some((x) => x.contains(el))) {
+      if (k == 'for') el[ROWS] = { rows: rows.map(nodes), end };
+      else if (k == 'if' || k == 'ch') el[BRANCH] = { br: rb.br ?? 0, nodes: rows[0] ? nodes(rows[0]) : [], end };
+    }
+    for (const r of rows) if (r.rbs) handOver(r.rbs, kept);
+  }
+}
 
 /**
  * The pairs of kept elements: each name both page modules keep, once on each page (the same element). Only
@@ -197,7 +218,11 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
       committed = true;
       // the browser made the entry (`intercept()`); a redirect gives it another URL
       if (final.href != location.href) history.replaceState(history.state, '', final.href);
-      try { instance(document).destroy(); } catch { /* not mounted */ }
+      try {
+        const old = instance(document);
+        handOver(old.rbs, kept.map(([o]) => o));
+        old.destroy();
+      } catch { /* not mounted */ }
       // the new content goes in after the old, in this one task: nothing is painted in between, and a playing
       // media element moved within a task does not pause
       const body = document.body, old = [...body.childNodes], stay = new Set<Node>(kept.map(([o]) => o));

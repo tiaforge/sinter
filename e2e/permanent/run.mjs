@@ -104,6 +104,7 @@ for (const name of browsers) {
     await settle(() => document.title === 'A: Alpha');
     await page.evaluate(() => {
       window.__marker = 1; window.__keep = document.getElementById('keep');
+      window.__bound = document.getElementById('bound'); window.__li = document.querySelector('#kept-list li'); window.__branch = document.getElementById('branch');
       // per-page app code: an event after each mount
       document.addEventListener('sn-page', (e) => (window.__pages ??= []).push(`${e.detail.kind} ${new URL(e.detail.to).pathname}`));
     });
@@ -118,6 +119,16 @@ for (const name of browsers) {
     check('link to B swaps', await page.evaluate(read), {
       path: '/b/', marker: 1, kept: true, notes: 'kept text', scroll: 120, title: 'B: Beta', titles: 1, description: ['about beta'],
       robots: 1, outline: 'solid', heading: 'Beta', items: 3, count: 'B 2', duplicateIds: [], pixel: false, pages: ['push /b/'],
+    });
+    // the bound kept element: the same element and nodes, taken over by B's code
+    const bound = await page.evaluate(() => ({
+      same: window.__bound === document.getElementById('bound') && window.__li === document.querySelector('#kept-list li') && window.__branch === document.getElementById('branch'),
+      where: document.getElementById('where').textContent, rows: document.querySelectorAll('#kept-list li').length,
+    }));
+    await page.click('#more');
+    await settle(() => document.querySelectorAll('#kept-list li').length === 4);
+    check('a kept element that binds: the same nodes, taken over by the next page', { ...bound, after: await page.evaluate(() => [...document.querySelectorAll('#kept-list li')].map((x) => x.textContent)) }, {
+      same: true, where: 'B: Beta', rows: 3, after: ['row 1', 'row 2', 'row 3', 'row 4'],
     });
     await settle(() => document.querySelector('body > [role=status]')?.textContent === 'B: Beta');
     check('the new title is announced', await page.evaluate(read), { announced: 'B: Beta' });
@@ -372,14 +383,16 @@ for (const name of browsers) {
       // the pair's names are equal on both elements, the kept element's is its own
       const names = (r) => {
         const got = Object.fromEntries((r?.names ?? []).map((x) => x.split(':')).map(([id, n, c]) => [id, [n, c]]));
-        return [...Object.keys(got)].sort().map((id) => `${id}:${got[id][0] === got.morph?.[0] ? 'pair' : got[id][0] === got.keep?.[0] ? 'own' : '?'}:${got[id][1]}`);
+        // each kept element's name is its own: unlike the pair's, and unlike each other's
+        const kept = Object.keys(got).filter((id) => got[id][1] === 'sn-keep'), own = new Set(kept.map((id) => got[id][0])).size === kept.length;
+        return [...Object.keys(got)].sort().map((id) => `${id}:${got[id][0] === got.morph?.[0] ? 'pair' : own ? 'own' : '?'}:${got[id][1]}`);
       };
       check('a morph across a swap; the kept element held still; the types', {
         there: there.length, types: there[0]?.types, names: names(there[0]),
         backTypes: back[0]?.types, backNames: names(back[0]),
       }, {
-        there: 1, types: ['sn-push'], names: ['heading:pair:sn-transition', 'keep:own:sn-keep', 'morph:pair:sn-transition'],
-        backTypes: ['sn-traverse', 'sn-back'], backNames: ['heading:pair:sn-transition', 'keep:own:sn-keep', 'morph:pair:sn-transition'],
+        there: 1, types: ['sn-push'], names: ['bound:own:sn-keep', 'heading:pair:sn-transition', 'keep:own:sn-keep', 'morph:pair:sn-transition'],
+        backTypes: ['sn-traverse', 'sn-back'], backNames: ['bound:own:sn-keep', 'heading:pair:sn-transition', 'keep:own:sn-keep', 'morph:pair:sn-transition'],
       });
     } else steps.push('- a morph across a swap: no page transitions in this browser');
     const readable = await p3.evaluate(() => typeof CSSViewTransitionRule != 'undefined');
