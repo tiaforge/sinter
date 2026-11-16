@@ -1,7 +1,9 @@
 # Proposal: build-time data, collections and a page per entry
 
-Status: draft, revised twice (see [Decisions](#decisions)): after a first review, and to fold the unreleased
-`file:` source into this design, so that sinter has one concept for data the build reads, not two. It
+Status: draft, revised three times (see [Decisions](#decisions)): after a first review, to fold the
+unreleased `file:` source into this design (so that sinter has one concept for data the build reads, not
+two), and after a second review. sinter is pre-1.0 with no users and every piece touched here is
+unreleased, so compatibility is not a constraint anywhere in this proposal: what exists changes freely. It
 builds on [pages without JavaScript](static-pages.md) (constant loops unrolled, helpers over constants run
 at build time, page URLs, `data-sn-path`, the sitemap) and on the per-language inputs of `localePrefix`.
 Line references are to `main` at 2b33230.
@@ -61,7 +63,7 @@ folds, the page ships no JavaScript unless something on it runs.
 | Piece | Where | What it gives |
 | --- | --- | --- |
 | `file:` resources (unreleased) | `src/compiler/files.ts`, `fileResource` in `compile.ts:5684`, `test/behaviour/files.test.ts` | a constant resource: `FILE_ATTRS` (`name`, `src`, `type`, `items`, `key`), embedded data for what still runs, SN332 for anything that would load it, dev reload on change. This proposal extends it rather than adding a second kind |
-| Constant loops and folding | `MAX_UNROLL = 1000`, `EXPANSION_LIMIT = 10_000` (`compile.ts:8467`) | a `data-sn-for` over a constant list is rows in the HTML; helpers over constants run at build time |
+| Constant loops and folding | `MAX_UNROLL = 1000` per list, `EXPANSION_LIMIT = 10_000` per page (`compile.ts:8467`) | a `data-sn-for` over a constant list is rows in the HTML; helpers over constants run at build time. This proposal removes the per-list limit ([§4](#4-what-a-page-gets)) |
 | Per-language inputs | `entries()`, `<root>/<locale>/<page>` (`src/vite.ts:544`, `762`) | one source page compiled several times with a different constant (`$locale`), each a Vite input with its own output path, fixed in `configResolved` |
 | Exact paths | `movesToDirectory` (`src/page-paths.ts:21`) | a `data-sn-path` page stays a file and answers at exactly its paths: `login.html` at `/login`, served by hosts without a rule, canonical without a trailing slash |
 | `sitemap.paths` | `src/sitemap-build.ts`, run in `generateBundle` (`vite.ts:1787`) | app code that may fetch, run once per build: a precedent for running such code, not for when (it runs after compiling; loaders must run before) |
@@ -94,8 +96,8 @@ Both are the same resource, with the same rules, the ones `file:` has today:
   status fields are `null`; SN332 for anything that would load or change it (`refresh`, `cache`,
   `paginate`, `each`, `call`, `when`, `then`, `early`, store functions that name it or change one of its
   items, write-through, `<sn-event>`s). Not in `sinter-embed.json`.
-- **The same attributes for both**: `name`, `src`, `type`, `items`, `key` and, new, `order`
-  ([§4](#4-what-a-page-gets)). `items` picks a list out of a value (a JSON file's, a loader's); `key`
+- **The same attributes for both**: `name`, `src`, `type`, `items`, `key` and, new, `order`, `fields` and
+  `drafts` ([§2](#a-glob-is-a-list), [§4](#4-what-a-page-gets)). `items` picks a list out of a value (a JSON file's, a loader's); `key`
   defaults to `slug` for a glob, and to a `content:` collection's key.
 - **Folded or embedded**: bindings and helper calls over it are written into the HTML and ship nothing;
   what still runs in the browser gets the fields it reads ([§4](#4-what-a-page-gets)).
@@ -111,14 +113,21 @@ files (to derive tags from posts) reads them through `ctx.files`, the same reade
 
 | File | Value |
 | --- | --- |
-| `.md` | **an entry**: its frontmatter's fields and `body`, the markdown after the frontmatter (a file without frontmatter is `{ body }`) |
+| `.md`, `.markdown` | **an entry**: its frontmatter's fields and `body`, the markdown after the frontmatter (a file without frontmatter is `{ body }`) |
 | `.json` | its parsed value, as today |
 | anything else | its text, as today |
 
 The `.md` row is the one change to `file:` as it is on `main` (where a `.md` file's value is its text): a
 hand-written post page can now read its title and date, and `md.parse(post)` becomes `md.parse(post.body)`.
-Since `file:` is unreleased, nothing released breaks; the docs, sinter-markdown's docs, fixtures and tests,
-and the CHANGELOG's `file:` entry change with it ([Plan](#plan)).
+The docs, sinter-markdown's docs, fixtures and tests, and the CHANGELOG's `file:` entry change with it
+([Plan](#plan)).
+
+- **Fields sinter writes are reserved.** A frontmatter key `body`, `dir` or `path` is SN332; `slug` may be
+  given (it replaces the file name, [below](#a-glob-is-a-list)).
+- **`items` on a `.md` file** is SN332: an entry is one object, not a list to pick from.
+- **A text file is a string alone and `{ body }` in a glob**: a list's entries are objects, so that they
+  can carry `slug`, `dir` and `path`. This is the one place the two forms differ, and it is stated in the
+  docs' table.
 
 Frontmatter is YAML between `---` lines at the start of the file, parsed with the failsafe schema plus
 numbers, booleans and `null`: no YAML dates (`date: 2026-11-16` stays the string `'2026-11-16'`, which
@@ -138,8 +147,11 @@ sorted by path (or by `order`):
   `md.parse(post.body, { base })`;
 - `key` defaults to `slug`; two entries with one key are SN332 naming both files. In a nested folder, put
   the year in the frontmatter or the URL (`/blog/:year/:slug` with `year` a field), not in the slug;
-- **drafts**: an entry whose frontmatter has `draft: true` is left out of a production build and kept in
-  dev. It is a convention, the one field sinter reads by name, so it needs no option;
+- **drafts** are explicit: `drafts="draft"` names a boolean field, and an entry where it is `true` is left
+  out by `vite build` and kept by `vite dev` (by command, not Vite's mode, which can be any name:
+  `staging`). `sinter check` and the editor treat drafts as `vite build` does, so unrolling and link
+  checks agree with the build. Without the attribute, no field is read by name, and CMS or JSON data that
+  happens to have a `draft` field is left alone;
 - a glob that matches nothing is an empty list, and a warning (a typo in a folder name should not be a
   silently empty blog);
 - the same rules as one file's path: a literal, inside the root, no symlink out of it.
@@ -188,22 +200,26 @@ export const tags = collection<Tag>({
 
 - **A collection is an export whose value is `collection()`'s.** Any other export is SN-new
   `content-module`, so a helper does not become a collection by being exported here.
-- **`collection({ key, load })`**: `key` names the field that identifies an entry (required: it is the
-  resource's default `key`, and what pairs translations, [§7](#7-languages)). `load(ctx)` returns a list,
-  sync or async.
+- **`collection({ key, load, perLocale? })`**: `key` names the field that identifies an entry (required:
+  it is the resource's default `key`, and what pairs translations, [§7](#7-languages)). `load(ctx)` returns
+  a list, sync or async. `perLocale: true` calls it once per language with `ctx.locale` typed `string`;
+  without it, `ctx` has no `locale` and the list is every language's.
 - **`ctx`** is what a loader may depend on:
 
   | | |
   | --- | --- |
-  | `files(glob)` | the files a glob matches, as `file:` reads them (the same entries, drafts left out in production), paths from the root; the dev server watches them for this collection |
+  | `files(glob, { drafts? })` | the files a glob matches, as `file:` reads them (the same entries, the same `drafts` rule), paths from the root; the dev server watches them for this collection |
   | `get(c)` | another collection's list (by its value, so a typo is a TypeScript error); loaded once, a cycle is an error naming it |
   | `env` | the variables of Vite's `loadEnv(mode, root, '')`: `.env`, `.env.production`, and the process's, every prefix. Not `process.env` itself: the helpers loader calls `resolveConfig` (`helpers-node.ts:76`), and nothing in sinter loads `.env` today |
-  | `mode` | `'development'` or `'production'` (Vite's mode) |
-  | `locale` | with `localePrefix`, the language being loaded; `undefined` otherwise ([§7](#7-languages)) |
+  | `command` | `'build'` or `'serve'` |
+  | `locale` | with `perLocale: true` and `localePrefix`, the language being loaded ([§7](#7-languages)) |
 
 - **The module runs in Node**, through its own loader (not `loadHelpers`, which never throws and folds
-  nothing on failure, SN533): a module that fails to load, or a loader that throws, fails the build. It is
-  not checked for purity and never ships: it may fetch, read the disk and use secrets.
+  nothing on failure, SN533): a module that fails to load, or a loader that throws, fails the build. In
+  the build it is a short-lived module runner like the helpers' build loader, whose `resolveConfig` call
+  re-enters sinter's plugin, so it needs the same guard (`loadingHelpers()`, `vite.ts:248`); in dev it is
+  the dev server's `ssrLoadModule`. It is not checked for purity and never ships: it may fetch, read the
+  disk and use secrets.
 - **The result must be a list of plain data** (arrays, objects, strings, numbers, booleans, `null`) with a
   unique string or number `key` per entry. A `Date` from a CMS SDK is an error at the entry, which says to
   return `toISOString()`. The list is deep-frozen and shared by every page.
@@ -215,19 +231,32 @@ export const tags = collection<Tag>({
 
 #### When loaders and globs run: a pre-pass
 
-Vite's inputs are fixed in `configResolved` (`vite.ts:762`), and compiling is synchronous. Pages per entry
-([§5](#5-a-page-per-entry-data-sn-pages)) need their lists before the inputs exist, so a build starts with
-a pre-pass, in `configResolved` after the per-language inputs are known:
+Pages per entry ([§5](#5-a-page-per-entry-data-sn-pages)) need their lists before the build's inputs exist,
+and compiling is synchronous. Today the only way to learn a page's `data-sn-path` is a full compile
+(`describe`, `describeSource`, `vite.ts:566`), which needs the lists. So:
 
-1. scan each page for `data-sn-pages` on its root and the build-time resource it names, and every page,
-   layout and component for `content:` resources (a parse, not a compile);
-2. load the content module if any `content:` source is used, and run the loaders those sources need,
-   concurrently, with their dependencies through `get`; read the globs the `data-sn-pages` pages need;
-3. turn each `data-sn-pages` page into one input per entry (and language), as `entries()` does per language.
+- **An extractor** in `src/compiler/` reads, from a page's HTML without compiling it, its root's
+  `data-sn-path` and `data-sn-pages` and its top-level build-time resources (`src`, `key`, `items`,
+  `order`, `drafts`, `{$locale}`). It is one function with the compiler's own attribute parsing, and
+  `compile()` asserts that it agrees with what the compile found, so the two cannot drift silently.
+  Resources inside components and layouts need no pre-pass: they are read during the compile, as `file:`
+  is today, synchronously, from values loaded before it.
+- **In the build**, the pre-pass runs in Rollup's `options` hook, which may be async and returns the
+  inputs: run the extractor over the pages, load the content module, run the loaders the pages' resources
+  name (concurrently, dependencies through `get`), read the globs, and return one input per entry (and
+  language). `content:` resources that only components read are loaded in `buildStart`, before any
+  compile. Any failure stops the build before an input exists, with the export's or file's name. Whether
+  Vite's HTML entries accept inputs added in `options` is the first thing the prototype checks
+  ([Plan](#plan)); the fallback is `configResolved` with the content module loaded through its own runner.
+- **Virtual inputs without languages.** Today inputs are rewritten, and `resolveId` resolves virtual
+  pages, only with `localePrefix` (`vite.ts:762`, `993`). The virtual page becomes `{ source, locale?,
+  entry? }`, used with either or both.
+- **In dev**, nothing runs at startup: a request for a URL under a `data-sn-pages` pattern is routed by the
+  existing pattern matching (`rewrite()`, `matches`, `vite.ts:1574`), which loads the list on first use,
+  finds the entry, and compiles that page.
 
-A loader nothing reads is not run. Any failure stops the build here, before an input exists, with the
-export's or file's name. Other `file:` reads stay where they are, in the compile, which reads files
-synchronously; a glob is read once per build and shared.
+A loader nothing reads is not run. A glob is read once per build and per language; resources share the raw
+list and sort or filter copies (each resource has its own `order`, `items` and `drafts`).
 
 ### 4. What a page gets
 
@@ -243,23 +272,42 @@ synchronously; a glob is read once per build and shared.
 - **`order`** sorts a list once, at build time, with the syntax a live resource's `order` has (`-date`,
   `name,-date`). A live resource compares strings in the visitor's language (`docs/resources.md:37`); at
   build time they are compared in the page's language with `localePrefix`, and in the base language
-  without it (`sourceLanguageTag` of the inlang project, else `en`). `order` on a value that is not a list
-  is SN332.
+  without it (`sourceLanguageTag` of the inlang project, else `en`); `sinter check` and the editor, which
+  compile a page without a language (`lsp/workspace.ts:214`), use the base language. `order` on a value
+  that is not a list is SN332.
 - **`type`** names the type of one entry for a glob (`type="Post"`, the frontmatter's fields), and sinter
   adds `slug`, `dir`, `path` and `body`: so the type a page reads is `(Post & FileEntry)[]`. For one `.md`
   file it is `Post & { body: string }`; for `.json`, a text file and `content:` it is the value's type, as
-  today. A `content:` collection without `type` takes its loader's return type; a glob or `.md` file
-  without `type` is SN504, as an untyped `.json` file is.
-- **What ships is only what browser code reads.** For what still runs in the browser (a search box
-  filtering `posts`), the compiler embeds the fields that code reads, which it knows when each read is a
-  member access on an entry (`p.title`, `p.tags.includes(t)`). A read it cannot follow (an entry passed
-  whole to a helper that runs in the browser or to a component's script, `p[k]`) is SN-new
-  `content-fields`, fixed by naming what to embed: `fields="slug,title,tags"`. So a CMS's internal fields
-  and posts' bodies never reach a page by accident. The build line names each embedded resource and its
-  size. (`file:` today embeds a value whole; with this, it is pruned too.)
-- **The unroll limits apply.** A `data-sn-for` over more than 1,000 entries stays a template that renders
-  in the browser, and the page ships the runtime and the embedded fields. An index of thousands is paged
-  ([An index in pages](#an-index-in-pages)).
+  today. A `content:` collection without `type` takes its loader's return type. A `.md` file or glob
+  without `type` is `{ body: string }` plus the file fields, with no warning: a markdown file with no
+  frontmatter needs nothing (an untyped `.json` file stays SN504).
+- **`type` is checked against the files.** `sinter check` reads `file:` values anyway, so its shadow file
+  writes each value as a literal that must satisfy the type (`[…] satisfies Post[]`): a `titel:` in one
+  post's frontmatter is a type error at that resource, naming the file. Without this, `type` would be an
+  unchecked assertion and typos in content would build.
+- **What ships is only what is named.** Embedding today is the whole value (`scriptJson`), kept when a
+  compiled function's text mentions the resource (`dropFiles`, `compile.ts:6190`), and nothing tracks which
+  fields of an entry are read through loops, props or component scripts. Inferring the fields is real
+  compiler work, so the first version is explicit: a build-time list or object that browser code reads
+  needs `fields="slug,title,tags"`, and only those fields of each entry are embedded. Without `fields`,
+  such a read is SN-new `content-fields`, naming the read. Browser code sees the type narrowed to those
+  fields (`Pick<Post, 'slug' | 'title' | 'tags'>[]`), so `sinter check` reports a read outside them. A
+  value nothing in the browser reads is not embedded at all, and needs no `fields`, as today; a string (a
+  text file) embeds whole. So a CMS's internal fields and posts' bodies never reach a page by accident.
+  The build line names each embedded resource and its size. Inferring `fields` from member accesses is
+  [future work](#future-work).
+- **One limit: the page's budget.** Today a page has two: `MAX_UNROLL`, at most 1,000 items per list
+  (`listOf`, `compile.ts:6278`), and `EXPANSION_LIMIT`, at most 10,000 rows and component instances per
+  page, at any depth (`compile.ts:8474`). The second already counts every row of every list, and it is the
+  measured one: about 0.2 ms of compile per row or instance, so a page stays near one second in the
+  build and in the editor, which compiles on every edit. The first adds nothing but a refusal: a list of
+  5,000 rows on a page far under its budget stays a template, with no diagnostic at all. **`MAX_UNROLL` is
+  removed**: a constant list unrolls as long as the page's budget holds, and one that would cross it
+  renders in the browser with SN536 at its loop, as a tree that crosses it does today. The budget becomes
+  an option, `sinter({ expansionLimit })` (today internal, "tests and measurements", `compile.ts:192`),
+  for a site that measures a bigger page as fast enough. An index of thousands is still better paged
+  ([An index in pages](#an-index-in-pages)): HTML for every post on one page is heavy for the visitor,
+  whatever it costs the build.
 
 ### 5. A page per entry: `data-sn-pages`
 
@@ -287,8 +335,11 @@ dist/blog/recap.html      /blog/recap
   `<resource>` is a build-time resource of the page, `file:` with a glob or `content:`, declared at the
   page's top level (not inside a template, a component or the layout, so the pre-pass finds it). The build
   compiles the page once per entry, and writes it at the pattern filled from the entry: each `:param` is the
-  entry's field of that name. A field that is missing, not a string or number, empty, or holding a `/`,
-  fails the build naming the entry (its file, for a glob). Two entries that fill one URL fail it too.
+  entry's field of that name, encoded as a path segment with the sitemap's encoder (`fillPattern`,
+  `sitemap-build.ts:68`: `a b` is `a%20b`, unicode percent-encoded). A field that is missing, not a string
+  or number, empty, `.` or `..`, or holding a `/`, fails the build naming the entry (its file, for a
+  glob). A URL that two entries fill, or that another page or a file in `public/` is written at (a slug
+  `index` beside `blog/index.html`, `/:slug` beside `about.html`), fails it too, naming both.
 - **Exact paths, as every `data-sn-path` page has.** Each entry is a file at the filled pattern,
   `blog/hello.html` at `/blog/hello`, as `login.html` with `data-sn-path="/login"` is today: hosts serve
   it there without a rule, the canonical URL has no trailing slash (the form a pattern page's canonical
@@ -301,18 +352,26 @@ dist/blog/recap.html      /blog/recap
 - **One pattern, nothing else.** A `data-sn-path` with a fixed path or a second pattern beside
   `data-sn-pages` is SN-new `pages-path`: a fixed path would be written once per entry, and a second
   pattern needs values the entry may not have.
-- **`<name>` is page scope, like a resource**: the page's markup, its head and the layout's slots it fills
-  read it; components and the layout get it through props. It cannot shadow a store function, a resource
+- **`<name>` is page scope, because it is a resource**: the compile of each entry adds an implicit
+  build-time resource `<name>` whose value is the entry (a `fileData` entry, as a `file:` value is), so it
+  has a build-time resource's rules, scope and `fields`. The page's markup, its head and the layout's
+  slots it fills read it; components and the layout get it through props. It cannot shadow a store function, a resource
   or a magic name (`page in …` is SN-new, since `page` is a store function, `expr.ts:266`). The list
   itself stays readable under its own name, for a "next post" link.
-- **Implementation**: one input per entry and language, `<root>/<locale>/<filled pattern>.html`, resolved
-  by the same `resolveId` and `load` hooks as a page in a language, compiled with `<name>` added to the
-  page's constants. The page module, when one ships, is the same for every entry of a language (what
-  differs between entries is constants, in the HTML or the embedded data), so it is bundled once per
-  language, as today.
-- **A long post stays static or fails.** Over `EXPANSION_LIMIT` a tree renders in the browser with SN536,
-  a warning; on a `data-sn-pages` page it is an error, so one long post cannot silently ship its body and
-  the runtime.
+- **One page module per entry.** Each entry is a virtual page (`{ source, locale?, entry }`) with its own
+  module, as each page in a language has one today (`moduleSrc` per page, `vite.ts:658`); and the
+  compiler's second pass writes the module from constants (`decided`, `unrolled`, `constants`,
+  `compile.ts:707`), so two entries that decide a `data-sn-if` differently have different code. A
+  `data-sn-pages` page with nothing to run has no module, so a static blog is unaffected; one with a live
+  resource (the comments above) has one small module per entry, sharing the runtime chunk. The prototype
+  measures what 10,000 of them cost the build; a module shared between entries, reading the entry from
+  embedded data instead of folding it, is [future work](#future-work).
+- **The fold cross-check runs per entry.** A production build re-runs each page's folded calls at its end
+  (`logFold`, `vite.ts:639`), keyed by source page and reset at its first call; it is keyed by virtual
+  page instead, so every entry is checked, not only the last one compiled.
+- **A long post stays static or fails.** Over the page's budget, a tree or list renders in the browser
+  with SN536, a warning; on a `data-sn-pages` page it is an error, so one long post cannot silently ship
+  its body and the runtime. The way out is a higher `expansionLimit` for the site.
 - **Live resources are not embedded** in the first version: under `embed: true`, a `data-sn-pages` page is
   not in `sinter-embed.json`, and its live resources load in the browser. One manifest entry per entry
   (the server reads every page at startup, `server.ts:321`) is [future work](#future-work).
@@ -368,8 +427,10 @@ each language reads its own list:
 
 - **`file:` with `{$locale}`** reads each language's folder ([§2](#locale-in-a-path)); a path without it is
   one list for every language.
-- **A `content:` loader is called once per language when it reads `ctx.locale`**, and once in all when it
-  does not (the call is traced: a loader that never touches `locale` is shared).
+- **A `content:` loader is called once per language with `perLocale: true`**, and once in all without it.
+  It is explicit (`docs/spec.md`: everything visible, nothing implicit), and it is what types
+  `ctx.locale`. A collection that `get`s a per-language one is per-language too, and must say so (a
+  mismatch is `collection-load`).
 - **Entries are paired by `key`, not by URL.** `hello` in English and `hallo` in German are one post when
   their `key` is equal: for a glob, `key="id"` with an `id` in the frontmatter, since the slug is
   translated. So slugs can be translated.
@@ -392,14 +453,21 @@ each language reads its own list:
   the error's message; the rest of the site works. The message is scrubbed (URLs lose their query and
   credentials, values from `ctx.env` are masked) since the overlay is a browser page; the terminal has the
   whole error.
-- **`sinter check` and the editor read `file:` sources, and never run loaders.** Files are the
-  repository's: reading a glob is as cheap as reading one file is today, and its values make unrolling,
-  SN536 and SN322 come out as in the build. A CMS fetch per keystroke or per CI type check would be slow,
-  need secrets and depend on the network, so for `content:` they read a **snapshot**: the build and the dev
-  server write each collection's list to `node_modules/.cache/sinter/content.json`. Without one they type
-  from the loaders' declared types alone and say once that value-dependent checks were skipped; with one
-  older than the content module, they say it is stale. In CI, `sinter check` after `vite build` has a
-  fresh one.
+- **`sinter check` and the editor read `file:` sources, and never run loaders.**
+  - They compile without a language (`lsp/workspace.ts:214`; the shadow file does not know `localePrefix`,
+    `shadow.ts:170`), so `{$locale}` is the base language there and `order` compares in it.
+  - Globs are cached by each file's modification time: the editor recompiles on a debounce with a
+    synchronous `readFile`, and re-parsing ten thousand frontmatters per keystroke is not an option. A
+    change re-reads only the files that changed.
+  - The editor watches the globs' fixed parts (`content/posts/`), registered with the client beside its
+    current watchers (`lsp/server.ts:174`, which have no `.md`), so editing a post updates the pages that
+    read it.
+  - For `content:` they read a **snapshot**: the build and the dev server write each collection's list to
+    `node_modules/.cache/sinter/content.json`, keyed by collection, language and command. Without one they
+    type from the loaders' declared types alone and say once that value-dependent checks were skipped.
+    Staleness is best-effort: a snapshot older than the content module is reported stale, but a CMS
+    change or a changed file a loader read is not detected; in CI, `sinter check` after `vite build` has a
+    fresh one.
 
 ### 9. Build-time or request-time
 
@@ -424,8 +492,9 @@ Not yet measured; [the plan](#plan) prototypes it before part B. What is known:
 
 - each entry is a compile of the page, a few milliseconds for a static page plus what folds (`md.parse` of
   a long post is tens of ms);
-- a production build re-runs every folded call at its end in a fresh module (`src/fold-cross.ts:5`), which
-  doubles the folding;
+- a production build re-runs the folded calls at its end in a fresh module (`src/fold-cross.ts:5`), once
+  per entry once it is keyed per entry ([§5](#5-a-page-per-entry-data-sn-pages));
+- each entry with something to run is a page module of its own;
 - every entry is a Rollup input, and the plugin keeps every page's HTML (`built`) until `generateBundle`.
 
 The prototype is 10,000 entries of a markdown post page; the proposal's numbers and any cap come from it.
@@ -433,32 +502,34 @@ The prototype is 10,000 entries of a markdown post page; the proposal's numbers 
 ## Diagnostics
 
 SN332 (`file-source`) becomes the code for every build-time source problem, and is renamed
-`build-time-source` (unreleased, so free): a glob's `.json` file that is not an object, duplicate keys,
-invalid frontmatter, `{…}` other than `{$locale}`, `order` on a value that is not a list, an attribute a
-build-time resource does not take, and what it covers today. New codes, numbers assigned at implementation:
+`build-time-source`: a glob's `.json` file that is not an object, duplicate keys, invalid frontmatter, a
+reserved frontmatter key, `items` on a `.md` file, `{…}` other than `{$locale}`, `order` on a value that is
+not a list, an attribute a build-time resource does not take, and what it covers today
+(`fileAttrProblem`'s wording, `files.ts:18`, which refuses `order`, changes with it). New codes, numbers assigned at implementation:
 
 | Code | When |
 | --- | --- |
 | content-module | an export of the content module that is not a collection; the module fails to load |
 | collection-load | a loader throws, returns a non-list, non-plain data, or a missing or duplicate `key` |
 | unknown-collection | `content:name` names no collection |
-| content-fields | browser code reads an entry in a way the compiler cannot follow, without `fields` |
-| pages-param | an entry has no usable value for a `:param` (missing, empty, not a string or number, a `/`), or two entries fill one URL |
+| content-fields | browser code reads a build-time list or object without `fields` |
+| pages-param | an entry has no usable value for a `:param` (missing, empty, not a string or number, `.`, `..`, a `/`), or its URL is another entry's, another page's or a `public/` file's |
 | pages-path | `data-sn-pages` without exactly one pattern in `data-sn-path`, or naming no top-level build-time list of the page |
 | url-param-pages | `$url.<param>` on a `data-sn-pages` page |
 | broken-entry-link | a link in the built HTML under a `data-sn-pages` pattern that no entry was written at |
 
-A glob that matches nothing is a warning (SN-new `empty-glob`). SN504 covers an untyped glob or `.md`
-file; SN329 an API named `content`; SN536 is an error on a `data-sn-pages` page.
+A glob that matches nothing is a warning (SN-new `empty-glob`). SN329 covers an API named `content`;
+SN536 is an error on a `data-sn-pages` page.
 
 ## Testing
 
 - **Unit**: frontmatter (the failsafe schema, no dates, invalid YAML with its line, a file without it),
-  globs (slugs, `dir`, `path`, sort, drafts per mode, `.json` that is not an object, no match, symlinks out
-  of the root, `{$locale}`), `collection()` validation, `ctx.files`, `get` and cycles, `ctx.env`, the
-  per-locale trace, `chunks`.
+  globs (slugs, `dir`, `path`, reserved keys, sort, `drafts` per command, `.json` that is not an object,
+  no match, symlinks out of the root, `{$locale}`), `collection()` validation, `ctx.files`, `get` and
+  cycles, `ctx.env`, `perLocale`, `chunks`; the extractor against the compiler on every fixture page.
 - **Compiler**: the existing `test/behaviour/files.test.ts` over both sources; `.md` as an entry; `order`
-  per language; field pruning and `content-fields`; `data-sn-pages` constants in the head, slots and
+  per language; `fields`, the narrowed type and `content-fields`; `type` checked against the files
+  (`satisfies`); a list of 5,000 rows unrolled, one over the budget with SN536 at its loop; `data-sn-pages` constants in the head, slots and
   props; the new codes.
 - **Build** (the fixture pattern of `test/static-*`): a blog of three posts, an index, a paged archive and
   a tag page; the files at exact paths, no JavaScript, the sitemap, the canonical links, no `_redirects`
@@ -466,41 +537,46 @@ file; SN329 an API named `content`; SN536 is an error on a `data-sn-pages` page.
   in one language; a live resource on a generated page; a loader failing before any input exists.
 - **Dev** (e2e): editing a markdown file reloads its page and the index; adding one serves its URL; a
   failing loader's overlay with a token in its URL, scrubbed.
-- **Check**: globs read without a build; `content:` with and without a snapshot, and with a stale one.
+- **Check and editor**: globs read without a build, cached by mtime, a changed `.md` re-checked through
+  the watcher; `content:` with and without a snapshot, and with a stale one.
 - **The static-site example** gains a blog from `content/posts/*.md` with sinter-markdown.
 
 ## Plan
 
-Three pull requests, each followed by a review of where it departed from this text:
+A prototype first, then three pull requests, each followed by a review of where it departed from this text:
 
-- **A, build-time resources**: `file:` as in §2 (a `.md` file is an entry, globs, drafts, `{$locale}`),
-  `order` and field pruning (§4), `content:` and the content module with the pre-pass (§3), types and the
-  snapshot (§6, §8), dev reload, SN332's rename. Since `file:` is unreleased, part A also changes what
-  already uses it: `docs/resources.md#files`, the CHANGELOG's `file:` entry (rewritten as one entry for
-  build-time resources, not a second one), sinter-markdown's README, `docs/markdown.md`, its fixture page
+- **0, prototype**: the build's pre-pass in Rollup's `options` hook with Vite's HTML entries (or the
+  `configResolved` fallback), virtual pages `{ source, locale?, entry }` without `localePrefix`, and
+  10,000 entries of a markdown post page, static and with a live resource (a module per entry): build
+  time, memory and output size. The [Build time](#build-time) section's numbers, any cap, and whether a
+  shared module per page is needed in the first version, come from it.
+- **A, build-time resources**: `file:` as in §2 (a `.md` file is an entry, globs, `drafts`, `{$locale}`),
+  `order`, `fields`, `MAX_UNROLL` removed and `expansionLimit` public (§4), `content:` and the content module (§3), types checked against
+  the files, the snapshot and the editor's watchers (§6, §8), dev reload, SN332's rename. Part A also
+  changes what already uses `file:`, and the docs of the limit: `docs/static-pages.md` ("a list over 1,000
+  items"), `docs/resources.md#files`, the CHANGELOG's `file:` entry (rewritten
+  as one entry for build-time resources), sinter-markdown's README, `docs/markdown.md`, its fixture page
   and `test/static.test.ts` (`md.parse(post)` becomes `md.parse(post.body)`), `examples/static-site`, and
   the `file:` examples in `docs/proposals/component-libraries.md` (a note, since proposals are records).
   Useful alone: an index over a folder, a post's title from its frontmatter.
-- **B, a page per entry**: first the 10,000-entry prototype ([Build time](#build-time)); then
-  `data-sn-pages` (§5) on the per-language inputs, exact paths, the sitemap and canonical links, languages
-  (§7), dev serving, `chunks`.
+- **B, a page per entry**: `data-sn-pages` (§5) with the extractor and the pre-pass, exact paths and
+  collisions, the sitemap and canonical links, languages (§7), dev routing, the per-entry fold check,
+  `chunks`.
 - **C, links and docs**: `broken-entry-link` (§6); a guide `docs/content.md`, the static-site example's
   blog, `resources.md` and `static-pages.md` pointing to it, `llms.txt`, CHANGELOG.
 
-**Part A should land before the next release**, so that `file:` is never released in its current form and
-then changed.
-
 ## Open questions
 
-- **Tracing `ctx.locale`.** Calling a loader once per language only when it reads `locale` is convenient
-  but implicit. The explicit alternative is `collection({ perLocale: true, … })`. To be decided with the
-  prototype.
-- **`draft` by convention.** Reading one frontmatter field by name is new for sinter. The alternative is an
-  attribute (`drafts="draft"`), which is more to write for what every blog wants. This proposal picks the
-  convention.
+- **The pre-pass's hook**: Rollup's `options` or `configResolved`, decided by the prototype.
+- **A module per entry**: acceptable at 10,000 entries with a live resource, or does the first version
+  need the shared module? Decided by the prototype.
 
 ## Future work
 
+- **Inferred `fields`**: embedding the fields browser code reads, tracked through loops, lets and props,
+  so `fields` is needed only where a read cannot be followed.
+- **A module shared by every entry** of a `data-sn-pages` page, reading the entry from embedded data
+  instead of folding it, if the prototype shows a module per entry is too costly.
 - **Embedded live data on `data-sn-pages` pages**: one `sinter-embed.json` entry per entry, and a server
   that does not read thousands of pages at startup.
 - **Rest parameters**, as their own proposal.
@@ -518,21 +594,24 @@ Settled in review, against `main` at 2b33230, in the order they were discussed:
 
 | Question | Decision | Section |
 | --- | --- | --- |
-| When loaders run | A pre-pass in `configResolved`: a scan of the pages, the content module and its loaders, the globs `data-sn-pages` needs, then the inputs; any failure stops the build before an input exists. `sitemap.paths` runs in `generateBundle` and is no precedent for timing | [§3](#when-loaders-and-globs-run-a-pre-pass) |
-| How a collection is declared | `collection({ key, load })` with a context (`files`, `get`, `env`, `mode`, `locale`), not any exported function: `get` memoizes and orders loaders, `files` is watched in dev, `mode` gives drafts | [§3](#3-content-code-at-build-time) |
-| Secrets | Loaders read `.env` through `ctx.env` (Vite's `loadEnv`, every prefix), since nothing loads `.env` today; browser code gets only the fields it reads, or those `fields` names; the dev overlay's messages are scrubbed | [§3](#3-content-code-at-build-time), [§4](#4-what-a-page-gets), [§8](#8-dev-sinter-check-and-the-editor) |
+| When loaders run | Before any input exists; `sitemap.paths` runs in `generateBundle` and is no precedent for timing. Revised in the second review: an extractor in `src/compiler/`, asserted by `compile()`, finds what the pre-pass needs without compiling; the build's pre-pass runs in Rollup's `options` hook (or `configResolved`, by the prototype), with the helpers loader's re-entry guard; dev loads on first request | [§3](#when-loaders-and-globs-run-a-pre-pass) |
+| How a collection is declared | `collection({ key, load, perLocale })` with a context (`files`, `get`, `env`, `command`, `locale`), not any exported function: `get` memoizes and orders loaders, `files` is watched in dev | [§3](#3-content-code-at-build-time) |
+| Secrets | Loaders read `.env` through `ctx.env` (Vite's `loadEnv`, every prefix), since nothing loads `.env` today; browser code gets only the fields `fields` names (explicit in the first version, since nothing tracks field reads today), and its type is narrowed to them; the dev overlay's messages are scrubbed | [§3](#3-content-code-at-build-time), [§4](#4-what-a-page-gets), [§8](#8-dev-sinter-check-and-the-editor) |
 | An entry's URL | An exact path, as every `data-sn-path` page's: `blog/hello.html` at `/blog/hello`, canonical without a trailing slash; the template's file is not written (`movesToDirectory` is false for these pages, so there is no redirect file to keep) | [§5](#5-a-page-per-entry-data-sn-pages) |
 | The attribute's name | `data-sn-pages`, not `data-sn-each`: `each` is already fan-out on `<sn-resource>` | [§5](#5-a-page-per-entry-data-sn-pages) |
 | Paged indexes | No `pages()` built-in, and no fixed path beside the pattern (which would make every page's canonical the fixed URL): a collection of chunks, an ordinary `data-sn-pages` page | [An index in pages](#an-index-in-pages) |
-| `sinter check` | Reads `file:` sources, globs included; never runs loaders, and compiles `content:` against the build's snapshot, saying when it has none or it is stale | [§8](#8-dev-sinter-check-and-the-editor) |
+| `sinter check` and the editor | Read `file:` sources, globs cached by mtime and watched; never run loaders, and compile `content:` against the build's snapshot (keyed by collection, language and command; staleness best-effort); compile in the base language | [§8](#8-dev-sinter-check-and-the-editor) |
 | Rest parameters and slugs with `/` | Out: one segment per parameter; nested folders give `dir`, and a URL with a year takes it as a field | [Not goals](#not-goals), [§2](#a-glob-is-a-list) |
 | Embedded live data | Not in the first version: `data-sn-pages` pages are left out of `sinter-embed.json` | [§5](#5-a-page-per-entry-data-sn-pages) |
-| Languages | `{$locale}` in a `file:` path; a loader per language when it reads `locale`; entries paired by `key`, so slugs can be translated; a missing entry has no page, no alternate and a `null` `localeUrl()`; one chooser per entry | [§7](#7-languages) |
-| A long post over `EXPANSION_LIMIT` | An error on `data-sn-pages` pages, not SN536's warning | [§5](#5-a-page-per-entry-data-sn-pages) |
+| Languages | `{$locale}` in a `file:` path; a loader per language with `perLocale: true` (explicit, not traced); entries paired by `key`, so slugs can be translated; a missing entry has no page, no alternate and a `null` `localeUrl()`; one chooser per entry | [§7](#7-languages) |
+| Limits | One: the page's budget (`EXPANSION_LIMIT`, measured, every row and instance), public as `sinter({ expansionLimit })`. `MAX_UNROLL`, the per-list cap, is removed: it refused lists the budget allowed, silently. Over the budget is SN536, an error on `data-sn-pages` pages | [§5](#5-a-page-per-entry-data-sn-pages) |
 | Link checking's scope | Links under `data-sn-pages` patterns only, named `broken-entry-link`; checking every internal link is separate | [§6](#6-types-and-links) |
 | `file:` and collections | One build-time resource with two sources: `file:` for the repository (one file or a glob, usable in a library's components), `content:` for code (the app's content module). No `files()` collection: a loader reads files through `ctx.files`. `file:` is unreleased, so it changes in part A rather than living beside a second mechanism | [§1](#1-one-build-time-resource-two-sources) |
-| A `.md` file's value | An entry, `{ ...frontmatter, body }`, alone or in a glob; `.json` and text files keep their values | [§2](#what-a-files-value-is) |
+| A `.md` file's value | An entry, `{ ...frontmatter, body }`, alone or in a glob; `.json` and text files keep their values; `body`, `dir` and `path` are reserved frontmatter keys; untyped, it is `{ body: string }` with no warning | [§2](#what-a-files-value-is) |
 | Sorting | `order` on both sources, sorted once at build time, in the page's language with `localePrefix` and the base language without; the same attributes for both sources | [§4](#4-what-a-page-gets) |
 | Interpolation in `file:` | Only `{$locale}`, with `localePrefix`; anything else stays SN332 | [§2](#locale-in-a-path) |
-| `type` on a glob | Names one entry's type (the frontmatter's); sinter adds `slug`, `dir`, `path`, `body` | [§4](#4-what-a-page-gets) |
-| Drafts | `draft: true` in an entry's frontmatter, left out of production builds; no option | [§2](#a-glob-is-a-list) |
+| `type` on a glob | Names one entry's type (the frontmatter's); sinter adds `slug`, `dir`, `path`, `body`; `sinter check` checks every file's value against it (`satisfies`) | [§4](#4-what-a-page-gets) |
+| Drafts | Explicit, `drafts="field"` (and `ctx.files(glob, { drafts })`): left out by `vite build`, kept by `vite dev`, as the build in `check`; no field is read by name without it |
+| Compatibility | None needed: pre-1.0, no users, every piece unreleased. `content` is reserved as a source name although `apis` shipped; `file:` changes in place |
+| A page module per entry | Yes in the first version, since the second pass writes modules from constants; the prototype measures it, a shared module is future work |
+| Entry URLs | Encoded with the sitemap's encoder; a URL another entry, page or `public/` file has fails the build | [§2](#a-glob-is-a-list) |
