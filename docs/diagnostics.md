@@ -582,6 +582,16 @@ Error, for example:
 
 **Fix:** Name an exported collection, or export one: `export const posts = collection({ key: 'slug', load: async () => … })`. If the module failed to load, fix the error it names.
 
+## SN343 broken-entry-link
+
+Error, for example:
+
+> `index.html` links to `/blog/helo`, which `/blog/:slug` (blog/post.html) matches, but no entry is there. Did you mean `/blog/hello`?
+
+A build knows every page a `data-sn-pages` template was written at, so a link in a built page to a path its pattern matches but no entry has would be a 404. The links checked are the built HTML's root-relative `href`s: from the markup, constants, folded expressions and markdown. A link built in the browser at run time is not checked.
+
+**Fix:** Link to an entry that exists (the build suggests the nearest), give the entry that slug, or drop the link.
+
 ## SN401 parse-error
 
 Error, for example:

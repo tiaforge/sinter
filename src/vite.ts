@@ -11,7 +11,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { loadContent, writeSnapshot, type LoadedContent } from './content-node.js';
-import { applyStrict, compile, formatDiagnostic, formatWarning, strictPromotes, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
+import { applyStrict, CODES, compile, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
 import { lazyOf, project, staticPages, strictOf, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
@@ -701,6 +701,29 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const entry = new Set<string>(), patterns = new Set<string>();
     for (const v of virtual.values()) if (v.page) { entry.add(v.page.path); patterns.add(templatePattern(v.source)); }
     return speculationRules(mode, [...appPages().flatMap((x) => x.paths).filter((x) => !entry.has(x)), ...patterns], samePage);
+  };
+  /**
+   * builds: a link in a finished page to a path a `data-sn-pages` pattern matches, but no entry was written at, fails
+   * the build (SN343), with the entry it was likely meant for. The links are the built HTML's (`href`, root-relative):
+   * those from constants and folded expressions, markdown's included; a link built at run time is not checked.
+   */
+  const brokenEntryLinks = (fail: (m: string) => never, built: Map<string, string>) => {
+    const entries = new Set<string>(), patterns = new Map<string, string>();
+    for (const v of virtual.values()) if (v.page) { entries.add(decodeURIComponent(v.page.path)); patterns.set(templatePattern(v.source), relOf(v.source)); }
+    if (!patterns.size) return;
+    const found: string[] = [];
+    for (const [rel, html] of built) for (const m of html.matchAll(/\shref="(\/(?!\/)[^"]*)"/g)) {
+      let path: string;
+      try { path = decodeURIComponent(m[1]!.replace(/&amp;/g, '&').split(/[?#]/)[0]!).replace(/(.)\/$/, '$1'); } catch { continue; }
+      if (entries.has(path)) continue;
+      for (const [pattern, template] of patterns) {
+        if (!matches(pattern, path)) continue;
+        const near = suggest(path, [...entries].filter((e) => matches(pattern, e)));
+        found.push(`${rel} links to \`${path}\`, which \`${pattern}\` (${template}) matches, but no entry is there${near ? `. Did you mean \`${near}\`?` : ''}`);
+        break;
+      }
+    }
+    if (found.length) fail(`sinter: error SN343 ${CODES.SN343}: ${found.slice(0, 20).join('\n  ')}${found.length > 20 ? `\n  … and ${found.length - 20} more` : ''}\n  docs: \`npx sinter docs SN343\`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn343-broken-entry-link`);
   };
   /** a `data-sn-pages` page's pattern, as its template writes it (read once per build) */
   const templatePatterns = new Map<string, string>();
@@ -1963,6 +1986,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (file !== rel) this.emitFile({ type: 'asset', fileName: rel, source: chooserFor(src, script) });
         }
       }
+      brokenEntryLinks((m) => this.error(m), built);
       for (const f of await sitemap((m) => this.error(m), all, built)) this.emitFile({ type: 'asset', ...f });
       // _redirects: the same rules for hosts that read them (Netlify, Cloudflare Pages), after the app's own
       if (options.redirects === false) return;

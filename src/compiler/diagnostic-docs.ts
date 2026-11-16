@@ -277,6 +277,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: '`<sn-resource src="content:posts">` reads a collection of the content module (`src/sinter.content.ts`): an export made with `collection({ key, load })`, loaded before any page compiles. The name must be one of its exports. In the dev server, a content module that failed to load reports its error here, on each page that reads a collection.',
     fix: 'Name an exported collection, or export one: `export const posts = collection({ key: \'slug\', load: async () => … })`. If the module failed to load, fix the error it names.',
   },
+  SN343: {
+    example: '`index.html` links to `/blog/helo`, which `/blog/:slug` (blog/post.html) matches, but no entry is there. Did you mean `/blog/hello`?',
+    means: 'A build knows every page a `data-sn-pages` template was written at, so a link in a built page to a path its pattern matches but no entry has would be a 404. The links checked are the built HTML\'s root-relative `href`s: from the markup, constants, folded expressions and markdown. A link built in the browser at run time is not checked.',
+    fix: 'Link to an entry that exists (the build suggests the nearest), give the entry that slug, or drop the link.',
+  },
   SN333: {
     example: '`data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it',
     means: 'A `<template data-sn-text>` renders a text node and nothing else: it takes no other attribute (`data-sn-if` and `data-sn-for` go on a template around it, anything else on an element around the text), and content inside it is dropped.',

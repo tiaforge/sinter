@@ -71,6 +71,7 @@ export const CODES = {
   SN340: 'pages-path',
   SN341: 'pages-param',
   SN342: 'unknown-collection',
+  SN343: 'broken-entry-link',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',

@@ -74,6 +74,13 @@ describe('data-sn-pages in a build', () => {
     expect(r.error).toMatch(/blog\/post\.html: the entry at `\/blog\/hello` would be written where `blog\/hello\.html` is \(data-sn-pages\)/);
   }, 60_000);
 
+  test('a link to an entry that does not exist fails the build (SN343), with the one it was likely meant for', async () => {
+    const root = app({ ...blog, 'about.html': '<site-layout data-sn-prop="{ title: \'About\' }"><p>See <a href="/blog/helo">the first post</a>, or <a href="/blog/recap?x=1#top">the recap</a>.</p></site-layout>' });
+    const r = await run(root, ['index.html', 'blog/post.html', 'about.html']);
+    expect(r.error).toMatch(/SN343 broken-entry-link: about\.html links to `\/blog\/helo`, which `\/blog\/:slug` \(blog\/post\.html\) matches, but no entry is there\. Did you mean `\/blog\/hello`\?/);
+    expect(r.error).not.toMatch(/recap/);
+  }, 60_000);
+
   test('the declaration\'s errors fail the build (the template is no input to report them)', async () => {
     const root = app({ ...blog, 'blog/post.html': blog['blog/post.html'].replace('data-sn-path="/blog/:slug"', 'data-sn-path="/blog/:year/:slug"') });
     const r = await run(root, ['index.html', 'blog/post.html']);
