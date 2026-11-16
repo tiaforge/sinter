@@ -552,6 +552,26 @@ A tag with a library's prefix names one of its components. Those in its `compone
 
 **Fix:** Use one of the public components the message lists, or fix the name. A library's author moves a component the app needs out of `components/internal/`.
 
+## SN340 pages-path
+
+Error, for example:
+
+> `data-sn-pages` needs `data-sn-path` with exactly one pattern to fill from each entry, e.g. `data-sn-path="/blog/:slug"`
+
+`<html data-sn-pages="post in posts">` (or on a layout's tag) builds the page once per entry of `posts`, a `file:` glob the page declares outside any template, and writes each at its `data-sn-path` pattern filled from the entry. The value is `<name> in <list>`; the name is the entry, readable in the whole page as a resource is (not a store function's or a magic name). The page has exactly one pattern, with parameters, and no other path: a fixed path would be written once per entry.
+
+**Fix:** Write `data-sn-path="/blog/:slug"` beside it, declare the list on the page (`<sn-resource name="posts" src="file:/content/posts/*.md">`), and name the entry `post in posts`.
+
+## SN341 pages-param
+
+Error, for example:
+
+> `content/posts/draft.md` has no `slug` to fill `:slug` (a string or a number): each entry fills `/blog/:slug`
+
+Each entry of a `data-sn-pages` list fills the page's pattern: every `:param` takes the entry's field of that name, which must be a string or a number, one path segment (not empty, not `.` or `..`, no `/`). Two entries that fill the same path would be one page.
+
+**Fix:** Give the entry the field (in its frontmatter, or a file name that makes its `slug`), make it one segment, or give two entries different values.
+
 ## SN401 parse-error
 
 Error, for example:

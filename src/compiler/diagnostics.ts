@@ -68,6 +68,8 @@ export const CODES = {
   SN337: 'library-package',
   SN338: 'library-prefix',
   SN339: 'library-component',
+  SN340: 'pages-path',
+  SN341: 'pages-param',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',

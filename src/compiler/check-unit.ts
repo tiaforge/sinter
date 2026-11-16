@@ -99,6 +99,8 @@ export interface CheckResource {
    * (`slug`, `dir`, `path`, `body`), as a type; `values`, each file's value, which must fit the entry's type (with `type`)
    */
   file?: { list: boolean; adds: string | null; values: Array<{ file: string; json: string }> };
+  /** `data-sn-pages`: the entry, typed as one item of the resource it names */
+  item?: string;
 }
 
 export interface CheckUnit {

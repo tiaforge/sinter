@@ -1,6 +1,7 @@
-// The benchmark's app (docs/proposals/collections.md, Prototype): a blog of `n` markdown posts, one page per
-// post written out as a file (what `data-sn-pages` will produce, compiled the same way), and an index.
-// `live`: each post also has a live resource (its comments), so each post's page has a module of its own.
+// The benchmark's app (docs/proposals/collections.md, Prototype): a blog of `n` markdown posts and an index. By default
+// one template page builds every post (`data-sn-pages`); with `pages: false` (`measure.mjs --files`) each post is a page
+// of its own, reading its file, which compiles the same way. `live`: each post also has a live resource (its
+// comments), so each post's page has a module of its own.
 import { mkdirSync, rmSync, symlinkSync, writeFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
@@ -12,7 +13,7 @@ const para = (i, j) => Array.from({ length: 5 }, (_, k) => sentence(i, j * 5 + k
 /** a post of about 600 words: headings, paragraphs, a list, a code block, links */
 export const post = (i) => `## Introduction
 
-${para(i, 0)} See [the next post](/blog/post-${(i + 1)}/) and *emphasis* with \`code\`.
+${para(i, 0)} See [the next post](/blog/post-${(i + 1)}) and *emphasis* with \`code\`.
 
 ${para(i, 1)}
 
@@ -35,17 +36,18 @@ ${para(i, 3)}
 ${para(i, 4)}
 `;
 
-const PAGE = (live, slug, title) => `<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><title>${title}</title></head>
+/** a post's page: written once per post (`files`), or the template every post is built from (`data-sn-pages`) */
+const PAGE = (live, src, attrs, slug) => `<!doctype html>
+<html lang="en"${attrs}>
+<head><meta charset="utf-8"><title data-sn-text="post.title"></title></head>
 <body>
-<sn-resource name="post" src="file:/content/posts/${slug}.md"></sn-resource>
-<main data-sn-let="{ doc: md.parse(post) }">
-  <h1>${title}</h1>
+${src}
+<main data-sn-let="{ doc: md.parse(post.body) }">
+  <h1 data-sn-text="post.title"></h1>
   <nav><template data-sn-for="h in md.headings(doc)"><a data-sn-attr="{ href: '#' + h.id }" data-sn-text="h.text"></a></template></nav>
   <md-doc data-sn-prop="{ doc }"></md-doc>
 </main>
-${live ? `<sn-resource name="comments" src="/api/comments?post=${slug}" items="comments" key="id" type="any"></sn-resource>
+${live ? `<sn-resource name="comments" src="/api/comments?post={${slug}}" items="comments" key="id" type="any"></sn-resource>
 <ul><template data-sn-for="c in comments"><li data-sn-text="c.body"></li></template></ul>` : ''}
 </body>
 </html>
@@ -56,14 +58,15 @@ const INDEX = (n) => `<!doctype html>
 <head><meta charset="utf-8"><title>Blog</title></head>
 <body>
 <ul>
-${Array.from({ length: Math.min(n, 20) }, (_, i) => `  <li><a href="/blog/post-${n - 1 - i}/">Post ${n - 1 - i}</a></li>`).join('\n')}
+${Array.from({ length: Math.min(n, 20) }, (_, i) => `  <li><a href="/blog/post-${n - 1 - i}">Post ${n - 1 - i}</a></li>`).join('\n')}
 </ul>
 </body>
 </html>
 `;
 
 /** writes the app into `root`, replacing what is there */
-export function writeApp(root, { n, live }) {
+/** `pages`: one template with `data-sn-pages`; else one page per post, each reading its own file */
+export function writeApp(root, { n, live, pages = true }) {
   rmSync(root, { recursive: true, force: true });
   const files = {
     'vite.config.js': `import { resolve } from 'node:path';
@@ -76,17 +79,18 @@ export default defineConfig({
     components: ['@tiaforge-ui/sinter-markdown'],
     site: 'https://example.com',
   })],
-  build: { rollupOptions: { input: Object.fromEntries([['index', resolve(import.meta.dirname, 'index.html')], ...Array.from({ length: n }, (_, i) => ['post-' + i, resolve(import.meta.dirname, 'blog/post-' + i + '.html')])]) } },
+  build: { rollupOptions: { input: Object.fromEntries([['index', resolve(import.meta.dirname, 'index.html')], ...(${pages} ? [['post', resolve(import.meta.dirname, 'blog/post.html')]] : Array.from({ length: n }, (_, i) => ['post-' + i, resolve(import.meta.dirname, 'blog/post-' + i + '.html')]))]) } },
 });
 `,
     'src/sinter.helpers.ts': "export * as md from '@tiaforge-ui/sinter-markdown';\n",
     'src/sinter.types.ts': "export type { Root } from '@tiaforge-ui/sinter-markdown';\n",
     'index.html': INDEX(n),
   };
-  for (let i = 0; i < n; i++) files[`blog/post-${i}.html`] = PAGE(live, `post-${i}`, `Post ${i}`);
+  if (pages) files['blog/post.html'] = PAGE(live, '<sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource>', ' data-sn-path="/blog/:slug" data-sn-pages="post in posts"', 'post.slug');
+  else for (let i = 0; i < n; i++) files[`blog/post-${i}.html`] = PAGE(live, `<sn-resource name="post" src="file:/content/posts/post-${i}.md"></sn-resource>`, '', `'post-${i}'`);
   for (const [f, s] of Object.entries(files)) { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), s); }
   mkdirSync(join(root, 'content/posts'), { recursive: true });
-  for (let i = 0; i < n; i++) writeFileSync(join(root, `content/posts/post-${i}.md`), post(i));
+  for (let i = 0; i < n; i++) writeFileSync(join(root, `content/posts/post-${i}.md`), `---\ntitle: Post ${i}\n---\n` + post(i));
   mkdirSync(join(root, 'node_modules/@tiaforge-ui'), { recursive: true });
   symlinkSync(REPO, join(root, 'node_modules/@tiaforge-ui/sinter'), 'dir');
   symlinkSync(join(REPO, 'packages/sinter-markdown'), join(root, 'node_modules/@tiaforge-ui/sinter-markdown'), 'dir');

@@ -204,6 +204,49 @@ names only the URL a page has anyway (`/contact/` on `contact.html`) is
 [SN515](diagnostics.md#sn515-redundant-path), and ignored. Any other URL scheme is your reverse
 proxy's business.
 
+### A page per entry
+
+`data-sn-pages` builds a page once per entry of a list the page reads from the repository, and writes each at
+its `data-sn-path` pattern filled from the entry:
+
+```html
+<!-- blog/post.html -->
+<site-layout data-sn-path="/blog/:slug" data-sn-pages="post in posts" data-sn-prop="{ title: post.title }">
+  <sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource>
+  <article>
+    <h1 data-sn-text="post.title"></h1>
+    <md-doc data-sn-prop="{ doc: md.parse(post.body) }"></md-doc>
+  </article>
+</site-layout>
+```
+
+```
+dist/blog/hello.html      /blog/hello
+dist/blog/recap.html      /blog/recap
+```
+
+- **The list** is a [`file:` glob](resources.md#files) the page declares, outside any template: one entry per
+  file, with its frontmatter's fields, `body`, `slug`, `dir` and `path`. `order` and `drafts` apply.
+- **The entry** (`post`) is a constant in the whole page, its head, layout and slots included, as a resource
+  is: components get it through props. Everything over it is written at build time, so each page ships no
+  JavaScript unless something on it runs (a live resource for its comments is fine: it loads in the browser).
+  `sinter check` types it as one item of the list: `post.titel` is an error.
+- **Its URL**: each `:param` of the pattern is the entry's field of that name, a string or a number that is
+  one path segment, encoded as the sitemap encodes it (`A b` is `A%20b`). An entry that cannot fill it, or two
+  that fill one path, are [SN341](diagnostics.md#sn341-pages-param). The page has exactly that one pattern
+  ([SN340](diagnostics.md#sn340-pages-path)).
+- **A file at its path**, as any page with an exact `data-sn-path`: `blog/hello.html` at `/blog/hello`, which
+  hosts serve without a rule, so `_redirects` has none for it. Its canonical link is written at build time,
+  and the sitemap lists every entry (no `sitemap.paths` for the pattern). The template (`blog/post.html`) is
+  not written: nothing answers at it. A path another page or a file in `public/` has fails the build.
+- **Speculation Rules** name the pattern once (`/blog/:slug`), not each entry.
+- **The dev server** serves each entry at its URL, from the template, compiled with that entry.
+- Not yet with [`localePrefix`](#languages): the build says so.
+
+A page per entry is for content the repository holds; data that changes on its own stays a pattern page with a
+live resource (one file for every slug, its data loaded in the browser or embedded by the
+[server layer](server.md)).
+
 ### Redirects and rewrites
 
 The build writes the rules for your pages into `_redirects`, the file Netlify and Cloudflare Pages
