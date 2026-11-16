@@ -130,3 +130,9 @@ test('with the parser lazy, the page module holds no parser; it loads in a chunk
   // loaded with the page, the parser is in the page's own bundle
   expect([eager.entry, ...eager.others].some((c) => PARSER.test(c))).toBe(true);
 });
+
+// Without `key` a resource is one object (sinter's docs/resources.md, "Single objects"): an upsert into
+// the comments would replace the whole list with the one comment. The recipe's list is keyed.
+test('the recipe keys its list of comments, so a comment added later joins the list', () => {
+  expect(BODY).toMatch(/<sn-resource name="comments" src="[^"]+" key="id">/);
+});
