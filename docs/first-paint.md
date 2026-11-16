@@ -31,7 +31,9 @@ disabled shows.
 
 A binding qualifies when it reads only `data-sn-state` fields with a constant initializer, and
 constants. Fields count one by one: in `{ here: '/mail/', at: $now }`, `here` is still constant.
-Helpers, `$locale` and persisted values are not constants (the early script handles those). A
+A helper call over constants is a constant too, when the helper's code can run at build time (it
+uses only JavaScript's own deterministic globals: [static pages](static-pages.md#helpers-and-files-at-build-time)).
+Other helpers, `$locale` and persisted values are not constants (the early script handles those). A
 refused URL or style is left out.
 
 A binding that reads nothing that can change, such as a component's prop given as a literal
@@ -42,7 +44,17 @@ The same holds inside templates: such a binding is written into the template's m
 row or branch is cloned with it. And a `data-sn-if` over state nothing writes is decided at build
 time: its branch (or its `data-sn-else`) is page markup, written and painted like the rest. A
 `data-sn-for` over a constant list (a literal, a prop given as one, state nothing writes) whose rows read
-only the item, its index and constants is unrolled at build time: its rows are page markup too.
+only the item, its index and constants is unrolled at build time: its rows are page markup too. This
+goes on at any depth: a loop in a row over the row's item is unrolled the same way, a `data-sn-if` in a
+row is decided per row, and an `<sn-component use>` renders the component each row or use chooses as
+page markup; a component used inside itself over constant props (a content tree) is expanded the same
+way, at any depth, up to 10,000 rows and components per page.
+A component's templates are decided per use.
+
+Such bindings on an `<img>`, and constant classes and styles, are written before the build
+optimizes images and computes the layout, so a constant image is optimized like one you wrote
+([images](images.md#what-is-optimized)) and a constant class counts for its `sizes` and for
+[reserved space](#reserved-space).
 
 A page where all of it is constant has nothing left to run, and ships no JavaScript at all: see
 [pages without JavaScript](static-pages.md).
@@ -251,7 +263,9 @@ its range with one file, so one preload covers them all. In dev, local faces are
 A package only some interactions need (crypto, charts, a PDF renderer) does not have to be on the
 first paint's path: `sinter({ lazy: ['openpgp'] })` loads it on first call. Per page, in the markup,
 `data-sn-import="openpgp"` loads it once the page has taken over, and `data-sn-preload="openpgp"`
-fetches it with the page, for pages whose first content needs it. See [lazy packages](lazy.md).
+fetches it with the page, for pages whose first content needs it. A `data-sn-let` over a helper module
+that reaches such a package waits for it and is not early; the rest of the page is. See
+[lazy packages](lazy.md#helpers-that-wait).
 
 ## Reserved space
 

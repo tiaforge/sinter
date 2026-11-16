@@ -42,8 +42,10 @@ test('random list changes: DOM order matches state, surviving rows keep their no
         if (prev) expect(li, `seed ${seed} step ${step}: row ${items[i]!.v} was re-created`).toBe(prev);
         nodes.set(items[i]!, li);
       }
-      // the list stays contiguous right after its anchor
-      expect(ul.firstElementChild!.localName).toBe('template');
+      // the list stays contiguous between its anchor's comments
+      expect(ul.firstChild!.nodeType == 8 && (ul.firstChild as Comment).data.startsWith('sn ')).toBe(true);
+      expect((ul.lastChild as Comment).data).toBe('/sn');
+      expect([...ul.childNodes].slice(1, -1).every((n) => (n as Element).localName == 'li')).toBe(true);
     }
   }
 });

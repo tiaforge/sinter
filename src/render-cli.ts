@@ -4,13 +4,15 @@
 // with their headers and statuses, the rendered markup, each resource's state, history writes and warnings.
 // For coding agents: a page's data and behaviour, checked in one command, without a browser.
 import { existsSync, readFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { format } from 'node:util';
 import { formatDiagnostic } from './compiler/index.js';
 import { componentBase } from './components-build.js';
 import { pagePaths } from './page-paths.js';
 import { project as readProject, viteProject } from './project.js';
+import { isComponentScript, lazyHelpers } from './lazy-build.js';
+import type { Library } from './libraries.js';
 import type { HistoryWrite, MockStream, RecordedCall, Rendered, RouteResponse } from './testing/index.js';
 
 export const RENDER_USAGE = `usage: sinter render <page.html> [options] [steps]
@@ -222,7 +224,7 @@ async function ownModule(sub: string): Promise<Record<string, unknown>> {
 }
 
 /** The app's modules loaded with Vite (TypeScript, the app's imports); without Vite, plain JavaScript with Node. */
-export async function appLoader(root: string): Promise<{ load(file: string): Promise<Record<string, unknown>>; close(): Promise<void> }> {
+export async function appLoader(root: string, libs: readonly Library[] = []): Promise<{ load(file: string): Promise<Record<string, unknown>>; close(): Promise<void> }> {
   let vite: typeof import('vite') | null = null;
   try { vite = await import('vite'); } catch { /* none: JavaScript only */ }
   if (!vite) return { load: (f) => import(pathToFileURL(f).href) as Promise<Record<string, unknown>>, close: async () => {} };
@@ -237,7 +239,7 @@ export async function appLoader(root: string): Promise<{ load(file: string): Pro
       // a component's script imports its base class from its HTML file, as the Vite plugin gives it
       if (importer && id.endsWith('.html') && !importer.endsWith('.html')) {
         const file = resolve(dirname(importer.replace(/[?#].*$/, '')), id);
-        if (dirname(file) === resolve(root, 'src/components')) return `\0sinter-base:${basename(file, '.html')}`;
+        if (dirname(file) === resolve(root, 'src/components') || isComponentScript(root, file.slice(0, -5) + '.ts', libs)) return `\0sinter-base:${basename(file, '.html')}`;
       }
       return null;
     },
@@ -606,7 +608,7 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
 
   const { config } = await import('./runtime/config.js');
   savedConfig = { config, was: { ...config, request: [...config.request] } };
-  loader = await appLoader(a.root);
+  loader = await appLoader(a.root, p.libraries);
   {
     // localStorage: the page's own (an app module may read it directly), filled from --storage
     // recorded: the report lists each key the page and the app's modules read, and the --storage keys nothing read
@@ -623,9 +625,14 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
     if (p.config) await modules(abs(p.config));
     const helpers = await modules(p.helpersFile), actions = await modules(p.actionsFile);
     const scripts: Record<string, unknown> = {};
-    for (const name of p.componentNames) {
+    // the app's components' scripts, and the libraries' (public and internal)
+    const dirOf = (name: string) => {
+      const l = p.libraries.find((x) => x.prefix === name.split('-')[0]);
+      return l ? join(l.folder, 'components', l.internal.includes(name) ? 'internal' : '') : resolve(a.root, 'src/components');
+    };
+    for (const name of [...p.componentNames, ...p.libraries.flatMap((l) => l.internal)]) {
       for (const ext of ['.ts', '.js']) {
-        const f = resolve(a.root, 'src/components', name + ext);
+        const f = join(dirOf(name), name + ext);
         if (existsSync(f)) { scripts[name] = await load(f); break; }
       }
     }
@@ -641,7 +648,7 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
       ...(messages ? { messages } : {}),
       ...(a.now !== null ? { now: a.now } : {}),
       ...(a.locale ? { locale: a.locale } : {}),
-      project: { root: a.root, file: a.page, readFile: p.readFile, componentNames: p.componentNames, openapi: p.openapi, apis: p.apis },
+      project: { root: a.root, file: a.page, readFile: p.readFile, componentNames: p.componentNames, libraries: p.libraries, openapi: p.openapi, apis: p.apis, helpers: p.helpers, ...(p.lazy.length ? { lazyModule: lazyHelpers(a.root, p.lazy, undefined, p.libraries).reach } : {}) },
     });
     let error: string | undefined;
     try { await r.settle(); } catch (e) { error = (e as Error).message; }

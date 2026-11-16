@@ -7,8 +7,10 @@ import { join, relative, resolve } from 'node:path';
 import { check } from './check/index.js';
 import { applyStrict, compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
 import { project, staticPages, strictEnv, viteProject, type ProjectOptions } from './project.js';
-import { lazyDiagnostics, resolveFile } from './lazy-build.js';
+import { lazyDiagnostics, lazyHelpers, resolveFile } from './lazy-build.js';
+import { loadHelpers, unloadedMessage } from './helpers-node.js';
 import { readLocales } from './locales-build.js';
+import { componentScript } from './components-build.js';
 
 const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter docs [topic | data-sn-… | SN318 | words]\n       sinter render <page.html> [--url …] [--api mocks.json | http://…] [--click …] (sinter render --help)\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
 
@@ -59,8 +61,12 @@ async function main(argv: string[]): Promise<number> {
   // `localePrefix`: the build compiles each page in a language (`$locale` fixed, `localeUrl()`); checked in the base one
   const vite = options as ProjectOptions & { localePrefix?: boolean };
   const locale = vite.localePrefix && vite.messages !== false ? { name: readLocales(root, typeof vite.messages === 'string' ? vite.messages : 'project.inlang').base, urls: null, base: '/' } : null;
+  const lh = p.lazy.length ? lazyHelpers(root, p.lazy, undefined, p.libraries) : null;
+  // the helpers module in Node, as the build loads it: what folds, and so SN322, agrees with the build
+  const nh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers });
+  if (nh.error && p.helpersFile) diagnostics.push({ severity: 'warning', code: 'SN533', message: unloadedMessage(root, p.helpersFile, nh.error), file: p.helpersFile, line: 1, col: 1 });
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles || cycles, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(locale ? { locale } : {}) });
+    const out = compile(readFileSync(file, 'utf8'), { ...(lh ? { lazyModule: lh.reach } : {}), helperValues: nh.module, helperFold: nh.fold, file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles || cycles, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(locale ? { locale } : {}) });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
@@ -71,10 +77,11 @@ async function main(argv: string[]): Promise<number> {
   // lazy packages: uses a stub cannot serve, in the app's modules (SN324)
   if (p.lazy.length) {
     const mod = (url: string | null) => (url ? resolveFile(url, resolve(root, 'index.html'), root) : null);
-    const scripts = p.componentNames.map((n) => resolveFile(`/src/components/${n}.ts`, root, root) ?? resolveFile(`/src/components/${n}.js`, root, root)).filter((f): f is string => !!f);
-    diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], p.helpersFile, scripts));
+    const scripts = [...p.componentNames.filter((n) => !p.libraries.some((l) => l.public.includes(n))).map((n) => resolveFile(`/src/components/${n}.ts`, root, root) ?? resolveFile(`/src/components/${n}.js`, root, root)),
+      ...p.libraries.flatMap((l) => [...l.public.map((n) => join(l.folder, 'components', n)), ...l.internal.map((n) => join(l.folder, 'components', 'internal', n))]).map((b) => componentScript(b + '.html'))].filter((f): f is string => !!f);
+    diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lh!.whole(p.helpers), scripts, p.libraries));
   }
-  const r = check({ root, units, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes });
+  const r = check({ root, units, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes, libraries: p.libraries });
   diagnostics.push(...r.diagnostics);
 
   const warned = diagnostics.filter((d) => d.severity === 'warning').length;
@@ -147,7 +154,7 @@ async function migrate(args: string[]): Promise<number> {
   }
   // 2. the migrated pages, compiled: the query parameters to declare, the attributes the config makes redundant
   const read = (f: string) => texts.get(f) ?? p.readFile(f);
-  const diagnostics = pages.flatMap((file) => compile(read(file), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: read, openapi: p.openapi, apis: p.apis, componentNames: p.componentNames, lazy: p.lazy }).diagnostics);
+  const diagnostics = pages.flatMap((file) => compile(read(file), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: read, openapi: p.openapi, apis: p.apis, componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy }).diagnostics);
   const fu = followUp(diagnostics);
   const report = configReport(uses, p.apis, p.openapi);
   addQuery(report, fu.query, p.apis, p.openapi);

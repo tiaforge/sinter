@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { compile, readHelperManifest } from '../../src/compiler/index.js';
 import { check, checkPage, findTsc, typeExports } from '../../src/check/index.js';
 import { schemaToTs, specDeclarations } from '../../src/check/openapi-types.js';
+import { shadow } from '../../src/check/shadow.js';
 import { project as projectOf } from '../../src/project.js';
 
 const tsc = findTsc(process.cwd());
@@ -199,6 +200,65 @@ export type AnyBlock = Hero | Text | Image;
     // a type the spec has and no component: the name does not fit ComponentName
     expect(run2('AnyBlock', '`${b.type}-block`')).toEqual([expect.stringMatching(/Type '"image-block"' is not assignable to type '"hero-block" \| "text-block"'/)]);
     expect(run2('AnyBlock', "{ hero: 'hero-block', text: 'text-block' }[b.type]")).toEqual([expect.stringMatching(/Type '"image"' is not assignable to type '"hero" \| "text"'/)]);
+  });
+
+  test('branches narrow: a data-sn-if is checked under its condition, its data-sn-else under the negation, a choice\'s else under no candidate', () => {
+    const types = `export interface Plain { type: 'plain'; value: string }
+export interface Strong { type: 'strong'; children: Inline[] }
+export interface Ref { type: 'ref'; url: string; children: Inline[] }
+export type Inline = Plain | Strong | Ref;
+`;
+    const files = {
+      'src/sinter.types.ts': types,
+      'src/components/x-strong.html': '<template data-sn-component="{ node: Strong }"><b data-sn-text="node.children.length"></b></template>',
+      'src/components/x-ref.html': '<template data-sn-component="{ node: Ref }"><a data-sn-attr="{ href: node.url }"></a></template>',
+    };
+    const html = (body: string) => `<!doctype html><html><head></head><body>
+<sn-resource name="nodes" src="/api/n" type="Inline[]"></sn-resource>
+<template data-sn-for="n in nodes">${body}</template>
+</body></html>`;
+    const errors = (body: string) => checkPage(html(body), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    // the map's other keys render the else, where n is the union's other member
+    const choice = `<sn-component use="{ strong: 'x-strong', ref: 'x-ref' }[n.type]" data-sn-prop="{ node: n }"></sn-component><template data-sn-else><template data-sn-text="n.value"></template></template>`;
+    expect(errors(choice)).toEqual([]);
+    // without a data-sn-else, a key outside the map is still an error
+    expect(errors(`<sn-component use="{ strong: 'x-strong', ref: 'x-ref' }[n.type]" data-sn-prop="{ node: n }"></sn-component>`))
+      .toEqual([expect.stringMatching(/Type '"plain"' is not assignable to type '"ref" \| "strong"'/)]);
+    // an else is not a candidate: n there is not narrowed to a candidate's member
+    expect(errors(`<sn-component use="{ strong: 'x-strong' }[n.type]" data-sn-prop="{ node: n }"></sn-component><template data-sn-else><template data-sn-text="n.value"></template></template>`))
+      .toEqual([expect.stringMatching(/Property 'value' does not exist on type 'Ref'/)]);
+    // an if chain: each branch under its condition, the else under the negation of the ones before
+    const chain = `<template data-sn-if="n.type === 'plain'"><span data-sn-text="n.value"></span></template><template data-sn-else><template data-sn-if="n.type === 'ref'"><a data-sn-attr="{ href: n.url }" data-sn-text="n.children.length"></a></template><template data-sn-else><b data-sn-state="{ k: 0 }" data-sn-on-click="k = n.children.length" data-sn-text="k"></b></template></template>`;
+    expect(errors(chain)).toEqual([]);
+    // outside the branch, nothing is narrowed
+    expect(errors(`<template data-sn-if="n.type === 'plain'"><span data-sn-text="n.value"></span></template><i data-sn-text="n.value"></i>`))
+      .toEqual([expect.stringMatching(/Property 'value' does not exist on type 'Inline'|Property 'value' does not exist on type 'Strong'/)]);
+    // an error in a condition is reported once, at the condition
+    expect(errors(`<template data-sn-if="n.tpye === 'plain'"><span data-sn-text="n.type"></span></template>`))
+      .toEqual([expect.stringMatching(/Property 'tpye' does not exist/)]);
+  });
+
+  test('SN538: a candidate the branches around rule out is a warning at its key, not an error in generated code', () => {
+    const types = `export interface Para { type: 'para'; text: string }
+export interface Quote { type: 'quote'; text: string }
+export interface Rule { type: 'rule' }
+export type Block = Para | Quote | Rule;
+`;
+    const files = {
+      'src/sinter.types.ts': types,
+      'src/components/x-para.html': '<template data-sn-component="{ node: Para }"><p data-sn-text="node.text"></p></template>',
+      'src/components/x-quote.html': '<template data-sn-component="{ node: Quote }"><blockquote data-sn-text="node.text"></blockquote></template>',
+    };
+    const use = `{ para: 'x-para', quote: 'x-quote' }[b.type]`;
+    const html = `<!doctype html><html><head></head><body>
+<sn-resource name="blocks" src="/api/b" type="Block[]"></sn-resource>
+<template data-sn-for="b in blocks"><template data-sn-if="b.type === 'para'"><p data-sn-text="b.text"></p></template><template data-sn-else><sn-component use="${use}" data-sn-prop="{ node: b }"></sn-component><template data-sn-else><hr></template></template></template>
+</body></html>`;
+    const d = checkPage(html, { files });
+    expect(d.map((x) => `${x.severity} ${x.code} ${x.message}`)).toEqual(['warning SN538 `x-para` can never be chosen here: `b.type` cannot be `"para"` where this `<sn-component>` is (a branch around it rules it out)']);
+    expect([d[0]!.line, d[0]!.col]).toEqual(at(html, "para: 'x-para'"));
+    // reachable candidates: nothing
+    expect(checkPage(html.replace("<template data-sn-if=\"b.type === 'para'\"><p data-sn-text=\"b.text\"></p></template><template data-sn-else>", '<template data-sn-if="true">'), { files })).toEqual([]);
   });
 
   test('SN507 complex expressions: in checkPage like other diagnostics, with the complexity option', () => {
@@ -679,3 +739,58 @@ components:`);
   });
 });
 
+
+describe('slots that pass data', () => {
+  const table = (placement = '{ contact: c, column: k }') => ({ 'src/components/contact-table.html': `<template data-sn-component="{ rows: Contact[]; columns: (keyof Contact)[]; cell: Slot<{ contact: Contact; column: keyof Contact }> }">
+  <table><template data-sn-for="c in rows"><tr><template data-sn-for="k in columns"><td><slot name="cell" data-sn-prop="${placement}"><span data-sn-text="c[k]"></span></slot></td></template></tr></template></table>
+</template>` });
+  const use = (fill: string) => page(`<contact-table data-sn-prop="{ rows: contacts, columns: ['name'] }">${fill}</contact-table>`);
+
+  test('`$slot` in the fill is typed by the slot\'s T', () => {
+    expect(run(use('<b slot="cell" data-sn-text="$slot.contact.name + $slot.column"></b>'), table()).diagnostics).toEqual([]);
+    expect(run(use(''), table()).diagnostics).toEqual([]);
+    one(use('<b slot="cell" data-sn-text="$slot.contact.nmae"></b>'), /Property 'nmae' does not exist on type 'Contact'/, 'nmae', table());
+  });
+
+  test('the placement\'s data-sn-prop is checked against T, in the component', () => {
+    const r = run(use(''), table('{ contact: c, column: 1 }'));
+    expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Type 'number' is not assignable to type 'keyof Contact'/)]);
+    expect(r.diagnostics[0]!.file).toMatch(/src\/components\/contact-table.html$/);
+  });
+
+  test('a Slot<T> in a type alias is an error', () => {
+    const types = `${TYPES}export type CellProps = { cell: Slot<{ n: number }> };\n`;
+    const r = run(page('<x-cell></x-cell>'), { 'src/sinter.types.ts': types, 'src/components/x-cell.html': '<template data-sn-component="CellProps"><div data-sn-text="1"></div></template>' });
+    expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/a Slot<T> member is in a type alias: write the props as a type literal/)]);
+  });
+});
+
+describe('a let that waits for a lazy helper module (docs/lazy.md#helpers-that-wait)', () => {
+  const files = {
+    'src/sinter.helpers.ts': "export * as crunch from './lib/crunch.ts';\nexport * as toc from './lib/toc.ts';\n",
+    'src/lib/crunch.ts': "import { lexer } from 'fakelib';\nexport interface Doc { words: string[] }\nexport function parse(s: string): Doc { return { words: lexer(s) }; }\n",
+    'src/lib/toc.ts': 'export function count(s: string): number { return s.length; }\n',
+    'node_modules/fakelib/package.json': '{"name":"fakelib","types":"index.d.ts"}',
+    'node_modules/fakelib/index.d.ts': 'export declare function lexer(s: string): string[];',
+  };
+  const html = (body: string) => `<!doctype html><html><head></head><body data-sn-state="{ src: 'a b' }">${body}</body></html>`;
+  const run = (body: string) => checkPage(html(body), { files, lazy: ['fakelib'] }).map((d) => `${d.code} ${d.line}:${d.col} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+
+  test('typed `T | undefined` (the shadow file); a module that does not reach the package keeps ordinary helpers', () => {
+    expect(run('<main data-sn-let="{ doc: crunch.parse(src) }"><p data-sn-text="(doc?.words.length ?? 0) + toc.count(src)"></p></main>')).toEqual([]);
+    const helpers = { module: '/src/sinter.helpers.ts', names: [], namespaces: { crunch: { module: '/src/lib/crunch.ts', members: ['parse'] } } };
+    const out = compile(html('<main data-sn-let="{ doc: crunch.parse(src), n: 1 }"><p data-sn-text="doc && n"></p></main>'),
+      { file: '/p/index.html', root: '/p', dev: false, check: true, helpers, readFile: () => { throw new Error('none'); }, lazyModule: (m) => (m === '/src/lib/crunch.ts' ? ['fakelib'] : []) });
+    const text = shadow({ unit: out.check!, file: '/p/.sinter/index.js', root: '/p', declarations: '/p/.sinter/sinter.d.ts', types: null, helpers }).text;
+    expect(text).toMatch(/const doc = \$waits\(\$e\d+\(\)\);/);
+    expect(text).toMatch(/const n = \$e\d+\(\);/);
+    expect(text).toContain('@returns {T | undefined}');
+  });
+
+  test('SN324 at a call outside a let or a prop, per module, with the hint', () => {
+    const d = checkPage(html('<p data-sn-text="crunch.parse(src).words.length + toc.count(src)"></p>'), { files, lazy: ['fakelib'] });
+    expect(d.map((x) => `${x.code} ${x.line}:${x.col}`)).toEqual(['SN324 1:89']);
+    expect(d[0]!.message).toContain('`crunch.parse` is declared in a module that reaches a lazy package');
+    expect(d[0]!.hint).toContain('data-sn-let="{ doc: crunch.parse(…) }"');
+  });
+});

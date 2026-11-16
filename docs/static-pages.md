@@ -37,8 +37,51 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
   ```
 
   is `<ul><li><a href="/">Home</a></li><li><a href="/about.html">About</a></li></ul>` in the built page.
-  A row with a handler, a model, its own state or a nested loop, and a list over 1,000 items, stay a
+  Loops inside the rows are unrolled the same way, at any depth (a list of sections, each with its
+  links), and a `data-sn-if` in a row is decided per row. A row with a handler that writes state, a
+  model or its own state, a nested loop that is not constant, and a list over 1,000 items, stay a
   template that the runtime renders.
+- trees over constants: a component used inside itself, and the component an `<sn-component use>`
+  renders, given constant props (a `file:./doc.json` content tree, each node dispatched to its
+  component) are expanded at build time, per node, and a link fill is written into every node that
+  places it: an element, an if/else chain, a component tag, and a fill whose `<slot>` places the
+  node's own children. The page is plain HTML, and a component nothing renders leaves it. Two fills
+  render in the browser: one that holds a component with slots of its own (a tree inside the fill),
+  and one that a wrapper component passes on with `<slot name="…" slot="…">`; on a static page,
+  [SN322](diagnostics.md#sn322-ships-javascript) names the fill and why.
+- a handler that reads only constants, `$el` and `$event` (a copy button) does not stop any of it:
+  the page ships that handler and the runtime it needs, nothing else.
+
+At most 10,000 rows and components are expanded per page; the one that would cross it is rendered in
+the browser, with warning [SN536](diagnostics.md#sn536).
+
+## Helpers and files at build time
+
+A helper call over constants runs at build time, and its result is written into the page:
+`data-sn-text="slug(title)"` over a constant `title`, a list `data-sn-for="t in tags(post)"` that
+unrolls, a `data-sn-state` field initialized by a helper. Whether a helper can run there is decided
+from its code: it, and everything it calls and imports, may use only JavaScript's own deterministic
+globals (`Math`, `JSON`, `Array`, `Map`, …) and `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams`
+and `structuredClone`, not `Date`, `Intl`, `Math.random`, `fetch`, `window` or `process`; each exported function counts on its own. Handlers never run at build time.
+
+- A helper that throws at build time, or returns something that is not plain data (a `Date`, a
+  `Map`, a class), stays in the browser; a dev build warns at the call (`SN534`). Every build runs each
+  call twice and keeps one whose results differ in the browser, and a production build also runs every
+  page's calls again at its end, in a fresh copy of the helpers module and in another page order, and fails
+  (`SN534`) on a result that differs: a helper that keeps state between calls (a table of ids, a
+  counter) would give each page what the build's page order made of it. A helper must be pure; a
+  cache that only remembers is fine.
+- Also refused: `import.meta` in any form (a URL built from it would be the build machine's path),
+  `.constructor` and `__proto__`, `Math` or `Reflect` used as a value (`const M = Math`,
+  `const { random } = Math`, `Reflect.get(Math, 'random')`; `Math.max(…)` and `Math.PI` are fine), an
+  error's `.stack`, and a function that assigns a module-level variable (`count++`).
+- **This is a guard against mistakes, not a sandbox.** It reads your code to tell whether a call
+  gives the same result in the build as in the browser, and it catches the usual ways that fails.
+  Code written to get around it can, and it runs in the build with the build machine's access, as
+  any build plugin or dependency does. Keep untrusted code out of your helpers' imports.
+- `src="file:./intro.txt"` resources ([resources.md](resources.md#files)) are constants too: bindings
+  over them, and helpers called over them, are written into the page, and a file nothing in the
+  browser reads leaves the page. A page whose files and helpers all fold ships no JavaScript.
 
 ## What needs JavaScript
 
@@ -47,7 +90,8 @@ Anything that runs in the browser keeps the runtime on its page:
 | On the page | Why |
 | --- | --- |
 | a binding over state a handler, a model or a `then` writes | it changes |
-| a binding over `$url`, `$now`, `$locale`, a helper or a built-in formatter | the browser computes it |
+| a binding over `$url`, `$now`, `$locale` or a built-in formatter | the browser computes it |
+| a binding that calls a helper that cannot run at build time (it reads the clock, the locale, the browser, …) | the browser computes it; `SN322` names the helper and what it reaches |
 | `<sn-resource>`, `<sn-sync>`, an action (`data-sn-post`, `data-sn-call`, …) | it talks to your API |
 | a handler (`data-sn-on-click`, key shortcuts), `data-sn-model`, `data-sn-persist`, `data-sn-listbox` | it reacts to the visitor |
 | a component with a script (`src/components/<name>.ts`) | its script runs |

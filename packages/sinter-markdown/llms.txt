@@ -1,0 +1,44 @@
+# @tiaforge-ui/sinter-markdown
+
+> Markdown for sinter: md.parse(source, options) returns a tree (mdast: CommonMark and GFM tables, task lists, strikethrough, autolinks), <md-doc> and <md-inline> render it, slots change how a kind of node renders. A file's markdown is plain HTML at build time; an API's is parsed in the browser.
+
+## Setup
+
+- vite.config: `sinter({ components: ['@tiaforge-ui/sinter-markdown'] })`; to load the parser on demand, also `lazy: ['@tiaforge-ui/sinter-markdown']`.
+- src/sinter.helpers.ts: `export * as md from '@tiaforge-ui/sinter-markdown';`
+- src/sinter.types.ts: `export type { Root, Heading, Link, Image, Code, Table, TocEntry } from '@tiaforge-ui/sinter-markdown';`
+
+## Pages
+
+- From a file (static, no JavaScript): `<sn-resource name="post" src="file:./post.md"></sn-resource><main data-sn-let="{ doc: md.parse(post, { base: '/posts/' }) }"><md-doc data-sn-prop="{ doc }"></md-doc></main>`. `base` (a folder from the project root) makes relative image and link URLs root paths, so local images are optimized.
+- From an API: `<article data-sn-let="{ doc: md.parse(post?.body) }"><md-doc data-sn-prop="{ doc }"></md-doc></article>`. md.parse keeps its trees (frozen, shared): one parse per source and options, whatever reads it. With the parser lazy, `doc` is undefined until it loads; <md-doc> renders an empty root meanwhile.
+- Readers' content: `md.parse(c.body, { headings: 'strong', images: 'link', html: 'text' })`, and a link fill with `rel="nofollow ugc"`.
+- One line (a title, a label): `<h1><md-inline data-sn-prop="{ doc: md.parse(post.title) }"></md-inline></h1>`: a `<span class="md">` with the paragraphs' and headings' content (phrasing content only; other blocks left out).
+
+## md.parse options
+
+- `headings`: 'keep' (default) | 'strong' (every heading a paragraph of strong text)
+- `images`: 'keep' (default) | 'link' (every image a link to it)
+- `html`: 'text' (default: raw HTML shown as written) | 'drop' | 'allow' (kbd, sub, sup, mark, details/summary; only `open`)
+- `base`: '/folder/' (relative URLs become root paths; .md links, #fragments and absolute URLs stay)
+
+## Helpers that read a tree
+
+- `md.headings(doc)`: `{ depth, id, text }[]`; `id` is the heading's anchor in <md-doc>, `md-` + slug (`#md-getting-started`).
+- `md.text(node)`: plain text, blocks separated by a blank line.
+- Both import no parser: ordinary helpers, early and folded at build time, also with the parser lazy.
+
+## Slots (on <md-doc>; <md-inline> has link, image and inlineCode), each with `$slot.node`
+
+- `heading` (Heading: depth, slug, children; anchor id 'md-' + slug), `link` (url, title), `image` (url, alt, title), `code` (lang, meta, value), `inlineCode` (value), `blockquote`, `table` (default: `<div class="md-table"><table>`; a fill places the whole table with `<slot></slot>`).
+- `<slot></slot>` in a fill is the default element's children: `<a slot="link" rel="nofollow ugc" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a>`.
+- A heading fill picks its level with a chain: `<template slot="heading" data-sn-if="$slot.node.depth === 1">…</template><template data-sn-else>…</template>`.
+- App-wide looks: a wrapper component whose root is <md-doc> with the fills.
+
+## Output
+
+- Plain HTML under `<div class="md">` (`<span class="md">` for md-inline): h1–h6 with ids, p, em, strong, del, code, pre > code.language-x, ul, ol[start], li.task-list-item with a disabled checkbox, blockquote, hr, img, a, table in div.md-table. No CSS: style `.md …`.
+- URLs are attribute bindings: javascript: and other unsafe schemes are refused. An image from an API is a plain <img>, not sent through the app's resizing service.
+- Lists and branches are marked by comments: keep HTML comments (no comment-stripping minifier).
+
+Docs: docs/markdown.md in the package. Recipe: docs/recipes/article-with-comments.html.

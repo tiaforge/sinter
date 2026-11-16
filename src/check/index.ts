@@ -10,10 +10,12 @@ import type { CheckUnit } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compile, MESSAGES } from '../compiler/index.js';
+import { lazyHelpers } from '../lazy-build.js';
 import { project, type ProjectOptions } from '../project.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import { specDeclarations, typeName } from './openapi-types.js';
-import { DECLARATIONS, mapPosition, shadow, type Region, type Shadow } from './shadow.js';
+import type { LibraryTypes } from './shadow.js';
+import { DECLARATIONS, mapPosition, quietLine, shadow, type Region, type Shadow } from './shadow.js';
 
 export interface CheckOptions {
   root: string;
@@ -32,6 +34,8 @@ export interface CheckOptions {
   tsc?: string;
   /** the generated message types (`src/sinter.messages.d.ts`), with built-in messages */
   messagesTypes?: string | null;
+  /** the component libraries: type names in their components' props and slots resolve against each one's types module */
+  libraries?: ReadonlyArray<{ folder: string; types: string | null }>;
 }
 
 export interface CheckResult {
@@ -49,6 +53,8 @@ export interface Support {
   /** absolute path of `sinter.d.ts` */
   declarations: string;
   types: { file: string; names: string[] } | null;
+  /** the component libraries' types modules, by the folder whose files they type */
+  libraries?: LibraryTypes[];
   /** generated declarations per OpenAPI spec, by spec index */
   openapi: string[];
   /** the app's modules that declare its custom elements or their events (see `augmentations`) */
@@ -58,7 +64,7 @@ export interface Support {
 }
 
 /** Writes `sinter.d.ts` and the spec declarations into `outDir`. */
-export function writeSupport(o: { root: string; outDir: string; types: string | null; openapi?: OpenApiSpec[] }): Support {
+export function writeSupport(o: { root: string; outDir: string; types: string | null; openapi?: OpenApiSpec[]; libraries?: CheckOptions['libraries'] }): Support {
   const declarations = join(o.outDir, 'sinter.d.ts');
   mkdirSync(o.outDir, { recursive: true });
   // the app's own declarations of its elements and their events, wherever in src/ they are written
@@ -72,7 +78,8 @@ export function writeSupport(o: { root: string; outDir: string; types: string | 
   });
   const types = o.types ? { file: o.types, names: typeExports(readFileSync(o.types, 'utf8')) } : null;
   const schemas = (o.openapi ?? []).map((s) => Object.keys((s.doc as { components?: { schemas?: Record<string, unknown> } }).components?.schemas ?? {}).map(typeName));
-  return { outDir: o.outDir, declarations, types, openapi, augments, schemas };
+  const libraries = (o.libraries ?? []).flatMap((l) => (l.types ? [{ folder: l.folder, file: l.types, names: typeExports(readFileSync(l.types, 'utf8')) }] : []));
+  return { outDir: o.outDir, declarations, types, openapi, augments, schemas, ...(libraries.length ? { libraries } : {}) };
 }
 
 /** The compiler options shadow files are checked with. */
@@ -87,7 +94,7 @@ export function shadowPath(support: Support, root: string, page: string): string
 }
 
 export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest, actions?: HelperManifest): Shadow {
-  return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}) });
+  return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}), ...(support.libraries ? { libraries: support.libraries } : {}) });
 }
 
 /** A hint for a type error agents meet in markup, or null; \`tag\` is the element the expression sits on. */
@@ -104,8 +111,16 @@ export function typeHint(message: string, tag?: string): string | null {
 }
 
 /** A TypeScript error at a 1-based shadow position, as an SN208 diagnostic at the HTML position. */
-export function typeDiagnostic(unit: CheckUnit, regions: Region[], line: number, col: number, code: string, message: string, root: string): Diagnostic {
+export function typeDiagnostic(unit: CheckUnit, regions: Region[], line: number, col: number, code: string, message: string, root: string): Diagnostic | null {
   const text = `${clean(message, root)} (${code})`;
+  // a candidate of `<sn-component use>` whose key the branches around rule out: never chosen there
+  const cand = regions.find((r) => r.candidate && line >= r.start && line < r.start + r.lines);
+  if (cand) {
+    if (code !== 'TS2367') return null;
+    const c = cand.candidate!, at = cand.loc;
+    return { severity: 'warning', code: 'SN538', message: `\`${c.name}\` can never be chosen here: \`${c.keySrc}\` cannot be \`${JSON.stringify(c.key)}\` where this \`<sn-component>\` is (a branch around it rules it out)` + (at.chain.length ? ` (included from ${at.chain.join(' ← ')})` : ''),
+      file: at.file, line: at.line, col: at.col, hint: 'remove the candidate from `use`, or move the `<sn-component>` out of the branch that excludes it' };
+  }
   const loc = mapPosition(regions, line, col);
   // the element the expression sits on (for the hint): the expression whose region holds the position
   const region = regions.find((r) => line >= r.start && line < r.start + r.lines);
@@ -149,7 +164,7 @@ function writeIfChanged(file: string, text: string): void {
 
 export function check(o: CheckOptions): CheckResult {
   const outDir = o.outDir ?? join(o.root, '.sinter', 'check');
-  const support = writeSupport({ root: o.root, outDir, types: o.types, openapi: o.openapi });
+  const support = writeSupport({ root: o.root, outDir, types: o.types, openapi: o.openapi, ...(o.libraries ? { libraries: o.libraries } : {}) });
 
   const shadows = new Map<string, { unit: CheckUnit; regions: Region[]; brokenFrom: number | null }>();
   for (const unit of o.units) {
@@ -195,8 +210,8 @@ export function checkPage(html: string, o: ProjectOptions & { files?: Record<str
     const file = join(root, 'index.html');
     writeFileSync(file, html);
     const p = project(root, o);
-    const out = compile(html, { file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, checkCycles: p.checkCycles });
-    const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()), messagesTypes: p.messagesTypes });
+    const out = compile(html, { ...(p.lazy.length ? { lazyModule: lazyHelpers(root, p.lazy, undefined, p.libraries).reach } : {}), file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles });
+    const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()), messagesTypes: p.messagesTypes, libraries: p.libraries });
     return [...p.diagnostics, ...out.diagnostics, ...r.diagnostics].map((d) => ({ ...d, file: relative(root, d.file) }));
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -250,8 +265,9 @@ function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<str
     last = null;
     const s = shadows.get(resolve(outDir, m[1]!));
     // errors in the app's own modules are its own tsc's business; broken expressions are the compiler's
-    if (!s || (s.brokenFrom !== null && Number(m[2]) >= s.brokenFrom)) continue;
+    if (!s || (s.brokenFrom !== null && Number(m[2]) >= s.brokenFrom) || quietLine(s.regions, Number(m[2]))) continue;
     const d = typeDiagnostic(s.unit, s.regions, Number(m[2]), Number(m[3]), m[4]!, m[5]!, root);
+    if (!d) continue;
     out.push(d);
     last = d;
   }

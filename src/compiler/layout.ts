@@ -11,9 +11,15 @@ import { genericNormal, SYSTEM_FONTS, UNKNOWN_ZERO } from './system-fonts.js';
 /** each list's own per-row views (`withRow`), by template */
 const LIST_IDS = new WeakMap<object, number>();
 let LIST_IDS_N = 0;
-/** lists with the build's `<template data-sn-if>` after them (`reserve`'s `trailing`): an element after the rows, always there */
-const TRAILED = new WeakSet<object>();
-const TRAILER = { nodeName: 'template', tagName: 'template', attrs: [], childNodes: [], parentNode: null, namespaceURI: 'http://www.w3.org/1999/xhtml' } as unknown as P5Element;
+/**
+ * An anchor in the page: a `data-sn-if`, `data-sn-for` or `data-sn-else` template, or a `<sn-component>` (a choice).
+ * In the browser it is two comments, no element: what it renders is between them, and may or may not be there.
+ */
+/** while a traced call runs (`Layout.reserveTraced`): every element whose attributes the layout read */
+let reading: Set<P5Element> | null = null;
+const isAnchor = (e: P5Element) => e.tagName === 'sn-component' || (e.tagName === 'template' && (reading?.add(e), true) && e.attrs.some((a) => a.name === 'data-sn-for' || a.name === 'data-sn-if' || a.name === 'data-sn-else'));
+/** the elements of a parent as the browser has them: anchors are comments, not elements */
+const elementsOf = (p: P5Parent | null | undefined) => (p?.childNodes ?? []).filter((c): c is P5Element => isEl(c) && !isAnchor(c));
 
 type P5Element = DefaultTreeAdapterMap['element'];
 type P5Node = DefaultTreeAdapterMap['node'];
@@ -228,13 +234,14 @@ function cascadeCmp(x: Decl, y: Decl): number {
 }
 
 const isEl = (n: P5Node | null | undefined): n is P5Element => !!n && 'tagName' in n;
-const attrOf = (el: P5Element, name: string) => el.attrs.find((a) => a.name === name)?.value;
-const dynamic = (el: P5Element, kind: 'class' | 'style') => el.attrs.some((a) => a.name === `data-sn-${kind}`);
+const attrOf = (el: P5Element, name: string) => { reading?.add(el); return el.attrs.find((a) => a.name === name)?.value; };
+const dynamic = (el: P5Element, kind: 'class' | 'style') => { reading?.add(el); return el.attrs.some((a) => a.name === `data-sn-${kind}`); };
 /**
  * Attributes a binding may change on `el`: `data-sn-attr`'s keys (literal, the compiler requires
  * it), `value`/`checked` for a model; 'all' when the keys cannot be read here.
  */
 function boundAttrs(el: P5Element): Set<string> | 'all' {
+  reading?.add(el);
   // per element, while its attributes stay as they are (the compiler adds some after the layout ran)
   const got = BOUND.get(el);
   if (got && got.attrs === el.attrs && got.n === el.attrs.length) return got.v;
@@ -273,6 +280,9 @@ function readBound(el: P5Element): Set<string> | 'all' {
 const mayChange = (el: P5Element, name: string) => { const b = boundAttrs(el); return b === 'all' || b.has(name); };
 
 interface Cascaded { value: string | null; ambiguous: boolean; inline: boolean }
+
+/** what a traced `reserve()` read and gave (`Layout.reserveTraced`) */
+export interface ReserveTrace { result: Reserved | null; why: string | null; read: Array<{ el: P5Element; attrs: string; decls: string }> }
 
 export class Layout {
   private readonly rules: Rule[] = [];
@@ -346,26 +356,28 @@ export class Layout {
 
   /**
    * This view for row `index` (1-based) of `count` of the list `tpl`, whose root is `row`: sibling
-   * combinators and structural pseudo-classes on the row decide against the rows before and after it,
-   * the template, and what is around it in its parent (what another template there may render is
-   * uncertain). The same view when no rule depends on a position.
+   * combinators and structural pseudo-classes on the row decide against the rows before and after it
+   * and what is around the list in its parent. The list's anchor is comments, no element; what another
+   * anchor there may render is uncertain. The same view when no rule depends on a position.
    */
   private withRow(tpl: P5Element, row: P5Element, index: number, count: number, fresh = false): Layout {
     if (!this.positional) return this;
     let id = LIST_IDS.get(tpl);
     if (id === undefined) LIST_IDS.set(tpl, (id = LIST_IDS_N++));
-    const trail = TRAILED.has(tpl), key = `${id}:${this.viewport}:${index}:${count}:${trail ? 't' : ''}`;
+    const key = `${id}:${this.viewport}:${index}:${count}`;
     let l = fresh ? undefined : this.rowViews.get(key);
     if (l) return l;
     const parent = tpl.parentNode as P5Element;
     const kids = parent.childNodes.filter(isEl), at = kids.indexOf(tpl);
-    // around the rows: each element for sure; another template's content roots may or may not be there
-    const around = (list: P5Element[]) => list.flatMap((e) => [{ el: e, sure: true }, ...(e !== tpl && e.tagName === 'template' ? ((e as P5Template).content?.childNodes ?? []).filter(isEl).map((c) => ({ el: c, sure: false })) : [])]);
+    // around the rows: each element for sure; another anchor's content roots may or may not be there
+    const around = (list: P5Element[]) => list.flatMap((e) => (isAnchor(e)
+      ? (e.tagName === 'template' ? ((e as P5Template).content?.childNodes ?? []).filter(isEl).map((c) => ({ el: c, sure: false })) : [])
+      : [{ el: e, sure: true }]));
     l = Object.create(Layout.prototype) as Layout;
     Object.assign(l, {
       rules: this.rules, hosts: this.hosts, root: this.root, viewport: this.viewport, views: this.views, notes: this.notes, normal: this.normal, zero: this.zero, webFonts: this.webFonts,
       cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
-      row: { el: row, index, count, before: around(kids.slice(0, at + 1)), after: [...(trail ? [{ el: TRAILER, sure: true }] : []), ...around(kids.slice(at + 1))] }, rowViews: this.rowViews, positional: true, base: this.base, mq: this.mq, bases: this.bases,
+      row: { el: row, index, count, before: around(kids.slice(0, at)), after: around(kids.slice(at + 1)) }, rowViews: this.rowViews, positional: true, base: this.base, mq: this.mq, bases: this.bases,
     });
     if (!fresh) this.rowViews.set(key, l);
     return l;
@@ -1412,10 +1424,40 @@ export class Layout {
    * per viewport range from the narrowest screen up (`from`: the range's start, 0 for the first), or
    * null when the rows' layout is not one the build follows (see `shape`), at any width.
    */
-  reserve(tpl: P5Element, count: number, opts: { sized?: boolean; trailing?: boolean } = {}): Reserved | null {
+  /**
+   * `reserve()`, with what it read: each element whose attributes it read, and, for each, its attributes and the
+   * declarations the stylesheets give it, as they were. Another layout over a document of the same shape (the
+   * compiler's dry run, with constant classes written in) takes the result over when all of them are the same
+   * there (`reuse`): the rest (the tree, the text, the stylesheets) is the same by construction.
+   */
+  reserveTraced(tpl: P5Element, count: number, opts: { sized?: boolean } = {}): ReserveTrace {
+    // in a view with nothing cached: every answer it builds on is read during the call
+    const cold = Object.create(Layout.prototype) as Layout;
+    Object.assign(cold, {
+      rules: this.rules, hosts: this.hosts, root: this.root, viewport: this.viewport, views: new Map(), notes: this.notes, normal: this.normal, zero: this.zero, webFonts: this.webFonts,
+      cascades: new Map(), vars: new Map(), widths: new Map(), bounds: new Map(), fonts: new Map(), heights: new Map(),
+      row: null, rowViews: new Map(), positional: this.positional, base: this.base, mq: this.mq, bases: new Map(),
+    });
+    const was = reading, read = new Set<P5Element>();
+    reading = read;
+    let result: Reserved | null;
+    try { result = cold.reserve(tpl, count, opts); } finally { reading = was; }
+    const why = this.notes.why;
+    return { result, why, read: [...read].map((el) => ({ el, attrs: JSON.stringify(el.attrs), decls: JSON.stringify([...this.declsOf(el)]) })) };
+  }
+
+  /** The result of a traced `reserve()` in another layout, when what it read is the same here (`twin`: its element here); else undefined. */
+  reuse(trace: ReserveTrace, twin: (el: P5Element) => P5Element | undefined): Reserved | null | undefined {
+    for (const r of trace.read) {
+      const el = twin(r.el);
+      if (!el || JSON.stringify(el.attrs) !== r.attrs || JSON.stringify([...this.declsOf(el)]) !== r.decls) return undefined;
+    }
+    this.notes.why = trace.why;
+    return trace.result;
+  }
+
+  reserve(tpl: P5Element, count: number, opts: { sized?: boolean } = {}): Reserved | null {
     this.notes.why = null;
-    if (opts.trailing) TRAILED.add(tpl);
-    else TRAILED.delete(tpl);
     const no = (why: string) => { this.notes.why ??= why; return null; };
     if (this.empty || this.viewport !== undefined || count < 1) return no('no stylesheet the build reads');
     const row = soleElement(tpl), parent = this.parentOf(tpl);
@@ -2397,7 +2439,7 @@ export class Layout {
     // siblings
     if (this.row && el === this.row.el) return combine(this.logged({ k: 'b', rest, comb }));
     if (this.siblingsUnknown(el)) return 'maybe';
-    const sibs = (el.parentNode?.childNodes ?? []).filter(isEl);
+    const sibs = elementsOf(el.parentNode as P5Parent);
     const at = sibs.indexOf(el);
     const before = comb === '+' ? sibs.slice(Math.max(0, at - 1), at) : sibs.slice(0, at);
     let any: Match = 'no';
@@ -2485,14 +2527,14 @@ export class Layout {
   }
 
   /**
-   * Whether `el`'s siblings are unknown at build time: a list's row (outside a row view), or an element next to a
-   * template (what it renders is not known). Inside a row, the row's own children are as written.
+   * Whether `el`'s siblings are unknown at build time: a list's row (outside a row view), or an element next to an
+   * anchor (what it renders is not known, and it is no element itself). Inside a row, the row's own children are as written.
    */
   private siblingsUnknown(el: P5Element): boolean {
     const p = el.parentNode as P5Parent | null;
     if (!p) return false;
     if (this.hosts.has(p)) return true;
-    return this.inTemplate(el) && p.childNodes.some((c) => isEl(c) && c.tagName === 'template');
+    return p.childNodes.some((c) => isEl(c) && isAnchor(c));
   }
 
   /**
@@ -2515,12 +2557,14 @@ export class Layout {
     try { return log.every(({ q, m }) => (q.k === 'b' ? this.rowSibling(q.rest, q.comb) : this.rowStructural(q.name, q.n)) === m); } finally { r.index = here; r.log = log; }
   }
 
-  /** a sibling combinator with the row of this view as its subject: the rows before it, the template, what precedes it */
+  /** a sibling combinator with the row of this view as its subject: the rows before it, what precedes the list */
   private rowSibling(rest: csstree.CssNode[], comb: string): Match {
     const r = this.row!;
-    // the element right before row 1 is the template itself (rows are inserted after it)
+    // the element right before row 1 is the last one before the list's anchor (its comments are no elements): an element
+    // for sure, or what another anchor may render there, back to the nearest sure one; none for a list at the start
+    const lastBefore = () => { const out: RowCtx['before'] = []; for (let k = r.before.length; k--;) { out.push(r.before[k]!); if (r.before[k]!.sure) break; } return out; };
     const prev: Array<{ el: P5Element; sure: boolean; index?: number }> = comb === '+'
-      ? (r.index > 1 ? [{ el: r.el, sure: true, index: r.index - 1 }] : [r.before[r.before.length - 1]!])
+      ? (r.index > 1 ? [{ el: r.el, sure: true, index: r.index - 1 }] : lastBefore())
       : [...r.before, ...Array.from({ length: r.index - 1 }, (_, k) => ({ el: r.el, sure: true, index: k + 1 }))];
     let any: Match = 'no';
     for (const c of prev) {
@@ -2533,7 +2577,7 @@ export class Layout {
     return any;
   }
 
-  /** a structural pseudo-class on the row of this view: its place among the template's parent's children */
+  /** a structural pseudo-class on the row of this view: its place among the list's parent's elements */
   private rowStructural(name: string, n: csstree.PseudoClassSelector): Match {
     const r = this.row!, ofType = name.endsWith('of-type'), tag = r.el.tagName;
     const count = (list: RowCtx['before']) => {
@@ -2552,7 +2596,7 @@ export class Layout {
   }
 
   private structural(name: string, n: csstree.PseudoClassSelector, el: P5Element): Match {
-    const sibs = (el.parentNode?.childNodes ?? []).filter(isEl).filter((s) => !name.endsWith('of-type') || s.tagName === el.tagName);
+    const sibs = elementsOf(el.parentNode as P5Parent).filter((s) => !name.endsWith('of-type') || s.tagName === el.tagName);
     const i = sibs.indexOf(el), last = sibs.length - 1 - i;
     if (name.startsWith('first')) return i === 0 ? 'yes' : 'no';
     if (name.startsWith('last')) return last === 0 ? 'yes' : 'no';

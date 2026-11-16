@@ -5,7 +5,15 @@ import * as csstree from 'css-tree';
 // markup; this module reads component files and the contract they declare.
 
 /** A prop or event name in a type literal, with where it is written in the type text. */
-export interface Member { name: string; optional: boolean; offset: number }
+export interface Member {
+  name: string;
+  optional: boolean;
+  offset: number;
+  /** the member's type as written (`Article`, `Slot<{ row: Row }>`) */
+  type?: string;
+  /** `Slot<T>`: a slot that passes `T` to its fill (docs/components.md, Slots that pass data); T as written */
+  slot?: string;
+}
 
 /**
  * The members of a TypeScript type literal (`{ article: Article; compact?: boolean }`), at its
@@ -33,8 +41,10 @@ export function typeMembers(text: string): Member[] | null {
     if (text.startsWith('readonly ', i)) i += 9;
     const m = /^(?:([A-Za-z_$][\w$]*)|'([^']*)'|"([^"]*)")\s*(\?)?\s*:/.exec(text.slice(i, close));
     if (!m) return null;
-    out.push({ name: (m[1] ?? m[2] ?? m[3])!, optional: !!m[4], offset: i });
+    const member: Member = { name: (m[1] ?? m[2] ?? m[3])!, optional: !!m[4], offset: i };
+    out.push(member);
     i += m[0].length;
+    const from = i;
     // the member's type, up to the next separator at depth 0
     let depth = 0;
     while (i < close) {
@@ -45,8 +55,34 @@ export function typeMembers(text: string): Member[] | null {
       else if (depth === 0 && (c === ';' || c === ',' || c === '\n')) break;
       i++;
     }
+    member.type = text.slice(from, i).trim();
+    const slot = /^Slot\s*<([\s\S]*)>$/.exec(member.type);
+    if (slot) member.slot = slot[1]!.trim();
   }
   return out;
+}
+
+/** A use of `Slot` as a type (`Slot<…>`) anywhere in a type's text. */
+export const SLOT_TYPE = /(?<![\w$.])Slot\s*</;
+
+/**
+ * A props type literal without its `Slot<T>` members: what callers pass with `data-sn-prop`, what a
+ * script's `this.props` holds. Slots are filled with markup, not passed. The text unchanged when it
+ * has none, or is not a type literal.
+ */
+export function withoutSlots(text: string): string {
+  const members = typeMembers(text.trim() === '' ? '{}' : text);
+  if (!members?.some((m) => m.slot !== undefined)) return text;
+  const kept = members.filter((m) => m.slot === undefined).map((m) => text.slice(m.offset, m.offset + memberLength(text, m)).trim().replace(/[;,]$/, ''));
+  return kept.length ? `{ ${kept.join('; ')} }` : '{}';
+}
+
+/** The length of a member's text from its offset, up to (not including) its separator. */
+function memberLength(text: string, m: Member): number {
+  const at = text.indexOf(':', m.offset);
+  const t = m.type ?? '';
+  const end = text.indexOf(t, at) + t.length;
+  return end - m.offset;
 }
 
 function endOfString(text: string, i: number): number {
@@ -107,12 +143,58 @@ const GLOBAL_AT = new Set(['import', 'font-face', 'keyframes', '-webkit-keyframe
  * copy whose first compound may be the root, `.compact p, :where(:scope):is(.compact) p`, with the
  * same specificity (`:where()` adds none). Selectors are otherwise as written.
  */
-export function scopeCss(css: string, name: string): string {
+export function scopeCss(css: string, name: string, layer?: string): string {
   const { global, scoped } = splitCss(css);
   const sel = JSON.stringify(name);
   const out = [...global];
-  if (scoped.length) out.push(`@scope ([data-sn-c=${sel}], [data-sn-s=${sel}]) to ([data-sn-c], [data-sn-s]) {\n${scoped.join('\n')}\n}`);
+  const block = `@scope ([data-sn-c=${sel}], [data-sn-s=${sel}]) to ([data-sn-c], [data-sn-s]) {\n${scoped.join('\n')}\n}`;
+  // a library's: in its cascade layer, below the app's unlayered CSS and its own layers
+  if (scoped.length) out.push(layer ? `@layer ${layer} {\n${block}\n}` : block);
   return out.join('\n') + '\n';
+}
+
+/** the cascade layer of the libraries' scoped styles, declared first in a page's stylesheet */
+export const LIBRARY_LAYER = 'sinter-lib';
+
+/**
+ * A component's root rules, for an element that is its root through another component's tag (its
+ * root is `<ui-button>`, whose own root renders): the selectors that can match the scope root
+ * itself (one compound, `.primary`, or `:scope`), against `[data-sn-r~="<name>"]` outside `@scope`,
+ * with the same specificity. Rules that reach inside are not copied: inside, the markup is the other
+ * component's. Inside `@media` and `@supports` too. Null when there are none.
+ */
+export function rootCss(css: string, name: string): string | null {
+  const ast = csstree.parse(css, { parseValue: false, parseAtrulePrelude: false }) as csstree.StyleSheet;
+  const mark = `:where([data-sn-r~=${JSON.stringify(name)}])`;
+  const out: string[] = [];
+  const rule = (r: csstree.Rule): string | null => {
+    if (r.prelude.type !== 'SelectorList') return null;
+    const sels: string[] = [];
+    r.prelude.children.forEach((sel) => {
+      if (sel.type !== 'Selector') return;
+      const nodes = sel.children.toArray();
+      if (nodes.some((n) => n.type === 'Combinator')) return;
+      const text = csstree.generate(sel);
+      if (/^(:scope|&)$/.test(text)) { sels.push(mark); return; }
+      if (/:scope\b|&/.test(text)) return;
+      const pe = nodes.findIndex((n) => n.type === 'PseudoElementSelector');
+      const compound = (pe < 0 ? nodes : nodes.slice(0, pe)).map((n) => csstree.generate(n)).join('');
+      const tail = pe < 0 ? '' : nodes.slice(pe).map((n) => csstree.generate(n)).join('');
+      sels.push(`${mark}:is(${compound})${tail}`);
+    });
+    return sels.length ? `${sels.join(', ')}{${csstree.generate(r.block).slice(1, -1)}}` : null;
+  };
+  const visit = (n: csstree.CssNode): string | null => {
+    if (n.type === 'Rule') return rule(n);
+    if (n.type === 'Atrule' && n.block && /^(media|supports|container|layer)$/i.test(n.name)) {
+      const inner: string[] = [];
+      n.block.children.forEach((c) => { const x = visit(c); if (x) inner.push(x); });
+      return inner.length ? `@${n.name} ${n.prelude ? csstree.generate(n.prelude) : ''}{${inner.join('')}}` : null;
+    }
+    return null;
+  };
+  ast.children.forEach((n) => { if (!(n.type === 'Atrule' && GLOBAL_AT.has(n.name.toLowerCase()))) { const x = visit(n); if (x) out.push(x); } });
+  return out.length ? out.join('\n') + '\n' : null;
 }
 
 /** `.compact p` → `.compact p, :where(:scope):is(.compact) p`: the first compound may also be the scope root. */

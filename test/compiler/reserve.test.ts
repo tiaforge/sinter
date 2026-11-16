@@ -218,8 +218,8 @@ describe.skipIf(!chromium)('the browser: the placeholder is never taller than th
   const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
   /** where `#after` is: below the rows (each bound text one word), or below the placeholder */
   const after = async (css: string, body: string, list: string) => {
-    // the template stays before the rows (or the placeholder), as on the page: sibling and structural rules see it
-    await tab.setContent(page(css, body.replace(/<template id="t">[\s\S]*<\/template>(?=(<\/[a-z]+>)+$)/, `<template></template>${list}`)));
+    // the list's anchor around the rows (or the placeholder), as on the page: comments, which no sibling or structural rule sees
+    await tab.setContent(page(css, body.replace(/<template id="t">[\s\S]*<\/template>(?=(<\/[a-z]+>)+$)/, `<!--sn 1-->${list}<!--/sn-->`)));
     return tab.evaluate(() => document.getElementById('after')!.getBoundingClientRect().top);
   };
   for (const [name, css, body, rows, want, fit] of [...CASES, ...BELOW.map(([n, c, b, r]) => [n, c, b, r, [0, 0] as [number, number], 'bound'] as const)]) {

@@ -1,0 +1,4 @@
+<!-- A code block. A fill can highlight it: at build time, with a helper over the constant code. -->
+<template data-sn-component="{ node: Code }">
+  <slot name="code" data-sn-prop="{ node }"><pre><code data-sn-attr="{ class: node.lang ? 'language-' + node.lang : null }" data-sn-text="node.value"></code></pre></slot>
+</template>

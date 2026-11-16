@@ -158,11 +158,11 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   return lines;
 }
 
-export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis'>): string {
+export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis'> & Partial<Pick<CompileOptions, 'root'>>): string {
   return pageLines(parts, options).text();
 }
 
-function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis'>): MappedLines {
+function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis'> & Partial<Pick<CompileOptions, 'root'>>): MappedLines {
   const lines = new MappedLines();
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
@@ -173,14 +173,23 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   // next-page data: the app's pages, described in one module every page shares
   const features = [...parts.features.map(local), ...(options.prefetch ? ['$prefetch'] : [])];
   if (options.prefetch) lines.push(`import $prefetch from ${JSON.stringify(options.prefetch)};`);
-  if (parts.helpers.user.length && options.helpers.module) {
-    lines.push(`import { ${parts.helpers.user.join(', ')} } from ${JSON.stringify(options.helpers.module)};`);
-  }
+  // each helper from the module that declares it, as the early file imports them: past the helpers module and
+  // barrels, so a module that reaches a lazy package loads only when a let needs it (docs/lazy.md)
   let messages = false;
   for (const [ns, members] of Object.entries(parts.namespaces)) {
-    const mod = options.helpers.namespaces[ns]!.module;
-    if (mod === MESSAGES) { lines.push(isFixed(options) ? fixedMessages(ns, members, options) : messagesImport(ns, members)); messages = true; continue; }
-    lines.push(`import { ${members.map((m) => `${m} as ${ns}$${m}`).join(', ')} } from ${JSON.stringify(mod)};`);
+    if (options.helpers.namespaces[ns]!.module !== MESSAGES) continue;
+    lines.push(isFixed(options) ? fixedMessages(ns, members, options) : messagesImport(ns, members));
+    messages = true;
+  }
+  lines.push(...helperImports(parts.helpers.user, parts.namespaces, options.helpers));
+  // helper modules that reach lazy packages: each loads whole, with its packages, when a let first needs it
+  if (parts.lazyHelpers.length) {
+    const specs = [...new Set(parts.lazyHelpers.flatMap((x) => x.lazy))].sort();
+    const loader = (s: string) => `$lp$${specs.indexOf(s)}`;
+    const file = (m: string) => `${(options.root ?? '').replace(/\/$/, '')}${m}`;
+    lines.push(`import { later as $laterH } from '${PACKAGE}/lazy';`);
+    for (const s of specs) lines.push(`import { load as ${loader(s)} } from ${JSON.stringify(`${LAZY_PREFIX}${s}.js`)};`);
+    for (const x of parts.lazyHelpers) lines.push(`const ${x.local} = $laterH(() => import(${JSON.stringify(x.module)}), [${x.lazy.map(loader).join(', ')}], ${options.dev || !x.module.startsWith('/') ? 'null' : JSON.stringify(`__SN_CHUNK__${file(x.module)}__`)}, import.meta.url);`);
   }
   // an app with built-in messages: the page's modules (helpers, actions, islands) may call `m` although
   // its markup does not, so every page waits for the dictionary (and sinter is the locale source)
@@ -234,6 +243,26 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   return lines;
 }
 
+/**
+ * The imports of the helpers and namespace members compiled code calls (`h`, `ns$m`), each from the module that
+ * declares it, as the early file imports them: past the helpers module and barrels, so a module that reaches a
+ * lazy package is not loaded with the page (docs/lazy.md). The built-in messages are imported apart.
+ */
+export function helperImports(user: Iterable<string>, namespaces: Record<string, Iterable<string>>, helpers: HelperManifest): string[] {
+  const byModule = new Map<string, string[]>();
+  const add = (mod: string, spec: string) => byModule.set(mod, [...(byModule.get(mod) ?? []), spec]);
+  if (helpers.module) for (const h of user) {
+    const o = helpers.from?.[h];
+    add(o?.module ?? helpers.module, o && o.name !== h ? `${o.name} as ${h}` : h);
+  }
+  for (const [ns, members] of Object.entries(namespaces)) {
+    const info = helpers.namespaces[ns]!;
+    if (info.module === MESSAGES) continue;
+    for (const m of members) { const o = info.from?.[m]; add(o?.module ?? info.module, `${o?.name ?? m} as ${ns}$${m}`); }
+  }
+  return [...byModule].map(([mod, specs]) => `import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
+}
+
 /** a page built in one language, with that language's text (`localePrefix`) */
 const isFixed = (o: Pick<CompileOptions, 'locale' | 'baseMessages'>) => !!o.locale && !!o.baseMessages;
 
@@ -267,7 +296,14 @@ function messagesImport(ns: string, members: string[]): string {
  */
 export function readHelperManifest(
   source: string,
-  options: { module: string; file: string; readFile: (path: string) => string; resolve?: (spec: string, from: string) => string | null },
+  options: {
+    module: string; file: string; readFile: (path: string) => string; resolve?: (spec: string, from: string) => string | null;
+    /**
+     * the specifier of a module inside a package the helpers re-export (a component library): members declared
+     * past the package's entry are imported, checked for folding and for lazy packages, from their own module
+     */
+    moduleOf?: (file: string) => string | null;
+  },
 ): HelperManifest {
   const manifest: HelperManifest = { module: options.module, names: [], namespaces: {} };
   const resolve = options.resolve ?? ((spec: string, from: string) => (spec.startsWith('.') ? joinPath(from, spec) : null));
@@ -299,6 +335,12 @@ export function readHelperManifest(
     for (const [n, o] of origin) if (o.file !== file) from[n] = { module: joinPath(spec, relPath(file, o.file)), name: o.name };
     return Object.keys(from).length ? from : null;
   };
+  /** a package's members by their declaring modules, as `moduleOf` names them */
+  const packageFrom = (origin: Map<string, { file: string; name: string }>, file: string, moduleOf: (f: string) => string | null) => {
+    const from: Record<string, HelperOrigin> = {};
+    for (const [n, o] of origin) { const m = o.file !== file ? moduleOf(o.file) : null; if (m) from[n] = { module: m, name: o.name }; }
+    return Object.keys(from).length ? from : null;
+  };
   const topFrom = fromOf(own, options.file, options.module);
   if (topFrom) manifest.from = topFrom;
   for (const [ns, spec] of top.namespaces) {
@@ -310,7 +352,7 @@ export function readHelperManifest(
     manifest.namespaces[ns] = { module: modSpec, members };
     // members declared in a re-exported module (a barrel such as paraglide's message index makes a
     // namespace object; importing past it keeps the early chunk to what it calls)
-    const from = path && spec.startsWith('.') ? fromOf(origin, path, modSpec) : null;
+    const from = !path ? null : spec.startsWith('.') ? fromOf(origin, path, modSpec) : options.moduleOf ? packageFrom(origin, path, options.moduleOf) : null;
     if (from) manifest.namespaces[ns]!.from = from;
   }
   return manifest;

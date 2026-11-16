@@ -23,5 +23,7 @@
       "@tiaforge-ui/sinter/server": ["./src/server.ts"]
     }
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  // a component library and an app that uses it through a workspace link: checked by `sinter check` in their tests
+  "exclude": ["test/fixtures/ui", "test/fixtures/ui-app"]
 }

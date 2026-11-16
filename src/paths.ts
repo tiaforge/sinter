@@ -78,13 +78,15 @@ export function eachPath(ir: IR, dep: (p: any, set: (n: number) => void) => void
 }
 
 /** The paths the runtime marks by itself, by name in the table's `x`: the page's fixed inputs, each resource, each state scope. */
-export function fixedPaths(ir: Pick<IR, 'resources' | 'roots' | 'templates'>): string[] {
+export function fixedPaths(ir: Pick<IR, 'resources' | 'roots' | 'templates' | 'lm'>): string[] {
   const sids = new Set<number>();
   for (const n of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) if (n.sid != null) sids.add(n.sid);
   return [
     '$locale', '$url', '$now',
     ...ir.resources.flatMap((r) => [`$r.${r.name}`, `$meta.${r.name}`, ...(r.paginate?.model ? [`$url.${r.paginate.model}`] : [])]),
     ...[...sids].sort((a, b) => a - b).flatMap((s) => [`$s${s}.**`, `$s${s}.$error`]),
+    // a lazy helper module has arrived (lets.ts)
+    ...(ir.lm ?? []).map((_, i) => `$lz.${i}`),
   ];
 }
 

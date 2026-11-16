@@ -1,0 +1,73 @@
+{
+  "name": "@tiaforge-ui/sinter-markdown",
+  "version": "0.1.0",
+  "description": "Markdown for sinter: a parser to mdast that folds at build time, and md-* components with slots for the nodes an app changes.",
+  "license": "MIT",
+  "author": "Tia Heinrich",
+  "homepage": "https://github.com/tiaforge/sinter/tree/main/packages/sinter-markdown#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tiaforge/sinter.git",
+    "directory": "packages/sinter-markdown"
+  },
+  "bugs": {
+    "url": "https://github.com/tiaforge/sinter/issues"
+  },
+  "keywords": [
+    "sinter",
+    "markdown",
+    "mdast",
+    "commonmark",
+    "gfm",
+    "components"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "sinter": "./sinter",
+  "exports": {
+    ".": "./sinter/index.ts",
+    "./parser": "./sinter/parser.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "sinter",
+    "docs",
+    "llms.txt",
+    "README.md"
+  ],
+  "scripts": {
+    "build:parser": "node scripts/build-parser.mjs",
+    "check": "sinter check",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@tiaforge-ui/sinter": ">=0.18.0 <1"
+  },
+  "devDependencies": {
+    "@tiaforge-ui/sinter": "file:../..",
+    "@types/jsdom": "30.0.0",
+    "@types/node": "^26.6.6",
+    "jsdom": "30.1.3",
+    "mdast-util-from-markdown": "2.1.0",
+    "mdast-util-gfm-autolink-literal": "2.1.0",
+    "mdast-util-gfm-strikethrough": "2.0.1",
+    "mdast-util-gfm-table": "2.0.1",
+    "mdast-util-gfm-task-list-item": "2.0.1",
+    "micromark-extension-gfm-autolink-literal": "2.1.0",
+    "micromark-extension-gfm-strikethrough": "2.1.0",
+    "micromark-extension-gfm-table": "2.1.2",
+    "micromark-extension-gfm-task-list-item": "2.1.0",
+    "playwright": "1.63.0",
+    "rolldown": "1.2.16",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.1.0"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

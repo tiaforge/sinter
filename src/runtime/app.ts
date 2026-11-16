@@ -51,7 +51,10 @@ export interface Transport {
   close(): void;
 }
 
-/** A binding attached to one element in one scope. */
+/**
+ * A binding attached to one element in one scope. An `if`, `for` or choice is bound to its anchor's
+ * start comment (`<!--sn 4-->`), which `el` then holds: those bindings never reach a feature module.
+ */
 export interface BoundBinding {
   b: Binding;
   el: Element;
@@ -211,8 +214,6 @@ export interface App {
       /** `upsert(c.replies, x)`: `owner` (from `names`) gets its list `field` with `item` in it */
       upsert(res: (n: string) => Resource, names: string[], owner: any, field: string, item: unknown): void;
     };
-    /** shared definitions (defs.ts): an empty `<template data-sn-def>` gets its definition before it is first cloned */
-    defs?: (tpl: HTMLTemplateElement) => void;
     /** components with a script (components.ts): a root's `cmp` binding, `v` its class module, props and class name */
     components?: (rb: BoundBinding, v: unknown) => void;
     fields?: { sent(el: Element, a: ActionDef): ((error: SinterError, request: { url: string; method: string }) => boolean) | undefined };
@@ -295,10 +296,11 @@ interface RB extends BoundBinding {
   e?: any;
   /** may be inside a closed dialog of its block */
   c?: boolean;
-  /** for: rows; if: the rendered branch (0 or 1 entries) */
+  /** for: rows; if, choice: the rendered branch (0 or 1 entries) */
   rows?: Inst[];
+  /** for: its row template; choice: the template of the rendered case */
   t?: TemplateDef;
-  /** end marker of the rows / branch, inserted after the template anchor */
+  /** the anchor's end comment (`<!--/sn-->`), after its rows or branch */
   end?: Comment;
   /** for: rows by key, built on demand (null: keys are explicit or not unique), and the round of the last reconcile */
   keys?: Map<unknown, Inst> | null;
@@ -307,9 +309,10 @@ interface RB extends BoundBinding {
   pf?: boolean;
   /** for: selection indexes of its rows (by binding), built on demand, dropped when the rows are rendered */
   sx?: Map<Binding, Sel>;
-  /** if: rendered branch (0 none, 1 if, 2 else), and the else anchor with its template */
+  /** for, unkeyed: the round its rows were adopted from the early script; until the next flush, rows match by position */
+  ad?: number;
+  /** if: rendered branch (0 none, 1 if, 2 else); choice: the rendered case + 1 (0 none) */
   br?: number;
-  else?: [Element, number] | null;
 }
 
 /** A selection binding's index over one list's rows: rows by row-side value, and the rows the comparison holds for. */
@@ -369,11 +372,21 @@ const range = (a: Node | null, stop: Node | null) => {
   return out;
 };
 const child = (s: any, props: object) => Object.assign(Object.create(s), props);
-const after = (el: Element) => {
-  const c = new Comment();
-  el.after(c);
-  return c;
-};
+/** an anchor's start comment, exactly: `<!--sn 4-->` at the page's top level, `<!--sn-->` in a row (`<!--snippet-->` is not) */
+const isStart = (n: Node | null) => n?.nodeType == 8 && /^sn(?: \d+)?$/.test((n as Comment).data);
+/** what a node's `tag` in the IR is: its tag name, `#` for a comment (an anchor's start) */
+const nameOf = (n: Node) => (n.nodeType == 8 ? '#' : (n as Element).localName);
+/** an anchor's end comment, after its start: the first `<!--/sn-->` that closes no anchor nested in between */
+export function endOf(start: Node): Comment | null {
+  let d = 0;
+  for (let n = start.nextSibling; n; n = n.nextSibling) if (n.nodeType == 8) {
+    const t = (n as Comment).data;
+    if (t == '/sn') { if (!d--) return n as Comment; } else if (isStart(n)) d++;
+  }
+  return null;
+}
+/** The templates an anchor binding renders: a `for`'s or `if`'s (with its `else`), a choice's. */
+const templatesOf = (b: Binding): number[] => (b.k == 'ch' ? b.c! : b.k == 'for' || b.k == 'if' ? (b.z != null ? [b.x!, b.z] : [b.x!]) : []);
 const ET = EventTarget.prototype;
 /** Per-element registries, kept on the element (cheaper than WeakMaps on the row creation path). */
 const HANDLERS = Symbol('sinter.on');
@@ -395,9 +408,9 @@ export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?:
 const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
 /** row templates: whether each holds one element (see oneElement()) */
 const prepared = new WeakMap<HTMLTemplateElement, boolean>();
-/** set by the early script on a `data-sn-for` template whose rows it rendered from embedded data: each row's nodes, the end marker */
+/** set by the early script on the start comment of a `data-sn-for` whose rows it rendered from embedded data: each row's nodes, the end comment */
 const EARLY_ROWS = Symbol.for('sinter.early.rows');
-/** set by the early chunk (@tiaforge-ui/sinter/early) on a `data-sn-if` template whose branch it rendered */
+/** set by the early chunk (@tiaforge-ui/sinter/early) on the start comment of a `data-sn-if` or choice whose branch it rendered */
 const EARLY = Symbol.for('sinter.early');
 const simple = new WeakMap<TemplateDef, Simple | null>();
 /** ROW: on each node of a simple row with handlers, its instance */
@@ -429,7 +442,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id; `run(id)`: any element */
   const byId = (id: string, s = '[id]') => [...root.querySelectorAll(s)].find((d) => d.id === id);
   const dialog = (id: string) => byId(id, 'dialog') as HTMLDialogElement | undefined;
-  const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element>();
+  const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element | Comment>();
+  /** the head templates, by template id (`<template id="sn-t-<id>">`), found once */
+  const tpls: HTMLTemplateElement[] = [];
   let dirty: Dirty[] = [], cur: Dirty[] = [], scheduled = false, flushing = false, round = 0, destroyed = false;
   /** inside `streamed()`; a flush waits for the next frame */
   let streaming = 0, framed = false;
@@ -469,6 +484,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** The writers, one per binding kind: `(element, name, value)`; a template's creation function calls them too. */
   const W = {
     U: UNSET,
+    /** `<template data-sn-text>`: the text node after `el`, found from it at each write; an empty comment holds its place until it has text */
+    x(el: HTMLElement, _n: string, v: any) {
+      const s = el.nextSibling as CharacterData | null;
+      v = '' + (v ?? '');
+      if (s?.nodeType == 3) { if (s.data !== v) s.data = v; } else if (v) s?.nodeType == 8 && !s.data ? s.replaceWith(v) : el.after(v);
+    },
     t(el: HTMLElement, _n: string, v: any) {
       const t = el.firstChild as Text | null;
       // an element without content (a new row) takes a number as it is: the DOM converts it, while
@@ -558,11 +579,20 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const isMarked = (t: number, s: any) => marked.has(s[ir.templates[t]!.item!]);
   const level = (e: Reach, d: Dirty, s?: any) => (e.conds.length ? reachLevel(e, d.v, s, isMarked) : 2);
 
-  /** Dependencies of every binding in a template's rows, nested templates included. */
-  const templateDeps = (t: TemplateDef): number[] => allDeps.get(t) ?? (allDeps.set(t, []), allDeps.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
-    ...ids(b.d),
-    ...(b.k == 'for' || b.k == 'if' || b.k == 'else' ? templateDeps(ir.templates[b.x!]!) : []),
-  ]))), allDeps.get(t)!);
+  /**
+   * Dependencies of every binding in a template's rows, nested templates included. Templates that reach each
+   * other (components used inside one another) are each visited once per call, and only a whole result is kept:
+   * one kept while another was half done would miss what that one reads.
+   */
+  const templateDeps = (t: TemplateDef, seen?: Set<TemplateDef>): number[] => {
+    if (!seen && allDeps.has(t)) return allDeps.get(t)!;
+    const s = seen ?? new Set<TemplateDef>();
+    if (s.has(t)) return [];
+    s.add(t);
+    const d = t.nodes.flatMap((nd) => nd.b.flatMap((b) => [...ids(b.d), ...templatesOf(b).flatMap((x) => templateDeps(ir.templates[x]!, s))]));
+    if (!seen) allDeps.set(t, d);
+    return d;
+  };
 
   /**
    * The template's dependencies without the outer sides of its selection bindings: what reaches a row
@@ -570,7 +600,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
    */
   const otherDeps = (t: TemplateDef): number[] => others.get(t) ?? (others.set(t, t.nodes.flatMap((nd) => nd.b.flatMap((b) => [
     ...(b.s ? ids(b.d).filter((d) => !b.s!.d.includes(d)) : ids(b.d)),
-    ...(b.k == 'for' || b.k == 'if' || b.k == 'else' ? templateDeps(ir.templates[b.x!]!) : []),
+    ...templatesOf(b).flatMap((x) => templateDeps(ir.templates[x]!)),
   ]))), others.get(t)!);
 
   /** Whether a dirty path of the current flush reaches one of `deps`. */
@@ -620,6 +650,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     page: {
       $r: {}, $meta: {}, $url: readUrl(), $now: new Date(env.now()),
       $m: (el: unknown, v: unknown) => (marked.add(el), v),
+      // a state field the build computed (a helper over constants), embedded in the head: a fresh copy per read
+      $d: (id: number) => { try { return JSON.parse(found.get(id)!.textContent!); } catch { return undefined; } },
       get $locale() { return config.locale?.get(); },
       set $locale(v: any) {
         config.locale?.set(v);
@@ -750,12 +782,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** the selection index (select.ts), on pages with selection bindings */
   const sel = app.ext.select?.({ hit, isSimple, walkSimple, process });
 
-  // ---- mount: one querySelectorAll, ids checked against the IR's tags
-  const qsa = (root instanceof Document ? Document : Element).prototype.querySelectorAll;
+  // ---- mount: one walk over elements and comments (`data-sn` elements, anchors' start comments), ids checked against the IR's tags
   const bad = new Set<number>();
-  for (const el of qsa.call(root, '[data-sn]')) {
-    const id = +Element.prototype.getAttribute.call(el, 'data-sn')!;
-    found.has(id) ? bad.add(id) : found.set(id, el);
+  const tw = doc.createTreeWalker(root, 129 /* SHOW_ELEMENT | SHOW_COMMENT */);
+  for (let n = tw.nextNode(); n; n = tw.nextNode()) {
+    // a comment: `<!--sn 4-->` is root 4 (`<!--sn-->`, an anchor in a row, is none)
+    const t = n.nodeType == 8 ? (n as Comment).data : null;
+    const a = t == null ? Element.prototype.getAttribute.call(n, 'data-sn') : t.length > 3 && isStart(n) ? t.slice(3) : null;
+    if (a == null) continue;
+    const id = +a;
+    found.has(id) ? bad.add(id) : found.set(id, n as Element | Comment);
   }
   for (const id of bad) { found.delete(id); warn(1, id); }
   for (const def of ir.resources) createLoader(def);
@@ -785,8 +821,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
   bindNodes(ir.roots, ir.roots.map((nd) => {
     const el = found.get(nd.id!);
-    if (el?.localName == nd.tag) return el;
-    warn(el ? 3 : 2, nd.id, el?.localName, nd.tag);
+    if (el && nameOf(el) == nd.tag) return el as Element;
+    warn(el ? 3 : 2, nd.id, el && nameOf(el), nd.tag);
     return null;
   }), app.page, rootRbs);
   cleanups.push(env.listen('popstate', () => {
@@ -846,14 +882,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
           el[HANDLERS] = h == null ? rb : Array.isArray(h) ? (h.push(rb), h) : [h, rb];
           continue;
         }
-        if (b.k == 'else') continue;
         if (b.k == 'model') {
           el[MODEL] = rb;
           models?.bound(rb);
           if (b.p != null) app.ext.persist?.model(rb, (v) => setModel(rb, v));
         }
         if (b.k == 'for') { rb.rows = []; rb.t = ir.templates[b.x!]; }
-        if (b.k == 'if') { rb.br = 0; rb.else = b.y != null && els[b.y] ? [els[b.y]!, defs[b.y]!.b.find((x) => x.k == 'else')!.x!] : null; }
+        if (b.k == 'if' || b.k == 'ch') rb.br = 0;
         rbs.push(rb);
       }
     }
@@ -928,11 +963,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
   function process(rb: RB, level: number): boolean {
     const force = level == 2 || (level == 1 && !!rb.b.i);
     if (!force && !(deferred.size && deferred.has(rb)) && !(rb.b.d && hit(rb.b.d, rb.s))) return true;
-    if (rb.c && rb.el.closest('dialog:not([open])')) { deferred.add(rb); return false; }
+    // (an anchor's start comment is in its parent element, which a dialog's check reads)
+    if (rb.c && (rb.el.nodeType == 1 ? rb.el : rb.el.parentElement)?.closest('dialog:not([open])')) { deferred.add(rb); return false; }
     if (deferred.size) deferred.delete(rb);
     const v = evaluate(rb), k = rb.b.k;
     if (k == 'for') reconcile(rb, v);
-    else if (k == 'if') toggle(rb, v ? 1 : rb.else ? 2 : 0);
+    else if (k == 'if') toggle(rb, v ? 1 : rb.b.z != null ? 2 : 0);
+    else if (k == 'ch') toggle(rb, v ? v[0] + 1 : 0, v?.[1]);
     else if (k == 'model') writeModel(rb, v);
     else if (k == 'cmp') app.ext.components!(rb, v);
     else if (!Object.is(v, rb.v)) { write(rb.b, rb.el, v, rb.v == UNSET ? undefined : rb.v, rb.v == UNSET); rb.v = v; }
@@ -959,7 +996,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   function write(b: Binding, e: Element, v: any, prev: any, fresh: boolean) {
     const el = e as HTMLElement, n = b.n!;
     switch (b.k) {
-      case 'text': W.t(el, n, v); break;
+      case 'text': n ? W.x(el, n, v) : W.t(el, n, v); break;
       case 'show': W.h(el, n, v); break;
       case 'prop': W.p(el, n, v); break;
       case 'class':
@@ -1031,8 +1068,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const pre: { rows: Node[][]; end: Comment } | undefined = (rb.el as any)[EARLY_ROWS];
     if (pre) {
       delete (rb.el as any)[EARLY_ROWS];
-      const t = rb.t!, tpl = rb.el as HTMLTemplateElement;
-      if (!rb.rows!.length && !rb.end && pre.rows.length == items.length) {
+      const t = rb.t!, tpl = tplOf(t.id);
+      if (!rb.rows!.length && pre.rows.length == items.length) {
         rb.end = pre.end;
         rb.rows = items.map((item, i) => {
           const s = setRow(Object.create(rb.s), t, item, i);
@@ -1040,17 +1077,23 @@ export function mount(root: Document | Element, o: MountOptions): App {
         });
         rb.rr = round;
         rb.pf = true;
+        if (t.key == null && !t.keyFields) rb.ad = round;
         return;
       }
-      for (const n of pre.rows.flat()) (n as ChildNode).remove();
-      pre.end.remove();
+      cut(rb.el, pre.end);
+      rb.end = pre.end;
     }
-    const t = rb.t!, old = rb.rows!, end = (rb.end ??= after(rb.el)), tpl = rb.el as HTMLTemplateElement;
+    const t = rb.t!, old = rb.rows!, end = rb.end ?? endFor(rb), tpl = tplOf(t.id), start = rb.el as unknown as Comment;
     const n = items.length, m = old.length, rows: Inst[] = new Array(n), moved = t.ri;
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
     const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
     app.dupes?.(keys);
+    // the takeover: the page module's items for an unkeyed list the early script rendered are new objects with the
+    // same contents (a let over a helper, computed again), so the rows it adopted take the new keys and match by
+    // position, written again
+    if (rb.ad != null && round <= rb.ad + 1 && n == m) old.forEach((x, i) => (x.key = keys[i]));
+    rb.ad = undefined;
     const reuse = (x: Inst, i: number) => {
       const item = items[i];
       if (x.item !== item) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = 2; }
@@ -1098,8 +1141,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // every old row goes (cleared, or all keys new): when the list owns its parent, drop them in
       // one operation; removing 5,000 rows one by one costs more than building the new ones
       const parent = end.parentNode!;
-      if (parent.firstChild == tpl && parent.lastChild == end) parent.replaceChildren(tpl, end);
-      else while (tpl.nextSibling != end) tpl.nextSibling!.remove();
+      if (parent.firstChild == start && parent.lastChild == end) parent.replaceChildren(start, end);
+      else cut(start, end);
     } else for (const node of gone.flatMap(nodesOf)) (node as ChildNode).remove();
     if (deferred.size || models) for (const o of gone) if (old[o]!.rbs) forget(old[o]!.rbs!);
     const ref = ne < n ? rows[ne]!.first ?? end : end;
@@ -1124,47 +1167,90 @@ export function mount(root: Document | Element, o: MountOptions): App {
     rb.sx = undefined;
   }
 
-  function toggle(rb: RB, br: number) {
-    // a branch the early chunk rendered: adopted when it is the one to show, else removed
-    const pre: { br: number; nodes: Node[]; end: Comment } | undefined = (rb.el as any)[EARLY];
+  /**
+   * An `if` (`br`: 0 none, 1 its template, 2 its `data-sn-else`) or a choice, `<sn-component use>` (`br`: the case
+   * its value names + 1, 0 none; `item`: that candidate's props). A branch the early chunk rendered is adopted when it
+   * is the one to show, else removed. The same case of a choice again: its row takes the new props, as a definition's
+   * one row does; another branch: the row is replaced by an instance of that branch's template.
+   */
+  function toggle(rb: RB, br: number, item?: unknown) {
+    const ch = rb.b.k == 'ch', pre: { br: number; nodes: Node[]; end: Comment } | undefined = (rb.el as any)[EARLY];
+    const make = (nodes?: Node[]) => {
+      const t = ir.templates[ch ? rb.b.c![br - 1]! : br == 1 ? rb.b.x! : rb.b.z!]!, s = Object.create(rb.s);
+      if (ch) setRow(s, (rb.t = t), item, 0);
+      return (rb.rows = [instantiate(tplOf(t.id), t, s, ch ? keyOf(t, item, s) : '', ch ? item : null, 0, nodes)])[0]!;
+    };
     if (pre) {
       delete (rb.el as any)[EARLY];
+      rb.end = pre.end;
       if (pre.br == br) {
-        const [anchor, tid] = br == 1 ? [rb.el, rb.b.x!] : rb.else!;
-        rb.end = pre.end;
         rb.br = br;
-        rb.rows = [instantiate(anchor as HTMLTemplateElement, ir.templates[tid]!, Object.create(rb.s), '', null, 0, pre.nodes)];
+        make(pre.nodes);
         return;
       }
-      for (const n of pre.nodes) (n as ChildNode).remove();
-      pre.end.remove();
+      cut(rb.el, pre.end);
     }
-    if (br == rb.br) return;
-    // same id, same control: the focused element goes with the old branch, its twin in the new one takes focus
-    const end = (rb.end ??= after(rb.el)), [old] = rb.rows ?? [], f = doc.activeElement;
+    if (br == rb.br) {
+      const x = rb.rows?.[0];
+      if (ch && x && x.item !== item) { setRow(x.s, rb.t!, (x.item = item), 0); walkRow(x, rb.t!, 2); }
+      return;
+    }
+    const end = rb.end ?? endFor(rb);
+    // same id, same control: the focused element of an if's old branch goes with it, its twin in the new one takes focus
+    const f = doc.activeElement;
+    clear(rb, end);
+    rb.br = br;
+    rb.t = undefined;
+    if (!br) return;
+    end.before(...rowNodes(make()));
+    if (!ch && f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
+  }
+
+  /** An if's or choice's rendered branch out of the page, its bindings forgotten. */
+  function clear(rb: RB, end: Comment) {
+    const [old] = rb.rows ?? [];
     if (old) {
       for (const n of range(old.first, end)) (n as ChildNode).remove();
       if (old.rbs) forget(old.rbs);
     }
-    rb.br = br;
     rb.rows = [];
-    if (!br) return;
-    const [anchor, tid] = br == 1 ? [rb.el, rb.b.x!] : rb.else!;
-    const x = instantiate(anchor as HTMLTemplateElement, ir.templates[tid]!, Object.create(rb.s), '', null, 0);
-    end.before(...rowNodes(x));
-    rb.rows = [x];
-    if (f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
+  }
+
+  /**
+   * The end comment of an anchor bound for the first time, without an early render: what is between it and
+   * the start is an early render that failed (no mark was left on the start), and goes. A start without
+   * an end (a comment-stripping minifier) gets one, with a dev warning.
+   */
+  function endFor(rb: RB): Comment {
+    const start = rb.el as unknown as Comment;
+    let end = endOf(start);
+    if (!end) { warn(31, start.data); start.after((end = new Comment('/sn'))); }
+    else cut(start, end);
+    return (rb.end = end);
+  }
+
+  /** What the early script rendered between an anchor's comments, which the page module does not adopt: all of it, nested anchors' rows and texts too. */
+  function cut(start: Node, end: Node) {
+    while (start.nextSibling && start.nextSibling != end) start.nextSibling.remove();
+  }
+
+  /** A head template by template id (`<template id="sn-t-<id>">`), found once. */
+  function tplOf(tid: number): HTMLTemplateElement {
+    return tpls[tid] ??= doc.getElementById('sn-t-' + tid) as HTMLTemplateElement;
   }
 
   /** `pre`: nodes the early chunk already rendered from this template, bound instead of a clone. */
   function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number, pre?: Node[]): Inst {
-    app.ext.defs?.(tpl);
-    const content = tpl.content, one = prepared.get(tpl) ?? oneElement(tpl);
+    // foreign content (`w`): the rows are the children of the `<svg>` or `<math>` the head template holds (a clone of
+    // that element holds a row's nodes as a fragment would, until they are inserted)
+    const content: Node = t.w ? tpl.content.firstChild! : tpl.content, one = prepared.get(tpl) ?? oneElement(tpl, content);
     const top: Node = pre ? (one ? pre[0]! : content) : one ? content.firstChild!.cloneNode(true) : content.cloneNode(true);
     const first = pre ? pre[0] ?? null : one ? top : top.firstChild;
     const defs = t.nodes, rbs: RB[] = [];
-    // A node and what the early script rendered after it: a nested template's branch or rows, up to their end marker.
-    const extent = (n: Node): Node => ((n as any)[EARLY] ?? (n as any)[EARLY_ROWS])?.end ?? n;
+    // A node and what the early script rendered after it: a nested anchor's branch or rows, up to its end comment.
+    const extent = (n: Node): Node => ((n as any)[EARLY] ?? (n as any)[EARLY_ROWS])?.end ?? (isStart(n) ? endOf(n) ?? n : n);
+    // one path step: an anchor's start and end are a node each (as the compiler counts them), what is rendered between them none
+    const step = (n: Node): Node | null => { const e = extent(n); return e != n ? e : n.nextSibling; };
     const find = (): Array<Element | null> => {
       // an adopted early row may hold the branches and rows the early script rendered for its nested templates:
       // the compiled lookup counts siblings and would land on those, so it walks the paths and steps over them
@@ -1174,12 +1260,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
       for (let k = 0; k < defs.length; k++) {
         const path = defs[k]!.path!;
         let node: Node | null = first;
-        for (let c = path[0]!; c-- && node;) node = extent(node).nextSibling;
+        for (let c = path[0]!; c-- && node;) node = step(node);
         for (let x = 1; x < path.length && node; x++) {
           node = node.firstChild;
-          for (let c = path[x]!; c-- && node;) node = extent(node).nextSibling;
+          for (let c = path[x]!; c-- && node;) node = step(node);
         }
-        els[k] = node && (node as Element).localName == defs[k]!.tag ? (node as Element) : null;
+        els[k] = node && nameOf(node) == defs[k]!.tag ? (node as Element) : null;
       }
       return els;
     };
@@ -1223,12 +1309,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /**
    * Once per row template: whether it holds one element (a <tr>, an <li>), so rows clone just that
-   * and no fragment. Not a nested <template>: an anchor needs a parent for its end marker.
+   * and no fragment. Not an anchor: its comments are two nodes.
    */
-  function oneElement(tpl: HTMLTemplateElement): boolean {
-    app.ext.defs?.(tpl);
-    const content = tpl.content, f = content.firstChild;
-    const one = !!f && f == content.lastChild && f.nodeType == 1 && (f as Element).localName != 'template';
+  function oneElement(tpl: HTMLTemplateElement, content: Node): boolean {
+    const f = content.firstChild;
+    const one = !!f && f == content.lastChild && f.nodeType == 1;
     prepared.set(tpl, one);
     return one;
   }
@@ -1487,7 +1572,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         return items.map(clean);
       },
       start() {
-        const el = def.data != null ? found.get(def.data) : null;
+        const el = def.data != null ? found.get(def.data) as Element | undefined : null;
         let data;
         if (el) {
           // empty: the server that fills it did not (no data, an error, its time ran out), so the page requests it
@@ -1512,12 +1597,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
         had = true;
         l.pager?.reset(0);
         const v = store(data!.v, request(url));
-        r.meta.loadedAt = env.now();
+        // a `file:` resource: a constant read at build time, never loaded (`loadedAt` null)
+        if (!def.fx) r.meta.loadedAt = env.now();
         l.done(v);
         l.settle(true);
       },
       /** `src` or `when` may have changed: reload from the first page if the URL differs. From typing: once the typing pauses. */
       changed(soft?: boolean) {
+        if (def.fx) return;
         if (typing != null) { env.clearTimeout(typing); typing = null; app.busy--; }
         if (soft) { app.busy++; typing = env.setTimeout(() => { typing = null; app.busy--; l.changed(); }, TYPING, 'debounce'); return; }
         const u = resolve();
@@ -1535,6 +1622,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       },
       /** Repeats the current request; several calls in one task share one request (quiet only if every call was). */
       refetch: (_hint, quiet) => {
+        if (def.fx) return Promise.resolve();
         if (!quiet) loud = true;
         return (again ??= Promise.resolve().then(() => { again = null; const q = !loud; loud = false; return l.load(undefined, q); }));
       },

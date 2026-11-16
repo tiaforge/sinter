@@ -6,7 +6,7 @@
 // had: every scope (persisted values applied) before any write; a binding that throws is left to the
 // page module; an element that is missing is skipped.
 import * as acorn from 'acorn';
-import type { Binding, EarlyIR, NodeDef } from '../ir.js';
+import type { EarlyIR, NodeDef } from '../ir.js';
 import { URL_ATTR } from '../runtime/security.js';
 
 /**
@@ -83,45 +83,40 @@ export function earlyRender(ir: EarlyIR, fns: string[] = []): EarlyRender {
     const out: string[] = [];
     defs.forEach((nd, i) => {
       for (const b of nd.b) {
-        if (b.k == 'else') continue;
         const call = (wr: string, name?: string) => `${use('w')}(n[${i}], f[${b.f}], ${sc[i]}, ${wr}${name !== undefined ? `, ${str(name)}` : ''});`;
-        if (b.k == 'if') out.push(call(`(t, v) => ${use('iff')}(t, v, ${b.y != null ? `n[${b.y}]` : 'null'}, ${branch(b.x!)}, ${elseOf(defs, b)}, ${sc[i]})`));
+        if (b.k == 'if') out.push(call(`(t, v) => ${use('iff')}(t, v, ${tid(b.x!)}, ${b.z != null ? tid(b.z) : 'null'}, ${branch(b.x!)}, ${b.z != null ? branch(b.z) : '0'}, ${sc[i]})`));
         // a `data-sn-for` over embedded data: a row per item, its bindings over the row's scope
-        else if (b.k == 'for') { const t = ir.templates[b.x!]; out.push(call(`(t, v) => ${use('each')}(t, v, ${branch(b.x!)}, ${str(t?.item ?? 'item')}, ${str(t?.index ?? null)}, ${sc[i]})`)); }
+        else if (b.k == 'for') { const t = ir.templates[b.x!]; out.push(call(`(t, v) => ${use('each')}(t, v, ${tid(b.x!)}, ${branch(b.x!)}, ${str(t?.item ?? 'item')}, ${str(t?.index ?? null)}, ${sc[i]})`)); }
+        // a choice over embedded data: the case's definition, its props as the definition's item
+        else if (b.k == 'ch') out.push(call(`(t, v) => ${use('ch')}(t, v, [${b.c!.map(tid).join(', ')}], ${str(b.c!.map((x) => ir.templates[x]?.item ?? 'item'))}, [${b.c!.map(branch).join(', ')}], ${sc[i]})`));
         else if (b.k == 'class') out.push(b.n ? call(use('cls'), b.n) : call(use('pair')));
         // an attribute needs the browser's URL check only if it is a URL attribute and its scheme is not fixed by the expression
         else if (b.k == 'attr') out.push(call(use(URL_ATTR.test(b.n!.toLowerCase()) || b.n!.toLowerCase().endsWith('srcset') ? (fns[b.f!] != null && fixedScheme(fns[b.f!]!) ? 'set' : 'attr') : 'set'), b.n));
+        // a text without an element: the text node after its marker
+        else if (b.k == 'text' && b.n == '+') out.push(call(use('slot')));
         else if (WRITER[b.k]) out.push(call(use(WRITER[b.k]!), b.n));
       }
     });
     return out;
   };
 
+  /** a template's id as the writers take it: `-1 - id` for one inside `<svg>` or `<math>` (its head template holds that element) */
+  const tid = (x: number) => (ir.templates[x]?.w ? -1 - x : x);
   /**
    * the renderer of a template's branch: `(ns, b) => …` over its cloned nodes and the branch's base
-   * scope. A template that reaches itself (shared definitions used inside one another, as
-   * `<sn-component use>` candidates are) is written once into the table `B` and referenced from
-   * there, so it is not inlined without end.
+   * scope, written once into the table `B` and referenced from there wherever the template is used
+   * (shared definitions used inside one another, as `<sn-component use>` candidates are, included)
    */
-  const table = new Map<number, string>(), building = new Set<number>(), cyclic = new Set<number>();
+  const table = new Map<number, string>();
   const branch = (x: number): string => {
     const def = ir.templates[x];
     if (!def || !def.nodes.length) return '0';
     if (table.has(x)) return `B[${x}]`;
-    if (building.has(x)) return (cyclic.add(x), `B[${x}]`);
-    building.add(x);
+    table.set(x, '');
     const els = def.nodes.map((nd) => `${use('at')}(ns, ${str(nd.path)}, ${str(nd.tag)})`);
     const sc = scopeOf(def.nodes, 'b');
-    const code = `(ns, b) => { const n = [${els.join(', ')}]; ${[...sc.lines, ...writeLines(def.nodes, sc.expr)].join(' ')} }`;
-    building.delete(x);
-    if (!cyclic.has(x)) return code;
-    table.set(x, code);
+    table.set(x, `(ns, b) => { const n = [${els.join(', ')}]; ${[...sc.lines, ...writeLines(def.nodes, sc.expr)].join(' ')} }`);
     return `B[${x}]`;
-  };
-  const elseOf = (defs: NodeDef[], b: Binding): string => {
-    if (b.y == null) return '0';
-    const e = defs[b.y]!.b.find((x) => x.k == 'else');
-    return e ? branch(e.x!) : '0';
   };
 
   // the roots' state scopes, made before the early requests (which read them, by `owner`) and the render

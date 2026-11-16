@@ -1,0 +1,4 @@
+<!-- An item: a task's checkbox, then its blocks; in a tight list a paragraph is its content alone, without <p>. -->
+<template data-sn-component="{ node: ListItem; tight: boolean }">
+  <li data-sn-class="{ 'task-list-item': node.checked !== null }"><template data-sn-if="node.checked !== null"><input type="checkbox" disabled data-sn-attr="{ checked: node.checked }"></template><template data-sn-for="b in node.children"><template data-sn-if="tight && b.type === 'paragraph'"><template data-sn-for="n in b.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><md-phrasing data-sn-prop="{ node: n }"></md-phrasing></template></template></template><template data-sn-else><md-block data-sn-prop="{ node: b }"></md-block></template></template></li>
+</template>
