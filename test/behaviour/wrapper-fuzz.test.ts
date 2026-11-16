@@ -86,10 +86,12 @@ function shape(n: Node): string {
 
 const lit = (x: unknown) => JSON.stringify(x).replace(/"/g, "'");
 const SEEDS = Number(process.env.SN_FUZZ_SEEDS ?? 150), STEPS = Number(process.env.SN_FUZZ_DEPTH ?? 5);
+/** `SN_FUZZ_ONLY=<seed>`: that seed alone */
+const ONLY = process.env.SN_FUZZ_ONLY ? Number(process.env.SN_FUZZ_ONLY) : undefined;
 
 test('random wrapper chains: each change in place renders what a fresh render of the same state renders, after the module or the early script', async () => {
   const failures: string[] = [];
-  for (let seed = 1; seed <= SEEDS; seed++) {
+  for (let seed = ONLY ?? 1; seed <= (ONLY ?? SEEDS); seed++) {
     const r = rng(seed);
     const keyed = r() < 0.5;
     const tpl = `<template data-sn-for="x in d"${keyed ? ' data-sn-key="x.id"' : ''}>${chain(r, 'x', 3)}</template>`;
@@ -104,7 +106,7 @@ test('random wrapper chains: each change in place renders what a fresh render of
       // (one page is rendered at a time: each render ends the one before)
       const got: string[][] = [];
       for (const firstPaint of [false, true]) {
-        const live = await render(page(lit(init), true), { components: COMPONENTS, firstPaint });
+        const live = await render(page(lit(init), true), { components: COMPONENTS, ...(firstPaint ? { firstPaint } : {}) });
         await live.settle();
         const seq: string[] = [];
         for (let k = 0; k < STEPS; k++) {
