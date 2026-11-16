@@ -228,6 +228,61 @@ the results into one collection:
 - Any file inside the project root can be read this way, and what a page reads is written into the
   page it ships: keep secrets (`.env` files, keys) out of `file:` paths, as out of the page itself.
 
+## Collections
+
+`src="content:name"` reads a collection of the app's content module, `src/sinter.content.ts`: a list made by code
+at build time, from a CMS, a database, an API or files, before any page compiles.
+
+```ts
+// src/sinter.content.ts
+import { collection } from '@tiaforge-ui/sinter/content';
+
+export const products = collection({
+  key: 'sku',
+  load: async ({ env }) => {
+    const r = await fetch('https://cms.example.com/api/products', { headers: { authorization: `Bearer ${env.CMS_TOKEN}` } });
+    if (!r.ok) throw new Error(`CMS: ${r.status}`);
+    return r.json();
+  },
+});
+
+export const tags = collection({
+  key: 'slug',
+  load: async ({ files }) => {
+    const by = new Map();
+    for (const p of await files('content/posts/*.md', { drafts: 'draft' })) for (const t of p.tags ?? []) by.set(t, [...(by.get(t) ?? []), p]);
+    return [...by].map(([slug, posts]) => ({ slug, posts }));
+  },
+});
+```
+
+```html
+<sn-resource name="products" src="content:products" type="Product" order="name"></sn-resource>
+```
+
+- **Every export is a collection**, `collection({ key, load })`: `key` names the field that tells entries apart,
+  and `load` returns the list. An export that is not a collection (a helper) fails the build: helpers go in the
+  helpers module.
+- **`load` gets a context**: `files(glob, { drafts })` reads files as a [`file:` glob](#files) does (paths from
+  the project root); `get(other)` is another collection's list, loaded once whoever asks; `env` has the variables
+  of Vite's `loadEnv` (`.env`, `.env.production` and the process's, every prefix); `command` is `'build'` or
+  `'serve'`.
+- **Once per build, in Node, before any page compiles**, through Vite with the app's config, so its aliases and
+  plugins apply. The collections run concurrently. Nothing of the module ships: it may fetch, read the disk and use
+  secrets; what ships is what a page reads of the list.
+- **The result is checked**: a list of plain data (arrays, objects, strings, numbers, booleans, `null`; a `Date` is
+  refused, return `toISOString()`), each entry an object with a unique `key`. A loader that throws, or a result
+  that fails the check, fails the build, naming the collection; in `vite dev` the pages that read it show the error
+  ([SN342](diagnostics.md#sn342-unknown-collection)). Errors lose their URLs' credentials and query and the values
+  of `env`, since they are printed and shown in the browser in dev.
+- **On a page** it is a constant list, as a `file:` glob is: bindings over it are written at build time, `order`
+  sorts it in the page's language, `key` is the collection's, and a [page per entry](static-pages.md#a-page-per-entry)
+  can be built from it. `drafts` and `items` are the loader's business. Without `type` it is `SN504`.
+- **`vite dev`** runs the loaders at startup and again when the content module or a file `files()` read changes,
+  then reloads the page. A change in the CMS needs a restart, or a rebuild in production (a webhook to the CI).
+- `sinter({ content: 'src/data.ts' })` moves the module; `content: false` turns it off. `content` cannot be an
+  API's name (SN329).
+
 ## Loading behavior
 
 - **Shared requests.** Resources with the same resolved `src` share one request, for example one

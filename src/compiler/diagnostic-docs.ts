@@ -272,6 +272,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'Each entry of a `data-sn-pages` list fills the page\'s pattern: every `:param` takes the entry\'s field of that name, which must be a string or a number, one path segment (not empty, not `.` or `..`, no `/`). Two entries that fill the same path would be one page.',
     fix: 'Give the entry the field (in its frontmatter, or a file name that makes its `slug`), make it one segment, or give two entries different values.',
   },
+  SN342: {
+    example: '`post` is not a collection of the content module (it has `posts`, `tags`)',
+    means: '`<sn-resource src="content:posts">` reads a collection of the content module (`src/sinter.content.ts`): an export made with `collection({ key, load })`, loaded before any page compiles. The name must be one of its exports. In the dev server, a content module that failed to load reports its error here, on each page that reads a collection.',
+    fix: 'Name an exported collection, or export one: `export const posts = collection({ key: \'slug\', load: async () => … })`. If the module failed to load, fix the error it names.',
+  },
   SN333: {
     example: '`data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it',
     means: 'A `<template data-sn-text>` renders a text node and nothing else: it takes no other attribute (`data-sn-if` and `data-sn-for` go on a template around it, anything else on an element around the text), and content inside it is dropped.',

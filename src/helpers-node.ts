@@ -57,14 +57,24 @@ export async function loadHelpers(o: LoadOptions): Promise<NodeHelpers> {
   if (!o.helpersFile) return { module: null, error: null, ...check() };
   // the app's aliases apply to the static check too, as they do to the module
   const aliasesOf = (alias: unknown) => cache.setAliases((alias as Array<{ find: string | RegExp; replacement: string }>).filter((a) => typeof a.replacement === 'string'));
+  try {
+    const module = await importModule(o, o.helpersFile, aliasesOf);
+    return { module, error: null, ...check() };
+  } catch (e) {
+    return { module: null, error: (e as Error)?.message ?? String(e), ...check() };
+  }
+}
+
+/**
+ * A module of the app, imported in Node through Vite with the app's own config: by the dev server's SSR environment
+ * when there is one, else by a short-lived module runner in which sinter's own plugin stays inert (the helpers
+ * module, the content module). Throws what the import threw.
+ */
+export async function importModule(o: Omit<LoadOptions, 'helpersFile' | 'manifest' | 'cache'>, file: string, aliases?: (alias: unknown) => void): Promise<Record<string, unknown>> {
   const server = o.fresh ? null : o.server ?? null;
   if (server) {
-    try {
-      aliasesOf(server.config.resolve.alias);
-      return { module: (await server.ssrLoadModule(o.helpersFile)) as Record<string, unknown>, error: null, ...check() };
-    } catch (e) {
-      return { module: null, error: (e as Error)?.message ?? String(e), ...check() };
-    }
+    aliases?.(server.config.resolve.alias);
+    return (await server.ssrLoadModule(file)) as Record<string, unknown>;
   }
   // a module runner of its own, with no dev server: the app's `configureServer` hooks never run
   const g = globalThis as Record<symbol, number>;
@@ -80,18 +90,15 @@ export async function loadHelpers(o: LoadOptions): Promise<NodeHelpers> {
       optimizeDeps: { noDiscovery: true, include: [] },
       ...(o.fresh ? { ssr: { noExternal: true } } : {}),
     }, 'serve', o.mode ?? 'production');
-    aliasesOf(config.resolve.alias);
+    aliases?.(config.resolve.alias);
     const e = createRunnableDevEnvironment('ssr', config, { runnerOptions: { hmr: { logger: false } }, hot: false });
     env = e;
     // Vite's CSS plugin sets itself up at the client's start in a dev server, which there is none of here: a
-    // helper that imports a stylesheet (a component's, a library's) loads as in the app, its CSS an empty module
+    // module that imports a stylesheet (a component's, a library's) loads as in the app, its CSS an empty module
     css = config.plugins.find((p) => p.name === 'vite:css') ?? null;
     await hook(css, 'buildStart');
     await e.init();
-    const module = await e.runner.import(o.helpersFile);
-    return { module: module as Record<string, unknown>, error: null, ...check() };
-  } catch (e) {
-    return { module: null, error: (e as Error)?.message ?? String(e), ...check() };
+    return (await e.runner.import(file)) as Record<string, unknown>;
   } finally {
     g[LOADING]!--;
     await env?.close().catch(() => {});

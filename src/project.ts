@@ -19,6 +19,8 @@ export interface ProjectOptions {
   helpers?: string;
   /** actions module for `data-sn-call` and `<sn-resource call>` (default `src/sinter.actions.js`, or `.ts`) */
   actions?: string;
+  /** content module: collections for `<sn-resource src="content:…">` (default `src/sinter.content.ts`, or `.js`); `false`: none */
+  content?: string | false;
   /** app configuration module imported before mount (default `src/sinter.config.js`, or `.ts`) */
   config?: string;
   /** app module the early chunk runs before the first paint (default `src/sinter.early.js`, or `.ts`) */
@@ -107,6 +109,8 @@ export interface Project {
   helpers: HelperManifest;
   /** absolute path of the helpers module, or null */
   helpersFile: string | null;
+  /** absolute path of the content module, or null */
+  contentFile: string | null;
   /** the actions module's functions and namespaces (same shape as helpers) */
   actions: HelperManifest;
   /** absolute path of the actions module, or null */
@@ -231,6 +235,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   };
   const [helpers, helpersFile] = manifest(options.helpers, 'src/sinter.helpers');
   const [actions, actionsFile] = manifest(options.actions, 'src/sinter.actions');
+  const contentRel = options.content === false ? null : find(options.content, 'src/sinter.content', ['.ts', '.js']);
   const configRel = find(options.config, 'src/sinter.config');
   const earlyRel = find(options.early, 'src/sinter.early');
   const typesRel = find(options.types, 'src/sinter.types', ['.ts', '.d.ts', '.js']);
@@ -288,7 +293,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     if (exported.includes('Slot')) diagnostics.push({ severity: 'error', code: 'SN331', message: 'the types module exports a type named `Slot`, which is sinter\'s: `Slot<T>` in a component\'s props declares a slot that passes `T` to its fill', file, line: 1, col: 1, hint: 'rename the type (`TimeSlot`, `SlotInfo`)' });
   }
   return {
-    root, helpers, helpersFile, actions, actionsFile, readFile, listFiles, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), expansionLimit: expansionLimitOf(options.expansionLimit), checkCycles: !!options.checkCycles,
+    root, helpers, helpersFile, contentFile: contentRel ? resolve(root, contentRel) : null, actions, actionsFile, readFile, listFiles, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), expansionLimit: expansionLimitOf(options.expansionLimit), checkCycles: !!options.checkCycles,
     isStatic: staticPages(root, options.static).has,
     lazy: lazyOf(options.lazy), strict: strictOf(options.strict),
     componentNames: components, libraries: libs.libraries,

@@ -9,7 +9,8 @@ import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
+import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
+import { loadContent, type LoadedContent } from './content-node.js';
 import { applyStrict, compile, formatDiagnostic, formatWarning, strictPromotes, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
 import { lazyOf, project, staticPages, strictOf, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
@@ -579,7 +580,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const html = readFileSync(file, 'utf8');
     if (!/data-sn-pages\b/.test(html)) return null;
     const p = proj();
-    const out = compile(html, { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true });
+    const out = compile(html, { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true });
     const fatal = out.diagnostics.filter((d) => d.severity === 'error' && /^SN34[01]$/.test(d.code));
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
     return out.pages ?? null;
@@ -645,7 +646,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const p = proj(), v = virtual.get(file);
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
+        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
       } catch { described.set(file, { parts: null, path: [], off: false }); }
     }
@@ -655,7 +656,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const describeSource = (source: string) => {
     if (!sourceDescribed.has(source)) {
       const p = proj();
-      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
+      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
       catch { sourceDescribed.set(source, []); }
     }
     return { path: sourceDescribed.get(source)! };
@@ -743,6 +744,23 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * Cleared at each build's start, so a rebuild under `--watch` sees edits; dev reads afresh, as files change under it.
    */
   const buildReads = new Map<string, { text: string } | { error: unknown }>();
+  /**
+   * The content module's collections (docs/resources.md#collections), loaded before any page compiles: in
+   * `configResolved`, and again in dev when the module or a file its loaders read changes. A build fails on a loader's
+   * error; dev reports it on the pages that read a collection.
+   */
+  let content: LoadedContent | null = null;
+  const loadCollections = async (): Promise<LoadedContent | null> => {
+    const p = proj();
+    if (!p.contentFile || !resolved) return null;
+    return loadContent({
+      root, file: p.contentFile, command: dev ? 'serve' : 'build', readFile: p.readFile, listFiles: p.listFiles,
+      env: loadEnv(resolved.mode, resolved.envDir === false ? root : resolved.envDir ?? root, ''),
+      configFile: resolved.configFile ?? false, mode: resolved.mode, ...(resolved.configFile ? {} : { alias: resolved.resolve.alias }),
+    });
+  };
+  /** what every compile gets of the collections */
+  const contentOpts = () => (content ? { collections: content.collections, ...(content.error ? { collectionsError: content.error } : {}) } : {});
   /** builds: the `file:` lists already built (compile's `globCache`), cleared with the reads */
   const globCache: NonNullable<Parameters<typeof compile>[1]['globCache']> = new Map();
   const readVia = (p: ReturnType<typeof project>) => (dev ? p.readFile : (path: string) => {
@@ -772,10 +790,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
     // a warning about the options (a deprecated one): once per build
     for (const d of p.diagnostics) if (d.severity === 'warning' && !warnedOptions.has(d.message)) { warnedOptions.add(d.message); resolved?.logger.warn(formatDiagnostic(d)); }
-    if (!seen.has(file)) { seen.add(file); pagesCache = null; }
+    // a page not seen before may be a new one (dev); a build's pages per entry are all known from the start
+    if (!seen.has(file)) { seen.add(file); if (dev || !pageInputs) pagesCache = null; }
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
-      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), prefetch,
+      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), prefetch,
       ...(page ? { page } : {}),
       check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
@@ -893,6 +912,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (b.rollupOptions) b.rollupOptions.input = input;
         }
       }
+      // the content module's collections, before anything compiles (a build's errors stop it here)
+      content = await loadCollections();
+      if (content?.error) {
+        if (!dev) throw new Error(`sinter: ${content.error}`);
+        config.logger.error(`sinter: ${content.error}`);
+      }
       // `data-sn-pages`: one input per entry, before the build starts (its inputs are fixed from here)
       if (!dev) {
         const b = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
@@ -953,6 +978,19 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // a page's resources may have changed: the next-page module is described again
         if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear(); }
         if (watched.has(file)) s.ws.send({ type: 'full-reload' });
+      });
+      // the content module, or a file its loaders read: the collections are loaded again, and the pages reload
+      if (content || proj().contentFile) for (const f of [proj().contentFile!, ...(content?.files ?? [])]) if (f) s.watcher.add(f);
+      s.watcher.on('change', (file) => {
+        const p = proj();
+        if (file !== p.contentFile && !content?.files.includes(file)) return;
+        loadCollections().then((c) => {
+          content = c;
+          if (c?.error) s.config.logger.error(`sinter: ${c.error}`);
+          for (const f of c?.files ?? []) s.watcher.add(f);
+          described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear();
+          s.ws.send({ type: 'full-reload' });
+        }, (e) => s.config.logger.error(`sinter: ${(e as Error).message}`));
       });
       // a `file:` glob's list changes when a file it matches is added or removed
       for (const ev of ['add', 'unlink'] as const) s.watcher.on(ev, (file) => {

@@ -31,6 +31,12 @@ export function fileAttrProblem(name: string): string {
     : `\`${name}\` is not an attribute of a \`file:\` resource, which takes only \`name\`, \`type\`, \`items\` and \`key\``;
 }
 
+/** the built-in name of the content module's collections in `src` (`content:posts`), and so a reserved API name */
+export const CONTENT = 'content';
+
+/** whether a `src` is a collection of the content module: `content:` and a name (not a path: `content:/x` is not one) */
+export const isContentSource = (value: string | undefined) => value != null && /^content:[A-Za-z_$]/.test(value.trimStart());
+
 /** the attribute of the internal resource that holds a `data-sn-pages` entry (never written by a page) */
 export const PAGE_ENTRY = 'data-sn-page-entry';
 

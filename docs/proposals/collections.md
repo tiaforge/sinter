@@ -601,7 +601,10 @@ A prototype first, then three pull requests, each followed by a review of where 
   entry, globs, `key` and `slug`, `drafts`, `order`, SN332's rename and SN539, and what already used `file:`
   (sinter-markdown's `md.parse(post.body)`); (2) the limits: `MAX_UNROLL` removed, `expansionLimit` public;
   (3) `{$locale}`, `fields`, `type` checked against the files, the editor's glob cache and watchers; (4)
-  `content:` and the content module. The first three are done, except `fields`, which moves to (4): its check, a
+  `content:` and the content module, in three pull requests: (4.1) the module, its loaders and `content:`, done:
+  collections are loaded in `configResolved` with the helpers' runner, all of them (not only those pages read: finding
+  those needs the pages compiled, which needs the lists), and `data-sn-pages` takes them; (4.2) `sinter check` and the
+  editor (the snapshot, types from the loaders); (4.3) `fields`. The first three are done, except `fields`, which moves to (4): its check, a
   browser read outside `fields`, needs to tell build-time reads from browser reads of one resource, since `sinter
   check` types a resource once and a post's `body` is read at build time by the same page whose browser code reads
   its title; that is the field tracking listed as future work, and it matters most for a CMS's data; in it, `order` compares in the page's `<html lang>`.

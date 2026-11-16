@@ -70,6 +70,7 @@ export const CODES = {
   SN339: 'library-component',
   SN340: 'pages-path',
   SN341: 'pages-param',
+  SN342: 'unknown-collection',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',
