@@ -78,12 +78,25 @@ export interface Pager {
 }
 
 /**
- * A navigation, as every way in describes it (a link, `navigate()`, Back and Forward): where to, how, and
- * what started it. `peek`: only asks which handler would take it (next-page data), nothing happens.
+ * A navigation, as every way in describes it: where from and to, how (`kind`), what started it (`trigger`:
+ * the link, the element of a `navigate()` handler), the destination's history index on a traversal, the
+ * signal that aborts it when a newer one comes, and its `source`: a click on a link (`link`), `navigate()`
+ * (`call`), the core's `popstate` (`popstate`), or the browser's `navigate` event (`event`, which carries
+ * the event, for the handler that intercepts it).
  */
-export interface Intent { to: string; kind: 'push' | 'replace' | 'traverse'; trigger?: Element | null; peek?: boolean }
-/** A navigation handler (`App.nav`): the name of what it does with the intent (`same`, `swap`) when it takes it, else nothing. */
-export type Navigator = (i: Intent) => string | false | void | undefined;
+export interface Intent {
+  from: string; to: string; kind: 'push' | 'replace' | 'traverse';
+  source: 'link' | 'call' | 'popstate' | 'event';
+  trigger?: Element | null; index?: number; signal?: AbortSignal; event?: Event;
+}
+/**
+ * What a handler decides for an intent: its name (`same`, `swap`) and what it does, run by the core once
+ * every handler was asked. `run` returning false: it could not (the core loads the page). No `run`: it is
+ * done elsewhere (the swap, for the `popstate` of a traversal it intercepted).
+ */
+export interface Decision { name: string; run?(): boolean | void | Promise<boolean | void> }
+/** A navigation handler (`App.nav`): its decision, or nothing when the intent is not its. It acts only in `run`. */
+export type Navigator = (i: Intent) => Decision | void | undefined;
 
 /** The last argument of an action function (`data-sn-call`, `<sn-resource call>`). */
 export interface CallContext {
@@ -203,6 +216,8 @@ export interface App {
     typing?: { flush(kind: number): void; waits(): boolean; stop(): void; finish(): void };
     /** the shared link listener is installed (links.ts) */
     links?: true;
+    /** its page is being replaced (permanent.ts): the next `mount` on its root destroys it first */
+    leaving?: true;
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
     form?: (el: Element, a: ActionDef, body: unknown) => unknown;
     /**
@@ -280,13 +295,21 @@ export interface App {
   exec(f: number, scope: any, writes?: PathRef[], o?: { at?: Record<number, string> }): void;
   addCleanup(fn: () => void): void;
   /**
-   * The navigation handlers, in the order features registered them (same-page links, then the swap): the
-   * first that takes an intent has it. None: a push or replace loads the page, a traversal reads `$url`.
+   * The navigation handlers, in the order features registered them (same-page links, transitions, the
+   * swap). Each is asked; the first decision is the one the core runs (`go`).
    */
   readonly nav: Navigator[];
-  /** asks the handlers in order; the name of the one that took it (or would, with `peek`) */
-  take(i: Intent): string | false;
-  /** the one way to another URL: the handlers, else the page loads (`replace`: in the current entry) */
+  /** told of every intent `go` runs, before any handler acts (a transition notes its trigger); not of `decide`'s */
+  readonly onGo: Array<(i: Intent) => void>;
+  /** asks every handler, nothing runs: the first decision (next-page data asks what a link would do) */
+  decide(i: Intent): Decision | undefined;
+  /**
+   * decides and runs. No decision, or a `run` that could not: what the source does without sinter, done by
+   * the core alone (a link: the browser follows it; a call: the page loads; an event: the browser goes on;
+   * a failed run after the default was taken: the page loads, or reloads at a URL already committed)
+   */
+  go(i: Intent): Decision | undefined;
+  /** the one way to another URL from code (`navigate()` in a handler, app code) */
   navigate(url: string, o?: { replace?: boolean; trigger?: Element | null }): void;
   /** runs `fn` now, or, on a page the browser prerenders (Speculation Rules), once it is shown */
   shown(fn: () => void): void;
@@ -449,7 +472,11 @@ export function instance(root: Document | Element): App {
 }
 
 export function mount(root: Document | Element, o: MountOptions): App {
-  if (instances.has(root)) throw Error('sinter: already mounted');
+  // an app whose page is being replaced (the swap, permanent.ts) stays until the next one mounts: there is
+  // always one, and what it writes on its way (the cache) is written before the next one reads it
+  const prev = instances.get(root);
+  if (prev && !prev.ext.leaving) throw Error('sinter: already mounted');
+  prev?.destroy();
   const { ir, fns } = o;
   if (ir?.v != 2 || !ir.ps) throw Error('sinter: unsupported IR');
   const env = o.env ?? envOf(config);
@@ -791,15 +818,27 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),
     nav: [],
-    take(i) {
-      for (const h of app.nav) { const r = h(i); if (r) return r; }
-      return false;
+    onGo: [],
+    decide(i) {
+      let d: Decision | undefined;
+      for (const h of app.nav) { const r = h(i); if (r && !d) d = r; }
+      return d;
+    },
+    go(i) {
+      for (const f of app.onGo) f(i);
+      const d = app.decide(i);
+      // an event's navigation may have committed its URL (then the page is reloaded, once that navigation
+      // has settled) or not (then it is loaded, as the browser would have)
+      const load = () => (i.source == 'popstate' || (i.source == 'event' && env.href() == i.to) ? env.setTimeout(() => location.reload(), 0)
+        : i.kind == 'replace' ? (env.replace ?? ((u: string) => location.replace(u)))(i.to) : env.navigate(i.to));
+      if (!d) { if (i.source == 'call') load(); return d; }
+      const r = d.run?.();
+      if (r === false) load();
+      else if (r instanceof Promise) r.then((ok) => { if (ok === false) load(); }, load);
+      return d;
     },
     navigate(url, o) {
-      const to = new URL(url, env.href()).href;
-      if (app.take({ to, kind: o?.replace ? 'replace' : 'push', trigger: o?.trigger })) return;
-      if (o?.replace) (env.replace ?? ((u: string) => location.replace(u)))(to);
-      else env.navigate(to);
+      app.go({ from: env.href(), to: new URL(url, env.href()).href, kind: o?.replace ? 'replace' : 'push', source: 'call', trigger: o?.trigger });
     },
     shown: (fn) => void (waiting ? waiting.push(fn) : fn()),
   };
@@ -856,7 +895,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }), app.page, rootRbs);
   cleanups.push(env.listen('popstate', () => {
     // a handler may take Back or Forward (the swap, to another path); else the page reads `$url` again
-    if (app.take({ to: env.href(), kind: 'traverse' })) return;
+    if (app.go({ from: env.href(), to: env.href(), kind: 'traverse', source: 'popstate' })) return;
     const u = app.page.$url;
     for (const k in u) delete u[k];
     Object.assign(u, readUrl());

@@ -13,6 +13,11 @@ record is the browsers' behaviour, not sinter's.
   with content that is short at the swap and grows after.
 - `interplay.cjs`: whether `history.pushState` fires `navigate`, and whether an intercepted traversal
   also fires `popstate`.
+- `precommit.cjs`: whether the URL waits for a `precommitHandler`, read inside the page (`behaviour.cjs`
+  reads it through Playwright, whose click can wait for the navigation: its precommit line is not to be
+  trusted).
+- `focus-bfcache.cjs`: `focusReset`, and Back into the app from a page load out of it (with a control
+  page without the API: headless browsers keep nothing in the back/forward cache).
 
 ```sh
 node features.cjs   # and the others; Firefox and WebKit: npx playwright install firefox webkit

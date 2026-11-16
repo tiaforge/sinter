@@ -10,8 +10,10 @@ Decisions:
   load; nothing changes on the server, in embed or in the page's HTML. The client replaces the page in the
   document it has instead of the browser loading a new one. There is no route table and no view in the
   client, and every URL still loads on its own.
-- **Opt-in.** A page that does not opt in never swaps; a page that does falls back to a page load whenever
-  anything is unexpected. The opt-in costs every page something (step 2 grows the core, [12](#12-size)).
+- **On by default, per app** (decided 2026-11-16): swap navigation is a `sinter()` option that is on
+  unless an app turns it off; a page or a link opts out with `data-sn-swap="off"`. Anything unexpected is
+  a page load. Being the default makes [what a swap skips](#4-the-head) and the cost on every page
+  ([12](#12-size)) part of every app: the questions this raises are in [1](#1-opting-in).
 - **Kept elements** (`data-sn-permanent="name"`) are the first use: an audio player, an open drawer, a
   scroll container stay untouched across a link to a page with an element of the same name.
 - **Navigation has one way in: `navigate()`.** Four parts of the runtime decided parts of a navigation and
@@ -76,15 +78,24 @@ Decisions:
 
 ## Design
 
-### 1. Opting in
+### 1. Opting in (on by default)
 
-Two attributes, one feature:
+Decided: **`sinter({ swap })`, on unless set to `false`**; `data-sn-swap="off"` on a page's (or its
+layout's) `<html>` takes the page out, on a link takes the link out (a page load, always);
+`data-sn-permanent="name"` keeps an element across swaps. Reasons a page or link opts out: a page with
+classic or inline scripts that expect a load (analytics, a chat widget, ads, a legacy page), a page served
+with another CSP or other headers, a page that relies on `load` or `DOMContentLoaded`, a long-lived
+document that should start fresh. The build warns for the first (an inline or classic script on a page
+that swaps).
 
-- **`data-sn-navigation="swap"` on `<html>`** (a page's or its layout's; on any other element it is an
-  error, and the runtime reads it only from `<html>`): links and `navigate()` from this page to another
-  page that also opts in are swaps. RealWorld wants this: it kept its footer only to turn swaps on.
-- **`data-sn-permanent="name"`** on an element: kept across a swap to a page with the same name. It
-  implies swap navigation for the page (the spike's only switch).
+Questions the default raises, to settle in step 3:
+- **Pages without JavaScript** (`static`, and pages of constants) ship no script today; a swap needs the
+  module on the page a link leaves. Proposed: such pages stay without JavaScript and their links are page
+  loads (the page they lead to may still be swapped to from elsewhere); a kept element is a runtime reason,
+  as now.
+- **Size on every page that ships JavaScript**: the swap module (about 3 KB gzip) on every such page, not
+  only on pages with a kept element.
+- **A breaking change** for apps whose pages rely on loads: called out in the CHANGELOG, with the opt-outs.
 
 **The decision comes from the build, not from a fetch.** The build knows which pages opt in and which
 names each keeps; it writes them into the manifest next-page data already uses (`prefetch.ts`: the app's
@@ -94,16 +105,15 @@ match) and a mismatch falls back to a load, which costs a second request only in
 This keeps a swap from requesting `/logout`, a download or a one-time callback, and lets prefetch ask
 the chain safely ([2](#2-one-way-in-navigate)). The spike decides from the fetched HTML; this is the change.
 
-**Both markers survive the build.** The compiler strips every `data-sn-*` attribute from the HTML;
-`data-sn-permanent` is exempt (in the spike) and `data-sn-navigation` must be. Each is a runtime reason,
+**The markers survive the build.** The compiler strips every `data-sn-*` attribute from the HTML;
+`data-sn-permanent` is exempt (in the spike) and `data-sn-swap` must be. Each is a runtime reason,
 so a page of constants still ships its module.
 
 Build checks (`data-sn-permanent`, in the spike): a static name (`SN401`), once per page, not inside a
 `<template>`, no bindings on or inside the element (`SN102`). Proposed: dedicated codes, and a warning
 when a name is on one page only.
 
-**A link opts out** with `data-sn-navigation="load"` (a page load, always), besides the cases the browser
-keeps ([2](#2-one-way-in-navigate)). `rel="external"` stays what it means: another site.
+`rel="external"` stays what it means: another site.
 
 ### 2. One way in: `navigate()`
 
@@ -133,7 +143,7 @@ the first that takes it has it, else a push or replace loads the page and a trav
   Rules, the list-to-detail morph and back); `e2e/permanent` in three browsers. Five tests of the chain
   (`test/behaviour/navigation-chain.test.ts`).
 
-**What step 2 still has to change** (maintainer review). The spike moved the decisions into one chain but
+**What step 2 still has to change** (maintainer review; the first five are spiked since, see below). The spike moved the decisions into one chain but
 left the doing spread out, and the intent thinner than this text promised:
 - **Handlers decide; the core does.** A handler returns a decision (its name and a `run` function, or
   nothing); the core runs it, and the core alone falls back to `env.navigate`, `env.replace` or a reload.
@@ -152,8 +162,34 @@ left the doing spread out, and the intent thinner than this text promised:
 - **The exported `navigate()` while no app is mounted** (inside a swap, between the old app's destroy and
   the new mount, or a custom element connected as the new body goes in, as RealWorld's
   `<conduit-redirect>` is) falls back to a page load. It should queue the intent until the new app mounts.
-- **`onUnauthorized`** (`config.ts:187`) runs in request middleware, which has no app: it goes through
-  the document's chain, or the request carries its app (to decide in step 2).
+- **`onUnauthorized`** (`config.ts:187`) calls `location.assign`, which the `navigate` event intercepts
+  like any other navigation (decided: nothing to change; a request that carries its app is kept for a page
+  with several apps).
+
+**Spiked: decisions and sources** (2026-11-16, after step 0):
+- `Navigator` returns a `Decision` (`name`, optional `run`); `app.decide(intent)` asks every handler and
+  runs nothing (next-page data uses it); `app.go(intent)` runs the first decision; observers that must
+  see only what goes (a transition's trigger) use `app.onGo`. The fallbacks are the core's alone, by
+  source: a link nobody decides on is the browser's to follow, a call loads the page, an event goes on
+  as the browser's, a `run` that returns false loads the page (or reloads it once the URL committed).
+- `Intent` has `from`, `to`, `kind`, `source` (`link`, `call`, `popstate`, `event`), `trigger`, `index`,
+  `signal` and the `event`.
+- The swap decides only on `navigate` events (the Navigation API), and on the `popstate` of a traversal it
+  intercepted (decided, nothing to run): a link or `navigate()` to another page goes on to the browser's
+  navigation, whose event the swap intercepts. No history writes, no hash, download or abort handling,
+  no `scrollRestoration` of its own; scroll positions by `navigation.currentEntry.key`, `focusReset` by
+  the browser. A URL the swap could not take is the browser's the next time (no loop).
+- `query-links` decides without side effects and runs only in `run`; a history call the browser refuses
+  returns false and the core loads the URL.
+- Measured: the unit suite (2020 tests; the query-links, transition, prefetch, speculation and navigate
+  suites untouched); `e2e/navigation` in Chrome; `e2e/permanent` in Chromium, Firefox and WebKit, with a
+  new step for a second click while the page is fetched (one entry); RealWorld's settings spec 21 of 21
+  over three repeats. Core 14,915 B gzip (+233 over the 14,682 before step 2), the swap 3,098 B.
+- An app is always mounted: the swap marks the old app `leaving` instead of destroying it, and the next
+  `mount` on its root destroys it first (the old app's cache is written before the new one reads it). A
+  RealWorld settings test that reads the current user right after the URL changes found none without it
+  (the URL now commits after the precommit handler, before the module's mount). The compiler change of
+  [6](#6-the-pages-code) makes the hand-off one synchronous step.
 
 Every way in is then one of: a link (the shared listener), `navigate()` (handlers and app code), a
 traversal (the core's `popstate`), and the browser's own (a new tab, a modifier, a link the chain does not
@@ -185,7 +221,9 @@ Firefox 147 (January 2026) ([web.dev](https://web.dev/blog/baseline-navigation-a
 | `sourceElement` is the clicked link; `navigate(url, { info })` carries a trigger | yes | yes | yes | the intent's `trigger` (MDN still calls `sourceElement` experimental: `info` for `navigate()`, `null` when missing) |
 | a `#hash` (`hashChange`), a download (`downloadRequest`), a reload: flagged | yes | yes | yes | left to the browser without checks of our own; a new tab or a modifier fires no event |
 | a second navigation aborts the first (`signal`) | yes | yes | yes | the last click wins, from the browser |
-| `precommitHandler` keeps the old URL until the new page is ready | yes | yes | **no** (the URL commits at once) | used where it works; the design must allow the URL to change before the content, as in WebKit |
+| `precommitHandler` keeps the old URL until the new page is ready | yes | yes | yes (an earlier probe said no: it read the URL through Playwright, whose click waits; `precommit.cjs` reads it in the page) | the fetch and the plan run there: a second click before the page is ready replaces the navigation without an entry, as with page loads. Safari 26.2 reportedly shipped without it: feature-detected (`NavigationPrecommitController`), else the URL commits first |
+| `focusReset: 'after-transition'` moves focus to the document as a load does; `'manual'` keeps it | yes | yes | yes | the default, and `manual` when focus is in a kept element (`focus-bfcache.cjs`) |
+| back/forward cache: a load out of the app, then Back | reloads | reloads | reloads | headless browsers keep no page in it even without the API (a control page); not testable here. Back to an intercepted entry from outside loads that URL as a page, which is right |
 | `scroll: 'after-transition'` restores each entry's position | only the first page's | none | traversals yes, a reload stale | **not used**: the swap keeps positions itself (`scroll: 'manual'`), keyed by `navigation.currentEntry.key` |
 | `userInitiated` | right | right | inverted | not used |
 | `history.pushState` fires `navigate` (`sameDocument`) | yes | yes | yes | ignored: `$url` writes and same-page links stay what they are |
@@ -307,10 +345,9 @@ none:
 
 - **The fade:** the default view transition is a cross-fade, which matches temper's
   `@view-transition { navigation: auto }` between pages. That rule only governs navigations between
-  documents, so an app that turned the fade off still gets one on a swap; and it ignores
-  `prefers-reduced-motion` unless the app's CSS handles it. Proposed: no transition under
-  `prefers-reduced-motion: reduce`, and an opt-out on `<html>` (`data-sn-navigation="swap no-transition"`,
-  to decide).
+  documents; a same-document transition follows the app's CSS instead, so an app turns it off with
+  `::view-transition-group(root) { animation: none }` (decided: no option of sinter's; the docs show the
+  rule). The swap starts no transition under `prefers-reduced-motion: reduce`.
 - **`data-sn-transition` morphs keep working.** The feature names the pair at `commit` instead of at
   `pageswap`/`pagereveal`: the clicked row's element before the update, the new page's element after it.
   With the mount inside `commit` ([6](#6-the-pages-code)), the new snapshot shows the new page bound; in the
@@ -354,9 +391,9 @@ names are the contract; until the module exists they stay internal and undocumen
 
 ### 11. Accessibility, history, scroll
 
-- **Announcement and focus** (not in the spike): the new page's title is announced through a polite live
-  region, and focus moves to the start of the new page (the `<body>`, or the `<main>` with `tabindex="-1"`),
-  as after a load; focus inside a kept element stays there (in the spike). The spike only blurs.
+- **Announcement and focus:** focus goes to the document after a swap, as after a load (`focusReset`, the
+  browser's, in the spike), and stays inside a kept element that had it. The new page's title is to be
+  announced through a polite live region (not in the spike).
 - **Scroll** (in the spike, each with an `e2e/permanent` step):
   - Each entry a swap shows has a key (`snK` in `history.state` in the spike; `navigation.currentEntry.key`
     with the Navigation API, which the browser's own restoration under `intercept()` does not make
@@ -451,13 +488,13 @@ One commit each:
    app is mounted, `onUnauthorized` through it; the shared link listener; `query-links`, `transition`
    and prefetch on it with no change in behaviour. Sizes before and after.
 3. **The compiler:** the manifest of pages that opt in and the names they keep ([1](#1-opting-in)); the
-   page module marked, its mount exported with the kept ids ([6](#6-the-pages-code)); `data-sn-navigation`
-   and the link opt-out; the checks and their codes; the decision on ids per region
+   page module marked, its mount exported with the kept ids ([6](#6-the-pages-code)); `sinter({ swap })` on
+   by default and `data-sn-swap="off"` for pages and links; the checks and their codes; the decision on ids per region
    ([9](#9-room-for-view-navigations)).
 4. **The module** on that: a decision in the chain, the sequence with its named steps, verification, the
    head and what a swap skips, kept elements, history and scroll, focus and the live region, `sn-page`;
    unit tests; `e2e/permanent`.
-5. **Transitions:** the fade, reduced motion and the opt-out, `data-sn-transition` at `commit`; e2e of a
+5. **Transitions:** the fade, reduced motion, `data-sn-transition` at `commit`; e2e of a
    morph across a swap.
-6. **Examples and docs:** the dashboard (its check committed) and RealWorld (`data-sn-navigation="swap"`
-   instead of the kept footer, the suite against a local backend), the docs above, sizes before and after.
+6. **Examples and docs:** the dashboard (its check committed) and RealWorld (swaps by default instead of
+   the kept footer, the suite against a local backend), the docs above, sizes before and after.

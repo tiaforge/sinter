@@ -49,9 +49,9 @@ const transition: Feature = {
       const off = () => { el.style.viewTransitionName = ''; el.style.removeProperty('view-transition-class'); };
       vt.finished.then(off, off);
     };
-    // what started a navigation (a link, the element of a `navigate()` handler): noted, never taken, so the
-    // handlers after this one and the browser go on as without it
-    app.nav.push((i) => { if (!i.peek) last = i.trigger ?? null; });
+    // what started a navigation that goes ahead (a link, the element of a `navigate()` handler): noted,
+    // never decided on, so the handlers and the browser go on as without it
+    app.onGo.push((i) => { last = i.trigger ?? null; });
     links(app);
 
     const swap = (e: Event) => {

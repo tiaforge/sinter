@@ -35,9 +35,9 @@ const feature: Feature = {
       if (!d && (to.hash || here().hash)) return false;
       if (!d) return true;
       const loc = app.ext.location!, u = app.page.$url, href = to.href.replace(/#.*/, '');
-      // a history call the browser refuses (Safari, too often): the link loads
-      // the URL as the link wrote it (`?` stays), without its hash
-      try { replace ? app.env.replaceState(href) : loc.push(href); } catch { app.env.navigate(to.href); return true; }
+      // a history call the browser refuses (Safari, too often): false, and the core loads the URL
+      // as the link wrote it (`?` stays), without its hash
+      try { replace ? app.env.replaceState(href) : loc.push(href); } catch { return false; }
       for (const k in u) delete u[k];
       Object.assign(u, readUrl(app.env.href(), app.ir.path));
       loc.arrive();
@@ -47,13 +47,16 @@ const feature: Feature = {
       return true;
     };
     // a link or `navigate()` to this page (the same origin and path) is the page's when it may; Back and
-    // Forward are the core's. Next-page data asks (`peek`) and leaves a link that stays alone
+    // Forward are the core's, the browser's `navigate` event the swap's. Deciding changes nothing: next-page
+    // data asks too. Where the browser should follow (a parameter the page does not read, a `#hash` with
+    // the same query) there is no decision
     app.nav.push((i) => {
-      if (i.kind == 'traverse') return;
+      if (i.kind == 'traverse' || i.source == 'event') return;
       const at = here(), to = new URL(i.to, at);
       if (to.origin != at.origin || to.pathname != at.pathname) return;
-      if (i.peek) return differs(to) && 'same';
-      return follow(to, i.kind == 'replace') && 'same';
+      const d = differs(to);
+      if (d == null || (!d && (to.hash || at.hash))) return;
+      return { name: 'same', run: () => follow(to, i.kind == 'replace') };
     });
     links(app);
   },

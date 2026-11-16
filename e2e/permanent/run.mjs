@@ -14,8 +14,12 @@ const pw = createRequire(join(here, '../../package.json'))('playwright');
 if (spawnSync('npx', ['vite', 'build', '--logLevel', 'warn'], { cwd: here, stdio: 'inherit' }).status) process.exit(1);
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+let slow = false;
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://x').pathname;
+  // `/control/slow`: the next page answers 600 ms late (a second click while the swap fetches)
+  if (path === '/control/slow') { slow = true; res.writeHead(204); return res.end(); }
+  if (slow && extname(path) === '' && path !== '/control/') { slow = false; await new Promise((r) => setTimeout(r, 600)); }
   // a page without sinter: what the browser itself does on a reload
   if (path === '/control/') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<!doctype html><title>control</title><div style="block-size: 5000px"></div>'); }
   const file = path === '/' ? 'index.html' : /^\/(b|plain)\/$/.test(path) ? `${path.slice(1)}index.html` : normalize(path).replace(/^\/+/, '');
@@ -206,9 +210,27 @@ for (const name of browsers) {
       });
       await ready('/plain/', 'Plain');
       await p2.waitForTimeout(500);
+      // the URL of the first had committed (the transition runs after it, as a load's paint does): two
+      // entries, as with page loads; what counts is that its content never came
       const got = await p2.evaluate((n) => ({ path: location.pathname, entries: history.length - n, marker: window.__marker, heading: document.getElementById('heading')?.textContent, items: document.querySelectorAll('#items li').length }), before);
-      check('a click during the transition: only the last navigation commits', got, { path: '/plain/', entries: 1, marker: 4, heading: 'Plain', items: 0 });
+      check('a click during the transition: only the last navigation commits its page', got, { path: '/plain/', entries: 2, marker: 4, heading: 'Plain', items: 0 });
     } else steps.push('- a click during the transition: no view transitions in this browser');
+
+    // a second click while the first page is still fetched: where the browser holds the URL until the page
+    // is ready (precommitHandler), the first never gets an entry, as with page loads
+    await p2.evaluate(() => document.getElementById('to-a').click());
+    await ready('/', 'A: Alpha');
+    const n0 = await p2.evaluate(() => history.length);
+    await p2.request.post(base + '/control/slow');
+    await p2.evaluate(() => document.getElementById('to-b').click());
+    await p2.waitForTimeout(150);
+    const during = await p2.evaluate(() => location.pathname);
+    await p2.evaluate(() => document.getElementById('to-plain').click());
+    await ready('/plain/', 'Plain');
+    await p2.waitForTimeout(800);
+    const fetched = await p2.evaluate((n) => ({ entries: history.length - n, heading: document.getElementById('heading')?.textContent }), n0);
+    if (during === '/') check('a click while the page is fetched: one entry, the last page', fetched, { entries: 1, heading: 'Plain' });
+    else { check('a click while the page is fetched: the last page', fetched, { heading: 'Plain' }); steps.push(`- the browser commits the URL before the page is ready (${fetched.entries} entries, as before precommitHandler)`); }
   } catch (e) { steps.push(`✗ ${e.message.split('\n')[0]}`); failed++; }
   if (errors.length) { steps.push(`✗ errors: ${JSON.stringify(errors)}`); failed++; }
   console.log(`${name}:\n  ${steps.join('\n  ')}`);

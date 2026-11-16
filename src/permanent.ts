@@ -2,14 +2,15 @@
 // an element with the same name (an audio player, an open drawer, a scroll container). SPIKE.
 //
 // Only pages with such an element load this module, so every other page keeps plain page loads. A
-// click on a link to another page of the origin fetches that page's HTML (the same request a page
-// load sends; nothing changes on the server), and if both pages hold the same names, the body is
+// navigation to another page of the origin (a link, `navigate()`, `location.assign`, Back and Forward)
+// arrives as the browser's `navigate` event (the Navigation API; without it, nothing here runs and every
+// navigation is a page load). The swap intercepts it: it fetches that page's HTML (the same request a
+// page load sends; nothing changes on the server), and if both pages hold the same names, the body is
 // replaced in place: the marked elements are moved into the new body where it has theirs, the old
 // page's app is destroyed and the new page's module runs. Anything unexpected is a page load.
 //
 // The kept element holds no bindings (the build checks it): the new page's compiled code finds only
 // its own nodes, none of them inside a kept element.
-import { links } from './links.js';
 import type { App, Feature, Intent } from './runtime/app.js';
 import { instance } from './runtime/app.js';
 
@@ -28,10 +29,12 @@ interface State {
   busy: AbortController | null;
   /** the module scripts of the page shown */
   modules: string[];
-  /** the page's scroll position on each entry a swap showed, by its key (`snK` in `history.state`), kept as it scrolls */
-  y: Map<number, number>;
-  /** the last entry key given */
-  k: number;
+  /** the page's scroll position on each entry, by its key (`navigation.currentEntry.key`), kept as it scrolls */
+  y: Map<string, number>;
+  /** the entry of the last traversal the swap intercepted: its `popstate` is the swap's, not the core's */
+  took: string | null;
+  /** a URL the swap could not take: the load that follows is the browser's (else it would take it again) */
+  skip: string | null;
 }
 
 const marked = (root: ParentNode) => {
@@ -128,13 +131,16 @@ function heads(doc: Document, base: URL): { ready: Promise<unknown>; done(): voi
 }
 
 /**
- * Swaps the body for the page at `url`; false when it cannot (the caller loads the page). `kind`: a new
- * history entry, the current one replaced, or a traversal (the entry is already current).
+ * Prepares the swap to the page at `url` (fetch, plan, the head, the modules preloaded) and gives the
+ * commit, which needs no network; false when it cannot (the page is loaded), true when a newer navigation
+ * aborted it (nothing to do). `kind`: a new entry, the current one replaced, or a traversal.
  */
-async function go(s: State, url: URL, kind: Intent['kind']): Promise<boolean> {
+async function prepare(s: State, url: URL, kind: Intent['kind'], signal?: AbortSignal): Promise<boolean | (() => Promise<boolean>)> {
   const push = kind != 'traverse';
   s.busy?.abort();
   const c = (s.busy = new AbortController());
+  // the browser's navigation aborted (a newer one, a stop): so is the swap
+  signal?.addEventListener('abort', () => c.abort());
   let res: Response;
   try { res = await fetch(url, { headers: { accept: 'text/html' }, signal: c.signal, credentials: 'same-origin' }); }
   catch { return c.signal.aborted; }
@@ -182,139 +188,174 @@ async function go(s: State, url: URL, kind: Intent['kind']): Promise<boolean> {
   for (const l of preloads) l.remove();
   if (c.signal.aborted) { head.undo(); return true; }
 
-  let committed = false;
-  const swap = () => {
-    // a newer navigation came while the transition waited for this callback: it has the page
-    if (c.signal.aborted) return;
-    committed = true;
-    // a push or replace leaves the current entry: its position, now (the first page's was never recorded)
-    if (kind != 'traverse') track();
-    // the entries: the one left (on a push or replace, still current) and the new one restore no scroll of
-    // their own while this document shows them (each entry has its own mode); the page's position is the
-    // module's, by entry key. A traversal's entry is already current: its key and position are known
-    manual();
-    if (kind == 'push') history.pushState({ snK: ++s.k }, '', final.href);
-    else if (kind == 'replace') history.replaceState({ snK: ++s.k }, '', final.href);
-    else if (final.href != location.href) history.replaceState(history.state, '', final.href);
-    manual();
-    s.shown = final.pathname;
-    try { instance(document).destroy(); } catch { /* not mounted */ }
-    for (const el of [document.documentElement, document.body] as unknown as Array<Element & Record<symbol, unknown>>) {
-      for (const k of Object.getOwnPropertySymbols(el)) if (k.description?.startsWith('sinter.')) delete el[k];
-    }
-    const body = document.body, old = [...body.childNodes];
-    const kept = new Set(pairs.map(([o]) => o));
-    // the new content goes in after the old, in this one task: nothing is painted in between, and a
-    // playing media element moved within a task does not pause. moveBefore keeps more (an iframe's
-    // document, focus, animations) where the browser has it
-    const add = [...doc.body.childNodes].map((n) => document.adoptNode(n));
-    body.append(...add);
-    for (const [o, n] of pairs) {
-      const p = n.parentNode as Element & { moveBefore?: (a: Node, b: Node | null) => void };
-      if (p.moveBefore && p.isConnected && o.isConnected) p.moveBefore(o, n);
-      else {
-        // without moveBefore (WebKit), a move resets scroll positions and drops focus: put them back
-        const scrolled = [o, ...o.querySelectorAll('*')].filter((x) => x.scrollTop || x.scrollLeft).map((x) => [x, x.scrollTop, x.scrollLeft] as const);
-        const f = document.activeElement as (HTMLElement & Partial<HTMLInputElement>) | null, inside = !!f && o.contains(f);
-        const sel = inside && typeof f!.selectionStart == 'number' ? [f!.selectionStart!, f!.selectionEnd ?? null, f!.selectionDirection] as const : null;
-        p.insertBefore(o, n);
-        for (const [x, t, l] of scrolled) { x.scrollTop = t; x.scrollLeft = l; }
-        if (inside) {
-          f!.focus({ preventScroll: true });
-          try { if (sel) f!.setSelectionRange!(sel[0], sel[1], sel[2] ?? undefined); } catch { /* not a text control */ }
-        }
+  // what is left needs no network: the browser may commit the URL now (`precommitHandler` done), then this runs
+  return async (): Promise<boolean> => {
+    let committed = false, leaving: App | null = null;
+    const swap = () => {
+      // a newer navigation came while the transition waited for this callback: it has the page
+      if (c.signal.aborted) return;
+      committed = true;
+      // the browser made the entry (`intercept()`); a redirect gives it another URL
+      if (final.href != location.href) history.replaceState(history.state, '', final.href);
+      s.shown = final.pathname;
+      // the old app stays until the new one mounts (it destroys it): never a moment without one
+    try { leaving = instance(document); leaving.ext.leaving = true; } catch { /* not mounted */ }
+      for (const el of [document.documentElement, document.body] as unknown as Array<Element & Record<symbol, unknown>>) {
+        for (const k of Object.getOwnPropertySymbols(el)) if (k.description?.startsWith('sinter.')) delete el[k];
       }
-      n.remove();
+      const body = document.body, old = [...body.childNodes];
+      const kept = new Set(pairs.map(([o]) => o));
+      // the new content goes in after the old, in this one task: nothing is painted in between, and a
+      // playing media element moved within a task does not pause. moveBefore keeps more (an iframe's
+      // document, focus, animations) where the browser has it
+      const add = [...doc.body.childNodes].map((n) => document.adoptNode(n));
+      body.append(...add);
+      for (const [o, n] of pairs) {
+        const p = n.parentNode as Element & { moveBefore?: (a: Node, b: Node | null) => void };
+        if (p.moveBefore && p.isConnected && o.isConnected) p.moveBefore(o, n);
+        else {
+          // without moveBefore (WebKit), a move resets scroll positions and drops focus: put them back
+          const scrolled = [o, ...o.querySelectorAll('*')].filter((x) => x.scrollTop || x.scrollLeft).map((x) => [x, x.scrollTop, x.scrollLeft] as const);
+          const f = document.activeElement as (HTMLElement & Partial<HTMLInputElement>) | null, inside = !!f && o.contains(f);
+          const sel = inside && typeof f!.selectionStart == 'number' ? [f!.selectionStart!, f!.selectionEnd ?? null, f!.selectionDirection] as const : null;
+          p.insertBefore(o, n);
+          for (const [x, t, l] of scrolled) { x.scrollTop = t; x.scrollLeft = l; }
+          if (inside) {
+            f!.focus({ preventScroll: true });
+            try { if (sel) f!.setSelectionRange!(sel[0], sel[1], sel[2] ?? undefined); } catch { /* not a text control */ }
+          }
+        }
+        n.remove();
+      }
+      for (const n of old) if (!kept.has(n as Element)) n.remove();
+      head.done();
+      // the body's and <html>'s own attributes
+      for (const [from, to] of [[doc.body, body], [doc.documentElement, document.documentElement]] as const) {
+        for (const a of [...to.attributes]) if (!from.hasAttribute(a.name)) to.removeAttribute(a.name);
+        for (const a of from.attributes) to.setAttribute(a.name, a.value);
+      }
+      const y = push ? 0 : (s.y.get(entry()) ?? 0);
+      if (push && final.hash) document.getElementById(decodeURIComponent(final.hash.slice(1)))?.scrollIntoView();
+      else scrollTo(0, y);
+      track();
+      // focus: the browser's (`focusReset`), as after a load, or where it was in a kept element
+    };
+    type VT = { updateCallbackDone: Promise<void>; ready: Promise<void>; finished: Promise<void> };
+    const vt = (document as Document & { startViewTransition?: (f: () => void) => VT }).startViewTransition;
+    if (vt) {
+      // a transition another navigation skips rejects all three: nothing to report
+      const t = vt.call(document, swap), no = () => {};
+      t.ready.catch(no); t.finished.catch(no);
+      await t.updateCallbackDone.catch(no);
+    } else swap();
+    if (!committed) { head.undo(); return true; }
+
+    // the new page's modules: no early file ran, so the page module mounts by itself
+    delete (globalThis as Record<symbol, unknown>)[MEETING];
+    s.modules = all;
+    for (const u of urls) {
+      try { await import(/* @vite-ignore */ u); } catch (e) { setTimeout(() => { throw e; }); }
     }
-    for (const n of old) if (!kept.has(n as Element)) n.remove();
-    head.done();
-    // the body's and <html>'s own attributes
-    for (const [from, to] of [[doc.body, body], [doc.documentElement, document.documentElement]] as const) {
-      for (const a of [...to.attributes]) if (!from.hasAttribute(a.name)) to.removeAttribute(a.name);
-      for (const a of from.attributes) to.setAttribute(a.name, a.value);
+    // the new page did not mount (its module failed): the old app goes all the same
+    try { const l = leaving as App | null; if (l && instance(document) === l) l.destroy(); } catch { /* the new one is mounted, or none */ }
+    // Back and Forward: the position was set at the swap, on the new page's markup before its data; what
+    // renders above it moves the content (scroll anchoring keeps the wrong part in view). Set again once the
+    // page's first loads are done (at most a second later), unless a newer navigation came meanwhile
+    if (kind == 'traverse') {
+      const key = entry(), y = s.y.get(key);
+      let app: App | null = null;
+      try { app = instance(document); } catch { /* not mounted */ }
+      const names = app?.ir.resources.map((r) => r.name) ?? [];
+      for (let t = 0; t < 40 && names.some((n) => app!.resource(n).meta.loading); t++) await new Promise((r) => setTimeout(r, 25));
+      if (y != null && !c.signal.aborted && entry() === key) scrollTo(0, y);
     }
-    const y = push ? 0 : (s.y.get(history.state?.snK) ?? 0);
-    if (push && final.hash) document.getElementById(decodeURIComponent(final.hash.slice(1)))?.scrollIntoView();
-    else scrollTo(0, y);
-    track();
-    // focus: on what was focused if it was kept; else the document, as a page load leaves it
-    const a = document.activeElement;
-    if (a && a != document.body && !pairs.some(([o]) => o.contains(a))) (a as HTMLElement).blur?.();
+    return true;
   };
-  type VT = { updateCallbackDone: Promise<void>; ready: Promise<void>; finished: Promise<void> };
-  const vt = (document as Document & { startViewTransition?: (f: () => void) => VT }).startViewTransition;
-  if (vt) {
-    // a transition another navigation skips rejects all three: nothing to report
-    const t = vt.call(document, swap), no = () => {};
-    t.ready.catch(no); t.finished.catch(no);
-    await t.updateCallbackDone.catch(no);
-  } else swap();
-  if (!committed) { head.undo(); return true; }
-
-  // the new page's modules: no early file ran, so the page module mounts by itself
-  delete (globalThis as Record<symbol, unknown>)[MEETING];
-  s.modules = all;
-  for (const u of urls) {
-    try { await import(/* @vite-ignore */ u); } catch (e) { setTimeout(() => { throw e; }); }
-  }
-  // Back and Forward: the position was set at the swap, on the new page's markup before its data; what
-  // renders above it moves the content (scroll anchoring keeps the wrong part in view). Set again once the
-  // page's first loads are done (at most a second later), unless a newer navigation came meanwhile
-  if (kind == 'traverse') {
-    const key = history.state?.snK, y = s.y.get(key);
-    let app: App | null = null;
-    try { app = instance(document); } catch { /* not mounted */ }
-    const names = app?.ir.resources.map((r) => r.name) ?? [];
-    for (let t = 0; t < 40 && names.some((n) => app!.resource(n).meta.loading); t++) await new Promise((r) => setTimeout(r, 25));
-    if (y != null && !c.signal.aborted && history.state?.snK === key) scrollTo(0, y);
-  }
-  return true;
 }
 
-const manual = () => { try { history.scrollRestoration = 'manual'; } catch { /* ignored */ } };
-/** the page's position on the current entry, by its key (one it has, else one given now) */
-function track() {
-  const s = state();
-  let k = history.state?.snK;
-  if (typeof k != 'number') {
-    k = ++s.k;
-    try { history.replaceState({ ...(history.state ?? {}), snK: k }, ''); } catch { /* ignored */ }
-  }
-  s.y.set(k, scrollY);
-}
+type Nav = EventTarget & { currentEntry: { key: string } | null };
+/** whether `intercept()` takes a `precommitHandler` (it holds the URL until the page is ready) */
+const PRECOMMIT = typeof (globalThis as { NavigationPrecommitController?: unknown }).NavigationPrecommitController != 'undefined';
+const nav = (): Nav | undefined => (globalThis as { navigation?: Nav }).navigation;
+const entry = () => nav()?.currentEntry?.key ?? '';
+/** the page's position on the current entry */
+function track() { state().y.set(entry(), scrollY); }
 
 function state(): State {
   const g = globalThis as Record<symbol, State | undefined>;
   if (g[STATE]) return g[STATE]!;
-  const s: State = (g[STATE] = { shown: location.pathname, n: 0, busy: null, modules: [...document.querySelectorAll('script[type="module"][src]')].map((x) => (x as HTMLScriptElement).src), y: new Map(), k: Date.now() });
-  // each entry's position as it scrolls (a traversal makes another entry current before anything can
-  // read the one left), and only once a swap happened (until then, entries are the browser's)
-  // (not while a traversal waits for its body: the address is the next entry, the body still the last)
-  addEventListener('scroll', () => { if (s.y.size && location.pathname == s.shown) track(); }, { passive: true });
-  // the document goes (a reload, a link out of the app): the browser restores this entry's position again
-  addEventListener('pagehide', () => { try { history.scrollRestoration = 'auto'; } catch { /* ignored */ } });
-  addEventListener('pageshow', (e) => { if ((e as PageTransitionEvent).persisted && s.y.size) manual(); });
+  const s: State = (g[STATE] = { shown: location.pathname, n: 0, busy: null, modules: [...document.querySelectorAll('script[type="module"][src]')].map((x) => (x as HTMLScriptElement).src), y: new Map(), took: null, skip: null });
+  // each entry's position as it scrolls (not while a swap waits for its body: the address is the next
+  // entry, the body still the last)
+  addEventListener('scroll', () => { if (location.pathname == s.shown) track(); }, { passive: true });
   return s;
+}
+
+/** what the swap reads of a `navigate` event (the Navigation API) */
+interface NavigateLike extends Event {
+  canIntercept: boolean; hashChange: boolean; downloadRequest: string | null; formData: FormData | null;
+  navigationType: Intent['kind'] | 'reload'; signal: AbortSignal; sourceElement?: Element | null;
+  destination: { url: string; key: string; index: number; sameDocument: boolean };
+  intercept(o: { handler(): Promise<void>; precommitHandler?(): Promise<void>; scroll?: 'manual' | 'after-transition'; focusReset?: 'manual' | 'after-transition' }): void;
 }
 
 const permanent: Feature = {
   name: 'permanent',
   install(app: App) {
-    const s = state();
+    const s = state(), N = nav();
     s.shown = location.pathname;
-    // the swap's place among the navigation handlers (after same-page links): another path of this origin,
-    // from a link, `navigate()` or Back and Forward across the entries a swap made (the path changed)
+    // no Navigation API: no swaps, every navigation is the browser's
+    if (!N) return;
+    // what started a link or `navigate()` the browser goes on with (no handler decided): the event it causes has no `sourceElement` for a call
+    let trigger: Element | null = null;
+    app.onGo.push((i) => { if (i.source == 'link' || i.source == 'call') trigger = i.trigger ?? null; });
+    // the browser's navigations to another document of this origin, and traversals: intents for the chain
+    const on = (ev: Event) => {
+      const e = ev as NavigateLike;
+      if (!e.canIntercept || e.hashChange || e.downloadRequest != null || e.formData || e.navigationType == 'reload') return;
+      // `history.pushState` (a `$url` write, a same-page link) fires it too: not a navigation to another page
+      if (e.destination.sameDocument && e.navigationType != 'traverse') return;
+      // the entry being left: its position, before the browser makes another one current
+      track();
+      app.go({ from: location.href, to: e.destination.url, kind: e.navigationType, source: 'event', trigger: e.sourceElement ?? trigger, index: e.destination.index, signal: e.signal, event: e });
+      trigger = null;
+    };
+    N.addEventListener('navigate', on);
+    app.addCleanup(() => N.removeEventListener('navigate', on));
+    // the swap's decision: a `navigate` event to another page of this origin, or a traversal to an entry of
+    // another path; and the `popstate` of a traversal it intercepted (decided, done: the core does nothing)
     app.nav.push((i) => {
-      const u = new URL(i.to), here = new URL(location.href);
-      const other = u.origin == here.origin && /^https?:$/.test(u.protocol) && (i.kind == 'traverse' ? u.pathname != s.shown : pathOf(u) != pathOf(here));
-      if (i.peek) return other && 'swap';
-      // the browser follows this one (the same page, the last handler passed): it wins over a pending swap
-      if (!other) { if (i.kind != 'traverse') s.busy?.abort(); return; }
-      const load = () => (i.kind == 'traverse' ? location.reload() : i.kind == 'replace' ? location.replace(u.href) : location.assign(u.href));
-      go(s, u, i.kind).then((ok) => { if (!ok) load(); }, load);
-      return 'swap';
+      if (i.source == 'popstate') return s.took != null && s.took === entry() ? { name: 'swap' } : undefined;
+      if (i.source != 'event') return;
+      const e = i.event as NavigateLike, u = new URL(i.to);
+      if (u.origin != location.origin || !/^https?:$/.test(u.protocol)) return;
+      // entries of the page shown (its `$url` history): the core's
+      if (i.kind == 'traverse' && u.pathname == s.shown) return;
+      if (s.skip == u.href) { s.skip = null; return; }
+      return {
+        name: 'swap',
+        run: () => new Promise<boolean>((done) => {
+          if (i.kind == 'traverse') s.took = e.destination.key;
+          // focus in a kept element stays there; else the browser resets it, as after a load
+          const keep = !!document.activeElement?.closest(`[${ATTR}]`);
+          // the fetch and the plan before the URL changes where the browser waits for it (`precommitHandler`:
+          // a second click before the page is ready replaces this navigation, as with page loads); else in
+          // the handler, after the URL changed (WebKit commits it at once)
+          let p: Promise<boolean | (() => Promise<boolean>)> | null = null;
+          const ready = () => (p ??= prepare(s, u, i.kind, e.signal));
+          const fail = () => { s.skip = u.href; done(false); throw new Error('sinter: the page is loaded instead'); };
+          e.intercept({
+            scroll: 'manual', focusReset: keep ? 'manual' : 'after-transition',
+            ...(PRECOMMIT ? { async precommitHandler() { if ((await ready()) === false) fail(); } } : {}),
+            async handler() {
+              const r = await ready();
+              if (r === false) fail();
+              done(typeof r == 'function' ? await r() : true);
+            },
+          });
+        }),
+      };
     });
-    links(app);
   },
 };
 
