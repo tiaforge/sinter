@@ -1,5 +1,5 @@
-// The prototype's app (docs/proposals/collections.md, part 0): a blog of `n` markdown posts, one template page
-// built once per post through `sinter({ prototypePages })`, and an index listing the latest posts.
+// The benchmark's app (docs/proposals/collections.md, Prototype): a blog of `n` markdown posts, one page per
+// post written out as a file (what `data-sn-pages` will produce, compiled the same way), and an index.
 // `live`: each post also has a live resource (its comments), so each post's page has a module of its own.
 import { mkdirSync, rmSync, symlinkSync, writeFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -12,7 +12,7 @@ const para = (i, j) => Array.from({ length: 5 }, (_, k) => sentence(i, j * 5 + k
 /** a post of about 600 words: headings, paragraphs, a list, a code block, links */
 export const post = (i) => `## Introduction
 
-${para(i, 0)} See [the next post](/blog/post-${(i + 1)}) and *emphasis* with \`code\`.
+${para(i, 0)} See [the next post](/blog/post-${(i + 1)}/) and *emphasis* with \`code\`.
 
 ${para(i, 1)}
 
@@ -35,17 +35,17 @@ ${para(i, 3)}
 ${para(i, 4)}
 `;
 
-const TEMPLATE = (live) => `<!doctype html>
-<html lang="en" data-sn-path="/blog/:slug">
-<head><meta charset="utf-8"><title>{=title}</title></head>
+const PAGE = (live, slug, title) => `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>${title}</title></head>
 <body>
-<sn-resource name="post" src="file:/content/posts/{=slug}.md"></sn-resource>
+<sn-resource name="post" src="file:/content/posts/${slug}.md"></sn-resource>
 <main data-sn-let="{ doc: md.parse(post) }">
-  <h1>{=title}</h1>
+  <h1>${title}</h1>
   <nav><template data-sn-for="h in md.headings(doc)"><a data-sn-attr="{ href: '#' + h.id }" data-sn-text="h.text"></a></template></nav>
   <md-doc data-sn-prop="{ doc }"></md-doc>
 </main>
-${live ? `<sn-resource name="comments" src="/api/comments?post={=slug}" items="comments" key="id" type="any"></sn-resource>
+${live ? `<sn-resource name="comments" src="/api/comments?post=${slug}" items="comments" key="id" type="any"></sn-resource>
 <ul><template data-sn-for="c in comments"><li data-sn-text="c.body"></li></template></ul>` : ''}
 </body>
 </html>
@@ -56,7 +56,7 @@ const INDEX = (n) => `<!doctype html>
 <head><meta charset="utf-8"><title>Blog</title></head>
 <body>
 <ul>
-${Array.from({ length: Math.min(n, 20) }, (_, i) => `  <li><a href="/blog/post-${n - 1 - i}">Post ${n - 1 - i}</a></li>`).join('\n')}
+${Array.from({ length: Math.min(n, 20) }, (_, i) => `  <li><a href="/blog/post-${n - 1 - i}/">Post ${n - 1 - i}</a></li>`).join('\n')}
 </ul>
 </body>
 </html>
@@ -75,16 +75,15 @@ export default defineConfig({
   plugins: [sinter({
     components: ['@tiaforge-ui/sinter-markdown'],
     site: 'https://example.com',
-    prototypePages: { 'blog/post.html': () => Array.from({ length: n }, (_, i) => ({ slug: 'post-' + i, title: 'Post ' + i })) },
   })],
-  build: { rollupOptions: { input: { index: resolve(import.meta.dirname, 'index.html'), post: resolve(import.meta.dirname, 'blog/post.html') } } },
+  build: { rollupOptions: { input: Object.fromEntries([['index', resolve(import.meta.dirname, 'index.html')], ...Array.from({ length: n }, (_, i) => ['post-' + i, resolve(import.meta.dirname, 'blog/post-' + i + '.html')])]) } },
 });
 `,
     'src/sinter.helpers.ts': "export * as md from '@tiaforge-ui/sinter-markdown';\n",
     'src/sinter.types.ts': "export type { Root } from '@tiaforge-ui/sinter-markdown';\n",
     'index.html': INDEX(n),
-    'blog/post.html': TEMPLATE(live),
   };
+  for (let i = 0; i < n; i++) files[`blog/post-${i}.html`] = PAGE(live, `post-${i}`, `Post ${i}`);
   for (const [f, s] of Object.entries(files)) { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), s); }
   mkdirSync(join(root, 'content/posts'), { recursive: true });
   for (let i = 0; i < n; i++) writeFileSync(join(root, `content/posts/post-${i}.md`), post(i));
