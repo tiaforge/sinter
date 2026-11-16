@@ -16,6 +16,8 @@ if (spawnSync('npx', ['vite', 'build', '--logLevel', 'warn'], { cwd: here, stdio
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://x').pathname;
+  // a page without sinter: what the browser itself does on a reload
+  if (path === '/control/') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<!doctype html><title>control</title><div style="block-size: 5000px"></div>'); }
   const file = path === '/' ? 'index.html' : /^\/(b|plain)\/$/.test(path) ? `${path.slice(1)}index.html` : normalize(path).replace(/^\/+/, '');
   try {
     const body = await readFile(join(here, 'dist', file));
@@ -124,6 +126,89 @@ for (const name of browsers) {
     await page.evaluate(() => { window.__marker = 2; const a = document.createElement('a'); a.id = 'away'; a.href = '/nope/'; a.textContent = 'away'; document.body.append(a); });
     await Promise.all([page.waitForURL(base + '/nope/', { timeout: 5000 }), page.click('#away')]);
     check('a page without it loads', { path: new URL(page.url()).pathname, marker: await page.evaluate(() => window.__marker ?? null) }, { path: '/nope/', marker: null });
+  } catch (e) { steps.push(`✗ ${e.message.split('\n')[0]}`); failed++; }
+
+  // the page's scroll position and the history (a fresh page: the first one's history is long)
+  const p2 = await browser.newPage();
+  p2.on('pageerror', (e) => errors.push(e.message));
+  const y = () => p2.evaluate(() => Math.round(scrollY));
+  const near = (a, b) => Math.abs(a - b) <= 2;
+  const ready = (path, title) => p2.waitForFunction(([p, t]) => location.pathname === p && document.title === t, [path, title], { timeout: 5000 }).catch(() => {});
+  try {
+    // what this browser does on a reload of a page without sinter (headless WebKit restores nothing)
+    await p2.goto(base + '/control/');
+    await p2.evaluate(() => scrollTo(0, 700));
+    await p2.waitForTimeout(150);
+    await p2.reload();
+    await p2.waitForTimeout(300);
+    const restores = near(await y(), 700);
+    const reloaded = (step, got, want) => (restores ? check(step, { y: near(got, want) ? want : got }, { y: want }) : steps.push(`- ${step}: the browser restores no position on a reload, even without sinter`));
+    // before any swap, a reload is the browser's: it restores the position (opting in must not turn that off)
+    await p2.goto(base + '/');
+    await ready('/', 'A: Alpha');
+    await p2.evaluate(() => scrollTo(0, 700));
+    await p2.waitForTimeout(150);
+    await p2.reload();
+    await ready('/', 'A: Alpha');
+    await p2.waitForTimeout(300);
+    reloaded('a reload restores the position, before any swap', await y(), 700);
+
+    // each entry keeps its own position: A at 800, B at 300; Back is A at 800, Forward B at 300
+    await p2.evaluate(() => { window.__marker = 3; scrollTo(0, 800); });
+    await p2.waitForTimeout(150);
+    await p2.evaluate(() => document.getElementById('to-b').click());
+    await ready('/b/', 'B: Beta');
+    check('a link starts the next page at the top', { y: await y() }, { y: 0 });
+    await p2.evaluate(() => scrollTo(0, 300));
+    await p2.waitForTimeout(150);
+    await p2.goBack();
+    await ready('/', 'A: Alpha');
+    await p2.waitForTimeout(150);
+    check('Back restores the page left, not the page leaving', { y: near(await y(), 800) ? 800 : await y(), marker: await p2.evaluate(() => window.__marker) }, { y: 800, marker: 3 });
+    await p2.goForward();
+    await ready('/b/', 'B: Beta');
+    await p2.waitForTimeout(150);
+    check('Forward too', { y: near(await y(), 300) ? 300 : await y() }, { y: 300 });
+
+    // a reload of an entry a swap made: the browser's again
+    await p2.evaluate(() => scrollTo(0, 500));
+    await p2.waitForTimeout(150);
+    await p2.reload();
+    await ready('/b/', 'B: Beta');
+    await p2.waitForTimeout(300);
+    reloaded('a reload of a swapped entry restores the position', await y(), 500);
+
+    // a link's #hash: in the address, and its target scrolled to
+    await p2.evaluate(() => { window.__marker = 4; scrollTo(0, 0); document.getElementById('to-a').click(); });
+    await ready('/', 'A: Alpha');
+    await p2.evaluate(() => document.getElementById('to-b-bottom').click());
+    await ready('/b/', 'B: Beta');
+    await p2.waitForTimeout(150);
+    const at = await p2.evaluate(() => ({ hash: location.hash, seen: document.getElementById('bottom').getBoundingClientRect().top < innerHeight, marker: window.__marker }));
+    check('a link with a #hash keeps it and scrolls to its target', at, { hash: '#bottom', seen: true, marker: 4 });
+
+    // a second navigation while the first one's transition waits for its update: only the second commits
+    const vt = await p2.evaluate(() => !!document.startViewTransition);
+    if (vt) {
+      await p2.evaluate(() => document.getElementById('to-a').click());
+      await ready('/', 'A: Alpha');
+      const before = await p2.evaluate(() => history.length);
+      await p2.evaluate(() => {
+        const start = document.startViewTransition;
+        document.startViewTransition = function (f) {
+          document.startViewTransition = start;
+          const t = start.call(document, f);
+          // the user clicks again before the callback runs
+          document.getElementById('to-plain').click();
+          return t;
+        };
+        document.getElementById('to-b').click();
+      });
+      await ready('/plain/', 'Plain');
+      await p2.waitForTimeout(500);
+      const got = await p2.evaluate((n) => ({ path: location.pathname, entries: history.length - n, marker: window.__marker, heading: document.getElementById('heading')?.textContent, items: document.querySelectorAll('#items li').length }), before);
+      check('a click during the transition: only the last navigation commits', got, { path: '/plain/', entries: 1, marker: 4, heading: 'Plain', items: 0 });
+    } else steps.push('- a click during the transition: no view transitions in this browser');
   } catch (e) { steps.push(`✗ ${e.message.split('\n')[0]}`); failed++; }
   if (errors.length) { steps.push(`✗ errors: ${JSON.stringify(errors)}`); failed++; }
   console.log(`${name}:\n  ${steps.join('\n  ')}`);

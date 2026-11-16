@@ -26,10 +26,12 @@ interface State {
   n: number;
   /** the navigation in progress: a newer one aborts it */
   busy: AbortController | null;
-  /** the app now mounted, which installed the click handler */
-  app: App | null;
   /** the module scripts of the page shown */
   modules: string[];
+  /** the page's scroll position on each entry a swap showed, by its key (`snK` in `history.state`), kept as it scrolls */
+  y: Map<number, number>;
+  /** the last entry key given */
+  k: number;
 }
 
 const marked = (root: ParentNode) => {
@@ -137,7 +139,9 @@ async function go(s: State, url: URL, kind: Intent['kind']): Promise<boolean> {
   try { res = await fetch(url, { headers: { accept: 'text/html' }, signal: c.signal, credentials: 'same-origin' }); }
   catch { return c.signal.aborted; }
   if (c.signal.aborted) return true;
+  // a response's URL has no fragment: the link's stays
   const final = new URL(res.url || url.href);
+  if (!final.hash) final.hash = url.hash;
   if (!res.ok || final.origin != location.origin || !/^text\/html\b/.test(res.headers.get('content-type') ?? '')) return false;
   const html = await res.text();
   if (c.signal.aborted) return true;
@@ -178,16 +182,23 @@ async function go(s: State, url: URL, kind: Intent['kind']): Promise<boolean> {
   for (const l of preloads) l.remove();
   if (c.signal.aborted) { head.undo(); return true; }
 
+  let committed = false;
   const swap = () => {
-    // the old page: its scroll position on its entry, its app gone (its listeners, streams and timers), and
-    // what it left on the <html> and <body> this document keeps (its handlers and state, `sinter.*`)
-    try { history.replaceState({ ...(history.state ?? {}), snY: scrollY }, ''); } catch { /* ignored */ }
-    if (kind == 'push') history.pushState({ snY: 0 }, '', final.href);
-    else if (kind == 'replace') history.replaceState({ snY: 0 }, '', final.href);
+    // a newer navigation came while the transition waited for this callback: it has the page
+    if (c.signal.aborted) return;
+    committed = true;
+    // a push or replace leaves the current entry: its position, now (the first page's was never recorded)
+    if (kind != 'traverse') track();
+    // the entries: the one left (on a push or replace, still current) and the new one restore no scroll of
+    // their own while this document shows them (each entry has its own mode); the page's position is the
+    // module's, by entry key. A traversal's entry is already current: its key and position are known
+    manual();
+    if (kind == 'push') history.pushState({ snK: ++s.k }, '', final.href);
+    else if (kind == 'replace') history.replaceState({ snK: ++s.k }, '', final.href);
     else if (final.href != location.href) history.replaceState(history.state, '', final.href);
+    manual();
     s.shown = final.pathname;
     try { instance(document).destroy(); } catch { /* not mounted */ }
-    s.app = null;
     for (const el of [document.documentElement, document.body] as unknown as Array<Element & Record<symbol, unknown>>) {
       for (const k of Object.getOwnPropertySymbols(el)) if (k.description?.startsWith('sinter.')) delete el[k];
     }
@@ -222,9 +233,10 @@ async function go(s: State, url: URL, kind: Intent['kind']): Promise<boolean> {
       for (const a of [...to.attributes]) if (!from.hasAttribute(a.name)) to.removeAttribute(a.name);
       for (const a of from.attributes) to.setAttribute(a.name, a.value);
     }
-    const y = push ? 0 : (history.state?.snY ?? 0);
+    const y = push ? 0 : (s.y.get(history.state?.snK) ?? 0);
     if (push && final.hash) document.getElementById(decodeURIComponent(final.hash.slice(1)))?.scrollIntoView();
     else scrollTo(0, y);
+    track();
     // focus: on what was focused if it was kept; else the document, as a page load leaves it
     const a = document.activeElement;
     if (a && a != document.body && !pairs.some(([o]) => o.contains(a))) (a as HTMLElement).blur?.();
@@ -237,6 +249,7 @@ async function go(s: State, url: URL, kind: Intent['kind']): Promise<boolean> {
     t.ready.catch(no); t.finished.catch(no);
     await t.updateCallbackDone.catch(no);
   } else swap();
+  if (!committed) { head.undo(); return true; }
 
   // the new page's modules: no early file ran, so the page module mounts by itself
   delete (globalThis as Record<symbol, unknown>)[MEETING];
@@ -244,21 +257,50 @@ async function go(s: State, url: URL, kind: Intent['kind']): Promise<boolean> {
   for (const u of urls) {
     try { await import(/* @vite-ignore */ u); } catch (e) { setTimeout(() => { throw e; }); }
   }
+  // Back and Forward: the position was set at the swap, on the new page's markup before its data; what
+  // renders above it moves the content (scroll anchoring keeps the wrong part in view). Set again once the
+  // page's first loads are done (at most a second later), unless a newer navigation came meanwhile
+  if (kind == 'traverse') {
+    const key = history.state?.snK, y = s.y.get(key);
+    let app: App | null = null;
+    try { app = instance(document); } catch { /* not mounted */ }
+    const names = app?.ir.resources.map((r) => r.name) ?? [];
+    for (let t = 0; t < 40 && names.some((n) => app!.resource(n).meta.loading); t++) await new Promise((r) => setTimeout(r, 25));
+    if (y != null && !c.signal.aborted && history.state?.snK === key) scrollTo(0, y);
+  }
   return true;
+}
+
+const manual = () => { try { history.scrollRestoration = 'manual'; } catch { /* ignored */ } };
+/** the page's position on the current entry, by its key (one it has, else one given now) */
+function track() {
+  const s = state();
+  let k = history.state?.snK;
+  if (typeof k != 'number') {
+    k = ++s.k;
+    try { history.replaceState({ ...(history.state ?? {}), snK: k }, ''); } catch { /* ignored */ }
+  }
+  s.y.set(k, scrollY);
 }
 
 function state(): State {
   const g = globalThis as Record<symbol, State | undefined>;
-  // the scroll position of a traversal is restored once the body is there
-  if (!g[STATE]) try { history.scrollRestoration = 'manual'; } catch { /* ignored */ }
-  return (g[STATE] ??= { shown: location.pathname, n: 0, busy: null, app: null, modules: [...document.querySelectorAll('script[type="module"][src]')].map((x) => (x as HTMLScriptElement).src) });
+  if (g[STATE]) return g[STATE]!;
+  const s: State = (g[STATE] = { shown: location.pathname, n: 0, busy: null, modules: [...document.querySelectorAll('script[type="module"][src]')].map((x) => (x as HTMLScriptElement).src), y: new Map(), k: Date.now() });
+  // each entry's position as it scrolls (a traversal makes another entry current before anything can
+  // read the one left), and only once a swap happened (until then, entries are the browser's)
+  // (not while a traversal waits for its body: the address is the next entry, the body still the last)
+  addEventListener('scroll', () => { if (s.y.size && location.pathname == s.shown) track(); }, { passive: true });
+  // the document goes (a reload, a link out of the app): the browser restores this entry's position again
+  addEventListener('pagehide', () => { try { history.scrollRestoration = 'auto'; } catch { /* ignored */ } });
+  addEventListener('pageshow', (e) => { if ((e as PageTransitionEvent).persisted && s.y.size) manual(); });
+  return s;
 }
 
 const permanent: Feature = {
   name: 'permanent',
   install(app: App) {
     const s = state();
-    s.app = app;
     s.shown = location.pathname;
     // the swap's place among the navigation handlers (after same-page links): another path of this origin,
     // from a link, `navigate()` or Back and Forward across the entries a swap made (the path changed)
