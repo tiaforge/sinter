@@ -36,7 +36,10 @@ describe('the markup', () => {
     const row = out.ir.templates[out.ir.roots.find((n) => n.b[0]?.k === 'for')!.b[0]!.x!]!;
     expect(row.nodes).toHaveLength(1);
     expect(row.nodes[0]!.b).toEqual([expect.objectContaining({ k: 'ch', c: [expect.any(Number), expect.any(Number), expect.any(Number)] })]);
-    expect(out.html).toMatch(/<template id="sn-t-0"><!--sn--><!--\/sn--><\/template>/);
+    // the row is a wrapper (its content is the choice): the page module never clones it, and without an early render
+    // its template is not in the page
+    expect(row.a).toBe(1);
+    expect(out.html).not.toContain('<template id="sn-t-0">');
     // each candidate's definition is a head template
     for (const t of row.nodes[0]!.b[0]!.c!) expect(out.html).toContain(`<template id="sn-t-${t}">`);
   });

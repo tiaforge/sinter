@@ -48,6 +48,7 @@ export type { Root, Heading, Link, TocEntry } from '@tiaforge-ui/sinter-markdown
 | A file: `src="file:./post.md"` | at build time | the article as plain HTML, no JavaScript ([static pages](https://github.com/tiaforge/sinter/blob/main/docs/static-pages.md)) |
 | A string from an API, in a `data-sn-let` | in the browser, once per source and options (md.parse keeps its trees) | the parser with the page |
 | The same, with the parser lazy | in the browser, once the parser has loaded | the parser in a chunk of its own, loaded when a let first needs it |
+| A tree from an API you control (`md.parse` run on the server, `<md-doc data-sn-prop="{ doc: article.doc }">`) | on the server: the API sends the tree instead of the markdown | no parser ([Performance](#performance)); the parse moves to the server, or to wherever the API stores the tree |
 
 To make the parser lazy, list the package in `lazy`:
 
@@ -203,27 +204,29 @@ The components carry no CSS. Style the tree under `.md`, which both roots have:
 
 ## Performance
 
-Measured with the article of sinter's markdown spike (47.5 kB of markdown, 2,963 nodes, every node
-type) and its 50 comments, in headless Chromium on one machine over loopback, median of 9 runs (two
-sessions: the ranges). The
-comparison is the RealWorld example's article body, the same article rendered by marked and DOMPurify
-through `innerHTML`, in the same session:
+The 300-block article of sinter's markdown measurements (47.5 kB of markdown, every node type) in headless
+Chromium on one machine over loopback, served gzipped, median of 21 runs, the three pages interleaved in one
+session (2026-11-16). The comparison is the RealWorld example's article body: the same API response (the
+markdown) through marked and DOMPurify into `innerHTML`, without Trusted Types (`innerHTML` with a string needs a
+policy). The first two rows read the same response; the third reads another one, the tree, which only an API you
+control can send.
 
-| Page | LCP | Script | Elements | Comments |
-| --- | --- | --- | --- | --- |
-| article from a file (`file:`, static) | 56–60 ms | none | 1,365 | 0 |
-| article from the API, parser with the page | 208–224 ms | 134–142 ms | 1,365 | 11,782 |
-| article from the API, parser lazy | 216–244 ms | 125–148 ms | 1,365 | 11,782 |
-| RealWorld's island (marked + DOMPurify) | 140–160 ms | 2 ms | 1,370 | 2 |
-| 50 comments from the API | 116–124 ms | 52–56 ms | 363 | 2,182 |
+| Page | API response | LCP | Script | Page module (gzip) | Response (gzip) | Comments |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| markdown from the API, `md.parse` in the page | the markdown | 156 ms | 63 ms | 42.8 kB | 11.3 kB | 3,090 |
+| RealWorld's island (marked + DOMPurify) | the markdown | 160 ms | 8 ms | (marked and DOMPurify) | 11.3 kB | 2 |
+| tree from the API | the tree (`md.parse` run beforehand, in Node) | 120 ms | 36 ms | 4.4 kB | 14.0 kB | 3,090 |
 
-- From a file the article is 64 kB of HTML (12.9 kB gzip) and ships no JavaScript.
-- From an API, the page renders the same elements as the island; the time is script: parsing, then
-  rendering through sinter's bindings. The comments are the anchors of lists and branches, which keep
-  the page live: a change to the source renders again what changed.
-- The parser is 36.5 kB gzip (most of it the entity table), each page's own module about 4.5 kB,
-  sinter's shared runtime about 16 kB. With the parser lazy, the comments' authors paint before it has
-  loaded (first paint 48–52 ms).
+- Every page renders the same 1,365 elements (the island 1,370: marked writes newlines between blocks as text).
+- For the same API, sinter-markdown and the island are level on LCP.
+- The tree row is not that comparison: its parse ran before the measurement (as for an API that stores the tree),
+  and its cost on a server that parses per request is not measured. What it shows is what the parse costs the
+  page: markdown-it run cold, then the tree. The tree is about 25 % larger on the wire than its markdown.
+- The island's script time leaves out the browser's own parsing of the HTML string, which is in its LCP.
+- The comments are the anchors of lists and branches, which keep the page live: a change to the source renders
+  again what changed. A row or branch that is only another branch, or only a text, has none of its own.
+- From a file (`file:`), the article is HTML at build time and ships no JavaScript: LCP 56–60 ms in an earlier
+  session of the same machine.
 
 ## Limits
 
