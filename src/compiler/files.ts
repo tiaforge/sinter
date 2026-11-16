@@ -14,9 +14,9 @@ export const FILE = 'file';
 export const isFileSource = (value: string | undefined) => value != null && /^file:/.test(value.trimStart());
 
 /** the attributes a `file:` resource takes: the others load, refresh, page or write it */
-export const FILE_ATTRS = ['name', 'src', 'type', 'items', 'key', 'order', 'drafts'];
+export const FILE_ATTRS = ['name', 'src', 'type', 'items', 'key', 'order', 'drafts', 'fields'];
 
-const ATTR_LIST = '`name`, `src`, `type`, `items`, `key`, `order` and `drafts`';
+const ATTR_LIST = '`name`, `src`, `type`, `items`, `key`, `order`, `drafts` and `fields`';
 
 /** Why an attribute of `<sn-resource>` does not apply to a `file:` resource. */
 export function fileAttrProblem(name: string): string {
@@ -30,6 +30,12 @@ export function fileAttrProblem(name: string): string {
     ? `\`${name}\` ${why}, and a \`file:\` resource is a constant: it is read at build time and never loads or changes; it takes only \`name\`, \`type\`, \`items\` and \`key\``
     : `\`${name}\` is not an attribute of a \`file:\` resource, which takes only \`name\`, \`type\`, \`items\` and \`key\``;
 }
+
+/** the built-in name of the content module's collections in `src` (`content:posts`), and so a reserved API name */
+export const CONTENT = 'content';
+
+/** whether a `src` is a collection of the content module: `content:` and a name (not a path: `content:/x` is not one) */
+export const isContentSource = (value: string | undefined) => value != null && /^content:[A-Za-z_$]/.test(value.trimStart());
 
 /** the attribute of the internal resource that holds a `data-sn-pages` entry (never written by a page) */
 export const PAGE_ENTRY = 'data-sn-page-entry';

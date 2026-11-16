@@ -272,6 +272,21 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'Each entry of a `data-sn-pages` list fills the page\'s pattern: every `:param` takes the entry\'s field of that name, which must be a string or a number, one path segment (not empty, not `.` or `..`, no `/`). Two entries that fill the same path would be one page.',
     fix: 'Give the entry the field (in its frontmatter, or a file name that makes its `slug`), make it one segment, or give two entries different values.',
   },
+  SN342: {
+    example: '`post` is not a collection of the content module (it has `posts`, `tags`)',
+    means: '`<sn-resource src="content:posts">` reads a collection of the content module (`src/sinter.content.ts`): an export made with `collection({ key, load })`, loaded before any page compiles. The name must be one of its exports. In the dev server, a content module that failed to load reports its error here, on each page that reads a collection.',
+    fix: 'Name an exported collection, or export one: `export const posts = collection({ key: \'slug\', load: async () => … })`. If the module failed to load, fix the error it names.',
+  },
+  SN343: {
+    example: '`index.html` links to `/blog/helo`, which `/blog/:slug` (blog/post.html) matches, but no entry is there. Did you mean `/blog/hello`?',
+    means: 'A build knows every page a `data-sn-pages` template was written at, so a link in a built page to a path its pattern matches but no entry has would be a 404. The links checked are the built HTML\'s root-relative `href`s: from the markup, constants, folded expressions and markdown. A link built in the browser at run time is not checked.',
+    fix: 'Link to an entry that exists (the build suggests the nearest), give the entry that slug, or drop the link.',
+  },
+  SN344: {
+    example: 'browser code reads `products`, a collection, so it would ship to the page: name the fields it gets with `fields="…"`',
+    means: 'A collection (`content:`) holds what a loader returned, which can be more than a page shows: a CMS\'s internal fields, drafts\' notes, prices for another market. What bindings read is written into the HTML at build time and ships nothing; but when code in the browser reads the collection (a filter as you type, a handler), the list is embedded in the page, and a collection is embedded only with `fields`: the fields of each entry it ships. A `data-sn-pages` page built from a collection follows its list\'s `fields`.',
+    fix: 'Add `fields="sku,name,price"` with what the browser code reads, or keep the reads at build time (bindings over constants fold). Fields left out are `undefined` in the browser.',
+  },
   SN333: {
     example: '`data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it',
     means: 'A `<template data-sn-text>` renders a text node and nothing else: it takes no other attribute (`data-sn-if` and `data-sn-for` go on a template around it, anything else on an element around the text), and content inside it is dropped.',

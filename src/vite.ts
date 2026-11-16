@@ -9,8 +9,9 @@ import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
-import { applyStrict, compile, formatDiagnostic, formatWarning, strictPromotes, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
+import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
+import { loadContent, writeSnapshot, type LoadedContent } from './content-node.js';
+import { applyStrict, CODES, compile, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
 import { lazyOf, project, staticPages, strictOf, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
@@ -504,7 +505,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const warnedOptions = new Set<string>();
   /** `localePrefix`: the languages, and each page in a language (`<root>/<locale>/<page>`) with its source and language */
   let locales: Locales | null = null;
-  const virtual = new Map<string, { source: string; locale: string; page?: { value: unknown; path: string } }>();
+  const virtual = new Map<string, { source: string; locale: string; page?: { value: unknown; path: string; key: string } }>();
+  /** `data-sn-pages` with languages: each template's entries by key, each language's path (an entry's translations) */
+  const entryLangs = new Map<string, Map<string, string>>();
   /** `data-sn-pages`: the build's inputs, each template page replaced by a page per entry (`pageInputs()`), or null */
   let pageInputs: string[] | null = null;
   /** the build's input as the app wrote it, before `localePrefix` turns it into one input per page and language */
@@ -575,21 +578,38 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * reads its `file:` list; null for a page without it. Its errors (SN340, SN341) fail the build: the template is no
    * input of its own, so nothing else would report them.
    */
-  const templatePages = (file: string): NonNullable<CompileResult['pages']> | null => {
+  const templatesKept = new Map<string, NonNullable<CompileResult['pages']> | null>();
+  const templatePages = (file: string, locale?: string): NonNullable<CompileResult['pages']> | null => {
+    const k = `${file}\0${locale ?? ''}`;
+    if (!dev && templatesKept.has(k)) return templatesKept.get(k)!;
     const html = readFileSync(file, 'utf8');
-    if (!/data-sn-pages\b/.test(html)) return null;
+    if (!/data-sn-pages\b/.test(html)) { templatesKept.set(k, null); return null; }
     const p = proj();
-    const out = compile(html, { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true });
+    // in a language: its entries (a `{$locale}` path reads that language's files)
+    const out = compile(html, { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
     const fatal = out.diagnostics.filter((d) => d.severity === 'error' && /^SN34[01]$/.test(d.code));
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
+    if (!dev) templatesKept.set(k, out.pages ?? null);
     return out.pages ?? null;
   };
+  /** an entry's URL in each language that has it (the entry with its key in that language's list) */
+  const entryUrls = (v: { source: string; page?: { key: string } }): Record<string, string> | null => {
+    const by = v.page ? entryLangs.get(`${v.source}\0${v.page.key}`) : undefined;
+    if (!by) return null;
+    return Object.fromEntries([...by].map(([l, path]) => [l, prefixed([path], l)[0]!]));
+  };
+  /** where an entry's language chooser is, at its unprefixed path: the base language's entry's, else the first's */
+  const entryChooser = (source: string, key: string): string | null => {
+    const by = entryLangs.get(`${source}\0${key}`);
+    return by ? (by.get(locales!.base) ?? [...by.values()][0]!) : null;
+  };
   /** dev: the entry a URL names on a `data-sn-pages` page (its path, under `base`), else its first */
-  const devEntry = (file: string, url: string): { value: unknown; path: string } | undefined => {
+  const devEntry = (file: string, url: string, locale?: string): { value: unknown; path: string; key: string } | undefined => {
     let pages: ReturnType<typeof templatePages>;
-    try { pages = templatePages(file); } catch { return undefined; }
+    try { pages = templatePages(file, locale); } catch { return undefined; }
     if (!pages) return undefined;
-    const path = decodeURIComponent(url.split(/[?#]/)[0]!).replace(/\/$/, '');
+    let path = decodeURIComponent(url.split(/[?#]/)[0]!).replace(/\/$/, '');
+    if (locale) { const b = base().replace(/\/?$/, '/'); if (path.startsWith(`${b}${locale}/`)) path = b.replace(/\/$/, '') + path.slice(b.length + locale.length); }
     return pages.entries.find((e) => decodeURIComponent(e.path) === path) ?? pages.entries[0];
   };
   /**
@@ -601,21 +621,33 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const sources = sourceEntries();
     const found = sources.map((f) => [f, templatePages(f)] as const);
     if (!found.some(([, pg]) => pg)) return null;
-    if (locales) throw new Error('sinter: `data-sn-pages` with `sinter({ localePrefix })` is not supported yet: a page per entry is built in one language for now');
     const b = base().startsWith('/') ? base().replace(/\/?$/, '/') : '/';
-    const taken = new Map(sources.filter((f) => !found.find(([g, pg]) => g === f && pg)).map((f) => [relOf(f).replace(/(^|\/)index\.html$/, '$1').replace(/\.html$/, ''), relOf(f)] as const));
+    const relOfPath = (path: string) => decodeURIComponent(path.startsWith(b) ? path.slice(b.length) : path.replace(/^\//, ''));
+    // the pages that are not templates, in every language: where an entry may not be written
+    const plain = sources.filter((f) => !found.find(([g, pg]) => g === f && pg));
+    const taken = new Map<string, string>();
+    for (const f of plain) for (const l of locales ? locales.list : [null]) {
+      const rel = (l ? `${l}/` : '') + relOf(f);
+      taken.set(rel.replace(/(^|\/)index\.html$/, '$1').replace(/\.html$/, ''), rel);
+    }
     const out: string[] = [];
+    entryLangs.clear();
     for (const [f, pg] of found) {
-      if (!pg) { out.push(f); continue; }
-      for (const e of pg.entries) {
-        const rel = decodeURIComponent(e.path.startsWith(b) ? e.path.slice(b.length) : e.path.replace(/^\//, ''));
-        const other = taken.get(rel) ?? taken.get(rel + '/');
-        if (other) throw new Error(`sinter: ${relOf(f)}: the entry at \`${e.path}\` would be written where \`${other}\` is (data-sn-pages)`);
-        if (resolved?.publicDir && existsSync(resolve(resolved.publicDir, rel + '.html'))) throw new Error(`sinter: ${relOf(f)}: the entry at \`${e.path}\` would be written where \`public/${rel}.html\` is (data-sn-pages)`);
-        taken.set(rel, `${relOf(f)} (${e.path})`);
-        const v = resolve(root, rel + '.html');
-        virtual.set(v, { source: f, locale: undefined as unknown as string, page: e });
-        out.push(v);
+      if (!pg) { if (locales) out.push(...locales.list.map((l) => virtualOf(f, l))); else out.push(f); continue; }
+      // each language's entries (its own list with `{$locale}`), at its prefix; their keys pair the translations
+      for (const l of locales ? locales.list : [null]) {
+        const entries = l ? templatePages(f, l)!.entries : pg.entries;
+        for (const e of entries) {
+          const rel = (l ? `${l}/` : '') + relOfPath(e.path);
+          const other = taken.get(rel) ?? taken.get(rel + '/');
+          if (other) throw new Error(`sinter: ${relOf(f)}: the entry at \`${l ? `/${l}` : ''}${e.path}\` would be written where \`${other}\` is (data-sn-pages)`);
+          if (resolved?.publicDir && existsSync(resolve(resolved.publicDir, rel + '.html'))) throw new Error(`sinter: ${relOf(f)}: the entry at \`${e.path}\` would be written where \`public/${rel}.html\` is (data-sn-pages)`);
+          taken.set(rel, `${relOf(f)} (${e.path})`);
+          const v = resolve(root, rel + '.html');
+          virtual.set(v, { source: f, locale: (l ?? undefined) as unknown as string, page: e });
+          out.push(v);
+          if (l) { const k = `${f}\0${e.key}`; if (!entryLangs.has(k)) entryLangs.set(k, new Map()); entryLangs.get(k)!.set(l, e.path); }
+        }
       }
     }
     return out;
@@ -645,7 +677,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const p = proj(), v = virtual.get(file);
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
+        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
       } catch { described.set(file, { parts: null, path: [], off: false }); }
     }
@@ -655,7 +687,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const describeSource = (source: string) => {
     if (!sourceDescribed.has(source)) {
       const p = proj();
-      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
+      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
       catch { sourceDescribed.set(source, []); }
     }
     return { path: sourceDescribed.get(source)! };
@@ -701,6 +733,29 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     for (const v of virtual.values()) if (v.page) { entry.add(v.page.path); patterns.add(templatePattern(v.source)); }
     return speculationRules(mode, [...appPages().flatMap((x) => x.paths).filter((x) => !entry.has(x)), ...patterns], samePage);
   };
+  /**
+   * builds: a link in a finished page to a path a `data-sn-pages` pattern matches, but no entry was written at, fails
+   * the build (SN343), with the entry it was likely meant for. The links are the built HTML's (`href`, root-relative):
+   * those from constants and folded expressions, markdown's included; a link built at run time is not checked.
+   */
+  const brokenEntryLinks = (fail: (m: string) => never, built: Map<string, string>) => {
+    const entries = new Set<string>(), patterns = new Map<string, string>();
+    for (const v of virtual.values()) if (v.page) { entries.add(decodeURIComponent(v.page.path)); patterns.set(templatePattern(v.source), relOf(v.source)); }
+    if (!patterns.size) return;
+    const found: string[] = [];
+    for (const [rel, html] of built) for (const m of html.matchAll(/\shref="(\/(?!\/)[^"]*)"/g)) {
+      let path: string;
+      try { path = decodeURIComponent(m[1]!.replace(/&amp;/g, '&').split(/[?#]/)[0]!).replace(/(.)\/$/, '$1'); } catch { continue; }
+      if (entries.has(path)) continue;
+      for (const [pattern, template] of patterns) {
+        if (!matches(pattern, path)) continue;
+        const near = suggest(path, [...entries].filter((e) => matches(pattern, e)));
+        found.push(`${rel} links to \`${path}\`, which \`${pattern}\` (${template}) matches, but no entry is there${near ? `. Did you mean \`${near}\`?` : ''}`);
+        break;
+      }
+    }
+    if (found.length) fail(`sinter: error SN343 ${CODES.SN343}: ${found.slice(0, 20).join('\n  ')}${found.length > 20 ? `\n  … and ${found.length - 20} more` : ''}\n  docs: \`npx sinter docs SN343\`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn343-broken-entry-link`);
+  };
   /** a `data-sn-pages` page's pattern, as its template writes it (read once per build) */
   const templatePatterns = new Map<string, string>();
   const templatePattern = (source: string) => {
@@ -743,6 +798,26 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * Cleared at each build's start, so a rebuild under `--watch` sees edits; dev reads afresh, as files change under it.
    */
   const buildReads = new Map<string, { text: string } | { error: unknown }>();
+  /**
+   * The content module's collections (docs/resources.md#collections), loaded before any page compiles: in
+   * `configResolved`, and again in dev when the module or a file its loaders read changes. A build fails on a loader's
+   * error; dev reports it on the pages that read a collection.
+   */
+  let content: LoadedContent | null = null;
+  const loadCollections = async (): Promise<LoadedContent | null> => {
+    const p = proj();
+    if (!p.contentFile || !resolved) return null;
+    const c = await loadContent({
+      root, file: p.contentFile, command: dev ? 'serve' : 'build', readFile: p.readFile, listFiles: p.listFiles,
+      env: loadEnv(resolved.mode, resolved.envDir === false ? root : resolved.envDir ?? root, ''),
+      configFile: resolved.configFile ?? false, mode: resolved.mode, ...(resolved.configFile ? {} : { alias: resolved.resolve.alias }),
+    });
+    // what `sinter check` and the editor compile against (the last load that worked)
+    if (!c.error) writeSnapshot(root, p.contentFile, c);
+    return c;
+  };
+  /** what every compile gets of the collections */
+  const contentOpts = () => (content ? { collections: content.collections, ...(content.error ? { collectionsError: content.error } : {}) } : {});
   /** builds: the `file:` lists already built (compile's `globCache`), cleared with the reads */
   const globCache: NonNullable<Parameters<typeof compile>[1]['globCache']> = new Map();
   const readVia = (p: ReturnType<typeof project>) => (dev ? p.readFile : (path: string) => {
@@ -767,15 +842,16 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const v = virtual.get(file), src = v?.source ?? file;
     const lang = v?.locale && p.messages ? { ...p.messages.dicts[p.messages.base], ...p.messages.dicts[v.locale] } : null;
     // `data-sn-pages`: an entry's page (a build's input), or in dev the entry the URL names
-    const page = v?.page ?? (dev && url ? devEntry(src, url) : undefined);
+    const page = v?.page ?? (dev && url ? devEntry(src, url, v?.locale) : undefined);
     const fatal = strictly(p.diagnostics).filter((d) => d.severity === 'error');
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
     // a warning about the options (a deprecated one): once per build
     for (const d of p.diagnostics) if (d.severity === 'warning' && !warnedOptions.has(d.message)) { warnedOptions.add(d.message); resolved?.logger.warn(formatDiagnostic(d)); }
-    if (!seen.has(file)) { seen.add(file); pagesCache = null; }
+    // a page not seen before may be a new one (dev); a build's pages per entry are all known from the start
+    if (!seen.has(file)) { seen.add(file); if (dev || !pageInputs) pagesCache = null; }
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
-      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), prefetch,
+      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), prefetch,
       ...(page ? { page } : {}),
       check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
@@ -794,7 +870,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(p.changesRequests ? { changesRequests: true } : {}),
       ...(firstPaint ? { early: { module: p.early, src: earlySrc } } : {}),
       ...(p.messages ? { baseMessages: lang ?? p.messages.dicts[p.messages.base] ?? {} } : {}),
-      ...(v?.locale ? { locale: { name: v.locale, urls: localeUrls(src), base: resolved?.base ?? '/' } } : {}),
+      ...(v?.locale ? { locale: { name: v.locale, urls: v.page ? entryUrls(v) : localeUrls(src), base: resolved?.base ?? '/' } } : {}),
       ...(options.origins?.length || apiOrigins(p.apis).length ? { origins: [...(options.origins ?? []), ...apiOrigins(p.apis)] } : {}),
       ...(firstPaint ? { observe: true } : {}),
       ...(options.embed && !dev ? { embed: true } : {}),
@@ -893,6 +969,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (b.rollupOptions) b.rollupOptions.input = input;
         }
       }
+      // the content module's collections, before anything compiles (a build's errors stop it here)
+      content = await loadCollections();
+      if (content?.error) {
+        if (!dev) throw new Error(`sinter: ${content.error}`);
+        config.logger.error(`sinter: ${content.error}`);
+      }
       // `data-sn-pages`: one input per entry, before the build starts (its inputs are fixed from here)
       if (!dev) {
         const b = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
@@ -954,6 +1036,19 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear(); }
         if (watched.has(file)) s.ws.send({ type: 'full-reload' });
       });
+      // the content module, or a file its loaders read: the collections are loaded again, and the pages reload
+      if (content || proj().contentFile) for (const f of [proj().contentFile!, ...(content?.files ?? [])]) if (f) s.watcher.add(f);
+      s.watcher.on('change', (file) => {
+        const p = proj();
+        if (file !== p.contentFile && !content?.files.includes(file)) return;
+        loadCollections().then((c) => {
+          content = c;
+          if (c?.error) s.config.logger.error(`sinter: ${c.error}`);
+          for (const f of c?.files ?? []) s.watcher.add(f);
+          described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear();
+          s.ws.send({ type: 'full-reload' });
+        }, (e) => s.config.logger.error(`sinter: ${(e as Error).message}`));
+      });
       // a `file:` glob's list changes when a file it matches is added or removed
       for (const ev of ['add', 'unlink'] as const) s.watcher.on(ev, (file) => {
         if (!inGlob(file)) return;
@@ -979,6 +1074,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       pagesCache = null;
       buildReads.clear();
       globCache.clear();
+      templatesKept.clear();
       buildProject = null;
       if (dev) return;
       // a fresh instance each build: under `--watch`, edits to the helpers count, and nothing a helper kept from the
@@ -1886,8 +1982,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (a?.type !== 'asset') continue;
         let html = typeof a.source === 'string' ? a.source : Buffer.from(a.source).toString('utf8');
         // a page in a language with a URL: its other languages' URLs, and its chooser's, for search engines
-        const v = virtual.get(resolve(root, page.rel)), urls = v?.locale && siteOrigin ? localeUrls(v.source) : null;
-        if (v && urls) html = html.replace('</head>', `  ${hreflangTags(siteOrigin!, urls, chooserUrl(v.source))}\n</head>`);
+        const v = virtual.get(resolve(root, page.rel)), urls = v?.locale && siteOrigin ? (v.page ? entryUrls(v) : localeUrls(v.source)) : null;
+        if (v && urls) html = html.replace('</head>', `  ${hreflangTags(siteOrigin!, urls, v.page ? entryChooser(v.source, v.page.key)! : chooserUrl(v.source))}\n</head>`);
         const source = relocateHtml(html, page, all, base(), locales?.list);
         built.set(page.rel, source);
         if (to === page.rel) { a.source = source; continue; }
@@ -1911,7 +2007,22 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // which hosts look for there); at a moved source page's old file URL, the chooser too (one hop to a language)
       if (locales) {
         const script = [...runtimeOf.values()].some((r) => r.length);
+        // a page per entry: a chooser at each entry's unprefixed path, to the visitor's language's translation (else the base's)
+        const templates = new Set<string>(), done = new Set<string>();
+        for (const v of virtual.values()) {
+          if (!v.page) continue;
+          templates.add(v.source);
+          const k = `${v.source}\0${v.page.key}`;
+          if (done.has(k)) continue;
+          done.add(k);
+          const urls = entryUrls(v)!, at = entryChooser(v.source, v.page.key)!, b = base().startsWith('/') ? base().replace(/\/?$/, '/') : '/';
+          const fallback = urls[locales.base] ?? Object.values(urls)[0]!;
+          const full = Object.fromEntries(locales.list.map((l) => [l, urls[l] ?? fallback]));
+          const fileName = decodeURIComponent(at.startsWith(b) ? at.slice(b.length) : at.replace(/^\//, '')) + '.html';
+          if (!bundle[fileName]) this.emitFile({ type: 'asset', fileName, source: chooserHtml({ base: b, locales, urls: full, script, fallback, hreflang: siteOrigin ? hreflangTags(siteOrigin, urls, at) : '' }) });
+        }
         for (const src of sourceEntries()) {
+          if (templates.has(src)) continue;
           const rel = relOf(src), file = chooserFile(rel);
           if (/(^|\/)(404|200)\.html?$/.test(rel)) {
             const a = bundle[`${locales.base}/${rel}`];
@@ -1922,6 +2033,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (file !== rel) this.emitFile({ type: 'asset', fileName: rel, source: chooserFor(src, script) });
         }
       }
+      brokenEntryLinks((m) => this.error(m), built);
       for (const f of await sitemap((m) => this.error(m), all, built)) this.emitFile({ type: 'asset', ...f });
       // _redirects: the same rules for hosts that read them (Netlify, Cloudflare Pages), after the app's own
       if (options.redirects === false) return;

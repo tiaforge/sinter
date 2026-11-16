@@ -138,6 +138,15 @@ export function shadow(o: ShadowOptions): Shadow {
   for (const r of unit.resources) {
     const t = r.type ?? 'any';
     types.push(`${JSON.stringify(r.name)}: ${t}`);
+    if (r.content) {
+      // a collection without `type`: what its loader returns
+      const t = `Awaited<ReturnType<typeof import('${spec(r.content.module).replace(/\.[cm]?[jt]s$/, '')}')[${JSON.stringify(r.content.name)}]['load']>>`;
+      types[types.length - 1] = `${JSON.stringify(r.name)}: ${t}`;
+      line(`/** @type {${t}} */`);
+      regions.push({ start: out.length + 1, lines: 1, loc: r.nameLoc ?? r.loc, fixed: true });
+      line(`const ${r.name} = $any;`);
+      continue;
+    }
     if (r.item) {
       // a `data-sn-pages` entry: one item of the list it names
       const it = `import('./sinter').Item<typeof ${r.item}>`;

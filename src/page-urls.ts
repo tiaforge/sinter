@@ -88,7 +88,23 @@ export function relocateHtml(html: string, page: PageEntry, pages: PageEntry[], 
   const oldDir = '/' + posix.dirname(page.rel).replace(/^\.$/, '');
   const newDir = moved ? '/' + page.rel.replace(/\.html?$/, '') : oldDir;
   const lang = locales.includes(page.rel.split('/')[0]!) ? page.rel.split('/')[0]! : null;
-  // where each page with a fixed path is, by every path a link may name it with (site paths: from the base)
+  const targets = targetsOf(pages, base, lang);
+  return relocateWith(html, page, base, locales, b, moved, oldDir, newDir, lang, targets);
+}
+
+/**
+ * where each page with a fixed path is, by every path a link may name it with (site paths: from the base): one map
+ * per list of pages, base and language, since every page of a build is relocated over the same list (built per page,
+ * it grew with the square of the pages)
+ */
+const targetsKept = new WeakMap<PageEntry[], Map<string, Map<string, string>>>();
+function targetsOf(pages: PageEntry[], base: string, lang: string | null): Map<string, string> {
+  const k = `${base}\0${lang ?? ''}`;
+  let byKey = targetsKept.get(pages);
+  if (!byKey) targetsKept.set(pages, (byKey = new Map()));
+  const kept = byKey.get(k);
+  if (kept) return kept;
+  const b = rootOf(base);
   const targets = new Map<string, string>();
   const add = (k: string, site: string) => { if (!targets.has(k)) targets.set(k, site); };
   for (const p of pages) {
@@ -101,6 +117,11 @@ export function relocateHtml(html: string, page: PageEntry, pages: PageEntry[], 
     // the page's language: its pages also by their paths without the prefix
     if (lang && p.rel.startsWith(lang + '/')) for (const k of keys) if (k.startsWith(`/${lang}/`) || k === `/${lang}`) add(k.slice(lang.length + 1) || '/', site);
   }
+  byKey.set(k, targets);
+  return targets;
+}
+
+function relocateWith(html: string, page: PageEntry, base: string, locales: string[], b: string, moved: boolean, oldDir: string, newDir: string, lang: string | null, targets: Map<string, string>): string {
   return rewriteUrls(html, (u, link) => {
     const value = u.trim();
     if (OUTSIDE.test(value)) return u;

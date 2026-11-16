@@ -74,16 +74,48 @@ describe('data-sn-pages in a build', () => {
     expect(r.error).toMatch(/blog\/post\.html: the entry at `\/blog\/hello` would be written where `blog\/hello\.html` is \(data-sn-pages\)/);
   }, 60_000);
 
+  test('a link to an entry that does not exist fails the build (SN343), with the one it was likely meant for', async () => {
+    const root = app({ ...blog, 'about.html': '<site-layout data-sn-prop="{ title: \'About\' }"><p>See <a href="/blog/helo">the first post</a>, or <a href="/blog/recap?x=1#top">the recap</a>.</p></site-layout>' });
+    const r = await run(root, ['index.html', 'blog/post.html', 'about.html']);
+    expect(r.error).toMatch(/SN343 broken-entry-link: about\.html links to `\/blog\/helo`, which `\/blog\/:slug` \(blog\/post\.html\) matches, but no entry is there\. Did you mean `\/blog\/hello`\?/);
+    expect(r.error).not.toMatch(/recap/);
+  }, 60_000);
+
   test('the declaration\'s errors fail the build (the template is no input to report them)', async () => {
     const root = app({ ...blog, 'blog/post.html': blog['blog/post.html'].replace('data-sn-path="/blog/:slug"', 'data-sn-path="/blog/:year/:slug"') });
     const r = await run(root, ['index.html', 'blog/post.html']);
     expect(r.error).toMatch(/SN341 .*has no `year` to fill `:year`/);
   }, 60_000);
 
-  test('with localePrefix: not supported yet, said so', async () => {
-    const root = app({ ...blog, 'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }), 'messages/en.json': '{}', 'messages/de.json': '{}' });
+  test('with localePrefix: each language\'s entries, paired by key, with alternates, localeUrl() and a chooser', async () => {
+    const root = app({
+      'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }), 'messages/en.json': '{}', 'messages/de.json': '{}',
+      'content/en/posts/hello.md': '---\nid: 1\ntitle: Hello\n---\n', 'content/en/posts/only.md': '---\nid: 2\ntitle: English only\n---\n',
+      'content/de/posts/hallo.md': '---\nid: 1\ntitle: Hallo\n---\n',
+      'blog/post.html': `<!doctype html><html data-sn-path="/blog/:slug" data-sn-pages="post in posts"><head><title data-sn-text="post.title"></title></head><body>
+<sn-resource name="posts" src="file:/content/{$locale}/posts/*.md" key="id"></sn-resource>
+<h1 data-sn-text="post.title"></h1><a hreflang="de" data-sn-attr="{ href: localeUrl('de') }">Deutsch</a></body></html>`,
+      'index.html': '<!doctype html><html><head><title>x</title></head><body>x</body></html>',
+    });
     const r = await run(root, ['index.html', 'blog/post.html'], { localePrefix: true });
-    expect(r.error).toMatch(/`data-sn-pages` with `sinter\(\{ localePrefix \}\)` is not supported yet/);
+    expect(r.error).toBe(null);
+    const en = r.read('en/blog/hello.html'), de = r.read('de/blog/hallo.html');
+    expect(en).toContain('<h1>Hello</h1>');
+    expect(de).toContain('<h1>Hallo</h1>');
+    expect(en).toMatch(/<html[^>]* lang="en"/);
+    // translations by key: the German page of post 1 is /de/blog/hallo
+    expect(en).toContain('<a hreflang="de" href="/de/blog/hallo">Deutsch</a>');
+    expect(en).toContain('<link rel="alternate" hreflang="de" href="https://example.com/de/blog/hallo">');
+    expect(de).toContain('<link rel="alternate" hreflang="en" href="https://example.com/en/blog/hello">');
+    // an entry in one language only: no page in the other, no alternate, no link
+    expect(r.has('en/blog/only.html')).toBe(true);
+    expect(r.has('de/blog/only.html')).toBe(false);
+    expect(r.read('en/blog/only.html')).not.toContain('hreflang="de" href');
+    // the chooser at the unprefixed path, to each language's translation (a site with no JavaScript: to the base one)
+    const chooser = r.read('blog/hello.html');
+    expect(chooser).toContain('<meta http-equiv="refresh" content="0; url=/en/blog/hello">');
+    expect(chooser).toContain('<a href="/de/blog/hallo" hreflang="de">de</a>');
+    expect(chooser).toContain('noindex');
   }, 60_000);
 
   test('the dev server: an entry\'s URL is its page', async () => {

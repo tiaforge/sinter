@@ -12,7 +12,7 @@ import * as parse5 from 'parse5';
 import { parseExpression, parseProgram } from './parse.js';
 import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
-import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
+import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
 import { analyze, literalNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
@@ -22,7 +22,7 @@ import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, N
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
 import { foldReason, type FoldVerdict } from '../fold-check.js';
-import { FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
+import { FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
@@ -67,7 +67,18 @@ export interface CompileOptions {
    * at (the page's pattern filled from it). Without it, a page with `data-sn-pages` is compiled as its template, its
    * entry the list's first (`sinter check`, the editor, and the build's look at it, which lists its entries: `pages`).
    */
-  page?: { value: unknown; path: string };
+  page?: { value: unknown; path: string; key?: string };
+  /**
+   * The content module's collections (docs/resources.md#collections), loaded before the compile: each list and its key,
+   * by name. Absent: none loaded (`sinter check` and the editor read them from the build's snapshot). `collectionsError`:
+   * why loading failed (dev), reported where a page reads a collection.
+   */
+  collections?: ReadonlyMap<string, { key: string; value: readonly unknown[] }>;
+  collectionsError?: string;
+  /** the content module, absolute: `sinter check` types a `content:` resource without `type` from its loader */
+  contentModule?: string;
+  /** the result's HTML is not read (a page's description: its paths, what it requests ahead): embedded values are not serialized into it */
+  describeOnly?: boolean;
   /**
    * builds: the `file:` lists already built, by their glob, key, order, drafts, mode and language, with what they reported
    * (their files do not change during a build); every page that reads one gets it and its diagnostics from here
@@ -277,7 +288,11 @@ export interface CompileResult {
    * `data-sn-pages`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
    * template: no `page` option). A build writes one page per entry.
    */
-  pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string }> };
+  pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
+  /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
+  json?: Map<number, unknown>;
+  /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */
+  lateDiagnostics?: Diagnostic[];
   /** the folders `file:` globs list, and the pattern below each their files match (dev: an added or removed file reloads the page) */
   globs?: Array<{ dir: string; match: string }>;
   /** with `check: true` */
@@ -400,7 +415,11 @@ export interface CompiledParts {
    * `data-sn-pages`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
    * template: no `page` option). A build writes one page per entry.
    */
-  pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string }> };
+  pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
+  /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
+  json?: Map<number, unknown>;
+  /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */
+  lateDiagnostics?: Diagnostic[];
   /** the folders `file:` globs list, and the pattern below each their files match (dev: an added or removed file reloads the page) */
   globs?: Array<{ dir: string; match: string }>;
   /** with `check: true` */
@@ -723,9 +742,11 @@ function constantProps(src: string | undefined, props: Member[] | null): Map<str
 const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-prop`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
-  const out = compilePasses(html, options);
+  let out = compilePasses(html, options);
   // a page whose path is a pattern gets its canonical link from the early script: only when it runs something anyway
-  if (out.canonicalOnly) return compilePasses(html, { ...options, canonicalLink: false });
+  if (out.canonicalOnly) out = compilePasses(html, { ...options, canonicalLink: false });
+  // the embedded values' JSON, into the page that is kept
+  if (out.json && !options.describeOnly) { const json = out.json; out = { ...out, html: out.html.replace(/\u0001sn-json:(\d+)\u0001/g, (_, id: string) => scriptJson(json.get(+id))) }; delete out.json; }
   return out;
 }
 
@@ -733,7 +754,8 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   const first = new Compiler(options);
   const out = first.run(html);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
-  if (!options.prerender || options.decided || options.unrolled) return out;
+  const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
+  if (!options.prerender || options.decided || options.unrolled) return withLate(out);
   // loops over constants: unrolled only when the first pass is clean (the second one compiles the rows with their item)
   // (SN322 does not count: what the first pass found running may be a loop the second one unrolls)
   const clean = !out.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
@@ -743,7 +765,7 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   // from the first pass's worklist (`worklist()`), so a page is compiled at most twice: what writes state, which
   // decides what is constant, is known only after a walk
   const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
-  if (!first.decided.size && !unrolled && !constants) return out;
+  if (!first.decided.size && !unrolled && !constants) return withLate(out);
   const frozen = first.foldedState();
   if (constants) for (const s of first.constantSites) frozen.add(s);
   const second = new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
@@ -1306,6 +1328,8 @@ class Compiler {
     if (reads && !hasBase(doc) && (navigates || this.seesSameLink(own))) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
     this.fileJson();
     return {
+      ...(this.jsonOut.size ? { json: this.jsonOut } : {}),
+      ...(this.lateDiags.length ? { lateDiagnostics: this.lateDiags } : {}),
       html: parse5.serialize(doc),
       runtime, ...(isStatic ? { static: true as const } : {}), ...(isStatic && this.canonicalLink ? { canonicalOnly: true } : {}),
       ir, fns: this.fns,
@@ -5485,6 +5509,7 @@ class Compiler {
     if (ctx.tid >= 0) return;
     if (attr(el, PAGE_ENTRY) !== undefined && el === this.pagesDecl?.entry) return this.entryResource(el, name, ctx.stateIdx);
     if (isFileSource(attr(el, 'src'))) return this.fileResource(el, name, ctx.stateIdx);
+    if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
       if (a.name === 'start-page') this.report(el, a.name, 'SN401', '`start-page` is renamed to `page-model` (offset lists, a query parameter), which also writes the page back', 0);
       else if (!RESOURCE_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
@@ -5721,7 +5746,16 @@ class Compiler {
   }
 
   /** `file:` resources by name: their value is in the head (`data-sn` id), written there by `run()` */
-  readonly fileData = new Map<string, { id: number; value: unknown; el?: P5Element }>();
+  readonly fileData = new Map<string, { id: number; value: unknown; el?: P5Element; at?: P5Element; fields?: string[] | null; content?: boolean }>();
+
+  /** `fields="sku,name"`: the fields of each entry that browser code gets (`fileJson`), or null; a malformed list is SN332 */
+  fieldsOf(el: P5Element, report = true): string[] | null {
+    const v = attr(el, 'fields');
+    if (v === undefined) return null;
+    const list = v.split(',').map((x) => x.trim()).filter(Boolean);
+    if (report && (!list.length || list.some((x) => !/^[A-Za-z_$][\w$]*$/.test(x)))) this.report(el, 'fields', 'SN332', '`fields` lists the fields of each entry the browser gets, separated by commas: `fields="slug,title"`', 0);
+    return list;
+  }
   /** the folders `file:` globs listed, and what their files match: the dev server reloads the page when one is added or removed */
   readonly fileGlobs: Array<{ dir: string; match: string }> = [];
   /** `data-sn-pages`: the variable, its list, the pattern as written, and the internal resource that holds the entry */
@@ -5756,7 +5790,7 @@ class Compiler {
     const el = list as P5Element | null;
     if (!el) { this.report(html, 'data-sn-pages', 'SN340', `\`${of}\` is not a resource of this page: \`data-sn-pages\` takes a list the page declares, outside any template (\`<sn-resource name="${of}" src="file:/content/posts/*.md">\`)`, v.indexOf(of)); return; }
     const src = attr(el, 'src') ?? '';
-    if (!isFileSource(src) || !isGlob(src.trim().slice('file:'.length))) { this.report(html, 'data-sn-pages', 'SN340', `\`${of}\` is not a build-time list: \`data-sn-pages\` takes a \`file:\` glob (\`file:/content/posts/*.md\`), whose entries the build knows`, v.indexOf(of)); return; }
+    if (!isContentSource(src) && (!isFileSource(src) || !isGlob(src.trim().slice('file:'.length)))) { this.report(html, 'data-sn-pages', 'SN340', `\`${of}\` is not a build-time list: \`data-sn-pages\` takes a \`file:\` glob (\`file:/content/posts/*.md\`) or a collection (\`content:posts\`), whose entries the build knows`, v.indexOf(of)); return; }
     // the entry: an internal resource right after the list, so the list is read first
     const entry = parse5.defaultTreeAdapter.createElement('sn-resource', parse5.html.NS.HTML, [{ name: 'name', value: name }, { name: PAGE_ENTRY, value: of }]);
     const parent = el.parentNode as P5Parent;
@@ -5769,6 +5803,52 @@ class Compiler {
     this.pagesDecl = { name, of, pattern: pats[0]!, html, entry };
   }
 
+  /**
+   * `<sn-resource src="content:posts">`: a collection of the content module, a constant list as a `file:` glob is (`fx`),
+   * its key the collection's unless `key` is given, sorted by `order` here. `drafts` and `items` are the loader's
+   * business. Without collections (`sinter check`, the editor), an empty list.
+   */
+  contentResource(el: P5Element, name: string, scope: number) {
+    const info = this.page.resources.get(name)!;
+    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items') {
+      const why = a.name === 'drafts' ? '`drafts` is a `file:` glob\'s; a collection leaves its drafts out in its loader (`ctx.files(glob, { drafts })`, `ctx.command`)'
+        : a.name === 'items' ? '`items` picks a list out of a value; a collection is a list already'
+        : fileAttrProblem(a.name).replace(/a `file:` resource/g, 'a `content:` resource');
+      this.report(el, a.name, a.name === 'start-page' || RESOURCE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items' ? 'SN332' : 'SN101', why, 0);
+    }
+    const src = attr(el, 'src')!.trim(), cname = src.slice('content:'.length), at = attr(el, 'src')!.indexOf(cname);
+    const known = this.opts.collections;
+    const c = known?.get(cname);
+    if (known && !c) {
+      if (this.opts.collectionsError) this.report(el, 'src', 'SN342', `\`${cname}\`: the content module did not load its collections: ${this.opts.collectionsError.split('\n')[0]}`, at);
+      else {
+        const near = suggest(cname, known.keys());
+        this.report(el, 'src', 'SN342', `\`${cname}\` is not a collection of the content module${known.size ? ` (it has ${[...known.keys()].map((k) => `\`${k}\``).join(', ')})` : ' (it exports none)'}`, at, near ? `did you mean \`content:${near}\`?` : 'export it from `src/sinter.content.ts`: `export const ' + cname + ' = collection({ key, load })`');
+      }
+    }
+    if (!info.key) info.key = [c?.key ?? (attr(el, 'key')?.trim() || 'id')];
+    // the list as this page reads it (sorted in its language): built once per build, frozen, shared by every page
+    const order = attr(el, 'order')?.trim() || null, lang = this.opts.locale?.name ?? this.pageLang;
+    const cacheKey = ['content', cname, order, lang].join('\0');
+    let kept = c ? this.opts.globCache?.get(cacheKey) : undefined;
+    if (c && !kept) {
+      kept = { value: deepFreeze(order ? sortList([...c.value], order, lang) : [...c.value]), files: [], said: [] };
+      this.opts.globCache?.set(cacheKey, kept);
+    }
+    const value: unknown[] = kept?.value ?? (c ? (order ? sortList([...c.value], order, lang) : [...c.value]) : []);
+    const id = this.nextId++;
+    this.fileData.set(name, { id, value, at: el, fields: this.fieldsOf(el), content: true });
+    this.embedded.set(name, id);
+    if (this.check) {
+      const type = attr(el, 'type')?.trim() || null;
+      const typed = !type && this.opts.contentModule ? { content: { module: this.opts.contentModule, name: cname } } : {};
+      this.check.resources.push({ name, type: type ? `(${type})[]` : null, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...typed });
+      if (!type && !this.opts.contentModule) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"`, one entry\'s type from the types module, or `type="any"` to leave it unchecked');
+    }
+    this.resources.push({ name, src: [], key: info.key, items: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    this.declAt.set(this.resources[this.resources.length - 1]!, el);
+  }
+
   /** `data-sn-pages`: the entry, a constant (`fx`) beside its list; as the template, the list's entries and their paths */
   entryResource(el: P5Element, name: string, scope: number) {
     const d = this.pagesDecl!;
@@ -5776,7 +5856,9 @@ class Compiler {
     const entries = Array.isArray(list) ? list : [];
     if (!this.opts.page) {
       // each entry's path: every `:param` from the entry's field of that name, one path segment (as the sitemap encodes it)
-      const out: Array<{ value: unknown; path: string }> = [];
+      const out: Array<{ value: unknown; path: string; key: string }> = [];
+      // its key: what pairs an entry with its translation in another language's list (`localePrefix`)
+      const keyOf = this.page.resources.get(d.of)?.key ?? ['slug'];
       const seen = new Map<string, string>();
       for (const e of entries) {
         const rec = (e ?? {}) as Record<string, unknown>;
@@ -5793,13 +5875,14 @@ class Compiler {
         const prev = seen.get(path);
         if (prev) { this.report(d.html, 'data-sn-pages', 'SN341', `${what} and ${prev} would both be \`${path}\``, 0); continue; }
         seen.set(path, what);
-        out.push({ value: e, path });
+        out.push({ value: e, path, key: keyOf.map((k) => String(rec[k])).join('\u001f') });
       }
       this.pagesOut = { name: d.name, of: d.of, pattern: d.pattern, entries: out };
     }
     const value = this.opts.page ? this.opts.page.value : entries[0] ?? null;
     const id = this.nextId++;
-    this.fileData.set(name, { id, value });
+    const listEl = this.resourceEls.get(d.of);
+    this.fileData.set(name, { id, value, at: d.html, fields: listEl ? this.fieldsOf(listEl, false) : null, content: !!listEl && isContentSource(attr(listEl, 'src')) });
     this.embedded.set(name, id);
     this.page.resources.get(name)!.used = true;
     // the list is read: by the build, for its entries, whatever the page reads of it
@@ -5883,7 +5966,7 @@ class Compiler {
           else seen.set(k, String(e.path).slice(1));
         }
         // sorted once, here: the page's language decides how strings compare, as the visitor's does for a live resource
-        kept = { value: order ? sortList(entries, order, lang) : entries, files, said };
+        kept = { value: deepFreeze(order ? sortList(entries, order, lang) : entries), files, said };
         this.opts.globCache?.set(cacheKey, kept);
       }
       for (const f of kept.files) this.files.add(f);
@@ -5910,7 +5993,7 @@ class Compiler {
       if (Array.isArray(at)) value = setPath(value, items.split('.'), sortList(at, order, this.opts.locale?.name ?? this.pageLang));
     }
     const id = this.nextId++;
-    this.fileData.set(name, { id, value });
+    this.fileData.set(name, { id, value, at: el, fields: this.fieldsOf(el) });
     this.embedded.set(name, id);
     if (this.check) {
       const type = attr(el, 'type')?.trim() || null;
@@ -6439,7 +6522,8 @@ class Compiler {
       const def = this.resources.find((x) => x.name === name);
       let v = d.value;
       for (const k of def?.items ? def.items.split('.') : []) v = (v as Record<string, unknown> | null)?.[k];
-      values.set(name, v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v);
+      // a list a build keeps for every page that reads it is frozen once (`globCache`): shared, not copied per page
+      values.set(name, v && typeof v === 'object' ? (DEEP_FROZEN.has(v) ? v : deepFreeze(structuredClone(v) as object)) : v);
       status.set(name, Object.freeze({ loading: false, error: null, loadedAt: null, pending: 0, total: null, live: null }));
     }
     const of = (m: Map<string, unknown>) => new Proxy({}, { get: (_, k) => { if (typeof k === 'string' && m.has(k)) return m.get(k); throw NOT; } });
@@ -8065,9 +8149,29 @@ class Compiler {
     }
   }
 
-  /** the JSON of the `file:` values still in the page, written into their elements */
+  /**
+   * the `file:` values still in the page: a placeholder in each element, which `compileParts` fills with the value's
+   * JSON once the passes are done (a first pass whose page is compiled again would write it for nothing)
+   */
+  readonly jsonOut = new Map<number, unknown>();
+  /**
+   * diagnostics about the page as it ends (what still ships): in a first pass that may be followed by a second, they
+   * wait (`late`), since the second pass may fold away what they are about, and a first pass with errors has none
+   */
+  readonly lateDiags: Diagnostic[] = [];
+  reportLate(el: P5Element, a: string | null, code: Code, message: string, at: number, hint?: string) {
+    const n = this.diagnostics.length;
+    this.report(el, a, code, message, at, hint);
+    if (this.collecting()) this.lateDiags.push(...this.diagnostics.splice(n));
+  }
   fileJson() {
-    for (const d of this.fileData.values()) if (d.el && !d.el.childNodes.length && d.el.parentNode) parse5.defaultTreeAdapter.insertText(d.el, scriptJson(d.value));
+    for (const [name, d] of this.fileData) if (d.el && !d.el.childNodes.length && d.el.parentNode) {
+      // what the browser still reads: only the fields `fields` names, of each entry; a collection's is named, always,
+      // so that what a CMS returns and no page shows does not ship (SN344)
+      if (d.content && !d.fields && d.at) this.reportLate(d.at, d.at.tagName === 'html' ? 'data-sn-pages' : 'src', 'SN344', `browser code reads \`${name}\`, a collection, so it would ship to the page: name the fields it gets with \`fields="…"\`${d.at.tagName === 'html' ? ' on its list' : ''}`, 0, 'a collection holds what a loader returned, which can be more than a page shows (a CMS\'s internal fields); `fields="sku,name,price"` ships those of each entry, and nothing else');
+      parse5.defaultTreeAdapter.insertText(d.el, `\u0001sn-json:${d.id}\u0001`);
+      this.jsonOut.set(d.id, d.fields ? pickFields(d.value, d.fields) : d.value);
+    }
   }
 
   addPlaceholders(doc: DefaultTreeAdapterMap['document']) {
@@ -8716,7 +8820,17 @@ function jsLiteral(v: unknown): string {
   return `{ ${Object.entries(v as object).map(([k, x]) => `${k === '__proto__' ? '["__proto__"]' : jsLiteral(k)}: ${jsLiteral(x)}`).join(', ')} }`;
 }
 
+/** a value with only `fields` of each entry (a list's), or of the object itself */
+function pickFields(v: unknown, fields: string[]): unknown {
+  const pick = (e: unknown) => (e && typeof e === 'object' && !Array.isArray(e) ? Object.fromEntries(fields.filter((f) => f in (e as object)).map((f) => [f, (e as Record<string, unknown>)[f]])) : e);
+  return Array.isArray(v) ? v.map(pick) : pick(v);
+}
+
+/** values `deepFreeze` froze at every depth: build-time constants may share them without a copy */
+const DEEP_FROZEN = new WeakSet<object>();
+
 function deepFreeze<T extends object>(v: T): T {
+  DEEP_FROZEN.add(v);
   for (const x of Object.values(v)) if (x && typeof x === 'object') deepFreeze(x);
   return Object.freeze(v);
 }

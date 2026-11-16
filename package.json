@@ -70,7 +70,8 @@
     "./check": "./dist/check/index.js",
     "./testing": "./dist/testing/index.js",
     "./dev": "./dist/dev.js",
-    "./server": "./dist/server.js"
+    "./server": "./dist/server.js",
+    "./content": "./dist/content.js"
   },
   "bin": {
     "sinter": "dist/cli.js"
