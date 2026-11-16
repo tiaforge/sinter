@@ -1,12 +1,12 @@
 # Spike: less compiling, not more threads
 
 Status: (1), (2) and (3) landed (2026-11-16) with tests (`test/compiler/template-pass.test.ts`, the next-page test in
-`test/vite/pages.test.ts`); (4) and the rarer re-runs are open. Builds on
+`test/vite/pages.test.ts`). (4) was spiked: not as designed (below); its alternative, shared definitions
+compiled once per build, and the rarer re-runs are open. Builds on
 [parallel-page-compile.md](parallel-page-compile.md), which removed the all-pairs loops inside one compile. This one asks
 which compiles a build runs at all, and which of them repeat work that does not change. No threads.
 
-As landed, the 100-post blog builds in 2.4 s instead of 4.7 s, and the 1,000-post one in 14.1 s instead of 37.9 s. Next:
-(4), a single pass for pages whose decisions read only build-time data.
+As landed, the 100-post blog builds in 2.4 s instead of 4.7 s, and the 1,000-post one in 14.1 s instead of 37.9 s.
 
 ## Measured
 
@@ -85,18 +85,48 @@ gives every other entry that description at its own path (`entryDescription`): 1
 checks the invariant (a `$url` request, one over the entry, a language prefix), and a build test that the next-page
 module lists each entry at its own path with its request.
 
-## (4) Do we need two passes at all?
+## (4) Do we need two passes at all? (spike: not as designed)
 
-Pass 1 exists because "what writes state, which decides what is constant, is known only after a walk"
-(`compilePasses`). That is true for `data-sn-state`, but not for `file:`, `content:` and the entry: nothing can write
-them, so they are known to be constant before the walk. A page whose decisions read only those (every post here) could
-unroll a loop or pick a component while it expands, evaluating the expression there, and skip both the shared
-definitions and the second walk. That would cover pages that are not `data-sn-pages` too (a post per file:
-`measure.mjs --files`, which (1) does not help). Estimate: pass 1's share, about two thirds of a prerendered page's
-compile. It is the largest change. It needs an evaluator over expressions during `expandComponents`, the same
-decisions as the worklist (the expansion limit, per-instance agreement), and pass 1 kept for pages whose decisions
-read state. Of the changes in this list, it's the only one that touches what the compiler decides, so do it after
-(1)–(3), with the byte-identical check over `examples/*` and both benchmark apps.
+The idea: pass 1 exists because "what writes state, which decides what is constant, is known only after a walk"
+(`compilePasses`). That holds for `data-sn-state`, not for `file:`, `content:` and the entry, which nothing can write.
+A page whose decisions read only those could decide while it expands and skip pass 1.
+
+**The ceiling.** One page per post (`measure.mjs --files`, 100 posts, not `data-sn-pages`, so (1) does not apply),
+per page: pass 1 walks for 13.7 ms, evaluates for 1.8 ms and writes its own output for 2.3 ms; pass 2 takes 6.9 ms.
+Pass 2 given the decisions is the page (that is today's design), so a single pass would cost about 7–9 ms instead of
+25. Most of the walk (over 80%, from the profile) compiles the markdown library's shared definitions.
+
+**Why the oracle does not work as designed.** The hook exists: `expandConstants` is a top-down expansion that, at each
+`data-sn-if`, `<sn-component use>` candidate, recursion point and `data-sn-for`, looks a decision up by instance key,
+and carries each unrolled row's item (`rowOf`). Evaluating the expression there instead is not the hard part: names
+resolve through rows, `data-sn-let`, the host's `data-sn-prop` in the caller's context, `file:` values and the helper
+fold. The hard part is *when* pass 1 decides. The worklist decides on the compiled program, not the markup. It unrolls
+a loop only when every row is static markup, and "static" is written in terms of the walk's output: each binding's
+kind (`ROW`), whether its dependencies are fixed (`fixed`, `known`), `$el` (`b.e`) and writes (`b.w`), item 6's
+handlers that stay (`handlerOnly`), state on a node (`n.state`, `n.sid`), tree-slot fills and the fills that stay in
+the browser (`placementOf`, `fillStays`), a choice's props as code, the page's expansion budget across trees, and
+instances with one key that must agree. An oracle on the markup has none of that before the walk. It would have to
+re-derive it (in effect a second front end that must agree with the first on every rule), or unroll optimistically
+in the walk and back out when a row turns out not to be static, which the `Compiler`'s state (numbering, tables,
+diagnostics in order) does not allow. Either is a rewrite of the compiler's front half, and every disagreement is a
+page that renders differently from today. No prototype: the outcome was clear from the rules before writing one, and
+a partial oracle would not be byte-identical.
+
+**What would reach most of the ceiling instead**, without changing what is decided:
+
+- *Shared definitions compiled once per build and linked into each page.* They are compiled in an empty scope
+  (`definition()`), so they are the same for every page that uses the component; that is the 13 ms walk. The cost is a
+  linker: a definition writes into the page's tables (templates, the function table and its dedupe, `pointOf`,
+  choice groups, runtime placements, fills, `defRoots`/`defAttrs`, head templates, origins, diagnostics, the type
+  check's frames), all of which would need relocating, and `finishTreeFills` pairs them with the page's own fills.
+  Large and mechanical; byte-identity is checkable with the same harness. This is the recommended next step if pages
+  that are not `data-sn-pages` matter.
+- *Pass 1 stops after its evaluation when a second pass follows*: its own output (2.3 ms, 9%) is discarded today.
+  Safe for the decisions; the catch is errors reported after the evaluation (SN345, the dropped query, URL arrays),
+  which decide whether there is a second pass. A pass 2 with errors falls back to the full path, as in (1), but an
+  error only pass 1's output would have had needs those checks moved before the evaluation. Small win, not taken.
+- *Decisions cached across builds*, keyed by everything a page reads (its HTML, component files, data files, the
+  helpers module): unchanged pages skip pass 1 on a rebuild. That's caching, not a faster cold build.
 
 The two rarer re-runs are full recompiles, which a patch of the first result could replace: `canonicalOnly` (a static
 page with a pattern path, whose canonical link is the only difference) and the compile after `images.analyze`. Neither
