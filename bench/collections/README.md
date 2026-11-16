@@ -71,11 +71,15 @@ default heap:
 | 100 | 6.5 s | 65 ms |
 | 1,000 | 65.3 s | 65 ms |
 | 2,000 | 124 s | 62 ms |
+| 4,000 | 197 s | 49 ms |
+| 10,000 | 626 s | 63 ms |
 
-Found on the way and fixed, each a cost every post's page paid over the whole list: the list's JSON written and
-parsed into each page and dropped, the list built and sorted again, the list deep-copied for folding, the page list
-rebuilt, and the map of every page's URL rebuilt while links were rewritten. With the heap capped at 300 MB the
-2,000-post build still completes (131 s): what it keeps is small; the rest of its resident memory is Node, Vite and
-Rolldown. 10,000 posts are still slower than linear (about 19 minutes, against 10 at 62 ms): another cost grows with
-the list above 2,000, not found yet.
+Found on the way and fixed, each a cost every post's page paid over the whole list or over all pages: the list's
+JSON written and parsed into each page and dropped, the list built and sorted again, the list deep-copied for
+folding, the page list rebuilt, the map of every page's URL rebuilt while links were rewritten, and each page's
+description (its paths, what it requests ahead) serializing the list it never reads. 2,000 and 4,000 posts were
+measured after all but the last, and after all of them respectively; 10,000 after all of them.
 
+From 4,000 to 10,000 posts the cost per post still rises (49 to 63 ms), much less than before (10,000 took over 19
+minutes, against about 10 now). With the heap capped at 300 MB the 2,000-post build still completes (131 s): what it
+keeps is small; the rest of its resident memory (2.1 GB at 10,000) is Node, Vite and Rolldown with that many inputs.

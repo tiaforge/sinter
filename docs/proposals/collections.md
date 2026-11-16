@@ -629,7 +629,9 @@ A prototype first, then three pull requests, each followed by a review of where 
     error there, `chunks`.
   - **Two quadratic costs found and fixed**: every entry's page wrote the whole list's JSON into its head and
     parsed it before dropping it (now written only for values left after the compile), and built the list
-    again (now kept per build). 1,000 entries build at 65 ms each, as 100 do.
+    again (now kept per build). 1,000 entries build at 65 ms each, as 100 do. Four more were found at larger sizes and
+    fixed in the next PR (#64); 10,000 markdown posts now build in 626 s (63 ms each, 4,000 at 49 ms), with no
+    JavaScript shipped.
 - **C, links and docs**: `broken-entry-link` (§6); a guide `docs/content.md`, the static-site example's
   blog, `resources.md` and `static-pages.md` pointing to it, `llms.txt`, CHANGELOG.
 
