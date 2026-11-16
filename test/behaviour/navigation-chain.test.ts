@@ -1,5 +1,5 @@
 // One way in (docs/proposals/swap-navigation.md, step 2): every navigation is an intent the app's handlers
-// decide on (`App.nav`); every handler is asked, the core runs the first decision, and what happens without
+// decide on (one chain per document, links.ts); every handler is asked, the core runs the first decision, and what happens without
 // one (or when it cannot run) is the core's alone, by the intent's source. Links become intents through
 // one shared listener (links.ts).
 import { expect, test } from 'vitest';
@@ -135,4 +135,42 @@ test('a guard refuses when the navigation goes: nothing runs, nothing loads; dec
   // a refused link: its default prevented
   links(p.app);
   expect(await p.click('a')).toBe(true);
+});
+
+/** a stand-in app on an element of the document: what the chain reads of one */
+function fakeApp(id: string) {
+  const root = document.createElement('div'), cleanups: Array<() => void> = [], loads: string[] = [];
+  root.id = id;
+  document.body.append(root);
+  const app = {
+    root, ext: {}, loads,
+    env: { href: () => 'http://localhost/', navigate: (u: string) => { loads.push(u); } },
+    addCleanup: (f: () => void) => { cleanups.push(f); },
+    destroy: () => { for (const f of cleanups.splice(0)) f(); root.remove(); },
+  };
+  return app as unknown as Parameters<typeof chain>[0] & { loads: string[]; destroy(): void };
+}
+
+test('one chain per document: two apps share its handlers in rank order, and a guard of either refuses for both', async () => {
+  // (the earlier tests' app goes: the harness destroys it at the next render)
+  await render('<p></p>');
+  const a = fakeApp('a'), b = fakeApp('b'), order: string[] = [];
+  chain(a).add(() => { order.push('a, swap'); }, RANK.swap);
+  chain(b).add(() => { order.push('b, same'); }, RANK.same);
+  // asked from either app: both handlers, in rank order
+  chain(a).decide({ to: 'http://localhost/x', kind: 'push', source: 'link' });
+  expect(order).toEqual(['b, same', 'a, swap']);
+  // a guard of b refuses a's navigation: nothing loads
+  let dirty = true;
+  chain(b).guards.push(() => dirty);
+  expect(chain(a).go({ to: 'http://localhost/next', kind: 'push', source: 'call' })?.name).toBe('refused');
+  expect(a.loads).toEqual([]);
+  // b goes, with its handlers and guards: a's navigation loads (with a's env)
+  b.destroy();
+  order.length = 0;
+  expect(chain(a).go({ to: 'http://localhost/next', kind: 'push', source: 'call' })).toBeUndefined();
+  expect(order).toEqual(['a, swap']);
+  expect(a.loads).toEqual(['http://localhost/next']);
+  dirty = false;
+  a.destroy();
 });

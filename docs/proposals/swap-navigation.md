@@ -204,9 +204,13 @@ handlers decide on; the core runs the decision.
   the API, the browser's own Back without activation, a reload: `beforeunload` stays for those). A
   `navigate` module of its own (1,231 B gzip with the chain); the core is unchanged. No `redirect`
   (decided).
-- **Still to do:** one chain per document for pages with several mounted apps (today one per app, which
-  covers a page mounted on the document); the event fallbacks through `env` and a redirect under
-  `precommitHandler` come with the swap (step 4).
+- **One chain per document** (done, after step 7): every app on the document adds its handlers, observers
+  and guards to one chain (they go with the app), with one `navigate` listener and one claim on a
+  traversal, so a guard of any app refuses for all and one decision runs; a call's fallback uses the env of
+  the app that went. Only the app mounted on the document swaps. With several apps, a same-page link is
+  the first deciding app's (the others do not read `$url` again). Cost: about 170 B gzip in each module
+  with the chain (the stub 1,904 B). The swap's fallbacks are its own (`location`), and there is no
+  redirect under `precommitHandler` (decided: none).
 
 Every way in is then one of: a link (the shared listener), `navigate()` (handlers and app code), a
 traversal (the core's `popstate`), and the browser's own (a new tab, a modifier, a link the chain does not
@@ -594,7 +598,7 @@ One commit each:
    `cache` writes on destroy; the attribute writer writes only changed values ([3](#3-kept-elements));
    tests of destroy with each feature. **Done** on branch `swap-nav-step-1` (`bc44a26`): core 14,946 →
    14,985 B gzip on current `main`, `test/behaviour/destroy.test.ts`.
-2. **One way in** (done on `swap-navigation` but for one chain per document, [2](#2-one-way-in-navigate)): the chain with decisions the core
+2. **One way in** (done on `swap-navigation`, one chain per document included, [2](#2-one-way-in-navigate)): the chain with decisions the core
    runs and the full intent; one intent per navigation where the Navigation API exists (same-page links on
    the `navigate` event), `links.ts` and the core's `popstate` where it does not; the veto and redirect
    shape; one ordered chain per document; fallbacks through `env`; `query-links`, `transition` and
@@ -647,7 +651,7 @@ manifest, the stub and the exported mount together: they are the unproven half.
    page module (`swap-boot.test.ts`). Sizes (gzip): the stub 1,699 B (the chain about 1,050 of it), the
    rest 2,734 B, loaded by the first swap; the minimal page with swaps on 16,702 B, over its 15,360 B
    budget (15,247 B without swaps). Not yet: the nonce stamp and a page with built-in messages in an
-   e2e; the next-page data handoff; one chain per document.
+   e2e; the next-page data handoff; one chain per document (done since: [2](#2-one-way-in-navigate)).
 5. **Transitions:** the types on swaps and on loads (from the stub), each kept element's own name, the
    `data-sn-transition` pair at `commit`; a probe of named kept media; an e2e of a morph across a swap.
    **Done** on `swap-navigation`: the swap starts `startViewTransition({ update, types })` with

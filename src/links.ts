@@ -1,8 +1,9 @@
 // The navigation chain and links as navigations, for the features that decide on navigations (same-page
 // links, transitions, the swap): only pages with one of them load this.
 //
-// `chain(app)` installs on the app (once) the handlers in their rank, the observers of what goes, `decide`
-// (every handler asked, nothing run) and `go` (the first decision run, else the source's fallback).
+// `chain(app)` installs on the app (once) the document's chain: the handlers of every app on the document in
+// their rank, the observers of what goes, `decide` (every handler asked, nothing run) and `go` (the first
+// decision run, else the source's fallback).
 // Where the browser has the Navigation API, its `navigate` event is the one source of intents: a link,
 // `navigate()`, `location.assign` and Back all arrive as one event each, which a handler intercepts or
 // leaves to the browser. Where it does not, `links(app)` turns a plain click on a link into an intent and
@@ -12,7 +13,7 @@ import type { App, Decision, Intent, Navigator } from './runtime/app.js';
 /** The order handlers are asked in (lower first): a module that takes navigations itself, then same-page links, then the swap. */
 export const RANK = { views: 10, same: 20, swap: 30 } as const;
 
-type Chain = App & Required<Pick<App, 'nav' | 'onGo' | 'decide' | 'go'>> & {
+type Chain = App & Required<Pick<App, 'onGo' | 'decide' | 'go'>> & {
   add(h: Navigator, rank: number): void;
   /**
    * Guards, run when a navigation goes (never when the chain is only asked, as next-page data does): one
@@ -34,31 +35,48 @@ const api = (): Nav | undefined => (globalThis as { navigation?: Nav }).navigati
 /** what a `navigate()` call hands its event: the element of its handler */
 const INFO = Symbol('sinter.trigger');
 
-/** The app's navigation chain, installed once: every handler is asked, the core's fallbacks run the rest. */
+/** What the apps of one document share: one ordered chain, one `navigate` listener, one claim on a traversal. */
+interface Shared {
+  /** every app's handlers, by rank (lower first), and the app each came from */
+  nav: Array<[number, Navigator, App]>;
+  apps: Set<Chain>;
+  /** the entry of a traversal a handler took from its event: its `popstate` is decided, once */
+  took: string | null;
+  off?: () => void;
+}
+const docs = new WeakMap<object, Shared>();
+
+/**
+ * The navigation chain, one per document: every app on it adds its handlers, observers and guards (they go with
+ * the app), every handler is asked in rank order, the first decision runs, and a guard of any app refuses for
+ * all. Installed on the app once; the core's fallbacks (a call's load) use the env of the app that went.
+ */
 export function chain(app: App): Chain {
   const c = app as Chain;
   if ((app as App).go) return c;
-  const env = app.env, nav: Navigator[] = (c.nav = []), ranks: number[] = [], N = api();
+  const env = app.env, root = app.root, doc = (root as Node).ownerDocument ?? root, N = api();
+  let d = docs.get(doc);
+  if (!d) docs.set(doc, (d = { nav: [], apps: new Set(), took: null }));
+  const sh = d;
+  sh.apps.add(c);
   c.add = (h, r) => {
-    let i = ranks.length;
-    while (i && ranks[i - 1]! > r) i--;
-    nav.splice(i, 0, h);
-    ranks.splice(i, 0, r);
+    let i = sh.nav.length;
+    while (i && sh.nav[i - 1]![0] > r) i--;
+    sh.nav.splice(i, 0, [r, h, app]);
   };
   c.onGo = [];
   c.guards = [];
   c.decide = (i) => {
     let d: Decision | void | undefined;
-    for (const h of nav) { const r = h(i); d ||= r; }
+    for (const [, h] of sh.nav) { const r = h(i); d ||= r; }
     return d || undefined;
   };
-  /** the entry of a traversal a handler took from its event: its `popstate` is decided, once */
-  let took: string | null = null;
+  const all = <T>(k: 'onGo' | 'guards') => [...sh.apps].flatMap((a) => a[k] as T[]);
   c.go = (i) => {
     i.from ||= env.href();
     // with the Navigation API, a call is the browser's navigation, whose event is the intent (and its guards)
     if (N && i.source == 'call') {
-      for (const f of c.onGo) f(i);
+      for (const f of all<(i: Intent) => void>('onGo')) f(i);
       // its promises reject when a guard refuses it or a newer navigation replaces it: expected, not an error
       const r = N.navigate(i.to, { history: i.kind == 'replace' ? 'replace' : 'push', info: { [INFO]: i.trigger } }) as { committed?: Promise<unknown>; finished?: Promise<unknown> } | undefined;
       r?.committed?.catch(() => {});
@@ -66,18 +84,18 @@ export function chain(app: App): Chain {
       return;
     }
     if (N && i.source == 'popstate') {
-      if (took == null || took !== N.currentEntry?.key) return;
-      took = null;
+      if (sh.took == null || sh.took !== N.currentEntry?.key) return;
+      sh.took = null;
       return { name: 'taken' };
     }
     const e = i.event as NavigateLike | undefined;
-    // refused: a link's default is prevented (a decision without `run`), an event cancelled, a call does nothing
+    // refused: a link's default is prevented (a decision without `run`), an event cancelled, a call does nothing;
     // every guard runs (each may note the navigation)
-    if (i.source != 'popstate' && (!e || e.cancelable) && c.guards.reduce((no, g) => g(i) || no, false)) {
+    if (i.source != 'popstate' && (!e || e.cancelable) && all<(i: Intent) => boolean>('guards').reduce((no, g) => g(i) || no, false)) {
       e?.preventDefault();
       return { name: 'refused' };
     }
-    for (const f of c.onGo) f(i);
+    for (const f of all<(i: Intent) => void>('onGo')) f(i);
     const d = c.decide(i);
     // the fallback is the source's: an event's own (`load`), or none (the browser goes on with it); a call loads
     const load = () => (i.load ? i.load() : i.source == 'event' ? undefined
@@ -85,14 +103,15 @@ export function chain(app: App): Chain {
     // no decision: a call loads; a link is the browser's to follow, an event the browser's to go on with
     if (!d) i.source == 'call' && load();
     else {
-      if (i.source == 'event' && i.kind == 'traverse' && d.run) took = (i.event as NavigateLike).destination.key;
+      if (i.source == 'event' && i.kind == 'traverse' && d.run) sh.took = (i.event as NavigateLike).destination.key;
       const r = d.run?.();
       if (r === false) load();
       else if (r instanceof Promise) r.then((ok) => ok === false && load(), load);
     }
     return d;
   };
-  if (N) {
+  // one `navigate` listener for the document, whichever app installed it: it goes with the last app
+  if (N && !sh.off) {
     const on = (ev: Event) => {
       const e = ev as NavigateLike;
       if (!e.canIntercept || e.hashChange || e.downloadRequest != null || e.formData || e.navigationType == 'reload') return;
@@ -103,11 +122,16 @@ export function chain(app: App): Chain {
       const from = e.sourceElement;
       if (from && (from.localName == 'form' || (from as HTMLButtonElement).form || from.matches('[rel~=external],[download],[target]:not([target=_self])'))) return;
       const info = e.info as { [INFO]?: Element | null } | undefined;
-      c.go({ to: e.destination.url, kind: e.navigationType, source: 'event', trigger: from ?? info?.[INFO] ?? null, index: e.destination.index, signal: e.signal, event: e });
+      [...sh.apps][0]?.go({ to: e.destination.url, kind: e.navigationType, source: 'event', trigger: from ?? info?.[INFO] ?? null, index: e.destination.index, signal: e.signal, event: e });
     };
     N.addEventListener('navigate', on);
-    app.addCleanup(() => N.removeEventListener('navigate', on));
+    sh.off = () => N.removeEventListener('navigate', on);
   }
+  app.addCleanup(() => {
+    sh.apps.delete(c);
+    sh.nav = sh.nav.filter((x) => x[2] !== app);
+    if (!sh.apps.size) { sh.off?.(); docs.delete(doc); }
+  });
   return c;
 }
 

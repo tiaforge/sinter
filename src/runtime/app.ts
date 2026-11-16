@@ -98,7 +98,7 @@ export interface Intent {
  * done elsewhere (the swap, for the `popstate` of a traversal it intercepted).
  */
 export interface Decision { name: string; run?(): boolean | void | Promise<boolean | void> }
-/** A navigation handler (`App.nav`): its decision, or nothing when the intent is not its. It acts only in `run`. */
+/** A navigation handler (links.ts `chain(app).add`): its decision, or nothing when the intent is not its. It acts only in `run`. */
 export type Navigator = (i: Intent) => Decision | void | undefined;
 
 /** The last argument of an action function (`data-sn-call`, `<sn-resource call>`). */
@@ -300,12 +300,11 @@ export interface App {
   exec(f: number, scope: any, writes?: PathRef[], o?: { at?: Record<number, string> }): void;
   addCleanup(fn: () => void): void;
   /**
-   * The navigation chain (links.ts: `chain(app)`), on pages with a feature that decides on navigations
-   * (same-page links, transitions, the swap): the handlers in the order features registered them, the
+   * The navigation chain (links.ts: `chain(app)`, one per document, every app's handlers in their rank), on
+   * pages with a feature that decides on navigations (same-page links, transitions, the swap): this app's
    * observers of what goes, `decide` (asks every handler, runs nothing) and `go` (runs the first decision,
    * else the source's fallback). Absent: `navigate()` loads the page and Back reads `$url`, as before.
    */
-  nav?: Navigator[];
   onGo?: Array<(i: Intent) => void>;
   decide?(i: Intent): Decision | undefined;
   go?(i: Intent): Decision | undefined;

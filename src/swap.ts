@@ -74,7 +74,8 @@ export function swap(list: SwapPage[]): Feature {
   return {
     name: 'swap',
     install(app: App) {
-      if (!nav()) return;
+      // the page's app swaps the page (an app mounted on an element of it does not); none without the Navigation API
+      if (!nav() || app.root !== document) return;
       const s = state(list), c = chain(app);
       // the position of the entry each navigation leaves (a swap's, a same-page link's, Back's), before
       // another entry is current
