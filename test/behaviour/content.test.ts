@@ -56,6 +56,32 @@ describe('content: resources', () => {
   });
 });
 
+describe('`fields`: what the browser gets of a list', () => {
+  const embedded = (out: ReturnType<typeof build>) => { const m = /<script type="application\/json" data-sn="\d+">([\s\S]*?)<\/script>/.exec(out.html); return m ? JSON.parse(m[1]!) : undefined; };
+  const reads = (res: string) => page(`${res}<div data-sn-state="{ q: '' }"><input data-sn-model="q"><ul><template data-sn-for="p in products.filter((p) => p.name.includes(q))"><li data-sn-text="p.name"></li></template></ul></div>`);
+  test('a collection that browser code reads ships only with `fields`, and only those (SN344 without)', () => {
+    const without = build(reads('<sn-resource name="products" src="content:products"></sn-resource>'));
+    expect(errors(without)).toEqual([expect.stringMatching(/^SN344 browser code reads `products`, a collection, so it would ship to the page: name the fields it gets with `fields="…"`/)]);
+    const named = build(reads('<sn-resource name="products" src="content:products" fields="sku,name"></sn-resource>'));
+    expect(errors(named)).toEqual([]);
+    expect(embedded(named)).toEqual([{ sku: 'b-2', name: 'Bolt' }, { sku: 'a-1', name: 'Anchor' }]);
+  });
+  test('read only at build time: nothing ships, and no `fields` is needed', () => {
+    const out = build(page('<sn-resource name="products" src="content:products"></sn-resource><p data-sn-text="products.map((p) => p.name).join(\', \')"></p>'));
+    expect(errors(out)).toEqual([]);
+    expect(out.html).toContain('<p>Bolt, Anchor</p>');
+    expect(embedded(out)).toBeUndefined();
+  });
+  test('a `file:` list may ship whole; `fields` prunes it too; a malformed list is SN332', () => {
+    const files = { 'd/a.json': '{"name":"A","secret":1}' };
+    const o = { readFile: (f: string) => files[f.replace('/p/', '') as keyof typeof files], listFiles: () => ['/p/d/a.json'] };
+    const res = (attrs: string) => reads(`<sn-resource name="products" src="file:/d/*.json" type="any"${attrs}></sn-resource>`);
+    expect(embedded(build(res(''), o))).toEqual([{ name: 'A', secret: 1, slug: 'a', dir: '', path: '/d/a.json' }]);
+    expect(embedded(build(res(' fields="name"'), o))).toEqual([{ name: 'A' }]);
+    expect(errors(build(res(' fields="name, 2x"'), o))).toEqual([expect.stringMatching(/^SN332 `fields` lists the fields of each entry/)]);
+  });
+});
+
 describe('scrubbing a loader\'s error', () => {
   test('URLs lose their credentials and query; secrets from the environment are masked', () => {
     expect(scrub('fetch https://user:pw@cms.example.com/api/items?token=abc123&x=1 failed', {})).toBe('fetch https://cms.example.com/api/items?… failed');

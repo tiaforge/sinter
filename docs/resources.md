@@ -277,7 +277,13 @@ export const tags = collection({
   of `env`, since they are printed and shown in the browser in dev.
 - **On a page** it is a constant list, as a `file:` glob is: bindings over it are written at build time, `order`
   sorts it in the page's language, `key` is the collection's, and a [page per entry](static-pages.md#a-page-per-entry)
-  can be built from it. `drafts` and `items` are the loader's business. Without `type` it is `SN504`.
+  can be built from it. `drafts` and `items` are the loader's business.
+- **What ships is named.** Bindings over a collection are written into the HTML and ship nothing. When code in the
+  browser reads it (a filter as you type), it is embedded in the page, and only with `fields="sku,name,price"`:
+  those fields of each entry. Without `fields` that is [SN344](diagnostics.md#sn344-content-fields), so what a CMS
+  returns and no page shows never ships by accident. Fields left out are `undefined` in the browser (`sinter check`
+  does not narrow the type to them). A `data-sn-pages` page follows its list's `fields`. A `file:` resource takes
+  `fields` too, and without it ships whole.
 - **`vite dev`** runs the loaders at startup and again when the content module or a file `files()` read changes,
   then reloads the page. A change in the CMS needs a restart, or a rebuild in production (a webhook to the CI).
 - **`sinter check` and the editor never run loaders** (a CMS fetch per keystroke or per CI check would be slow,

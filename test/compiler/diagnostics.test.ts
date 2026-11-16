@@ -97,6 +97,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN340', '<!doctype html><html data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="posts.length"></p></body></html>', /`data-sn-pages` needs `data-sn-path` with exactly one pattern/],
   ['SN341', '<!doctype html><html data-sn-path="/blog/:year/:slug" data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="post.slug"></p></body></html>', /has no `year` to fill `:year`/],
   ['SN342', '<sn-resource name="p" src="content:posts"></sn-resource><p data-sn-text="p.length"></p>', /`posts` is not a collection of the content module/, { collections: true }],
+  ['SN344', '<sn-resource name="p" src="content:posts"></sn-resource><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++"></button><b data-sn-text="n + p.length"></b></div>', /browser code reads `p`, a collection/, { collections: true }],
   ['SN539', '<sn-resource name="r" src="file:/content/none/*.md"></sn-resource><p data-sn-text="r.length"></p>', /`file:\/content\/none\/\*\.md` matches no file/],
   ['SN532', '<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs"><p id="row" data-sn-text="x"></p></template></div>', /`id="row"` is in markup that renders more than once \(a `data-sn-for` row\)/],
   ['SN531', '<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/login" data-sn-body="JSON.stringify({ username: u })"></button></div>', /`data-sn-body` is already JSON text \(`JSON\.stringify\(…\)`\): sinter encodes the body, so the server would get a JSON string, not the object/],
@@ -124,7 +125,7 @@ const APIS_ONLY = ['SN326', 'SN327', 'SN328', 'SN329', 'SN330', 'SN518'];
 /** Codes that need the page's stylesheets (the adapter reads them). Fixtures in test/behaviour/reserve.test.ts. */
 const STYLES_ONLY = ['SN529', 'SN530'];
 /** Warnings of the Vite plugin, with no page position (`formatWarning`): SN521 in test/vite/page-urls.test.ts, SN523 in test/vite/build.test.ts, SN533 in test/vite/helpers-node.test.ts; SN534 (a helper call that does not fold) in test/behaviour/fold.test.ts, which needs the helpers loaded. */
-const BUILD_ONLY = ['SN534', 'SN533', 'SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527', 'SN528'];
+const BUILD_ONLY = ['SN343', 'SN534', 'SN533', 'SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527', 'SN528'];
 /** Component libraries (`sinter({ components })`): the packages (SN337, SN537) and their prefixes (SN338) are read from disk, uses of their components (SN339) need one. Fixtures in test/libraries.test.ts. */
 const LIBRARY_ONLY = ['SN337', 'SN338', 'SN339', 'SN537'];
 /** Codes of build-time expansion, which needs `prerender`: SN536 (the expansion limit) in test/compiler/unroll-nested.test.ts and test/compiler/constant-trees.test.ts. */

@@ -592,6 +592,16 @@ A build knows every page a `data-sn-pages` template was written at, so a link in
 
 **Fix:** Link to an entry that exists (the build suggests the nearest), give the entry that slug, or drop the link.
 
+## SN344 content-fields
+
+Error, for example:
+
+> browser code reads `products`, a collection, so it would ship to the page: name the fields it gets with `fields="…"`
+
+A collection (`content:`) holds what a loader returned, which can be more than a page shows: a CMS's internal fields, drafts' notes, prices for another market. What bindings read is written into the HTML at build time and ships nothing; but when code in the browser reads the collection (a filter as you type, a handler), the list is embedded in the page, and a collection is embedded only with `fields`: the fields of each entry it ships. A `data-sn-pages` page built from a collection follows its list's `fields`.
+
+**Fix:** Add `fields="sku,name,price"` with what the browser code reads, or keep the reads at build time (bindings over constants fold). Fields left out are `undefined` in the browser.
+
 ## SN401 parse-error
 
 Error, for example:

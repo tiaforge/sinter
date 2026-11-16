@@ -289,6 +289,8 @@ export interface CompileResult {
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string }> };
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
   json?: Map<number, unknown>;
+  /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */
+  lateDiagnostics?: Diagnostic[];
   /** the folders `file:` globs list, and the pattern below each their files match (dev: an added or removed file reloads the page) */
   globs?: Array<{ dir: string; match: string }>;
   /** with `check: true` */
@@ -414,6 +416,8 @@ export interface CompiledParts {
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string }> };
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
   json?: Map<number, unknown>;
+  /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */
+  lateDiagnostics?: Diagnostic[];
   /** the folders `file:` globs list, and the pattern below each their files match (dev: an added or removed file reloads the page) */
   globs?: Array<{ dir: string; match: string }>;
   /** with `check: true` */
@@ -748,7 +752,8 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   const first = new Compiler(options);
   const out = first.run(html);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
-  if (!options.prerender || options.decided || options.unrolled) return out;
+  const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
+  if (!options.prerender || options.decided || options.unrolled) return withLate(out);
   // loops over constants: unrolled only when the first pass is clean (the second one compiles the rows with their item)
   // (SN322 does not count: what the first pass found running may be a loop the second one unrolls)
   const clean = !out.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
@@ -758,7 +763,7 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   // from the first pass's worklist (`worklist()`), so a page is compiled at most twice: what writes state, which
   // decides what is constant, is known only after a walk
   const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
-  if (!first.decided.size && !unrolled && !constants) return out;
+  if (!first.decided.size && !unrolled && !constants) return withLate(out);
   const frozen = first.foldedState();
   if (constants) for (const s of first.constantSites) frozen.add(s);
   const second = new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
@@ -1322,6 +1327,7 @@ class Compiler {
     this.fileJson();
     return {
       ...(this.jsonOut.size ? { json: this.jsonOut } : {}),
+      ...(this.lateDiags.length ? { lateDiagnostics: this.lateDiags } : {}),
       html: parse5.serialize(doc),
       runtime, ...(isStatic ? { static: true as const } : {}), ...(isStatic && this.canonicalLink ? { canonicalOnly: true } : {}),
       ir, fns: this.fns,
@@ -5738,7 +5744,16 @@ class Compiler {
   }
 
   /** `file:` resources by name: their value is in the head (`data-sn` id), written there by `run()` */
-  readonly fileData = new Map<string, { id: number; value: unknown; el?: P5Element }>();
+  readonly fileData = new Map<string, { id: number; value: unknown; el?: P5Element; at?: P5Element; fields?: string[] | null; content?: boolean }>();
+
+  /** `fields="sku,name"`: the fields of each entry that browser code gets (`fileJson`), or null; a malformed list is SN332 */
+  fieldsOf(el: P5Element, report = true): string[] | null {
+    const v = attr(el, 'fields');
+    if (v === undefined) return null;
+    const list = v.split(',').map((x) => x.trim()).filter(Boolean);
+    if (report && (!list.length || list.some((x) => !/^[A-Za-z_$][\w$]*$/.test(x)))) this.report(el, 'fields', 'SN332', '`fields` lists the fields of each entry the browser gets, separated by commas: `fields="slug,title"`', 0);
+    return list;
+  }
   /** the folders `file:` globs listed, and what their files match: the dev server reloads the page when one is added or removed */
   readonly fileGlobs: Array<{ dir: string; match: string }> = [];
   /** `data-sn-pages`: the variable, its list, the pattern as written, and the internal resource that holds the entry */
@@ -5820,7 +5835,7 @@ class Compiler {
     }
     const value: unknown[] = kept?.value ?? (c ? (order ? sortList([...c.value], order, lang) : [...c.value]) : []);
     const id = this.nextId++;
-    this.fileData.set(name, { id, value });
+    this.fileData.set(name, { id, value, at: el, fields: this.fieldsOf(el), content: true });
     this.embedded.set(name, id);
     if (this.check) {
       const type = attr(el, 'type')?.trim() || null;
@@ -5862,7 +5877,8 @@ class Compiler {
     }
     const value = this.opts.page ? this.opts.page.value : entries[0] ?? null;
     const id = this.nextId++;
-    this.fileData.set(name, { id, value });
+    const listEl = this.resourceEls.get(d.of);
+    this.fileData.set(name, { id, value, at: d.html, fields: listEl ? this.fieldsOf(listEl, false) : null, content: !!listEl && isContentSource(attr(listEl, 'src')) });
     this.embedded.set(name, id);
     this.page.resources.get(name)!.used = true;
     // the list is read: by the build, for its entries, whatever the page reads of it
@@ -5973,7 +5989,7 @@ class Compiler {
       if (Array.isArray(at)) value = setPath(value, items.split('.'), sortList(at, order, this.opts.locale?.name ?? this.pageLang));
     }
     const id = this.nextId++;
-    this.fileData.set(name, { id, value });
+    this.fileData.set(name, { id, value, at: el, fields: this.fieldsOf(el) });
     this.embedded.set(name, id);
     if (this.check) {
       const type = attr(el, 'type')?.trim() || null;
@@ -8134,10 +8150,23 @@ class Compiler {
    * JSON once the passes are done (a first pass whose page is compiled again would write it for nothing)
    */
   readonly jsonOut = new Map<number, unknown>();
+  /**
+   * diagnostics about the page as it ends (what still ships): in a first pass that may be followed by a second, they
+   * wait (`late`), since the second pass may fold away what they are about, and a first pass with errors has none
+   */
+  readonly lateDiags: Diagnostic[] = [];
+  reportLate(el: P5Element, a: string | null, code: Code, message: string, at: number, hint?: string) {
+    const n = this.diagnostics.length;
+    this.report(el, a, code, message, at, hint);
+    if (this.collecting()) this.lateDiags.push(...this.diagnostics.splice(n));
+  }
   fileJson() {
-    for (const d of this.fileData.values()) if (d.el && !d.el.childNodes.length && d.el.parentNode) {
+    for (const [name, d] of this.fileData) if (d.el && !d.el.childNodes.length && d.el.parentNode) {
+      // what the browser still reads: only the fields `fields` names, of each entry; a collection's is named, always,
+      // so that what a CMS returns and no page shows does not ship (SN344)
+      if (d.content && !d.fields && d.at) this.reportLate(d.at, d.at.tagName === 'html' ? 'data-sn-pages' : 'src', 'SN344', `browser code reads \`${name}\`, a collection, so it would ship to the page: name the fields it gets with \`fields="…"\`${d.at.tagName === 'html' ? ' on its list' : ''}`, 0, 'a collection holds what a loader returned, which can be more than a page shows (a CMS\'s internal fields); `fields="sku,name,price"` ships those of each entry, and nothing else');
       parse5.defaultTreeAdapter.insertText(d.el, `\u0001sn-json:${d.id}\u0001`);
-      this.jsonOut.set(d.id, d.value);
+      this.jsonOut.set(d.id, d.fields ? pickFields(d.value, d.fields) : d.value);
     }
   }
 
@@ -8785,6 +8814,12 @@ function jsLiteral(v: unknown): string {
   if (v === null || typeof v === 'boolean') return String(v);
   if (Array.isArray(v)) return `[${v.map(jsLiteral).join(', ')}]`;
   return `{ ${Object.entries(v as object).map(([k, x]) => `${k === '__proto__' ? '["__proto__"]' : jsLiteral(k)}: ${jsLiteral(x)}`).join(', ')} }`;
+}
+
+/** a value with only `fields` of each entry (a list's), or of the object itself */
+function pickFields(v: unknown, fields: string[]): unknown {
+  const pick = (e: unknown) => (e && typeof e === 'object' && !Array.isArray(e) ? Object.fromEntries(fields.filter((f) => f in (e as object)).map((f) => [f, (e as Record<string, unknown>)[f]])) : e);
+  return Array.isArray(v) ? v.map(pick) : pick(v);
 }
 
 /** values `deepFreeze` froze at every depth: build-time constants may share them without a copy */

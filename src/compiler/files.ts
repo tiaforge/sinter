@@ -14,9 +14,9 @@ export const FILE = 'file';
 export const isFileSource = (value: string | undefined) => value != null && /^file:/.test(value.trimStart());
 
 /** the attributes a `file:` resource takes: the others load, refresh, page or write it */
-export const FILE_ATTRS = ['name', 'src', 'type', 'items', 'key', 'order', 'drafts'];
+export const FILE_ATTRS = ['name', 'src', 'type', 'items', 'key', 'order', 'drafts', 'fields'];
 
-const ATTR_LIST = '`name`, `src`, `type`, `items`, `key`, `order` and `drafts`';
+const ATTR_LIST = '`name`, `src`, `type`, `items`, `key`, `order`, `drafts` and `fields`';
 
 /** Why an attribute of `<sn-resource>` does not apply to a `file:` resource. */
 export function fileAttrProblem(name: string): string {
