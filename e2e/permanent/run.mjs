@@ -14,9 +14,12 @@ const pw = createRequire(join(here, '../../package.json'))('playwright');
 if (spawnSync('npx', ['vite', 'build', '--logLevel', 'warn'], { cwd: here, stdio: 'inherit' }).status) process.exit(1);
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
-let slow = false;
+let slow = false, plainA = false;
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://x').pathname;
+  // `/control/plain-a`: the next request for `/` answers a page without the kept element (it cannot swap)
+  if (path === '/control/plain-a') { plainA = true; res.writeHead(204); return res.end(); }
+  if (plainA && path === '/') { plainA = false; res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<!doctype html><title>no kept element</title><p>none</p>'); }
   // `/control/slow`: the next page answers 600 ms late (a second click while the swap fetches)
   if (path === '/control/slow') { slow = true; res.writeHead(204); return res.end(); }
   if (slow && extname(path) === '' && path !== '/control/') { slow = false; await new Promise((r) => setTimeout(r, 600)); }
@@ -27,7 +30,11 @@ const server = createServer(async (req, res) => {
     const body = await readFile(join(here, 'dist', file));
     res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
     res.end(body);
-  } catch { res.writeHead(404, { 'Content-Type': 'text/html' }); res.end('<!doctype html><title>Not found</title><h1>Not found</h1>'); }
+  } catch {
+    // the app's 404 page has the app's CSS, page transitions included (else Chromium reports the transition it skips)
+    res.writeHead(404, { 'Content-Type': 'text/html' });
+    res.end('<!doctype html><title>Not found</title><style>@view-transition { navigation: auto; }</style><h1>Not found</h1>');
+  }
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -192,7 +199,7 @@ for (const name of browsers) {
     check('a link with a #hash keeps it and scrolls to its target', at, { hash: '#bottom', seen: true, marker: 4 });
 
     // a second navigation while the first one's transition waits for its update: only the second commits
-    const vt = await p2.evaluate(() => !!document.startViewTransition);
+    const vt = await p2.evaluate(() => !!document.startViewTransition && typeof CSSViewTransitionRule != 'undefined');
     if (vt) {
       await p2.evaluate(() => document.getElementById('to-a').click());
       await ready('/', 'A: Alpha');
@@ -214,7 +221,7 @@ for (const name of browsers) {
       // entries, as with page loads; what counts is that its content never came
       const got = await p2.evaluate((n) => ({ path: location.pathname, entries: history.length - n, marker: window.__marker, heading: document.getElementById('heading')?.textContent, items: document.querySelectorAll('#items li').length }), before);
       check('a click during the transition: only the last navigation commits its page', got, { path: '/plain/', entries: 2, marker: 4, heading: 'Plain', items: 0 });
-    } else steps.push('- a click during the transition: no view transitions in this browser');
+    } else steps.push('- a click during the transition: no page transitions in this browser (the swap starts none either)');
 
     // a second click while the first page is still fetched: where the browser holds the URL until the page
     // is ready (precommitHandler), the first never gets an entry, as with page loads
@@ -231,6 +238,71 @@ for (const name of browsers) {
     const fetched = await p2.evaluate((n) => ({ entries: history.length - n, heading: document.getElementById('heading')?.textContent }), n0);
     if (during === '/') check('a click while the page is fetched: one entry, the last page', fetched, { entries: 1, heading: 'Plain' });
     else { check('a click while the page is fetched: the last page', fetched, { heading: 'Plain' }); steps.push(`- the browser commits the URL before the page is ready (${fetched.entries} entries, as before precommitHandler)`); }
+  } catch (e) { steps.push(`✗ ${e.message.split('\n')[0]}`); failed++; }
+
+  // the second review's findings, each as found
+  const p3 = await browser.newPage();
+  p3.on('pageerror', (e) => errors.push(e.message));
+  const at = (path, title) => p3.waitForFunction(([p, t]) => location.pathname === p && document.title === t, [path, title], { timeout: 5000 }).catch(() => {});
+  const view = () => p3.evaluate(() => ({ path: location.pathname, marker: window.__marker ?? null, index: navigation.currentEntry?.index, entries: history.length, q: document.getElementById('q')?.textContent ?? null }));
+  try {
+    // a traversal that cannot swap is a reload of that entry, not a new one
+    await p3.goto(base + '/');
+    await at('/', 'A: Alpha');
+    await p3.evaluate(() => { window.__marker = 5; document.getElementById('to-b').click(); });
+    await at('/b/', 'B: Beta');
+    await p3.evaluate(() => document.getElementById('to-plain').click());
+    await at('/plain/', 'Plain');
+    const before = await view();
+    await p3.request.post(base + '/control/plain-a');
+    await Promise.all([p3.waitForEvent('load', { timeout: 5000 }), p3.evaluate(() => history.go(-2))]);
+    await at('/', 'A: Alpha');
+    const back = await view();
+    check('a traversal that cannot swap reloads that entry, no new one', { path: back.path, index: back.index, entries: back.entries, marker: back.marker }, { path: '/', index: 0, entries: before.entries, marker: null });
+
+    // after a swapped Back, the next Back within the page is the core's: `$url` read again
+    await p3.evaluate(() => { window.__marker = 6; document.getElementById('to-b').click(); });
+    await at('/b/', 'B: Beta');
+    await p3.goBack();
+    await at('/', 'A: Alpha');
+    await p3.waitForTimeout(200);
+    await p3.evaluate(() => document.getElementById('same').click());
+    await p3.waitForFunction(() => location.search === '?q=1' && document.getElementById('q')?.textContent === '1', null, { timeout: 5000 }).catch(() => {});
+    await p3.goBack();
+    await p3.waitForFunction(() => location.search === '', null, { timeout: 5000 }).catch(() => {});
+    await p3.waitForTimeout(200);
+    const q = await view();
+    check('Back after a swapped Back reads $url again', { path: q.path, q: q.q, marker: q.marker }, { path: '/', q: 'none', marker: 6 });
+
+    // a GET form and a link to another site are the browser's: page loads
+    await Promise.all([p3.waitForEvent('load', { timeout: 5000 }), p3.evaluate(() => document.getElementById('get-go').click())]);
+    await at('/b/', 'B: Beta');
+    check('a GET form loads the page', { path: (await view()).path, marker: (await view()).marker }, { path: '/b/', marker: null });
+    await p3.goto(base + '/');
+    await at('/', 'A: Alpha');
+    await p3.evaluate(() => { window.__marker = 7; });
+    await Promise.all([p3.waitForEvent('load', { timeout: 5000 }), p3.evaluate(() => document.getElementById('external').click())]);
+    await at('/b/', 'B: Beta');
+    check('rel="external" loads the page', { path: (await view()).path, marker: (await view()).marker }, { path: '/b/', marker: null });
+
+    // the fade: where the stylesheet asks for page transitions, a swap has one; under reduced motion none
+    const counted = async (reduced) => {
+      await p3.emulateMedia({ reducedMotion: reduced ? 'reduce' : 'no-preference' });
+      await p3.goto(base + '/');
+      await at('/', 'A: Alpha');
+      await p3.evaluate(() => {
+        window.__vt = 0;
+        const start = document.startViewTransition;
+        if (start) document.startViewTransition = function (...a) { window.__vt++; return start.apply(document, a); };
+        document.getElementById('to-b').click();
+      });
+      await at('/b/', 'B: Beta');
+      return p3.evaluate(() => window.__vt);
+    };
+    const readable = await p3.evaluate(() => typeof CSSViewTransitionRule != 'undefined');
+    const withRule = await counted(false), reduced = await counted(true);
+    if (readable) check('a swap transitions as the stylesheet asks, not under reduced motion', { withRule, reduced }, { withRule: 1, reduced: 0 });
+    else check('no page transitions in this browser: a swap starts none', { withRule, reduced }, { withRule: 0, reduced: 0 });
   } catch (e) { steps.push(`✗ ${e.message.split('\n')[0]}`); failed++; }
   if (errors.length) { steps.push(`✗ errors: ${JSON.stringify(errors)}`); failed++; }
   console.log(`${name}:\n  ${steps.join('\n  ')}`);

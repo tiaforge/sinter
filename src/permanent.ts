@@ -1,7 +1,8 @@
 // `data-sn-permanent`: an element that stays, untouched, across a navigation to another page that has
 // an element with the same name (an audio player, an open drawer, a scroll container). SPIKE.
 //
-// Only pages with such an element load this module, so every other page keeps plain page loads. A
+// SPIKE: only pages with such an element load this module (the proposal makes swaps the default, with a
+// stub on every page that ships JavaScript; docs/proposals/swap-navigation.md). A
 // navigation to another page of the origin (a link, `navigate()`, `location.assign`, Back and Forward)
 // arrives as the browser's `navigate` event (the Navigation API; without it, nothing here runs and every
 // navigation is a page load). The swap intercepts it: it fetches that page's HTML (the same request a
@@ -242,7 +243,9 @@ async function prepare(s: State, url: URL, kind: Intent['kind'], signal?: AbortS
       // focus: the browser's (`focusReset`), as after a load, or where it was in a kept element
     };
     type VT = { updateCallbackDone: Promise<void>; ready: Promise<void>; finished: Promise<void> };
-    const vt = (document as Document & { startViewTransition?: (f: () => void) => VT }).startViewTransition;
+    // a transition only where the app's CSS asks for page transitions (`@view-transition { navigation: auto }`,
+    // with its `@media`: temper's is inside `prefers-reduced-motion: no-preference`), as a page load would
+    const vt = wanted() ? (document as Document & { startViewTransition?: (f: () => void) => VT }).startViewTransition : undefined;
     if (vt) {
       // a transition another navigation skips rejects all three: nothing to report
       const t = vt.call(document, swap), no = () => {};
@@ -257,8 +260,8 @@ async function prepare(s: State, url: URL, kind: Intent['kind'], signal?: AbortS
     for (const u of urls) {
       try { await import(/* @vite-ignore */ u); } catch (e) { setTimeout(() => { throw e; }); }
     }
-    // the new page did not mount (its module failed): the old app goes all the same
-    try { const l = leaving as App | null; if (l && instance(document) === l) l.destroy(); } catch { /* the new one is mounted, or none */ }
+    // the new page did not mount (its module failed): the page is loaded, rather than left unbound
+    try { const l = leaving as App | null; if (l && instance(document) === l) { l.destroy(); location.reload(); return true; } } catch { /* the new one is mounted, or none */ }
     // Back and Forward: the position was set at the swap, on the new page's markup before its data; what
     // renders above it moves the content (scroll anchoring keeps the wrong part in view). Set again once the
     // page's first loads are done (at most a second later), unless a newer navigation came meanwhile
@@ -272,6 +275,27 @@ async function prepare(s: State, url: URL, kind: Intent['kind'], signal?: AbortS
     }
     return true;
   };
+}
+
+/**
+ * Whether the app's stylesheets ask for transitions between pages: an `@view-transition` rule with
+ * `navigation: auto` whose `@media` conditions hold. Where the rule cannot be read (Firefox, which runs
+ * no transitions between documents either) or a sheet is another origin's: no.
+ */
+function wanted(): boolean {
+  const walk = (rules: CSSRuleList): boolean => {
+    for (const r of rules) {
+      if ((r as { navigation?: string }).navigation === 'auto' && r.constructor.name == 'CSSViewTransitionRule') return true;
+      if (r instanceof CSSMediaRule && !matchMedia(r.conditionText ?? r.media.mediaText).matches) continue;
+      if ((r as CSSGroupingRule).cssRules && walk((r as CSSGroupingRule).cssRules)) return true;
+    }
+    return false;
+  };
+  if (typeof (globalThis as { CSSViewTransitionRule?: unknown }).CSSViewTransitionRule == 'undefined') return false;
+  for (const sheet of document.styleSheets) {
+    try { if (!sheet.disabled && walk(sheet.cssRules)) return true; } catch { /* another origin's: not readable */ }
+  }
+  return false;
 }
 
 type Nav = EventTarget & { currentEntry: { key: string } | null };
@@ -295,7 +319,7 @@ function state(): State {
 /** what the swap reads of a `navigate` event (the Navigation API) */
 interface NavigateLike extends Event {
   canIntercept: boolean; hashChange: boolean; downloadRequest: string | null; formData: FormData | null;
-  navigationType: Intent['kind'] | 'reload'; signal: AbortSignal; sourceElement?: Element | null;
+  navigationType: Intent['kind'] | 'reload'; signal: AbortSignal; sourceElement?: Element | null; cancelable: boolean;
   destination: { url: string; key: string; index: number; sameDocument: boolean };
   intercept(o: { handler(): Promise<void>; precommitHandler?(): Promise<void>; scroll?: 'manual' | 'after-transition'; focusReset?: 'manual' | 'after-transition' }): void;
 }
@@ -310,13 +334,22 @@ const permanent: Feature = {
     const c = chain(app);
     // what started a link or `navigate()` the browser goes on with (no handler decided): the event it causes has no `sourceElement` for a call
     let trigger: Element | null = null;
-    c.onGo.push((i) => { if (i.source == 'link' || i.source == 'call') trigger = i.trigger ?? null; });
+    c.onGo.push((i) => {
+      if (i.source == 'link' || i.source == 'call') trigger = i.trigger ?? null;
+      // the load after a swap that could not: the browser's, once (deciding changes nothing, so it is cleared here)
+      else if (i.source == 'event' && s.skip != null && s.skip == i.to) queueMicrotask(() => { s.skip = null; });
+    });
     // the browser's navigations to another document of this origin, and traversals: intents for the chain
     const on = (ev: Event) => {
       const e = ev as NavigateLike;
       if (!e.canIntercept || e.hashChange || e.downloadRequest != null || e.formData || e.navigationType == 'reload') return;
       // `history.pushState` (a `$url` write, a same-page link) fires it too: not a navigation to another page
       if (e.destination.sameDocument && e.navigationType != 'traverse') return;
+      // what the browser keeps: a form's navigation (GET too), a link to another site, a download, another
+      // target, and what the page takes out (`data-sn-swap="off"`)
+      const from = e.sourceElement;
+      // (a form's navigation names its submitter, a button or input, as the source)
+      if (from && (from.localName == 'form' || (from as HTMLButtonElement).form || from.matches('[rel~=external],[download],[target]:not([target=_self]),[data-sn-swap=off]'))) return;
       // the entry being left: its position, before the browser makes another one current
       track();
       // its fallback, once the swap could not: a load of its URL, or a reload if the URL committed already
@@ -331,13 +364,14 @@ const permanent: Feature = {
     // the swap's decision: a `navigate` event to another page of this origin, or a traversal to an entry of
     // another path; and the `popstate` of a traversal it intercepted (decided, done: the core does nothing)
     c.nav.push((i) => {
-      if (i.source == 'popstate') return s.took != null && s.took === entry() ? { name: 'swap' } : undefined;
+      // the traversal's `popstate`, once: decided (the core reads no `$url` for it), cleared when run
+      if (i.source == 'popstate') return s.took != null && s.took === entry() ? { name: 'swap', run: () => { s.took = null; } } : undefined;
       if (i.source != 'event') return;
       const e = i.event as NavigateLike, u = new URL(i.to);
       if (u.origin != location.origin || !/^https?:$/.test(u.protocol)) return;
       // entries of the page shown (its `$url` history): the core's
       if (i.kind == 'traverse' && u.pathname == s.shown) return;
-      if (s.skip == u.href) { s.skip = null; return; }
+      if (s.skip == u.href) return;
       return {
         name: 'swap',
         run: () => new Promise<boolean>((done) => {
@@ -352,7 +386,9 @@ const permanent: Feature = {
           const fail = () => { s.skip = u.href; done(false); throw new Error('sinter: the page is loaded instead'); };
           e.intercept({
             scroll: 'manual', focusReset: keep ? 'manual' : 'after-transition',
-            ...(PRECOMMIT ? { async precommitHandler() { if ((await ready()) === false) fail(); } } : {}),
+            // a traversal has none: one that cannot swap must not become a new entry (it commits, then reloads);
+            // nor has a navigation that cannot be canceled (the browser's own Back, without activation)
+            ...(PRECOMMIT && i.kind != 'traverse' && e.cancelable ? { async precommitHandler() { if ((await ready()) === false) fail(); } } : {}),
             async handler() {
               const r = await ready();
               if (r === false) fail();
