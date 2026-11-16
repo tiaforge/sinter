@@ -16,7 +16,7 @@ if (spawnSync('npx', ['vite', 'build', '--logLevel', 'warn'], { cwd: here, stdio
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://x').pathname;
-  const file = path === '/' ? 'index.html' : path === '/b/' ? 'b/index.html' : normalize(path).replace(/^\/+/, '');
+  const file = path === '/' ? 'index.html' : /^\/(b|plain)\/$/.test(path) ? `${path.slice(1)}index.html` : normalize(path).replace(/^\/+/, '');
   try {
     const body = await readFile(join(here, 'dist', file));
     res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
@@ -40,7 +40,7 @@ const read = () => {
     heading: document.getElementById('heading')?.textContent ?? null,
     items: document.querySelectorAll('#items li').length,
     count: document.querySelector('#count span')?.textContent ?? null,
-    hits: document.getElementById('hits').textContent,
+    hits: document.getElementById('hits')?.textContent ?? null,
     duplicateIds: ids.filter((x, i) => ids.indexOf(x) !== i),
   };
 };
@@ -106,6 +106,13 @@ for (const name of browsers) {
     await page.click('#go-b');
     await settle(() => location.pathname === '/b/' && document.title === 'B: Beta' && document.querySelectorAll('#items li').length === 3);
     check('navigate() from a handler swaps', await page.evaluate(read), { path: '/b/', marker: 1, kept: true, robots: 1, items: 3, duplicateIds: [] });
+    // a page with nothing bound: the build must still ship its module (the kept element is the reason)
+    await page.click('#to-plain');
+    await settle(() => location.pathname === '/plain/' && document.title === 'Plain');
+    check('to a page with nothing bound', await page.evaluate(read), { path: '/plain/', marker: 1, kept: true, notes: 'kept text', title: 'Plain', titles: 1, description: [], robots: 0, outline: 'none', heading: 'Plain', duplicateIds: [] });
+    await page.click('#to-b');
+    await settle(() => location.pathname === '/b/' && document.title === 'B: Beta' && document.querySelectorAll('#items li').length === 3);
+    check('and from it', await page.evaluate(read), { path: '/b/', marker: 1, kept: true, title: 'B: Beta', description: ['about beta'], robots: 1, items: 3, duplicateIds: [] });
     check('one page load so far', { loads: [...loads] }, { loads: ['/'] });
 
     // the last click wins: a link to the page shown, while the swap to A is pending, is the browser's

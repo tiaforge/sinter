@@ -948,6 +948,8 @@ class Compiler {
   prefetchOff = false;
   /** `data-sn-permanent` names on this page, each once */
   permanentNames = new Set<string>();
+  /** their elements: each is a reason the page ships its module, which swaps the next page in */
+  permanentEls: P5Element[] = [];
   /** `data-sn-path` patterns (for `$url` in the early file's requests) */
   pathList: string[] = [];
   /** `$s<sid>.<name>` paths a persisted model writes at mount */
@@ -3905,7 +3907,7 @@ class Compiler {
       else if (ctx.tid >= 0) this.report(el, 'data-sn-permanent', 'SN102', '`data-sn-permanent` cannot be inside a `<template>`: a kept element is one element of the page', 0);
       else if (own || inside(el)) this.report(el, 'data-sn-permanent', 'SN102', `a kept element holds no bindings (\`${(own?.name ?? inside(el))}\`): the next page's code would not find it`, 0);
       else if (this.permanentNames.has(name)) this.report(el, 'data-sn-permanent', 'SN102', `\`data-sn-permanent="${name}"\` is on two elements of this page`, 0);
-      else { this.permanentNames.add(name); this.features.add('permanent'); }
+      else { this.permanentNames.add(name); this.permanentEls.push(el); this.features.add('permanent'); }
     }
 
     // embedded data
@@ -7936,6 +7938,9 @@ class Compiler {
       const tag = this.useOf.get(el)?.host ?? el;
       out.push({ what: `the fill \`<${tag.tagName} slot="${F.k}">\` (${why}, so it renders in the browser)`, ...at(tag, null) });
     }
+    // a kept element: the module that follows links to pages with the same element (permanent.ts), with
+    // nothing else to run (a page of constants, which the build would otherwise ship without a script)
+    for (const el of this.permanentEls) out.push({ what: '`data-sn-permanent` (links swap the next page in around it)', ...at(el, 'data-sn-permanent') });
     for (const r of this.resources) {
       const el = this.declAt.get(r);
       out.push({ what: `resource \`${r.name}\``, ...(el ? at(el, 'name') : { file: this.opts.file, line: 1, col: 1, at: 0 }) });

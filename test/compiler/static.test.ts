@@ -58,6 +58,25 @@ describe('why a page needs the runtime', () => {
   });
 });
 
+describe('a kept element (data-sn-permanent)', () => {
+  // with nothing else to run, the page must still ship its module: it is what swaps the next page in
+  test('is a reason to ship the module, where it was written', () => {
+    const out = build('<p>Hi.</p>\n<aside data-sn-permanent="player"><audio controls></audio></aside>');
+    expect(out.static).toBeUndefined();
+    expect(out.runtime.map((r) => `${r.what} ${r.file.replace('/p/', '')}:${r.line}`)).toEqual(['`data-sn-permanent` (links swap the next page in around it) about.html:2']);
+    expect(out.html).toContain('<aside data-sn-permanent="player">');
+    expect(out.html).toContain('<script type="module"');
+    expect(out.module).toContain("from '@tiaforge-ui/sinter/permanent'");
+  });
+
+  test('SN322 on a page that must ship none', () => {
+    const out = build('<aside data-sn-permanent="player"></aside>', { static: true });
+    expect(out.diagnostics.filter((x) => x.code === 'SN322').map((x) => x.message)).toEqual([
+      'about.html must ship no JavaScript (`sinter({ static })`), but `data-sn-permanent` (links swap the next page in around it) runs in the browser',
+    ]);
+  });
+});
+
 test('static patterns: `*` within a folder, `**` across folders', () => {
   const m = (p: string, f: string) => staticPattern(p).test(f);
   expect(m('about.html', 'about.html')).toBe(true);
