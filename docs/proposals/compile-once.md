@@ -163,6 +163,35 @@ The two rarer re-runs are full recompiles, which a patch of the first result cou
 page with a pattern path, whose canonical link is the only difference) and the compile after `images.analyze`. Neither
 is hit by this benchmark.
 
+## Work left
+
+Ranked by what it buys for its risk. Each keeps the output byte for byte: check every step by building
+`bench/collections` (static, live, `--files`) and `examples/*` with `main`'s `dist` and the branch's swapped in turn,
+and diffing the output trees. Swap the contents of `dist/`: a symlinked package is loaded from this checkout either way.
+
+1. **A definition as a unit of its own, then linked (5).** About 35% of a page's compile that is not `data-sn-pages`.
+   Step 1, no speedup yet: `definition()` writes into a `DefinitionUnit` (its templates, functions, the side tables
+   listed in (5), local template ids and function indices) and one `link()` merges it into the page, replaying
+   `fn()` in order so the function table's dedupe and numbering stay as they are. Step 2: keep units per build, by
+   component and the options they read; link a copy per page. First check that a definition is page-independent on
+   pages of other shapes (components and templates before the first recursion point, a fill from the page, a
+   library component), with the renumbering probe of (5).
+2. **Pass 1 stops after its evaluation when a second pass follows.** About 9% of a two-pass page. What pass 1 writes
+   after its evaluation is thrown away when pass 2 runs. The catch: errors reported after the evaluation (SN345, the
+   dropped query, URL arrays) decide today whether pass 2 runs at all, so those checks move before the evaluation.
+   A pass 2 with errors falls back to the full path, as `fromTemplate` does.
+3. **The two rarer full recompiles, as patches.** A static page whose path is a pattern compiles again only to drop its
+   canonical link (`canonicalOnly`), and a page with images not analysed yet compiles again after `images.analyze`.
+   Neither happens in the benchmark; each doubles its page's compile where it does.
+4. **The template compile in `templatePages`.** About 50 ms once per build: the template is compiled to list its
+   entries, separately from the walk (1) keeps. With the same options it could be that walk.
+5. **Garbage collection**, 10–12% of a compile throughout: profile allocation in the walk (`cloneTree`, `freshCopy`,
+   scopes) now that fewer passes run.
+6. **Decisions cached across builds**, by everything a page reads: a rebuild skips pass 1 for unchanged pages.
+   Caching, not a faster cold build; only if rebuild time matters.
+
+Not worth taking up: the single pass as designed (4), and memoizing `normalize` (measured, no change).
+
 ## Not pursued
 
 - Threads: see the two earlier spikes.
