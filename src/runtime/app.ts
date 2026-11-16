@@ -492,6 +492,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     x(el: HTMLElement, _n: string, v: any) {
       const s = el.nextSibling as CharacterData | null;
       v = '' + (v ?? '');
+      // a text run's own node (`TemplateDef.tx`)
+      if (el.nodeType == 3) return void ((el as unknown as Text).data = v);
       if (s?.nodeType == 3) { if (s.data !== v) s.data = v; } else if (v) s?.nodeType == 8 && !s.data ? s.replaceWith(v) : el.after(v);
     },
     t(el: HTMLElement, _n: string, v: any) {
@@ -1201,8 +1203,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const f = doc.activeElement;
     // what is between the start and the end (a wrapper's anchor: from its row's first node), its bindings forgotten
     for (const n of range(rb.u ? rb.x!.first : rb.el.nextSibling, end)) (n as ChildNode).remove();
-    const [old] = rb.rows ?? [];
-    if (old?.rbs) forget(old.rbs);
+    forget([rb]);
     rb.rows = [];
     rb.br = br;
     rb.t = undefined;
@@ -1231,10 +1232,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return (rb.rows = [instantiate(tplOf(t.id), t, s, ch ? keyOf(t, item, s) : '', ch ? item : null, 0, nodes, at, rb)])[0]!;
   }
 
-  /** The node after a wrapper's row or branch: the next row's first node in a list, else what follows the anchor it is the branch of. */
+  /**
+   * The node after a wrapper's row or branch: the next row's first node in a list, else what follows the anchor it is the
+   * branch of (an if's or choice's one row has no next)
+   */
   function after(rb: RB): ChildNode {
     const u = rb.u!;
-    return u.u ? after(u) : u.b.k == 'for' ? (u.rows![rb.x!.i + 1]?.first as ChildNode) ?? u.end! : u.end!;
+    return u.u ? after(u) : (u.rows![rb.x!.i + 1]?.first as ChildNode) ?? u.end!;
   }
 
   /**
@@ -1266,16 +1270,20 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * anchors render in place: each node is moved once, not once per level of anchors around it.
    */
   function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number, pre?: Node[], at?: Node, u?: RB): Inst {
-    if (t.a && !pre) {
-      // a wrapper (`a`): no clone and no comments. Its anchor is bound without a start or end comment, and its branch,
-      // rendered where the row would go (in place before `at`, else apart), is the row's nodes; an empty comment
-      // stands in while there is none, so that the row has a first node
-      const x: Inst = { first: null, nodes: null, rbs: null, v: null, s, key, item, i, f: 0, r: round };
-      const b = t.nodes[0]!.b[0]!, rb: RB = { b, el: u!.el, s, v: UNSET, br: 0, u, x }, v = evaluate(rb), br = pick(b, v);
+    if (!pre && (t.a || t.tx)) {
+      // a text run (`tx`): one text node, its binding's own. A wrapper (`a`): no clone and no comments; its anchor is
+      // bound without a start or end comment, and its branch, rendered where the row would go (in place before `at`,
+      // else apart), is the row's nodes; an empty comment stands in while there is none, so that the row has a first node
+      const b = t.nodes[0]!.b[0]!, x: Inst = { first: null, nodes: null, rbs: null, v: null, s, key, item, i, f: 0, r: round };
+      const rb: RB = { b, el: t.a ? u!.el : (x.first = new Text()) as unknown as Element, s, v: UNSET, u, x };
       x.rbs = [rb];
-      if (br) { const y = make(rb, br, v?.[1], undefined, at); x.nodes = y.nodes ?? (y.first ? [y.first] : []); }
-      else rb.rows = [];
-      rb.br = br;
+      if (t.tx) {
+        if (at) (at as ChildNode).before(x.first!);
+        process(rb, 2);
+        return x;
+      }
+      const v = evaluate(rb);
+      if ((rb.br = pick(b, v))) x.nodes = rowNodes(make(rb, rb.br, v?.[1], undefined, at));
       if (!x.nodes?.length) { x.nodes = [new Comment()]; if (at) (at as ChildNode).before(x.nodes[0]!); }
       x.first = x.nodes[0]!;
       return x;

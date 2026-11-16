@@ -6936,6 +6936,10 @@ class Compiler {
       const [nd] = t.nodes, b = nd?.b[0];
       if (!t.w && t.nodes.length === 1 && nd!.b.length === 1 && (b!.k === 'if' || b!.k === 'ch') && nd!.state === undefined && !nd!.dl && !b!.e
         && root.childNodes.length === 2 && this.anchorStart.get(nd!) === root.childNodes[0]) t.a = 1;
+      // a text run: its content is one `<template data-sn-text>` and nothing else (its mark and its place, two empty
+      // comments). The runtime renders it as a text node, bound itself: no clone, no comments
+      if (!t.w && t.nodes.length === 1 && nd!.tag === '#' && nd!.b.length === 1 && b!.k === 'text' && b!.n === '+' && nd!.state === undefined && !nd!.dl
+        && root.childNodes.length === 2 && this.textAt.get(nd!) === root.childNodes[0] && root.childNodes[1]!.nodeName === '#comment') t.tx = 1;
     }
   }
 

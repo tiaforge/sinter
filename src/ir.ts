@@ -229,6 +229,11 @@ export interface TemplateDef {
    * empty comment while there is none. Rows the early script rendered keep its comments (adopted as they are).
    */
   a?: 1;
+  /**
+   * a text run: its content is one `<template data-sn-text>` and nothing else. A fresh row or branch of it is one text
+   * node, which its binding writes itself (no marks); rows the early script rendered keep their comments.
+   */
+  tx?: 1;
   /** for: loop variable, index variable, internal index name */
   item?: string;
   index?: string | null;
