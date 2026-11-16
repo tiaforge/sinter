@@ -7012,6 +7012,10 @@ class Compiler {
     early?.ir.templates.forEach((t, i) => { if (t) used.add(i); });
     const head = this.head ?? findHead(doc), body = findBody(doc);
     for (const [tid, tpl] of [...this.headTemplates].sort(([a], [b]) => a - b)) {
+      // a wrapper or a text run is never cloned by the page module (docs/proposals/flat-anchors.md): its template is
+      // in the page only for the early file, which renders it as written
+      const t = this.templates[tid];
+      if ((t?.a || t?.tx) && !used.has(tid)) continue;
       const into = used.has(tid) || !body ? head : body;
       if (!into) continue;
       tpl.parentNode = into as never;
