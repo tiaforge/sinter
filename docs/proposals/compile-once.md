@@ -1,8 +1,9 @@
 # Spike: less compiling, not more threads
 
 Status: (1), (2) and (3) landed (2026-11-16) with tests (`test/compiler/template-pass.test.ts`, the next-page test in
-`test/vite/pages.test.ts`). (4) was spiked: not as designed (below); its alternative, shared definitions
-compiled once per build, and the rarer re-runs are open. Builds on
+`test/vite/pages.test.ts`). (4), a single pass, was spiked: not as designed. (5), shared definitions linked into each
+page, was measured: about 35% of a non-template page's compile, behind a refactor that makes a definition a unit of its
+own. The expression parse cache's key, found on the way, landed. The rarer re-runs are open. Builds on
 [parallel-page-compile.md](parallel-page-compile.md), which removed the all-pairs loops inside one compile. This one asks
 which compiles a build runs at all, and which of them repeat work that does not change. No threads.
 
@@ -114,19 +115,49 @@ a partial oracle would not be byte-identical.
 
 **What would reach most of the ceiling instead**, without changing what is decided:
 
-- *Shared definitions compiled once per build and linked into each page.* They are compiled in an empty scope
-  (`definition()`), so they are the same for every page that uses the component; that is the 13 ms walk. The cost is a
-  linker: a definition writes into the page's tables (templates, the function table and its dedupe, `pointOf`,
-  choice groups, runtime placements, fills, `defRoots`/`defAttrs`, head templates, origins, diagnostics, the type
-  check's frames), all of which would need relocating, and `finishTreeFills` pairs them with the page's own fills.
-  Large and mechanical; byte-identity is checkable with the same harness. This is the recommended next step if pages
-  that are not `data-sn-pages` matter.
+- *Shared definitions compiled once per build and linked into each page*: spiked, see the next section.
 - *Pass 1 stops after its evaluation when a second pass follows*: its own output (2.3 ms, 9%) is discarded today.
   Safe for the decisions; the catch is errors reported after the evaluation (SN345, the dropped query, URL arrays),
   which decide whether there is a second pass. A pass 2 with errors falls back to the full path, as in (1), but an
   error only pass 1's output would have had needs those checks moved before the evaluation. Small win, not taken.
 - *Decisions cached across builds*, keyed by everything a page reads (its HTML, component files, data files, the
   helpers module): unchanged pages skip pass 1 on a rebuild. That's caching, not a faster cold build.
+
+## (5) Shared definitions, linked (spike: measured, not built)
+
+Measured on the blog of one page per post (`--files`), in-process, by instrumenting `definition()`:
+
+- **What it would save.** The top-level `definition()` calls take 12–13 ms of a 25–28 ms page, all in pass 1 (pass 2
+  inlines what pass 1 decided). Each page compiles the same four top-level definitions (`md-paragraph`, `md-heading`,
+  `md-thematic-break`, `md-blockquote`, the first candidates of `md-block`'s choice), with the rest of the library
+  nested in them.
+- **They are page-independent, as far as this shows.** With template ids (`$p<tid>`, `$sl<tid>`, `sn-t-<tid>`) and
+  function indices renumbered by first appearance, each definition's functions, templates and markup are identical
+  across all 100 pages. These pages all have one shape; a page with other components or templates before its first
+  recursion point is the next check.
+- **The floor of a linker.** Copying what the definitions added (their head templates' markup and their template
+  table) takes about 1 ms per page.
+- **What a linker must carry.** Per page, the definitions write into 29 tables and counters of the `Compiler` and 12
+  weak maps: 116 templates, 93 functions (each through the function table's dedupe, so a copy must replay `fn()` in
+  order, which also keeps the numbering byte-identical), about 1,100 `origins`, about 400 entries each in `points`,
+  `choices`, `pointCtx`, `scopeStart` and `passOn`, plus `pointOf`, `choiceGroups`, `runtimePlacements` (which
+  `finishTreeFills` pairs with the page's own fills), `defRoots`/`defAttrs`, `headTemplates`, `templateAt`, `tplEls`,
+  `attrSources` (the layout's constants), `textAt`/`textMarks`, `codeAt` (source maps, SN534), `uses`, `useIds`,
+  `files`, `layoutFiles`, `remove`, and the counters. Template ids also appear inside the functions' code and in the
+  markup's ids.
+
+Estimate: a page's definitions at 2–3 ms instead of 12 ms, about 35% of a page's compile that is not `data-sn-pages`
+(a template's entries already walk once, (1)). A copy of the tables' entries by hand, with renumbering, against a
+generic record-and-replay of the `Compiler`'s state, is the choice; both are fragile while definitions write straight
+into the page's tables. The way to build it is to make a definition a unit of its own first (its templates, functions
+and side tables in one object, local numbering, with one explicit merge into the page), with byte-identical output at
+each step, and cache that unit per build. A large refactor of the compiler's front half, worth it if sites with many
+pages that are not `data-sn-pages` matter.
+
+Found on the way and landed: the expression parse cache keyed its trees by one string of the kind, the options and the
+text, a new string hashed at every lookup (7% of the definitions' time). Keyed by the options, then by the text (the
+attribute's own string, whose hash the engine keeps): 6–9% off a page's compile, output unchanged. Memoizing
+`normalize` (3% of the definitions' self time) changed nothing measurable.
 
 The two rarer re-runs are full recompiles, which a patch of the first result could replace: `canonicalOnly` (a static
 page with a pattern path, whose canonical link is the only difference) and the compile after `images.analyze`. Neither
