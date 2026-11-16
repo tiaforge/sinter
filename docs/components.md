@@ -511,7 +511,10 @@ A list of mixed blocks (a CMS page, dashboard widgets, a form builder) picks a c
 ## Lists and branches in the page
 
 A `data-sn-for`, a `data-sn-if` (with its `data-sn-else`), a component used inside itself and a
-`<sn-component use>` render between two comments, and their templates are in the head:
+`<sn-component use>` render between two comments, and their templates are in the head. A row or branch
+whose whole content is one branch or choice (a component whose root is a slot or a choice, a loop's row that
+is one `if`/`else`) has no comments of its own: what it renders stands in its place, an empty comment while
+that is nothing. A row or branch that is one text is that text node:
 
 ```html
 <ul><!--sn 4--><li>a</li><li>b</li><!--/sn--></ul>
