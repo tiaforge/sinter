@@ -1219,6 +1219,12 @@ class Compiler {
     if (isStatic && early !== undefined) early = null;
     if (isStatic) this.linkStyles(doc, images?.css ? this.opts.images?.stylesheet ?? null : null);
     else this.injectScript(doc, early !== undefined && (early !== null || !!this.opts.early!.module) ? this.opts.early!.src ?? null : null);
+    // a template whose content is one element (foreign content: inside its <svg> or <math>) is marked, so the runtime
+    // clones that element alone; a later minifier can only drop whitespace, which leaves an unmarked one correct
+    for (const [tid, tpl] of this.headTemplates) {
+      const t = this.templates[tid], top = tpl.content.childNodes, kids = t?.w ? (top[0] as P5Element | undefined)?.childNodes ?? [] : top;
+      if (t && kids.length == 1 && 'tagName' in kids[0]!) t.o = 1;
+    }
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;
     // lets that wait for a lazy helper module (lets.ts), each module loaded by a function of the table

@@ -406,8 +406,6 @@ export function scopeState(el: Element): [number, any] | null {
 /** HANDLERS: one handler binding, or an array when the element has several */
 export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
 const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
-/** row templates: whether each holds one element (see oneElement()) */
-const prepared = new WeakMap<HTMLTemplateElement, boolean>();
 /** set by the early script on the start comment of a `data-sn-for` whose rows it rendered from embedded data: each row's nodes, the end comment */
 const EARLY_ROWS = Symbol.for('sinter.early.rows');
 /** set by the early chunk (@tiaforge-ui/sinter/early) on the start comment of a `data-sn-if` or choice whose branch it rendered */
@@ -1148,12 +1146,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     } else for (const node of gone.flatMap(nodesOf)) (node as ChildNode).remove();
     if (deferred.size || models) for (const o of gone) if (old[o]!.rbs) forget(old[o]!.rbs!);
     const ref = ne < n ? rows[ne]!.first ?? end : end;
-    if (inPlace) { /* already in place */ }
-    else if (!seq.some((o) => o >= 0)) {
+    if (!seq.some((o) => o >= 0)) {
       // only new rows in the middle: insert each straight before the reference (going through a
-      // fragment first moves every node twice)
+      // fragment first moves every node twice); rows rendered in place are there already
       const parent = ref.parentNode!;
-      for (let i = a; i < ne; i++) for (const node of rowNodes(rows[i]!)) parent.insertBefore(node, ref);
+      for (let i = inPlace ? ne : a; i < ne; i++) for (const node of rowNodes(rows[i]!)) parent.insertBefore(node, ref);
     } else {
       // move the fewest rows: those outside a longest increasing subsequence of old positions
       let at: Node = ref;
@@ -1208,8 +1205,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (!br) return;
     // in a branch or row still being built, the new branch renders in place; on the page, it is built apart and
     // inserted at once
-    if (end.isConnected) end.before(...rowNodes(make()));
-    else make(undefined, end);
+    end.isConnected ? end.before(...rowNodes(make())) : make(undefined, end);
     if (!ch && f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
   }
 
@@ -1254,11 +1250,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
   function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number, pre?: Node[], at?: Node): Inst {
     // foreign content (`w`): the rows are the children of the `<svg>` or `<math>` the head template holds (a clone of
     // that element holds a row's nodes as a fragment would, until they are inserted)
-    const content: Node = t.w ? tpl.content.firstChild! : tpl.content, one = prepared.get(tpl) ?? oneElement(tpl, content);
+    const content: Node = t.w ? tpl.content.firstChild! : tpl.content, one = t.o;
     const top: Node = pre ? (one ? pre[0]! : content) : one ? content.firstChild!.cloneNode(true) : content.cloneNode(true);
     const first = pre ? pre[0] ?? null : one ? top : top.firstChild;
-    if (at && !pre && !t.w) at.parentNode!.insertBefore(top, at);
-    else at = undefined;
+    // (never with `pre`; foreign content's rows are the children of the clone, inserted by the caller)
+    if (at && !t.w) (at as ChildNode).before(top); else at = undefined;
     const defs = t.nodes, rbs: RB[] = [];
     // A node and what the early script rendered after it: a nested anchor's branch or rows, up to its end comment.
     const extent = (n: Node): Node => ((n as any)[EARLY] ?? (n as any)[EARLY_ROWS])?.end ?? (isStart(n) ? endOf(n) ?? n : n);
@@ -1290,8 +1286,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const collect = () => {
       const nodes: Node[] = [];
       if (pre) for (let c: Node | null = pre[0] ?? null; c && c != stop; c = c.nextSibling) nodes.push(c);
-      else if (at) { if (!one) for (let c = first; c && c != at; c = c.nextSibling) nodes.push(c); }
-      else if (!one) for (let c = top.firstChild; c; c = c.nextSibling) nodes.push(c);
+      else if (!one) for (let c = at ? first : top.firstChild; c && c != at; c = c.nextSibling) nodes.push(c);
       return nodes;
     };
     const meta = isSimple(t);
@@ -1319,17 +1314,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     walk(rbs, 2);
     const nodes = one ? null : collect();
     return { first: nodes ? nodes[0] ?? null : first, nodes, rbs, v: null, s, key, item, i, f: 0, r: round };
-  }
-
-  /**
-   * Once per row template: whether it holds one element (a <tr>, an <li>), so rows clone just that
-   * and no fragment. Not an anchor: its comments are two nodes.
-   */
-  function oneElement(tpl: HTMLTemplateElement, content: Node): boolean {
-    const f = content.firstChild;
-    const one = !!f && f == content.lastChild && f.nodeType == 1;
-    prepared.set(tpl, one);
-    return one;
   }
 
   /** A simple row template (the compiler's `sm`: a lookup function, only value bindings and handlers; no state, model, nested template or dialog): its value bindings and handlers. */
