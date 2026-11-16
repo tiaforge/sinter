@@ -221,6 +221,8 @@ export interface TemplateDef {
   nodes: NodeDef[];
   /** its content is inside `<svg>` or `<math>` (foreign content): the head template holds that element, and a row is made of its children */
   w?: 1;
+  /** its content is one element and nothing else (a `<tr>`, an `<li>`): a row clones just that, not a fragment */
+  o?: 1;
   /** for: loop variable, index variable, internal index name */
   item?: string;
   index?: string | null;

@@ -406,8 +406,6 @@ export function scopeState(el: Element): [number, any] | null {
 /** HANDLERS: one handler binding, or an array when the element has several */
 export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
 const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
-/** row templates: whether each holds one element (see oneElement()) */
-const prepared = new WeakMap<HTMLTemplateElement, boolean>();
 /** set by the early script on the start comment of a `data-sn-for` whose rows it rendered from embedded data: each row's nodes, the end comment */
 const EARLY_ROWS = Symbol.for('sinter.early.rows');
 /** set by the early chunk (@tiaforge-ui/sinter/early) on the start comment of a `data-sn-if` or choice whose branch it rendered */
@@ -1085,6 +1083,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     const t = rb.t!, old = rb.rows!, end = rb.end ?? endFor(rb), tpl = tplOf(t.id), start = rb.el as unknown as Comment;
     const n = items.length, m = old.length, rows: Inst[] = new Array(n), moved = t.ri;
+    // a first render inside a branch or row still being built: each row renders in place, in order, before the end
+    const inPlace = !m && !end.isConnected ? end : undefined;
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
     const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
@@ -1131,7 +1131,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     for (let i = a; i < ne; i++) {
       const o = byKey.get(keys[i]);
       if (o != null && !used[o - a]) { used[o - a] = 1; seq.push(o); reuse(old[o]!, i); }
-      else { seq.push(-1); rows[i] = instantiate(tpl, t, scopes?.[i] ?? setRow(Object.create(rb.s), t, items[i], i), keys[i], items[i], i); }
+      else { seq.push(-1); rows[i] = instantiate(tpl, t, scopes?.[i] ?? setRow(Object.create(rb.s), t, items[i], i), keys[i], items[i], i, undefined, inPlace); }
     }
     // collect the nodes of rows that go or move before the DOM changes
     const keep = lis(seq), moving = new Map<Inst, Node[]>(), gone: number[] = [];
@@ -1148,9 +1148,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const ref = ne < n ? rows[ne]!.first ?? end : end;
     if (!seq.some((o) => o >= 0)) {
       // only new rows in the middle: insert each straight before the reference (going through a
-      // fragment first moves every node twice)
+      // fragment first moves every node twice); rows rendered in place are there already
       const parent = ref.parentNode!;
-      for (let i = a; i < ne; i++) for (const node of rowNodes(rows[i]!)) parent.insertBefore(node, ref);
+      for (let i = inPlace ? ne : a; i < ne; i++) for (const node of rowNodes(rows[i]!)) parent.insertBefore(node, ref);
     } else {
       // move the fewest rows: those outside a longest increasing subsequence of old positions
       let at: Node = ref;
@@ -1175,10 +1175,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
    */
   function toggle(rb: RB, br: number, item?: unknown) {
     const ch = rb.b.k == 'ch', pre: { br: number; nodes: Node[]; end: Comment } | undefined = (rb.el as any)[EARLY];
-    const make = (nodes?: Node[]) => {
-      const t = ir.templates[ch ? rb.b.c![br - 1]! : br == 1 ? rb.b.x! : rb.b.z!]!, s = Object.create(rb.s);
+    const make = (nodes?: Node[], at?: Node) => {
+      // an if's branch adds no names to the scope (a choice's case adds its props): it reads its anchor's own
+      const t = ir.templates[ch ? rb.b.c![br - 1]! : br == 1 ? rb.b.x! : rb.b.z!]!, s = ch ? Object.create(rb.s) : rb.s;
       if (ch) setRow(s, (rb.t = t), item, 0);
-      return (rb.rows = [instantiate(tplOf(t.id), t, s, ch ? keyOf(t, item, s) : '', ch ? item : null, 0, nodes)])[0]!;
+      return (rb.rows = [instantiate(tplOf(t.id), t, s, ch ? keyOf(t, item, s) : '', ch ? item : null, 0, nodes, at)])[0]!;
     };
     if (pre) {
       delete (rb.el as any)[EARLY];
@@ -1202,7 +1203,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     rb.br = br;
     rb.t = undefined;
     if (!br) return;
-    end.before(...rowNodes(make()));
+    // in a branch or row still being built, the new branch renders in place; on the page, it is built apart and
+    // inserted at once
+    end.isConnected ? end.before(...rowNodes(make())) : make(undefined, end);
     if (!ch && f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
   }
 
@@ -1239,13 +1242,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return tpls[tid] ??= doc.getElementById('sn-t-' + tid) as HTMLTemplateElement;
   }
 
-  /** `pre`: nodes the early chunk already rendered from this template, bound instead of a clone. */
-  function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number, pre?: Node[]): Inst {
+  /**
+   * `pre`: nodes the early chunk already rendered from this template, bound instead of a clone. `at`: a node outside
+   * the page (in a branch or row still being built) to put the clone before, ahead of its bindings, so its nested
+   * anchors render in place: each node is moved once, not once per level of anchors around it.
+   */
+  function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number, pre?: Node[], at?: Node): Inst {
     // foreign content (`w`): the rows are the children of the `<svg>` or `<math>` the head template holds (a clone of
     // that element holds a row's nodes as a fragment would, until they are inserted)
-    const content: Node = t.w ? tpl.content.firstChild! : tpl.content, one = prepared.get(tpl) ?? oneElement(tpl, content);
+    const content: Node = t.w ? tpl.content.firstChild! : tpl.content, one = t.o;
     const top: Node = pre ? (one ? pre[0]! : content) : one ? content.firstChild!.cloneNode(true) : content.cloneNode(true);
     const first = pre ? pre[0] ?? null : one ? top : top.firstChild;
+    // (never with `pre`; foreign content's rows are the children of the clone, inserted by the caller)
+    if (at && !t.w) (at as ChildNode).before(top); else at = undefined;
     const defs = t.nodes, rbs: RB[] = [];
     // A node and what the early script rendered after it: a nested anchor's branch or rows, up to its end comment.
     const extent = (n: Node): Node => ((n as any)[EARLY] ?? (n as any)[EARLY_ROWS])?.end ?? (isStart(n) ? endOf(n) ?? n : n);
@@ -1277,7 +1286,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const collect = () => {
       const nodes: Node[] = [];
       if (pre) for (let c: Node | null = pre[0] ?? null; c && c != stop; c = c.nextSibling) nodes.push(c);
-      else if (!one) for (let c = top.firstChild; c; c = c.nextSibling) nodes.push(c);
+      else if (!one) for (let c = at ? first : top.firstChild; c && c != at; c = c.nextSibling) nodes.push(c);
       return nodes;
     };
     const meta = isSimple(t);
@@ -1305,17 +1314,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     walk(rbs, 2);
     const nodes = one ? null : collect();
     return { first: nodes ? nodes[0] ?? null : first, nodes, rbs, v: null, s, key, item, i, f: 0, r: round };
-  }
-
-  /**
-   * Once per row template: whether it holds one element (a <tr>, an <li>), so rows clone just that
-   * and no fragment. Not an anchor: its comments are two nodes.
-   */
-  function oneElement(tpl: HTMLTemplateElement, content: Node): boolean {
-    const f = content.firstChild;
-    const one = !!f && f == content.lastChild && f.nodeType == 1;
-    prepared.set(tpl, one);
-    return one;
   }
 
   /** A simple row template (the compiler's `sm`: a lookup function, only value bindings and handlers; no state, model, nested template or dialog): its value bindings and handlers. */

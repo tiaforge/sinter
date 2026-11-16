@@ -66,7 +66,7 @@ sinter/                   the library's source, laid out like an app's src/
   sinter.types.ts         the tree's types: what the components and apps name
   index.ts                the package's entry: the helpers and the types
 scripts/
-  parser-entry.js         what parser.js bundles: mdast-util-from-markdown and four GFM extensions
+  parser-entry.js         what parser.js bundles: markdown-it, its tokens turned into mdast
   build-parser.mjs        builds parser.js; --check fails when it is out of date
 fixtures/                 pages that use the public components, for the library's own check
   index.html …            an article from a file, every slot filled, comments from an API
@@ -174,14 +174,20 @@ docs/                     the docs page and the recipe
 
 ### The parser: one prebundled module
 
-`parser.js` is mdast-util-from-markdown with CommonMark and four GFM extensions, bundled into one file
-by `scripts/build-parser.mjs`, with production, non-browser conditions:
+`parser.js` is markdown-it (CommonMark, GFM tables and `~~strikethrough~~`, autolinks through its
+linkify) with task lists added, its tokens turned into the mdast `parse.ts` reduces, bundled into one file
+by `scripts/build-parser.mjs`:
 
-- micromark's dependency `decode-named-character-reference` has a `browser` build that decodes
-  entities through `innerHTML`. Under Trusted Types (`require-trusted-types-for 'script'`, which sinter
-  supports) every parse that meets `&amp;` throws. The prebundle uses the table-based decoder, so the
-  parser works the same in every app, whatever its bundler's conditions.
-- micromark's `development` condition bundles `debug`; the prebundle has none of it.
+- **markdown-it, not micromark**, for speed: on a 47.5 kB article it parses in 23 ms on a cold start
+  where micromark took 160 ms, which was most of an API article's time to first render. GFM is what
+  markdown-it gives: `~one tilde~` is not strikethrough, and autolinks follow linkify-it (`example.com`
+  is a link; some bare emails are not). Everything CommonMark specifies gives the same tree as
+  micromark did, except a code span's line endings, which are spaces, as CommonMark renders them.
+- **Entities decode from a table** (`character-entities`, through `scripts/entities.js`), never through
+  the DOM, so the parser works under Trusted Types (`require-trusted-types-for 'script'`). It is the
+  table micromark used; markdown-it's own (`entities`) is a packed trie twice its size gzipped.
+- **punycode is left out** (`scripts/punycode.js`): mdast keeps a link's destination as written, so
+  the parser normalizes no URL.
 - sinter's build-time check follows one module that uses no browser global, so `md.parse` folds over
   a `file:` resource.
 

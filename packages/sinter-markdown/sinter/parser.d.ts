@@ -1,6 +1,6 @@
 // The prebundled parser (sinter/parser.js, built by scripts/build-parser.mjs).
 
-/** a node as mdast-util-from-markdown returns it, before `md.parse` reduces it to sinter.types.ts */
+/** an mdast node, as mdast-util-from-markdown would return it, before `md.parse` reduces it to sinter.types.ts */
 export interface MdastNode {
   type: string;
   children?: MdastNode[];
