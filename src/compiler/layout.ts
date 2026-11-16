@@ -87,6 +87,8 @@ const GRID_TRACKS = /^(grid|grid-template(-columns|-areas)?|grid-auto-columns)$/
 const TABLE = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption']);
 const TABLE_DISPLAY: Record<string, string> = { table: 'table', thead: 'table-header-group', tbody: 'table-row-group', tfoot: 'table-footer-group', tr: 'table-row', td: 'table-cell', th: 'table-cell', caption: 'table-caption' };
 const BLOCK = new Set(['html', 'body', 'div', 'p', 'section', 'article', 'header', 'footer', 'main', 'nav', 'aside', 'figure', 'figcaption', 'li', 'ul', 'ol', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'dl', 'dd', 'dt', 'fieldset', 'details', 'summary', 'dialog', 'address', 'hgroup', 'menu', 'search', 'pre', 'hr']);
+/** elements whose text keeps its white space in the UA stylesheet (and raw text): the minifier leaves them alone */
+const PRESERVING = new Set(['pre', 'textarea', 'listing', 'xmp', 'plaintext', 'script', 'style', 'noscript', 'title', 'iframe', 'noembed', 'noframes']);
 /** pseudo-classes that depend on state or on things not in the markup */
 const STRUCTURAL = new Set(['first-child', 'last-child', 'only-child', 'nth-child', 'nth-last-child', 'first-of-type', 'last-of-type', 'only-of-type', 'nth-of-type', 'nth-last-of-type']);
 
@@ -1637,6 +1639,124 @@ export class Layout {
     const parts = splitTop(w.value.toLowerCase());
     if (w.prop !== 'flex-flow') return parts[0] ?? null;
     return parts.find((x) => (prop === 'direction' ? /^(row|column)/.test(x) : /wrap/.test(x))) ?? null;
+  }
+
+  /**
+   * For the HTML minifier (minify.ts): the views it must agree in, one per range of viewport widths between the
+   * stylesheets' breakpoints. An answer holds only when it holds in each.
+   */
+  private everyView(f: (l: Layout) => boolean): boolean {
+    const bps = this.breakpoints();
+    return [0, ...bps].every((w) => f(bps.length ? this.at(w) : this));
+  }
+
+  /**
+   * Whether the text of `el` collapses white space (`white-space: normal` or `nowrap`, `white-space-collapse:
+   * collapse`) at every viewport width: a run of spaces and newlines in it shows as one space, a newline as a
+   * newline would. False when it may be kept (`pre`, `pre-wrap`, `pre-line`, `break-spaces`, the UA's `<pre>`
+   * and `<textarea>`, editable content) or the stylesheets cannot say (a state, another media feature, a
+   * binding that sets a class or the style).
+   */
+  collapsesSpace(el: P5Element): boolean {
+    return this.everyView((l) => {
+      for (let e: P5Element | null = el; e; e = l.parentOf(e)) {
+        if (PRESERVING.has(e.tagName) || e.attrs.some((a) => a.name === 'contenteditable')) return false;
+        const c = l.cascaded(e, ['white-space', 'white-space-collapse']);
+        if (c.ambiguous) return false;
+        if (c.value === null) continue;
+        return /^\s*(normal|nowrap|wrap|collapse|collapse\s+(wrap|nowrap)|(wrap|nowrap)\s+collapse)\s*$/i.test(c.value);
+      }
+      return true;
+    });
+  }
+
+  /** The display of `el` in a view: its cascaded value, else the UA's; null when the stylesheets cannot say. */
+  private boxDisplay(el: P5Element): string | null {
+    const c = this.cascaded(el, ['display']);
+    if (c.ambiguous) return null;
+    if (c.value !== null) return /^(inherit|initial|unset|revert)/i.test(c.value.trim()) ? null : c.value.trim().toLowerCase();
+    if (el.attrs.some((a) => a.name === 'hidden')) return null;
+    return TABLE_DISPLAY[el.tagName] ?? (el.tagName === 'li' ? 'list-item' : BLOCK.has(el.tagName) || el === this.root ? 'block' : 'inline');
+  }
+
+  /**
+   * Whether `el` is a block-level box in normal flow at every viewport width (block, list-item, flex, grid,
+   * table, flow-root; not floated, not positioned out of flow): white space beside it starts or ends a line.
+   */
+  blockLevel(el: P5Element): boolean {
+    // a binding may hide it (`data-sn-show`, `hidden`), and then what is around it meets
+    if (el.attrs.some((a) => a.name === 'data-sn-show') || mayChange(el, 'hidden') || mayChange(el, 'style')) return false;
+    return this.everyView((l) => {
+      const d = l.boxDisplay(el);
+      if (d === null || !/^(block|list-item|flex|grid|table|flow-root)(\s+flow(-root)?)?$|^block\s+(flex|grid|table|flow-root)$/.test(d)) return false;
+      const m = l.declsOf(el);
+      if (m.has('\0dynamic')) return false;
+      const out = (p: string, ok: RegExp) => { const c = l.cascaded(el, [p]); return c.ambiguous || (c.value !== null && !ok.test(c.value)); };
+      return !out('float', /^\s*none\s*$/i) && !out('position', /^\s*(static|relative|sticky)\s*$/i);
+    });
+  }
+
+  /**
+   * Whether `el` is a box of its own in its flex, grid or table container at every viewport width (an item: not
+   * `display: none` or `contents`, not out of flow, not hidden by a binding): text on either side of it is in
+   * another item than text on the other.
+   */
+  isItem(el: P5Element): boolean {
+    if (el.attrs.some((a) => a.name === 'data-sn-show') || mayChange(el, 'hidden') || mayChange(el, 'style')) return false;
+    return this.everyView((l) => {
+      const d = l.boxDisplay(el);
+      if (d === null || /^(none|contents)$/.test(d)) return false;
+      if (l.declsOf(el).has('\0dynamic')) return false;
+      const c = l.cascaded(el, ['position']);
+      return !c.ambiguous && (c.value === null || /^\s*(static|relative|sticky)\s*$/i.test(c.value));
+    });
+  }
+
+  /**
+   * How `el` lays out its children, at every viewport width: `items` for a flex or grid container and the table
+   * boxes that hold rows and cells (white space alone between their children shows nothing), `block` for a block
+   * container (block, list-item, flow-root, inline-block, a cell, a caption), null for anything else or unknown.
+   */
+  childLayout(el: P5Element): 'items' | 'block' | null {
+    let kind: 'items' | 'block' | null | undefined;
+    const ok = this.everyView((l) => {
+      const d = l.boxDisplay(el);
+      const k = d === null ? null
+        : /^(inline-)?(flex|grid)$|^(block|inline)\s+(flex|grid)$|^(inline-)?table$|^table-(row|row-group|header-group|footer-group|column-group)$/.test(d) ? 'items'
+          : /^(block|list-item|flow-root|inline-block|table-cell|table-caption)$|^(block|inline)\s+flow(-root)?$/.test(d) ? 'block' : null;
+      if (k === null || (kind !== undefined && kind !== k)) return false;
+      kind = k;
+      return true;
+    });
+    return ok ? kind ?? null : null;
+  }
+
+  /**
+   * Whether a line in `el` surely starts where its content starts and ends where it ends: no `::before` or
+   * `::after` with content may be generated in it (in any state or viewport), and it is no list item (whose
+   * marker may be inside). White space at its edges then starts or ends a line.
+   */
+  edgesStartLines(el: P5Element): boolean {
+    const pseudo = (n: csstree.CssNode) => (n.type === 'PseudoElementSelector' || n.type === 'PseudoClassSelector') && /^(before|after)$/i.test(n.name);
+    for (const r of this.rules) {
+      if (!r.decls.some((d) => d.prop === 'content' && !/^\s*(none|normal)\s*$/i.test(d.value))) continue;
+      for (const sel of r.selectors) {
+        if (!sel.parts.some(pseudo)) continue;
+        if (this.matches(sel.parts.filter((n) => !pseudo(n)), el) !== 'no') return false;
+      }
+    }
+    return this.everyView((l) => {
+      const d = l.boxDisplay(el);
+      if (d === null) return false;
+      if (!/list-item/.test(d)) return true;
+      // a list item's marker is outside its lines unless `list-style-position: inside` (inherited)
+      for (let e: P5Element | null = el; e; e = l.parentOf(e)) {
+        const c = l.cascaded(e, ['list-style-position', 'list-style']);
+        if (c.ambiguous) return false;
+        if (c.value !== null) return !/\b(inside|inherit|unset|revert)\b/i.test(c.value);
+      }
+      return true;
+    });
   }
 
   /** a row's display; one of several that may win when all lay it out alike (all block-level, or all the same) */

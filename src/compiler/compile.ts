@@ -5,6 +5,7 @@ import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './i
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
+import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
@@ -207,6 +208,12 @@ export interface CompileOptions {
    * the space a list's rows take before its data arrives (docs/first-paint.md#reserved-space)
    */
   styles?: StyleSheet[];
+  /**
+   * builds: remove the author's comments, and white space that shows nothing, from the page's markup before it is
+   * compiled (minify.ts). White space only with the page's stylesheets (`minify.styles`, else `styles`); with
+   * none given, comments only.
+   */
+  minify?: boolean | { styles?: StyleSheet[] };
   /** builds: the module the page module imports for the page's generated first-paint rules (`CompiledParts.paint`), which the adapter serves */
   paintCss?: string;
   /** a font family's `line-height: normal` as a multiple of its size, from the font files the build has (fonts-build.ts) */
@@ -1132,6 +1139,8 @@ class Compiler {
     // the second pass: bindings the first found constant for good, written before the layout and the images read the markup
     if (this.opts.constants?.size) this.prefold(doc);
     const sheets = this.opts.styles ?? this.opts.images?.styles;
+    // builds: comments and white space that show nothing out, before anything counts nodes (docs/minify.md)
+    if (this.opts.minify) this.minify(doc);
     // the first pass: a copy of the markup the layout reads, for the dry run of constant classes and styles (`dryRun`)
     if (sheets?.length && this.collecting()) this.snapshot(doc);
     const layout = this.layout = sheets?.length ? new Layout(sheets, doc, this.layoutOptions()) : null;
@@ -6512,6 +6521,37 @@ class Compiler {
     // else only when the dry run finds a difference (no copy: the page has no image or list for them to change)
     if (this.dry && this.dryRun(new Map(folds.map((k) => [k, this.constants.get(k)!])))) return;
     for (const k of folds) this.constants.delete(k);
+  }
+
+  /**
+   * The HTML minifier (minify.ts) over the page as expanded. White space only with the page's stylesheets
+   * (`styles`, all of them: none from another origin but Google Fonts' `@font-face` rules); markup a
+   * component's scoped styles reach is left as written, as the layout does not read them.
+   */
+  minify(doc: P5Parent) {
+    const styles = (typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles;
+    let remote = false;
+    const scan = (p: P5Parent) => {
+      for (const c of p.childNodes) {
+        if (!isElement(c)) continue;
+        if (c.tagName === 'link' && /(^|\s)stylesheet(\s|$)/i.test(attr(c, 'rel') ?? '') && /^([a-z][a-z\d+.-]*:)?\/\//i.test(attr(c, 'href') ?? '') && !/^(https?:)?\/\/fonts\.googleapis\.com\//i.test(attr(c, 'href') ?? '')) remote = true;
+        scan(c.tagName === 'template' ? (c as P5Template).content : c);
+      }
+    };
+    scan(doc);
+    const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
+    const layout = styles && !remote ? new Layout(styles, doc, this.layoutOptions()) : null;
+    minifyMarkup(doc, {
+      layout,
+      opaque: (el) => {
+        const o = this.origins.get(el);
+        if (o && scoped.has(o.file)) return true;
+        // a component's root takes its tag's bindings in the walk: a class or style set there is not on it yet
+        const host = this.useOf.get(el)?.host;
+        return !!host && host.attrs.some((a) => a.name === 'data-sn-class' || a.name === 'data-sn-style' || a.name === 'data-sn-show' || a.name === 'data-sn-attr');
+      },
+      removed: (el) => el.tagName === 'sn-resource' || el.tagName === 'sn-sync',
+    });
   }
 
   layoutOptions() {

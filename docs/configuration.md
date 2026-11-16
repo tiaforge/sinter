@@ -60,6 +60,7 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `firstPaint` | `true` | write build-time values into the HTML and render what needs no data as the page loads. `false` waits for the page module ([docs/first-paint.md](first-paint.md)) |
+| `minifyHtml` | `true` | builds: remove your comments, and the white space your stylesheets show to render nothing, from every page's HTML. Dev never minifies ([docs/minify.md](minify.md)) |
 | `earlyBudget` | `10000` | an early script above this many gzipped bytes is a build warning |
 | `embed` | `false` | for a server that writes each page's data into the HTML: pages get placeholders instead of early requests, and the build writes `sinter-embed.json` listing them. `vite dev` is unaffected |
 | `lazy` | `[]` | packages loaded on first call instead of with the page (`['openpgp']`): your imports of one become stubs that share one `import()`, so it is a chunk of its own. Only awaited calls of its exports work (`SN324`); `data-sn-import` and `data-sn-preload` load it sooner ([docs/lazy.md](lazy.md)) |

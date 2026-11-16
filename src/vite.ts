@@ -51,6 +51,12 @@ export interface SinterOptions extends ProjectOptions {
    * into the HTML either way, and a page with nothing to run ships no JavaScript either way.
    */
   firstPaint?: boolean;
+  /**
+   * builds: minify each page's HTML (default true; never in dev): the author's comments out, and the
+   * white space the page's stylesheets show to render nothing (docs/minify.md). Before the page is compiled, so
+   * sinter's own comments and node paths are counted on the minified markup.
+   */
+  minifyHtml?: boolean;
   /** an early file above this many bytes gzip is a build warning (default 10000) */
   earlyBudget?: number;
   /**
@@ -642,7 +648,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
 
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
-  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>): { out: CompileResult; p: ReturnType<typeof project> } => {
+  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>, minifyStyles?: StyleSheet[]): { out: CompileResult; p: ReturnType<typeof project> } => {
     const rel = relOf(file);
     const p = project(root, options);
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
@@ -663,6 +669,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(helpersNow?.module && !dev ? { foldLog: (key: string, args: FoldArg[], result: string, id: number) => logFold(relOf(src), key, args, result, id) } : {}),
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(styles?.length ? { styles } : {}),
+      ...(minifyStyles ? { minify: { styles: minifyStyles } } : {}),
       ...(lineHeights?.size ? { normalLineHeight: (f: string) => lineHeights.get(f) ?? null } : {}),
       ...(zeros?.size ? { zeroWidth: (f: string) => zeros.get(f) ?? null } : {}),
       ...(firstPaint && !dev ? { paintCss: `${PAINT_CSS}${rel}.css` } : {}),
@@ -1102,11 +1109,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // the fonts' `0`, for images in a box sized in ch
         const zeros = images && styles?.some((s) => /\dch\b/i.test(s.css)) && styles.some((s) => /@font-face/i.test(s.css)) ? await zeroWidthsOf(styles) : undefined;
         await helpersReady();
-        let { out, p } = build(html, file, earlySrc, styles, lineHeights, zeros);
+        // the minifier reads every page's cascade (builds)
+        const minifyStyles = options.minifyHtml !== false && !dev ? styles ?? await stylesOf(html, virtual.get(file)?.source ?? file, project(root, options)) : undefined;
+        let { out, p } = build(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
         if (images && out.images?.pending.length) {
           await images.analyze(out.images.pending);
-          ({ out, p } = build(html, file, earlySrc, styles, lineHeights, zeros));
+          ({ out, p } = build(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles));
         }
         for (const w of out.remoteWidths ?? []) remoteWidths.add(w);
         // the page's early file from this compile (with the stylesheets), which wrote the page: its ids are the page's
