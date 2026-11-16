@@ -178,18 +178,33 @@ async function go(s: State, url: URL, push: boolean): Promise<boolean> {
   // the head: the new page's own elements in, before the swap (its stylesheets loaded), the old page's out in it
   const head = heads(doc, final);
   if (!head) return false;
-  await head.ready;
+  // its modules fetched and parsed now, run after the swap: the URL, the body and the app change with no
+  // request in between, so nothing sees the new URL without an app on the page (a fragment, not a query: a
+  // module runs once per URL, the fragment is part of it, and the server never sees it)
+  const n = ++s.n, urls = modules.map((m) => `${m.split('#')[0]}#sn-${n}`);
+  const preloads = urls.map((u) => {
+    const l = document.createElement('link');
+    l.rel = 'modulepreload';
+    l.href = u;
+    document.head.append(l);
+    return l;
+  });
+  await Promise.all([head.ready, ...preloads.map((l) => new Promise((r) => { l.onload = l.onerror = r; }))]);
+  for (const l of preloads) l.remove();
   if (c.signal.aborted) { head.undo(); return true; }
 
-  // the old page: its scroll position on its entry, its app gone (its listeners, streams and timers)
-  try { history.replaceState({ ...(history.state ?? {}), snY: scrollY }, ''); } catch { /* ignored */ }
-  if (push) history.pushState({ snY: 0 }, '', final.href);
-  else if (final.href != location.href) history.replaceState(history.state, '', final.href);
-  s.shown = final.pathname;
-  try { instance(document).destroy(); } catch { /* not mounted */ }
-  s.app = null;
-
   const swap = () => {
+    // the old page: its scroll position on its entry, its app gone (its listeners, streams and timers), and
+    // what it left on the <html> and <body> this document keeps (its handlers and state, `sinter.*`)
+    try { history.replaceState({ ...(history.state ?? {}), snY: scrollY }, ''); } catch { /* ignored */ }
+    if (push) history.pushState({ snY: 0 }, '', final.href);
+    else if (final.href != location.href) history.replaceState(history.state, '', final.href);
+    s.shown = final.pathname;
+    try { instance(document).destroy(); } catch { /* not mounted */ }
+    s.app = null;
+    for (const el of [document.documentElement, document.body] as unknown as Array<Element & Record<symbol, unknown>>) {
+      for (const k of Object.getOwnPropertySymbols(el)) if (k.description?.startsWith('sinter.')) delete el[k];
+    }
     const body = document.body, old = [...body.childNodes];
     const kept = new Set(pairs.map(([o]) => o));
     // the new content goes in after the old, in this one task: nothing is painted in between, and a
@@ -239,11 +254,9 @@ async function go(s: State, url: URL, push: boolean): Promise<boolean> {
 
   // the new page's modules: no early file ran, so the page module mounts by itself
   delete (globalThis as Record<symbol, unknown>)[MEETING];
-  // a fragment, not a query: a module runs once per URL, the fragment is part of it, and the server never sees it
   s.modules = all;
-  const n = ++s.n;
-  for (const m of modules) {
-    try { await import(/* @vite-ignore */ `${m.split('#')[0]}#sn-${n}`); } catch (e) { setTimeout(() => { throw e; }); }
+  for (const u of urls) {
+    try { await import(/* @vite-ignore */ u); } catch (e) { setTimeout(() => { throw e; }); }
   }
   return true;
 }
@@ -293,7 +306,25 @@ const permanent: Feature = {
     };
     addEventListener('click', click);
     app.addCleanup(() => removeEventListener('click', click));
+    // `navigate(url)` in a handler: after a same-page link's turn (query-links), another page is a visit
+    const before = app.ext.follow;
+    app.ext.follow = (to, replace) => {
+      if (before?.(to, replace)) return true;
+      const u = new URL(to);
+      if (replace || u.origin != location.origin || pathOf(u) == pathOf(new URL(location.href))) return false;
+      visit(u.href);
+      return true;
+    };
   },
 };
 
 export default permanent;
+
+/**
+ * Goes to `href` as a link to it would, for app code (a redirect after a form): the body is swapped when
+ * both pages keep an element, else the page is loaded.
+ */
+export function visit(href: string): void {
+  const s = state(), u = new URL(href, location.href);
+  go(s, u, true).then((ok) => { if (!ok) location.assign(u.href); }, () => location.assign(u.href));
+}

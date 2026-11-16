@@ -71,15 +71,19 @@ Follow/unfollow and comment deletion wait for the server; favorites are optimist
 ## e2e suite
 
 The suite runs in `spa` mode by default (this app holds the token and calls the API from the
-browser). Against a local backend, `spa` passed all but five tests and `ssr` (`TEST_MODE=ssr`)
-all but one, before the fix below; the rest of `ssr` is skipped by the suite. The failures were
-assumptions in the suite, not app behavior:
+browser). Against the public API (2026-11-16), `spa` passes all 140 tests. Against a local backend,
+`spa` passed all but five tests and `ssr` (`TEST_MODE=ssr`) all but one, before the fixes below; the
+rest of `ssr` is skipped by the suite. The failures were assumptions in the suite, not app behavior:
 
-- **Settings (4, `spa` only):** the `spa` branch keeps using the settings page after the PUT: three
-  tests read the response body over CDP, one calls `page.evaluate` right away. This app redirects to
-  the profile with a page load as soon as the PUT succeeds, which drops the body
-  (`Network.getResponseBody: No resource`) and the JS context (`Execution context was destroyed`).
-  The `ssr` branch of the same tests (wait for the profile, check the bio) passes.
+- **Settings (4, `spa` only), fixed by kept elements (spike):** the `spa` branch keeps using the settings
+  page after the PUT: three tests read the response body over CDP, one calls `page.evaluate` right
+  away, and they read the current user at once. A redirect to the profile with a page load drops the
+  body (`Network.getResponseBody: No resource`) and the JS context (`Execution context was destroyed`).
+  The footer is now `data-sn-permanent` on every page, so a link or `navigate()` swaps the page's body
+  in the same document ([`data-sn-permanent`](../../docs/attributes.md)). The settings form's `then`
+  writes the saved user into `user` (`upsert`), stores the token (`settings-saved` in `src/islands.js`,
+  which keeps the cache: the account is the same) and calls `navigate()`; the profile page shows the
+  cached user at once and revalidates. With a page load in their place (before), the four fail.
 - **Null/Empty Image and Bio Handling, "author avatars should render on other user articles in
   feed":** it reads the author of every `.article-preview`, the "Loading articles..." line included.
   That line now shows only while there is nothing to show (with cached articles, loading means

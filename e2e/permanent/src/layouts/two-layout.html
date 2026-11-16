@@ -8,8 +8,9 @@
   <meta name="description" data-sn-attr="{ content: description }">
   <slot name="head"></slot>
 </head>
-<body>
-  <nav><a id="to-a" href="/">A</a> <a id="to-b" href="/b/">B</a></nav>
+<!-- the layout's state and a handler on <body>, which the swap keeps: the old page's must not stay on it -->
+<body data-sn-state="{ hits: 0 }" data-sn-on-click="hits = hits + 1">
+  <nav><a id="to-a" href="/">A</a> <a id="to-b" href="/b/">B</a> <output id="hits" data-sn-text="hits"></output></nav>
   <aside id="keep" data-sn-permanent="keep">
     <textarea rows="2" aria-label="Notes"></textarea>
     <div id="scroller" style="block-size: 3rem; overflow: auto"><div style="block-size: 20rem">tall</div></div>

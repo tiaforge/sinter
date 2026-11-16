@@ -2,4 +2,5 @@
   <sn-resource name="info" src="/api/a.json" items="info"></sn-resource>
   <h1 id="heading" data-sn-text="info?.name"></h1>
   <p id="count" data-sn-state="{ n: 0 }"><button id="inc" data-sn-on-click="n = n + 1">+</button> <span data-sn-text="'A ' + n"></span></p>
+  <button id="go-b" data-sn-on-click="navigate('/b/')">to B from a handler</button>
 </two-layout>

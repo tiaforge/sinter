@@ -9,6 +9,8 @@ document.addEventListener('signed-in', (e) => {
   token.set(e.detail.user.token);
   location.assign(e.detail.to ?? '/');
 });
+// the same account with new settings: the token may be new, the cached data is still this account's
+document.addEventListener('settings-saved', (e) => { token.set(e.detail.token); });
 document.addEventListener('signed-out', () => {
   clearPersisted();
   token.clear();

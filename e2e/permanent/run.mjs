@@ -40,6 +40,7 @@ const read = () => {
     heading: document.getElementById('heading')?.textContent ?? null,
     items: document.querySelectorAll('#items li').length,
     count: document.querySelector('#count span')?.textContent ?? null,
+    hits: document.getElementById('hits').textContent,
     duplicateIds: ids.filter((x, i) => ids.indexOf(x) !== i),
   };
 };
@@ -94,6 +95,17 @@ for (const name of browsers) {
     await page.goForward();
     await settle(() => location.pathname === '/b/' && document.title === 'B: Beta' && document.querySelectorAll('#items li').length === 3);
     check('Forward to B', await page.evaluate(read), { path: '/b/', marker: 1, kept: true, title: 'B: Beta', robots: 1, outline: 'solid', items: 3, duplicateIds: [] });
+    // the body's handler is the new page's alone: one click, one hit (B's counter was clicked once before)
+    const hits = +(await page.evaluate(() => document.getElementById('hits').textContent));
+    await page.click('h1');
+    check('the body keeps one handler', await page.evaluate(read), { hits: String(hits + 1) });
+
+    // navigate() in a handler is a visit too
+    await page.click('#to-a');
+    await settle(() => location.pathname === '/' && document.title === 'A: Alpha' && document.getElementById('go-b'));
+    await page.click('#go-b');
+    await settle(() => location.pathname === '/b/' && document.title === 'B: Beta' && document.querySelectorAll('#items li').length === 3);
+    check('navigate() from a handler swaps', await page.evaluate(read), { path: '/b/', marker: 1, kept: true, robots: 1, items: 3, duplicateIds: [] });
     check('one page load so far', { loads: [...loads] }, { loads: ['/'] });
 
     // the last click wins: a link to the page shown, while the swap to A is pending, is the browser's
