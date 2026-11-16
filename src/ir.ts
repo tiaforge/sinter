@@ -223,6 +223,12 @@ export interface TemplateDef {
   w?: 1;
   /** its content is one element and nothing else (a `<tr>`, an `<li>`): a row clones just that, not a fragment */
   o?: 1;
+  /**
+   * a wrapper: its content is one `if` or choice anchor and nothing else (no state, dialog or `$el`). A fresh row or branch
+   * of it has no nodes of its own: no clone and no anchor comments; the anchor's branch stands in its place, and an
+   * empty comment while there is none. Rows the early script rendered keep its comments (adopted as they are).
+   */
+  a?: 1;
   /** for: loop variable, index variable, internal index name */
   item?: string;
   index?: string | null;
