@@ -63,7 +63,7 @@ folds, the page ships no JavaScript unless something on it runs.
 | Piece | Where | What it gives |
 | --- | --- | --- |
 | `file:` resources (unreleased) | `src/compiler/files.ts`, `fileResource` in `compile.ts:5684`, `test/behaviour/files.test.ts` | a constant resource: `FILE_ATTRS` (`name`, `src`, `type`, `items`, `key`), embedded data for what still runs, SN332 for anything that would load it, dev reload on change. This proposal extends it rather than adding a second kind |
-| Constant loops and folding | `MAX_UNROLL = 1000` per list, `EXPANSION_LIMIT = 10_000` per page (`compile.ts:8467`) | a `data-sn-for` over a constant list is rows in the HTML; helpers over constants run at build time. This proposal removes the per-list limit ([§4](#4-what-a-page-gets)) |
+| Constant loops and folding | `MAX_UNROLL = 1000` per list, `EXPANSION_LIMIT = 10_000` per page (`compile.ts:8467`) | a `data-sn-for` over a constant list is rows in the HTML; helpers over constants run at build time. The per-list limit is removed since ([§4](#4-what-a-page-gets)) |
 | Per-language inputs | `entries()`, `<root>/<locale>/<page>` (`src/vite.ts:544`, `762`) | one source page compiled several times with a different constant (`$locale`), each a Vite input with its own output path, fixed in `configResolved` |
 | Exact paths | `movesToDirectory` (`src/page-paths.ts:21`) | a `data-sn-path` page stays a file and answers at exactly its paths: `login.html` at `/login`, served by hosts without a rule, canonical without a trailing slash |
 | `sitemap.paths` | `src/sitemap-build.ts`, run in `generateBundle` (`vite.ts:1787`) | app code that may fetch, run once per build: a precedent for running such code, not for when (it runs after compiling; loaders must run before) |
@@ -601,7 +601,7 @@ A prototype first, then three pull requests, each followed by a review of where 
   entry, globs, `key` and `slug`, `drafts`, `order`, SN332's rename and SN539, and what already used `file:`
   (sinter-markdown's `md.parse(post.body)`); (2) the limits: `MAX_UNROLL` removed, `expansionLimit` public;
   (3) `{$locale}`, `fields`, `type` checked against the files, the editor's glob cache and watchers; (4)
-  `content:` and the content module. The first is done; in it, `order` compares in the page's `<html lang>`.
+  `content:` and the content module. The first two are done; in it, `order` compares in the page's `<html lang>`.
   The whole part, as planned: `file:` as in §2 (a `.md` file is an entry, globs, `drafts`, `{$locale}`),
   `order`, `fields`, `MAX_UNROLL` removed and `expansionLimit` public (§4), `content:` and the content module (§3), types checked against
   the files, the snapshot and the editor's watchers (§6, §8), dev reload, SN332's rename. Part A also

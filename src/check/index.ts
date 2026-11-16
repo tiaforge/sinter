@@ -210,7 +210,7 @@ export function checkPage(html: string, o: ProjectOptions & { files?: Record<str
     const file = join(root, 'index.html');
     writeFileSync(file, html);
     const p = project(root, o);
-    const out = compile(html, { ...(p.lazy.length ? { lazyModule: lazyHelpers(root, p.lazy, undefined, p.libraries).reach } : {}), file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: p.readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles });
+    const out = compile(html, { ...(p.lazy.length ? { lazyModule: lazyHelpers(root, p.lazy, undefined, p.libraries).reach } : {}), file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: p.readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles });
     const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()), messagesTypes: p.messagesTypes, libraries: p.libraries });
     return [...p.diagnostics, ...out.diagnostics, ...r.diagnostics].map((d) => ({ ...d, file: relative(root, d.file) }));
   } finally {

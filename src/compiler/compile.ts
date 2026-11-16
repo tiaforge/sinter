@@ -196,7 +196,7 @@ export interface CompileOptions {
    * each writes. The second pass writes them into the markup before the layout and the images (`prefold`)
    */
   constants?: Map<string, ConstantWrite[]>;
-  /** the most rows and component instances a page expands at build time, in all (default `EXPANSION_LIMIT`; tests and measurements) */
+  /** the most rows and component instances a page expands at build time, in all (default `EXPANSION_LIMIT`; `sinter({ expansionLimit })`) */
   expansionLimit?: number;
   /** internal, set by `compileParts` for its second pass: the trees the first found over the limit (`SN536` again, there) */
   overLimit?: Map<string, number>;
@@ -6316,7 +6316,7 @@ class Compiler {
   expansionWarning(el: P5Element, limit: number, list: boolean) {
     const what = list ? 'this list\'s rows' : 'this component\'s tree';
     this.report(el, null, 'SN536', `${what} would take the page past ${limit.toLocaleString('en')} rows and components expanded at build time, so it is rendered in the browser`, 0,
-      'a page that long builds and lays out slowly: split the content over pages, or keep a long list of it a list the browser renders');
+      'a page that long builds and lays out slowly: split the content over pages, keep a long list of it a list the browser renders, or raise `sinter({ expansionLimit })` if the page is measured fast enough');
   }
 
   /** The first pass of a prerendered page, which may compile it again: it records what folds (`collectConstants`). */
@@ -6333,8 +6333,8 @@ class Compiler {
    * loop in it unrolled the same, and each `<sn-component use>` in it rendering none of its candidates (one it
    * renders comes from its shared definition at run time). What a row decides is kept only when the whole loop
    * is unrolled. Keys are instance paths: `<loop>#<k>/` per level before the template's own key (`instKey`).
-   * Two instances with one key (no way to tell them apart) leave it. At most `MAX_UNROLL` items per list and
-   * `EXPANSION_LIMIT` rows and component instances per page (`SN536` past it).
+   * Two instances with one key (no way to tell them apart) leave it. At most `EXPANSION_LIMIT` rows and component
+   * instances per page, any list's rows counted (`SN536` past it, at the loop or the tree that crosses it).
    */
   worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, usedMessage: () => boolean, reset: () => void, ROW: Set<string>) {
     type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; rows: number; over?: true };
@@ -6362,7 +6362,7 @@ class Compiler {
       this.folding?.start(code);
       try { const v = f(sc); return usedMessage() && !this.opts.locale ? FAIL : v; } catch { return FAIL; } finally { this.folding?.end(); }
     };
-    const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.length <= MAX_UNROLL && v.every((x) => plainData(x)) ? v : null);
+    const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
     const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.paints.find((x) => x.node === n)?.el ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
     const rowScope = (sc: object, t: TemplateDef, item: unknown, k: number) => new Proxy({}, {
@@ -8581,8 +8581,6 @@ function deepFreeze<T extends object>(v: T): T {
 
 /** a binding that cannot be written ahead */
 const FAIL: unique symbol = Symbol('first paint: runtime-only');
-/** the most rows a constant loop is unrolled into at build time; a longer list stays a template */
-const MAX_UNROLL = 1000;
 /**
  * the most rows and component instances a page expands at build time, at every depth: compiling the expanded page
  * takes about 0.2 ms each (measured on a generic tree of paragraphs, links and images, in the build and the LSP alike,
