@@ -5,7 +5,7 @@
 // origin, `download`, a `target`, `rel="external"`, a modifier key, a prevented default, or a
 // parameter the page does not read. Loaded only by pages with a link the build sees goes to the page
 // (its list of read parameters is `IR.urlReads`).
-import { links } from './links.js';
+import { chain, links } from './links.js';
 import type { App, Feature } from './runtime/app.js';
 import { readUrl } from './runtime/url.js';
 
@@ -50,7 +50,7 @@ const feature: Feature = {
     // Forward are the core's, the browser's `navigate` event the swap's. Deciding changes nothing: next-page
     // data asks too. Where the browser should follow (a parameter the page does not read, a `#hash` with
     // the same query) there is no decision
-    app.nav.push((i) => {
+    chain(app).nav.push((i) => {
       if (i.kind == 'traverse' || i.source == 'event') return;
       const at = here(), to = new URL(i.to, at);
       if (to.origin != at.origin || to.pathname != at.pathname) return;

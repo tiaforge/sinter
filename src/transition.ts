@@ -4,7 +4,7 @@
 // the old page (`pageswap`), the element with the same name on the new one (`pagereveal`), so a
 // list of a thousand rows asks the browser to capture one element, not a thousand. Going back
 // works the same way from the one named element of a detail page.
-import { links } from './links.js';
+import { chain, links } from './links.js';
 import type { App, Feature } from './runtime/app.js';
 
 const KEY = 'sn:vt';
@@ -51,7 +51,7 @@ const transition: Feature = {
     };
     // what started a navigation that goes ahead (a link, the element of a `navigate()` handler): noted,
     // never decided on, so the handlers and the browser go on as without it
-    app.onGo.push((i) => { last = i.trigger ?? null; });
+    chain(app).onGo.push((i) => { last = i.trigger ?? null; });
     links(app);
 
     const swap = (e: Event) => {

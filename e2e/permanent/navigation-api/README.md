@@ -16,6 +16,8 @@ record is the browsers' behaviour, not sinter's.
 - `precommit.cjs`: whether the URL waits for a `precommitHandler`, read inside the page (`behaviour.cjs`
   reads it through Playwright, whose click can wait for the navigation: its precommit line is not to be
   trusted).
+- `view-transitions.cjs`: transition types and their selector, `view-transition-class`, and whether the
+  stylesheet's `@view-transition` rule is readable from script.
 - `focus-bfcache.cjs`: `focusReset`, and Back into the app from a page load out of it (with a control
   page without the API: headless browsers keep nothing in the back/forward cache).
 

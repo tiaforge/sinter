@@ -71,7 +71,9 @@ Follow/unfollow and comment deletion wait for the server; favorites are optimist
 ## e2e suite
 
 The suite runs in `spa` mode by default (this app holds the token and calls the API from the
-browser). Against the public API (2026-11-16), `spa` passes all 140 tests. Against a local backend,
+browser). Against a local backend (realworld-django-ninja, 2026-11-16) `spa` passes all 140 tests, and
+the same build with the four RealWorld files from before the swap work (page loads) 136, failing the
+four settings tests below. Against the public API it varies (below). Before these changes, against a local backend,
 `spa` passed all but five tests and `ssr` (`TEST_MODE=ssr`) all but one, before the fixes below; the
 rest of `ssr` is skipped by the suite. The failures were assumptions in the suite, not app behavior:
 
@@ -86,7 +88,7 @@ rest of `ssr` is skipped by the suite. The failures were assumptions in the suit
   cached user at once and revalidates. With a page load in their place (before), the four fail.
   Every redirect goes the one way in: the islands call `navigate` from `@tiaforge-ui/sinter` for signing in
   and out, and `<conduit-redirect>` calls it with `replace: true` (a swap where both pages allow it).
-  Against the shared public API, a run now and then shows another account right after registering
+  Against the shared public API (not a local backend), a run now and then shows another account right after registering
   (`pw` and the time in base 36, `John Doe`, `www.google.com:80/`: other clients' accounts): 5 of 140
   settings runs in two runs, and 3 of 140 tests in a full run (two settings tests and `social`'s "should
   view own profile"). The `social` one has no swap and none of these changes on its path (registering

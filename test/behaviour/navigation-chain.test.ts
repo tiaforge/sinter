@@ -3,7 +3,7 @@
 // one (or when it cannot run) is the core's alone, by the intent's source. Links become intents through
 // one shared listener (links.ts).
 import { expect, test } from 'vitest';
-import { links } from '../../src/links.js';
+import { chain, links } from '../../src/links.js';
 import type { Decision, Intent } from '../../src/runtime/app.js';
 import { render } from '../../src/testing/index.js';
 
@@ -21,14 +21,15 @@ async function setup(decide: (i: Intent) => Decision | undefined = () => undefin
   const r = await render(PAGE, { url: 'http://localhost/' });
   await r.settle();
   const seen: Intent[] = [], ran: string[] = [];
-  r.app.nav.push((i) => { seen.push(i); return decide(i); });
+  const c = chain(r.app);
+  c.nav.push((i) => { seen.push(i); return decide(i); });
   const click = async (id: string, o: MouseEventInit = {}) => {
     const ev = new MouseEvent('click', { bubbles: true, cancelable: true, ...o });
     r.root.querySelector(`#${id}`)!.dispatchEvent(ev);
     await r.settle();
     return ev.defaultPrevented;
   };
-  return { ...r, seen, ran, click };
+  return { ...r, c, seen, ran, click };
 }
 
 test('navigate(): an intent with its source, kind and trigger; no decision, the page loads', async () => {
@@ -56,8 +57,8 @@ test('a decision runs, once, and nothing loads; a run that cannot (false) is a l
 test('every handler is asked; the first decision is the one that runs', async () => {
   const p = await setup(() => ({ name: 'first', run: () => { p.ran.push('first'); } }));
   const after: Intent[] = [];
-  p.app.nav.push((i) => { after.push(i); return { name: 'second', run: () => { p.ran.push('second'); } }; });
-  expect(p.app.go({ from: 'http://localhost/', to: 'http://localhost/x', kind: 'push', source: 'call' })?.name).toBe('first');
+  p.c.nav.push((i) => { after.push(i); return { name: 'second', run: () => { p.ran.push('second'); } }; });
+  expect(p.c.go({ from: 'http://localhost/', to: 'http://localhost/x', kind: 'push', source: 'call' })?.name).toBe('first');
   expect(after).toHaveLength(1);
   expect(p.ran).toEqual(['first']);
 });
@@ -65,11 +66,11 @@ test('every handler is asked; the first decision is the one that runs', async ()
 test('deciding runs nothing (next-page data asks), and observers see only what goes', async () => {
   const p = await setup(() => ({ name: 'mine', run: () => { p.ran.push('run'); } }));
   const went: string[] = [];
-  p.app.onGo.push((i) => went.push(i.to));
-  expect(p.app.decide({ from: 'http://localhost/', to: 'http://localhost/x', kind: 'push', source: 'link' })?.name).toBe('mine');
+  p.c.onGo.push((i) => went.push(i.to));
+  expect(p.c.decide({ from: 'http://localhost/', to: 'http://localhost/x', kind: 'push', source: 'link' })?.name).toBe('mine');
   expect(p.ran).toEqual([]);
   expect(went).toEqual([]);
-  p.app.go({ from: 'http://localhost/', to: 'http://localhost/y', kind: 'push', source: 'call' });
+  p.c.go({ from: 'http://localhost/', to: 'http://localhost/y', kind: 'push', source: 'call' });
   expect(went).toEqual(['http://localhost/y']);
 });
 
@@ -80,7 +81,7 @@ test('links: a plain click is an intent; a decision prevents the default, none l
   expect(await p.click('a')).toBe(true);
   expect(p.seen.map((i) => [i.to, i.kind, i.source, (i.trigger as Element).id])).toEqual([['http://localhost/other?x=1', 'push', 'link', 'a']]);
   // no decision for a link: the browser follows it, the core loads nothing itself
-  p.app.go({ from: 'http://localhost/', to: 'http://localhost/elsewhere', kind: 'push', source: 'link' });
+  p.c.go({ from: 'http://localhost/', to: 'http://localhost/elsewhere', kind: 'push', source: 'link' });
   expect(p.navigations).toEqual([]);
   // a modifier, another target, a download, rel="external", a default the page prevented: no intent
   const before = p.seen.length;

@@ -50,10 +50,10 @@ Decisions:
   to the profile drops the body (`Network.getResponseBody: No resource`) and the context (`Execution
   context was destroyed`): four tests, documented as unfixable for a multi-page app
   ([same-page-links.md](same-page-links.md)). With the footer kept on every page, the redirect is a swap:
-  the full suite passed against the public RealWorld API, 140 of 140, where the same build with a page
-  load fails those four (136). These runs depend on the shared public API, which now and then answers
-  with another account ([Testing](#testing)); for the record they are to be repeated against a local
-  backend. The swap needed three more things for it: no moment without a mounted app
+  against a local backend (realworld-django-ninja on SQLite, 2026-11-16) the full suite passes, **140 of
+  140**, and the same build with page loads (the four RealWorld files from before the swap work) **136**,
+  failing exactly those four. No other account appeared in either run: that symptom was the shared public
+  API's ([Testing](#testing)). The swap needed three more things for it: no moment without a mounted app
   ([5](#5-the-sequence)), the cache written when an app goes ([7](#7-what-the-core-and-the-features-need)),
   and the app keeping its cache across a redirect within the same account (RealWorld's `settings-saved`).
 
@@ -93,8 +93,11 @@ Questions the default raises, to settle in step 3:
   module on the page a link leaves. Proposed: such pages stay without JavaScript and their links are page
   loads (the page they lead to may still be swapped to from elsewhere); a kept element is a runtime reason,
   as now.
-- **Size on every page that ships JavaScript**: the swap module (about 3 KB gzip) on every such page, not
-  only on pages with a kept element.
+- **Size on every page that ships JavaScript**: the swap module, the chain and the link listener on every
+  such page, not only on pages with a kept element. Measured on RealWorld, which loads them on every page
+  through its kept footer: the article page 23,470 → 26,518 B gzip, the index 25,239 → 28,118 B (about
+  +3 KB a page; `scripts/size.mjs` before the spike and now). The article page stays inside its 27 KB
+  budget by about 1 KB.
 - **A breaking change** for apps whose pages rely on loads: called out in the CHANGELOG, with the opt-outs.
 
 **The decision comes from the build, not from a fetch.** The build knows which pages opt in and which
@@ -184,12 +187,21 @@ left the doing spread out, and the intent thinner than this text promised:
 - Measured: the unit suite (2020 tests; the query-links, transition, prefetch, speculation and navigate
   suites untouched); `e2e/navigation` in Chrome; `e2e/permanent` in Chromium, Firefox and WebKit, with a
   new step for a second click while the page is fetched (one entry); RealWorld's settings spec 21 of 21
-  over three repeats. Core 14,915 B gzip (+233 over the 14,682 before step 2), the swap 3,098 B.
+  over three repeats. Core 14,915 B gzip (+233 over the 14,682 before step 2), the swap 3,098 B; then
+  trimmed (below).
 - An app is always mounted: the swap marks the old app `leaving` instead of destroying it, and the next
   `mount` on its root destroys it first (the old app's cache is written before the new one reads it). A
   RealWorld settings test that reads the current user right after the URL changes found none without it
   (the URL now commits after the precommit handler, before the module's mount). The compiler change of
   [6](#6-the-pages-code) makes the hand-off one synchronous step.
+
+**Trimmed** (2026-11-16): the chain (`nav`, `onGo`, `decide`, `go`, the fallbacks) moved out of the core
+into `links.ts` (`chain(app)`), which only pages with a feature that decides on navigations load; the
+core keeps `navigate()` asking the chain where one is installed (else it loads, as before step 2), the
+`popstate` asking it, and the `leaving` hand-off in `mount`. An event's fallback (a load, or a reload once
+its URL committed) is the intent's `load`, given by the swap that makes event intents and run by the
+chain, so the core holds no event logic. Core **14,762 B gzip, +80** over the 14,682 before step 2 (from
++233); the chain is about 200 B in `links.ts`, paid once by a page with same-page links, morphs or swaps.
 
 Every way in is then one of: a link (the shared listener), `navigate()` (handlers and app code), a
 traversal (the core's `popstate`), and the browser's own (a new tab, a modifier, a link the chain does not
@@ -354,6 +366,31 @@ none:
   spike it is taken before the mount, so it fades to the new page's unbound markup.
 - A transition another navigation skips rejects its promises: caught (in the spike).
 
+**Who owns transitions: sinter labels them, the stylesheet styles them.** The browser runs a view
+transition; CSS alone cannot know what a navigation is (a push or Back, which page to which), and the
+runtime should not own how it looks. So the contract is three things sinter sets and a stylesheet (temper,
+or the app's) reads, the same for a swap and for a page load:
+- **Types** on every transition, for `:active-view-transition-type()`: `sn-push`, `sn-replace` or
+  `sn-traverse`, and on a traversal `sn-back` or `sn-forward` (from the entries' `index`, which the
+  `navigate` event gives). A swap passes them to `startViewTransition({ update, types })`; on a page load
+  the transition feature adds the same ones in `pageswap`/`pagereveal` (`viewTransition.types`), so one
+  rule styles both.
+- **Names and classes:** `data-sn-transition` pairs as today (`view-transition-class: sn-transition`);
+  each kept element named for the swap's duration (`sn-keep`), so it stays still while the page around it
+  changes instead of fading with the root (a playing video does not flicker).
+- **When:** the swap starts no transition under `prefers-reduced-motion: reduce`. Turning the fade off is
+  CSS (`::view-transition-group(root) { animation: none }`), as decided.
+
+temper then provides transitions as CSS only: its `@view-transition { navigation: auto }` stays for page
+loads, and rules such as `:root:active-view-transition-type(sn-back)::view-transition-old(root) { … }`
+give swaps and loads a direction, with the reduced-motion handling it already has. Measured
+(`e2e/permanent/navigation-api/view-transitions.cjs`): types, the type selector and
+`view-transition-class` work in Chromium 153, Firefox 155 and WebKit 26.6. The `@view-transition` rule is
+readable from script (`CSSViewTransitionRule`) in Chromium and WebKit but not Firefox, so the swap does not
+read the stylesheet to decide anything. Whether Firefox runs transitions between documents at all is not
+probed yet; if it does not, swaps are the only page transitions it gets. The view-navigation module ([9](#9-room-for-view-navigations)) adds
+types and pairs to the same contract (a list-to-detail type, several shared elements).
+
 ### 9. Room for view navigations
 
 The later module (working name `views`) would do what one cross-fade cannot: forward and back
@@ -416,15 +453,15 @@ Measured with `scripts/size.mjs` (gzip):
 
 | | before step 2 | the spike now |
 | --- | --- | --- |
-| core (every page) | 14,682 B | 14,761 B (+79: the chain, `navigate` exported) |
-| transition (pages with morphs) | 802 B | 1,017 B (+215: the shared link listener instead of a 20-byte capturing one) |
-| query-links | 770 B | 816 B (+46) |
-| prefetch | 1,457 B | 1,474 B (+17) |
-| the swap | 2,705 B | 3,048 B (scroll keys and restoration, `replace`) |
+| core (every page) | 14,682 B | 14,762 B (+80: `navigate()` and `popstate` ask an installed chain, the `leaving` hand-off) |
+| transition (pages with morphs) | 802 B | 1,233 B (+431: the chain and the shared link listener instead of a 20-byte capturing one) |
+| query-links | 770 B | 1,024 B (+254: the chain and the link listener) |
+| prefetch | 1,457 B | 1,489 B (+32) |
+| the swap | 2,705 B | 3,337 B (the chain, the Navigation API path, the precommit split) |
 
-`links.ts` alone is about 350 B; a page with several link features pays for it once. The compiler change
-of [6](#6-the-pages-code) removes the re-import and preload code; the live region, the decision/run split
-and the head records add some.
+Each module is measured alone, with `links.ts` (the chain and the link listener, about 550 B) bundled in;
+a page with several of them pays for it once. The compiler change of [6](#6-the-pages-code) removes the
+re-import and preload code; the live region and the head records add some.
 
 ## Testing
 
@@ -439,7 +476,8 @@ and the head records add some.
 - **The dashboard check** (a scratch script; to be committed as a test): the audio playing on, the
   streams opened and closed, the build in three browsers and the dev server in Chromium.
 - **RealWorld's suite** in `spa` mode as the integration test, against a local backend
-  (`e2e-local.sh`). Against the public API, runs now and then show another account right after
+  (`e2e-local.sh`; 140 of 140 with swaps, 136 with page loads). Its cleanup now stops the preview server
+  it starts (it left one serving a deleted folder, which failed the next run). Against the public API, runs now and then show another account right after
   registering (`pw` + the time in base 36, `John Doe`, `www.google.com:80/`), including on a path with no
   swap (`social`'s "should view own profile": registering redirects, the home page loads): the shared API
   answers a new token with another account, so its numbers are not a record.
@@ -448,8 +486,8 @@ and the head records add some.
 
 ## Breaking changes
 
-- Every page's core grows by the chain (+79 B gzip), pages with morphs by the shared link listener
-  (+215 B).
+- Every page's core grows by 80 B gzip; pages with morphs or same-page links by the chain and the shared
+  link listener (about 250–430 B, once per page).
 - `cache` writes on destroy: for any app that calls `destroy()` (tests do), entries are written later, with
   the same data.
 - `ext.sameLink` and `ext.follow` are gone (internal; no app code uses them).

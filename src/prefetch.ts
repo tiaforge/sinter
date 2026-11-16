@@ -84,7 +84,7 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
         let u: URL;
         try { u = new URL(a.getAttribute('href')!, here); } catch { return; }
         // a link that stays in the page (query-links.ts: the navigation handlers, asked): nothing to hand over
-        if (app.decide({ from: here.href, to: u.href, kind: 'push', source: 'link', trigger: a })?.name == 'same') return;
+        if (app.decide?.({ from: here.href, to: u.href, kind: 'push', source: 'link', trigger: a })?.name == 'same') return;
         if (u.origin != here.origin || a.hasAttribute('download') || (a.target && a.target != '_self')) return;
         if (u.pathname == here.pathname && u.search == here.search) return;
         const net = (globalThis as any).navigator?.connection;

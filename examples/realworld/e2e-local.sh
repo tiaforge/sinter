@@ -22,6 +22,6 @@ grep -rl 'https://api.realworld.show/api' "$work" --include='*.html' --include='
 sed -i "s#https://api.realworld.show/api#$API#g" "$work"/e2e/{error-handling,user-fetch-errors,health}.spec.ts
 cd "$work"
 npx vite build --logLevel error
-npx vite preview --port "$PORT" --strictPort > /dev/null 2>&1 &
+./node_modules/.bin/vite preview --port "$PORT" --strictPort > /dev/null 2>&1 &  # vite itself, not npx: the trap kills the jobs, and npx does not pass it on
 sleep 2
 BASE_URL="http://localhost:$PORT" API_BASE="$API" npx playwright test "$@"

@@ -85,9 +85,12 @@ export interface Pager {
  * the event, for the handler that intercepts it).
  */
 export interface Intent {
-  from: string; to: string; kind: 'push' | 'replace' | 'traverse';
+  /** where from: the page's URL, set by `go` when the source leaves it out */
+  from?: string; to: string; kind: 'push' | 'replace' | 'traverse';
   source: 'link' | 'call' | 'popstate' | 'event';
   trigger?: Element | null; index?: number; signal?: AbortSignal; event?: Event;
+  /** what the source does when no handler can (the core runs it): a call loads `to`; an event says its own */
+  load?(): void;
 }
 /**
  * What a handler decides for an intent: its name (`same`, `swap`) and what it does, run by the core once
@@ -295,22 +298,16 @@ export interface App {
   exec(f: number, scope: any, writes?: PathRef[], o?: { at?: Record<number, string> }): void;
   addCleanup(fn: () => void): void;
   /**
-   * The navigation handlers, in the order features registered them (same-page links, transitions, the
-   * swap). Each is asked; the first decision is the one the core runs (`go`).
+   * The navigation chain (links.ts: `chain(app)`), on pages with a feature that decides on navigations
+   * (same-page links, transitions, the swap): the handlers in the order features registered them, the
+   * observers of what goes, `decide` (asks every handler, runs nothing) and `go` (runs the first decision,
+   * else the source's fallback). Absent: `navigate()` loads the page and Back reads `$url`, as before.
    */
-  readonly nav: Navigator[];
-  /** told of every intent `go` runs, before any handler acts (a transition notes its trigger); not of `decide`'s */
-  readonly onGo: Array<(i: Intent) => void>;
-  /** asks every handler, nothing runs: the first decision (next-page data asks what a link would do) */
-  decide(i: Intent): Decision | undefined;
-  /**
-   * decides and runs. No decision, or a `run` that could not: what the source does without sinter, done by
-   * the core alone (a link: the browser follows it; a call: the page loads; an event: the browser goes on;
-   * a failed run after the default was taken: the page loads, or reloads at a URL already committed)
-   */
-  go(i: Intent): Decision | undefined;
-  /** the one way to another URL from code (`navigate()` in a handler, app code) */
-  navigate(url: string, o?: { replace?: boolean; trigger?: Element | null }): void;
+  nav?: Navigator[];
+  onGo?: Array<(i: Intent) => void>;
+  decide?(i: Intent): Decision | undefined;
+  go?(i: Intent): Decision | undefined;
+
   /** runs `fn` now, or, on a page the browser prerenders (Speculation Rules), once it is shown */
   shown(fn: () => void): void;
 }
@@ -460,7 +457,7 @@ const rowNodes = (x: Inst) => x.nodes ?? [x.first!];
  */
 export function navigate(url: string, o?: { replace?: boolean }): void {
   const app = instances.get(document);
-  if (app) app.navigate(url, o);
+  if (app) app.storeFns(null).navigate(url, o);
   else if (o?.replace) location.replace(url); else location.assign(url);
 }
 
@@ -797,7 +794,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
       },
       emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
       // to this page with only parameters it reads changed: as a same-page link (no load); else the browser navigates
-      navigate: (url: string, o?: { replace?: boolean }) => app.navigate(url, { ...o, trigger: el }),
+      // the navigation chain where a feature installed one (links.ts), else the page loads
+      navigate: (url: string, o?: { replace?: boolean }) => {
+        const to = new URL(url, app.env.href()).href;
+        if (app.go) app.go({ to, kind: o?.replace ? 'replace' : 'push', source: 'call', trigger: el });
+        else if (o?.replace) (app.env.replace ?? ((u: string) => location.replace(u)))(to);
+        else app.env.navigate(to);
+      },
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
       run: (id: string) => {
         const t = byId(id), h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
@@ -817,29 +820,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     },
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),
-    nav: [],
-    onGo: [],
-    decide(i) {
-      let d: Decision | undefined;
-      for (const h of app.nav) { const r = h(i); if (r && !d) d = r; }
-      return d;
-    },
-    go(i) {
-      for (const f of app.onGo) f(i);
-      const d = app.decide(i);
-      // an event's navigation may have committed its URL (then the page is reloaded, once that navigation
-      // has settled) or not (then it is loaded, as the browser would have)
-      const load = () => (i.source == 'popstate' || (i.source == 'event' && env.href() == i.to) ? env.setTimeout(() => location.reload(), 0)
-        : i.kind == 'replace' ? (env.replace ?? ((u: string) => location.replace(u)))(i.to) : env.navigate(i.to));
-      if (!d) { if (i.source == 'call') load(); return d; }
-      const r = d.run?.();
-      if (r === false) load();
-      else if (r instanceof Promise) r.then((ok) => { if (ok === false) load(); }, load);
-      return d;
-    },
-    navigate(url, o) {
-      app.go({ from: env.href(), to: new URL(url, env.href()).href, kind: o?.replace ? 'replace' : 'push', source: 'call', trigger: o?.trigger });
-    },
     shown: (fn) => void (waiting ? waiting.push(fn) : fn()),
   };
   app.page.$f = app.storeFns(null);
@@ -895,7 +875,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }), app.page, rootRbs);
   cleanups.push(env.listen('popstate', () => {
     // a handler may take Back or Forward (the swap, to another path); else the page reads `$url` again
-    if (app.go({ from: env.href(), to: env.href(), kind: 'traverse', source: 'popstate' })) return;
+    if (app.go?.({ to: env.href(), kind: 'traverse', source: 'popstate' })) return;
     const u = app.page.$url;
     for (const k in u) delete u[k];
     Object.assign(u, readUrl());

@@ -11,6 +11,7 @@
 //
 // The kept element holds no bindings (the build checks it): the new page's compiled code finds only
 // its own nodes, none of them inside a kept element.
+import { chain } from './links.js';
 import type { App, Feature, Intent } from './runtime/app.js';
 import { instance } from './runtime/app.js';
 
@@ -306,9 +307,10 @@ const permanent: Feature = {
     s.shown = location.pathname;
     // no Navigation API: no swaps, every navigation is the browser's
     if (!N) return;
+    const c = chain(app);
     // what started a link or `navigate()` the browser goes on with (no handler decided): the event it causes has no `sourceElement` for a call
     let trigger: Element | null = null;
-    app.onGo.push((i) => { if (i.source == 'link' || i.source == 'call') trigger = i.trigger ?? null; });
+    c.onGo.push((i) => { if (i.source == 'link' || i.source == 'call') trigger = i.trigger ?? null; });
     // the browser's navigations to another document of this origin, and traversals: intents for the chain
     const on = (ev: Event) => {
       const e = ev as NavigateLike;
@@ -317,14 +319,18 @@ const permanent: Feature = {
       if (e.destination.sameDocument && e.navigationType != 'traverse') return;
       // the entry being left: its position, before the browser makes another one current
       track();
-      app.go({ from: location.href, to: e.destination.url, kind: e.navigationType, source: 'event', trigger: e.sourceElement ?? trigger, index: e.destination.index, signal: e.signal, event: e });
+      // its fallback, once the swap could not: a load of its URL, or a reload if the URL committed already
+      // (after that navigation settled)
+      const to = e.destination.url, kind = e.navigationType;
+      const load = () => (location.href == to ? setTimeout(() => location.reload()) : kind == 'replace' ? location.replace(to) : location.assign(to));
+      c.go({ from: location.href, to, kind, source: 'event', trigger: e.sourceElement ?? trigger, index: e.destination.index, signal: e.signal, event: e, load });
       trigger = null;
     };
     N.addEventListener('navigate', on);
     app.addCleanup(() => N.removeEventListener('navigate', on));
     // the swap's decision: a `navigate` event to another page of this origin, or a traversal to an entry of
     // another path; and the `popstate` of a traversal it intercepted (decided, done: the core does nothing)
-    app.nav.push((i) => {
+    c.nav.push((i) => {
       if (i.source == 'popstate') return s.took != null && s.took === entry() ? { name: 'swap' } : undefined;
       if (i.source != 'event') return;
       const e = i.event as NavigateLike, u = new URL(i.to);
