@@ -13,7 +13,7 @@ This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short v
 ## Attributes
 
 - `data-sn-state` (object literal): declares local reactive state for the element and its subtree
-- `data-sn-let` (object literal {name: expression}): derived names for the element and its subtree; later names may use earlier ones. A name is inlined where it is read, unless its expression calls a helper: then it is computed once per scope instance and again when what it reads changes (a call whose arguments are equal primitives returns its last result)
+- `data-sn-let` (object literal {name: expression}): derived names for the element and its subtree, computed where they are read (a helper call included: keep an expensive one's results with `memo()`, configuration.md); later names may use earlier ones
 - `data-sn-text` (value expression): sets textContent; never HTML. On a <template>: a text node with no element (a run of text beside elements); no other attribute on that template
 - `data-sn-attr` (object literal {href: …}): literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property
 - `data-sn-class` (object literal {unread: …}): toggles each class
