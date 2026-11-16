@@ -23,7 +23,7 @@ Link the issue from the pull request.
 
 ## Fuzz tests
 
-Three seeded fuzz tests generate random pages, or random calls, and check that every way of computing them agrees. They
+Four seeded fuzz tests generate random pages, or random calls, and check that every way of computing them agrees. They
 found bugs that hand-written tests missed: wrong output where features meet, over constants only,
 or only after the page module takes over.
 
@@ -31,6 +31,19 @@ or only after the page module takes over.
   another component's tag, a slot, a choice, a list), with fills, slot content,
   `<sn-component use>`, loops, branches and texts.
 - `test/behaviour/anchor-fuzz.test.ts` nests lists, branches, texts and elements inside a row.
+- `test/behaviour/reactivity-fuzz.test.ts` runs random handlers over a page with lets over helpers: writes
+  in place and reassigned, keyed and index-keyed rows moved and their own handlers, store functions,
+  `refresh()`, `page()` on a paginated resource and an `each` resource, `emit()` with listeners that write
+  and that read, a nested synchronous click read around, an island whose prop setter fires an event
+  mid-flush, `<sn-sync>` upserts, refetch events and a dropped stream, an optimistic action, actions whose
+  `then` and `catch` read lets, a component with a let of its own, a `data-sn-persist` scope and the
+  locale, with reads of lets stored between them. Three oracles: the same page with its helpers wrapped
+  in `memo()` (page, state and stored reads equal by structure); every state scope marked whole after
+  each settle changes nothing on the page (a write path that marks too little); and, on a third of the
+  seeds, the early script's first paint taken over. `SN_FUZZ_DEPTH` makes the handlers and click scripts
+  longer, `SN_FUZZ_FIRST` starts at another seed (run a long sweep in chunks side by side).
+  `SN_FUZZ_ALIAS=1` adds writes through aliases (`sel = y; sel.n += 10`), which fail: a write marks the
+  alias's path, not the item's (main's known gap); they come on by default with the alias-tracking PR.
 - `test/memo-fuzz.test.ts` calls `memo()` with random argument lists: primitives that look alike (`0` and
   `-0`, `NaN`, `''` and `undefined`, strings that run into each other), plain objects and arrays of them in
   other orders, with holes or a null prototype, look-alikes of each list, and arguments that call through.
