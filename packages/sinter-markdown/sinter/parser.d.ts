@@ -1,12 +1,19 @@
 // The prebundled parser (sinter/parser.js, built by scripts/build-parser.mjs).
 
-/** an mdast node, as mdast-util-from-markdown would return it, before `md.parse` reduces it to sinter.types.ts */
-export interface MdastNode {
+/** a markdown-it token, for the parts md.parse reads */
+export interface Token {
   type: string;
-  children?: MdastNode[];
-  value?: string;
-  [key: string]: unknown;
+  /** the element: `h2` for a level-2 heading's tokens */
+  tag: string;
+  content: string;
+  /** a fence's info string, unescaped */
+  info: string;
+  /** a paragraph of a tight list's item */
+  hidden: boolean;
+  /** an `inline` token's tokens; an image's description */
+  children: Token[] | null;
+  attrGet(name: string): string | null;
 }
 
-/** The mdast tree of `source`: CommonMark, and GFM tables, task lists, strikethrough and autolinks. */
-export function tokenize(source: string): MdastNode;
+/** The block tokens of `source` (CommonMark, and GFM tables, strikethrough and autolinks), as markdown-it gives them. */
+export function tokenize(source: string): Token[];
