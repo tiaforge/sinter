@@ -572,6 +572,16 @@ Each entry of a `data-sn-pages` list fills the page's pattern: every `:param` ta
 
 **Fix:** Give the entry the field (in its frontmatter, or a file name that makes its `slug`), make it one segment, or give two entries different values.
 
+## SN342 unknown-collection
+
+Error, for example:
+
+> `post` is not a collection of the content module (it has `posts`, `tags`)
+
+`<sn-resource src="content:posts">` reads a collection of the content module (`src/sinter.content.ts`): an export made with `collection({ key, load })`, loaded before any page compiles. The name must be one of its exports. In the dev server, a content module that failed to load reports its error here, on each page that reads a collection.
+
+**Fix:** Name an exported collection, or export one: `export const posts = collection({ key: 'slug', load: async () => … })`. If the module failed to load, fix the error it names.
+
 ## SN401 parse-error
 
 Error, for example:

@@ -103,6 +103,8 @@ describe('a file: resource', () => {
     expect(r.root.querySelector('p')!.textContent).toBe('Hello <world> </script> ok');
     const bad = resolveApis({ apis: { file: { base: '/files' } } }, () => null, [], 'vite.config.ts');
     expect(bad.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([expect.stringMatching(/^SN329 sinter\(\{ apis \}\): `file` is the built-in source of the project's own files/)]);
+    const content = resolveApis({ apis: { content: { base: '/c' } } }, () => null, [], 'vite.config.ts');
+    expect(content.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([expect.stringMatching(/^SN329 sinter\(\{ apis \}\): `content` is the built-in source of the content module's collections/)]);
   });
 });
 

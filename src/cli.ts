@@ -10,6 +10,7 @@ import { project, staticPages, strictEnv, viteProject, type ProjectOptions } fro
 import { lazyDiagnostics, lazyHelpers, resolveFile } from './lazy-build.js';
 import { loadHelpers, unloadedMessage } from './helpers-node.js';
 import { checkLocale } from './locales-build.js';
+import { readSnapshot } from './content-node.js';
 import { componentScript } from './components-build.js';
 
 const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter docs [topic | data-sn-… | SN318 | words]\n       sinter render <page.html> [--url …] [--api mocks.json | http://…] [--click …] (sinter render --help)\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
@@ -60,12 +61,17 @@ async function main(argv: string[]): Promise<number> {
   const units: CheckUnit[] = [];
   // `localePrefix`: the build compiles each page in a language (`$locale` fixed, `localeUrl()`); checked in the base one
   const locale = checkLocale(root, options as ProjectOptions & { localePrefix?: boolean });
+  // collections: from the build's snapshot (the check runs no loaders); typed from the content module
+  const snap = p.contentFile ? readSnapshot(root, p.contentFile) : null;
+  if (p.contentFile && !snap) console.error('sinter check: the content module\'s collections have no snapshot yet (vite build or vite dev writes one): what pages read of them is typed, not checked against their values');
+  else if (snap?.stale) console.error('sinter check: the content module changed since the collections\' snapshot (vite build or vite dev writes a new one): their values may be out of date');
+  const contentOpts = p.contentFile ? { contentModule: p.contentFile, ...(snap ? { collections: snap.collections } : {}) } : {};
   const lh = p.lazy.length ? lazyHelpers(root, p.lazy, undefined, p.libraries) : null;
   // the helpers module in Node, as the build loads it: what folds, and so SN322, agrees with the build
   const nh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers });
   if (nh.error && p.helpersFile) diagnostics.push({ severity: 'warning', code: 'SN533', message: unloadedMessage(root, p.helpersFile, nh.error), file: p.helpersFile, line: 1, col: 1 });
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { ...(lh ? { lazyModule: lh.reach } : {}), helperValues: nh.module, helperFold: nh.fold, file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles || cycles, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(locale ? { locale } : {}) });
+    const out = compile(readFileSync(file, 'utf8'), { ...(lh ? { lazyModule: lh.reach } : {}), helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles || cycles, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(locale ? { locale } : {}) });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }

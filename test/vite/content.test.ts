@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import { build } from 'vite';
 import { afterAll, describe, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
+import { readSnapshot } from '../../src/content-node.js';
 
 const src = resolve(__dirname, '../../src');
 const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
@@ -22,7 +23,7 @@ async function run(files: Record<string, string>, input: string[]) {
   try {
     await build({ root, logLevel: 'silent', plugins: [sinter({ static: true })], resolve: { alias }, build: { outDir: join(root, 'dist'), emptyOutDir: true, rollupOptions: { input: Object.fromEntries(input.map((f) => [f.replace(/\.html$/, ''), join(root, f)])) } } });
   } catch (e) { error = String((e as Error).message); }
-  return { error, read: (f: string) => readFileSync(join(root, 'dist', f), 'utf8'), has: (f: string) => existsSync(join(root, 'dist', f)) };
+  return { root, error, read: (f: string) => readFileSync(join(root, 'dist', f), 'utf8'), has: (f: string) => existsSync(join(root, 'dist', f)) };
 }
 
 const CONTENT = `import { collection } from '@tiaforge-ui/sinter/content';
@@ -75,4 +76,18 @@ export const helper = (x) => x;
     expect(r.error).toMatch(/collection `c`: entry 0 is not plain data: `at` is a Date \(return `toISOString\(\)`\)/);
     expect(r.error).toMatch(/collection `d`: entries 0 and 1 have one `id`, `1`/);
   }, 60_000);
+
+  test('the build writes the snapshot `sinter check` and the editor read; it is stale once the module changes', async () => {
+    const r = await run(app, ['index.html']);
+    expect(r.error).toBe(null);
+    const snap = readSnapshot(r.root, join(r.root, 'src/sinter.content.ts'))!;
+    expect(snap.stale).toBe(false);
+    expect((snap.collections.get('site')!.value[0] as { name: string }).name).toBe('My blog');
+    expect(snap.collections.get('posts')!.value.map((p) => (p as { slug: string }).slug)).toEqual(['hello', 'recap']);
+    const later = new Date(Date.now() + 5000);
+    const { utimesSync } = await import('node:fs');
+    utimesSync(join(r.root, 'src/sinter.content.ts'), later, later);
+    expect(readSnapshot(r.root, join(r.root, 'src/sinter.content.ts'))!.stale).toBe(true);
+  }, 60_000);
 });
+

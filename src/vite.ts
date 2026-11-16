@@ -10,7 +10,7 @@ import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
-import { loadContent, type LoadedContent } from './content-node.js';
+import { loadContent, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, compile, formatDiagnostic, formatWarning, strictPromotes, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
 import { lazyOf, project, staticPages, strictOf, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
@@ -753,11 +753,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const loadCollections = async (): Promise<LoadedContent | null> => {
     const p = proj();
     if (!p.contentFile || !resolved) return null;
-    return loadContent({
+    const c = await loadContent({
       root, file: p.contentFile, command: dev ? 'serve' : 'build', readFile: p.readFile, listFiles: p.listFiles,
       env: loadEnv(resolved.mode, resolved.envDir === false ? root : resolved.envDir ?? root, ''),
       configFile: resolved.configFile ?? false, mode: resolved.mode, ...(resolved.configFile ? {} : { alias: resolved.resolve.alias }),
     });
+    // what `sinter check` and the editor compile against (the last load that worked)
+    if (!c.error) writeSnapshot(root, p.contentFile, c);
+    return c;
   };
   /** what every compile gets of the collections */
   const contentOpts = () => (content ? { collections: content.collections, ...(content.error ? { collectionsError: content.error } : {}) } : {});

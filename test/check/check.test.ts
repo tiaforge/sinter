@@ -854,3 +854,27 @@ describe('file: resources, checked against their files', () => {
   });
 });
 
+describe('content: resources, typed from their loaders', () => {
+  test('without `type`: what the loader returns; a typo is an error, and no SN504', () => {
+    const files = {
+      'src/sinter.content.ts': `import { collection } from '@tiaforge-ui/sinter/content';
+export interface Product { sku: string; name: string; price: number }
+export const products = collection<Product>({ key: 'sku', load: async () => [] as Product[] });
+`,
+      'node_modules/@tiaforge-ui/sinter/package.json': JSON.stringify({ name: '@tiaforge-ui/sinter', type: 'module', exports: { './content': './content.ts' } }),
+      'node_modules/@tiaforge-ui/sinter/content.ts': readFileSync(join(import.meta.dirname, '../../src/content.ts'), 'utf8'),
+    };
+    const root = project(files);
+    const p = projectOf(root);
+    const run = (expr: string) => {
+      const html = `<sn-resource name="products" src="content:products"></sn-resource><template data-sn-for="x in products"><b data-sn-text="${expr}"></b></template>`;
+      writeFileSync(join(root, 'index.html'), html);
+      const out = compile(html, { file: join(root, 'index.html'), root, dev: false, helpers: p.helpers, readFile: p.readFile, check: true, contentModule: p.contentFile!, collections: new Map([['products', { key: 'sku', value: [] }]]) });
+      return { compile: out.diagnostics.map((d) => d.code), check: check({ root, units: [out.check!], helpers: p.helpers, types: null, tsc }).diagnostics.map((d) => d.message) };
+    };
+    expect(p.contentFile).toBe(join(root, 'src/sinter.content.ts'));
+    expect(run('x.name + x.price.toFixed(2)')).toEqual({ compile: [], check: [] });
+    expect(run('x.nmae').check).toEqual([expect.stringMatching(/Property 'nmae' does not exist on type 'Product'/)]);
+  });
+});
+

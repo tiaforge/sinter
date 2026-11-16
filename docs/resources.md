@@ -280,6 +280,11 @@ export const tags = collection({
   can be built from it. `drafts` and `items` are the loader's business. Without `type` it is `SN504`.
 - **`vite dev`** runs the loaders at startup and again when the content module or a file `files()` read changes,
   then reloads the page. A change in the CMS needs a restart, or a rebuild in production (a webhook to the CI).
+- **`sinter check` and the editor never run loaders** (a CMS fetch per keystroke or per CI check would be slow,
+  need secrets and depend on the network). A `content:` resource without `type` is typed from its loader's return
+  type, so `p.nmae` is an error with `collection<Product>({ … })`; its values come from the snapshot each build and
+  dev server writes (`node_modules/.cache/sinter/content.json`), and `sinter check` says when there is none yet, or
+  when the content module changed since.
 - `sinter({ content: 'src/data.ts' })` moves the module; `content: false` turns it off. `content` cannot be an
   API's name (SN329).
 

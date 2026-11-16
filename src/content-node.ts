@@ -3,7 +3,8 @@
 // entry with a unique key. The compile stays synchronous: it reads the lists from here as constants, as it reads a
 // `file:` source's value. Failing here fails the build; the dev server keeps going and reports it on the pages that
 // read a collection.
-import { relative, sep } from 'node:path';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
 import { isCollection, type Collection, type CollectionContext } from './content.js';
 import { fileEntry, filePath } from './compiler/files.js';
 import { importModule, type LoadOptions } from './helpers-node.js';
@@ -133,4 +134,28 @@ function notPlain(v: unknown, path = ''): string | null {
 function freeze<T>(v: T): T {
   if (v && typeof v === 'object' && !Object.isFrozen(v)) { Object.freeze(v); for (const x of Object.values(v)) freeze(x); }
   return v;
+}
+
+/**
+ * The snapshot `sinter check` and the editor compile against (they never run loaders: a CMS fetch per keystroke or
+ * per CI check would be slow, need secrets and depend on the network). The build and the dev server write it each
+ * time they load the collections.
+ */
+export const snapshotFile = (root: string) => join(root, 'node_modules/.cache/sinter/content.json');
+
+export function writeSnapshot(root: string, file: string, c: LoadedContent): void {
+  try {
+    const out = snapshotFile(root);
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, JSON.stringify({ version: 1, module: relative(root, file).split(sep).join('/'), mtimeMs: statSync(file).mtimeMs, collections: Object.fromEntries(c.collections) }));
+  } catch { /* a cache: the check goes without it */ }
+}
+
+/** The last snapshot, and whether the content module changed since (`stale`), or null when there is none. */
+export function readSnapshot(root: string, file: string): { collections: Collections; stale: boolean } | null {
+  try {
+    const s = JSON.parse(readFileSync(snapshotFile(root), 'utf8')) as { version: number; mtimeMs: number; collections: Record<string, { key: string; value: unknown[] }> };
+    if (s.version !== 1) return null;
+    return { collections: new Map(Object.entries(s.collections)), stale: statSync(file).mtimeMs > s.mtimeMs };
+  } catch { return null; }
 }

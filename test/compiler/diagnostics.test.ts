@@ -25,13 +25,14 @@ const SPEC = { file: '/p/openapi.json', doc: {
   components: { schemas: { Contact: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, starred: { type: 'boolean' } } } } },
 } };
 
-interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; checkCycles?: boolean }
+interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; checkCycles?: boolean; collections?: boolean }
 
 function diags(html: string, o: Opts = {}) {
   return compile(html, {
     file: '/p/page.html', root: '/p', dev: false, check: o.check, openapi: o.openapi ? [SPEC] : undefined, complexity: o.complexity, checkCycles: o.checkCycles,
     readFile: (p) => { if (!(p in files)) throw new Error('missing'); return files[p]!; },
     listFiles: (d) => Object.keys(files).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
+    ...(o.collections ? { collections: new Map() } : {}),
     helpers: { module: '/h.js', names: ['fmt'], namespaces: { m: { module: '/m.js', members: ['inbox_title'] } } },
   }).diagnostics;
 }
@@ -95,6 +96,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN332', '<button data-sn-post="file:./post.txt"></button>', /`file:` is a source for `<sn-resource src>`/],
   ['SN340', '<!doctype html><html data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="posts.length"></p></body></html>', /`data-sn-pages` needs `data-sn-path` with exactly one pattern/],
   ['SN341', '<!doctype html><html data-sn-path="/blog/:year/:slug" data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="post.slug"></p></body></html>', /has no `year` to fill `:year`/],
+  ['SN342', '<sn-resource name="p" src="content:posts"></sn-resource><p data-sn-text="p.length"></p>', /`posts` is not a collection of the content module/, { collections: true }],
   ['SN539', '<sn-resource name="r" src="file:/content/none/*.md"></sn-resource><p data-sn-text="r.length"></p>', /`file:\/content\/none\/\*\.md` matches no file/],
   ['SN532', '<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs"><p id="row" data-sn-text="x"></p></template></div>', /`id="row"` is in markup that renders more than once \(a `data-sn-for` row\)/],
   ['SN531', '<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/login" data-sn-body="JSON.stringify({ username: u })"></button></div>', /`data-sn-body` is already JSON text \(`JSON\.stringify\(…\)`\): sinter encodes the body, so the server would get a JSON string, not the object/],

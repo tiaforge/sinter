@@ -75,6 +75,8 @@ export interface CompileOptions {
    */
   collections?: ReadonlyMap<string, { key: string; value: readonly unknown[] }>;
   collectionsError?: string;
+  /** the content module, absolute: `sinter check` types a `content:` resource without `type` from its loader */
+  contentModule?: string;
   /**
    * builds: the `file:` lists already built, by their glob, key, order, drafts, mode and language, with what they reported
    * (their files do not change during a build); every page that reads one gets it and its diagnostics from here
@@ -5822,8 +5824,9 @@ class Compiler {
     this.embedded.set(name, id);
     if (this.check) {
       const type = attr(el, 'type')?.trim() || null;
-      this.check.resources.push({ name, type: type ? `(${type})[]` : null, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') });
-      if (!type) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"`, one entry\'s type from the types module, or `type="any"` to leave it unchecked');
+      const typed = !type && this.opts.contentModule ? { content: { module: this.opts.contentModule, name: cname } } : {};
+      this.check.resources.push({ name, type: type ? `(${type})[]` : null, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...typed });
+      if (!type && !this.opts.contentModule) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"`, one entry\'s type from the types module, or `type="any"` to leave it unchecked');
     }
     this.resources.push({ name, src: [], key: info.key, items: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
