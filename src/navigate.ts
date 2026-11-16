@@ -4,7 +4,7 @@
 // not run for what can no longer be refused: Back without the Navigation API, or the browser's own Back
 // without activation, a reload, a closed tab (`beforeunload` stays for those). Loaded by pages with such a
 // handler; the compiler marks their elements (`data-sn-navigate`).
-import { asked, chain, links } from './links.js';
+import { ask, chain, links } from './links.js';
 import type { App, Feature } from './runtime/app.js';
 
 const feature: Feature = {
@@ -34,7 +34,7 @@ const feature: Feature = {
         if (to.origin == location.origin) return;
         // (asked: the browser's event, after this click, asks no guard again; refused, there is none)
         if (chain(app).go({ to: to.href, kind: 'push', source: 'link', trigger: a })?.name == 'refused') e.preventDefault();
-        else asked.to = to.href;
+        else ask(to.href);
       };
       app.root.addEventListener('click', click);
       app.addCleanup(() => app.root.removeEventListener('click', click));

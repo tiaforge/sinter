@@ -752,6 +752,30 @@ manifest, the stub and the exported mount together: they are the unproven half.
      elements not destroyed by a swap, the guards and `onGo` running twice for nested mounts without the
      API, a traversal between two entries of one path the swap made, a bound head stylesheet both pages
      have, `rel="alternate stylesheet"` never loading.
+   - **The third review** (a Fable agent, of `b421ed8`; each finding reproduced, each fix with a step or test
+     that failed before it):
+     - the resume after a history write looped forever on a redirected link (the swap's own address write
+       looked like one) and on a write in `sn-page` code: it is off once the commit starts;
+     - Back from a swapped-in page without JavaScript changed the address only: with no app mounted, the
+       stub's own listener loads the entry of a traversal;
+     - constants still shaped a kept element that is, or holds, a component (folded at expansion): with
+       swaps on, `foldIn` leaves them alone there; a `<slot>` in a kept element that binds, and
+       `data-sn-permanent` on `<html>`, `<head>`, `<body>` or in the head, are `SN346`;
+     - an abort while the swap's code loaded (Back within the page, Stop) left the next page's stylesheet and
+       title, or loaded the page anyway: `prepare` and `ready()` take it as aborted, and the head is undone on
+       any abort before the commit;
+     - under a nonce policy, markup injected into the next page with a guessed nonce was given the document's
+       (a style applied, a module script run under `'strict-dynamic'`): only what carries the page's own nonce
+       (its `<meta name="csp-nonce">`) is trusted, for styles, module scripts and the language file
+       (`e2e/swap-csp` injects both);
+     - the language files changed before the commit: they change at it;
+     - the guards ran twice for a swap that fell back to a load, and the remembered answer for a link to
+       another site could go stale in WebKit: a navigation asked about in the last second asks no more;
+       `navigate()` to the URL shown replaces its entry, as `location.assign` does; `destroy()` leaves another
+       app's marks inside its root; a bound head `<link>` without an `href` stays without one.
+     Not changed: `s.skip` is now taken once; a theme class on `<html>` set at run time is replaced by the next
+     page's attributes (documented); Speculation Rules hashes and a CSP `<meta>` between pages with and
+     without same-page links (not verified).
    - **Left:** a `data-sn-model` field inside shows its state's value again (the state starts again);
      rows over data that is not there at mount (no `cache`) are built again; a stream both pages use
      reconnects.

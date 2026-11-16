@@ -4,8 +4,10 @@
 // A swap runs under the first page's policy (docs/navigation.md#swaps), so the styles it inserts get the
 // document's nonce; B's inline style is one. The pages' text is the app's messages (messages/*.json); in
 // German the next page's own dictionary must be loaded before it mounts (B's title is a key only B has).
-// Checked in each language: one page load, B's style applied, no policy violation, the messages rendered by
-// the mounted page, the kept notes. Under CI a browser that does not start fails.
+// Checked in each language: one page load, B's style applied, no policy violation but the injected markup's
+// (B has a style and a module script with a guessed nonce, blocked on a load: a swap must block them too, under
+// 'strict-dynamic'), the messages rendered by the mounted page, the kept notes. Under CI a browser that does
+// not start fails.
 //   node run.mjs [chromium|firefox|webkit ...]
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -22,15 +24,21 @@ if (spawnSync('npx', ['vite', 'build', '--logLevel', 'warn'], { cwd: here, stdio
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://x').pathname;
+  // what an injection would run: it must not, on a load or a swap
+  if (path === '/evil.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); return res.end('window.__evil = 1;'); }
   const file = path === '/' ? 'index.html' : path === '/b/' ? 'b/index.html' : normalize(path).replace(/^\/+/, '');
   let body;
   try { body = await readFile(join(here, 'dist', file)); } catch { res.writeHead(404); return res.end(); }
   if (extname(file) !== '.html') { res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream' }); return res.end(body); }
   const nonce = randomBytes(12).toString('base64');
-  const html = String(body).replace(/<(style|script)\b/g, `<$1 nonce="${nonce}"`).replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`);
+  // the server's own styles and scripts get the nonce; B also has markup injected with a guessed one (a stored
+  // XSS), which the policy blocks on a load and a swap must block too
+  let html = String(body).replace(/<(style|script)\b(?![^>]*\snonce=)/g, `<$1 nonce="${nonce}"`).replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`);
+  if (file === 'b/index.html') html = html.replace('</main>', '<style nonce="guess">#heading { text-decoration-line: underline; }</style><script type="module" nonce="guess" src="/evil.js"></script></main>');
   res.writeHead(200, {
     'Content-Type': TYPES['.html'], 'Cache-Control': 'no-store',
-    'Content-Security-Policy': `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'nonce-${nonce}'; base-uri 'none'; object-src 'none'`,
+    // 'strict-dynamic': a script runs by its nonce (or because a trusted script loads it), not by its origin
+    'Content-Security-Policy': `default-src 'self'; script-src 'nonce-${nonce}' 'strict-dynamic'; style-src 'self' 'nonce-${nonce}'; base-uri 'none'; object-src 'none'`,
   });
   res.end(html);
 });
@@ -56,7 +64,8 @@ for (const name of browsers) {
     const page = await browser.newPage();
     const errors = [], loads = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.location().url ?? '')) errors.push(m.text()); });
+    // (the browsers' notices of the injected style and script being blocked: the policy's, checked below)
+    page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.location().url ?? '') && !/Content.Security.Policy|Refused to (apply|load|execute)/.test(m.text())) errors.push(m.text()); });
     page.on('request', (r) => { if (r.isNavigationRequest() && r.frame() === page.mainFrame()) loads.push(new URL(r.url()).pathname); });
     // the language the picker chooses (the stored choice), and every policy violation the page sees
     await page.addInitScript((l) => {
@@ -68,6 +77,7 @@ for (const name of browsers) {
       path: location.pathname, title: document.title, heading: document.getElementById('heading')?.textContent ?? null,
       toA: document.getElementById('to-a')?.textContent ?? null, notes: document.querySelector('aside textarea').value,
       color: getComputedStyle(document.getElementById('heading')).color, violations: window.__violations, marker: window.__marker ?? null,
+      injected: { style: getComputedStyle(document.getElementById('heading')).textDecorationLine === 'underline', script: !!window.__evil },
     }));
     try {
       await page.goto(base + '/');
@@ -77,12 +87,15 @@ for (const name of browsers) {
       await page.fill('aside textarea', 'kept');
       await page.click('#to-b');
       await page.waitForFunction((b) => location.pathname === '/b/' && document.title === b, t.b, { timeout: 10000 }).catch(() => {});
-      check(`${locale}: the link swaps B in, its style allowed by the stamped nonce, its messages rendered`, await read(), {
-        path: '/b/', marker: 1, title: t.b, heading: `${t.hello} B`, toA: t.toA, notes: 'kept', color: 'rgb(0, 128, 0)', violations: [],
+      // (the injected style and script are blocked: their violations are the policy's, as on a load of B)
+      const b = await read();
+      check(`${locale}: the link swaps B in, its style allowed by the server's nonce, its messages rendered, the injected style and script blocked`, { ...b, violations: b.violations.filter((v) => !/^(style-src-elem|script-src-elem)\b/.test(v)) }, {
+        path: '/b/', marker: 1, title: t.b, heading: `${t.hello} B`, toA: t.toA, notes: 'kept', color: 'rgb(0, 128, 0)', violations: [], injected: { style: false, script: false },
       });
       await page.goBack();
       await page.waitForFunction((a) => location.pathname === '/' && document.title === a, t.a, { timeout: 10000 }).catch(() => {});
-      check(`${locale}: Back swaps A in, B's style gone`, await read(), { path: '/', marker: 1, title: t.a, heading: `${t.hello} A`, notes: 'kept', violations: [] });
+      const a = await read();
+      check(`${locale}: Back swaps A in, B's style gone`, { ...a, violations: a.violations.filter((v) => !/^(style-src-elem|script-src-elem)\b/.test(v)) }, { path: '/', marker: 1, title: t.a, heading: `${t.hello} A`, notes: 'kept', violations: [] });
       check(`${locale}: one page load`, { loads }, { loads: ['/'] });
       const color = (await read()).color;
       if (color === 'rgb(0, 128, 0)') { steps.push(`✗ ${locale}: B's style stayed on A`); failed++; }

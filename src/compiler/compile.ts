@@ -1044,6 +1044,7 @@ class Compiler {
   /** the kept elements that bind (their ids from their range), and where each kept element was written */
   readonly keptBound = new Set<string>();
   readonly keptSource = new Map<string, string>();
+  private readonly keptSlot = new Set<string>();
   /** `data-sn-path` patterns (for `$url` in the early file's requests) */
   pathList: string[] = [];
   /** `$s<sid>.<name>` paths a persisted model writes at mount */
@@ -3912,7 +3913,10 @@ class Compiler {
       if (kept) this.keptDepth--;
       if (kept && this.nextId !== saved) {
         if (this.nextId - keptBase(kept) > KEPT_IDS) this.report(child, 'data-sn-permanent', 'SN346', `a kept element binds at most ${KEPT_IDS} nodes (\`${kept}\` binds ${this.nextId - keptBase(kept)})`, 0);
-        if (this.nextId > keptBase(kept)) this.keptBound.add(kept);
+        if (this.nextId > keptBase(kept)) {
+          this.keptBound.add(kept);
+          if (this.keptSlot.has(kept)) this.report(child, 'data-sn-permanent', 'SN346', `a kept element that binds holds a \`<slot>\` (\`${kept}\`): each page fills it with its own content, so the next page's code would not find its nodes`, 0, 'move the slot out of the kept element, or keep only what has no bindings');
+        }
         this.nextId = saved;
       }
       lastIf = res;
@@ -4047,6 +4051,7 @@ class Compiler {
       const name = get('permanent')!.trim(), clash = this.permanentNames.find((n) => n !== name && keptBase(n) === keptBase(name));
       if (!/^[A-Za-z][\w-]*$/.test(name)) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` takes a name (letters, digits, `-` and `_`), the same on each page that keeps the element', 0);
       else if (ctx.tid >= 0) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` cannot be inside a `<template>`: a kept element is one element of the page', 0);
+      else if (['html', 'head', 'body'].includes(el.tagName) || (() => { for (let p: P5Node | null = el; p; p = (p as P5Element).parentNode as P5Node | null) if (isElement(p) && p.tagName === 'head') return true; return false; })()) this.report(el, 'data-sn-permanent', 'SN346', `\`data-sn-permanent\` belongs on an element of the body: \`<${el.tagName}>\` is the page's own`, 0);
       else if (this.keptDepth > 1) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` cannot be inside another kept element: the outer one is kept with everything in it', 0);
       else if (this.permanentNames.includes(name)) this.report(el, 'data-sn-permanent', 'SN346', `\`data-sn-permanent="${name}"\` is on two elements of this page`, 0);
       else if (clash) this.report(el, 'data-sn-permanent', 'SN346', `\`${name}\` and \`${clash}\` get the same range of ids: rename one`, 0);
@@ -4068,8 +4073,10 @@ class Compiler {
         };
         media(el);
         // its source, where it was written: one markup on every page that keeps it (checked across the pages by the build)
-        const o = this.origins.get(el), loc = el.sourceCodeLocation;
-        this.keptSource.set(name, `${o?.file ?? this.opts.file}:${loc?.startOffset ?? 0}:${hashText((o?.src ?? '').slice(loc?.startOffset ?? 0, loc?.endOffset ?? 0))}`);
+        const o = this.origins.get(el), loc = el.sourceCodeLocation, text = (o?.src ?? '').slice(loc?.startOffset ?? 0, loc?.endOffset ?? 0);
+        this.keptSource.set(name, `${o?.file ?? this.opts.file}:${loc?.startOffset ?? 0}:${hashText(text)}`);
+        // a slot in it: each page fills it, so its numbering would follow the page (reported if it binds)
+        if (/<slot\b/i.test(text)) this.keptSlot.add(name);
       }
     }
     // a page or a link the swap leaves to the browser: on `<html>` the build records it, on a link it stays
@@ -4410,6 +4417,9 @@ class Compiler {
     // a shared definition (a component used inside itself, a candidate of `<sn-component use>`): its props are each
     // instance's, given at run time; its tag gives none, which must not read as "left out"
     if (!value.size || this.defHosts.has(use.host)) return;
+    // with swaps on, a kept element is numbered alike on every page that keeps it, whatever each passes it (§3): a
+    // component used in one, or one whose root is one, is not shaped by its constant props
+    if (this.opts.swap && [use.host, parent as P5Node].some((n) => { for (let p: P5Node | null = n; p; p = (p as P5Element).parentNode as P5Node | null) if (isElement(p) && attr(p, 'data-sn-permanent') !== undefined) return true; return false; })) return;
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
     const contentOf = (t: P5Element) => (t as P5Template).content.childNodes;
     const place = (parent: P5Parent, at: number, count: number, nodes: P5Node[]) => {

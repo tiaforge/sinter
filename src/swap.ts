@@ -4,7 +4,7 @@
 // same step. This is the stub every page that swaps carries: it decides, intercepts the browser's
 // `navigate` event, and loads the rest (swap-run.ts) when a navigation needs it. Where the browser has no
 // Navigation API it does nothing: every navigation stays a page load.
-import { RANK, asked, chain } from './links.js';
+import { RANK, ask, asked, chain } from './links.js';
 import type { App, Feature, Intent } from './runtime/app.js';
 
 /** one page of the build's list (swap-build.ts): the paths it answers at, the names it keeps */
@@ -29,8 +29,10 @@ export interface SwapState {
   live?: HTMLElement;
   /** the index of the entry the navigation in progress leaves (a traversal's direction) */
   at?: number;
-  /** the swap in progress (a newer one replaces it) */
+  /** the swap in progress (a newer one replaces it; cleared when it commits) */
   run?: object;
+  /** a page with nothing to run is shown (swapped in, no app mounted): Back and Forward load their entry */
+  bare?: boolean;
 }
 
 /** what the stub reads of a `navigate` event */
@@ -67,6 +69,11 @@ function state(list: SwapPage[]): SwapState {
     // Vite's dev styles come from modules, not from the page
     sheets: new Set(document.head.querySelectorAll('link[rel~=stylesheet],style:not([data-vite-dev-id])')),
   });
+  // a page with nothing to run, swapped in, has no app to take Back and Forward: each loads its entry
+  nav()!.addEventListener('navigate', (ev) => {
+    const e = ev as NavigateLike & { navigationType: string; canIntercept: boolean };
+    if (s.bare && e.canIntercept && e.navigationType == 'traverse') e.intercept({ async handler() { location.reload(); } });
+  });
   // per-page app code listens for `sn-page`: after each mount, the first one included
   queueMicrotask(() => document.dispatchEvent(new CustomEvent('sn-page', { detail: { to: location.href, kind: 'load' } })));
   return s;
@@ -85,7 +92,9 @@ export function swap(list: SwapPage[]): Feature {
       c.add((i: Intent) => {
         if (i.source != 'event') return;
         const e = i.event as NavigateLike, u = new URL(i.to);
-        if (u.origin != location.origin || s.skip == u.href) return;
+        if (u.origin != location.origin) return;
+        // the load after a swap that could not: the browser's, once
+        if (s.skip == u.href) { s.skip = null; return; }
         // a link the page takes out; a traversal within the page shown (its `$url` entries)
         if (i.trigger?.matches('[data-sn-swap=off]') || (i.kind == 'traverse' && u.pathname == s.shown)) return;
         // only to a page the build lists: any other URL is the browser's, requested once
@@ -100,18 +109,25 @@ export function swap(list: SwapPage[]): Feature {
               const l = asked.last as NavigateLike & { navigationType?: string; destination: { sameDocument?: boolean } } | undefined;
               if (s.run !== me || !l?.destination.sameDocument || l.navigationType == 'traverse') return;
               if (location.pathname != s.shown) location.reload();
-              else (nav() as unknown as { navigate(u: string, o: object): { finished?: Promise<unknown> } }).navigate(i.to, { history: i.kind == 'replace' ? 'replace' : 'push' }).finished?.catch(() => {});
+              else {
+                ask(i.to);
+                (nav() as unknown as { navigate(u: string, o: object): { finished?: Promise<unknown> } }).navigate(i.to, { history: i.kind == 'replace' ? 'replace' : 'push' }).finished?.catch(() => {});
+              }
             }));
-            // a load instead, once: before the URL committed, of the URL; after, a reload
+            // a load instead, once: before the URL committed, of the URL; after, a reload (its guards were asked)
             const fail = () => {
               s.skip = u.href;
-              setTimeout(() => (location.href == u.href ? location.reload() : i.kind == 'replace' ? location.replace(u) : location.assign(u)));
+              setTimeout(() => {
+                if (location.href == u.href) return location.reload();
+                ask(u.href);
+                i.kind == 'replace' ? location.replace(u) : location.assign(u);
+              });
               throw Error('sinter: loaded instead');
             };
             let p: Promise<Prepared> | undefined;
             // the fetch and the plan before the URL changes where the browser waits (a second click before the page
             // is ready replaces this navigation, as with loads); else in the handler, after it changed
-            const ready = () => (p ??= import('./swap-run.js').then((m) => m.prepare(s, i, e.signal)).catch(() => false as const));
+            const ready = () => (p ??= import('./swap-run.js').then((m) => m.prepare(s, i, e.signal)).catch(() => (e.signal.aborted ? null : false)));
             // false: a load instead; null: a newer navigation has the page
             e.intercept({
               scroll: 'manual',

@@ -232,8 +232,10 @@ The sound plays on, the notes keep their text and the drawer stays open. A kept 
 next page's code takes it over, so its bindings follow the new page (a prop the page passes, an active
 link), and its rendered rows and branches are adopted, not built again. What the old page's code held for
 it starts again: its `data-sn-state` from its initial value (unless persisted), its resources and streams.
-Write such an element once, in the layout or a component every page uses: the build checks it is the same
-markup on every page that keeps it (`SN346`). Leave playback to the media (`SN541` for a bound `muted`):
+Write such an element once, in the layout or a component every page uses: the build checks that every
+page that keeps it writes it in that one place (`SN346`), and that it holds no `<slot>` (each page would fill
+it with its own content). Constants a page passes it, and components in it, stay bindings, so the next
+page's values apply. Leave playback to the media (`SN541` for a bound `muted`):
 the next page writes each binding once when it mounts. A `data-sn-model` field inside it shows its state's
 value again (persist it to keep what was typed). Focus inside a kept element stays; otherwise focus goes to
 the document, as after a load. Each history entry keeps its scroll position, a
@@ -246,8 +248,12 @@ link's `#hash` is scrolled to, and the new title is announced to screen readers.
   `sn-page`, which `document` gets after each page mounts, the first one included
   (`e.detail.kind` is `load`, `push`, `replace` or `traverse`).
 - Every page runs under the first page's response headers, its Content-Security-Policy included: one
-  policy for the app. With a nonce policy, put the document's nonce in `<meta name="csp-nonce"
-  content="…">`; the swap gives it to the styles it inserts.
+  policy for the app. With a nonce policy, put each response's nonce in `<meta name="csp-nonce"
+  content="…">` too: the swap trusts what the server gave the next page's nonce (its styles, its module
+  scripts, its language file) and gives it the document's; markup with any other nonce stays blocked, as
+  on a load.
+- The attributes of `<html>` and `<body>` are the next page's: one that a script set at run time (a theme
+  class) is set again in `sn-page`.
 - Head elements other than the title, sinter's and the stylesheets (descriptions, Open Graph,
   canonical links) stay as the first page had them: they are for crawlers and link previews, which load
   each page.
@@ -260,11 +266,11 @@ single link with `<a data-sn-swap="off">`. The build lists the pages that swap: 
 API's logout link, is the browser's.
 
 Pages that ship no JavaScript stay without it unless they keep an element: a link to one swaps it in
-(requested once, nothing to mount), and links from it are page loads. Speculation Rules leave out the
-pages that swap: the swap requests the next page itself. A history write while the next page is fetched
-(a `$url` field typed in, a script's `replaceState`) does not lose the link. A kept element may not be
-inside another (`SN346`); inside one, constants a page passes stay bindings, so the next page's values
-apply.
+(requested once, nothing to mount); links from it, and Back and Forward from it, are page loads.
+Speculation Rules leave out the pages that swap: the swap requests the next page itself. A link the server
+redirects shows the redirect's address. A history write while the next page is fetched (a `$url` field
+typed in, a script's `replaceState`) does not lose the link. A kept element may not be inside another, nor
+be `<html>`, `<head>`, `<body>` or in the head (`SN346`).
 
 ## Refusing a navigation
 

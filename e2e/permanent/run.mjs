@@ -32,6 +32,8 @@ const server = createServer(async (req, res) => {
   if (slow && extname(path) === '' && path !== '/control/') { slow = false; await new Promise((r) => setTimeout(r, 600)); }
   // a page without sinter: what the browser itself does on a reload
   if (path === '/control/') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<!doctype html><title>control</title><div style="block-size: 5000px"></div>'); }
+  // `/b`: a page the build lists at both paths, which the server redirects to `/b/`
+  if (path === '/b') { res.writeHead(301, { Location: '/b/' }); return res.end(); }
   const file = path === '/' ? 'index.html' : /^\/(b|plain|off|nojs)\/$/.test(path) ? `${path.slice(1)}index.html` : normalize(path).replace(/^\/+/, '');
   try {
     const body = await readFile(join(here, 'dist', file));
@@ -361,7 +363,13 @@ for (const name of browsers) {
     await at('/nojs/', 'No JS');
     await p3.waitForTimeout(200);
     check('a page that ships no JavaScript: swapped in, requested once', { marker: (await view()).marker, requests: requested.filter((x) => x === '/nojs/').length, kept: await p3.evaluate(() => !!document.getElementById('keep')) }, { marker: 11, requests: 1, kept: false });
-    // a link from it is a page load
+    // Back from it (no app took it): the entry Back went to, as it was
+    await p3.goBack();
+    await at('/', 'A: Alpha');
+    check('Back from a page that ships no JavaScript: the page of that entry', { path: (await view()).path, title: await p3.title() }, { path: '/', title: 'A: Alpha' });
+    // and from it, a link is a page load
+    await p3.goForward();
+    await at('/nojs/', 'No JS');
     await Promise.all([p3.waitForEvent('load', { timeout: 5000 }), p3.evaluate(() => document.getElementById('to-a').click())]);
     await at('/', 'A: Alpha');
     // a `#hash` with no target: the next page starts at the top; a malformed one: the page still works
@@ -392,6 +400,23 @@ for (const name of browsers) {
     await p3.waitForFunction(() => location.pathname === '/' && document.title === 'A: Alpha', null, { timeout: 5000 }).catch(() => {});
     await p3.waitForTimeout(800);
     check('a history write during Back: the page is the entry\'s', await p3.evaluate(() => ({ path: location.pathname, title: document.title, heading: document.getElementById('heading')?.textContent })), { path: '/', title: 'A: Alpha', heading: 'Alpha' });
+    // the third review's findings: a link the server redirects swaps once (the address the redirect's), and a
+    // history write in `sn-page` code is no reason to navigate again
+    await p3.evaluate(() => { window.__marker = 13; });
+    requested.length = 0;
+    // (made here: the build writes the layout's `/b` as `/b/`, the page's own URL)
+    await p3.evaluate(() => { const a = Object.assign(document.createElement('a'), { href: '/b', textContent: 'b' }); document.body.append(a); a.click(); });
+    await at('/b/', 'B: Beta');
+    await p3.waitForTimeout(1200);
+    check('a redirected link: swapped once, at the redirect\'s address', { path: (await view()).path, marker: (await view()).marker, requests: requested.filter((x) => x === '/b' || x === '/b/').length }, { path: '/b/', marker: 13, requests: 2 });
+    await p3.evaluate(() => document.getElementById('to-a').click());
+    await at('/', 'A: Alpha');
+    await p3.evaluate(() => { document.addEventListener('sn-page', () => history.replaceState(null, '', location.pathname + '?p=1'), { once: true }); });
+    requested.length = 0;
+    await p3.evaluate(() => document.getElementById('to-b').click());
+    await at('/b/', 'B: Beta');
+    await p3.waitForTimeout(1200);
+    check('a history write in sn-page: no navigation again', { search: await p3.evaluate(() => location.search), marker: (await view()).marker, requests: requested.filter((x) => x === '/b/').length }, { search: '?p=1', marker: 13, requests: 1 });
 
     // a morph across a swap, the kept element held still, and the types: what each transition names and is typed
     await p3.emulateMedia({ reducedMotion: 'no-preference' });

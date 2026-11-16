@@ -94,28 +94,32 @@ export const fixed = (d: Document, base: URL) => JSON.stringify([
 /** the built-in messages' state the picker, the language files and the messages module share (messages.ts) */
 interface I18n { locale?: string; files?: Record<string, string>; dicts?: Record<string, Record<string, string>> }
 
+/** the built-in messages' state (messages.ts) */
+const i18n = () => (globalThis as unknown as Record<symbol, I18n | undefined>)[Symbol.for('sinter.i18n')];
+
 /**
  * Built-in messages: the next page's dictionary for the current language (its language file holds that page's
- * keys) is loaded before it mounts, merged with what the page shown reads until the swap, and its files become
- * the ones `setLocale()` loads.
+ * keys) is loaded before it mounts, merged with what the page shown reads until the swap; its files, which
+ * `setLocale()` loads, are given back for the commit. Under a nonce policy, only a picker the server gave the
+ * page's nonce names files to load.
  */
-async function language(doc: Document, base: URL) {
-  const tag = doc.querySelector('script[data-sn-i18n]'), g = (globalThis as unknown as Record<symbol, I18n | undefined>)[Symbol.for('sinter.i18n')];
-  if (!tag || !g?.locale) return;
+async function language(doc: Document, base: URL, trusted: (el: Element) => boolean) {
+  const tag = doc.querySelector('script[data-sn-i18n]'), g = i18n();
+  if (!tag || !g?.locale || !trusted(tag)) return;
   const files: Record<string, string> = {};
   for (const [l, f] of Object.entries((JSON.parse(tag.getAttribute('data-sn-i18n')!) as { files?: Record<string, string> }).files ?? {})) files[l] = new URL(f, base).href;
   const was = g.dicts?.[g.locale], file = files[g.locale];
   if (file) await import(/* @vite-ignore */ file);
   if (g.dicts) g.dicts[g.locale] = { ...was, ...g.dicts[g.locale] };
-  g.files = files;
+  return files;
 }
 
 /**
  * The head: the title and sinter's own nodes are the new page's; its stylesheets that the page shown lacks go
  * in before the swap (loaded), those of the page shown's HTML that it lacks go at `done()`; styles added at run
  * time stay. Everything else (metas, links, scripts) stays as the first page had it: crawlers and link
- * previews load each page. Inserted styles get the document's nonce (`<meta name="csp-nonce">`): the policy
- * is the first page's. null: what only a load applies differs.
+ * previews load each page. Inserted styles the server gave the page's nonce get the document's (`<meta
+ * name="csp-nonce">`): the policy is the first page's. null: what only a load applies differs.
  */
 export function heads(s: SwapState, doc: Document, base: URL): { ready: Promise<unknown>; done(): void; undo(): void } | null {
   const here = new URL(location.href);
@@ -123,9 +127,10 @@ export function heads(s: SwapState, doc: Document, base: URL): { ready: Promise<
   const nonce = document.querySelector<HTMLMetaElement>('meta[name=csp-nonce]')?.content;
   const old = owned(document.head), have = sheets(s.sheets, here), keep = new Set<Element>(), added: Element[] = [], loads: Promise<unknown>[] = [];
   const add = (n: Node) => {
-    const x = document.adoptNode(n) as Element;
-    if (x.localName == 'link') x.setAttribute('href', new URL(x.getAttribute('href')!, base).href);
-    if (nonce && (x.localName == 'link' || x.localName == 'style')) (x as HTMLStyleElement).nonce = nonce;
+    // (a nonce the fetched page carries as the document's: the server's, see `prepare`; read before it is inserted)
+    const ok = nonce && (n as Element).getAttribute?.('nonce') == nonce, x = document.adoptNode(n) as Element;
+    if (x.localName == 'link' && x.hasAttribute('href')) x.setAttribute('href', new URL(x.getAttribute('href')!, base).href);
+    if (ok) (x as HTMLStyleElement).nonce = nonce;
     document.head.append(x);
     return x;
   };
@@ -190,6 +195,8 @@ function keepAt(o: Element, n: Element) {
 /** fetch, plan, prepare (§5): the commit, which needs no network, or false (a load instead) or null (aborted) */
 export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Promise<Prepared> {
   const url = new URL(i.to);
+  // aborted while the swap's code loaded: nothing to do
+  if (signal?.aborted) return null;
   s.busy?.abort();
   const c = (s.busy = new AbortController()), no = () => (c.signal.aborted ? null : false);
   signal?.addEventListener('abort', () => c.abort());
@@ -207,23 +214,28 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
   // plan: declarative shadow DOM attached where the parser can (Chromium's drops comments, sinter's anchors,
   // unless it is given a configuration: e2e/permanent/navigation-api/parse.cjs); `<noscript>` would be live
   // (the parse runs without scripting)
-  // under a nonce policy, the page's own nonces become the document's before the parse: Chromium reports the
-  // parsed page's inline styles against the document's policy (navigation-api/parse-csp.cjs), and they are
-  // inserted with the document's nonce anyway
+  // under a nonce policy, the page's own nonce (its `<meta name="csp-nonce">`) becomes the document's before the
+  // parse: what carries it is the server's, trusted as a load of the page would trust it; anything else (an
+  // injected `nonce="guess"`) keeps its own and stays blocked, as on a load. Chromium also reports the parsed
+  // page's inline styles against the document's policy otherwise (navigation-api/parse-csp.cjs)
   const nonce = document.querySelector<HTMLMetaElement>('meta[name=csp-nonce]')?.content;
-  if (nonce) html = html.replace(/(<(?:style|script|link)\b[^>]*?\snonce=)("[^"]*"|'[^']*'|[^\s>]+)/gi, (_, a: string) => `${a}"${nonce.replace(/"/g, '&quot;')}"`);
+  const own = /<meta\b(?=[^>]*\bname=["']?csp-nonce\b)[^>]*\bcontent=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(html), theirs = own && (own[1] ?? own[2] ?? own[3]);
+  if (nonce && theirs) html = html.replace(/(<(?:style|script|link)\b[^>]*?\snonce=)(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi, (m, a: string, d?: string, q?: string, b?: string) => ((d ?? q ?? b) == theirs ? `${a}"${nonce.replace(/"/g, '&quot;')}"` : m));
+  /** a script the swap may run: under a nonce policy, one the server gave the page's nonce */
+  const trusted = (el: Element) => !(nonce && theirs) || el.getAttribute('nonce') == nonce;
   const P = Document as unknown as { parseHTMLUnsafe?: (h: string, o: object) => Document };
   const doc = P.parseHTMLUnsafe ? P.parseHTMLUnsafe(html, { sanitizer: {} }) : new DOMParser().parseFromString(html, 'text/html');
   if (doc.body.hasAttribute('data-sn-failed') || doc.documentElement.getAttribute('data-sn-swap') == 'off') return false;
   for (const n of doc.querySelectorAll('noscript')) n.remove();
   // the next page's dictionary, then its page module (with the app's other modules: each runs once per
   // document), imported without mounting
-  try { await language(doc, final); } catch { return no(); }
+  let files: Record<string, string> | undefined;
+  try { files = await language(doc, final, trusted); } catch { return no(); }
   const g = globalThis as unknown as Record<symbol, number>;
   let page: PageModule | undefined;
   g[SWAPPING] = (g[SWAPPING] ?? 0) + 1;
   try {
-    const urls = [...doc.querySelectorAll('script[type=module][src]')].map((x) => new URL(x.getAttribute('src')!, final).href);
+    const urls = [...doc.querySelectorAll('script[type=module][src]')].filter(trusted).map((x) => new URL(x.getAttribute('src')!, final).href);
     await Promise.all(urls.map((u) => import(/* @vite-ignore */ u)));
     const pages = (globalThis as unknown as Record<symbol, Record<string, PageModule> | undefined>)[PAGES] ?? {};
     // a page with no module script ships no JavaScript (a page of constants): swapped in with nothing to mount, so
@@ -237,15 +249,23 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
   // prepare: the head's new stylesheets loaded
   const head = heads(s, doc, final);
   if (!head) return false;
+  // aborted before the commit started (a newer navigation, Stop): the head as it was
+  let started = false;
+  c.signal.addEventListener('abort', () => started || head.undo());
   await head.ready;
-  if (c.signal.aborted) { head.undo(); return null; }
+  if (c.signal.aborted) return null;
 
   return async () => {
     let committed = false, booted: App | Promise<App> | undefined, failed = false;
     const commit = () => {
       // a newer navigation came while the transition waited for this callback: it has the page
       if (c.signal.aborted) return;
-      committed = true;
+      committed = started = true;
+      // committed: a history write from here on (the redirect's address below, `sn-page` code) is no reason to
+      // navigate again
+      s.run = undefined;
+      const g = i18n();
+      if (files && g) g.files = files;
       // anything that throws past this point leaves a page half swapped: it is loaded instead (below)
       try { swap(); } catch { failed = true; }
       return booted;
@@ -288,6 +308,7 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
       setTimeout(() => { live.textContent = document.title; }, 100);
       // mount: the new page's code, in the same step (a page with nothing to run has none)
       booted = page!.boot?.();
+      s.bare = !page!.boot;
     };
     type VT = { updateCallbackDone: Promise<void>; ready: Promise<void>; finished: Promise<void> };
     const vt = wanted() ? (document as Document & { startViewTransition?: (o: { update: () => unknown; types: string[] }) => VT }).startViewTransition : undefined;

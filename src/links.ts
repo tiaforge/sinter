@@ -30,7 +30,7 @@ interface NavigateLike extends Event {
   navigationType: Intent['kind'] | 'reload'; signal: AbortSignal; sourceElement?: Element | null; info?: unknown;
   destination: { url: string; key: string; index: number; sameDocument: boolean };
 }
-type Nav = EventTarget & { currentEntry: { key: string } | null; navigate(url: string, o: { history: 'push' | 'replace'; info: unknown }): unknown };
+type Nav = EventTarget & { currentEntry: { key: string } | null; navigate(url: string, o: { history: 'auto' | 'replace'; info: unknown }): unknown };
 const api = (): Nav | undefined => (globalThis as { navigation?: Nav }).navigation;
 const none = () => {};
 /** what a `navigate()` call hands its event: the element of its handler */
@@ -39,7 +39,11 @@ const INFO = Symbol('sinter.trigger');
  * `to`: a link to another site whose click the guards were asked about already (navigate.ts): its event asks
  * none; `last`: the latest `navigate` event (the swap tells a history write from a navigation by it)
  */
-export const asked: { to: string | null; last?: Event } = { to: null };
+export const asked: { to: string | null; t?: number; last?: Event } = { to: null };
+/** `to` was asked about just now: its navigation, if one follows within a second, asks the guards no more */
+export const ask = (to: string) => { asked.to = to; asked.t = Date.now(); };
+/** whether `to`'s guards were asked just now (once) */
+const wasAsked = (to: string) => { const y = asked.to == to && Date.now() - asked.t! < 1000; if (y) asked.to = null; return y; };
 
 /** What the apps of one document share: one ordered chain, one `navigate` listener, one claim on a traversal. */
 interface Shared {
@@ -86,7 +90,7 @@ export function chain(app: App): Chain {
     if (N && i.source == 'call') {
       for (const f of all<(i: Intent) => void>('onGo')) f(i);
       // its promises reject when a guard refuses it or a newer navigation replaces it: expected, not an error
-      const r = N.navigate(i.to, { history: i.kind == 'replace' ? 'replace' : 'push', info: { [INFO]: i.trigger } }) as { committed?: Promise<unknown>; finished?: Promise<unknown> } | undefined;
+      const r = N.navigate(i.to, { history: i.kind == 'replace' ? 'replace' : 'auto', info: { [INFO]: i.trigger } }) as { committed?: Promise<unknown>; finished?: Promise<unknown> } | undefined;
       r?.committed?.catch(none);
       r?.finished?.catch(none);
       return;
@@ -97,9 +101,11 @@ export function chain(app: App): Chain {
       return { name: 'taken' };
     }
     const e = i.event as NavigateLike | undefined;
+    // a navigation the guards were asked about already (the swap's own fallback, or its navigation again) asks none
+    const pre = wasAsked(i.to);
     // refused: a link's default is prevented (a decision without `run`), an event cancelled, a call does nothing;
     // every guard runs (each may note the navigation)
-    if (i.source != 'popstate' && (!e || e.cancelable) && refuses(i)) {
+    if (!pre && i.source != 'popstate' && (!e || e.cancelable) && refuses(i)) {
       e?.preventDefault();
       return { name: 'refused' };
     }
@@ -130,8 +136,7 @@ export function chain(app: App): Chain {
       if (from && (from.localName == 'form' || (from as HTMLButtonElement).form || from.matches('[download],[target]:not([target=_self])'))) return;
       // another site (or `rel="external"`): the browser's too, but the page's guards are asked while it can be refused
       if (!e.canIntercept || from?.matches('[rel~=external]')) {
-        if (asked.to == e.destination.url) asked.to = null;
-        else if (e.cancelable && refuses({ to: e.destination.url, from: env.href(), kind: e.navigationType, source: 'event', trigger: from ?? null, event: e })) e.preventDefault();
+        if (!wasAsked(e.destination.url) && e.cancelable && refuses({ to: e.destination.url, from: env.href(), kind: e.navigationType, source: 'event', trigger: from ?? null, event: e })) e.preventDefault();
         return;
       }
       const info = e.info as { [INFO]?: Element | null } | undefined;

@@ -127,3 +127,43 @@ test('with swaps on, constant props do not shape a kept element: the same ids an
   // without swaps the constants fold as before: k2's branch is decided, and the shapes differ
   expect(shape(page("{ title: 'K1', fancy: true }", false).html)).not.toEqual(shape(page("{ title: 'K2', fancy: false }", false).html));
 });
+
+describe('with swaps on, what each page passes does not shape a kept element (the third review)', () => {
+  const files: Record<string, string> = {
+    // a component used inside the kept element, its branch on a constant the layout passes on
+    '/p/src/components/my-badge.html': `<template data-sn-component="{ fancy: boolean }"><span data-sn-state="{ n: 0 }"><template data-sn-if="fancy"><em data-sn-text="'x ' + n"></em></template><u data-sn-text="n"></u><b data-sn-on-click="n = n + 1">+</b></span></template>`,
+    // a component whose root is the kept element
+    '/p/src/components/kept-bar.html': `<template data-sn-component="{ fancy: boolean }"><aside data-sn-permanent="bar" data-sn-state="{ n: 0 }"><template data-sn-if="fancy"><em data-sn-text="'x ' + n"></em></template><u data-sn-text="n"></u></aside></template>`,
+    '/p/src/layouts/site-layout.html': `<!doctype html><html data-sn-layout="{ fancy: boolean; title: string }"><head><title data-sn-text="title"></title></head><body>
+<aside data-sn-permanent="p"><my-badge data-sn-prop="{ fancy }"></my-badge></aside><kept-bar data-sn-prop="{ fancy }"></kept-bar><main><slot></slot></main></body></html>`,
+  };
+  const page = (props: string) => compile(`<site-layout data-sn-prop="${props}"><p>x</p></site-layout>`, {
+    file: '/p/k.html', root: '/p', dev: false, prerender: true, moduleSrc: '/@sinter/k.html.js', swap: true,
+    helpers: { module: null, names: [], namespaces: {} }, readFile: (p: string) => { if (p in files) return files[p]!; throw new Error('missing'); },
+  });
+  const shape = (html: string, name: string) => [...new RegExp(`<aside[^>]*data-sn-permanent="${name}"[^>]*>[\\s\\S]*?</aside>`).exec(html)![0]!.matchAll(/<(\w+)[^>]*data-sn="(\d+)"|<!--sn (\d+)-->/g)].map((m) => (m[3] ? `anchor ${m[3]}` : `${m[1]} ${m[2]}`));
+
+  test('a component inside one, and one whose root is one', () => {
+    const a = page("{ fancy: true, title: 'A' }"), b = page("{ fancy: false, title: 'B' }");
+    expect(a.diagnostics).toEqual([]);
+    for (const name of ['p', 'bar']) {
+      expect(shape(a.html, name)).toEqual(shape(b.html, name));
+      expect(shape(a.html, name).some((x) => x.startsWith('anchor'))).toBe(true);
+    }
+  });
+
+  test('SN346: a slot in a kept element that binds; the document\'s own elements', () => {
+    const layout = '<!doctype html><html data-sn-layout="{ title: string }"><head><title>x</title></head><body><aside data-sn-permanent="side"><slot name="side"></slot><b data-sn-text="title"></b></aside><main><slot></slot></main></body></html>';
+    const out = compile('<site-layout data-sn-prop="{ title: \'A\' }"><i slot="side" data-sn-text="$url.q"></i><p>x</p></site-layout>', {
+      file: '/p/k.html', root: '/p', dev: false, prerender: true, moduleSrc: '/m.js', swap: true, helpers: { module: null, names: [], namespaces: {} },
+      readFile: (p: string) => { if (p === '/p/src/layouts/site-layout.html') return layout; throw new Error('missing'); },
+    });
+    expect(out.diagnostics.map((d) => d.message.replace(/ \(included from .*\)$/, ''))).toEqual(['a kept element that binds holds a `<slot>` (`side`): each page fills it with its own content, so the next page\'s code would not find its nodes']);
+    const body = compile('<!doctype html><html><head><title>x</title></head><body data-sn-permanent="all"><p>x</p></body></html>', { file: '/p/a.html', root: '/p', dev: false, moduleSrc: '/m.js', swap: true, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '' });
+    expect(body.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual(['SN346 `data-sn-permanent` belongs on an element of the body: `<body>` is the page\'s own']);
+  });
+
+  test('nesting, with swaps on', () => {
+    expect(problems(build('<div data-sn-permanent="outer"><aside data-sn-permanent="inner"></aside></div>', { swap: true }))).toEqual(['SN346 `data-sn-permanent` cannot be inside another kept element: the outer one is kept with everything in it']);
+  });
+});
