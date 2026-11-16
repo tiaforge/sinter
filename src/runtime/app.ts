@@ -374,6 +374,8 @@ const range = (a: Node | null, stop: Node | null) => {
 const child = (s: any, props: object) => Object.assign(Object.create(s), props);
 /** an anchor's start comment, exactly: `<!--sn 4-->` at the page's top level, `<!--sn-->` in a row (`<!--snippet-->` is not) */
 const isStart = (n: Node | null) => n?.nodeType == 8 && /^sn(?: \d+)?$/.test((n as Comment).data);
+/** what a node's `tag` in the IR is: its tag name, `#` for a comment (an anchor's start) */
+const nameOf = (n: Node) => (n.nodeType == 8 ? '#' : (n as Element).localName);
 /** an anchor's end comment, after its start: the first `<!--/sn-->` that closes no anchor nested in between */
 export function endOf(start: Node): Comment | null {
   let d = 0;
@@ -601,11 +603,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     ...templatesOf(b).flatMap((x) => templateDeps(ir.templates[x]!)),
   ]))), others.get(t)!);
 
-  /** a written path, with its `{name}` segments as the writer's scope has them */
-  const dirtyOf = (path: PathRef, s: any): Dirty => {
-    const w = typeof path == 'number' ? path : ps.x[path] ?? -1;
-    return { w, v: w < 0 ? [] : slots(w).map((n) => (s ? '' + s[n] : '{' + n + '}')) };
-  };
   /** Whether a dirty path of the current flush reaches one of `deps`. */
   const hit = (deps: PathRef[] | undefined, s?: any) => {
     for (const n of ids(deps)) if (tR[n] == round && ((!tE[n]!.conds.length && !tC[n]) || each(n, (d, e) => level(e, d, s)))) return true;
@@ -684,7 +681,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     url: (tpl, s) => expand(tpl, s, fns),
     mark(path, s, typing) {
-      const d = dirtyOf(path, s);
+      const w = typeof path == 'number' ? path : ps.x[path] ?? -1;
+      // the written path's `{name}` segments, as the writer's scope has them
+      const d: Dirty = { w, v: w < 0 ? [] : slots(w).map((n) => (s ? '' + s[n] : '{' + n + '}')) };
       dirty.push(d);
       if (typing) typed.add(d);
       if (scheduled || flushing) return;
@@ -787,16 +786,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const bad = new Set<number>();
   const tw = doc.createTreeWalker(root, 129 /* SHOW_ELEMENT | SHOW_COMMENT */);
   for (let n = tw.nextNode(); n; n = tw.nextNode()) {
-    let id: number;
-    if (n.nodeType == 8) {
-      const t = (n as Comment).data;
-      if (t.length < 4 || !isStart(n)) continue;
-      id = +t.slice(3);
-    } else {
-      const a = Element.prototype.getAttribute.call(n, 'data-sn');
-      if (a == null) continue;
-      id = +a;
-    }
+    // a comment: `<!--sn 4-->` is root 4 (`<!--sn-->`, an anchor in a row, is none)
+    const t = n.nodeType == 8 ? (n as Comment).data : null;
+    const a = t == null ? Element.prototype.getAttribute.call(n, 'data-sn') : t.length > 3 && isStart(n) ? t.slice(3) : null;
+    if (a == null) continue;
+    const id = +a;
     found.has(id) ? bad.add(id) : found.set(id, n as Element | Comment);
   }
   for (const id of bad) { found.delete(id); warn(1, id); }
@@ -827,8 +821,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
   bindNodes(ir.roots, ir.roots.map((nd) => {
     const el = found.get(nd.id!);
-    if (el && (nd.tag == '#' ? el.nodeType == 8 : (el as Element).localName == nd.tag)) return el as Element;
-    warn(el ? 3 : 2, nd.id, el ? (el.nodeType == 8 ? '#' : (el as Element).localName) : undefined, nd.tag);
+    if (el && nameOf(el) == nd.tag) return el as Element;
+    warn(el ? 3 : 2, nd.id, el && nameOf(el), nd.tag);
     return null;
   }), app.page, rootRbs);
   cleanups.push(env.listen('popstate', () => {
@@ -894,8 +888,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           if (b.p != null) app.ext.persist?.model(rb, (v) => setModel(rb, v));
         }
         if (b.k == 'for') { rb.rows = []; rb.t = ir.templates[b.x!]; }
-        if (b.k == 'if') rb.br = 0;
-        if (b.k == 'ch') { rb.br = 0; rb.rows = []; }
+        if (b.k == 'if' || b.k == 'ch') rb.br = 0;
         rbs.push(rb);
       }
     }
@@ -976,7 +969,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const v = evaluate(rb), k = rb.b.k;
     if (k == 'for') reconcile(rb, v);
     else if (k == 'if') toggle(rb, v ? 1 : rb.b.z != null ? 2 : 0);
-    else if (k == 'ch') choose(rb, v);
+    else if (k == 'ch') toggle(rb, v ? v[0] + 1 : 0, v?.[1]);
     else if (k == 'model') writeModel(rb, v);
     else if (k == 'cmp') app.ext.components!(rb, v);
     else if (!Object.is(v, rb.v)) { write(rb.b, rb.el, v, rb.v == UNSET ? undefined : rb.v, rb.v == UNSET); rb.v = v; }
@@ -1092,27 +1085,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     const t = rb.t!, old = rb.rows!, end = rb.end ?? endFor(rb), tpl = tplOf(t.id), start = rb.el as unknown as Comment;
     const n = items.length, m = old.length, rows: Inst[] = new Array(n), moved = t.ri;
-    // the takeover: the page module's items for an unkeyed list the early script rendered are new objects with the
-    // same contents (a let over a helper, computed again), so the rows it adopted match by position, written again
-    const ad = rb.ad;
-    rb.ad = undefined;
-    if (ad != null && round <= ad + 1 && n == m) {
-      for (let i = 0; i < n; i++) {
-        const x = old[i]!, item = items[i];
-        if (x.item !== item) { setRow(x.s, t, (x.item = item), i); x.key = keyOf(t, item, x.s); x.f = 2; }
-        rows[i] = x;
-      }
-      rb.rows = rows;
-      rb.rr = round;
-      rb.pf = true;
-      rb.keys = undefined;
-      rb.sx = undefined;
-      return;
-    }
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
     const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
     app.dupes?.(keys);
+    // the takeover: the page module's items for an unkeyed list the early script rendered are new objects with the
+    // same contents (a let over a helper, computed again), so the rows it adopted take the new keys and match by
+    // position, written again
+    if (rb.ad != null && round <= rb.ad + 1 && n == m) old.forEach((x, i) => (x.key = keys[i]));
+    rb.ad = undefined;
     const reuse = (x: Inst, i: number) => {
       const item = items[i];
       if (x.item !== item) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = 2; }
@@ -1161,7 +1142,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // one operation; removing 5,000 rows one by one costs more than building the new ones
       const parent = end.parentNode!;
       if (parent.firstChild == start && parent.lastChild == end) parent.replaceChildren(start, end);
-      else while (start.nextSibling != end) start.nextSibling!.remove();
+      else cut(start, end);
     } else for (const node of gone.flatMap(nodesOf)) (node as ChildNode).remove();
     if (deferred.size || models) for (const o of gone) if (old[o]!.rbs) forget(old[o]!.rbs!);
     const ref = ne < n ? rows[ne]!.first ?? end : end;
@@ -1186,65 +1167,43 @@ export function mount(root: Document | Element, o: MountOptions): App {
     rb.sx = undefined;
   }
 
-  function toggle(rb: RB, br: number) {
-    // a branch the early chunk rendered: adopted when it is the one to show, else removed
-    const pre: { br: number; nodes: Node[]; end: Comment } | undefined = (rb.el as any)[EARLY];
+  /**
+   * An `if` (`br`: 0 none, 1 its template, 2 its `data-sn-else`) or a choice, `<sn-component use>` (`br`: the case
+   * its value names + 1, 0 none; `item`: that candidate's props). A branch the early chunk rendered is adopted when it
+   * is the one to show, else removed. The same case of a choice again: its row takes the new props, as a definition's
+   * one row does; another branch: the row is replaced by an instance of that branch's template.
+   */
+  function toggle(rb: RB, br: number, item?: unknown) {
+    const ch = rb.b.k == 'ch', pre: { br: number; nodes: Node[]; end: Comment } | undefined = (rb.el as any)[EARLY];
+    const make = (nodes?: Node[]) => {
+      const t = ir.templates[ch ? rb.b.c![br - 1]! : br == 1 ? rb.b.x! : rb.b.z!]!, s = Object.create(rb.s);
+      if (ch) setRow(s, (rb.t = t), item, 0);
+      return (rb.rows = [instantiate(tplOf(t.id), t, s, ch ? keyOf(t, item, s) : '', ch ? item : null, 0, nodes)])[0]!;
+    };
     if (pre) {
       delete (rb.el as any)[EARLY];
       rb.end = pre.end;
       if (pre.br == br) {
-        const tid = br == 1 ? rb.b.x! : rb.b.z!;
         rb.br = br;
-        rb.rows = [instantiate(tplOf(tid), ir.templates[tid]!, Object.create(rb.s), '', null, 0, pre.nodes)];
+        make(pre.nodes);
         return;
       }
       cut(rb.el, pre.end);
     }
-    if (br == rb.br) return;
-    const end = rb.end ?? endFor(rb);
-    // same id, same control: the focused element goes with the old branch, its twin in the new one takes focus
-    const f = doc.activeElement;
-    clear(rb, end);
-    rb.br = br;
-    if (!br) return;
-    const tid = br == 1 ? rb.b.x! : rb.b.z!;
-    const x = instantiate(tplOf(tid), ir.templates[tid]!, Object.create(rb.s), '', null, 0);
-    end.before(...rowNodes(x));
-    rb.rows = [x];
-    if (f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
-  }
-
-  /**
-   * `<sn-component use>`: `v` is the case its value names with that candidate's props (`[i, props]`), or
-   * null. The same case again: its row takes the new props, as a definition's one row does; another: the
-   * row is replaced by an instance of that case's definition.
-   */
-  function choose(rb: RB, v: [number, unknown] | null) {
-    const k = v ? v[0] : -1, pre: { br: number; nodes: Node[]; end: Comment } | undefined = (rb.el as any)[EARLY];
-    if (pre) {
-      delete (rb.el as any)[EARLY];
-      rb.end = pre.end;
-      if (pre.br == k + 1 && k >= 0) {
-        const t = (rb.t = ir.templates[rb.b.c![k]!]!), s = setRow(Object.create(rb.s), t, v![1], 0);
-        rb.br = k + 1;
-        rb.rows = [instantiate(tplOf(t.id), t, s, keyOf(t, v![1], s), v![1], 0, pre.nodes)];
-        return;
-      }
-      cut(rb.el, pre.end);
-    }
-    if (k + 1 == rb.br) {
-      const x = rb.rows![0];
-      if (x && x.item !== v![1]) { setRow(x.s, rb.t!, (x.item = v![1]), 0); walkRow(x, rb.t!, 2); }
+    if (br == rb.br) {
+      const x = rb.rows?.[0];
+      if (ch && x && x.item !== item) { setRow(x.s, rb.t!, (x.item = item), 0); walkRow(x, rb.t!, 2); }
       return;
     }
     const end = rb.end ?? endFor(rb);
+    // same id, same control: the focused element of an if's old branch goes with it, its twin in the new one takes focus
+    const f = doc.activeElement;
     clear(rb, end);
-    rb.br = k + 1;
-    if (k < 0) { rb.t = undefined; return; }
-    const t = (rb.t = ir.templates[rb.b.c![k]!]!), s = setRow(Object.create(rb.s), t, v![1], 0);
-    const x = instantiate(tplOf(t.id), t, s, keyOf(t, v![1], s), v![1], 0);
-    end.before(...rowNodes(x));
-    rb.rows = [x];
+    rb.br = br;
+    rb.t = undefined;
+    if (!br) return;
+    end.before(...rowNodes(make()));
+    if (!ch && f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
   }
 
   /** An if's or choice's rendered branch out of the page, its bindings forgotten. */
@@ -1266,7 +1225,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const start = rb.el as unknown as Comment;
     let end = endOf(start);
     if (!end) { warn(31, start.data); start.after((end = new Comment('/sn'))); }
-    else while (start.nextSibling != end) start.nextSibling!.remove();
+    else cut(start, end);
     return (rb.end = end);
   }
 
@@ -1282,9 +1241,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** `pre`: nodes the early chunk already rendered from this template, bound instead of a clone. */
   function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number, pre?: Node[]): Inst {
-    // foreign content (`w`): the rows are the children of the `<svg>` or `<math>` the head template holds
-    const content: ParentNode = t.w ? tpl.content.firstChild as Element : tpl.content, one = prepared.get(tpl) ?? oneElement(tpl, content);
-    const top: Node = pre ? (one ? pre[0]! : content as Node) : one ? content.firstChild!.cloneNode(true) : t.w ? frag(content) : (content as Node).cloneNode(true);
+    // foreign content (`w`): the rows are the children of the `<svg>` or `<math>` the head template holds (a clone of
+    // that element holds a row's nodes as a fragment would, until they are inserted)
+    const content: Node = t.w ? tpl.content.firstChild! : tpl.content, one = prepared.get(tpl) ?? oneElement(tpl, content);
+    const top: Node = pre ? (one ? pre[0]! : content) : one ? content.firstChild!.cloneNode(true) : content.cloneNode(true);
     const first = pre ? pre[0] ?? null : one ? top : top.firstChild;
     const defs = t.nodes, rbs: RB[] = [];
     // A node and what the early script rendered after it: a nested anchor's branch or rows, up to its end comment.
@@ -1305,7 +1265,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           node = node.firstChild;
           for (let c = path[x]!; c-- && node;) node = step(node);
         }
-        els[k] = node && (defs[k]!.tag == '#' ? node.nodeType == 8 : (node as Element).localName == defs[k]!.tag) ? (node as Element) : null;
+        els[k] = node && nameOf(node) == defs[k]!.tag ? (node as Element) : null;
       }
       return els;
     };
@@ -1351,18 +1311,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * Once per row template: whether it holds one element (a <tr>, an <li>), so rows clone just that
    * and no fragment. Not an anchor: its comments are two nodes.
    */
-  function oneElement(tpl: HTMLTemplateElement, content: ParentNode): boolean {
+  function oneElement(tpl: HTMLTemplateElement, content: Node): boolean {
     const f = content.firstChild;
     const one = !!f && f == content.lastChild && f.nodeType == 1;
     prepared.set(tpl, one);
     return one;
-  }
-
-  /** A fragment of clones of `parent`'s children (a foreign template's wrapper). */
-  function frag(parent: ParentNode): DocumentFragment {
-    const f = doc.createDocumentFragment();
-    for (let c = parent.firstChild; c; c = c.nextSibling) f.append(c.cloneNode(true));
-    return f;
   }
 
   /** A simple row template (the compiler's `sm`: a lookup function, only value bindings and handlers; no state, model, nested template or dialog): its value bindings and handlers. */

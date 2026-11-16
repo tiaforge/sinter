@@ -40,8 +40,10 @@ export interface EarlyBranch { br: number; nodes: Node[]; end: Comment }
 
 /** an anchor's start comment, exactly: `<!--sn 4-->` at the page's top level, `<!--sn-->` in a row (`<!--snippet-->` is not) */
 const isStart = (n: Node | null) => n?.nodeType == 8 && /^sn(?: \d+)?$/.test((n as Comment).data);
-/** a root anchor's id: `<!--sn 4-->` */
-const anchorId = (n: Node) => (n.nodeType == 8 && (n as Comment).data.length > 3 && isStart(n) ? +(n as Comment).data.slice(3) : null);
+/** a root's id: a `data-sn` element's, a root anchor's (`<!--sn 4-->`); null for any other node */
+const idOf = (n: Node) => (n.nodeType == 1
+  ? (n as Element).hasAttribute('data-sn') ? +(n as Element).getAttribute('data-sn')! : null
+  : n.nodeType == 8 && (n as Comment).data.length > 3 && isStart(n) ? +(n as Comment).data.slice(3) : null);
 /** an anchor's end comment: the first `<!--/sn-->` after its start that closes no anchor nested in between (null: not parsed yet) */
 const endOf = (start: Node): Comment | null => {
   let d = 0;
@@ -55,7 +57,7 @@ const endOf = (start: Node): Comment | null => {
 const rootsIn = (top: Node, f: (id: number, n: Node) => void) => {
   const tw = (top.ownerDocument ?? (top as Document)).createTreeWalker(top, 129 /* SHOW_ELEMENT | SHOW_COMMENT */);
   for (let n: Node | null = tw.currentNode; n; n = tw.nextNode()) {
-    const id = n.nodeType == 1 ? ((n as Element).hasAttribute('data-sn') ? +(n as Element).getAttribute('data-sn')! : null) : anchorId(n);
+    const id = idOf(n);
     if (id != null) f(id, n);
   }
 };
@@ -156,12 +158,10 @@ export function observe(page: EarlyPage | null, messages: { use(): void; state?(
   let fresh = false, held = 0;
   const root = (id: number, n: Node) => { roots.set(id, n); fresh = true; };
   const add = (n: Node) => {
-    // an anchor's start comment (the parser adds comments too: one more check per node)
-    if (n.nodeType == 8) { const id = anchorId(n); if (id != null) root(id, n); return; }
-    if (n.nodeType != 1) return;
-    if ((n as Element).hasAttribute('data-sn')) root(+(n as Element).getAttribute('data-sn')!, n);
-    // a node inserted with children (a parser chunk, or a branch clone): its roots too
-    if (n.firstChild) rootsIn(n, (id, x) => { if (x != n) root(id, x); });
+    // a node inserted with children (a parser chunk, or a branch clone): it and its roots; else it, if it is one
+    // (an element, or an anchor's start comment: the parser adds comments too, one more check per node)
+    if (n.firstChild) rootsIn(n, root);
+    else { const id = idOf(n); if (id != null) root(id, n); }
   };
   const pass = (all: boolean) => {
     // every root seen so far: its attribute-like bindings are written at once (its attributes are all there when the
@@ -210,7 +210,7 @@ let live: { pick: Map<number, Node>; all: boolean; waiting: Set<Node> } | null =
 const wrote = new WeakMap<Node, Set<string>>();
 let fnIds = new WeakMap<Fn, number>(), fnN = 0;
 /** a content binding (text, a control's value, an anchor) waits for the parser to close its element, or to parse the anchor's end */
-const content = (el: Node, wr: unknown) => el.nodeType == 8 || wr === text || wr === model || wr === slot;
+const content = (el: Node, wr: unknown) => el.nodeType == 8 || wr === text || wr === model || !!(wr as { c?: 1 }).c;
 /** the bindings skipped for a missing dictionary, tried again when it arrives */
 const retries: Array<() => void> = [];
 
@@ -230,6 +230,9 @@ const ready = (el: Node) => {
   return n == 'html' || n == 'body' || closed(el);
 };
 
+/** the JSON of the head's embedded data element `data-sn="<id>"`, parsed */
+const json = (id: number) => JSON.parse(document.querySelector(`head > script[data-sn="${id}"]`)!.textContent!);
+
 /** `$r` over the page's embedded data: each resource's items (by its `items` path), parsed once; another resource throws */
 function embedded(emb: NonNullable<EarlyIR['emb']>): any {
   const got = new Map<string, unknown>();
@@ -238,8 +241,7 @@ function embedded(emb: NonNullable<EarlyIR['emb']>): any {
       const e = typeof name == 'string' ? emb[name] : undefined;
       if (!e) throw Error('sinter: not available early');
       if (!got.has(name as string)) {
-        const el = document.querySelector(`head > script[data-sn="${e.id}"]`);
-        let v: any = JSON.parse(el!.textContent!);
+        let v: any = json(e.id);
         for (const k of e.items ? e.items.split('.') : []) v = v?.[k];
         got.set(name as string, v);
       }
@@ -256,7 +258,7 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
   return new Proxy(Object.create(null), {
     get(_, k) {
       // a state field the build computed, embedded in the head (parsed when the early script runs: the head is there)
-      if (k == '$d') return (id: number) => JSON.parse(document.querySelector(`head > script[data-sn="${id}"]`)!.textContent!);
+      if (k == '$d') return json;
       // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
       const l = k == '$locale' ? o.locale?.() : null;
       if (l) return l.get();
@@ -408,7 +410,7 @@ export function at(nodes: Node[], path: number[], tag: string): Node | null {
     n = n.firstChild;
     for (let c = path[k]!; c-- && n;) n = n.nextSibling;
   }
-  return n && (tag == '#' ? n.nodeType == 8 : (n as Element).localName == tag) ? n : null;
+  return n && (n.nodeType == 8 ? '#' : (n as Element).localName) == tag ? n : null;
 }
 
 /** one binding's first write: its value in `s` (one that throws is the page module's), written by `wr` */
@@ -436,22 +438,26 @@ export function w(el: Node | null, f: Fn, s: any, wr: (el: any, v: any, n: strin
   if (wr(el, v, n) === WAIT && live) { done!.delete(key); live.waiting.add(el); }
 }
 
+/** A branch at its start comment: template `tid` cloned before the end comment, left on the start for the runtime to adopt, rendered by `r` over `s`. */
+function branch(start: Comment, br: number, tid: number, r: Branch | 0 | undefined, s: any): void | typeof WAIT {
+  const end = endOf(start);
+  if (!end) return;
+  if (!tplOf(tid)) return WAIT;
+  const nodes = cloneOf(tid);
+  end.before(...nodes);
+  (start as any)[EARLY] = { br, nodes, end } satisfies EarlyBranch;
+  if (r) { r(nodes, s); fixer?.(nodes); }
+}
+type Branch = (nodes: Node[], s: any) => void;
+
 /**
  * A `data-sn-if` at its start comment: the branch to show (1 template `x`, 2 its `data-sn-else` template
- * `z`, -1 for none), cloned before the end comment and left on the start for the runtime to adopt; `a`/`b`
+ * `z`, none), cloned before the end comment and left on the start for the runtime to adopt; `a`/`b`
  * render the branch's bindings over its nodes.
  */
 export function iff(start: Comment, v: unknown, x: number, z: number | null, a: Branch | 0, b: Branch | 0, s: any): void | typeof WAIT {
-  const br = v ? 1 : z != null ? 2 : 0, end = endOf(start);
-  if (!br || !end) return;
-  if (!tplOf(br == 1 ? x : z!)) return WAIT;
-  const nodes = cloneOf(br == 1 ? x : z!);
-  end.before(...nodes);
-  (start as any)[EARLY] = { br, nodes, end } satisfies EarlyBranch;
-  const r = br == 1 ? a : b;
-  if (r) { r(nodes, Object.create(s)); fix(nodes); }
+  if (v || z != null) return branch(start, v ? 1 : 2, v ? x : z!, v ? a : b, Object.create(s));
 }
-type Branch = (nodes: Node[], s: any) => void;
 
 /**
  * A choice (`<sn-component use>`) at its start comment: `v` is `[case, props]` or null; the case's
@@ -459,14 +465,10 @@ type Branch = (nodes: Node[], s: any) => void;
  * `item[case]`, and left on the start for the runtime to adopt (`br`: the case + 1).
  */
 export function ch(start: Comment, v: [number, unknown] | null, ts: number[], items: string[], rs: Array<Branch | 0>, s: any): void | typeof WAIT {
-  const end = endOf(start);
-  if (!v || !end || ts[v[0]] == null) return;
-  if (!tplOf(ts[v[0]]!)) return WAIT;
-  const k = v[0], nodes = cloneOf(ts[k]!);
-  end.before(...nodes);
-  (start as any)[EARLY] = { br: k + 1, nodes, end } satisfies EarlyBranch;
-  const r = rs[k];
-  if (r) { const sc = Object.create(s); sc[items[k]!] = v[1]; r(nodes, sc); fix(nodes); }
+  if (!v || ts[v[0]] == null) return;
+  const k = v[0], sc = Object.create(s);
+  sc[items[k]!] = v[1];
+  return branch(start, k + 1, ts[k]!, rs[k], sc);
 }
 
 /** set on the start comment of a `data-sn-for` whose rows `each` rendered: each row's nodes and the end comment, for the page module to adopt */
@@ -488,31 +490,37 @@ export function each(start: Comment, list: unknown, x: number, r: Branch | 0, it
     const nodes = cloneOf(x);
     end.before(...nodes);
     rows.push(nodes);
-    if (r) { const sc = Object.create(s); sc[item] = v; if (index) sc[index] = i; r(nodes, sc); fix(nodes); }
+    if (r) { const sc = Object.create(s); sc[item] = v; if (index) sc[index] = i; r(nodes, sc); fixer?.(nodes); }
   });
   (start as any)[EARLY_ROWS] = { rows, end } satisfies EarlyRows;
 }
 
 /**
- * The texts `slot` wrote: in place of a placeholder (`texts`), or after the node that is the placeholder itself (a
+ * The texts `slot` wrote: in place of a placeholder (`texts`: the text by the placeholder), or after the node that is the placeholder itself (`texts`: the text by itself; a
  * row or case whose first node is the text). A rendered row's or branch's node list takes them, as what the page
  * module removes or adopts.
  */
-const texts = new WeakMap<Node, Node>(), made = new WeakSet<Node>();
+const texts = new WeakMap<Node, Node>();
+/**
+ * `fix`, once `slot` has written a text (a row's or branch's list needs no fixing before): reached only from
+ * `slot`, so a site whose early bindings write no text node bundles none of it
+ */
+let fixer: typeof fix | undefined;
 const fix = (nodes: Node[]) => {
-  const out = nodes.flatMap((n) => { const x = texts.get(n) ?? n, t = x.nextSibling; return t && made.has(t) && !nodes.includes(t) ? [x, t] : [x]; });
+  const out = nodes.flatMap((n) => { const x = texts.get(n) ?? n, t = x.nextSibling; return t && texts.get(t) == t && !nodes.includes(t) ? [x, t] : [x]; });
   nodes.splice(0, nodes.length, ...out);
 };
 
 // the writers, as the runtime's first write
 export const text = (el: HTMLElement, v: any) => { el.textContent = '' + (v ?? ''); };
-/** `<template data-sn-text>`: the text node after `el` (the start of its anchor, or the node before it in a row), in place of its empty comment */
-export const slot = (el: ChildNode, v: any) => {
+/** `<template data-sn-text>` (a content binding, `c`): the text node after `el` (the start of its anchor, or the node before it in a row), in place of its empty comment */
+export const slot = /* @__PURE__ */ Object.assign((el: ChildNode, v: any) => {
+  fixer = fix;
   const s = el.nextSibling as CharacterData | null;
   v = '' + (v ?? '');
   if (s?.nodeType == 3) s.data = v;
-  else if (v) { const t = new Text(v); if (s?.nodeType == 8 && !s.data) { s.replaceWith(t); texts.set(s, t); } else { el.after(t); made.add(t); } }
-};
+  else if (v) { const t = new Text(v); if (s?.nodeType == 8 && !s.data) { s.replaceWith(t); texts.set(s, t); } else { el.after(t); texts.set(t, t); } }
+}, { c: 1 as const });
 export const show = (el: HTMLElement, v: any) => { el.hidden = !v; };
 export const cls = (el: HTMLElement, v: any, n: string) => { if (v || el.hasAttribute('class')) el.classList.toggle(n, !!v); };
 /** a class binding without a name: `[name, on]` */
