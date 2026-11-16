@@ -47,20 +47,29 @@ test('a selection change re-evaluates only the rows it concerns; the result is t
   expect(having('other')).toEqual(['1', '3', '4']);
   seen.length = 0;
 
-  // first selection change: the index is built (every row once), then only rows 2 and 3 are evaluated
+  // first selection change: a scan (each row's side once), and only rows 2 and 3 evaluated, each as the scan reaches it
   click('pick3');
   await flush();
   expect(having('active')).toEqual(['3']);
   expect(having('other')).toEqual(['1', '2', '4']);
-  expect(seen).toEqual([1, 2, 3, 4, 2, 3]);
+  expect(seen).toEqual([1, 2, 2, 3, 3, 4]);
   seen.length = 0;
 
-  // second change: the index is there; a value no row has only clears the previous one
+  // second change: the index is built (every row once); a value no row has only clears the previous one
   click('pick9');
   await flush();
   expect(having('active')).toEqual([]);
   expect(having('other')).toEqual(['1', '2', '3', '4']);
+  expect(seen).toEqual([1, 2, 3, 4, 3]);
+  seen.length = 0;
+
+  // third: the index is there
+  click('pick3');
+  await flush();
+  expect(having('active')).toEqual(['3']);
   expect(seen).toEqual([3]);
+  click('pick9');
+  await flush();
   seen.length = 0;
 
   // the row side changes: the rows render as usual, and the index is rebuilt on the next selection

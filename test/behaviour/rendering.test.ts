@@ -686,6 +686,32 @@ test('writes through forEach callbacks update exactly the marked rows and index 
   expect(root.querySelector('p')!.textContent).toBe('C');
 });
 
+test('marked rows: a scan the first time after a render, the rows by key after that; explicit keys scan', async () => {
+  for (const key of ['', ' data-sn-key="x.id"']) {
+    const { root, flush } = await render(`
+      <div data-sn-state="{ xs: [{id: 1, t: 'a'}, {id: 2, t: 'b'}, {id: 3, t: 'c'}] }">
+        <template data-sn-for="x in xs"${key}><i data-sn-text="x.t"></i></template>
+        <button id="up" data-sn-on-click="xs.forEach((x, i) => i != 1 && (x.t = x.t + '!'))"></button>
+        <button id="mv" data-sn-on-click="xs = [xs[2], xs[0], xs[1]]"></button>
+      </div>`);
+    const texts = () => [...root.querySelectorAll('i')].map((e) => e.textContent);
+    const up = async () => { (root.querySelector('#up') as HTMLElement).click(); await flush(); };
+    // first change (a scan), second (the map is built), third (the map)
+    await up();
+    expect(texts()).toEqual(['a!', 'b', 'c!']);
+    await up();
+    await up();
+    expect(texts()).toEqual(['a!!!', 'b', 'c!!!']);
+    // the rows render again (moved): a scan again, then the map, over the new order
+    (root.querySelector('#mv') as HTMLElement).click();
+    await flush();
+    await up();
+    await up();
+    // (after the move `i != 1` is the old first item, now second: c and b change)
+    expect(texts()).toEqual(['c!!!!!', 'a!!!', 'b!!']);
+  }
+});
+
 test('marked outer elements update inner rows that read them', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ xs: [{t: 'a', ys: [{v: 1}, {v: 2}]}, {t: 'b', ys: [{v: 3}]}] }">
