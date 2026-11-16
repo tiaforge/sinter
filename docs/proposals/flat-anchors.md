@@ -44,6 +44,10 @@ after its mark, so no other slot takes the run's node for its own.
 adopts that DOM as it is (with `pre`, nothing flattens). A list or branch may hold both shapes, and every
 operation works on both. When an adopted part renders again, it takes the flat shape.
 
+**Their head templates.** The page module never clones a wrapper or a text run, so their `<template id="sn-t-…">`
+is in the page only when the early file renders it (it clones them as written). On the article that is 82 of 118
+head templates, and the HTML 1,240 → 961 B gzip.
+
 ## What it changes for authors
 
 The comments a wrapper and a text run had are gone from the live DOM (`childNodes` counts change; CSS selectors,

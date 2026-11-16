@@ -54,6 +54,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 ### Changed
 
 - Flat anchors: on the 300-block markdown article (`@tiaforge-ui/sinter-markdown`, headless Chromium, median of 21) comments 11,784 → 3,090 and template clones 6,597 → 1,523; script time 92 → 62 ms with md.parse in one pass; LCP level with marked + DOMPurify into `innerHTML`, from 8 ms behind. Core +242 B gzip.
+- A wrapper's or a text run's head template is left out of the page unless the early file renders it (the page module never clones one): the markdown article's HTML 1,240 → 961 B gzip.
 - `@tiaforge-ui/sinter-markdown`: `md.parse` builds its tree from markdown-it's tokens in one pass (no mdast between, no walk for definitions markdown-it resolved): the same trees, 38 ms cold instead of 47 on that article in Node. Its `./parser` export returns markdown-it's tokens.
 
 - Faster rendering of nested anchors: a branch or a list's first rows, built inside a branch or row not yet on the page, render in place, so each node is moved once instead of once per anchor around it, and an `if` branch reads its anchor's scope instead of a new one. Whether a template's content is one element (a row then clones just that element) is decided by the compiler (`o` in the IR) instead of by the runtime per template. On a 2,963-node markdown article from an API, script time 97 → 83 ms and LCP 200 → 188 ms, level with the same article rendered by marked in an island (headless Chromium, median of 21); core +29 B gzip.
