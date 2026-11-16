@@ -996,3 +996,24 @@ test('typeFromHover reads the type of a declaration and widens literals', () => 
   expect(typeFromHover('const c: Contact')).toBe('Contact');
   expect(typeFromHover('function shout(s: string): string')).toBeNull();
 });
+
+describe('file: sources in the editor', () => {
+  test('a file a glob matches, added or edited on disk, recompiles the page that reads it', async () => {
+    const root = project({
+      'vite.config.js': 'export default {};',
+      'index.html': '<sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="posts.length"></p>',
+      'content/posts/.keep': '',
+    });
+    const e = await editor(root, { tsc: '' });
+    e.open('index.html', readFileSync(join(root, 'index.html'), 'utf8'));
+    expect((await e.diagnostics('index.html', (d) => d.some((x) => String(x.code).startsWith('SN539')))).map((d) => d.code)).toEqual(['SN539 empty-glob']);
+    // a new post: the page is compiled again, though nothing in it changed
+    writeFileSync(join(root, 'content/posts/hello.md'), '---\ntitle: Hello\n---\nHi.\n');
+    e.changed('content/posts/hello.md');
+    expect(await e.diagnostics('index.html', (d) => !d.some((x) => String(x.code).startsWith('SN539')))).toEqual([]);
+    // an edit that breaks its frontmatter: read again (not the copy kept from before)
+    writeFileSync(join(root, 'content/posts/hello.md'), '---\ntitle: [broken\n---\nHi.\n');
+    e.changed('content/posts/hello.md');
+    expect((await e.diagnostics('index.html', (d) => d.length > 0)).map((d) => [d.code, d.message.replace(/:.*/s, '')])).toEqual([['SN332 build-time-source', '`hello.md`']]);
+  }, 30_000);
+});

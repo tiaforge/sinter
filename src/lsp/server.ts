@@ -176,6 +176,8 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
             { globPattern: '**/src/sinter.{helpers,types,config}.{js,ts}' },
             { globPattern: '**/src/sinter.types.d.ts' },
             { globPattern: '**/*.{yml,yaml,json}' },
+            // `file:` sources: markdown and text (JSON is above)
+            { globPattern: '**/*.{md,markdown,txt}' },
             { globPattern: '**/src/**/*.{js,ts}' },
           ],
         },

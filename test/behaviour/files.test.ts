@@ -189,14 +189,32 @@ describe('a glob is a list: one entry per file', () => {
     expect(one('/content/{x}/*.md', posts)).toEqual([expect.stringMatching(/^SN332 a `file:` path is a literal/)]);
   });
 
-  test('types for `sinter check`: a glob of markdown needs no `type`; `type` names one entry, sinter adds its fields', () => {
-    const types = (res: string) => build(reads(res), posts, { check: true }).check!.resources.map((r) => r.type);
-    expect(types('<sn-resource name="r" src="file:/content/posts/*.md"></sn-resource>')).toEqual(['({ slug: string; dir: string; path: string } & { body: string })[]']);
-    expect(types('<sn-resource name="r" src="file:/content/posts/*.md" type="Post"></sn-resource>')).toEqual(['((Post) & { slug: string; dir: string; path: string } & { body: string })[]']);
-    expect(types('<sn-resource name="r" src="file:/content/posts/hello.md" type="Post"></sn-resource>')).toEqual(['(Post) & { body: string }']);
-    expect(types('<sn-resource name="r" src="file:/content/posts/hello.md"></sn-resource>')).toEqual(['{ body: string }']);
+  test('types for `sinter check`: `type` as written, and what sinter adds beside it (a glob\'s per entry)', () => {
+    const res = (r: string) => { const c = build(reads(r), posts, { check: true }).check!.resources[0]!; return [c.type, c.file?.list, c.file?.adds, c.file?.values.length]; };
+    expect(res('<sn-resource name="r" src="file:/content/posts/*.md"></sn-resource>')).toEqual([null, true, '{ slug: string; dir: string; path: string } & { body: string }', 0]);
+    expect(res('<sn-resource name="r" src="file:/content/posts/*.md" type="Post"></sn-resource>')).toEqual(['Post', true, '{ slug: string; dir: string; path: string } & { body: string }', 2]);
+    expect(res('<sn-resource name="r" src="file:/content/posts/hello.md" type="Post"></sn-resource>')).toEqual(['Post', false, '{ body: string }', 1]);
+    expect(res('<sn-resource name="r" src="file:/content/posts/hello.md"></sn-resource>')).toEqual([null, false, '{ body: string }', 0]);
+    // each file's own value, its body blanked, to check against `type`
+    const v = build(reads('<sn-resource name="r" src="file:/content/posts/*.md" type="Post"></sn-resource>'), posts, { check: true }).check!.resources[0]!.file!.values[0]!;
+    expect([v.file, JSON.parse(v.json)]).toEqual(['/p/content/posts/hello.md', { title: 'Hello', date: '2026-11-02', tags: ['a', 'b'], body: '', slug: 'hello', dir: '', path: '/content/posts/hello.md' }]);
     const untypedJson = build(reads('<sn-resource name="r" src="file:/people/*.json"></sn-resource>'), { 'people/a.json': '{}' }, { check: true });
     expect(warnings(untypedJson)).toContainEqual(expect.stringMatching(/^SN504 resource `r` has no type/));
+  });
+});
+
+describe('`{$locale}` in a path: each language\'s build reads its own folder', () => {
+  const both = { 'content/en/posts/a.md': '---\ntitle: Hello\n---\n', 'content/de/posts/a.md': '---\ntitle: Hallo\n---\n' };
+  const page = '<!doctype html><html><head></head><body><sn-resource name="posts" src="file:/content/{$locale}/posts/*.md"></sn-resource><ul><template data-sn-for="p in posts"><li data-sn-text="p.title"></li></template></ul></body></html>';
+  test('with `localePrefix` (a page in a language): that language\'s files', () => {
+    for (const [name, title] of [['en', 'Hello'], ['de', 'Hallo']]) {
+      const out = build(page, both, { prerender: true, locale: { name, urls: null, base: '/' } });
+      expect(errors(out)).toEqual([]);
+      expect(out.html).toContain(`<li>${title}</li>`);
+    }
+  });
+  test('without it: SN332, since the language is the visitor\'s', () => {
+    expect(errors(build(page, both))).toEqual([expect.stringMatching(/^SN332 `\{\$locale\}` in a `file:` path needs `sinter\(\{ localePrefix \}\)`/)]);
   });
 });
 

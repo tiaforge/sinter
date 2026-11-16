@@ -794,3 +794,56 @@ describe('a let that waits for a lazy helper module (docs/lazy.md#helpers-that-w
     expect(d[0]!.hint).toContain('data-sn-let="{ doc: crunch.parse(…) }"');
   });
 });
+
+describe('file: resources, checked against their files', () => {
+  const POST_TYPES = 'export interface Post { title: string; date: string; tags?: string[] }\n';
+  function runFiles(html: string, files: Record<string, string>) {
+    const root = project({ 'src/sinter.types.ts': POST_TYPES, ...files });
+    const file = join(root, 'index.html');
+    writeFileSync(file, html);
+    const p = projectOf(root);
+    const out = compile(html, { file, root, dev: false, helpers: p.helpers, readFile: p.readFile, listFiles: p.listFiles, check: true });
+    const r = check({ root, units: [out.check!], helpers: p.helpers, types: join(root, 'src/sinter.types.ts'), tsc });
+    return { root, compile: out.diagnostics, ...r, at: r.diagnostics.map((d) => `${d.file.slice(root.length + 1)}:${d.line} ${d.message.replace(/\s+/g, ' ')}`) };
+  }
+  const posts = {
+    'content/posts/hello.md': '---\ntitle: Hello\ndate: 2026-11-02\n---\nHi.\n',
+    'content/posts/recap.md': '---\ntitle: Recap\ndate: 2026-12-30\ntags: [a]\n---\nThe year.\n',
+  };
+
+  test('a glob typed by one entry: the page reads it with the fields sinter adds, and every file fits', () => {
+    const r = runFiles('<sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource><template data-sn-for="p in posts"><a data-sn-attr="{ href: p.slug + p.dir + p.path }" data-sn-text="p.title + p.body.length + (p.tags ?? []).length"></a></template>', posts);
+    expect(r.compile).toEqual([]);
+    expect(r.at).toEqual([]);
+    expect(r.resources).toBe(1);
+    expect(r.typed).toBe(1);
+  });
+
+  test('a typo in a page, and in a file\'s frontmatter, and a field a file leaves out: each an error where it is', () => {
+    const page = runFiles('<sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource><template data-sn-for="p in posts"><a data-sn-text="p.titel"></a></template>', posts);
+    expect(page.at).toEqual([expect.stringMatching(/^index\.html:1 Property 'titel' does not exist on type/)]);
+    const files = runFiles('<sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource><p data-sn-text="posts.length"></p>', {
+      ...posts,
+      'content/posts/typo.md': '---\ntitel: Typo\ndate: 2026-01-01\n---\nx\n',
+      'content/posts/nodate.md': '---\ntitle: No date\n---\nx\n',
+    });
+    expect(files.at).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^content\/posts\/typo\.md:1 .*'titel' does not exist.*Did you mean to write 'title'\?/),
+      expect.stringMatching(/^content\/posts\/nodate\.md:1 .*Property 'date' is missing/),
+    ]));
+    expect(files.at).toHaveLength(2);
+  });
+
+  test('markdown without `type`: `body` and the file fields, and nothing else', () => {
+    const r = runFiles('<sn-resource name="post" src="file:/content/posts/hello.md"></sn-resource><p data-sn-text="post.body.length + post.title"></p>', posts);
+    expect(r.compile).toEqual([]);
+    expect(r.at).toEqual([expect.stringMatching(/^index\.html:1 Property 'title' does not exist on type '\{ body: string; \}'/)]);
+  });
+
+  test('one JSON file with `items`: what `items` picks fits `type`', () => {
+    const ok = runFiles('<sn-resource name="people" src="file:/team.json" items="people" type="{ name: string }[]"></sn-resource><p data-sn-text="people.length"></p>', { 'team.json': '{"people":[{"name":"A"}]}' });
+    expect(ok.at).toEqual([]);
+    const bad = runFiles('<sn-resource name="people" src="file:/team.json" items="people" type="{ name: string }[]"></sn-resource><p data-sn-text="people.length"></p>', { 'team.json': '{"people":[{"nmae":"A"}]}' });
+    expect(bad.at).toEqual([expect.stringMatching(/^team\.json:1 .*'nmae'/)]);
+  });
+});

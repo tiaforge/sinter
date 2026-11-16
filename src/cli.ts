@@ -9,7 +9,7 @@ import { applyStrict, compile, formatDiagnostic, type CheckUnit, type Diagnostic
 import { project, staticPages, strictEnv, viteProject, type ProjectOptions } from './project.js';
 import { lazyDiagnostics, lazyHelpers, resolveFile } from './lazy-build.js';
 import { loadHelpers, unloadedMessage } from './helpers-node.js';
-import { readLocales } from './locales-build.js';
+import { checkLocale } from './locales-build.js';
 import { componentScript } from './components-build.js';
 
 const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter docs [topic | data-sn-… | SN318 | words]\n       sinter render <page.html> [--url …] [--api mocks.json | http://…] [--click …] (sinter render --help)\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
@@ -59,8 +59,7 @@ async function main(argv: string[]): Promise<number> {
   let diagnostics: Diagnostic[] = [...p.diagnostics];
   const units: CheckUnit[] = [];
   // `localePrefix`: the build compiles each page in a language (`$locale` fixed, `localeUrl()`); checked in the base one
-  const vite = options as ProjectOptions & { localePrefix?: boolean };
-  const locale = vite.localePrefix && vite.messages !== false ? { name: readLocales(root, typeof vite.messages === 'string' ? vite.messages : 'project.inlang').base, urls: null, base: '/' } : null;
+  const locale = checkLocale(root, options as ProjectOptions & { localePrefix?: boolean });
   const lh = p.lazy.length ? lazyHelpers(root, p.lazy, undefined, p.libraries) : null;
   // the helpers module in Node, as the build loads it: what folds, and so SN322, agrees with the build
   const nh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers });

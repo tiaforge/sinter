@@ -94,6 +94,11 @@ export interface CheckResource {
   call?: { name: string; items: string | null };
   /** keyset without `offset-param`: `page()` takes a direction, not a page number */
   directions?: boolean;
+  /**
+   * a `file:` resource: `list` for a glob (`type` names one entry); `adds`, the fields sinter writes into each entry
+   * (`slug`, `dir`, `path`, `body`), as a type; `values`, each file's value, which must fit the entry's type (with `type`)
+   */
+  file?: { list: boolean; adds: string | null; values: Array<{ file: string; json: string }> };
 }
 
 export interface CheckUnit {

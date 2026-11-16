@@ -200,7 +200,13 @@ the results into one collection:
 - **Types**: a markdown file is `{ body: string }`, and with `type="Post"` it is `Post & { body: string }`.
   On a glob, `type` names one entry: the list is `(Post & { slug: string; dir: string; path: string; body:
   string })[]` (`body` for markdown and text files). A markdown file or glob needs no `type`; a `.json` file
-  or glob without one is `SN504`.
+  or glob without one is `SN504`. With `type`, `sinter check` also checks every file against it: a field the
+  type does not have (`titel:` in one post's frontmatter) or one it requires and the file leaves out is an
+  error at that file, with TypeScript's "did you mean".
+- **`{$locale}`** in a path, with [`sinter({ localePrefix })`](static-pages.md#languages), is each language's
+  name: `file:/content/{$locale}/posts/*.md` reads `content/de/posts/` for the German pages. `sinter check`
+  and the editor read the base language's. Without `localePrefix` it is `SN332`: the language is the
+  visitor's, picked in the browser.
 - The path is a literal: relative to the file that writes it (a page, a layout or a component), or `/…` from
   the project root. It must stay inside the project root (a symlink to a file outside it is refused too)
   and a single file must exist; an interpolation (`{…}`, other than a glob's `{a,b}`) is an error (`SN332`).
@@ -216,7 +222,8 @@ the results into one collection:
   and no request is made; a file nothing in the browser reads is not in the page at all. It is not a
   placeholder for a server to fill (not in `sinter-embed.json`).
 - The dev server reloads the page when a file it read changes, and when a file a glob matches is added or
-  removed.
+  removed. The editor does the same: it checks the pages that read a file again when it changes or appears,
+  and keeps what it read until then, so a glob over many files costs nothing per keystroke.
 - `file:` is only for `<sn-resource src>`: an action or a stream sends a request.
 - Any file inside the project root can be read this way, and what a page reads is written into the
   page it ships: keep secrets (`.env` files, keys) out of `file:` paths, as out of the page itself.
