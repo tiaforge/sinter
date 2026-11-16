@@ -616,7 +616,17 @@ A prototype first, then three pull requests, each followed by a review of where 
   Useful alone: an index over a folder, a post's title from its frontmatter.
 - **B, a page per entry**: `data-sn-pages` (§5) with the extractor and the pre-pass, exact paths and
   collisions, the sitemap and canonical links, languages (§7), dev routing, the per-entry fold check,
-  `chunks`.
+  `chunks`. Done, over `file:` globs, with these departures:
+  - **No extractor**: `configResolved` compiles each template once, which reads its `file:` list synchronously
+    and reports every entry with its filled path (`CompileResult.pages`). Nothing can drift from the compiler's
+    rules, and it costs one compile per template. `content:` (step 4) loads its loaders before that compile.
+  - **The entry is an internal build-time resource** beside the list, so scope, folding, embedding and the
+    check's type (`Item<typeof posts>`) come from the resource machinery.
+  - **Not yet**: languages (§7, a build error says so), `$url.<param>` on such a page (SN-new), SN536 as an
+    error there, `chunks`.
+  - **Two quadratic costs found and fixed**: every entry's page wrote the whole list's JSON into its head and
+    parsed it before dropping it (now written only for values left after the compile), and built the list
+    again (now kept per build). 1,000 entries build at 65 ms each, as 100 do.
 - **C, links and docs**: `broken-entry-link` (§6); a guide `docs/content.md`, the static-site example's
   blog, `resources.md` and `static-pages.md` pointing to it, `llms.txt`, CHANGELOG.
 
