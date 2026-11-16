@@ -26,8 +26,8 @@ describe('data-sn-pages', () => {
     const out = build(PAGE);
     expect(errors(out)).toEqual([]);
     expect(out.pages).toEqual({ name: 'post', of: 'posts', pattern: '/blog/:slug', entries: [
-      { value: expect.objectContaining({ title: 'Hello', slug: 'hello' }), path: '/blog/hello' },
-      { value: expect.objectContaining({ title: 'Recap 2026', slug: 'recap' }), path: '/blog/recap' },
+      { value: expect.objectContaining({ title: 'Hello', slug: 'hello' }), path: '/blog/hello', key: 'hello' },
+      { value: expect.objectContaining({ title: 'Recap 2026', slug: 'recap' }), path: '/blog/recap', key: 'recap' },
     ] });
     expect(out.html).not.toContain('data-sn-pages');
     expect(out.html).toContain('<h1>Hello</h1>');

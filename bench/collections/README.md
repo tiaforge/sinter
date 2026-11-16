@@ -60,3 +60,22 @@ which compiles the same way; 100 posts, the same machine:
 
 The output is the same, byte for byte, at each step, and so is every example app's (`examples/*`, built with
 `main` and with the change).
+
+## A page per entry (`data-sn-pages`)
+
+The app builds every post from one template (`measure.mjs`; `--files` for one page per post). Static posts, Node's
+default heap:
+
+| Posts | Time | Per post |
+| ---: | ---: | ---: |
+| 100 | 6.5 s | 65 ms |
+| 1,000 | 65.3 s | 65 ms |
+| 2,000 | 124 s | 62 ms |
+
+Found on the way and fixed, each a cost every post's page paid over the whole list: the list's JSON written and
+parsed into each page and dropped, the list built and sorted again, the list deep-copied for folding, the page list
+rebuilt, and the map of every page's URL rebuilt while links were rewritten. With the heap capped at 300 MB the
+2,000-post build still completes (131 s): what it keeps is small; the rest of its resident memory is Node, Vite and
+Rolldown. 10,000 posts are still slower than linear (about 19 minutes, against 10 at 62 ms): another cost grows with
+the list above 2,000, not found yet.
+

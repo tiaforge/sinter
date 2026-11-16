@@ -867,7 +867,7 @@ export const products = collection<Product>({ key: 'sku', load: async () => [] a
     const root = project(files);
     const p = projectOf(root);
     const run = (expr: string) => {
-      const html = `<sn-resource name="products" src="content:products"></sn-resource><template data-sn-for="x in products"><b data-sn-text="${expr}"></b></template>`;
+      const html = `<sn-resource name="products" src="content:products" fields="sku,name,price"></sn-resource><template data-sn-for="x in products"><b data-sn-text="${expr}"></b></template>`;
       writeFileSync(join(root, 'index.html'), html);
       const out = compile(html, { file: join(root, 'index.html'), root, dev: false, helpers: p.helpers, readFile: p.readFile, check: true, contentModule: p.contentFile!, collections: new Map([['products', { key: 'sku', value: [] }]]) });
       return { compile: out.diagnostics.map((d) => d.code), check: check({ root, units: [out.check!], helpers: p.helpers, types: null, tsc }).diagnostics.map((d) => d.message) };
