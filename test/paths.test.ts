@@ -94,6 +94,37 @@ describe('the table', () => {
   });
 });
 
+describe('the table, over many first segments', () => {
+  // numberPaths checks a write whose first segment is a name only against the dependencies with that
+  // name or a pattern first: every pair must still be what staticReach decides
+  const HEADS = ['$s0', '$s1', '$s12', '$r', '*', '#', '{i}', '{$i0}', '**', '~'];
+  const mixed = (segs: string[], max: number) => [pick(HEADS.filter((h) => segs.includes(h) || h[0] == '$')), ...Array.from({ length: rnd(max) }, () => pick(segs))].join('.');
+  test('random pages: each written path reaches exactly the dependencies staticReach lets it', () => {
+    let reached = 0;
+    for (let n = 0; n < 600; n++) {
+      const deps = [...new Set(Array.from({ length: 1 + rnd(16) }, () => mixed(DEP_SEGS, 3)))];
+      const writes = [...new Set(Array.from({ length: 1 + rnd(10) }, () => mixed(W_SEGS, 3)))];
+      const ir: IR = {
+        v: 2, resources: [], actions: [], templates: [],
+        roots: [{ id: 0, tag: 'p', sid: 0, state: 0, b: [{ k: 'text', f: 0, d: [...deps] }, { k: 'on', n: 'click', f: 0, w: [...writes] }] }],
+      };
+      const out = compactIR(ir), ps = out.ps!;
+      const depIds = out.roots[0]!.b[0]!.d as number[], wIds = out.roots[0]!.b[1]!.w as number[];
+      writes.forEach((w, wi) => {
+        const entries = (ps.r[wIds[wi]!] || []) as Entry[];
+        const got = entries.map(decode);
+        // in id order, as before the grouping
+        expect(got.map((e) => e.d)).toEqual([...got.map((e) => e.d)].sort((a, b) => a - b));
+        const want = deps.flatMap((d, di) => { const r = staticReach(w, d); return r ? [{ d: depIds[di]!, conds: r.conds }] : []; })
+          .sort((a, b) => a.d - b.d);
+        expect({ w, got: got.filter((e) => depIds.includes(e.d)).map((e) => ({ d: e.d, conds: e.conds })) }).toEqual({ w, got: want });
+        reached += want.length;
+      });
+    }
+    expect(reached).toBeGreaterThan(1000);
+  });
+});
+
 describe('the path table', () => {
   const page = `<html><body><section data-sn-state="{ rows: [{ v: 1 }, { v: 2 }], q: '' }">
     <input data-sn-model="q"><p data-sn-text="q"></p>

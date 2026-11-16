@@ -1,6 +1,6 @@
 # Spike: compiling one page in parallel
 
-Status: spike (2026-11-16). Recommendation: **don't split one page's compile across threads.** Fix the
+Status: spike (2026-11-16); the two fixes are landing with tests (`test/compiler/state-readers.test.ts`, and the many-first-segments table test in `test/paths.test.ts`). Recommendation: **don't split one page's compile across threads.** Fix the
 two all-pairs loops this spike found instead (prototyped on this branch, output byte-identical, all tests
 pass). That makes a large page compile 2 to 5.6 times faster.
 
@@ -101,8 +101,10 @@ build spike's subject.
 
 ## Next steps, if taken up
 
-1. Land the two fixes with a test of their own: a large-page timing guard, or a unit test of
-   `stateReaders`' boundary rules (`$s1` vs `$s12`, `$s1.a` vs `$s1.ab`, `$s1.` followed by a non-name).
+1. Done: the two fixes, with tests. `stateReaders` is checked against the regular expressions it
+   replaced (boundary cases and random functions); `numberPaths` against `staticReach` pair by pair on
+   random pages whose paths start with many different segments. No timing guard: CI machines vary too
+   much for one.
 2. Keep `bench/page-compile/run.mjs` to catch the next all-pairs loop. The 800-section row of the
    table is the one to watch.
 3. Garbage collection is 21% at 800 sections. If huge pages matter, the next thing to profile is

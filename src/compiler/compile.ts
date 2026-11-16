@@ -8400,7 +8400,7 @@ class Compiler {
  * that read it; the object itself only where it is not followed by `.`, `$` or a word character, a
  * field only where it is not followed by `$` or a word character. Functions that are `'0'` are gone.
  */
-function stateReaders(fns: readonly string[]): Map<string, Set<string>> {
+export function stateReaders(fns: readonly string[]): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
   const add = (key: string, c: string) => { let r = out.get(key); if (!r) out.set(key, (r = new Set())); r.add(c); };
   const word = /[\w$]/, re = /\$s(\d+)/g, field = /^\.([\w$]+)/;
