@@ -608,7 +608,14 @@ manifest, the stub and the exported mount together: they are the unproven half.
 3. **The compiler:** the manifest of pages that swap and the names they keep ([1](#1-turning-swaps-on));
    the page module marked, its mount exported with the kept ids ([6](#6-the-pages-code)); `sinter({ swap })`
    off by default, `data-sn-swap="off"` for pages and links, the warning for pages with inline or classic scripts; pages without JavaScript
-   (the stub only with a kept element); the checks and their codes.
+   (the stub only with a kept element); the checks and their codes. **Done** on `swap-navigation`: the
+   `swap` option (also for `sinter check` and the editor); `data-sn-permanent` checks as `SN346`, a runtime
+   reason only with swaps on; `data-sn-swap="off"` on `<html>`, a layout's tag or a link (kept in the HTML);
+   `SN540` for an inline or classic script in the body; the list as the virtual module `/@sinter/swap.js`
+   (`{ m: paths, k: names }` per page, pages with `data-sn-swap="off"` left out); the page module exports
+   `boot` and `kept` and mounts itself only when `globalThis[Symbol.for('sinter.swapping')]` is not set.
+   Not yet: the page module's import of the stub (it comes with the module, step 4) and the warning for a
+   name on one page only.
 4. **The module** on that, split into the stub every page that swaps carries and the part loaded when
    needed: the sequence with its named steps, verification, the head and what a swap skips (`<noscript>`,
    run-time styles, `parseHTMLUnsafe`, the header rule), kept elements without bindings, scroll, focus and

@@ -227,6 +227,11 @@ export interface CompileOptions {
    * `SN322` where it was written. Needs `prerender`, which leaves out what can never change.
    */
   static?: boolean;
+  /**
+   * links swap the next page in around the elements both pages keep (`sinter({ swap: true })`,
+   * docs/proposals/swap-navigation.md): a kept element (`data-sn-permanent`) is then a reason to ship JavaScript
+   */
+  swap?: boolean;
   /** every component of the app: the candidates of `<sn-component use>` a helper chooses (default: the components the page names) */
   componentNames?: string[];
   /** the module the page module imports for a component's scoped styles (`CompiledParts.styles`), so the bundler puts them in the page's stylesheet */
@@ -323,6 +328,10 @@ export interface CompileResult {
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
   prefetchOff?: true;
+  /** the names of the page's kept elements (`data-sn-permanent`), in document order */
+  permanent?: string[];
+  /** `<html data-sn-swap="off">`: links to this page load it */
+  swapOff?: true;
 }
 
 /** What the early chunk runs: the bindings that can render before data, and what they import. */
@@ -444,6 +453,10 @@ export interface CompiledParts {
   embed: EmbedSlot[];
   /** `<html data-sn-prefetch="off">` */
   prefetchOff?: true;
+  /** the names of the page's kept elements (`data-sn-permanent`), in document order */
+  permanent?: string[];
+  /** `<html data-sn-swap="off">`: links to this page load it */
+  swapOff?: true;
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
   /** the scoped styles of the components the page uses, by component */
@@ -1006,6 +1019,11 @@ class Compiler {
   readonly stateInits: Array<{ sid: number; fields: Array<{ key: string; code: string; deps: string[] }>; persist: string | null }> = [];
   /** `<html data-sn-prefetch="off">`: other pages do not prefetch or prerender this one */
   prefetchOff = false;
+  /** `<html data-sn-swap="off">`: links to this page load it */
+  swapOff = false;
+  /** the kept elements (`data-sn-permanent`) and their names */
+  readonly permanentEls: P5Element[] = [];
+  readonly permanentNames: string[] = [];
   /** `data-sn-path` patterns (for `$url` in the early file's requests) */
   pathList: string[] = [];
   /** `$s<sid>.<name>` paths a persisted model writes at mount */
@@ -1250,6 +1268,7 @@ class Compiler {
       }
     }
     this.runTargets();
+    if (this.opts.swap && !this.swapOff) this.swapScripts(doc);
     if (this.opts.checkCycles) this.runCycles();
     for (const el of this.remove) detach(el);
     this.markLowPriority();
@@ -1355,6 +1374,8 @@ class Compiler {
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       embed: this.embedSlots(),
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
+      ...(this.permanentNames.length ? { permanent: [...this.permanentNames] } : {}),
+      ...(this.swapOff ? { swapOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
       styles: [...this.uses.keys()].sort().flatMap((n) => {
         const f = this.componentFiles.get(n), css = f?.css;
@@ -1502,6 +1523,33 @@ class Compiler {
       out[key as typeof DIRS[number]] = p.value.value;
     }
     return out;
+  }
+
+  /**
+   * SN540: with swaps on, a script in the body that a swap would not run (inline or classic: the module
+   * of the next page is the only script a swap runs), on a page that does not opt out
+   */
+  private swapScripts(doc: P5Parent) {
+    const DATA = /^(application\/(ld\+)?json|speculationrules|importmap)$/i;
+    const visit = (n: P5Parent) => {
+      for (const c of n.childNodes) {
+        if (!isElement(c)) continue;
+        if (c.tagName === 'script') {
+          const type = (attr(c, 'type') ?? '').trim(), src = attr(c, 'src');
+          if (DATA.test(type)) continue;
+          if (src === undefined || !/^module$/i.test(type)) {
+            this.report(c, null, 'SN540', `${src === undefined ? 'an inline' : 'a classic'} script${src === undefined ? '' : ` (\`${src}\`)`} in the body does not run when a link swaps this page in (\`sinter({ swap: true })\`), only on a page load`, 0,
+              'move what it does into the page\'s code (a component script or the actions module), load it as `<script type="module" src>` in the head, or take the page out with `<html data-sn-swap="off">`');
+          }
+          continue;
+        }
+        visit(c);
+        const t = (c as P5Element & { content?: P5Parent }).content;
+        if (t) visit(t);
+      }
+    };
+    const body = findBody(doc);
+    if (body) visit(body);
   }
 
   report(el: P5Element | null, attr: string | null, code: Code, message: string, offset: number, hint?: string, inExpr = false) {
@@ -1823,10 +1871,10 @@ class Compiler {
     // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
     for (const a of host.attrs) {
       if (a.name === 'data-sn-prop' || a.name === 'data-sn-state') continue;
-      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-pages') { setAttr(lhtml, a.name, a.value); continue; }
+      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-pages' || a.name === 'data-sn-swap') { setAttr(lhtml, a.name, a.value); continue; }
       if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN319', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
       if (a.name.startsWith('data-sn-')) {
-        if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-prop`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-pages` and `data-sn-prefetch`, and the attributes of `<html>`');
+        if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-prop`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-pages`, `data-sn-prefetch` and `data-sn-swap`, and the attributes of `<html>`');
         continue;
       }
       if (a.name === 'class') { const own = attr(lhtml, 'class'); setAttr(lhtml, 'class', own ? `${own} ${a.value}` : a.value); }
@@ -3960,6 +4008,33 @@ class Compiler {
       if (el.tagName !== 'html') this.report(el, 'data-sn-prefetch', 'SN102', '`data-sn-prefetch` belongs on `<html>`: it keeps other pages from prefetching or prerendering this one', 0);
       else if (get('prefetch')!.trim() !== 'off') this.report(el, 'data-sn-prefetch', 'SN401', '`data-sn-prefetch` takes `off`; prefetching is on without the attribute', 0);
       else this.prefetchOff = true;
+    }
+    // kept across a swap (docs/proposals/swap-navigation.md): one element of the page, left as it is, so
+    // nothing inside binds (the next page's code would not find it); the marker stays in the HTML
+    if (has('permanent')) {
+      const name = get('permanent')!.trim();
+      const inside = (n: P5Node): string | undefined => {
+        for (const c of [...(n as P5Element).childNodes ?? [], ...((n as P5Element & { content?: P5Element }).content?.childNodes ?? [])]) {
+          if (!isElement(c)) continue;
+          const a = c.attrs.find((x) => x.name.startsWith('data-sn-')) ?? (c.tagName.startsWith('sn-') ? { name: `<${c.tagName}>` } : undefined);
+          if (a) return a.name;
+          const deeper = inside(c);
+          if (deeper) return deeper;
+        }
+      };
+      const own = sn.find((a) => a.name !== 'data-sn-permanent');
+      const bound = own?.name ?? inside(el);
+      if (!/^[A-Za-z][\w-]*$/.test(name)) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` takes a name (letters, digits, `-` and `_`), the same on each page that keeps the element', 0);
+      else if (ctx.tid >= 0) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` cannot be inside a `<template>`: a kept element is one element of the page', 0);
+      else if (bound) this.report(el, 'data-sn-permanent', 'SN346', `a kept element holds no bindings (\`${bound}\`): the next page's code would not find it`, 0);
+      else if (this.permanentNames.includes(name)) this.report(el, 'data-sn-permanent', 'SN346', `\`data-sn-permanent="${name}"\` is on two elements of this page`, 0);
+      else { this.permanentNames.push(name); this.permanentEls.push(el); }
+    }
+    // a page or a link the swap leaves to the browser: on `<html>` the build records it, on a link it stays
+    if (has('swap')) {
+      if (el.tagName !== 'html' && el.tagName !== 'a' && el.tagName !== 'area') this.report(el, 'data-sn-swap', 'SN102', '`data-sn-swap` belongs on `<html>` (links to the page load it) or on a link (it loads its page)', 0);
+      else if (get('swap')!.trim() !== 'off') this.report(el, 'data-sn-swap', 'SN401', '`data-sn-swap` takes `off`; with `sinter({ swap: true })` links swap without the attribute', 0);
+      else if (el.tagName === 'html') this.swapOff = true;
     }
 
     // embedded data
@@ -8317,6 +8392,8 @@ class Compiler {
       const el = this.declAt.get(x);
       out.push({ what: '`<sn-sync>`', ...(el ? at(el, null) : { file: this.opts.file, line: 1, col: 1, at: 0 }) });
     }
+    // a kept element needs the swap's code to be kept (with swaps on)
+    if (this.opts.swap) for (const el of this.permanentEls) out.push({ what: '`data-sn-permanent` (links swap the next page in around it)', ...at(el, 'data-sn-permanent') });
     const page = (r: RuntimeReason) => (r.file === this.opts.file ? 0 : 1);
     return out.sort((a, b) => page(a) - page(b) || (a.file === b.file ? a.at - b.at : 0)).map(({ at: _, ...r }) => r);
   }
@@ -8613,9 +8690,11 @@ function setAttr(el: P5Element, name: string, value: string) {
   if (a) a.value = value; else el.attrs.push({ name, value });
 }
 
+const KEPT_ATTRS = new Set(['data-sn-navigate', 'data-sn-permanent', 'data-sn-swap']);
 function stripSn(el: P5Element) {
-  // `data-sn-navigate` stays: the mark of an element with a `navigate` handler (navigate.ts)
-  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-') || a.name === 'data-sn-navigate');
+  // what stays, for the runtime: `data-sn-navigate` marks an element with a `navigate` handler (navigate.ts),
+  // `data-sn-permanent` a kept element and `data-sn-swap` a link the swap leaves to the browser
+  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name));
 }
 
 /** Whether a form's markup reads `$error` (outside `data-sn-catch`, where `$error` is the action's own). */

@@ -59,6 +59,12 @@ export interface ProjectOptions {
    */
   static?: string[] | true;
   /**
+   * Swaps (default off; docs/proposals/swap-navigation.md): a link to another page of the app fetches it and
+   * swaps its body in, keeping the elements both pages name with `data-sn-permanent` (an audio player that
+   * keeps playing). `<html data-sn-swap="off">` takes a page out, `data-sn-swap="off"` on a link takes the link out.
+   */
+  swap?: boolean;
+  /**
    * Packages loaded on first call instead of with the page (docs/lazy.md): every import of one in the
    * app's modules gets async stubs that share one `import()`, so the package is a chunk of its own.
    * Only awaited calls of its exports work (SN324); component scripts that import it load with it.
@@ -153,6 +159,8 @@ export interface Project {
   checkCycles: boolean;
   /** `static`: the pages that must ship no JavaScript (SN322) */
   isStatic: (file: string) => boolean;
+  /** `swap`: links swap the next page in */
+  swap: boolean;
   /** `lazy`: the packages loaded on first call (docs/lazy.md) */
   lazy: string[];
   /** `strict`, checked, with `SINTER_STRICT` applied */
@@ -294,7 +302,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   }
   return {
     root, helpers, helpersFile, contentFile: contentRel ? resolve(root, contentRel) : null, actions, actionsFile, readFile, listFiles, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), expansionLimit: expansionLimitOf(options.expansionLimit), checkCycles: !!options.checkCycles,
-    isStatic: staticPages(root, options.static).has,
+    isStatic: staticPages(root, options.static).has, swap: !!options.swap,
     lazy: lazyOf(options.lazy), strict: strictOf(options.strict),
     componentNames: components, libraries: libs.libraries,
     messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile, libs.libraries),
